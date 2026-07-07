@@ -1,0 +1,17 @@
+// Copyright © 2026 Jalapeno Labs
+//
+// Authentication responses derived from a validated Keycloak token.
+
+syntax = "proto3";
+
+package elysium.auth.v1;
+
+// The authenticated principal, projected from the bearer token's claims.
+//
+// This is what `/api/v1/me` returns once the Axum middleware has validated the
+// token against Keycloak's JWKS. It reflects the token, not yet a database user.
+message MeResponse {
+  string subject = 1; // Keycloak `sub`; the stable user identifier.
+  string email = 2; // May be empty for non-interactive tokens.
+  string username = 3; // Keycloak `preferred_username`, if present.
+}

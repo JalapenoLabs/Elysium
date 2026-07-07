@@ -11,6 +11,7 @@ use mimalloc::MiMalloc;
 static GLOBAL: MiMalloc = MiMalloc;
 
 mod api;
+mod auth;
 mod proto;
 mod protobuf;
 mod state;
@@ -36,9 +37,18 @@ async fn main() -> eyre::Result<()> {
         .unwrap_or_else(|_| EnvFilter::new("info,elysia_backend=debug"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
-    // Lazy pool: the process starts even if Postgres is briefly unavailable,
-    // and the `/health/db` route reports real connectivity on demand.
-    let state = AppState::connect_lazy().wrap_err("failed to initialize database pool")?;
+    // Lazy pool and lazy JWKS: the process starts even if Postgres or Keycloak
+    // are briefly unavailable, and reports real connectivity on demand.
+    let state = AppState::from_env().wrap_err("failed to initialize application state")?;
+
+    // Bring the database schema up to date before serving. This is the one place
+    // startup genuinely needs Postgres; Compose gates the backend on a healthy
+    // database, and the container restarts if it is not yet reachable.
+    sqlx::migrate!("./migrations")
+        .run(&state.pool)
+        .await
+        .wrap_err("failed to run database migrations")?;
+    tracing::info!("database migrations applied");
 
     let port = env::var("API_PORT")
         .ok()

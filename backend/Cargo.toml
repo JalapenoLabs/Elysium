@@ -17,6 +17,10 @@ eyre = "0.6"
 mimalloc = "0.1"
 # Generated protobuf types (see build.rs) share this runtime.
 prost = "0.13"
+# Validates Keycloak-issued JWTs against the realm's JWKS.
+jsonwebtoken = "9"
+# Fetches the JWKS from Keycloak; rustls to match the sqlx TLS stack.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [build-dependencies]
 # Compiles the shared `../proto` tree into Rust at build time.

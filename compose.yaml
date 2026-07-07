@@ -42,6 +42,11 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
       API_PORT: 31416
       RUST_LOG: ${RUST_LOG:-info}
+      # Issuer the API trusts (the browser-facing realm URL, so it matches the
+      # tokens clients present). JWKS is fetched over the internal network, which
+      # is why the fetch URL and the issuer differ.
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://localhost:8080/realms/elysium}
+      KEYCLOAK_JWKS_URL: ${KEYCLOAK_JWKS_URL:-http://keycloak:8080/realms/elysium/protocol/openid-connect/certs}
     ports:
       - "${API_PORT:-31416}:31416"
     volumes:
@@ -51,6 +56,9 @@ services:
       - ./backend/Cargo.lock:/app/Cargo.lock
       # build.rs drives protobuf codegen; keep the host copy authoritative.
       - ./backend/build.rs:/app/build.rs
+      # Migrations are embedded at compile time by sqlx::migrate!, so the dev
+      # container (which compiles at runtime) needs them present.
+      - ./backend/migrations:/app/migrations
       # The shared proto tree lives at repo root; build.rs reads it as ../proto,
       # which resolves to /proto from the /app workdir. Read-only: the backend
       # only consumes the contract, never edits it.
@@ -136,6 +144,10 @@ services:
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
+      # Pin the base URL so every token declares the same issuer regardless of
+      # whether it was requested from the browser or another container. The
+      # backend fetches JWKS internally but trusts this issuer string.
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME_URL:-http://localhost:8080}
     ports:
       - "${KEYCLOAK_PORT:-8080}:8080"
     volumes:

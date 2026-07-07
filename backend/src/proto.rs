@@ -35,3 +35,12 @@ pub mod health {
         include!(concat!(env!("OUT_DIR"), "/elysium.health.v1.rs"));
     }
 }
+
+/// Authentication responses derived from a validated token.
+pub mod auth {
+    /// Version 1 of the auth contract.
+    #[allow(dead_code)]
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/elysium.auth.v1.rs"));
+    }
+}

@@ -46,6 +46,38 @@ Defined in `keycloak/realm-export.json`, imported on first boot:
 
 There is no password authenticator anywhere in the flow.
 
+## Token validation (backend)
+
+The API issues no tokens of its own. Clients present a Keycloak bearer token, and the Axum
+middleware in `backend/src/auth.rs` validates it: RS256 signature against the realm's JWKS,
+issuer against the configured realm URL, and expiry. The JWKS is fetched lazily and cached,
+refetched when a token references an unknown key id (rotation), so the API can start before
+Keycloak is reachable. Any handler that takes the `AuthenticatedUser` extractor is protected;
+unauthenticated requests get `401` before the handler runs. `GET /api/v1/me` is the first such
+route, returning the principal (`elysium.auth.v1.MeResponse`) from the token claims.
+
+Issuer consistency is handled by pinning Keycloak's base URL (`KC_HOSTNAME`) so every token
+declares the same `iss` (the browser-facing `http://localhost:8080/realms/elysium`) regardless
+of whether it was requested from the browser or another container. The backend trusts that
+issuer (`KEYCLOAK_ISSUER`) while fetching the JWKS over the internal network
+(`KEYCLOAK_JWKS_URL`), which is why the two URLs differ.
+
+Audience is not yet enforced; a resource-server audience mapper is a planned hardening step.
+
+## Identity schema (database)
+
+`backend/migrations/0001_identity.sql` creates the application's view of identity, applied at
+startup via `sqlx::migrate!`:
+
+- `orgs` (tenants), `teams` (groups within an org), `users` (keyed by `keycloak_sub`, one org
+  per user), and `team_members` (user-team edges with a role).
+- Roles (`member`/`admin`/`owner`) and status (`online`/`offline`/`away`/`out_of_office`) are
+  text guarded by CHECK constraints, mirroring the `elysium.user.v1` proto enums.
+- A trigger keeps `users.updated_at` current.
+
+Just-in-time provisioning (upserting a `users` row on a user's first authenticated request,
+including org assignment) is deferred until the onboarding flow is designed.
+
 ## First-login enrollment (open item)
 
 Passwordless onboarding has a bootstrapping nuance: a brand-new user has no passkey or TOTP yet,
@@ -56,9 +88,9 @@ intentionally not solved by the realm import alone.
 
 ## Roadmap
 
-- **Phase C**: Keycloakify React theme for login/register/2FA; backend Axum middleware validating
-  Keycloak JWTs via JWKS; `sqlx` migrations for `orgs`, `teams`, `users` (keyed by `sub`),
-  memberships, and permissions.
-- **Phase D**: frontend OIDC login (PKCE), protected routes, and a `/me` endpoint.
-- Admin-initiated passwordless enrollment emails and an onboarding flow.
+- **Phase C (remaining)**: Keycloakify React theme for login/register/2FA, so the login screens
+  are Elysium's own React rather than Keycloak's stock pages.
+- **Phase D**: frontend OIDC login (PKCE) wired to the protected API, and route guards.
+- Just-in-time user provisioning and admin-initiated passwordless enrollment emails.
+- A permission model over teams, and audience enforcement on the API.
 - Organization-, team-, and user-provided Keycloak identity providers / brokering.

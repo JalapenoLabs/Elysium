@@ -13,6 +13,8 @@ use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::auth::AuthenticatedUser;
+use crate::proto::auth::v1::MeResponse;
 use crate::proto::health::v1::{DatabaseHealthResponse, HealthResponse, HelloResponse};
 use crate::protobuf::Protobuf;
 use crate::state::AppState;
@@ -23,6 +25,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/api/v1/hello", get(hello))
         .route("/api/v1/db/health", get(database_health))
+        .route("/api/v1/me", get(me))
         .layer(TraceLayer::new_for_http())
         // Permissive CORS is fine for local development where the Vite dev
         // server calls the API from a different origin. Lock this down before
@@ -43,6 +46,18 @@ async fn health() -> Protobuf<HealthResponse> {
 async fn hello() -> Protobuf<HelloResponse> {
     Protobuf(HelloResponse {
         message: "Hello from the Elysium Rust API 🦀".to_string(),
+    })
+}
+
+/// Returns the authenticated principal, projected from the validated token.
+///
+/// Protected: the [`AuthenticatedUser`] extractor rejects the request with `401`
+/// before this runs unless a valid Keycloak bearer token is present.
+async fn me(AuthenticatedUser(claims): AuthenticatedUser) -> Protobuf<MeResponse> {
+    Protobuf(MeResponse {
+        subject: claims.sub,
+        email: claims.email,
+        username: claims.preferred_username,
     })
 }
 
