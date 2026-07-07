@@ -1,3 +1,5 @@
+// Copyright © 2026 Jalapeno Labs
+
 // Core
 import { createBrowserRouter } from 'react-router'
 

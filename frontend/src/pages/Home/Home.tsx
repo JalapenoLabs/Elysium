@@ -1,3 +1,5 @@
+// Copyright © 2026 Jalapeno Labs
+
 // Core
 import { useState } from 'react'
 
@@ -105,13 +107,13 @@ export function Home() {
               <span>Ping the API</span>
             </Button>
           </div>
-          { apiMessage &&
-            <div className='compact'>
+          { apiMessage
+            && <div className='compact'>
               <Code color='success'>{ apiMessage }</Code>
             </div>
           }
-          { databaseStatus &&
-            <div className='level'>
+          { databaseStatus
+            && <div className='level'>
               <span className='opacity-80'>Database</span>
               <Chip
                 variant='flat'
@@ -121,8 +123,8 @@ export function Home() {
               </Chip>
             </div>
           }
-          { errorMessage &&
-            <Code color='danger'>{ errorMessage }</Code>
+          { errorMessage
+            && <Code color='danger'>{ errorMessage }</Code>
           }
         </CardBody>
       </Card>

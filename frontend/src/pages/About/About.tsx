@@ -1,3 +1,5 @@
+// Copyright © 2026 Jalapeno Labs
+
 // UI
 import { Card, CardBody, CardHeader, Chip, Divider, Link } from '@heroui/react'
 

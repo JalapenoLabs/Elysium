@@ -1,3 +1,5 @@
+// Copyright © 2026 Jalapeno Labs
+
 // UI
 import { Navbar, NavbarBrand, NavbarContent, NavbarItem, Link, Switch } from '@heroui/react'
 

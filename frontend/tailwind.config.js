@@ -1,3 +1,5 @@
+// Copyright © 2026 Jalapeno Labs
+
 import { heroui } from '@heroui/react'
 
 /** @type {import('tailwindcss').Config} */
@@ -12,5 +14,5 @@ export default {
     extend: {},
   },
   darkMode: 'class',
-  plugins: [heroui()],
+  plugins: [ heroui() ],
 }

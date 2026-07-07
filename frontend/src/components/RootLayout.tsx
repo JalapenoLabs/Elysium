@@ -1,3 +1,5 @@
+// Copyright © 2026 Jalapeno Labs
+
 // Core
 import { useEffect } from 'react'
 import { Outlet, useHref, useNavigate } from 'react-router'

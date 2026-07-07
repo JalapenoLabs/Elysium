@@ -1,3 +1,5 @@
+// Copyright © 2026 Jalapeno Labs
+
 import type { RootState, AppDispatch } from './index'
 
 // Core

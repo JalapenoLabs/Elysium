@@ -1,3 +1,5 @@
+// Copyright © 2026 Jalapeno Labs
+
 import type { Options } from 'ky'
 import type { Message } from '@bufbuild/protobuf'
 import type { GenMessage } from '@bufbuild/protobuf/codegenv2'

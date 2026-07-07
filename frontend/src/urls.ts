@@ -1,3 +1,5 @@
+// Copyright © 2026 Jalapeno Labs
+
 // Single source of truth for in-app navigation targets.
 export const UrlTree = {
   home: '/',

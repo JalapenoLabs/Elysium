@@ -1,3 +1,5 @@
+// Copyright © 2026 Jalapeno Labs
+
 import type { HelloResponse, DatabaseHealthResponse } from '../../proto/generated/health_pb'
 
 // Misc

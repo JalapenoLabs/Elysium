@@ -5,9 +5,9 @@
 # Verifies every push to `main` (and every pull request targeting it). The four
 # jobs run in parallel and are deliberately independent, so a failure in one does
 # not cancel the others: you get the full picture in a single run rather than a
-# fail-fast stop at the first red check. Within each job the check steps use
-# `if: ${{ !cancelled() }}` so every check still runs even after an earlier one
-# fails, then the job reports failed if any step failed.
+# fail-fast stop at the first red check. Within a job every check still runs even
+# after an earlier one fails (via `if: ${{ !cancelled() }}`, or continue-on-error
+# plus a final status report), then the job reports failed if any check failed.
 
 name: CI
 
@@ -67,8 +67,10 @@ jobs:
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler
 
+      # Pinned to the same Rust the backend image uses (rust:1.96), so CI and
+      # the container never drift.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.96.0
         with:
           components: rustfmt, clippy
 
@@ -94,7 +96,13 @@ jobs:
         run: cargo test --locked
 
   # ----------------------------------------------------------------------------
-  # TypeScript frontend: types, lint, generated-proto sync, and production build.
+  # TypeScript frontend. Modeled on the Jalapeno Labs house pattern (see the
+  # Yearloom CI): every check runs even after an earlier one fails
+  # (continue-on-error), and a final status report decides the job's pass/fail
+  # so a single red check never masks the others.
+  #
+  # Node and Yarn are pinned to exact versions (never a floating "latest") so CI
+  # matches local development bit for bit.
   # ----------------------------------------------------------------------------
   frontend:
     name: Frontend
@@ -108,32 +116,67 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.13.0
 
-      - name: Enable Corepack
-        run: corepack enable
+      # Pin Yarn to the exact version in packageManager; do not rely on whatever
+      # Corepack would otherwise resolve.
+      - name: Enable Corepack and pin Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.17.0 --activate
+          yarn --version
 
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Typecheck
-        if: ${{ !cancelled() }}
-        run: yarn typecheck
-
       - name: Lint
-        if: ${{ !cancelled() }}
+        id: lint
+        continue-on-error: true
         run: yarn lint
+
+      - name: Typecheck
+        id: typecheck
+        continue-on-error: true
+        run: yarn typecheck
 
       # Regenerate from the proto tree and fail if the committed output drifted.
       - name: Generated proto in sync
-        if: ${{ !cancelled() }}
+        id: proto-sync
+        continue-on-error: true
         run: |
           yarn generate:proto
           git diff --exit-code -- src/proto/generated
 
       - name: Build
-        if: ${{ !cancelled() }}
+        id: build
+        continue-on-error: true
         run: yarn build
+
+      # Production-dependency advisory scan; gates on shipped code at high+.
+      - name: Dependency audit
+        id: audit
+        continue-on-error: true
+        run: yarn npm audit --environment production --severity high
+
+      - name: Status report
+        if: ${{ always() }}
+        run: |
+          fail=0
+          report() {
+            if [ "$1" = "success" ]; then
+              printf '  %-24s \033[32m✓ PASS\033[0m\n' "$2"
+            else
+              printf '  %-24s \033[31m✗ FAIL\033[0m\n' "$2"; fail=1
+            fi
+          }
+          echo "==================== FRONTEND STATUS ===================="
+          report "${{ steps.lint.outcome }}"       "Lint"
+          report "${{ steps.typecheck.outcome }}"  "Typecheck"
+          report "${{ steps.proto-sync.outcome }}" "Generated proto in sync"
+          report "${{ steps.build.outcome }}"      "Build"
+          report "${{ steps.audit.outcome }}"      "Dependency audit"
+          echo "========================================================"
+          [ "$fail" = "0" ] || { echo "One or more frontend checks failed."; exit 1; }
 
   # ----------------------------------------------------------------------------
   # Integration smoke test: bring the real stack up and exercise the proto

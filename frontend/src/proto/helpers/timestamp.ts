@@ -1,4 +1,5 @@
 // Copyright © 2026 Jalapeno Labs
+
 //
 // Ergonomic wrapper over the generated `Timestamp` message.
 //
