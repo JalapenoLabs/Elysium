@@ -9,7 +9,8 @@
 # volume for `target/`, giving fast incremental hot-reload rebuilds.
 # ---------------------------------------------------------------------------
 
-FROM rust:1.96-slim-bookworm AS base
+# Pinned to the exact Rust used in CI (never a floating tag).
+FROM rust:1.96.0-slim-bookworm AS base
 WORKDIR /app
 
 # curl -> backend healthcheck; protobuf-compiler -> `protoc` for build.rs codegen;

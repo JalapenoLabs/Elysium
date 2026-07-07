@@ -7120,6 +7120,7 @@ __metadata:
     autoprefixer: "npm:^10.4.20"
     eslint: "npm:^9.17.0"
     framer-motion: "npm:12.42.2"
+    keycloak-js: "npm:^26.2.4"
     ky: "npm:2.0.2"
     moment-timezone: "npm:^0.6.2"
     postcss: "npm:^8.4.49"
@@ -8790,6 +8791,13 @@ __metadata:
     object.assign: "npm:^4.1.4"
     object.values: "npm:^1.1.6"
   checksum: 10c0/a32679e9cb55469cb6d8bbc863f7d631b2c98b7fc7bf172629261751a6e7bc8da6ae374ddb74d5fbd8b06cf0eb4572287b259813d92b36e384024ed35e4c13e1
+  languageName: node
+  linkType: hard
+
+"keycloak-js@npm:^26.2.4":
+  version: 26.2.4
+  resolution: "keycloak-js@npm:26.2.4"
+  checksum: 10c0/ad1f3e7c07b6b84fd805129e21aefe94b32e48ecdde1c586294720712c0971ff4c49613c025476d30dbff22e5d61a4fc4d294050d5f11e1ecc0646bef2f02311
   languageName: node
   linkType: hard
 

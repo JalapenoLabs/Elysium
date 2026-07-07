@@ -10,6 +10,9 @@ import { Button, Card, CardBody, CardHeader, Chip, Code, Divider } from '@heroui
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { increment, decrement, reset } from '../../store/counterSlice'
 
+// UI
+import { ProfilePanel } from './ProfilePanel'
+
 // Misc
 import { getHello, getDatabaseHealth } from '../../api/routes/healthRoutes'
 
@@ -128,6 +131,10 @@ export function Home() {
           }
         </CardBody>
       </Card>
+    </div>
+
+    <div className='relaxed'>
+      <ProfilePanel />
     </div>
   </section>
 }

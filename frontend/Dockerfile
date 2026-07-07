@@ -9,7 +9,8 @@
 # container keeps its own Linux-built dependencies.
 # ---------------------------------------------------------------------------
 
-FROM node:24-slim AS dev
+# Pinned to the exact Node used in CI (never a floating tag).
+FROM node:24.13.0-slim AS dev
 WORKDIR /app
 
 RUN corepack enable
@@ -23,7 +24,7 @@ RUN yarn install --immutable
 # Bring in the application. Sources are also bind-mounted at runtime, but
 # copying them keeps the image runnable on its own. node_modules is never
 # copied (see .dockerignore).
-COPY index.html vite.config.ts tsconfig.json postcss.config.js tailwind.config.js eslint.config.js ./
+COPY index.html vite.config.ts tsconfig.json postcss.config.js tailwind.config.js eslint.config.ts ./
 COPY public/ ./public/
 COPY src/ ./src/
 
