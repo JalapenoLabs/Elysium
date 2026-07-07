@@ -3,9 +3,11 @@ name: elysia
 # ---------------------------------------------------------------------------
 # Elysia base template
 #
-#   database  -> Postgres (pinned), the single source of persistent state
-#   backend   -> Rust / Axum API on port 31416, hot-reloaded via cargo-watch
-#   frontend  -> Vite + React SPA on port 5173, hot-reloaded via Vite HMR
+#   database           -> Postgres (pinned), the app's persistent state
+#   backend            -> Rust / Axum API on port 31416, hot-reloaded
+#   frontend           -> Vite + React SPA on port 5173, hot-reloaded
+#   keycloak-database  -> Postgres dedicated to Keycloak, isolated from the app
+#   keycloak           -> identity provider on port 8080, realm imported on boot
 #
 # Everything is driven by `.env` (see `.env.example`).
 # ---------------------------------------------------------------------------
@@ -76,6 +78,10 @@ services:
     restart: unless-stopped
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:31416}
+      # OIDC endpoints the browser uses for the Keycloak login redirect (Phase D).
+      VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-http://localhost:8080}
+      VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-elysium}
+      VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-elysium-frontend}
       # Windows/Docker bind mounts don't emit inotify events reliably, so Vite
       # falls back to polling for file changes (wired up in vite.config.ts).
       CHOKIDAR_USEPOLLING: "true"
@@ -89,7 +95,61 @@ services:
     depends_on:
       - backend
 
+  keycloak-database:
+    container_name: elysia-keycloak-database
+    # Same pinned Postgres as the app, but a separate instance and volume so
+    # Keycloak's store never mingles with application data.
+    image: postgres:17.5-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${KEYCLOAK_DB_USER}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      POSTGRES_DB: ${KEYCLOAK_DB_NAME}
+    volumes:
+      - elysia-keycloak-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USER} -d ${KEYCLOAK_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    container_name: elysia-keycloak
+    # Pinned to a specific release for reproducibility.
+    image: quay.io/keycloak/keycloak:26.3.2
+    restart: unless-stopped
+    # Dev mode: HTTP enabled and hostname checks relaxed. Production runs `start`
+    # behind the operator's own TLS/hostname, which is their responsibility per
+    # the project vision. `--import-realm` loads the elysium realm on first boot.
+    command: ["start-dev", "--import-realm"]
+    environment:
+      # Bootstrap superuser for the master realm (admin console only, not an app
+      # user). Created once on an empty database.
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      # Persistent store: the dedicated Postgres above.
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-database:5432/${KEYCLOAK_DB_NAME}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      # Expose /health/ready and /metrics on the management port (9000).
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    volumes:
+      # Imported on startup: the elysium realm, its clients, and the passwordless
+      # + passkey + TOTP authentication policy.
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    # No container healthcheck: the image ships without a shell or curl, so a
+    # clean check is not possible. Readiness is polled via the host instead.
+    depends_on:
+      keycloak-database:
+        condition: service_healthy
+
 volumes:
   elysia-postgres-data:
   elysia-cargo-target:
   elysia-cargo-registry:
+  elysia-keycloak-data:
