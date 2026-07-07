@@ -1,16 +1,20 @@
-//! HTTP routing and request handlers for the Elysia API.
+//! HTTP routing and request handlers for the Elysium API.
 //!
 //! Routes are intentionally tiny: a liveness check, a greeting, and a database
-//! reachability probe that exercises the full API-to-Postgres path.
+//! reachability probe that exercises the full API-to-Postgres path. Each returns
+//! a protobuf message (see the `elysium.health.v1` contract) so the wire format
+//! matches the typed client end to end.
 
 use axum::extract::State;
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::{Json, Router};
-use serde_json::{json, Value};
+use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::proto::health::v1::{DatabaseHealthResponse, HealthResponse, HelloResponse};
+use crate::protobuf::Protobuf;
 use crate::state::AppState;
 
 /// Builds the application router with shared state and middleware attached.
@@ -28,41 +32,44 @@ pub fn router(state: AppState) -> Router {
 }
 
 /// Liveness probe. Always returns `200 OK` while the process is running.
-async fn health() -> Json<Value> {
-    Json(json!({
-        "status": "ok",
-        "service": "elysia-backend",
-    }))
+async fn health() -> Protobuf<HealthResponse> {
+    Protobuf(HealthResponse {
+        status: "ok".to_string(),
+        service: "elysium-backend".to_string(),
+    })
 }
 
 /// A friendly greeting, handy for confirming the frontend reached the API.
-async fn hello() -> Json<Value> {
-    Json(json!({
-        "message": "Hello from the Elysia Rust API 🦀",
-    }))
+async fn hello() -> Protobuf<HelloResponse> {
+    Protobuf(HelloResponse {
+        message: "Hello from the Elysium Rust API 🦀".to_string(),
+    })
 }
 
 /// Verifies Postgres connectivity by running a trivial query through the pool.
 ///
 /// Returns `503 Service Unavailable` when the database cannot be reached, so
 /// callers can distinguish a live API from a live-and-connected one.
-async fn database_health(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+async fn database_health(State(state): State<AppState>) -> Response {
     match sqlx::query_scalar::<_, i32>("SELECT 1")
         .fetch_one(&state.pool)
         .await
     {
-        Ok(_) => Ok(Json(json!({ "database": "reachable" }))),
+        Ok(_) => Protobuf(DatabaseHealthResponse {
+            reachable: true,
+            error: String::new(),
+        })
+        .into_response(),
         Err(error) => {
             tracing::error!(error = %error, "database health check failed");
-            Err((
+            (
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({
-                    "database": "unreachable",
-                    "error": error.to_string(),
-                })),
-            ))
+                Protobuf(DatabaseHealthResponse {
+                    reachable: false,
+                    error: error.to_string(),
+                }),
+            )
+                .into_response()
         }
     }
 }

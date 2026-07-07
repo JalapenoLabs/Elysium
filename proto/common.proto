@@ -1,0 +1,102 @@
+// Copyright © 2026 Jalapeno Labs
+//
+// Shared protobuf vocabulary for Elysium.
+//
+// Every domain reuses these shapes so a timestamp, a coordinate, or a money
+// amount is defined exactly once and generated identically into every language.
+// See ~/.claude/docs/proto.md for the standards these types encode.
+
+syntax = "proto3";
+
+package elysium.common.v1;
+
+// An absolute instant on the UTC timeline, plus the zone it should be shown in.
+//
+// The instant (epoch_seconds + nanos) is always UTC and is the canonical value
+// persisted by the database. `timezone` is display-only: it never changes the
+// instant, only how a client renders it.
+message Timestamp {
+  // Seconds since the Unix epoch (1970-01-01T00:00:00Z), always UTC. May be negative.
+  int64 epoch_seconds = 1;
+
+  // Nanosecond fraction of a second, in [0, 999_999_999]. Never negative.
+  uint32 nanos = 2;
+
+  // IANA timezone name for display, e.g. "America/Denver" or "Etc/UTC".
+  // A string (not an enum) so tz-database updates never force a proto regen.
+  string timezone = 3;
+}
+
+// A span of time at nanosecond resolution, independent of any wall clock.
+message Duration {
+  // Whole seconds of the span. May be negative for a backwards duration.
+  int64 seconds = 1;
+
+  // Nanosecond fraction, in [0, 999_999_999]. Never negative.
+  uint32 nanos = 2;
+}
+
+// A point on Earth in WGS84. Storage and transport are always decimal degrees.
+message GeoPoint {
+  // Degrees latitude, in [-90, 90].
+  double latitude = 1;
+
+  // Degrees longitude, in [-180, 180].
+  double longitude = 2;
+
+  // Meters above the WGS84 ellipsoid; 0 when unknown.
+  double altitude_m = 3;
+}
+
+// A cartesian point in an arbitrary space (game world, canvas, 3D model).
+message Coordinate {
+  double x = 1;
+  double y = 2;
+  double z = 3; // 0 for 2D use.
+}
+
+// A monetary amount as integer minor units plus an ISO 4217 currency code.
+//
+// Never floating point: 1234 with currency "USD" is $12.34. Storing minor units
+// as an integer keeps arithmetic exact.
+message Money {
+  // Amount in the currency's minor unit (cents for USD). May be negative.
+  int64 minor_units = 1;
+
+  // ISO 4217 currency code, e.g. "USD", "EUR".
+  string currency_code = 2;
+}
+
+// An sRGB color with straight (non-premultiplied) alpha, each channel in [0, 255].
+message Color {
+  uint32 red = 1;
+  uint32 green = 2;
+  uint32 blue = 3;
+  uint32 alpha = 4; // 255 is fully opaque.
+}
+
+// A UUID carried as its canonical 36-character hyphenated string.
+//
+// A wrapper (rather than a bare string field) so identifiers are self-describing
+// at call sites and can gain validation helpers without a schema change.
+message Uuid {
+  string value = 1;
+}
+
+// Cursor-based pagination request. Cursors are opaque; clients never construct them.
+message PageRequest {
+  // Maximum number of items to return. The server may return fewer.
+  uint32 limit = 1;
+
+  // Opaque cursor from a prior PageResponse.next_cursor; empty for the first page.
+  string cursor = 2;
+}
+
+// Cursor-based pagination response envelope metadata.
+message PageResponse {
+  // Opaque cursor to pass as PageRequest.cursor for the next page; empty when exhausted.
+  string next_cursor = 1;
+
+  // Total items across all pages when the server can cheaply compute it; 0 otherwise.
+  uint32 total = 2;
+}

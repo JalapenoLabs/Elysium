@@ -15,6 +15,12 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 eyre = "0.6"
 mimalloc = "0.1"
+# Generated protobuf types (see build.rs) share this runtime.
+prost = "0.13"
+
+[build-dependencies]
+# Compiles the shared `../proto` tree into Rust at build time.
+prost-build = "0.13"
 
 # A slightly optimized debug profile keeps hot-reload rebuilds quick while
 # still producing usable backtraces during development.

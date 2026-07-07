@@ -1,0 +1,17 @@
+# Copyright © 2026 Jalapeno Labs
+#
+# TypeScript codegen for the frontend. Run `buf generate` from this directory.
+#
+# Rust codegen is NOT here: the backend generates its own types via prost in
+# `backend/build.rs`, which is the idiomatic Rust path. This file owns the
+# TypeScript half of the contract only.
+#
+# `protoc-gen-es` is a project-local dev dependency of the frontend, so no host
+# tooling is required beyond the frontend container.
+version: v2
+plugins:
+  - local: protoc-gen-es
+    out: ../frontend/src/proto/generated
+    opt:
+      - target=ts
+      - import_extension=none

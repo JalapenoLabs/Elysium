@@ -11,6 +11,8 @@ use mimalloc::MiMalloc;
 static GLOBAL: MiMalloc = MiMalloc;
 
 mod api;
+mod proto;
+mod protobuf;
 mod state;
 
 use std::env;

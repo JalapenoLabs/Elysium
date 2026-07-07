@@ -47,6 +47,12 @@ services:
       - ./backend/src:/app/src
       - ./backend/Cargo.toml:/app/Cargo.toml
       - ./backend/Cargo.lock:/app/Cargo.lock
+      # build.rs drives protobuf codegen; keep the host copy authoritative.
+      - ./backend/build.rs:/app/build.rs
+      # The shared proto tree lives at repo root; build.rs reads it as ../proto,
+      # which resolves to /proto from the /app workdir. Read-only: the backend
+      # only consumes the contract, never edits it.
+      - ./proto:/proto:ro
       # Named volumes keep compiled artifacts and the crate registry warm across
       # restarts, so incremental rebuilds stay fast.
       - elysia-cargo-target:/app/target

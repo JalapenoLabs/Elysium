@@ -28,7 +28,7 @@ export function Home() {
       const hello = await getHello()
       const databaseHealth = await getDatabaseHealth()
       setApiMessage(hello.message)
-      setDatabaseStatus(databaseHealth.database)
+      setDatabaseStatus(databaseHealth.reachable ? 'reachable' : 'unreachable')
     }
     catch (error) {
       console.debug('Home failed to reach the API', { error })

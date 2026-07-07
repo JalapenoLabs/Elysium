@@ -1,0 +1,81 @@
+// Copyright © 2026 Jalapeno Labs
+//
+// Identity domain: the application's view of users, organizations, and teams.
+//
+// Keycloak owns credentials and authentication; these messages describe the
+// profile and membership data Elysium owns, keyed back to Keycloak by `keycloak_sub`.
+
+syntax = "proto3";
+
+package elysium.user.v1;
+
+import "common.proto";
+
+// Presence state a user broadcasts to their org.
+enum UserStatus {
+  USER_STATUS_UNSPECIFIED = 0;
+  USER_STATUS_ONLINE = 1;
+  USER_STATUS_OFFLINE = 2;
+  USER_STATUS_AWAY = 3;
+  USER_STATUS_OUT_OF_OFFICE = 4;
+}
+
+// A member of an organization, mirrored from Keycloak plus Elysium-owned profile.
+message User {
+  elysium.common.v1.Uuid id = 1;
+
+  // Keycloak subject claim (`sub`); the stable link to the credential store.
+  string keycloak_sub = 2;
+
+  string email = 3;
+  string display_name = 4;
+  string avatar_url = 5;
+  string bio = 6;
+
+  UserStatus status = 7;
+
+  // Last time the user was seen active; used to render "last seen" presence.
+  elysium.common.v1.Timestamp last_seen_at = 8;
+
+  elysium.common.v1.Timestamp created_at = 9;
+  elysium.common.v1.Timestamp updated_at = 10;
+}
+
+// A top-level tenant. Every team and user belongs to exactly one organization.
+message Org {
+  elysium.common.v1.Uuid id = 1;
+  string name = 2;
+
+  // URL-safe unique handle within the deployment, e.g. "jalapeno-labs".
+  string slug = 3;
+
+  elysium.common.v1.Timestamp created_at = 4;
+}
+
+// A group within an organization (admins, dev, qa, contractors, interns, ...).
+message Team {
+  elysium.common.v1.Uuid id = 1;
+  elysium.common.v1.Uuid org_id = 2;
+  string name = 3;
+
+  // URL-safe unique handle within the organization, e.g. "dev".
+  string slug = 4;
+
+  elysium.common.v1.Timestamp created_at = 5;
+}
+
+// A user's role within a single team. Permissions derive from (user, team, role).
+enum TeamRole {
+  TEAM_ROLE_UNSPECIFIED = 0;
+  TEAM_ROLE_MEMBER = 1;
+  TEAM_ROLE_ADMIN = 2;
+  TEAM_ROLE_OWNER = 3;
+}
+
+// Membership edge linking a user to a team with a role.
+message TeamMembership {
+  elysium.common.v1.Uuid user_id = 1;
+  elysium.common.v1.Uuid team_id = 2;
+  TeamRole role = 3;
+  elysium.common.v1.Timestamp joined_at = 4;
+}

@@ -1,0 +1,183 @@
+# Copyright © 2026 Jalapeno Labs
+#
+# Continuous integration for Elysium.
+#
+# Verifies every push to `main` (and every pull request targeting it). The four
+# jobs run in parallel and are deliberately independent, so a failure in one does
+# not cancel the others: you get the full picture in a single run rather than a
+# fail-fast stop at the first red check. Within each job the check steps use
+# `if: ${{ !cancelled() }}` so every check still runs even after an earlier one
+# fails, then the job reports failed if any step failed.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Newer commits on the same ref supersede in-flight runs; this cancels the stale
+# run, it does not shortcut the checks within a run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # Proto contract: lint and formatting of the single-source-of-truth tree.
+  # ----------------------------------------------------------------------------
+  proto:
+    name: Proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install buf
+        uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
+
+      - name: buf lint
+        if: ${{ !cancelled() }}
+        run: buf lint
+        working-directory: proto
+
+      - name: buf format check
+        if: ${{ !cancelled() }}
+        run: buf format --diff --exit-code
+        working-directory: proto
+
+  # ----------------------------------------------------------------------------
+  # Rust backend: formatting, lints, build (runs build.rs codegen), and tests.
+  # ----------------------------------------------------------------------------
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      # build.rs shells out to protoc to generate the Rust types from ../proto.
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: cargo fmt
+        if: ${{ !cancelled() }}
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        if: ${{ !cancelled() }}
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: cargo build
+        if: ${{ !cancelled() }}
+        run: cargo build --locked
+
+      - name: cargo test
+        if: ${{ !cancelled() }}
+        run: cargo test --locked
+
+  # ----------------------------------------------------------------------------
+  # TypeScript frontend: types, lint, generated-proto sync, and production build.
+  # ----------------------------------------------------------------------------
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Typecheck
+        if: ${{ !cancelled() }}
+        run: yarn typecheck
+
+      - name: Lint
+        if: ${{ !cancelled() }}
+        run: yarn lint
+
+      # Regenerate from the proto tree and fail if the committed output drifted.
+      - name: Generated proto in sync
+        if: ${{ !cancelled() }}
+        run: |
+          yarn generate:proto
+          git diff --exit-code -- src/proto/generated
+
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: yarn build
+
+  # ----------------------------------------------------------------------------
+  # Integration smoke test: bring the real stack up and exercise the proto
+  # endpoints end to end. This is the check that catches Dockerfile and runtime
+  # regressions (e.g. a missing build.rs) that a plain `cargo build` cannot.
+  # ----------------------------------------------------------------------------
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare environment
+        run: cp .env.example .env
+
+      - name: Start the stack
+        run: docker compose up --build -d
+
+      - name: Wait for the backend and probe proto endpoints
+        run: |
+          ready=0
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:31416/health || echo 000)
+            if [ "$code" = "200" ]; then ready=1; break; fi
+            sleep 5
+          done
+          if [ "$ready" != "1" ]; then
+            echo "backend did not become healthy"
+            docker compose logs backend --tail 50
+            exit 1
+          fi
+          # /health must answer as binary protobuf, not JSON.
+          content_type=$(curl -s -D - -o /dev/null http://localhost:31416/health \
+            | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2}')
+          echo "health content-type: $content_type"
+          case "$content_type" in
+            application/x-protobuf*) ;;
+            *) echo "expected application/x-protobuf"; exit 1 ;;
+          esac
+          # db/health hits real Postgres and must report reachable (HTTP 200).
+          db_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:31416/api/v1/db/health || echo 000)
+          echo "db/health status: $db_code"
+          [ "$db_code" = "200" ] || { docker compose logs --tail 50; exit 1; }
+
+      - name: Tear down
+        if: ${{ always() }}
+        run: docker compose down -v

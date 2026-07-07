@@ -28,8 +28,7 @@ impl AppState {
     /// # Errors
     /// Returns an error if `DATABASE_URL` is unset or cannot be parsed.
     pub fn connect_lazy() -> eyre::Result<Self> {
-        let database_url =
-            std::env::var("DATABASE_URL").wrap_err("DATABASE_URL must be set")?;
+        let database_url = std::env::var("DATABASE_URL").wrap_err("DATABASE_URL must be set")?;
 
         let pool = PgPoolOptions::new()
             .max_connections(MAX_DB_CONNECTIONS)

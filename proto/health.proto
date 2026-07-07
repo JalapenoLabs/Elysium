@@ -1,0 +1,29 @@
+// Copyright © 2026 Jalapeno Labs
+//
+// Liveness, greeting, and database-reachability responses.
+//
+// These are the first routes carried over protobuf rather than JSON, proving the
+// contract round-trips from Rust into the TypeScript client both directions.
+
+syntax = "proto3";
+
+package elysium.health.v1;
+
+// Liveness probe payload. Returned while the process is running.
+message HealthResponse {
+  string status = 1; // "ok" while serving.
+  string service = 2; // Service identifier, e.g. "elysium-backend".
+}
+
+// A friendly greeting, handy for confirming the frontend reached the API.
+message HelloResponse {
+  string message = 1;
+}
+
+// Result of probing Postgres connectivity through the pool.
+message DatabaseHealthResponse {
+  bool reachable = 1;
+
+  // Present only when `reachable` is false; the underlying error, for display.
+  string error = 2;
+}
