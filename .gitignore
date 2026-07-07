@@ -1,0 +1,26 @@
+# Environment
+.env
+
+# Rust
+/backend/target
+
+# Node / Yarn Berry (node-modules linker)
+node_modules
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
+
+# Vite
+dist
+*.local
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db

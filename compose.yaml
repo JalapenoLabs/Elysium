@@ -1,0 +1,89 @@
+name: elysia
+
+# ---------------------------------------------------------------------------
+# Elysia base template
+#
+#   database  -> Postgres (pinned), the single source of persistent state
+#   backend   -> Rust / Axum API on port 31416, hot-reloaded via cargo-watch
+#   frontend  -> Vite + React SPA on port 5173, hot-reloaded via Vite HMR
+#
+# Everything is driven by `.env` (see `.env.example`).
+# ---------------------------------------------------------------------------
+
+services:
+  database:
+    container_name: elysia-database
+    # Pinned to a specific patch release rather than `latest` for reproducibility.
+    image: postgres:17.5-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - elysia-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    container_name: elysia-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      API_PORT: 31416
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "${API_PORT:-31416}:31416"
+    volumes:
+      # Mount only the sources needed for hot reload; never the host's target dir.
+      - ./backend/src:/app/src
+      - ./backend/Cargo.toml:/app/Cargo.toml
+      - ./backend/Cargo.lock:/app/Cargo.lock
+      # Named volumes keep compiled artifacts and the crate registry warm across
+      # restarts, so incremental rebuilds stay fast.
+      - elysia-cargo-target:/app/target
+      - elysia-cargo-registry:/usr/local/cargo/registry
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:31416/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Generous window: the very first compile inside the container is slow.
+      start_period: 300s
+
+  frontend:
+    container_name: elysia-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:31416}
+      # Windows/Docker bind mounts don't emit inotify events reliably, so Vite
+      # falls back to polling for file changes (wired up in vite.config.ts).
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      # Mount the whole project for hot reload, but keep the container's own
+      # node_modules by shadowing the host folder with an anonymous volume.
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  elysia-postgres-data:
+  elysia-cargo-target:
+  elysia-cargo-registry:

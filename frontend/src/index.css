@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Small, theme-agnostic layout helpers the team likes to reach for:
+  `relaxed`/`compact` for vertical rhythm and `level` for horizontal rows.
+  They intentionally avoid setting colors so the HeroUI theme stays in control.
+*/
+@layer components {
+  .relaxed:not(:last-child) {
+    margin-bottom: 1.5rem;
+  }
+
+  .compact:not(:last-child) {
+    margin-bottom: 0.75rem;
+  }
+
+  .level {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .level-right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+  }
+}
