@@ -1,19 +1,14 @@
 // Copyright © 2026 Jalapeno Labs
 //
-// Liveness, greeting, and database-reachability responses.
+// Greeting and database-reachability responses for the versioned API.
 //
-// These are the first routes carried over protobuf rather than JSON, proving the
-// contract round-trips from Rust into the TypeScript client both directions.
+// Liveness (`GET /`) and server health (`GET /health`) are plain infra endpoints
+// (text and JSON) for load balancers and uptime monitors, so they are not part of
+// this typed contract. Only the versioned `/api/v1/*` routes are protobuf.
 
 syntax = "proto3";
 
 package elysium.health.v1;
-
-// Liveness probe payload. Returned while the process is running.
-message HealthResponse {
-  string status = 1; // "ok" while serving.
-  string service = 2; // Service identifier, e.g. "elysium-backend".
-}
 
 // A friendly greeting, handy for confirming the frontend reached the API.
 message HelloResponse {

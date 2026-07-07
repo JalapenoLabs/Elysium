@@ -1,27 +1,29 @@
 //! HTTP routing and request handlers for the Elysium API.
 //!
-//! Routes are intentionally tiny: a liveness check, a greeting, and a database
-//! reachability probe that exercises the full API-to-Postgres path. Each returns
-//! a protobuf message (see the `elysium.health.v1` contract) so the wire format
-//! matches the typed client end to end.
+//! Two kinds of routes live here. Infrastructure endpoints (`/` liveness and
+//! `/health`) answer as plain text and JSON, the shapes load balancers and uptime
+//! monitors expect. The versioned `/api/v1/*` routes answer as binary protobuf so
+//! the wire format matches the typed client end to end.
 
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::Router;
+use axum::{Json, Router};
+use serde_json::{json, Value};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::auth::AuthenticatedUser;
 use crate::proto::auth::v1::MeResponse;
-use crate::proto::health::v1::{DatabaseHealthResponse, HealthResponse, HelloResponse};
+use crate::proto::health::v1::{DatabaseHealthResponse, HelloResponse};
 use crate::protobuf::Protobuf;
 use crate::state::AppState;
 
 /// Builds the application router with shared state and middleware attached.
 pub fn router(state: AppState) -> Router {
     Router::new()
+        .route("/", get(ping))
         .route("/health", get(health))
         .route("/api/v1/hello", get(hello))
         .route("/api/v1/db/health", get(database_health))
@@ -34,12 +36,17 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// Liveness probe. Always returns `200 OK` while the process is running.
-async fn health() -> Protobuf<HealthResponse> {
-    Protobuf(HealthResponse {
-        status: "ok".to_string(),
-        service: "elysium-backend".to_string(),
-    })
+/// Liveness ping. Returns `200 OK` with the plain text `pong` while running.
+async fn ping() -> &'static str {
+    "pong"
+}
+
+/// Server health as JSON, for load balancers and uptime monitors.
+async fn health() -> Json<Value> {
+    Json(json!({
+        "status": "ok",
+        "service": "elysium-backend",
+    }))
 }
 
 /// A friendly greeting, handy for confirming the frontend reached the API.

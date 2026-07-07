@@ -36,11 +36,17 @@ every other STANDARD rule stays on.
 
 ## HTTP encoding
 
-Responses are sent as **binary protobuf** with `Content-Type: application/x-protobuf`, not
-JSON. On the backend, handlers return the reusable `Protobuf<Message>` responder
-(`backend/src/protobuf.rs`), which encodes any `prost::Message`. On the frontend, the
-`getProto(path, schema)` helper (`frontend/src/api/index.ts`) fetches the raw bytes with Ky
-and decodes them against the generated schema via `@bufbuild/protobuf`'s `fromBinary`.
+Two kinds of endpoint, deliberately encoded differently:
+
+- **Infrastructure endpoints** are plain, the shapes load balancers, uptime monitors, and
+  `curl` expect: `GET /` returns `200` with the text `pong`, and `GET /health` returns `200`
+  with a small JSON health body. These are intentionally not part of the protobuf contract.
+- **Versioned API endpoints** (`/api/v1/*`) are sent as **binary protobuf** with
+  `Content-Type: application/x-protobuf`. On the backend, handlers return the reusable
+  `Protobuf<Message>` responder (`backend/src/protobuf.rs`), which encodes any `prost::Message`.
+  On the frontend, the `getProto(path, schema)` helper (`frontend/src/api/index.ts`) fetches
+  the raw bytes with Ky and decodes them against the generated schema via `@bufbuild/protobuf`'s
+  `fromBinary`.
 
 ## Native helpers
 

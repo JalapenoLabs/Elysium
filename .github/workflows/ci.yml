@@ -165,11 +165,23 @@ jobs:
             docker compose logs backend --tail 50
             exit 1
           fi
-          # /health must answer as binary protobuf, not JSON.
-          content_type=$(curl -s -D - -o /dev/null http://localhost:31416/health \
+          # Root is a plain-text liveness ping.
+          pong=$(curl -s http://localhost:31416/)
+          echo "root body: $pong"
+          [ "$pong" = "pong" ] || { echo "expected 'pong'"; exit 1; }
+          # /health is plain JSON for monitors, not protobuf.
+          health_type=$(curl -s -D - -o /dev/null http://localhost:31416/health \
             | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2}')
-          echo "health content-type: $content_type"
-          case "$content_type" in
+          echo "health content-type: $health_type"
+          case "$health_type" in
+            application/json*) ;;
+            *) echo "expected application/json"; exit 1 ;;
+          esac
+          # The versioned API must answer as binary protobuf.
+          hello_type=$(curl -s -D - -o /dev/null http://localhost:31416/api/v1/hello \
+            | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2}')
+          echo "hello content-type: $hello_type"
+          case "$hello_type" in
             application/x-protobuf*) ;;
             *) echo "expected application/x-protobuf"; exit 1 ;;
           esac

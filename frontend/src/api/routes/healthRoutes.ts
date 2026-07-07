@@ -1,15 +1,17 @@
-import type { HealthResponse, HelloResponse, DatabaseHealthResponse } from '../../proto/generated/health_pb'
+import type { HelloResponse, DatabaseHealthResponse } from '../../proto/generated/health_pb'
 
 // Misc
-import { getProto } from '../index'
-import {
-  HealthResponseSchema,
-  HelloResponseSchema,
-  DatabaseHealthResponseSchema,
-} from '../../proto/generated/health_pb'
+import { apiClient, getProto } from '../index'
+import { HelloResponseSchema, DatabaseHealthResponseSchema } from '../../proto/generated/health_pb'
 
+type HealthResponse = {
+  status: string
+  service: string
+}
+
+// Infra health endpoint: plain JSON, not part of the protobuf contract.
 export function getHealth(): Promise<HealthResponse> {
-  return getProto('health', HealthResponseSchema)
+  return apiClient.get('health').json<HealthResponse>()
 }
 
 export function getHello(): Promise<HelloResponse> {

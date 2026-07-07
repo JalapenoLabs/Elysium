@@ -37,13 +37,15 @@ A base template for a full-stack app, hot-reloaded end to end via Docker Compose
 3. Open the app:
 
    - Frontend: http://localhost:5173
-   - API health: http://localhost:31416/health
+   - API liveness: http://localhost:31416/ (returns `pong`)
+   - API health: http://localhost:31416/health (JSON)
    - API greeting: http://localhost:31416/api/v1/hello
    - API + DB check: http://localhost:31416/api/v1/db/health
    - Keycloak admin console: http://localhost:8080 (master-realm admin from `.env`)
 
-   API responses are binary protobuf (`application/x-protobuf`), decoded by the
-   frontend from types generated out of the `proto/` tree.
+   Liveness (`/`) and health (`/health`) are plain text and JSON for monitors.
+   The versioned `/api/v1/*` responses are binary protobuf (`application/x-protobuf`),
+   decoded by the frontend from types generated out of the `proto/` tree.
 
 On the Home page, "Ping the API" calls the Rust backend with Ky and confirms it
 can reach Postgres.
