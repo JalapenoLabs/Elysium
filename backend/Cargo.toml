@@ -16,9 +16,7 @@ serde_json = "1"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid"] }
 # Session ids and OIDC state/PKCE-verifier generation (v4 is CSPRNG-backed).
 uuid = { version = "1", features = ["v4"] }
-# PKCE: random verifier (getrandom) hashed to the S256 challenge (sha2).
-getrandom = "0.2"
-sha2 = "0.10"
+# Encodes WebAuthn credential ids for storage/lookup.
 base64 = "0.22"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -26,10 +24,11 @@ eyre = "0.6"
 mimalloc = "0.1"
 # Generated protobuf types (see build.rs) share this runtime.
 prost = "0.13"
-# Validates Keycloak-issued JWTs against the realm's JWKS.
-jsonwebtoken = "9"
-# Fetches the JWKS from Keycloak; rustls to match the sqlx TLS stack.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# The API is the WebAuthn Relying Party (see docs/auth-model.md); it runs the
+# passkey ceremony itself rather than delegating to Keycloak. The
+# state-serialisation feature lets the in-flight ceremony state ride a short-lived
+# HttpOnly cookie between begin and finish (stored carefully, per its "danger" name).
+webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 
 [build-dependencies]
 # Compiles the shared `../proto` tree into Rust at build time.

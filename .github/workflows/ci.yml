@@ -76,10 +76,12 @@ jobs:
         with:
           clean: false
 
-      # build.rs shells out to protoc to generate the Rust types from ../proto.
-      # Install only if the runner does not already have it (Fedora uses dnf).
-      - name: Ensure protoc
-        run: command -v protoc || sudo dnf install -y protobuf-compiler
+      # Build prerequisites, installed only if the runner lacks them (Fedora dnf):
+      # protoc for build.rs codegen, and OpenSSL headers for webauthn-rs.
+      - name: Ensure build prerequisites
+        run: |
+          command -v protoc >/dev/null 2>&1 || sudo dnf install -y protobuf-compiler
+          rpm -q openssl-devel >/dev/null 2>&1 || sudo dnf install -y openssl-devel pkgconf-pkg-config
 
       # Pinned to the same Rust the backend image uses (rust:1.96), so CI and
       # the container never drift.

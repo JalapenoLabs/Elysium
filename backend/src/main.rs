@@ -11,14 +11,14 @@ use mimalloc::MiMalloc;
 static GLOBAL: MiMalloc = MiMalloc;
 
 mod api;
-mod auth;
 mod config;
-mod oidc;
 mod proto;
 mod protobuf;
 mod session;
 mod sse;
 mod state;
+mod users;
+mod webauthn;
 
 use std::env;
 use std::net::SocketAddr;

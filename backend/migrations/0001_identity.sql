@@ -1,9 +1,10 @@
 -- Identity schema: organizations, teams, users, and memberships.
 --
--- Keycloak owns credentials; this schema owns profile and membership data. Each
--- user is linked back to Keycloak by its subject claim (`keycloak_sub`). Roles
--- and status are stored as text guarded by CHECK constraints, mirroring the
--- `elysium.user.v1` proto enums without the rigidity of Postgres enum types.
+-- The application owns identity: users (plus their passkeys and sessions) live
+-- here and auth is API-owned (see docs/auth-model.md). Each user has a stable
+-- opaque `subject`. Roles and status are stored as text guarded by CHECK
+-- constraints, mirroring the `elysium.user.v1` proto enums without the rigidity of
+-- Postgres enum types.
 
 -- A top-level tenant. Every team and user belongs to exactly one organization.
 CREATE TABLE orgs (
@@ -24,11 +25,11 @@ CREATE TABLE teams (
     UNIQUE (org_id, slug)
 );
 
--- An application user, mirrored from Keycloak plus Elysium-owned profile fields.
+-- An application user and their Elysium-owned profile.
 CREATE TABLE users (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    -- The stable link to Keycloak; the subject (`sub`) claim of its tokens.
-    keycloak_sub TEXT NOT NULL UNIQUE,
+    -- Stable opaque identifier for the user (the token/session subject).
+    subject      TEXT NOT NULL UNIQUE,
     org_id       UUID NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
     email        TEXT NOT NULL,
     display_name TEXT NOT NULL DEFAULT '',

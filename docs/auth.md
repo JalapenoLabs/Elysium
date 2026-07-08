@@ -1,5 +1,12 @@
 # Authentication & Auth UI
 
+> **Superseded, in part, by `auth-model.md`.** The auth *model* here (Keycloak runs the
+> ceremony, browser reaches Keycloak via Keycloakify/reverse-proxy) is retired: the browser now
+> never contacts Keycloak, the API is the WebAuthn Relying Party, and our SPA renders every
+> input. See `auth-model.md` for the authoritative model and API. The **screen inventory,
+> cinematic layer, invite/onboarding UX, and i18n** below still apply; only replace "Keycloakify
+> ceremony served by Keycloak" with "native SPA screens calling the API".
+
 This document is the scope and design decisions for Elysium's authentication surface: how a
 user gets into the product, and every screen involved. It complements `identity.md` (which
 covers Keycloak, the realm, tokens, and the identity database schema). Where the two overlap,

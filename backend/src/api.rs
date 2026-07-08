@@ -1,10 +1,10 @@
 //! HTTP routing and request handlers for the Elysium API.
 //!
-//! Three kinds of routes live here. Infrastructure endpoints (`/` liveness and
-//! `/health`) answer as plain text and JSON. The BFF auth routes under `/auth/*`
-//! are browser redirects into and out of Keycloak (see [`crate::oidc`]). The
-//! versioned `/api/v1/*` routes answer as binary protobuf and are authenticated by
-//! the session cookie the auth flow sets.
+//! Infrastructure endpoints (`/` liveness and `/health`) answer as plain text and
+//! JSON. The auth endpoints under `/api/v1/auth/*` run the WebAuthn passkey
+//! ceremony (see [`crate::webauthn`]) and speak the standardized WebAuthn JSON.
+//! The rest of `/api/v1/*` answers as binary protobuf, authenticated by the
+//! session cookie the passkey flow sets. The browser never contacts Keycloak.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -19,26 +19,40 @@ use crate::proto::health::v1::{DatabaseHealthResponse, HelloResponse};
 use crate::protobuf::Protobuf;
 use crate::session::SessionUser;
 use crate::state::AppState;
-use crate::{oidc, sse};
+use crate::{sse, webauthn};
 
 /// Builds the application router with shared state and middleware attached.
 ///
-/// No CORS layer: the SPA reaches the API and the auth routes same-origin through
-/// the frontend proxy, so every browser request is first-party.
+/// No CORS layer: the SPA reaches the API same-origin through the frontend proxy,
+/// so every browser request is first-party.
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(ping))
         .route("/health", get(health))
-        // BFF auth: browser redirects into and out of Keycloak.
-        .route("/auth/login", get(oidc::login))
-        .route("/auth/callback", get(oidc::callback))
-        .route("/auth/account", get(oidc::account))
-        // Versioned API (protobuf), authenticated by the session cookie.
         .route("/api/v1/hello", get(hello))
         .route("/api/v1/db/health", get(database_health))
         .route("/api/v1/me", get(me))
-        .route("/api/v1/auth/logout", post(oidc::logout))
         .route("/api/v1/events", get(sse::events))
+        // Auth: the API is the WebAuthn Relying Party; the SPA drives the native
+        // passkey ceremony against these endpoints (WebAuthn JSON).
+        .route("/api/v1/auth/context", get(webauthn::context))
+        .route(
+            "/api/v1/auth/bootstrap/begin",
+            post(webauthn::bootstrap_begin),
+        )
+        .route(
+            "/api/v1/auth/bootstrap/finish",
+            post(webauthn::bootstrap_finish),
+        )
+        .route(
+            "/api/v1/auth/passkey/authenticate/begin",
+            post(webauthn::authenticate_begin),
+        )
+        .route(
+            "/api/v1/auth/passkey/authenticate/finish",
+            post(webauthn::authenticate_finish),
+        )
+        .route("/api/v1/auth/logout", post(webauthn::logout))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

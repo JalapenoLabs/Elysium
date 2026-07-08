@@ -16,22 +16,24 @@ input: the email field, the passkey button, the TOTP field, recovery.
 - **SPA (React).** Renders the entire auth UI and drives the browser-native passkey
   ceremony via `navigator.credentials`. Holds only the session cookie.
 - **API (Rust).** Is the **WebAuthn Relying Party** (`webauthn-rs`): it issues
-  challenges, verifies assertions, and owns the passkey / TOTP / recovery logic. It
-  is the only component that talks to Keycloak, over the admin API, server-side.
-- **Keycloak.** The **user directory and token issuer** for the service/worker layer
-  (users provisioned and looked up via the admin API; service/worker tokens via
-  service accounts or token exchange). It is never in the browser's path and no
-  longer runs the login ceremony. It is not the WebAuthn Relying Party.
-- **Postgres (app DB).** Stores passkey credentials, TOTP secrets, recovery codes,
-  and sessions.
+  challenges, verifies assertions, and owns the passkey / TOTP / recovery logic and
+  the sessions. It is the only component that would ever talk to Keycloak.
+- **Postgres (app DB).** The **system of record** for auth: users, their passkeys,
+  (future) TOTP secrets and recovery codes, and sessions all live here.
+- **Keycloak.** Retained in the deployment but **outside the auth path** (dormant
+  for now): kept for future federation / IdP brokering (SSO) and OIDC token issuance
+  to the service/worker layer, which only the API would use, server-side. It is not
+  the WebAuthn Relying Party and never runs the browser login. (If you would rather
+  Keycloak be the canonical user directory synced from the API, say so; it is a
+  small additive layer on top of this.)
 
 ## Passwordless sign-in (passkey)
 
 1. SPA: user enters their email, taps **Sign in with a passkey**.
 2. SPA → `POST /api/v1/auth/passkey/authenticate/begin { email }`. The API looks the
-   user up (Keycloak directory), builds a WebAuthn authentication challenge for that
-   user's registered credentials, stashes the challenge server-side, and returns the
-   public-key request options.
+   user up (Postgres), builds a WebAuthn authentication challenge for that user's
+   registered credentials, stashes the challenge in a short-lived cookie, and returns
+   the public-key request options.
 3. SPA → `navigator.credentials.get({ publicKey })`. The browser shows the native
    passkey prompt (biometric / PIN). No webpage, no redirect.
 4. SPA → `POST /api/v1/auth/passkey/authenticate/finish { assertion }`. The API
@@ -70,10 +72,12 @@ the API), so the cookie is first-party.
 
 ## What is retired
 
-The redirect-based BFF (`/auth/login`, `/auth/callback`, the OIDC Authorization Code
-+ PKCE code exchange in `oidc.rs`) is removed: it sent the browser to Keycloak, which
-this model forbids. The confidential OIDC client remains only for server-side token
-needs (service/worker issuance), not for the browser login.
+The redirect-based BFF is removed entirely: `oidc.rs` (the OIDC Authorization Code
++ PKCE code exchange and the `/auth/login` + `/auth/callback` redirects) and `auth.rs`
+(Keycloak JWKS / JWT validation, which only served that flow) are deleted, along with
+their dependencies (`jsonwebtoken`, `reqwest`). Keycloak stays in the deployment but
+its realm login flow is dormant; the API talks to it only if and when the federation
+or service-token features are built.
 
 ## Build notes
 
@@ -83,17 +87,31 @@ needs (service/worker issuance), not for the browser login.
   installs `openssl-devel` on the Fedora runner. RP id = the app host (`localhost`
   in dev), RP origin = the app origin (`http://localhost:5173`).
 - The registration/authentication ceremony state (the `webauthn-rs`
-  `PasskeyRegistration` / `PasskeyAuthentication`) is carried between begin and
-  finish in a short-lived HttpOnly cookie (it is serde-serializable), so no extra
-  server-side state table is needed. Credentials (the `Passkey`) persist in
-  Postgres, linked to the user.
+  `PasskeyRegistration` / `PasskeyAuthentication`, behind the
+  `danger-allow-state-serialisation` feature) is carried between begin and finish
+  in a short-lived HttpOnly cookie, so no extra server-side state table is needed.
+  Credentials (the `Passkey`) persist in Postgres, linked to the user.
+- The SPA uses `@simplewebauthn/browser` (`startRegistration` / `startAuthentication`)
+  to convert the challenge JSON to/from the `ArrayBuffer` shapes `navigator.
+  credentials` needs, rather than hand-rolling base64url conversion.
+
+## API surface (implemented)
+
+- `GET /api/v1/auth/context` -> `{ claimed }`.
+- `POST /api/v1/auth/bootstrap/begin` `{ email, display_name }` -> registration
+  challenge (first-run only; 409 once claimed).
+- `POST /api/v1/auth/bootstrap/finish` (credential) -> stores the passkey, signs in.
+- `POST /api/v1/auth/passkey/authenticate/begin` `{ email }` -> auth challenge.
+- `POST /api/v1/auth/passkey/authenticate/finish` (assertion) -> verifies, signs in.
+- `POST /api/v1/auth/logout` -> ends the session.
+- `GET /api/v1/me` -> the session principal (session probe).
 
 ## Roadmap
 
 1. WebAuthn RP in the API (`webauthn-rs`), credential + challenge storage, the
    authenticate begin/finish endpoints, and the SPA passkey sign-in against them.
-2. Enrollment (register begin/finish) + recovery codes, wired to onboarding and
-   invite acceptance.
+2. Enrollment for additional passkeys + recovery codes, wired to onboarding and
+   invite acceptance (the first-run root claim already enrolls the first passkey).
 3. TOTP fallback (enroll + verify) in the API and SPA.
-4. Keycloak admin-API integration for the user directory (provision, look up, and
-   the first-run root claim), and service/worker token issuance.
+4. (Optional) Keycloak for federation / IdP brokering (SSO) and service/worker token
+   issuance, synced from the Postgres user store, all server-side.

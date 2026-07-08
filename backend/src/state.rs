@@ -4,9 +4,7 @@ use eyre::WrapErr;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
-use crate::auth::Auth;
 use crate::config::Deployment;
-use crate::oidc::OidcConfig;
 use crate::sse::SseRegistry;
 
 /// Maximum number of pooled Postgres connections.
@@ -17,30 +15,26 @@ const MAX_DB_CONNECTIONS: u32 = 5;
 
 /// Handle to shared resources, cheaply cloneable into each handler.
 ///
-/// [`PgPool`] is internally reference counted, [`Auth`] and [`reqwest::Client`]
-/// hold their state behind an `Arc`, and [`OidcConfig`] is small, so cloning
-/// `AppState` clones handles rather than the underlying connections or caches.
+/// [`PgPool`] is internally reference counted, [`SseRegistry`] holds its state
+/// behind an `Arc`, and the WebAuthn RP is an `Arc`, so cloning `AppState` clones
+/// handles rather than the underlying connections or caches.
 #[derive(Clone, Debug)]
 pub struct AppState {
     pub pool: PgPool,
-    pub auth: Auth,
-    pub oidc: OidcConfig,
-    /// Shared client for backchannel calls to Keycloak (token exchange, logout).
-    pub http: reqwest::Client,
     /// Per-user live SSE connection counts, for the connection cap.
     pub sse: SseRegistry,
+    /// WebAuthn Relying Party: the API runs the passkey ceremony itself.
+    pub webauthn: std::sync::Arc<webauthn_rs::Webauthn>,
 }
 
 impl AppState {
     /// Builds application state from the environment.
     ///
     /// The Postgres pool is lazy, so the API can start before Postgres is ready.
-    /// Token validation ([`Auth`]) likewise fetches its keys on demand, so the
-    /// API can also start before Keycloak is reachable.
     ///
     /// # Errors
-    /// Returns an error if `DATABASE_URL` or `OIDC_CLIENT_SECRET` is unset, or a
-    /// client cannot be built. Every URL is derived (see [`Deployment`]).
+    /// Returns an error if `DATABASE_URL` is unset or the WebAuthn RP cannot be
+    /// built from the derived config.
     pub fn from_env() -> eyre::Result<Self> {
         let database_url = std::env::var("DATABASE_URL").wrap_err("DATABASE_URL must be set")?;
 
@@ -50,20 +44,12 @@ impl AppState {
             .wrap_err("failed to build Postgres connection pool")?;
 
         let deployment = Deployment::from_env();
-        let auth = Auth::new(deployment.issuer.clone(), deployment.jwks_url.clone())?;
-        let client_secret =
-            std::env::var("OIDC_CLIENT_SECRET").wrap_err("OIDC_CLIENT_SECRET must be set")?;
-        let oidc = OidcConfig::new(&deployment, client_secret);
-        let http = reqwest::Client::builder()
-            .build()
-            .wrap_err("failed to build the backchannel HTTP client")?;
+        let webauthn = crate::webauthn::build(&deployment.rp_id, &deployment.app_origin)?;
 
         Ok(Self {
             pool,
-            auth,
-            oidc,
-            http,
             sse: SseRegistry::default(),
+            webauthn,
         })
     }
 }
