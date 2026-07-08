@@ -61,7 +61,7 @@ export function ClaimInstance() {
       <p className='mt-3 opacity-80'>{ t('auth:setup.subtitle') }</p>
 
       <div className='mt-6'>
-        <div className='relaxed'>
+        <div className='compact'>
           <Input
             autoFocus
             label={t('auth:setup.displayNameLabel')}
@@ -70,7 +70,7 @@ export function ClaimInstance() {
             onChange={(event) => setDisplayName(event.currentTarget.value)}
           />
         </div>
-        <div className='relaxed'>
+        <div className='compact'>
           <Input
             type='email'
             label={t('auth:setup.emailLabel')}
@@ -79,7 +79,7 @@ export function ClaimInstance() {
             onChange={(event) => setEmail(event.currentTarget.value)}
           />
         </div>
-        <div className='relaxed'>
+        <div className='compact'>
           <Input
             label={t('auth:setup.orgNameLabel')}
             placeholder={t('auth:setup.orgNamePlaceholder')}
