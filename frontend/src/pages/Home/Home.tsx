@@ -7,7 +7,8 @@ import { useState } from 'react'
 import { Button, Card, CardBody, CardHeader, Chip, Code, Divider } from '@heroui/react'
 
 // Redux
-import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { dispatch } from '../../store'
+import { useAppSelector } from '../../store/hooks'
 import { increment, decrement, reset } from '../../store/counterSlice'
 
 // UI
@@ -17,7 +18,6 @@ import { ProfilePanel } from './ProfilePanel'
 import { getHello, getDatabaseHealth } from '../../api/routes/healthRoutes'
 
 export function Home() {
-  const dispatch = useAppDispatch()
   const count = useAppSelector((state) => state.counter.value)
 
   const [ apiMessage, setApiMessage ] = useState<string | null>(null)

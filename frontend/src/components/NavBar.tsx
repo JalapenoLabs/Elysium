@@ -8,7 +8,8 @@ import { useTranslation } from 'react-i18next'
 import { Navbar, NavbarBrand, NavbarContent, NavbarItem, Link, Switch, Button } from '@heroui/react'
 
 // Redux
-import { useAppDispatch, useAppSelector } from '../store/hooks'
+import { dispatch } from '../store'
+import { useAppSelector } from '../store/hooks'
 import { toggleTheme } from '../store/themeSlice'
 
 // Misc
@@ -18,7 +19,6 @@ import { UrlTree } from '../urls'
 export function NavBar() {
   const { t } = useTranslation('common')
   const navigate = useNavigate()
-  const dispatch = useAppDispatch()
   const themeMode = useAppSelector((state) => state.theme.mode)
   const session = useSession()
 
