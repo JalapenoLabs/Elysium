@@ -65,7 +65,6 @@ export function ClaimInstance() {
           <Input
             autoFocus
             label={t('auth:setup.displayNameLabel')}
-            placeholder={t('auth:setup.displayNamePlaceholder')}
             value={displayName}
             onChange={(event) => setDisplayName(event.currentTarget.value)}
           />
@@ -74,7 +73,6 @@ export function ClaimInstance() {
           <Input
             type='email'
             label={t('auth:setup.emailLabel')}
-            placeholder={t('auth:setup.emailPlaceholder')}
             value={email}
             onChange={(event) => setEmail(event.currentTarget.value)}
           />
@@ -82,7 +80,6 @@ export function ClaimInstance() {
         <div className='compact'>
           <Input
             label={t('auth:setup.orgNameLabel')}
-            placeholder={t('auth:setup.orgNamePlaceholder')}
             value={orgName}
             isInvalid={Boolean(errorMessage)}
             errorMessage={errorMessage}

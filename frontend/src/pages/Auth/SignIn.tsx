@@ -72,7 +72,6 @@ export function SignIn() {
           autoFocus
           type='email'
           label={t('auth:signIn.emailLabel')}
-          placeholder={t('auth:signIn.emailPlaceholder')}
           value={email}
           isInvalid={Boolean(errorMessage)}
           errorMessage={errorMessage}
