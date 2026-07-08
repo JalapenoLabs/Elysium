@@ -1,0 +1,112 @@
+VERSION 0.8
+
+# ---------------------------------------------------------------------------
+# Elysium desktop shell (Electron) packaging, via Electron Forge.
+#
+# Produces installers for the Electron shell only. The web app is served by the
+# dockerized stack (dev) or the packaged frontend via electron-serve (prod); it
+# is not bundled by these targets beyond the renderer directory.
+#
+# Targets:
+#   +deb       -> Linux .deb
+#   +rpm       -> Linux .rpm
+#   +appimage  -> Linux .AppImage
+#   +windows   -> Windows Squirrel installer (built on Linux via Wine + Mono)
+#   +release   -> all of the above
+#
+# Each target selects its Forge maker through the ELYSIUM_MAKE_TARGET env var
+# (see forge.config.ts). macOS (.dmg) is a later phase and needs a macOS builder.
+#
+# Dependencies are installed and the shell compiled in the base recipe, so every
+# target inherits a ready build without repeating a `FROM +build`.
+# ---------------------------------------------------------------------------
+
+# Pinned to the exact Node used in CI and the frontend image (never a floating tag).
+FROM node:24.13.0-slim
+WORKDIR /desktop
+
+# Forge downloads the matching Electron during packaging, so the npm postinstall
+# binary download is redundant; skip it to keep installs lean.
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
+# Verbose logging from the installer tooling while packaging.
+ENV DEBUG=electron-installer-*
+
+# Install node_modules, then compile the TypeScript main + preload. Layered so a
+# source-only change does not invalidate the dependency install. git is needed
+# because Forge pulls a git-hosted node-gyp fork.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare yarn@4.17.0 --activate
+COPY package.json yarn.lock .yarnrc.yml ./
+RUN yarn install --immutable
+COPY tsconfig.json forge.config.ts ./
+COPY src ./src
+RUN yarn build
+
+# System tooling Forge's Linux makers shell out to:
+#   maker-deb  -> dpkg + fakeroot + binutils(ar)
+#   maker-rpm  -> rpm/rpmbuild
+#   maker-appimage -> mksquashfs (squashfs-tools)
+linux-builder:
+    RUN apt-get update \
+        && apt-get install -y --no-install-recommends \
+            fakeroot \
+            dpkg \
+            rpm \
+            binutils \
+            squashfs-tools \
+            xz-utils \
+        && rm -rf /var/lib/apt/lists/*
+    # Containers have no FUSE, so AppImage tooling must extract-and-run instead
+    # of mounting itself. Without this, AppImage packaging fails in CI.
+    ENV APPIMAGE_EXTRACT_AND_RUN=1
+    # Keep Electron and Forge downloads warm across builds.
+    CACHE /root/.cache/electron
+    CACHE /desktop/node_modules/.cache
+
+deb:
+    FROM +linux-builder
+    ENV ELYSIUM_MAKE_TARGET=deb
+    RUN yarn make
+    # Earthly's SAVE ARTIFACT does not support `**`, and each maker nests its
+    # output under its own subdir, so save the whole make tree.
+    SAVE ARTIFACT out/make AS LOCAL out/make/
+
+rpm:
+    FROM +linux-builder
+    ENV ELYSIUM_MAKE_TARGET=rpm
+    RUN yarn make
+    SAVE ARTIFACT out/make AS LOCAL out/make/
+
+appimage:
+    FROM +linux-builder
+    ENV ELYSIUM_MAKE_TARGET=appimage
+    RUN yarn make
+    SAVE ARTIFACT out/make AS LOCAL out/make/
+
+# Windows installer, cross-built on Linux. Inherits the base build and adds Wine
+# + Mono so Forge's Squirrel maker can run the Windows toolchain; the i386
+# architecture is required for Wine's 32-bit components.
+windows:
+    ENV ELYSIUM_MAKE_TARGET=windows
+    RUN dpkg --add-architecture i386 \
+        && apt-get update \
+        && apt-get install -y --no-install-recommends \
+            wine \
+            wine64 \
+            wine32 \
+            mono-devel \
+        && rm -rf /var/lib/apt/lists/*
+    CACHE /root/.cache/electron
+    CACHE /desktop/node_modules/.cache
+    RUN yarn make --platform=win32
+    SAVE ARTIFACT out/make AS LOCAL out/make/
+
+# Build every installer in one shot. The targets are independent, so BuildKit
+# runs them in parallel.
+release:
+    BUILD +deb
+    BUILD +rpm
+    BUILD +appimage
+    BUILD +windows

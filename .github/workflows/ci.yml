@@ -16,6 +16,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Lets the desktop packaging job be triggered on demand from the Actions tab.
+  workflow_dispatch:
 
 # Newer commits on the same ref supersede in-flight runs; this cancels the stale
 # run, it does not shortcut the checks within a run.
@@ -34,7 +36,7 @@ jobs:
     name: Proto
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install buf
         uses: bufbuild/buf-setup-action@v1
@@ -61,7 +63,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # build.rs shells out to protoc to generate the Rust types from ../proto.
       - name: Install protoc
@@ -111,7 +113,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -187,7 +189,7 @@ jobs:
     name: Integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Prepare environment
         run: cp .env.example .env
@@ -254,3 +256,46 @@ jobs:
       - name: Tear down
         if: ${{ always() }}
         run: docker compose down -v
+
+  # ----------------------------------------------------------------------------
+  # Desktop shell: package the Electron app with Earthly. One matrix job per
+  # installer target (deb, rpm, AppImage, Windows) so they run as independent,
+  # parallel checks. Only on pull requests and on-demand (workflow_dispatch),
+  # not on every push to main, since the packaging build is heavy. Artifacts are
+  # built but not uploaded yet.
+  #
+  # Runs on a self-hosted runner tagged `linux` and `earthly` (Docker available
+  # for Earthly's BuildKit); Earthly itself is installed at a pinned version by
+  # the workflow rather than relying on whatever is on the runner. Everything
+  # else runs inside pinned containers.
+  # ----------------------------------------------------------------------------
+  desktop:
+    name: Desktop (${{ matrix.target }})
+    if: ${{ github.event_name != 'push' }}
+    runs-on: [self-hosted, linux, earthly]
+    # Earthly renders monochrome without this; force color for readable logs.
+    env:
+      FORCE_COLOR: 1
+    strategy:
+      # Report every target's result; one failing target must not cancel the
+      # others, matching the rest of this workflow.
+      fail-fast: false
+      matrix:
+        target: [deb, rpm, appimage, windows]
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pin the Earthly version instead of trusting the runner's build; matches
+      # the VERSION 0.8 pragma in the Earthfile.
+      - name: Set up Earthly
+        uses: earthly/actions-setup@v1
+        with:
+          version: "0.8.1"
+
+      # Build this matrix leg's installer. Output lands in desktop/release/ on
+      # the runner; no upload step yet, per the current roadmap.
+      - name: Package ${{ matrix.target }}
+        run: earthly +${{ matrix.target }}

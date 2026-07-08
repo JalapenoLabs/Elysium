@@ -73,18 +73,40 @@ host do not deliver filesystem events reliably.
 │       ├── main.rs         # bootstrap: logging, pool, server
 │       ├── state.rs        # shared app state (Postgres pool)
 │       └── api.rs          # routes and handlers
-└── frontend/               # Vite + React SPA
-    ├── Dockerfile
-    ├── vite.config.ts      # dev server + polling for HMR
-    ├── tailwind.config.js  # HeroUI plugin wired in
-    └── src/
-        ├── main.tsx        # entry: Redux + Router providers
-        ├── router.tsx
-        ├── api/            # Ky client + route modules
-        ├── store/          # Redux Toolkit slices
-        ├── components/     # layout, navbar
-        └── pages/          # Home, About
+├── frontend/               # Vite + React SPA
+│   ├── Dockerfile
+│   ├── vite.config.ts      # dev server + polling for HMR
+│   ├── tailwind.config.js  # HeroUI plugin wired in
+│   └── src/
+│       ├── main.tsx        # entry: Redux + Router providers
+│       ├── router.tsx
+│       ├── api/            # Ky client + route modules
+│       ├── store/          # Redux Toolkit slices
+│       ├── components/     # layout, navbar
+│       └── pages/          # Home, About
+└── desktop/                # Electron shell (loads the dockerized app)
+    ├── Earthfile           # deb / rpm / appimage / windows / release
+    ├── electron-builder.yml
+    └── src/                # main + preload (TypeScript)
 ```
+
+## Desktop shell
+
+Elysium also ships as an Electron desktop app. The shell is a thin native wrapper
+that loads the dockerized app rather than bundling it. Bring the stack up, then run
+the shell:
+
+```sh
+docker compose up            # the app the shell will load
+
+cd desktop
+yarn install
+yarn dev                     # tsc watch + Electron with auto-restart
+```
+
+Installers (Linux `.deb` / `.rpm` / `.AppImage`, Windows `.exe`) are built with
+Earthly: `cd desktop && earthly +release`. macOS is on the roadmap. See
+[`docs/desktop.md`](docs/desktop.md) for the full picture.
 
 ## Common commands
 
