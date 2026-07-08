@@ -11,20 +11,27 @@
     "build": "tsc -b",
     "watch": "tsc -b --watch",
     "dev": "concurrently --kill-others --names tsc,electron --prefix-colors blue,green \"tsc -b --watch\" \"electronmon .\"",
-    "start": "electron .",
+    "start": "electron-forge start",
     "typecheck": "tsc --noEmit",
-    "package:deb": "electron-builder --linux deb --publish never",
-    "package:rpm": "electron-builder --linux rpm --publish never",
-    "package:appimage": "electron-builder --linux AppImage --publish never",
-    "package:windows": "electron-builder --win --publish never"
+    "package": "electron-forge package",
+    "make": "electron-forge make"
   },
   "packageManager": "yarn@4.17.0",
   "devDependencies": {
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/maker-deb": "7.11.2",
+    "@electron-forge/maker-rpm": "7.11.2",
+    "@electron-forge/maker-squirrel": "7.11.2",
+    "@electron-forge/shared-types": "7.11.2",
+    "@reforged/maker-appimage": "5.2.0",
     "@types/node": "26.1.0",
     "concurrently": "10.0.3",
     "electron": "43.0.0",
-    "electron-builder": "26.15.3",
     "electronmon": "2.0.4",
+    "ts-node": "10.9.2",
     "typescript": "6.0.3"
+  },
+  "dependencies": {
+    "electron-serve": "3.0.1"
   }
 }

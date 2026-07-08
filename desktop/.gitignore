@@ -12,5 +12,13 @@ node_modules
 # TypeScript build output (compiled main + preload).
 dist
 
-# electron-builder installer output (deb, rpm, AppImage, exe).
-release
+# Electron Forge packaging output.
+out
+
+# Built installers, in case any land outside out/.
+*.deb
+*.rpm
+*.AppImage
+*.exe
+*.msi
+*.zip

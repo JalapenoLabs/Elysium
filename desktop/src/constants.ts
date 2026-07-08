@@ -1,20 +1,34 @@
 // Copyright © 2026 Jalapeno Labs
 
-import { join } from 'node:path'
+// Core
+import { app } from 'electron'
 
-// Where the shell loads the Elysium app from. The web app is served by the
-// dockerized stack (Vite dev server today, a production static server later);
-// the desktop shell never bundles the app, it only points a window at it.
-//
-// Override with ELYSIUM_APP_URL to target a remote or differently-ported host.
+// Utility
+import { resolve } from 'node:path'
+
+// Where the shell loads the app in development: the dockerized stack's web
+// frontend (Vite dev server today). Override with ELYSIUM_APP_URL to target a
+// remote or differently-ported host.
 export const DEFAULT_APP_URL = 'http://localhost:5173'
 export const APP_URL = process.env.ELYSIUM_APP_URL || DEFAULT_APP_URL
 
-// Local fallback page shown when the app URL is unreachable (e.g. the stack is
-// not up yet). It offers a retry rather than a blank window. Bundled alongside
-// the compiled output via electron-builder's `files` globs.
-export const LAUNCHER_PAGE = join(__dirname, '..', 'static', 'launcher.html')
-export const PRELOAD_SCRIPT = join(__dirname, 'preload.js')
+// Development runs unpackaged (yarn dev / electronmon); an installed build is
+// packaged. This decides whether the renderer is loaded from the dev URL or
+// served from the packaged build.
+export const IS_DEV = !app.isPackaged
+
+// In production the built frontend SPA is served locally over a custom protocol
+// by electron-serve from this directory. Populated by the frontend build during
+// packaging (see docs/desktop.md).
+export const RENDERER_DIRECTORY = resolve(__dirname, '..', 'renderer')
+
+// The preload script, resolved next to the compiled main output.
+export const PRELOAD_SCRIPT = resolve(__dirname, 'preload.js')
+
+// How long to wait before retrying a failed app load. In dev the stack may still
+// be starting; the frontend owns all on-screen UI, so the shell simply keeps
+// trying until it can hand off rather than rendering its own page.
+export const APP_RETRY_DELAY_MS = 2000
 
 // Initial window size. Deliberately roomy: the primary view is a full Claude
 // session workspace, not a compact utility window.
