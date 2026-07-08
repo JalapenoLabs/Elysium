@@ -1,4 +1,4 @@
-# Elysia
+# Elysium
 
 A base template for a full-stack app, hot-reloaded end to end via Docker Compose:
 

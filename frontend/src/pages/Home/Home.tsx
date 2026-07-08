@@ -49,7 +49,7 @@ export function Home() {
   return <section className='container mx-auto p-6'>
     <div className='relaxed'>
       <h1 className='text-3xl'>
-        <strong>Welcome to Elysia</strong>
+        <strong>Welcome to Elysium</strong>
       </h1>
       <p className='opacity-80'>
         A base template wiring a Rust API and a Postgres database to this React SPA.

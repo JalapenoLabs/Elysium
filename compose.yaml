@@ -1,7 +1,7 @@
-name: elysia
+name: elysium
 
 # ---------------------------------------------------------------------------
-# Elysia base template
+# Elysium base template
 #
 #   database           -> Postgres (pinned), the app's persistent state
 #   backend            -> Rust / Axum API on port 31416, hot-reloaded
@@ -14,7 +14,7 @@ name: elysia
 
 services:
   database:
-    container_name: elysia-database
+    container_name: elysium-database
     # Pinned to a specific patch release rather than `latest` for reproducibility.
     image: postgres:17.5-alpine
     restart: unless-stopped
@@ -25,7 +25,7 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - elysia-postgres-data:/var/lib/postgresql/data
+      - elysium-postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -33,7 +33,7 @@ services:
       retries: 10
 
   backend:
-    container_name: elysia-backend
+    container_name: elysium-backend
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -49,7 +49,6 @@ services:
       API_PORT: ${API_PORT:-31416}
       FRONTEND_PORT: ${FRONTEND_PORT:-5173}
       KEYCLOAK_PORT: ${KEYCLOAK_PORT:-8080}
-      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-elysium}
       # The one OIDC secret the environment supplies; everything else is derived.
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-dev-elysium-api-secret-change-in-prod}
     ports:
@@ -70,8 +69,8 @@ services:
       - ./proto:/proto:ro
       # Named volumes keep compiled artifacts and the crate registry warm across
       # restarts, so incremental rebuilds stay fast.
-      - elysia-cargo-target:/app/target
-      - elysia-cargo-registry:/usr/local/cargo/registry
+      - elysium-cargo-target:/app/target
+      - elysium-cargo-registry:/usr/local/cargo/registry
     depends_on:
       database:
         condition: service_healthy
@@ -84,7 +83,7 @@ services:
       start_period: 300s
 
   frontend:
-    container_name: elysia-frontend
+    container_name: elysium-frontend
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -107,7 +106,7 @@ services:
       - backend
 
   keycloak-database:
-    container_name: elysia-keycloak-database
+    container_name: elysium-keycloak-database
     # Same pinned Postgres as the app, but a separate instance and volume so
     # Keycloak's store never mingles with application data.
     image: postgres:17.5-alpine
@@ -117,7 +116,7 @@ services:
       POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
       POSTGRES_DB: ${KEYCLOAK_DB_NAME}
     volumes:
-      - elysia-keycloak-data:/var/lib/postgresql/data
+      - elysium-keycloak-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${KEYCLOAK_DB_USER} -d ${KEYCLOAK_DB_NAME}"]
       interval: 5s
@@ -125,7 +124,7 @@ services:
       retries: 10
 
   keycloak:
-    container_name: elysia-keycloak
+    container_name: elysium-keycloak
     # Pinned to a specific release for reproducibility.
     image: quay.io/keycloak/keycloak:26.3.2
     restart: unless-stopped
@@ -164,7 +163,7 @@ services:
         condition: service_healthy
 
 volumes:
-  elysia-postgres-data:
-  elysia-cargo-target:
-  elysia-cargo-registry:
-  elysia-keycloak-data:
+  elysium-postgres-data:
+  elysium-cargo-target:
+  elysium-cargo-registry:
+  elysium-keycloak-data:

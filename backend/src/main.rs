@@ -1,4 +1,4 @@
-//! Elysia backend: a minimal Axum API wired to Postgres.
+//! Elysium backend: a minimal Axum API wired to Postgres.
 //!
 //! The binary boots a Tokio runtime, initializes structured logging, lazily
 //! creates a Postgres connection pool, and serves the routes defined in
@@ -38,7 +38,7 @@ const DEFAULT_API_PORT: u16 = 31416;
 async fn main() -> eyre::Result<()> {
     // Respect `RUST_LOG` when present, otherwise default to a sensible level.
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,elysia_backend=debug"));
+        .unwrap_or_else(|_| EnvFilter::new("info,elysium_backend=debug"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     // Lazy pool and lazy JWKS: the process starts even if Postgres or Keycloak
@@ -64,7 +64,7 @@ async fn main() -> eyre::Result<()> {
         .await
         .wrap_err_with(|| format!("failed to bind {address}"))?;
 
-    tracing::info!(address = %address, "Elysia API listening");
+    tracing::info!(address = %address, "Elysium API listening");
 
     axum::serve(listener, api::router(state))
         .await

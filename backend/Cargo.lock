@@ -340,7 +340,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "elysia-backend"
+name = "elysium-backend"
 version = "0.1.0"
 dependencies = [
  "axum",
@@ -348,6 +348,7 @@ dependencies = [
  "base64",
  "eyre",
  "futures-core",
+ "getrandom 0.2.17",
  "jsonwebtoken",
  "mimalloc",
  "prost",

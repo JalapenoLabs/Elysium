@@ -1,30 +1,25 @@
-//! Keycloak token validation and the authenticated-user extractor.
+//! Keycloak token validation.
 //!
-//! Elysium does not issue its own tokens. Clients present a Keycloak-issued
-//! bearer token, and this module validates it: the signature against the realm's
-//! rotating JWKS, the issuer against the configured realm URL, and the expiry.
+//! Elysium does not issue its own tokens. It validates Keycloak-issued JWTs: the
+//! signature against the realm's rotating JWKS, the issuer against the configured
+//! realm URL, and the expiry. The BFF flow ([`crate::oidc`]) uses this to validate
+//! the ID token it receives at the callback; browser requests then authenticate
+//! via the session cookie ([`crate::session::SessionUser`]).
 //!
 //! The JWKS is fetched lazily and cached, so the API can start before Keycloak is
 //! reachable and recovers on key rotation by refetching when a token references an
-//! unknown key id. [`AuthenticatedUser`] is an Axum extractor: any handler that
-//! takes it by argument is protected, and unauthenticated requests are rejected
-//! with `401` before the handler runs.
+//! unknown key id.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::FromRequestParts;
-use axum::http::header::AUTHORIZATION;
-use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use eyre::WrapErr;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use tokio::sync::RwLock;
-
-use crate::state::AppState;
 
 /// How long to wait on the JWKS endpoint before giving up.
 const JWKS_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -182,8 +177,6 @@ impl Auth {
 /// Reason a request failed authentication, mapped to an HTTP status on rejection.
 #[derive(Debug)]
 pub enum AuthError {
-    /// No `Authorization: Bearer <token>` header was present.
-    MissingBearer,
     /// The token was malformed or failed signature/issuer/expiry validation.
     InvalidToken,
     /// The token references a signing key not present in the JWKS.
@@ -196,7 +189,6 @@ impl AuthError {
     /// Human-readable reason, shared by the log line and the HTTP response body.
     fn reason(&self) -> &'static str {
         match self {
-            AuthError::MissingBearer => "missing bearer token",
             AuthError::InvalidToken => "invalid token",
             AuthError::UnknownKey => "unknown signing key",
             AuthError::JwksUnavailable => "identity provider unavailable",
@@ -223,37 +215,5 @@ impl std::error::Error for AuthError {}
 impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
         (self.status(), self.reason()).into_response()
-    }
-}
-
-/// Axum extractor for a request authenticated by a valid Keycloak bearer token.
-///
-/// Adding an `AuthenticatedUser` argument to a handler makes that route require a
-/// valid bearer token; otherwise the request is rejected with the appropriate
-/// status before the handler body runs.
-///
-/// Browser requests now authenticate via the session cookie (see
-/// [`crate::session::SessionUser`]); this bearer extractor is retained for future
-/// service-to-service callers that present a token directly.
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub struct AuthenticatedUser(pub Claims);
-
-impl FromRequestParts<AppState> for AuthenticatedUser {
-    type Rejection = AuthError;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let token = parts
-            .headers
-            .get(AUTHORIZATION)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .ok_or(AuthError::MissingBearer)?;
-
-        let claims = state.auth.authenticate(token).await?;
-        Ok(AuthenticatedUser(claims))
     }
 }

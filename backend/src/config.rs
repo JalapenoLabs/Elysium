@@ -16,7 +16,10 @@ const DEFAULT_HOSTNAME: &str = "localhost";
 const DEFAULT_API_PORT: &str = "31416";
 const DEFAULT_KEYCLOAK_PORT: &str = "8080";
 const DEFAULT_FRONTEND_PORT: &str = "5173";
-const DEFAULT_REALM: &str = "elysium";
+
+/// Realm name, fixed to match `keycloak/realm-export.json`. Not configurable:
+/// changing it means re-authoring the realm, so there is nothing to override.
+const REALM: &str = "elysium";
 
 /// Every externally-shaped URL the backend needs, derived from the base config.
 ///
@@ -43,11 +46,10 @@ impl Deployment {
         let api_port = env_or("API_PORT", DEFAULT_API_PORT);
         let keycloak_port = env_or("KEYCLOAK_PORT", DEFAULT_KEYCLOAK_PORT);
         let frontend_port = env_or("FRONTEND_PORT", DEFAULT_FRONTEND_PORT);
-        let realm = env_or("KEYCLOAK_REALM", DEFAULT_REALM);
         let internal = env_or("KEYCLOAK_INTERNAL_HOST", DEFAULT_INTERNAL_KEYCLOAK);
 
-        let browser_realm = format!("http://{host}:{keycloak_port}/realms/{realm}");
-        let internal_realm = format!("http://{internal}/realms/{realm}");
+        let browser_realm = format!("http://{host}:{keycloak_port}/realms/{REALM}");
+        let internal_realm = format!("http://{internal}/realms/{REALM}");
 
         Self {
             authorize_url: format!("{browser_realm}/protocol/openid-connect/auth"),

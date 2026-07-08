@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---------------------------------------------------------------------------
-# Development image for the Elysia Vite + React frontend.
+# Development image for the Elysium Vite + React frontend.
 #
 # Dependencies install into a real node_modules (Yarn Berry, node-modules
 # linker) in a cached layer. At runtime Compose bind-mounts the project for

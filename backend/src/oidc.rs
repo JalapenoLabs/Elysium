@@ -67,10 +67,10 @@ impl OidcConfig {
 pub async fn login(State(state): State<AppState>, jar: CookieJar) -> impl IntoResponse {
     let config = &state.oidc;
 
+    // State and nonce are opaque unguessable values; UUIDv4 is exactly right.
     let csrf_state = Uuid::new_v4().to_string();
     let nonce = Uuid::new_v4().to_string();
-    // PKCE verifier: two hyphen-free UUIDs give ~64 unreserved chars (43..=128).
-    let verifier = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    let verifier = generate_pkce_verifier();
     let challenge = pkce_challenge(&verifier);
 
     // Stash state/nonce/verifier for the callback in an HttpOnly cookie.
@@ -262,6 +262,14 @@ async fn exchange_code(
         .wrap_err("token response was not valid JSON")?;
 
     Ok(tokens)
+}
+
+/// Generates a PKCE code verifier: 32 CSPRNG bytes, base64url-encoded (43 chars,
+/// within the required 43..=128 unreserved-character range).
+fn generate_pkce_verifier() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes).expect("system CSPRNG must be available");
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
 /// Computes the PKCE S256 code challenge from a verifier.
