@@ -11,9 +11,10 @@ import { useTranslation } from 'react-i18next'
 import { useAppSelector } from '../../store/hooks'
 
 // UI
-import { Button, Input } from '@heroui/react'
+import { Input } from '@heroui/react'
 import { AuthShell } from '../../components/auth/AuthShell'
 import { AuthCard } from '../../components/auth/AuthCard'
+import { SubmitButton } from '../../components/form/SubmitButton'
 
 // Misc
 import { signInWithPasskey } from '../../api/routes/authRoutes'
@@ -92,15 +93,13 @@ export function SignIn() {
           ? <p className='mt-3 text-sm text-danger'>{ errorMessage }</p>
           : null }
 
-        <Button
-          type='submit'
-          className='mt-6 w-full'
-          color='primary'
-          isLoading={isSubmitting}
-          isDisabled={isSubmitting || !canSubmit}
-        >
-          <span>{ t('auth:signIn.action') }</span>
-        </Button>
+        <SubmitButton
+          className='mt-6'
+          label={t('auth:signIn.action')}
+          isValid={canSubmit}
+          invalidReason={t('auth:signIn.emailRequired')}
+          isSubmitting={isSubmitting}
+        />
       </form>
     </AuthCard>
   </AuthShell>

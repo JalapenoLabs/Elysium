@@ -59,7 +59,8 @@
       "bioLabel": "Short bio",
       "bioPlaceholder": "What you do, in a sentence.",
       "statusLabel": "Status",
-      "action": "Finish setup"
+      "action": "Finish setup",
+      "required": "Enter your display name to continue."
     }
   },
   "invite": {
@@ -104,7 +105,8 @@
       "subtitle": "Your name, avatar, and status.",
       "displayNameLabel": "Display name",
       "bioLabel": "Short bio",
-      "statusLabel": "Status"
+      "statusLabel": "Status",
+      "required": "Enter a display name to save."
     }
   },
   "fault": {

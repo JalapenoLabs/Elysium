@@ -8,9 +8,10 @@ import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
 // UI
-import { Button, Input } from '@heroui/react'
+import { Input } from '@heroui/react'
 import { AuthShell } from '../../components/auth/AuthShell'
 import { AuthCard } from '../../components/auth/AuthCard'
+import { SubmitButton } from '../../components/form/SubmitButton'
 
 // Misc
 import { bootstrapPasskey } from '../../api/routes/authRoutes'
@@ -102,15 +103,13 @@ export function ClaimInstance() {
           ? <p className='mt-3 text-sm text-danger'>{ errorMessage }</p>
           : null }
 
-        <Button
-          type='submit'
-          className='mt-6 w-full'
-          color='primary'
-          isLoading={isSubmitting}
-          isDisabled={isSubmitting || !canSubmit}
-        >
-          <span>{ t('auth:setup.action') }</span>
-        </Button>
+        <SubmitButton
+          className='mt-6'
+          label={t('auth:setup.action')}
+          isValid={canSubmit}
+          invalidReason={t('auth:setup.required')}
+          isSubmitting={isSubmitting}
+        />
       </form>
     </AuthCard>
   </AuthShell>
