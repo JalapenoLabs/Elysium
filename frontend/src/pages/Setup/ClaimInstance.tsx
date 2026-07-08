@@ -60,29 +60,35 @@ export function ClaimInstance() {
       </h1>
       <p className='mt-3 opacity-80'>{ t('auth:setup.subtitle') }</p>
 
-      <div className='relaxed mt-6'>
-        <Input
-          autoFocus
-          label={t('auth:setup.displayNameLabel')}
-          placeholder={t('auth:setup.displayNamePlaceholder')}
-          value={displayName}
-          onChange={(event) => setDisplayName(event.currentTarget.value)}
-        />
-        <Input
-          type='email'
-          label={t('auth:setup.emailLabel')}
-          placeholder={t('auth:setup.emailPlaceholder')}
-          value={email}
-          onChange={(event) => setEmail(event.currentTarget.value)}
-        />
-        <Input
-          label={t('auth:setup.orgNameLabel')}
-          placeholder={t('auth:setup.orgNamePlaceholder')}
-          value={orgName}
-          isInvalid={Boolean(errorMessage)}
-          errorMessage={errorMessage}
-          onChange={(event) => setOrgName(event.currentTarget.value)}
-        />
+      <div className='mt-6'>
+        <div className='relaxed'>
+          <Input
+            autoFocus
+            label={t('auth:setup.displayNameLabel')}
+            placeholder={t('auth:setup.displayNamePlaceholder')}
+            value={displayName}
+            onChange={(event) => setDisplayName(event.currentTarget.value)}
+          />
+        </div>
+        <div className='relaxed'>
+          <Input
+            type='email'
+            label={t('auth:setup.emailLabel')}
+            placeholder={t('auth:setup.emailPlaceholder')}
+            value={email}
+            onChange={(event) => setEmail(event.currentTarget.value)}
+          />
+        </div>
+        <div className='relaxed'>
+          <Input
+            label={t('auth:setup.orgNameLabel')}
+            placeholder={t('auth:setup.orgNamePlaceholder')}
+            value={orgName}
+            isInvalid={Boolean(errorMessage)}
+            errorMessage={errorMessage}
+            onChange={(event) => setOrgName(event.currentTarget.value)}
+          />
+        </div>
       </div>
 
       <Button

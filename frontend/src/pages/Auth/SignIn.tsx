@@ -67,7 +67,7 @@ export function SignIn() {
         { t('auth:signIn.subtitle', { appName: t('common:appName') }) }
       </p>
 
-      <div className='relaxed mt-6'>
+      <div className='mt-6'>
         <Input
           autoFocus
           type='email'
