@@ -69,19 +69,21 @@ deb:
     FROM +linux-builder
     ENV ELYSIUM_MAKE_TARGET=deb
     RUN yarn make
-    SAVE ARTIFACT out/make/**/*.deb AS LOCAL out/make/
+    # Earthly's SAVE ARTIFACT does not support `**`, and each maker nests its
+    # output under its own subdir, so save the whole make tree.
+    SAVE ARTIFACT out/make AS LOCAL out/make/
 
 rpm:
     FROM +linux-builder
     ENV ELYSIUM_MAKE_TARGET=rpm
     RUN yarn make
-    SAVE ARTIFACT out/make/**/*.rpm AS LOCAL out/make/
+    SAVE ARTIFACT out/make AS LOCAL out/make/
 
 appimage:
     FROM +linux-builder
     ENV ELYSIUM_MAKE_TARGET=appimage
     RUN yarn make
-    SAVE ARTIFACT out/make/**/*.AppImage AS LOCAL out/make/
+    SAVE ARTIFACT out/make AS LOCAL out/make/
 
 # Windows installer, cross-built on Linux. Inherits the base build and adds Wine
 # + Mono so Forge's Squirrel maker can run the Windows toolchain; the i386
@@ -99,7 +101,7 @@ windows:
     CACHE /root/.cache/electron
     CACHE /desktop/node_modules/.cache
     RUN yarn make --platform=win32
-    SAVE ARTIFACT out/make/**/*.exe AS LOCAL out/make/
+    SAVE ARTIFACT out/make AS LOCAL out/make/
 
 # Build every installer in one shot. The targets are independent, so BuildKit
 # runs them in parallel.
