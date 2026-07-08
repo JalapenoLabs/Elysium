@@ -4,8 +4,11 @@ import type { FormEvent } from 'react'
 
 // Core
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { Navigate, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
+
+// Redux
+import { useAppSelector } from '../../store/hooks'
 
 // UI
 import { Input } from '@heroui/react'
@@ -26,6 +29,8 @@ import { UrlTree } from '../../urls'
 export function ClaimInstance() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const navigate = useNavigate()
+  const status = useAppSelector((state) => state.session.status)
+  const instanceClaimed = useAppSelector((state) => state.session.instanceClaimed)
 
   const [ displayName, setDisplayName ] = useState('')
   const [ email, setEmail ] = useState('')
@@ -39,6 +44,15 @@ export function ClaimInstance() {
   useEffect(() => {
     nameRef.current?.focus()
   }, [])
+
+  // The claim screen is only for a fresh, unclaimed instance. An authenticated user
+  // belongs in the app; a claimed-but-anonymous visitor should sign in instead.
+  if (status === 'authenticated') {
+    return <Navigate to={UrlTree.home} replace />
+  }
+  if (instanceClaimed === true) {
+    return <Navigate to={UrlTree.signIn} replace />
+  }
 
   // Name and email are required; the org name is optional. The submit button stays
   // disabled until these are filled, so the form never flags its own pristine empty

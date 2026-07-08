@@ -27,6 +27,7 @@ import { UrlTree } from '../../urls'
 export function SignIn() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const navigate = useNavigate()
+  const status = useAppSelector((state) => state.session.status)
   const instanceClaimed = useAppSelector((state) => state.session.instanceClaimed)
 
   const [ email, setEmail ] = useState('')
@@ -40,8 +41,11 @@ export function SignIn() {
     emailRef.current?.focus()
   }, [])
 
-  // An unclaimed instance has no accounts to sign in to: send the first user to
-  // the first-run claim screen instead.
+  // An authenticated user belongs in the app, not on the sign-in screen. An
+  // unclaimed instance has no accounts yet, so send the first user to first-run.
+  if (status === 'authenticated') {
+    return <Navigate to={UrlTree.home} replace />
+  }
   if (instanceClaimed === false) {
     return <Navigate to={UrlTree.setup} replace />
   }
