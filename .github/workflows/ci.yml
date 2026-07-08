@@ -2,12 +2,19 @@
 #
 # Continuous integration for Elysium.
 #
-# Verifies every push to `main` (and every pull request targeting it). The four
-# jobs run in parallel and are deliberately independent, so a failure in one does
-# not cancel the others: you get the full picture in a single run rather than a
+# Verifies every push to `main` (and every pull request targeting it). The jobs
+# run in parallel and are deliberately independent, so a failure in one does not
+# cancel the others: you get the full picture in a single run rather than a
 # fail-fast stop at the first red check. Within a job every check still runs even
 # after an earlier one fails (via `if: ${{ !cancelled() }}`, or continue-on-error
 # plus a final status report), then the job reports failed if any check failed.
+#
+# The test jobs run on the self-hosted Fedora runners tagged `non-earthly`, which
+# keep warm on-disk caches (cargo target/registry, yarn/node_modules, docker
+# layers) across runs. That is why there are no explicit cache actions and why the
+# checkouts that benefit use `clean: false` to preserve those build dirs. Package
+# installs use `dnf` (Fedora), not `apt-get`. The heavy Earthly desktop packaging
+# stays on the `earthly` runner.
 
 name: CI
 
@@ -34,7 +41,7 @@ jobs:
   # ----------------------------------------------------------------------------
   proto:
     name: Proto
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, non-earthly]
     steps:
       - uses: actions/checkout@v7
 
@@ -58,16 +65,21 @@ jobs:
   # ----------------------------------------------------------------------------
   backend:
     name: Backend
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, non-earthly]
     defaults:
       run:
         working-directory: backend
     steps:
+      # clean: false preserves backend/target across runs on the self-hosted
+      # runner, so incremental cargo builds stay warm without a cache action.
       - uses: actions/checkout@v7
+        with:
+          clean: false
 
       # build.rs shells out to protoc to generate the Rust types from ../proto.
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends protobuf-compiler
+      # Install only if the runner does not already have it (Fedora uses dnf).
+      - name: Ensure protoc
+        run: command -v protoc || sudo dnf install -y protobuf-compiler
 
       # Pinned to the same Rust the backend image uses (rust:1.96), so CI and
       # the container never drift.
@@ -75,11 +87,6 @@ jobs:
         uses: dtolnay/rust-toolchain@1.96.0
         with:
           components: rustfmt, clippy
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: backend
 
       - name: cargo fmt
         if: ${{ !cancelled() }}
@@ -108,12 +115,16 @@ jobs:
   # ----------------------------------------------------------------------------
   frontend:
     name: Frontend
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, non-earthly]
     defaults:
       run:
         working-directory: frontend
     steps:
+      # clean: false preserves node_modules and .yarn/cache across runs, so
+      # `yarn install --immutable` stays warm without a cache action.
       - uses: actions/checkout@v7
+        with:
+          clean: false
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -187,7 +198,7 @@ jobs:
   # ----------------------------------------------------------------------------
   integration:
     name: Integration
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, non-earthly]
     steps:
       - uses: actions/checkout@v7
 
@@ -195,7 +206,11 @@ jobs:
         run: cp .env.example .env
 
       - name: Start the stack
-        run: docker compose up --build -d
+        run: |
+          # Clear any containers/volumes a crashed prior run left behind on the
+          # shared runner before bringing the stack up.
+          docker compose down -v --remove-orphans || true
+          docker compose up --build -d
 
       - name: Wait for the backend and probe proto endpoints
         run: |
@@ -255,7 +270,67 @@ jobs:
 
       - name: Tear down
         if: ${{ always() }}
-        run: docker compose down -v
+        run: docker compose down -v --remove-orphans
+
+  # ----------------------------------------------------------------------------
+  # Migrations: apply every SQL migration to a throwaway Postgres, on a fresh
+  # database, in order, and fail loudly on any error. This catches broken SQL and
+  # migrations that only conflict at apply time (e.g. two PRs that both add a
+  # migration with the same version prefix, or a table created twice) before they
+  # reach a real database.
+  #
+  # The throwaway Postgres publishes a RANDOM host port (`-p 127.0.0.1:0:5432`) so
+  # it never collides with anything else on the shared self-hosted runner; the
+  # migrations are applied by psql inside the container, so the runner needs no
+  # Postgres client.
+  # ----------------------------------------------------------------------------
+  migrations:
+    name: Migrations
+    runs-on: [self-hosted, Linux, non-earthly]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Migration version prefixes are unique
+        run: |
+          dupes=$(ls backend/migrations/*.sql \
+            | xargs -n1 basename \
+            | sed -E 's/^([0-9]+)_.*/\1/' \
+            | sort | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::Duplicate migration version prefix(es): $dupes"
+            echo "Two migrations share a numeric prefix; renumber one of them."
+            exit 1
+          fi
+          echo "migration version prefixes are unique"
+
+      - name: Apply all migrations to a throwaway Postgres
+        run: |
+          set -euo pipefail
+          container="elysium-migrate-${{ github.run_id }}-${{ github.run_attempt }}"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          docker rm -f "$container" >/dev/null 2>&1 || true
+
+          docker run -d --name "$container" -p 127.0.0.1:0:5432 \
+            -e POSTGRES_USER=migrator \
+            -e POSTGRES_PASSWORD=migrator \
+            -e POSTGRES_DB=elysium_migrate_test \
+            postgres:17.5-alpine >/dev/null
+
+          echo "waiting for Postgres..."
+          for _ in $(seq 1 30); do
+            if docker exec "$container" pg_isready -U migrator -d elysium_migrate_test >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+
+          for file in $(ls backend/migrations/*.sql | sort); do
+            echo "applying $(basename "$file")"
+            docker exec -i "$container" \
+              psql -U migrator -d elysium_migrate_test -v ON_ERROR_STOP=1 --single-transaction \
+              < "$file"
+          done
+          echo "all migrations applied cleanly to a fresh database"
 
   # ----------------------------------------------------------------------------
   # Desktop shell: package the Electron app with Earthly. One matrix job per
