@@ -12,8 +12,11 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 mod api;
 mod auth;
+mod oidc;
 mod proto;
 mod protobuf;
+mod session;
+mod sse;
 mod state;
 
 use std::env;

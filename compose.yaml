@@ -47,6 +47,14 @@ services:
       # is why the fetch URL and the issuer differ.
       KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://localhost:8080/realms/elysium}
       KEYCLOAK_JWKS_URL: ${KEYCLOAK_JWKS_URL:-http://keycloak:8080/realms/elysium/protocol/openid-connect/certs}
+      # BFF (Backend-for-Frontend): the API is a confidential OIDC client and owns
+      # the whole Keycloak conversation; the browser only ever holds a cookie.
+      KEYCLOAK_INTERNAL_ISSUER: ${KEYCLOAK_INTERNAL_ISSUER:-http://keycloak:8080/realms/elysium}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-elysium-api}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-dev-elysium-api-secret-change-in-prod}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-http://localhost:31416/auth/callback}
+      APP_POST_LOGIN_URL: ${APP_POST_LOGIN_URL:-http://localhost:5173}
+      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:-http://localhost:5173}
     ports:
       - "${API_PORT:-31416}:31416"
     volumes:

@@ -5,6 +5,8 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
 use crate::auth::Auth;
+use crate::oidc::OidcConfig;
+use crate::sse::SseRegistry;
 
 /// Maximum number of pooled Postgres connections.
 ///
@@ -14,13 +16,18 @@ const MAX_DB_CONNECTIONS: u32 = 5;
 
 /// Handle to shared resources, cheaply cloneable into each handler.
 ///
-/// [`PgPool`] is internally reference counted and [`Auth`] holds its state behind
-/// an `Arc`, so cloning `AppState` clones handles rather than the underlying
-/// connections or key cache.
+/// [`PgPool`] is internally reference counted, [`Auth`] and [`reqwest::Client`]
+/// hold their state behind an `Arc`, and [`OidcConfig`] is small, so cloning
+/// `AppState` clones handles rather than the underlying connections or caches.
 #[derive(Clone, Debug)]
 pub struct AppState {
     pub pool: PgPool,
     pub auth: Auth,
+    pub oidc: OidcConfig,
+    /// Shared client for backchannel calls to Keycloak (token exchange, logout).
+    pub http: reqwest::Client,
+    /// Per-user live SSE connection counts, for the connection cap.
+    pub sse: SseRegistry,
 }
 
 impl AppState {
@@ -42,7 +49,17 @@ impl AppState {
             .wrap_err("failed to build Postgres connection pool")?;
 
         let auth = Auth::from_env()?;
+        let oidc = OidcConfig::from_env()?;
+        let http = reqwest::Client::builder()
+            .build()
+            .wrap_err("failed to build the backchannel HTTP client")?;
 
-        Ok(Self { pool, auth })
+        Ok(Self {
+            pool,
+            auth,
+            oidc,
+            http,
+            sse: SseRegistry::default(),
+        })
     }
 }

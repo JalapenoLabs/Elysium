@@ -201,11 +201,11 @@ Run this once PR #1 (the Electron shell) merges and a second window can be creat
 
 ## Roadmap
 
-- **Phase 1**: `POST /api/v1/session` (bearer to HttpOnly session cookie) and the
-  same-origin `/api` proxy; the Axum `GET /api/v1/events` SSE endpoint with the
-  per-user connection cap and a per-user broadcast; the `EventEnvelope` proto; a
-  plain browser `EventSource` client (no SharedWorker yet) to prove the stream and
-  cookie auth end to end.
+- **Phase 1**: **(landed)** the session cookie now comes from the BFF login
+  (`/auth/callback`, see `auth.md`), and `GET /api/v1/events` authenticates with it
+  and enforces `MAX_SSE_CONNECTIONS_PER_USER`. **Remaining**: the `EventEnvelope`
+  proto + per-user broadcast bus, and a plain browser `EventSource` client to prove
+  the stream end to end.
 - **Phase 2**: SharedWorker fan-out with `SNAPSHOT` + reconnect + resync-on-focus;
   dispatch envelopes into Redux.
 - **Phase 3**: Electron verification (the 4-point check); `utilityProcess` fallback

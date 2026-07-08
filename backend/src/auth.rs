@@ -42,6 +42,9 @@ pub struct Claims {
     /// Keycloak's `preferred_username`, if present.
     #[serde(default)]
     pub preferred_username: String,
+    /// OIDC `nonce`, present on ID tokens; used to bind the login callback.
+    #[serde(default)]
+    pub nonce: String,
 }
 
 /// Where to fetch keys and which issuer to trust, sourced from the environment.
@@ -228,11 +231,16 @@ impl IntoResponse for AuthError {
     }
 }
 
-/// Axum extractor for a request authenticated by a valid Keycloak token.
+/// Axum extractor for a request authenticated by a valid Keycloak bearer token.
 ///
 /// Adding an `AuthenticatedUser` argument to a handler makes that route require a
 /// valid bearer token; otherwise the request is rejected with the appropriate
 /// status before the handler body runs.
+///
+/// Browser requests now authenticate via the session cookie (see
+/// [`crate::session::SessionUser`]); this bearer extractor is retained for future
+/// service-to-service callers that present a token directly.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser(pub Claims);
 

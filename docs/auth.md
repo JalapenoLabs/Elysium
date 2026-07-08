@@ -260,8 +260,31 @@ Phase 1 and much of phases 4 to 6 (Surface B) are built in `frontend/`:
 - **i18n.** `i18next` + `react-i18next` are wired with `common` and `auth` namespaces (en-US).
 
 Not yet built, pending the backend BFF: **Surface A** (the Keycloakify ceremony theme) and the
-real `/api/v1/auth/*` endpoints (bootstrap, invites, sessions, context). Screens that need those
+richer `/api/v1/auth/*` endpoints (bootstrap, invites, sessions, context). Screens that need those
 endpoints are wired to the contract and degrade gracefully until the backend lands.
+
+## Implementation status (backend)
+
+The core BFF passthrough is built (`backend/src/oidc.rs`, `session.rs`; migration
+`0002_sessions.sql`), so the frontend's sign-in path now has a real backend:
+
+- **Confidential OIDC client.** The realm's client is `elysium-api` (confidential); the public SPA
+  client is retired. `GET /auth/login` redirects the browser into Keycloak's Authorization Code +
+  PKCE (S256) flow; `GET /auth/callback` exchanges the code over a backchannel, validates the ID
+  token (signature + issuer via the JWKS path, plus the `nonce`), and establishes a session.
+- **Server-side sessions.** Keycloak tokens live in the `sessions` table; the browser holds only an
+  opaque HttpOnly, Secure session cookie. `GET /api/v1/me` reads the cookie (the SPA's session
+  probe: 200 authed, 401 anon). `POST /api/v1/auth/logout` deletes the session and ends the
+  Keycloak session. `GET /auth/account` deep-links to Keycloak's account console.
+- **SSE rides the same cookie.** `GET /api/v1/events` authenticates with the session cookie (no
+  token in the URL) and enforces a per-user connection cap (see `docs/realtime.md`).
+
+Still open on the backend: `bootstrap` / `invites` / `context` / `sessions` endpoints, refresh-token
+rotation behind the cookie, and encryption-at-rest for stored tokens.
+
+Cross-origin caveat: today the SPA (`:5173`) calls the API (`:31416`) cross-origin, so the session
+cookie is `SameSite=None; Secure` and CORS is credentialed to the SPA origin. The robust path is the
+same-origin reverse proxy (open item below), which makes the cookie first-party.
 
 ## Resolved decisions
 

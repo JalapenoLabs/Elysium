@@ -1,38 +1,61 @@
 //! HTTP routing and request handlers for the Elysium API.
 //!
-//! Two kinds of routes live here. Infrastructure endpoints (`/` liveness and
-//! `/health`) answer as plain text and JSON, the shapes load balancers and uptime
-//! monitors expect. The versioned `/api/v1/*` routes answer as binary protobuf so
-//! the wire format matches the typed client end to end.
+//! Three kinds of routes live here. Infrastructure endpoints (`/` liveness and
+//! `/health`) answer as plain text and JSON. The BFF auth routes under `/auth/*`
+//! are browser redirects into and out of Keycloak (see [`crate::oidc`]). The
+//! versioned `/api/v1/*` routes answer as binary protobuf and are authenticated by
+//! the session cookie the auth flow sets.
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::{json, Value};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-use crate::auth::AuthenticatedUser;
 use crate::proto::auth::v1::MeResponse;
 use crate::proto::health::v1::{DatabaseHealthResponse, HelloResponse};
 use crate::protobuf::Protobuf;
+use crate::session::SessionUser;
 use crate::state::AppState;
+use crate::{oidc, sse};
+
+/// Origin allowed to make credentialed (cookie-bearing) requests to the API.
+const DEFAULT_CORS_ORIGIN: &str = "http://localhost:5173";
 
 /// Builds the application router with shared state and middleware attached.
 pub fn router(state: AppState) -> Router {
+    // Credentialed CORS: the SPA sends the session cookie cross-origin, which
+    // forbids a wildcard origin, so we echo one specific, configured origin.
+    let allowed_origin =
+        std::env::var("CORS_ALLOWED_ORIGIN").unwrap_or_else(|_| DEFAULT_CORS_ORIGIN.to_string());
+    let cors = CorsLayer::new()
+        .allow_origin(
+            allowed_origin
+                .parse::<HeaderValue>()
+                .expect("CORS_ALLOWED_ORIGIN must be a valid origin"),
+        )
+        .allow_credentials(true)
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([header::CONTENT_TYPE]);
+
     Router::new()
         .route("/", get(ping))
         .route("/health", get(health))
+        // BFF auth: browser redirects into and out of Keycloak.
+        .route("/auth/login", get(oidc::login))
+        .route("/auth/callback", get(oidc::callback))
+        .route("/auth/account", get(oidc::account))
+        // Versioned API (protobuf), authenticated by the session cookie.
         .route("/api/v1/hello", get(hello))
         .route("/api/v1/db/health", get(database_health))
         .route("/api/v1/me", get(me))
+        .route("/api/v1/auth/logout", post(oidc::logout))
+        .route("/api/v1/events", get(sse::events))
         .layer(TraceLayer::new_for_http())
-        // Permissive CORS is fine for local development where the Vite dev
-        // server calls the API from a different origin. Lock this down before
-        // shipping anything to a shared environment.
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .with_state(state)
 }
 
@@ -56,15 +79,16 @@ async fn hello() -> Protobuf<HelloResponse> {
     })
 }
 
-/// Returns the authenticated principal, projected from the validated token.
+/// Returns the authenticated principal for the session cookie.
 ///
-/// Protected: the [`AuthenticatedUser`] extractor rejects the request with `401`
-/// before this runs unless a valid Keycloak bearer token is present.
-async fn me(AuthenticatedUser(claims): AuthenticatedUser) -> Protobuf<MeResponse> {
+/// Protected: the [`SessionUser`] extractor rejects the request with `401` before
+/// this runs unless a valid session cookie is present. The SPA also uses this as
+/// its session probe (200 = signed in, 401 = anonymous).
+async fn me(SessionUser(principal): SessionUser) -> Protobuf<MeResponse> {
     Protobuf(MeResponse {
-        subject: claims.sub,
-        email: claims.email,
-        username: claims.preferred_username,
+        subject: principal.sub,
+        email: principal.email,
+        username: principal.username,
     })
 }
 
