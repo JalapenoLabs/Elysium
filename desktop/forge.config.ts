@@ -7,20 +7,22 @@ import type { ForgeConfig, IForgeResolvableMaker } from '@electron-forge/shared-
 // interop for the community AppImage maker. `platforms` limits each maker to the
 // OS it can produce, so Forge skips the others for a given `make` invocation.
 const MAKER_BY_TARGET: Record<string, IForgeResolvableMaker> = {
+  // `bin` must match packagerConfig.executableName, or the Linux makers look for
+  // a binary named after the package and fail to find the packaged executable.
   deb: {
     name: '@electron-forge/maker-deb',
     platforms: [ 'linux' ],
-    config: { options: { categories: [ 'Development' ] } },
+    config: { options: { bin: 'elysium', categories: [ 'Development' ] } },
   },
   rpm: {
     name: '@electron-forge/maker-rpm',
     platforms: [ 'linux' ],
-    config: { options: { categories: [ 'Development' ], license: 'UNLICENSED' } },
+    config: { options: { bin: 'elysium', categories: [ 'Development' ], license: 'UNLICENSED' } },
   },
   appimage: {
     name: '@reforged/maker-appimage',
     platforms: [ 'linux' ],
-    config: { options: { categories: [ 'Development' ] } },
+    config: { options: { bin: 'elysium', categories: [ 'Development' ] } },
   },
   windows: {
     name: '@electron-forge/maker-squirrel',
