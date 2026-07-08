@@ -27,7 +27,10 @@ const MAKER_BY_TARGET: Record<string, IForgeResolvableMaker> = {
   windows: {
     name: '@electron-forge/maker-squirrel',
     platforms: [ 'win32' ],
-    config: {},
+    // Plain-text authors/owners: the package.json author carries an angle-bracket
+    // email, which is valid for Debian's maintainer field but breaks Squirrel's
+    // NuGet nuspec XML (the <email> reads as an unclosed tag).
+    config: { authors: 'Jalapeno Labs LLC', owners: 'Jalapeno Labs LLC' },
   },
 }
 
