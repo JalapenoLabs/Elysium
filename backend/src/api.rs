@@ -7,12 +7,11 @@
 //! the session cookie the auth flow sets.
 
 use axum::extract::State;
-use axum::http::{header, HeaderValue, Method, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::{json, Value};
-use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::proto::auth::v1::MeResponse;
@@ -23,22 +22,10 @@ use crate::state::AppState;
 use crate::{oidc, sse};
 
 /// Builds the application router with shared state and middleware attached.
+///
+/// No CORS layer: the SPA reaches the API and the auth routes same-origin through
+/// the frontend proxy, so every browser request is first-party.
 pub fn router(state: AppState) -> Router {
-    // Credentialed CORS: the SPA sends the session cookie cross-origin, which
-    // forbids a wildcard origin, so we echo the one derived app origin (the same
-    // origin the login flow redirects back to).
-    let cors = CorsLayer::new()
-        .allow_origin(
-            state
-                .oidc
-                .post_login_url
-                .parse::<HeaderValue>()
-                .expect("app origin is a valid origin"),
-        )
-        .allow_credentials(true)
-        .allow_methods([Method::GET, Method::POST])
-        .allow_headers([header::CONTENT_TYPE]);
-
     Router::new()
         .route("/", get(ping))
         .route("/health", get(health))
@@ -53,7 +40,6 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/auth/logout", post(oidc::logout))
         .route("/api/v1/events", get(sse::events))
         .layer(TraceLayer::new_for_http())
-        .layer(cors)
         .with_state(state)
 }
 

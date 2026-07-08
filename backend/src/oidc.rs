@@ -171,10 +171,12 @@ pub async fn callback(
         }
     };
 
+    // First-party cookie (the SPA and API share one origin via the proxy), so
+    // SameSite=Lax is correct and sufficient; no SameSite=None is needed.
     let session_cookie = Cookie::build((SESSION_COOKIE, session_id.to_string()))
         .http_only(true)
         .secure(true)
-        .same_site(SameSite::None)
+        .same_site(SameSite::Lax)
         .path("/")
         .build();
 

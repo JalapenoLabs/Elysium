@@ -282,9 +282,11 @@ The core BFF passthrough is built (`backend/src/oidc.rs`, `session.rs`; migratio
 Still open on the backend: `bootstrap` / `invites` / `context` / `sessions` endpoints, refresh-token
 rotation behind the cookie, and encryption-at-rest for stored tokens.
 
-Cross-origin caveat: today the SPA (`:5173`) calls the API (`:31416`) cross-origin, so the session
-cookie is `SameSite=None; Secure` and CORS is credentialed to the SPA origin. The robust path is the
-same-origin reverse proxy (open item below), which makes the cookie first-party.
+Same-origin: the SPA, its `/api` routes, and its `/auth` routes are served from one origin (the
+Vite dev server proxies `/api` and `/auth` to the backend; production uses a reverse proxy). So
+the session cookie is first-party (`SameSite=Lax; Secure; HttpOnly`), there is no CORS, and the
+OIDC redirect lands on the app origin and is proxied to the backend's `/auth/callback`. The
+backend derives its URLs so `redirect_uri` is the app origin (`backend/src/config.rs`).
 
 ## Resolved decisions
 
@@ -296,9 +298,10 @@ same-origin reverse proxy (open item below), which makes the cookie first-party.
 
 ## Open items
 
-- **Reverse-proxy topology.** The exact domain/path layout that puts Keycloak, the SPA, and the
-  API on one origin (subpath `/auth` vs. subdomain) and the matching WebAuthn RP ID, to confirm
-  with the deployment/compose setup.
+- **Reverse-proxy topology (production).** In dev the SPA proxies `/api` and `/auth` to the
+  backend, so the app is already one origin and the session cookie is first-party. Production
+  still needs the gateway that also fronts Keycloak on that same origin (subpath `/auth` vs.
+  subdomain) and the matching WebAuthn RP ID.
 - **Keycloakify build integration.** Wiring the theme build into `frontend/` and CI so the theme
   ships with the realm.
 - **Session cookie specifics.** Server-side session store, idle/absolute lifetimes, and refresh

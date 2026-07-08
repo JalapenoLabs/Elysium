@@ -7104,9 +7104,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"elysia-frontend@workspace:.":
+"elysium-frontend@workspace:.":
   version: 0.0.0-use.local
-  resolution: "elysia-frontend@workspace:."
+  resolution: "elysium-frontend@workspace:."
   dependencies:
     "@bufbuild/buf": "npm:^1.71.0"
     "@bufbuild/protobuf": "npm:^2.12.1"

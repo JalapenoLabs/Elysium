@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-// Base URL for the Rust API. Injected at build time by Vite; falls back to the
-// port the backend publishes locally so the template runs with zero config.
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:31416'
+// The API and auth routes are served same-origin (the dev server / production
+// gateway proxies `/api` and `/auth` to the backend), so the client just uses the
+// current origin. No cross-origin base URL, no CORS.
+export const API_BASE_URL = window.location.origin

@@ -89,9 +89,10 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      # The browser reaches the API here; derived from the base host + port. The
-      # frontend talks only to the API (never Keycloak), so no OIDC config here.
-      VITE_API_BASE_URL: http://${ELYSIUM_HOSTNAME:-localhost}:${API_PORT:-31416}
+      # Same-origin: the dev server proxies `/api` and `/auth` to the backend, so
+      # the SPA uses its own origin and no VITE_API_BASE_URL is needed. This is the
+      # upstream the Vite proxy forwards to inside the Compose network.
+      API_PROXY_TARGET: http://backend:31416
       # Windows/Docker bind mounts don't emit inotify events reliably, so Vite
       # falls back to polling for file changes (wired up in vite.config.ts).
       CHOKIDAR_USEPOLLING: "true"

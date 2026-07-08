@@ -13,7 +13,6 @@
 const DEFAULT_INTERNAL_KEYCLOAK: &str = "keycloak:8080";
 
 const DEFAULT_HOSTNAME: &str = "localhost";
-const DEFAULT_API_PORT: &str = "31416";
 const DEFAULT_KEYCLOAK_PORT: &str = "8080";
 const DEFAULT_FRONTEND_PORT: &str = "5173";
 
@@ -43,13 +42,17 @@ impl Deployment {
     /// Derives all URLs from the base environment overrides, each with a default.
     pub fn from_env() -> Self {
         let host = env_or("ELYSIUM_HOSTNAME", DEFAULT_HOSTNAME);
-        let api_port = env_or("API_PORT", DEFAULT_API_PORT);
         let keycloak_port = env_or("KEYCLOAK_PORT", DEFAULT_KEYCLOAK_PORT);
         let frontend_port = env_or("FRONTEND_PORT", DEFAULT_FRONTEND_PORT);
         let internal = env_or("KEYCLOAK_INTERNAL_HOST", DEFAULT_INTERNAL_KEYCLOAK);
 
         let browser_realm = format!("http://{host}:{keycloak_port}/realms/{REALM}");
         let internal_realm = format!("http://{internal}/realms/{REALM}");
+        // The API and SPA share one origin (the SPA proxies `/api` and `/auth` to
+        // the backend), so the OIDC redirect lands on the app origin and is proxied
+        // to the backend's `/auth/callback`. This keeps the session cookie
+        // first-party.
+        let app_origin = format!("http://{host}:{frontend_port}");
 
         Self {
             authorize_url: format!("{browser_realm}/protocol/openid-connect/auth"),
@@ -57,8 +60,8 @@ impl Deployment {
             token_url: format!("{internal_realm}/protocol/openid-connect/token"),
             logout_url: format!("{internal_realm}/protocol/openid-connect/logout"),
             jwks_url: format!("{internal_realm}/protocol/openid-connect/certs"),
-            redirect_uri: format!("http://{host}:{api_port}/auth/callback"),
-            app_origin: format!("http://{host}:{frontend_port}"),
+            redirect_uri: format!("{app_origin}/auth/callback"),
+            app_origin,
             issuer: browser_realm,
         }
     }
