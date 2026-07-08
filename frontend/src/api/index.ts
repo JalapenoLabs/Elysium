@@ -11,38 +11,20 @@ import ky from 'ky'
 import { fromBinary } from '@bufbuild/protobuf'
 
 // Misc
-import { keycloak } from '../auth/keycloak'
 import { API_BASE_URL } from '../constants'
-
-// Refresh the token when it has less than this many seconds left before attaching.
-const TOKEN_MIN_VALIDITY_SECONDS = 30
 
 // Shared Ky instance. Route modules under `./routes` build on top of this.
 export const apiClient = ky.create({
   // Ky 2.0 uses the web-standard `baseUrl`; relative inputs like 'api/v1/hello'
   // resolve against it.
   baseUrl: API_BASE_URL,
+  // The session is an HttpOnly cookie set by the API (BFF token-handler); the
+  // browser never holds a token. `credentials: 'include'` sends that cookie on
+  // every request so protected routes are authenticated automatically.
+  credentials: 'include',
   // Local dev talks to a single API instance; skip retries so failures surface
   // immediately instead of stalling the UI.
   retry: 0,
-  hooks: {
-    beforeRequest: [
-      async ({ request }) => {
-        // Anonymous requests (health, hello) go out without a token; only attach
-        // one once the user has authenticated with Keycloak.
-        if (!keycloak.authenticated) {
-          return
-        }
-        try {
-          await keycloak.updateToken(TOKEN_MIN_VALIDITY_SECONDS)
-          request.headers.set('Authorization', `Bearer ${keycloak.token}`)
-        }
-        catch (error) {
-          console.debug('token refresh failed; sending request without auth', error)
-        }
-      },
-    ],
-  },
 })
 
 // Fetches a binary protobuf body and decodes it against its generated schema.

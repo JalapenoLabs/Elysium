@@ -9,13 +9,13 @@ import { useState } from 'react'
 import { Button, Card, CardBody, CardHeader, Code, Divider } from '@heroui/react'
 
 // Misc
-import { useAuth } from '../../auth/useAuth'
+import { useSession } from '../../auth/useSession'
 import { getMe } from '../../api/routes/authRoutes'
 
-// Exercises the protected `/api/v1/me` route with the Keycloak bearer token. When
-// signed out it invites sign-in; when signed in it loads and shows the principal.
+// Exercises the protected `/api/v1/me` route with the session cookie. When signed
+// out it invites sign-in; when signed in it loads and shows the principal.
 export function ProfilePanel() {
-  const auth = useAuth()
+  const session = useSession()
   const [ me, setMe ] = useState<MeResponse | null>(null)
   const [ errorMessage, setErrorMessage ] = useState<string | null>(null)
   const [ isLoading, setIsLoading ] = useState(false)
@@ -47,9 +47,9 @@ export function ProfilePanel() {
     <Divider />
     <CardBody className='relaxed'>
       <p className='opacity-80'>
-        Calls the protected /api/v1/me route with your Keycloak token.
+        Calls the protected /api/v1/me route with your session cookie.
       </p>{
-        auth.authenticated
+        session.isAuthenticated
           ? <div className='level'>
             <Button
               color='primary'

@@ -86,11 +86,23 @@ band, by an admin-initiated "set up credential" action email or a dedicated onbo
 onboarding UX is deferred to the Keycloakify work (Phase C) and the account/admin surfaces; it is
 intentionally not solved by the realm import alone.
 
+## Auth UI direction
+
+The user-facing auth surface is designed in `auth.md`. Keycloak owns user security and auth fully
+(it stores and verifies every passkey/TOTP secret and runs every ceremony, as the WebAuthn
+Relying Party). The login UI is Elysium's own React compiled to a Keycloak theme via
+**Keycloakify**, and Keycloak is deployed behind Elysium's gateway on one origin so the browser
+never sees a non-Elysium page. Token custody is a **BFF token-handler**: Elysium's API is a
+**confidential** OIDC client that keeps tokens server-side and hands the browser only an HttpOnly
+session cookie. This retires the browser-side PKCE + public SPA client wiring; the realm's client
+becomes confidential.
+
 ## Roadmap
 
-- **Phase C (remaining)**: Keycloakify React theme for login/register/2FA, so the login screens
-  are Elysium's own React rather than Keycloak's stock pages.
-- **Phase D**: frontend OIDC login (PKCE) wired to the protected API, and route guards.
-- Just-in-time user provisioning and admin-initiated passwordless enrollment emails.
+- Confidential OIDC client, server-side session store + HttpOnly cookie, reverse-proxy topology
+  putting Keycloak, the SPA, and the API on one origin, and the `/api/v1/auth/*` contract in
+  `auth.md`.
+- Keycloakify theme for the ceremony (login, passkey, TOTP, enrollment, recovery).
+- Invite-only onboarding via copyable signed links, and first-run root-user bootstrap.
 - A permission model over teams, and audience enforcement on the API.
 - Organization-, team-, and user-provided Keycloak identity providers / brokering.

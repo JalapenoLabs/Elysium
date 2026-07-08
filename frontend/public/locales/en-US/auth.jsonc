@@ -1,0 +1,125 @@
+{
+  "splash": {
+    "tagline": "Your entire workspace, in one place.",
+    "resolving": "Getting things ready"
+  },
+  "signIn": {
+    "title": "Welcome back",
+    "subtitle": "Sign in to continue to {{appName}}.",
+    "action": "Sign in with your passkey"
+  },
+  "signingIn": {
+    "title": "Signing you in",
+    "subtitle": "One moment while {{aiName}} gets your workspace ready."
+  },
+  "signedOut": {
+    "title": "You're signed out",
+    "body": "Your session has ended. Sign back in whenever you're ready.",
+    "action": "Sign back in"
+  },
+  "sessionExpired": {
+    "title": "Welcome back",
+    "body": "Your session timed out for security. Tap your passkey to pick up right where you left off.",
+    "action": "Continue"
+  },
+  "setup": {
+    "eyebrow": "First-time setup",
+    "title": "Claim this {{appName}} instance",
+    "subtitle": "You're the first one here. Create the owner account that will run this workspace.",
+    "displayNameLabel": "Your name",
+    "displayNamePlaceholder": "Ada Lovelace",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "orgNameLabel": "Organization name",
+    "orgNamePlaceholder": "Analytical Engines",
+    "action": "Create owner account",
+    "note": "Next, you'll create a passkey and save your recovery codes. No passwords, ever."
+  },
+  "onboarding": {
+    "welcome": {
+      "eyebrow": "Welcome",
+      "title": "Welcome to {{appName}}",
+      "body": "Let's set up your sign-in and profile. It takes about a minute.",
+      "passkeyStep": "Create a passkey",
+      "recoveryStep": "Save your recovery codes",
+      "profileStep": "Set up your profile",
+      "action": "Get started"
+    },
+    "profile": {
+      "title": "Set up your profile",
+      "subtitle": "This is how teammates will see you.",
+      "displayNameLabel": "Display name",
+      "displayNamePlaceholder": "Ada Lovelace",
+      "bioLabel": "Short bio",
+      "bioPlaceholder": "What you do, in a sentence.",
+      "statusLabel": "Status",
+      "action": "Finish setup"
+    }
+  },
+  "invite": {
+    "accept": {
+      "eyebrow": "You're invited",
+      "title": "Join {{orgName}}",
+      "body": "{{inviterName}} invited you to join as {{roleName}}. Create a passkey to accept.",
+      "action": "Accept invitation",
+      "verifying": "Checking your invitation"
+    },
+    "invalid": {
+      "title": "This invitation isn't valid",
+      "body": "It may have expired or already been used. Ask an admin to send you a new link.",
+      "action": "Back to sign in"
+    }
+  },
+  "settings": {
+    "security": {
+      "title": "Security",
+      "subtitle": "Manage how you sign in.",
+      "passkeysTitle": "Passkeys",
+      "passkeysBody": "Devices that can sign you in with a tap.",
+      "authenticatorsTitle": "Authenticator apps",
+      "authenticatorsBody": "One-time codes as a backup factor.",
+      "recoveryTitle": "Recovery codes",
+      "recoveryBody": "One-time codes for when you lose a device.",
+      "addPasskey": "Add a passkey",
+      "manage": "Manage",
+      "empty": "Nothing here yet."
+    },
+    "sessions": {
+      "title": "Active sessions",
+      "subtitle": "Where you're signed in right now.",
+      "thisDevice": "This device",
+      "lastSeen": "Last seen {{when}}",
+      "signOut": "Sign out",
+      "signOutAll": "Sign out everywhere else",
+      "empty": "No other active sessions."
+    },
+    "profile": {
+      "title": "Profile",
+      "subtitle": "Your name, avatar, and status.",
+      "displayNameLabel": "Display name",
+      "bioLabel": "Short bio",
+      "statusLabel": "Status"
+    }
+  },
+  "fault": {
+    "denied": {
+      "title": "You don't have access to this",
+      "body": "Your account is signed in, but it isn't on a team with permission for this area. Ask an admin if you think this is a mistake.",
+      "action": "Back to home"
+    },
+    "suspended": {
+      "title": "Your account is locked",
+      "body": "For your security, sign-in is paused after too many attempts, or an admin has suspended this account. Try again later or contact an admin.",
+      "action": "Back to sign in"
+    },
+    "unavailable": {
+      "title": "We can't reach sign-in right now",
+      "body": "The identity service isn't responding. This is usually temporary. Please try again in a moment.",
+      "action": "Try again"
+    }
+  },
+  "placeholderArt": {
+    "label": "Art placeholder",
+    "presence": "{{aiName}} presence (placeholder)"
+  }
+}

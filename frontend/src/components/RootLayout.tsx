@@ -6,10 +6,12 @@ import { Outlet, useHref, useNavigate } from 'react-router'
 
 // UI
 import { HeroUIProvider } from '@heroui/react'
-import { NavBar } from './NavBar'
 
 // Redux
 import { useAppSelector } from '../store/hooks'
+
+// Misc
+import { resolveSession } from '../auth/session'
 
 export function RootLayout() {
   const navigate = useNavigate()
@@ -22,10 +24,16 @@ export function RootLayout() {
     root.classList.add(themeMode)
   }, [ themeMode ])
 
+  // Resolve the session once on load; the route guards react to the result.
+  useEffect(() => {
+    void resolveSession()
+  }, [])
+
+  // Providers only: theme, session, and HeroUI routing. The app chrome (NavBar)
+  // lives in AppLayout so the full-screen auth screens can render without it.
   // Passing navigate/useHref lets HeroUI's Link route client-side via React Router.
   return <HeroUIProvider navigate={navigate} useHref={useHref}>
     <div className='bg-background text-foreground min-h-screen'>
-      <NavBar />
       <Outlet />
     </div>
   </HeroUIProvider>

@@ -1,5 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
+// Core
+import { useTranslation } from 'react-i18next'
+
 // UI
 import { Navbar, NavbarBrand, NavbarContent, NavbarItem, Link, Switch, Button } from '@heroui/react'
 
@@ -8,24 +11,25 @@ import { useAppDispatch, useAppSelector } from '../store/hooks'
 import { toggleTheme } from '../store/themeSlice'
 
 // Misc
-import { useAuth } from '../auth/useAuth'
+import { useSession } from '../auth/useSession'
 import { UrlTree } from '../urls'
 
 export function NavBar() {
+  const { t } = useTranslation('common')
   const dispatch = useAppDispatch()
   const themeMode = useAppSelector((state) => state.theme.mode)
-  const auth = useAuth()
+  const session = useSession()
 
   return <Navbar maxWidth='lg' isBordered>
     <NavbarBrand>
-      <span className='font-bold text-inherit'>Elysia</span>
+      <span className='font-bold text-inherit'>{ t('aiName') }</span>
     </NavbarBrand>
     <NavbarContent justify='center'>
       <NavbarItem>
-        <Link color='foreground' href={UrlTree.home}>Home</Link>
+        <Link color='foreground' href={UrlTree.home}>{ t('nav.home') }</Link>
       </NavbarItem>
       <NavbarItem>
-        <Link color='foreground' href={UrlTree.about}>About</Link>
+        <Link color='foreground' href={UrlTree.about}>{ t('nav.about') }</Link>
       </NavbarItem>
     </NavbarContent>
     <NavbarContent justify='end'>
@@ -34,16 +38,20 @@ export function NavBar() {
           isSelected={themeMode === 'dark'}
           onValueChange={() => dispatch(toggleTheme())}
         >
-          Dark
+          { t('theme.dark') }
         </Switch>
       </NavbarItem>
       <NavbarItem>{
-        auth.authenticated
-          ? <Button variant='flat' onPress={auth.logout}>
-            <span>Sign out{ auth.username && ` (${auth.username})` }</span>
+        session.isAuthenticated
+          ? <Button variant='flat' onPress={session.signOut}>
+            <span>{
+              session.principal?.username
+                ? t('actions.signOutAs', { name: session.principal.username })
+                : t('actions.signOut')
+            }</span>
           </Button>
-          : <Button color='primary' onPress={auth.login}>
-            <span>Sign in</span>
+          : <Button color='primary' onPress={session.signIn}>
+            <span>{ t('actions.signIn') }</span>
           </Button>
       }</NavbarItem>
     </NavbarContent>

@@ -30,3 +30,153 @@
     gap: 0.75rem;
   }
 }
+
+/*
+  Auth cinematic layer. These styles back the placeholder art (AmbientBackground,
+  ElysiaPresence) and the shared AuthShell layout. Colors are driven by CSS
+  variables set per state so the same markup speaks the whole state-color grammar.
+  All motion is disabled under `prefers-reduced-motion`.
+*/
+.auth-shell {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+.auth-shell__content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 26rem;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1.5rem;
+}
+
+.auth-shell__presence {
+  align-self: center;
+}
+
+/* Ambient background: a dark field with two drifting, state-colored blobs. */
+.auth-aura {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: #05060a;
+}
+
+.auth-aura__blob {
+  position: absolute;
+  width: 42rem;
+  height: 42rem;
+  border-radius: 9999px;
+  filter: blur(80px);
+  opacity: 0.5;
+  transition: background-color 600ms ease;
+  will-change: transform;
+}
+
+.auth-aura__blob--one {
+  top: -12rem;
+  left: -8rem;
+  background: radial-gradient(circle at center, var(--aura-accent), transparent 70%);
+  animation: auth-aura-drift-one 22s ease-in-out infinite alternate;
+}
+
+.auth-aura__blob--two {
+  bottom: -14rem;
+  right: -10rem;
+  background: radial-gradient(circle at center, var(--aura-secondary), transparent 70%);
+  animation: auth-aura-drift-two 26s ease-in-out infinite alternate;
+}
+
+.auth-aura__scrim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 30%, rgba(5, 6, 10, 0.75) 100%);
+}
+
+@keyframes auth-aura-drift-one {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(6rem, 4rem, 0) scale(1.12); }
+}
+
+@keyframes auth-aura-drift-two {
+  from { transform: translate3d(0, 0, 0) scale(1.05); }
+  to { transform: translate3d(-5rem, -3rem, 0) scale(0.95); }
+}
+
+/* Elysia presence: layered rings around a glowing core, pulsing by state. */
+.auth-presence {
+  position: relative;
+  width: 5.5rem;
+  height: 5.5rem;
+  display: grid;
+  place-items: center;
+}
+
+.auth-presence__ring,
+.auth-presence__core {
+  position: absolute;
+  border-radius: 9999px;
+  transition: border-color 600ms ease, background-color 600ms ease;
+}
+
+.auth-presence__ring {
+  border: 1px solid var(--presence-accent);
+  opacity: 0.55;
+}
+
+.auth-presence__ring--outer {
+  width: 5.5rem;
+  height: 5.5rem;
+  animation: auth-presence-pulse 3.2s ease-in-out infinite;
+}
+
+.auth-presence__ring--middle {
+  width: 3.75rem;
+  height: 3.75rem;
+  animation: auth-presence-pulse 3.2s ease-in-out infinite 0.4s;
+}
+
+.auth-presence__core {
+  width: 2rem;
+  height: 2rem;
+  background: var(--presence-accent);
+  box-shadow: 0 0 2.5rem var(--presence-accent);
+  animation: auth-presence-breathe 3.2s ease-in-out infinite;
+}
+
+/* When it's the user's turn, the presence leans in faster and brighter. */
+.auth-presence--needsInput .auth-presence__core {
+  animation-duration: 1.4s;
+}
+
+.auth-presence--needsInput .auth-presence__ring {
+  animation-duration: 1.4s;
+}
+
+@keyframes auth-presence-pulse {
+  0% { transform: scale(0.9); opacity: 0.15; }
+  50% { transform: scale(1.05); opacity: 0.6; }
+  100% { transform: scale(0.9); opacity: 0.15; }
+}
+
+@keyframes auth-presence-breathe {
+  0% { transform: scale(0.92); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(0.92); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-aura__blob,
+  .auth-presence__ring,
+  .auth-presence__core {
+    animation: none;
+  }
+}

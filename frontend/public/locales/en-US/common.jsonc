@@ -1,0 +1,30 @@
+{
+  "appName": "Elysium",
+  "aiName": "Elysia",
+  "nav": {
+    "home": "Home",
+    "about": "About"
+  },
+  "actions": {
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "signOutAs": "Sign out ({{name}})",
+    "continue": "Continue",
+    "back": "Back",
+    "retry": "Try again",
+    "copy": "Copy",
+    "copied": "Copied",
+    "cancel": "Cancel",
+    "save": "Save changes",
+    "done": "Done"
+  },
+  "theme": {
+    "dark": "Dark"
+  },
+  "status": {
+    "online": "Online",
+    "away": "Away",
+    "offline": "Offline",
+    "outOfOffice": "Out of office"
+  }
+}
