@@ -1,0 +1,45 @@
+# electron-builder configuration for the Elysium desktop shell.
+#
+# Exporters wired today:
+#   Linux -> deb, rpm, AppImage
+#   Windows -> NSIS installer (built on Linux via Wine)
+#
+# macOS (dmg / zip, notarization, universal arm64 + x64) is a later phase; the
+# `mac` block is intentionally omitted and documented in docs/desktop.md.
+#
+# The build only compiles and packages the Electron shell. The web app is served
+# by the dockerized stack at runtime and is deliberately NOT bundled here.
+
+appId: io.jalapenolabs.elysium.desktop
+productName: Elysium
+
+directories:
+  # Keep installer output separate from the TypeScript build output (dist/).
+  output: release
+  buildResources: build
+
+# Ship only the compiled main/preload, the static launcher fallback, and the
+# manifest. node_modules that Electron needs are resolved by electron-builder.
+files:
+  - dist/**/*
+  - static/**/*
+  - package.json
+
+linux:
+  target:
+    - deb
+    - rpm
+    - AppImage
+  # freedesktop application category.
+  category: Development
+  synopsis: Open-source, self-hosted, all-in-one business workspace.
+
+# Wine on the Linux builder produces the Windows installer (see Earthfile).
+win:
+  target:
+    - nsis
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true

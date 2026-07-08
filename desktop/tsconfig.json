@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    // The Electron main and preload run in Node, not the browser, so target the
+    // Node runtime Electron 43 ships (Node 22 / ES2023) and emit CommonJS.
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "node16",
+    "moduleResolution": "node16",
+    "types": ["node"],
+
+    "outDir": "dist",
+    "rootDir": "src",
+
+    // Incremental project build (`tsc -b`), mirroring the frontend.
+    "composite": true,
+    "declaration": true,
+    "sourceMap": true,
+    "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo",
+
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}

@@ -16,6 +16,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Lets the desktop packaging job be triggered on demand from the Actions tab.
+  workflow_dispatch:
 
 # Newer commits on the same ref supersede in-flight runs; this cancels the stale
 # run, it does not shortcut the checks within a run.
@@ -254,3 +256,31 @@ jobs:
       - name: Tear down
         if: ${{ always() }}
         run: docker compose down -v
+
+  # ----------------------------------------------------------------------------
+  # Desktop shell: package the Electron app (deb, rpm, AppImage, Windows) with
+  # Earthly. Runs in parallel with the other checks, but only on pull requests
+  # and on-demand (workflow_dispatch), not on every push to main, since the
+  # packaging build is heavy. Artifacts are built but not uploaded yet.
+  #
+  # Requires a self-hosted runner tagged `linux` and `earthly` (Earthly and its
+  # BuildKit daemon preinstalled); everything else runs inside pinned containers.
+  # ----------------------------------------------------------------------------
+  desktop:
+    name: Desktop
+    if: ${{ github.event_name != 'push' }}
+    runs-on: [self-hosted, linux, earthly]
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Earthly version
+        run: earthly --version
+
+      # Build every installer target. Earthly runs the independent targets in
+      # parallel and outputs them to desktop/release/ on the runner. No upload
+      # step yet, per the current roadmap.
+      - name: Package desktop installers
+        run: earthly +release
