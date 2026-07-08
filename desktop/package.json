@@ -5,6 +5,7 @@
   "description": "Elysium desktop shell (Electron). Launches the dockerized Elysium app.",
   "author": "Jalapeno Labs LLC <opensource@jalapenolabs.io>",
   "license": "UNLICENSED",
+  "homepage": "https://github.com/JalapenoLabs/Elysium",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -b",
