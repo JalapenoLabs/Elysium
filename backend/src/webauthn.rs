@@ -80,11 +80,12 @@ pub async fn context(State(state): State<AppState>) -> Response {
     }
 }
 
-/// Body of the bootstrap request: the root user's identity.
+/// Body of the bootstrap request: the root user's identity and organization.
 #[derive(Deserialize)]
 pub struct BootstrapBegin {
     email: String,
     display_name: String,
+    org_name: String,
 }
 
 /// `POST /api/v1/auth/bootstrap/begin`: claim an unclaimed instance and start the
@@ -103,7 +104,14 @@ pub async fn bootstrap_begin(
         }
     }
 
-    let user = match users::create_root(&state.pool, &body.email, &body.display_name).await {
+    let user = match users::create_root(
+        &state.pool,
+        &body.email,
+        &body.display_name,
+        &body.org_name,
+    )
+    .await
+    {
         Ok(user) => user,
         Err(error) => {
             tracing::error!(error = %error, "failed to create the root user");

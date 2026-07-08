@@ -49,16 +49,24 @@ pub async fn find_by_email(pool: &PgPool, email: &str) -> sqlx::Result<Option<Us
     Ok(row.map(into_user))
 }
 
-/// Creates the first (root) user together with a root organization.
+/// Creates the first (root) user together with their organization.
 ///
 /// # Errors
 /// Returns an error if the inserts fail (e.g. the email is already taken).
-pub async fn create_root(pool: &PgPool, email: &str, display_name: &str) -> sqlx::Result<User> {
+pub async fn create_root(
+    pool: &PgPool,
+    email: &str,
+    display_name: &str,
+    org_name: &str,
+) -> sqlx::Result<User> {
     let mut tx = pool.begin().await?;
 
+    // The first organization always takes the `root` slug; its display name is the
+    // one the owner chose at first-run.
     let org_id = sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO orgs (name, slug) VALUES ('Root', 'root') RETURNING id",
+        "INSERT INTO orgs (name, slug) VALUES ($1, 'root') RETURNING id",
     )
+    .bind(org_name)
     .fetch_one(&mut *tx)
     .await?;
 

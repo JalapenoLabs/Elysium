@@ -10,17 +10,14 @@ import { AuthShell } from '../../components/auth/AuthShell'
 import { AuthCard } from '../../components/auth/AuthCard'
 import { InvalidInvite } from './InvalidInvite'
 
-// Misc
-import { useSession } from '../../auth/useSession'
-
 // Landing for a signed invite link. The real flow verifies the token via
-// GET /api/v1/invites/:token, previews the org/team, then accepts and hands off
-// to Keycloak enrollment. The org/inviter/role shown here are placeholders until
-// that endpoint lands; the token is read so the accept action can carry it.
+// GET /api/v1/invites/:token, previews the org/team, then accepts by enrolling a
+// passkey for the invited account (the same native ceremony as first-run, against
+// our API). That endpoint is a later roadmap item (docs/auth-model.md); the token
+// is read so the accept action can carry it once it lands.
 export function InviteAcceptance() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const params = useParams()
-  const session = useSession()
 
   const inviteToken = params.token ?? ''
 
@@ -30,9 +27,9 @@ export function InviteAcceptance() {
   }
 
   function onAccept() {
-    console.debug('InviteAcceptance accept (pending backend verify)', { inviteToken })
-    // Accepting provisions the user and enters Keycloak enrollment.
-    session.signIn()
+    // Invite verification + passkey enrollment for the invited account is pending
+    // its backend endpoint; wired here once that lands.
+    console.debug('InviteAcceptance accept (pending backend invite endpoint)', { inviteToken })
   }
 
   return <AuthShell state='idle'>

@@ -8,22 +8,16 @@ import { useAppSelector } from '../store/hooks'
 
 // Misc
 import { logout } from '../api/routes/authRoutes'
-import { API_BASE_URL } from '../constants'
 
-// Exposes the current session plus sign-in / sign-out actions.
+// Exposes the current session plus a sign-out action.
 //
-// Sign-in is a full-page navigation to the gateway login initiator: the browser
-// never talks to Keycloak directly, and returns with a session cookie already
-// set. Sign-out clears the cookie server-side and drops local state.
+// Signing in is a native passkey ceremony owned by the sign-in screen (see
+// pages/Auth/SignIn): it needs the user's email and drives `navigator.credentials`,
+// so it is not a context-free action to expose here. The browser never talks to any
+// identity provider directly.
 export function useSession() {
   const status = useAppSelector((state) => state.session.status)
   const principal = useAppSelector((state) => state.session.principal)
-
-  const signIn = useCallback(() => {
-    // Full-page navigation to the gateway login initiator; the browser never
-    // talks to Keycloak directly and returns with a session cookie already set.
-    window.location.assign(`${API_BASE_URL}/auth/login`)
-  }, [])
 
   // `logout` clears the local session itself (in its `finally`), so this only
   // needs to swallow a failed request; the state is dropped either way.
@@ -40,7 +34,6 @@ export function useSession() {
     status,
     principal,
     isAuthenticated: status === 'authenticated',
-    signIn,
     signOut,
   } as const
 }

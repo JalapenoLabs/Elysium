@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
+import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
 // UI
@@ -16,6 +17,7 @@ import { UrlTree } from '../urls'
 
 export function NavBar() {
   const { t } = useTranslation('common')
+  const navigate = useNavigate()
   const dispatch = useAppDispatch()
   const themeMode = useAppSelector((state) => state.theme.mode)
   const session = useSession()
@@ -50,7 +52,7 @@ export function NavBar() {
                 : t('actions.signOut')
             }</span>
           </Button>
-          : <Button color='primary' onPress={session.signIn}>
+          : <Button color='primary' onPress={() => navigate(UrlTree.signIn)}>
             <span>{ t('actions.signIn') }</span>
           </Button>
       }</NavbarItem>

@@ -6,7 +6,11 @@
   "signIn": {
     "title": "Welcome back",
     "subtitle": "Sign in to continue to {{appName}}.",
-    "action": "Sign in with your passkey"
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "emailRequired": "Enter your email to continue.",
+    "action": "Sign in with your passkey",
+    "failed": "We couldn't sign you in with a passkey. Check your email and try again."
   },
   "signingIn": {
     "title": "Signing you in",
@@ -33,7 +37,9 @@
     "orgNameLabel": "Organization name",
     "orgNamePlaceholder": "Analytical Engines",
     "action": "Create owner account",
-    "note": "Next, you'll create a passkey and save your recovery codes. No passwords, ever."
+    "note": "Next, you'll create a passkey and save your recovery codes. No passwords, ever.",
+    "required": "Enter your name and email to continue.",
+    "failed": "We couldn't set up your passkey. Please try again."
   },
   "onboarding": {
     "welcome": {

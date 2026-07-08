@@ -5205,6 +5205,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@simplewebauthn/browser@npm:^13.3.0":
+  version: 13.3.0
+  resolution: "@simplewebauthn/browser@npm:13.3.0"
+  checksum: 10c0/23a9c14777c4ef6d15fd6c876a1035e6e597e92f96cd0ffe83b0b869f0e4db7789a591da9a39d1fe2c0529c42ecc291c4a30227fc705f0b7729c255f9ccc7c21
+  languageName: node
+  linkType: hard
+
 "@spectrum-icons/ui@npm:^3.7.1":
   version: 3.7.1
   resolution: "@spectrum-icons/ui@npm:3.7.1"
@@ -7114,6 +7121,7 @@ __metadata:
     "@heroui/react": "npm:2.8.10"
     "@jalapenolabs/cli": "https://github.com/jalapenolabs/cli.git"
     "@reduxjs/toolkit": "npm:2.12.0"
+    "@simplewebauthn/browser": "npm:^13.3.0"
     "@types/react": "npm:^19.0.0"
     "@types/react-dom": "npm:^19.0.0"
     "@vitejs/plugin-react-swc": "npm:4.3.1"
