@@ -16,11 +16,15 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::config::Deployment;
 use crate::session::{self, NewSession, SESSION_COOKIE};
 use crate::state::AppState;
 
 /// Short-lived cookie holding the in-flight login parameters (state:nonce:verifier).
 const OAUTH_COOKIE: &str = "elysium_oauth";
+
+/// Fixed client id for the confidential BFF client; matches the realm import.
+const OIDC_CLIENT_ID: &str = "elysium-api";
 
 /// Configuration for the confidential OIDC client, resolved from the environment.
 ///
@@ -40,28 +44,22 @@ pub struct OidcConfig {
 }
 
 impl OidcConfig {
-    /// Builds the OIDC config from environment variables.
+    /// Builds the OIDC config from the derived deployment plus the client secret.
     ///
-    /// # Errors
-    /// Returns an error if any required variable is unset.
-    pub fn from_env() -> eyre::Result<Self> {
-        let issuer = std::env::var("KEYCLOAK_ISSUER").wrap_err("KEYCLOAK_ISSUER must be set")?;
-        let internal = std::env::var("KEYCLOAK_INTERNAL_ISSUER")
-            .wrap_err("KEYCLOAK_INTERNAL_ISSUER must be set")?;
-
-        Ok(Self {
-            client_id: std::env::var("OIDC_CLIENT_ID").wrap_err("OIDC_CLIENT_ID must be set")?,
-            client_secret: std::env::var("OIDC_CLIENT_SECRET")
-                .wrap_err("OIDC_CLIENT_SECRET must be set")?,
-            redirect_uri: std::env::var("OIDC_REDIRECT_URI")
-                .wrap_err("OIDC_REDIRECT_URI must be set")?,
-            authorize_url: format!("{issuer}/protocol/openid-connect/auth"),
-            account_url: format!("{issuer}/account"),
-            token_url: format!("{internal}/protocol/openid-connect/token"),
-            logout_url: format!("{internal}/protocol/openid-connect/logout"),
-            post_login_url: std::env::var("APP_POST_LOGIN_URL")
-                .wrap_err("APP_POST_LOGIN_URL must be set")?,
-        })
+    /// The client id is fixed ([`OIDC_CLIENT_ID`]) and every URL comes from
+    /// [`Deployment`], so the only OIDC-specific value the environment supplies is
+    /// the secret.
+    pub fn new(deployment: &Deployment, client_secret: String) -> Self {
+        Self {
+            client_id: OIDC_CLIENT_ID.to_owned(),
+            client_secret,
+            redirect_uri: deployment.redirect_uri.clone(),
+            authorize_url: deployment.authorize_url.clone(),
+            token_url: deployment.token_url.clone(),
+            logout_url: deployment.logout_url.clone(),
+            account_url: deployment.account_url.clone(),
+            post_login_url: deployment.app_origin.clone(),
+        }
     }
 }
 

@@ -5,6 +5,7 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
 use crate::auth::Auth;
+use crate::config::Deployment;
 use crate::oidc::OidcConfig;
 use crate::sse::SseRegistry;
 
@@ -38,8 +39,8 @@ impl AppState {
     /// API can also start before Keycloak is reachable.
     ///
     /// # Errors
-    /// Returns an error if `DATABASE_URL` or the Keycloak variables are unset or
-    /// cannot be parsed.
+    /// Returns an error if `DATABASE_URL` or `OIDC_CLIENT_SECRET` is unset, or a
+    /// client cannot be built. Every URL is derived (see [`Deployment`]).
     pub fn from_env() -> eyre::Result<Self> {
         let database_url = std::env::var("DATABASE_URL").wrap_err("DATABASE_URL must be set")?;
 
@@ -48,8 +49,11 @@ impl AppState {
             .connect_lazy(&database_url)
             .wrap_err("failed to build Postgres connection pool")?;
 
-        let auth = Auth::from_env()?;
-        let oidc = OidcConfig::from_env()?;
+        let deployment = Deployment::from_env();
+        let auth = Auth::new(deployment.issuer.clone(), deployment.jwks_url.clone())?;
+        let client_secret =
+            std::env::var("OIDC_CLIENT_SECRET").wrap_err("OIDC_CLIENT_SECRET must be set")?;
+        let oidc = OidcConfig::new(&deployment, client_secret);
         let http = reqwest::Client::builder()
             .build()
             .wrap_err("failed to build the backchannel HTTP client")?;

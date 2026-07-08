@@ -12,6 +12,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 mod api;
 mod auth;
+mod config;
 mod oidc;
 mod proto;
 mod protobuf;

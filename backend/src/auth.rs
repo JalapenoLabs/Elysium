@@ -92,16 +92,11 @@ struct Jwk {
 }
 
 impl Auth {
-    /// Builds token validation from `KEYCLOAK_ISSUER` and `KEYCLOAK_JWKS_URL`.
+    /// Builds token validation for the given issuer, fetching keys from `jwks_url`.
     ///
     /// # Errors
-    /// Returns an error if either variable is unset or the HTTP client cannot be
-    /// constructed.
-    pub fn from_env() -> eyre::Result<Self> {
-        let issuer = std::env::var("KEYCLOAK_ISSUER").wrap_err("KEYCLOAK_ISSUER must be set")?;
-        let jwks_url =
-            std::env::var("KEYCLOAK_JWKS_URL").wrap_err("KEYCLOAK_JWKS_URL must be set")?;
-
+    /// Returns an error if the HTTP client cannot be constructed.
+    pub fn new(issuer: String, jwks_url: String) -> eyre::Result<Self> {
         let http = reqwest::Client::builder()
             .timeout(JWKS_FETCH_TIMEOUT)
             .build()

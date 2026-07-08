@@ -57,10 +57,11 @@ unauthenticated requests get `401` before the handler runs. `GET /api/v1/me` is 
 route, returning the principal (`elysium.auth.v1.MeResponse`) from the token claims.
 
 Issuer consistency is handled by pinning Keycloak's base URL (`KC_HOSTNAME`) so every token
-declares the same `iss` (the browser-facing `http://localhost:8080/realms/elysium`) regardless
-of whether it was requested from the browser or another container. The backend trusts that
-issuer (`KEYCLOAK_ISSUER`) while fetching the JWKS over the internal network
-(`KEYCLOAK_JWKS_URL`), which is why the two URLs differ.
+declares the same `iss` (the browser-facing realm URL) regardless of whether it was requested
+from the browser or another container. The backend derives that browser-facing issuer and the
+internal JWKS URL from the base deployment config (`backend/src/config.rs`, from
+`ELYSIUM_HOSTNAME` + the ports), so it validates against the issuer clients see while fetching
+keys over the internal `keycloak` service, not the public host.
 
 Audience is not yet enforced; a resource-server audience mapper is a planned hardening step.
 

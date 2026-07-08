@@ -40,21 +40,18 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
-      API_PORT: 31416
       RUST_LOG: ${RUST_LOG:-info}
-      # Issuer the API trusts (the browser-facing realm URL, so it matches the
-      # tokens clients present). JWKS is fetched over the internal network, which
-      # is why the fetch URL and the issuer differ.
-      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://localhost:8080/realms/elysium}
-      KEYCLOAK_JWKS_URL: ${KEYCLOAK_JWKS_URL:-http://keycloak:8080/realms/elysium/protocol/openid-connect/certs}
-      # BFF (Backend-for-Frontend): the API is a confidential OIDC client and owns
-      # the whole Keycloak conversation; the browser only ever holds a cookie.
-      KEYCLOAK_INTERNAL_ISSUER: ${KEYCLOAK_INTERNAL_ISSUER:-http://keycloak:8080/realms/elysium}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-elysium-api}
+      # Base deployment config. Every Keycloak / OIDC / CORS / login URL is derived
+      # from these by the backend (see backend/src/config.rs); the browser-facing
+      # host is ELYSIUM_HOSTNAME while the backchannel uses the internal `keycloak`
+      # service name (the backend's built-in default).
+      ELYSIUM_HOSTNAME: ${ELYSIUM_HOSTNAME:-localhost}
+      API_PORT: ${API_PORT:-31416}
+      FRONTEND_PORT: ${FRONTEND_PORT:-5173}
+      KEYCLOAK_PORT: ${KEYCLOAK_PORT:-8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-elysium}
+      # The one OIDC secret the environment supplies; everything else is derived.
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-dev-elysium-api-secret-change-in-prod}
-      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-http://localhost:31416/auth/callback}
-      APP_POST_LOGIN_URL: ${APP_POST_LOGIN_URL:-http://localhost:5173}
-      CORS_ALLOWED_ORIGIN: ${CORS_ALLOWED_ORIGIN:-http://localhost:5173}
     ports:
       - "${API_PORT:-31416}:31416"
     volumes:
@@ -93,11 +90,9 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:31416}
-      # OIDC endpoints the browser uses for the Keycloak login redirect (Phase D).
-      VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-http://localhost:8080}
-      VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-elysium}
-      VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-elysium-frontend}
+      # The browser reaches the API here; derived from the base host + port. The
+      # frontend talks only to the API (never Keycloak), so no OIDC config here.
+      VITE_API_BASE_URL: http://${ELYSIUM_HOSTNAME:-localhost}:${API_PORT:-31416}
       # Windows/Docker bind mounts don't emit inotify events reliably, so Vite
       # falls back to polling for file changes (wired up in vite.config.ts).
       CHOKIDAR_USEPOLLING: "true"
@@ -155,7 +150,7 @@ services:
       # Pin the base URL so every token declares the same issuer regardless of
       # whether it was requested from the browser or another container. The
       # backend fetches JWKS internally but trusts this issuer string.
-      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME_URL:-http://localhost:8080}
+      KC_HOSTNAME: http://${ELYSIUM_HOSTNAME:-localhost}:${KEYCLOAK_PORT:-8080}
     ports:
       - "${KEYCLOAK_PORT:-8080}:8080"
     volumes:

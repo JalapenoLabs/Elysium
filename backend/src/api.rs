@@ -22,20 +22,18 @@ use crate::session::SessionUser;
 use crate::state::AppState;
 use crate::{oidc, sse};
 
-/// Origin allowed to make credentialed (cookie-bearing) requests to the API.
-const DEFAULT_CORS_ORIGIN: &str = "http://localhost:5173";
-
 /// Builds the application router with shared state and middleware attached.
 pub fn router(state: AppState) -> Router {
     // Credentialed CORS: the SPA sends the session cookie cross-origin, which
-    // forbids a wildcard origin, so we echo one specific, configured origin.
-    let allowed_origin =
-        std::env::var("CORS_ALLOWED_ORIGIN").unwrap_or_else(|_| DEFAULT_CORS_ORIGIN.to_string());
+    // forbids a wildcard origin, so we echo the one derived app origin (the same
+    // origin the login flow redirects back to).
     let cors = CorsLayer::new()
         .allow_origin(
-            allowed_origin
+            state
+                .oidc
+                .post_login_url
                 .parse::<HeaderValue>()
-                .expect("CORS_ALLOWED_ORIGIN must be a valid origin"),
+                .expect("app origin is a valid origin"),
         )
         .allow_credentials(true)
         .allow_methods([Method::GET, Method::POST])
