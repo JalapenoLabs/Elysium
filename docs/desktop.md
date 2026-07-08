@@ -33,7 +33,7 @@ desktop/
 ├── tsconfig.json                # compiles src/ -> dist/ as ESM
 └── src/
     ├── main.ts                  # app lifecycle (whenReady, activate, quit)
-    ├── window.ts                # window creation, app loading + retry, shortcuts, IPC
+    ├── window.ts                # createWindow: window creation, app loading, shortcuts, IPC
     ├── preload.mts              # minimal contextBridge surface (.mjs ESM preload)
     ├── bridge.ts                # ElysiumBridge: the shared window.elysium contract
     ├── ipc.ts                   # central map of IPC channel names
@@ -66,8 +66,9 @@ cache.
 
 All channel names live in `src/ipc.ts` (`IpcChannel`), referenced by both the
 main process and the preload so a channel string is never duplicated as a
-literal. Today: `Retry` (reload the app) and `Relaunch` (quit and start a fresh
-instance via `app.relaunch()`).
+literal. Today: `Relaunch` (quit and start a fresh instance via
+`app.relaunch()`). The window loads the app directly in `createWindow` (dev URL or
+packaged renderer); there is no retry path, the load is expected to succeed.
 
 `window.elysium`'s shape is defined once in `src/bridge.ts` (`ElysiumBridge`,
 kept free of electron imports). `src/global.d.ts` augments the global `Window`

@@ -24,11 +24,6 @@ export const RENDERER_DIRECTORY = resolve(import.meta.dirname, '..', 'renderer')
 // (.mjs) preload, which Electron requires for ES-module preload scripts.
 export const PRELOAD_SCRIPT = resolve(import.meta.dirname, 'preload.mjs')
 
-// How long to wait before retrying a failed app load. In dev the stack may still
-// be starting; the frontend owns all on-screen UI, so the shell simply keeps
-// trying until it can hand off rather than rendering its own page.
-export const APP_RETRY_DELAY_MS = 2000
-
 // Initial window size. Deliberately roomy: the primary view is a full Claude
 // session workspace, not a compact utility window.
 export const WINDOW_WIDTH = 1440

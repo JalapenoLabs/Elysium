@@ -6,7 +6,6 @@
 // consumes the same declaration (see docs/desktop.md). Kept free of any electron
 // imports so the frontend can include it without pulling in electron types.
 export type ElysiumBridge = {
-  retry: () => void
   relaunch: () => void
   platform: string
   versions: {

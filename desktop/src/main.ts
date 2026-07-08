@@ -4,17 +4,17 @@
 import { app, BrowserWindow } from 'electron'
 
 // Misc
-import { createMainWindow } from './window.js'
+import { createWindow } from './window.js'
 
 app.whenReady().then(() => {
-  createMainWindow()
+  createWindow()
 
   // macOS keeps apps alive with no windows; recreate one when the dock icon is
   // clicked. (macOS packaging is a later phase; the lifecycle is correct now so
   // it behaves once it lands.)
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow()
+      createWindow()
     }
   })
 })

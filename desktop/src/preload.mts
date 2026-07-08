@@ -14,10 +14,6 @@ import { IpcChannel } from './ipc.js'
 // global.d.ts. This is a .mts file so it compiles to an ESM (.mjs) preload,
 // which Electron requires for ESM preload scripts.
 const elysiumBridge = {
-  // Ask the main process to (re)load the Elysium app.
-  retry(): void {
-    ipcRenderer.send(IpcChannel.Retry)
-  },
   // Ask the main process to relaunch the whole desktop app.
   relaunch(): void {
     ipcRenderer.send(IpcChannel.Relaunch)
