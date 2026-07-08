@@ -54,8 +54,11 @@ boundaries. `sandbox` is disabled so the preload can `require` the shared, typed
 
 All channel names live in `src/ipc.ts` (`IpcChannel`), referenced by both the
 main process and the preload so a channel string is never duplicated as a
-literal. `window.elysium` is typed globally via `src/global.d.ts`, giving the
-renderer (and the React frontend) a well-typed handle.
+literal. `window.elysium` is typed globally via `src/global.d.ts` on the desktop
+side. The frontend, which builds in isolation from `desktop/`, gets the same
+handle typed through `frontend/src/electron.d.ts` (declared optional, since it is
+absent in a plain browser). The shape is mirrored in both places today; a shared
+workspace package (see roadmap) would collapse it to one definition.
 
 ## Running in dev
 

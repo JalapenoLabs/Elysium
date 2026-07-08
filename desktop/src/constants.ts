@@ -1,8 +1,5 @@
 // Copyright © 2026 Jalapeno Labs
 
-// Core
-import { app } from 'electron'
-
 // Utility
 import { resolve } from 'node:path'
 
@@ -12,10 +9,20 @@ import { resolve } from 'node:path'
 export const DEFAULT_APP_URL = 'http://localhost:5173'
 export const APP_URL = process.env.ELYSIUM_APP_URL || DEFAULT_APP_URL
 
-// Development runs unpackaged (yarn dev / electronmon); an installed build is
-// packaged. This decides whether the renderer is loaded from the dev URL or
-// served from the packaged build.
-export const IS_DEV = !app.isPackaged
+// Development runs unpackaged (yarn dev / electronmon); an installed build runs
+// from inside the packaged app.asar archive. `app.isPackaged` is not fully
+// reliable, so detect dev by whether the entry module resolves inside app.asar.
+// This decides whether the renderer is loaded from the dev URL or the packaged
+// build. (`require.main` is the current, non-deprecated form of process.mainModule.)
+function isDev(): boolean {
+  const entryFilename = require.main?.filename
+  if (!entryFilename) {
+    return true
+  }
+  return !entryFilename.includes('app.asar')
+}
+
+export const IS_DEV = isDev()
 
 // In production the built frontend SPA is served locally over a custom protocol
 // by electron-serve from this directory. Populated by the frontend build during
