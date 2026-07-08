@@ -10,9 +10,6 @@ export default defineConfig([
   globalIgnores([
     '.yarn/**',
     '**/vite-env.d.ts',
-    // Ambient declaration that augments the global `Window` (needs `interface`,
-    // which the shared config otherwise discourages), like vite-env.d.ts.
-    '**/electron.d.ts',
     // Generated protobuf codegen output. Owned by `yarn generate:proto`; lint
     // rules (license headers, formatting) don't apply to generated artifacts.
     'src/proto/generated/**',

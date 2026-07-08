@@ -1,11 +1,11 @@
 {
   "compilerOptions": {
-    // The Electron main and preload run in Node, not the browser, so target the
-    // Node runtime Electron 43 ships (Node 22 / ES2023) and emit CommonJS.
+    // The Electron main and preload run in Node (the runtime Electron 43 ships,
+    // Node 22 / ES2023). The package is ESM ("type": "module"), so emit ESM.
     "target": "ES2022",
     "lib": ["ES2023"],
-    "module": "node16",
-    "moduleResolution": "node16",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "types": ["node"],
 
     "outDir": "dist",
@@ -26,14 +26,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
-
-  // Electron Forge loads forge.config.ts through ts-node. That file lives outside
-  // the compiled `src` project, so transpile it standalone without a full
-  // type-check (the build's tsc already type-checks the app). It inherits the
-  // module settings above and, with no "type": "module" in package.json, emits
-  // CommonJS, which is what Forge's loader expects.
-  "ts-node": {
-    "transpileOnly": true
-  }
+  "include": ["src"]
 }

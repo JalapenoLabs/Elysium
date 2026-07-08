@@ -273,6 +273,9 @@ jobs:
     name: Desktop (${{ matrix.target }})
     if: ${{ github.event_name != 'push' }}
     runs-on: [self-hosted, linux, earthly]
+    # Earthly renders monochrome without this; force color for readable logs.
+    env:
+      FORCE_COLOR: 1
     strategy:
       # Report every target's result; one failing target must not cancel the
       # others, matching the rest of this workflow.

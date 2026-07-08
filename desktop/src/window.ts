@@ -1,10 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
-import { BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import serve from 'electron-serve'
+import localShortcut from 'electron-localshortcut'
 
 // Misc
-import { IpcChannel } from './ipc'
+import { IpcChannel } from './ipc.js'
 import {
   IS_DEV,
   APP_URL,
@@ -15,39 +17,28 @@ import {
   WINDOW_HEIGHT,
   WINDOW_MIN_WIDTH,
   WINDOW_MIN_HEIGHT,
-} from './constants'
+} from './constants.js'
 
-// Loads the packaged frontend over a custom protocol in production. Set once by
-// `initRenderer` before the app is ready; null in development, where the live
-// app URL is loaded instead.
-let loadPackagedRenderer: ((window: BrowserWindow) => Promise<void>) | null = null
+// Serves the packaged frontend over a custom protocol in production. Created once
+// here (even in dev, where it simply goes unused) so it is always ready and
+// registers its privileged scheme before the app is ready.
+const loadPackagedRenderer = serve({ directory: RENDERER_DIRECTORY })
 
-// Registers the production renderer server. electron-serve is ESM-only, so it is
-// pulled in via dynamic import from this CommonJS module. Must run before the
-// app `ready` event because electron-serve registers a privileged scheme.
-export async function initRenderer(): Promise<void> {
-  if (IS_DEV) {
-    return
-  }
-
-  const { default: serve } = await import('electron-serve')
-  loadPackagedRenderer = serve({ directory: RENDERER_DIRECTORY })
-}
-
-// Loads the Elysium app into a window. The React frontend owns every on-screen
-// state (loading, errors, empty), so when a dev load fails because the stack is
-// not up yet, we simply retry until it answers rather than rendering our own UI.
+// Loads the Elysium app into a window: the live dev URL in development, the
+// packaged renderer in production. The React frontend owns every on-screen state
+// (loading, errors, empty), so when a dev load fails because the stack is not up
+// yet, we retry until it answers rather than rendering our own UI.
 export async function loadApp(window: BrowserWindow): Promise<void> {
   if (window.isDestroyed()) {
     return
   }
 
   try {
-    if (loadPackagedRenderer) {
-      await loadPackagedRenderer(window)
+    if (IS_DEV) {
+      await window.loadURL(APP_URL)
     }
     else {
-      await window.loadURL(APP_URL)
+      await loadPackagedRenderer(window)
     }
   }
   catch (error) {
@@ -58,9 +49,9 @@ export async function loadApp(window: BrowserWindow): Promise<void> {
   }
 }
 
-// Creates a top-level window and starts loading the app into it. Multiple
-// windows are expected in the future, so nothing here is held as a singleton;
-// callers and `BrowserWindow.getAllWindows()` own the lifecycle.
+// Creates a top-level window and starts loading the app into it. Multiple windows
+// are expected in the future, so nothing here is held as a singleton; callers and
+// `BrowserWindow.getAllWindows()` own the lifecycle.
 export function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: WINDOW_WIDTH,
@@ -72,8 +63,8 @@ export function createMainWindow(): BrowserWindow {
     webPreferences: {
       preload: PRELOAD_SCRIPT,
       // Context isolation is the primary renderer boundary and Node stays out of
-      // the renderer. Sandbox is off so the preload can `require` the shared
-      // typed IPC module; see docs/desktop.md for the rationale.
+      // the renderer. Sandbox is off so the preload can import the shared typed
+      // modules; see docs/desktop.md for the rationale.
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -92,6 +83,18 @@ export function createMainWindow(): BrowserWindow {
     return { action: 'deny' }
   })
 
+  // Reload shortcuts, scoped to this window (they fire only while it is focused):
+  // Ctrl/Cmd+R soft-reloads, Ctrl/Cmd+Shift+R reloads ignoring the cache.
+  localShortcut.register(window, 'CommandOrControl+R', () => {
+    window.webContents.reload()
+  })
+  localShortcut.register(window, 'CommandOrControl+Shift+R', () => {
+    window.webContents.reloadIgnoringCache()
+  })
+  window.on('closed', () => {
+    localShortcut.unregisterAll(window)
+  })
+
   loadApp(window)
   return window
 }
@@ -105,4 +108,11 @@ ipcMain.on(IpcChannel.Retry, (event) => {
     return
   }
   loadApp(window)
+})
+
+// Relaunch the whole desktop app: quit the current instance and start a fresh
+// one. Used for recovering the GUI or applying changes that need a clean boot.
+ipcMain.on(IpcChannel.Relaunch, () => {
+  app.relaunch()
+  app.quit()
 })

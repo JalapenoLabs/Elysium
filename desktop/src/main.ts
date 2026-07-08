@@ -4,13 +4,9 @@
 import { app, BrowserWindow } from 'electron'
 
 // Misc
-import { createMainWindow, initRenderer } from './window'
+import { createMainWindow } from './window.js'
 
-async function bootstrap(): Promise<void> {
-  // Register the packaged-renderer protocol before `ready` (production only).
-  await initRenderer()
-  await app.whenReady()
-
+app.whenReady().then(() => {
   createMainWindow()
 
   // macOS keeps apps alive with no windows; recreate one when the dock icon is
@@ -21,7 +17,7 @@ async function bootstrap(): Promise<void> {
       createMainWindow()
     }
   })
-}
+})
 
 // Quit when every window is closed, except on macOS where the convention is to
 // stay running until the user explicitly quits.
@@ -30,5 +26,3 @@ app.on('window-all-closed', () => {
     app.quit()
   }
 })
-
-bootstrap()

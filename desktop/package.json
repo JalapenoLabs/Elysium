@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "Elysium desktop shell (Electron). Launches the dockerized Elysium app.",
+  "productName": "Elysium",
   "author": "Jalapeno Labs LLC <opensource@jalapenolabs.io>",
   "license": "UNLICENSED",
   "homepage": "https://github.com/JalapenoLabs/Elysium",
+  "type": "module",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -b",
@@ -28,10 +30,10 @@
     "concurrently": "10.0.3",
     "electron": "43.0.0",
     "electronmon": "2.0.4",
-    "ts-node": "10.9.2",
     "typescript": "6.0.3"
   },
   "dependencies": {
+    "electron-localshortcut": "3.2.1",
     "electron-serve": "3.0.1"
   }
 }

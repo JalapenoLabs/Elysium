@@ -27,18 +27,23 @@ Everything desktop lives in `desktop/`:
 
 ```
 desktop/
-├── Earthfile               # deb / rpm / appimage / windows / release targets
-├── forge.config.ts         # Electron Forge: makers, ENV-selected targets
-├── package.json            # pinned Electron + Forge toolchain
-├── tsconfig.json           # compiles src/ -> dist/ as CommonJS
+├── Earthfile                    # deb / rpm / appimage / windows / release targets
+├── forge.config.ts              # Electron Forge: makers, ENV-selected targets
+├── package.json                 # pinned Electron + Forge toolchain (ESM)
+├── tsconfig.json                # compiles src/ -> dist/ as ESM
 └── src/
-    ├── main.ts             # app lifecycle (bootstrap, activate, quit)
-    ├── window.ts           # window creation, app loading + retry, IPC handler
-    ├── preload.ts          # minimal contextBridge surface (window.elysium)
-    ├── ipc.ts              # central map of IPC channel names
-    ├── constants.ts        # app URL, window sizing, paths, timings
-    └── global.d.ts         # types window.elysium for the renderer/frontend
+    ├── main.ts                  # app lifecycle (whenReady, activate, quit)
+    ├── window.ts                # window creation, app loading + retry, shortcuts, IPC
+    ├── preload.mts              # minimal contextBridge surface (.mjs ESM preload)
+    ├── bridge.ts                # ElysiumBridge: the shared window.elysium contract
+    ├── ipc.ts                   # central map of IPC channel names
+    ├── constants.ts             # app URL, window sizing, paths, timings
+    ├── global.d.ts              # augments window.elysium (desktop + frontend)
+    └── electron-localshortcut.d.ts  # ambient types for the untyped shortcut lib
 ```
+
+The package is ESM (`"type": "module"`); the preload is a `.mts` so it compiles
+to a `.mjs` ESM preload, which Electron requires for ES-module preloads.
 
 There is deliberately no window singleton: multiple windows are expected, so the
 lifecycle is owned by `BrowserWindow.getAllWindows()`, not a module global.
@@ -46,19 +51,29 @@ lifecycle is owned by `BrowserWindow.getAllWindows()`, not a module global.
 ### Security
 
 `contextIsolation: true` and `nodeIntegration: false` are the primary renderer
-boundaries. `sandbox` is disabled so the preload can `require` the shared, typed
-`ipc.ts` module (a sandboxed preload cannot import local modules). The exposed
-`window.elysium` surface is intentionally tiny and grows one method at a time.
+boundaries. `sandbox` is disabled so the preload can import the shared, typed
+`ipc.ts` / `bridge.ts` modules (a sandboxed preload cannot import local modules).
+The exposed `window.elysium` surface is intentionally tiny and grows one method
+at a time.
 
-### IPC
+### Keyboard shortcuts
+
+Registered per-window with `electron-localshortcut`, so they fire only while that
+window is focused: `Ctrl/Cmd+R` reloads, `Ctrl/Cmd+Shift+R` reloads ignoring the
+cache.
+
+### IPC and shared typing
 
 All channel names live in `src/ipc.ts` (`IpcChannel`), referenced by both the
 main process and the preload so a channel string is never duplicated as a
-literal. `window.elysium` is typed globally via `src/global.d.ts` on the desktop
-side. The frontend, which builds in isolation from `desktop/`, gets the same
-handle typed through `frontend/src/electron.d.ts` (declared optional, since it is
-absent in a plain browser). The shape is mirrored in both places today; a shared
-workspace package (see roadmap) would collapse it to one definition.
+literal. Today: `Retry` (reload the app) and `Relaunch` (quit and start a fresh
+instance via `app.relaunch()`).
+
+`window.elysium`'s shape is defined once in `src/bridge.ts` (`ElysiumBridge`,
+kept free of electron imports). `src/global.d.ts` augments the global `Window`
+with it, and the frontend consumes that same declaration by including
+`../desktop/src/global.d.ts` in its `tsconfig.json`, so there is one source of
+truth. It is declared optional because it is absent in a plain browser.
 
 ## Running in dev
 
