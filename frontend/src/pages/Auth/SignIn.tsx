@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { FormEvent } from 'react'
+
 // Core
 import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router'
@@ -36,7 +38,9 @@ export function SignIn() {
     return <Navigate to={UrlTree.setup} replace />
   }
 
-  async function onSubmit() {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
     if (!email.trim()) {
       setErrorMessage(t('auth:signIn.emailRequired'))
       return
@@ -67,32 +71,29 @@ export function SignIn() {
         { t('auth:signIn.subtitle', { appName: t('common:appName') }) }
       </p>
 
-      <div className='mt-6'>
-        <Input
-          autoFocus
-          type='email'
-          label={t('auth:signIn.emailLabel')}
-          value={email}
-          isInvalid={Boolean(errorMessage)}
-          errorMessage={errorMessage}
-          onChange={(event) => setEmail(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              void onSubmit()
-            }
-          }}
-        />
-      </div>
+      <form onSubmit={onSubmit}>
+        <div className='mt-6'>
+          <Input
+            autoFocus
+            type='email'
+            label={t('auth:signIn.emailLabel')}
+            value={email}
+            isInvalid={Boolean(errorMessage)}
+            errorMessage={errorMessage}
+            onChange={(event) => setEmail(event.currentTarget.value)}
+          />
+        </div>
 
-      <Button
-        className='mt-6 w-full'
-        color='primary'
-        isLoading={isSubmitting}
-        isDisabled={isSubmitting}
-        onPress={onSubmit}
-      >
-        <span>{ t('auth:signIn.action') }</span>
-      </Button>
+        <Button
+          type='submit'
+          className='mt-6 w-full'
+          color='primary'
+          isLoading={isSubmitting}
+          isDisabled={isSubmitting}
+        >
+          <span>{ t('auth:signIn.action') }</span>
+        </Button>
+      </form>
     </AuthCard>
   </AuthShell>
 }

@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { FormEvent } from 'react'
+
 // Core
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
@@ -30,7 +32,9 @@ export function ClaimInstance() {
   const [ isSubmitting, setIsSubmitting ] = useState(false)
   const [ errorMessage, setErrorMessage ] = useState<string | null>(null)
 
-  async function onSubmit() {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
     if (!displayName.trim() || !email.trim()) {
       setErrorMessage(t('auth:setup.required'))
       return
@@ -60,44 +64,47 @@ export function ClaimInstance() {
       </h1>
       <p className='mt-3 opacity-80'>{ t('auth:setup.subtitle') }</p>
 
-      <div className='mt-6'>
-        <div className='compact'>
-          <Input
-            autoFocus
-            label={t('auth:setup.displayNameLabel')}
-            value={displayName}
-            onChange={(event) => setDisplayName(event.currentTarget.value)}
-          />
+      <form onSubmit={onSubmit}>
+        <div className='mt-6'>
+          <div className='compact'>
+            <Input
+              autoFocus
+              label={t('auth:setup.displayNameLabel')}
+              value={displayName}
+              onChange={(event) => setDisplayName(event.currentTarget.value)}
+            />
+          </div>
+          <div className='compact'>
+            <Input
+              type='email'
+              label={t('auth:setup.emailLabel')}
+              value={email}
+              onChange={(event) => setEmail(event.currentTarget.value)}
+            />
+          </div>
+          <div className='compact'>
+            <Input
+              label={t('auth:setup.orgNameLabel')}
+              value={orgName}
+              onChange={(event) => setOrgName(event.currentTarget.value)}
+            />
+          </div>
         </div>
-        <div className='compact'>
-          <Input
-            type='email'
-            label={t('auth:setup.emailLabel')}
-            value={email}
-            onChange={(event) => setEmail(event.currentTarget.value)}
-          />
-        </div>
-        <div className='compact'>
-          <Input
-            label={t('auth:setup.orgNameLabel')}
-            value={orgName}
-            isInvalid={Boolean(errorMessage)}
-            errorMessage={errorMessage}
-            onChange={(event) => setOrgName(event.currentTarget.value)}
-          />
-        </div>
-      </div>
 
-      <Button
-        className='mt-6 w-full'
-        color='primary'
-        isLoading={isSubmitting}
-        isDisabled={isSubmitting}
-        onPress={onSubmit}
-      >
-        <span>{ t('auth:setup.action') }</span>
-      </Button>
-      <p className='mt-4 text-sm opacity-60'>{ t('auth:setup.note') }</p>
+        { errorMessage
+          ? <p className='mt-3 text-sm text-danger'>{ errorMessage }</p>
+          : null }
+
+        <Button
+          type='submit'
+          className='mt-6 w-full'
+          color='primary'
+          isLoading={isSubmitting}
+          isDisabled={isSubmitting}
+        >
+          <span>{ t('auth:setup.action') }</span>
+        </Button>
+      </form>
     </AuthCard>
   </AuthShell>
 }
