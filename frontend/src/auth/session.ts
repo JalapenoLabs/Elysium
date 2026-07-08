@@ -16,6 +16,12 @@ import {
 // Misc
 import { getMe, getAuthContext } from '../api/routes/authRoutes'
 
+// Deduplicates concurrent session probes. React StrictMode invokes mount effects
+// twice in dev, and route guards can trigger a resolve while one is already in
+// flight, so callers share a single request instead of hitting the API twice. A
+// fresh probe runs once the previous settles (e.g. a retry or a window refocus).
+let inFlightResolve: Promise<void> | null = null
+
 // Resolves the browser's session against the API and records it in Redux.
 //
 // The session is an HttpOnly cookie the browser cannot read, so the only way to
@@ -23,7 +29,17 @@ import { getMe, getAuthContext } from '../api/routes/authRoutes'
 // authenticated, a 401 means anonymous, and anything else means the identity
 // service is unreachable (rendered as a degraded state rather than a silent
 // anonymous view).
-export async function resolveSession(): Promise<void> {
+export function resolveSession(): Promise<void> {
+  if (inFlightResolve) {
+    return inFlightResolve
+  }
+  inFlightResolve = runResolveSession().finally(() => {
+    inFlightResolve = null
+  })
+  return inFlightResolve
+}
+
+async function runResolveSession(): Promise<void> {
   dispatch(sessionLoading())
 
   try {

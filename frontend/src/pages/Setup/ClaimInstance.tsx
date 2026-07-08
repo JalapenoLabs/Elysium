@@ -3,7 +3,7 @@
 import type { FormEvent } from 'react'
 
 // Core
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
@@ -32,13 +32,20 @@ export function ClaimInstance() {
   const [ isSubmitting, setIsSubmitting ] = useState(false)
   const [ errorMessage, setErrorMessage ] = useState<string | null>(null)
 
+  // Focus the first field on mount. `autoFocus` is unreliable here because the card
+  // animates in (and StrictMode double-mounts in dev), so focus imperatively.
+  const nameRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    nameRef.current?.focus()
+  }, [])
+
+  // Name and email are required; the org name is optional. The submit button stays
+  // disabled until these are filled, so the form never flags its own pristine empty
+  // state, and the error line is reserved for an actual failure.
+  const canSubmit = Boolean(displayName.trim() && email.trim())
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-
-    if (!displayName.trim() || !email.trim()) {
-      setErrorMessage(t('auth:setup.required'))
-      return
-    }
 
     setIsSubmitting(true)
     setErrorMessage(null)
@@ -68,7 +75,7 @@ export function ClaimInstance() {
         <div className='mt-6'>
           <div className='compact'>
             <Input
-              autoFocus
+              ref={nameRef}
               label={t('auth:setup.displayNameLabel')}
               value={displayName}
               onChange={(event) => setDisplayName(event.currentTarget.value)}
@@ -100,7 +107,7 @@ export function ClaimInstance() {
           className='mt-6 w-full'
           color='primary'
           isLoading={isSubmitting}
-          isDisabled={isSubmitting}
+          isDisabled={isSubmitting || !canSubmit}
         >
           <span>{ t('auth:setup.action') }</span>
         </Button>

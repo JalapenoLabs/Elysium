@@ -3,7 +3,7 @@
 import type { FormEvent } from 'react'
 
 // Core
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
@@ -32,19 +32,25 @@ export function SignIn() {
   const [ isSubmitting, setIsSubmitting ] = useState(false)
   const [ errorMessage, setErrorMessage ] = useState<string | null>(null)
 
+  // Focus the email field on mount. `autoFocus` is unreliable here because the card
+  // animates in (and StrictMode double-mounts in dev), so focus imperatively.
+  const emailRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    emailRef.current?.focus()
+  }, [])
+
   // An unclaimed instance has no accounts to sign in to: send the first user to
   // the first-run claim screen instead.
   if (instanceClaimed === false) {
     return <Navigate to={UrlTree.setup} replace />
   }
 
+  // The submit button stays disabled until an email is entered, so the form never
+  // flags its own pristine empty state; the error line is for an actual failure.
+  const canSubmit = Boolean(email.trim())
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-
-    if (!email.trim()) {
-      setErrorMessage(t('auth:signIn.emailRequired'))
-      return
-    }
 
     setIsSubmitting(true)
     setErrorMessage(null)
@@ -74,22 +80,24 @@ export function SignIn() {
       <form onSubmit={onSubmit}>
         <div className='mt-6'>
           <Input
-            autoFocus
+            ref={emailRef}
             type='email'
             label={t('auth:signIn.emailLabel')}
             value={email}
-            isInvalid={Boolean(errorMessage)}
-            errorMessage={errorMessage}
             onChange={(event) => setEmail(event.currentTarget.value)}
           />
         </div>
+
+        { errorMessage
+          ? <p className='mt-3 text-sm text-danger'>{ errorMessage }</p>
+          : null }
 
         <Button
           type='submit'
           className='mt-6 w-full'
           color='primary'
           isLoading={isSubmitting}
-          isDisabled={isSubmitting}
+          isDisabled={isSubmitting || !canSubmit}
         >
           <span>{ t('auth:signIn.action') }</span>
         </Button>
