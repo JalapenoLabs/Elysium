@@ -12,6 +12,8 @@ use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Duration, Utc};
 
 use crate::proto::common::v1::{Timestamp, Uuid as ProtoUuid};
+use crate::proto::realtime::v1::event_envelope::Payload;
+use crate::proto::realtime::v1::ProfileUpdated;
 use crate::proto::user::v1::{
     ManualStatusKind, Presence, SetStatusRequest, UpdateProfileRequest, User,
 };
@@ -63,7 +65,7 @@ pub async fn update_me(
         tracing::error!(error = %error, "profile update failed");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
-    load(&state, &principal.sub).await
+    load_and_publish(&state, &principal.sub).await
 }
 
 /// `PUT /api/v1/users/me/status`: set or clear the manual status override.
@@ -116,7 +118,7 @@ pub async fn set_status(
         tracing::error!(error = %error, "status update failed");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
-    load(&state, &principal.sub).await
+    load_and_publish(&state, &principal.sub).await
 }
 
 /// Row shape for the profile read.
@@ -138,8 +140,11 @@ struct ProfileRow {
     updated_at: DateTime<Utc>,
 }
 
-/// Loads the user by subject, derives presence, and returns the `User` protobuf.
-async fn load(state: &AppState, subject: &str) -> Response {
+/// Builds the current `User` for a subject, deriving presence.
+///
+/// # Errors
+/// Returns an error if the query fails.
+async fn fetch(state: &AppState, subject: &str) -> sqlx::Result<Option<User>> {
     let row = sqlx::query_as::<_, ProfileRow>(
         "SELECT id, subject, email, given_name, family_name, display_name, avatar_url, bio,
                 manual_status, manual_status_text, manual_status_expires_at,
@@ -148,12 +153,39 @@ async fn load(state: &AppState, subject: &str) -> Response {
     )
     .bind(subject)
     .fetch_optional(&state.pool)
-    .await;
+    .await?;
 
-    match row {
-        Ok(Some(row)) => {
-            let online = state.sse.is_online(subject);
-            Protobuf(to_user(row, online)).into_response()
+    Ok(row.map(|row| to_user(row, state.sse.is_online(subject))))
+}
+
+/// Loads the user by subject and returns the `User` protobuf.
+async fn load(state: &AppState, subject: &str) -> Response {
+    match fetch(state, subject).await {
+        Ok(Some(user)) => Protobuf(user).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "profile load failed");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
+/// Loads the profile, publishes `profile.updated` to teammates, and responds.
+///
+/// Used after a mutation so a user's other windows and their teammates see the
+/// change live (see `docs/realtime.md`).
+async fn load_and_publish(state: &AppState, subject: &str) -> Response {
+    match fetch(state, subject).await {
+        Ok(Some(user)) => {
+            crate::events::publish_teammates(
+                state,
+                subject,
+                Payload::ProfileUpdated(ProfileUpdated {
+                    user: Some(user.clone()),
+                }),
+            )
+            .await;
+            Protobuf(user).into_response()
         }
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(error) => {

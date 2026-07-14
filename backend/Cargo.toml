@@ -8,7 +8,7 @@ description = "Minimal Axum API for the Elysium base template, wired to Postgres
 axum = "0.8"
 axum-extra = { version = "0.10", features = ["cookie"] }
 tokio = { version = "1", features = ["full"] }
-tokio-stream = { version = "0.1", features = ["time"] }
+tokio-stream = { version = "0.1", features = ["time", "sync"] }
 futures-core = "0.3"
 tower-http = { version = "0.6", features = ["trace"] }
 serde = { version = "1", features = ["derive"] }

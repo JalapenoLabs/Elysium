@@ -9,7 +9,7 @@
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
 use serde_json::{json, Value};
 use tower_http::trace::TraceLayer;
@@ -83,8 +83,9 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/auth/invites/accept/finish",
             post(invites::accept_finish),
         )
-        // Orgs: create additional orgs beyond the first-run root.
+        // Orgs: create additional orgs, and edit name/logo (fans out org.updated).
         .route("/api/v1/orgs", post(orgs::create))
+        .route("/api/v1/orgs/{id}", patch(orgs::update))
         // Session accounts: the profile + org switchers.
         .route("/api/v1/session/accounts", get(accounts::list))
         .route("/api/v1/session/switch", post(accounts::switch))

@@ -6,7 +6,7 @@
 //! policy. Any authenticated user may create an org for now; finer-grained control
 //! is a later authorization step. See `docs/identity.md`.
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -17,9 +17,12 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::proto::common::v1::Uuid as ProtoUuid;
+use crate::proto::realtime::v1::event_envelope::Payload;
+use crate::proto::realtime::v1::OrgUpdated;
 use crate::session::{self, SessionUser};
 use crate::state::AppState;
-use crate::users;
+use crate::{events, users};
 
 /// Body of the create-org request.
 #[derive(Deserialize)]
@@ -65,6 +68,85 @@ pub async fn create(
     }
 
     Json(json!({ "id": org_id, "name": name, "slug": slug })).into_response()
+}
+
+/// Body of the org-update request. Fields are optional; unset ones are unchanged.
+#[derive(Deserialize)]
+pub struct UpdateOrg {
+    name: Option<String>,
+    logo_url: Option<String>,
+}
+
+/// `PATCH /api/v1/orgs/:id`: update an org's name/logo (owner or admin only).
+///
+/// On success, fans out an `org.updated` realtime event to every connected member,
+/// so their views reflect the change live (see `docs/realtime.md`).
+pub async fn update(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    Path(org_id): Path<Uuid>,
+    Json(body): Json<UpdateOrg>,
+) -> Response {
+    let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "user lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+
+    // Only an owner or admin of the org may edit it.
+    let role = sqlx::query_scalar::<_, String>(
+        "SELECT role FROM org_members WHERE user_id = $1 AND org_id = $2",
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_optional(&state.pool)
+    .await;
+    match role {
+        Ok(Some(role)) if role == "owner" || role == "admin" => {}
+        Ok(_) => return StatusCode::FORBIDDEN.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "org role lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    }
+
+    // COALESCE keeps a field unchanged when its bind is NULL (the client omitted it).
+    let updated = sqlx::query_as::<_, (String, String)>(
+        "UPDATE orgs SET name = COALESCE($1, name), logo_url = COALESCE($2, logo_url)
+          WHERE id = $3 RETURNING name, logo_url",
+    )
+    .bind(body.name.as_deref().map(str::trim))
+    .bind(body.logo_url.as_deref().map(str::trim))
+    .bind(org_id)
+    .fetch_optional(&state.pool)
+    .await;
+
+    let (name, logo_url) = match updated {
+        Ok(Some(row)) => row,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "org update failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    events::publish_org(
+        &state,
+        org_id,
+        Payload::OrgUpdated(OrgUpdated {
+            id: Some(ProtoUuid {
+                value: org_id.to_string(),
+            }),
+            name: name.clone(),
+            logo_url: logo_url.clone(),
+        }),
+    )
+    .await;
+
+    Json(json!({ "id": org_id, "name": name, "logo_url": logo_url })).into_response()
 }
 
 /// Creates the org, its default auth policy, and the creator's owner membership.

@@ -1,7 +1,10 @@
 # Realtime (Server-Sent Events)
 
-Scope for the server-to-client realtime channel. Nothing here is implemented yet;
-this is the agreed design and roadmap.
+Scope for the server-to-client realtime channel. The **server side is built**: the
+per-user broadcast bus, the typed `EventEnvelope`, the authenticated stream, and
+the first event kinds (`org.updated`, `presence.changed`, `profile.updated`,
+`session.changed`) publish live (`backend/src/{sse,events}.rs`; see "What is
+built" below). The **SharedWorker fan-out on the client is the remaining piece**.
 
 ## Goal
 
@@ -50,17 +53,19 @@ SSE frames are UTF-8, so each event is a single wrapping proto message
 `elysium.realtime.v1.EventEnvelope`, a discriminated union over every server-push
 type so one channel carries them all:
 
+The built envelope (`proto/realtime.proto`, package `elysium.realtime.v1`); the SSE
+`event:` name is the dotted lowercase of the kind (`org.updated`, `presence.changed`,
+`profile.updated`, `session.changed`, `snapshot`):
+
 ```proto
-// Discriminator, mirrored as the SSE `event:` name so a client can route or
-// filter before it decodes the payload.
 enum EventKind {
   EVENT_KIND_UNSPECIFIED = 0;
-  EVENT_KIND_SNAPSHOT = 1;          // full state dump (on connect and on resync)
-  EVENT_KIND_PROFILE_UPDATED = 2;
-  EVENT_KIND_SETTINGS_UPDATED = 3;
-  EVENT_KIND_TEAM_UPDATED = 4;
-  EVENT_KIND_CLAUDE_STREAM = 5;
-  // ... extended as new push types are added
+  EVENT_KIND_SNAPSHOT = 1;          // full state dump (on connect / resync); reserved
+  EVENT_KIND_ORG_UPDATED = 2;
+  EVENT_KIND_PROFILE_UPDATED = 3;
+  EVENT_KIND_PRESENCE_CHANGED = 4;
+  EVENT_KIND_SESSION_CHANGED = 5;
+  // ... extended as new push types are added (Claude session status, drive, ...)
 }
 
 message EventEnvelope {
@@ -73,13 +78,31 @@ message EventEnvelope {
   // numbers stay stable as kinds are added.
   oneof payload {
     Snapshot snapshot = 10;
-    ProfileUpdated profile_updated = 11;
-    SettingsUpdated settings_updated = 12;
-    TeamUpdated team_updated = 13;
-    ClaudeStream claude_stream = 14;
+    OrgUpdated org_updated = 11;
+    ProfileUpdated profile_updated = 12;
+    PresenceChanged presence_changed = 13;
+    SessionChanged session_changed = 14;
   }
 }
 ```
+
+### What is built
+
+- **The bus** (`backend/src/sse.rs`): each user has a `tokio::sync::broadcast`
+  channel; every live SSE stream for that user subscribes to it, so an event
+  published to a user reaches all their connections. Per-user `sequence` numbers
+  the `id:` line; a lagged slow client skips dropped envelopes and resyncs on the
+  next one. The registry also powers derived presence and the connection cap.
+- **Fan-out** (`backend/src/events.rs`): `publish_org` (to an org's members),
+  `publish_teammates` (everyone sharing an org, including the user's own windows),
+  and `publish_user`. `announce_presence` fires online on connect and offline when
+  the last connection drops.
+- **Publishers**: `PATCH /api/v1/orgs/:id` emits `org.updated` to members;
+  profile/status edits emit `profile.updated` to teammates; SSE connect/disconnect
+  emits `presence.changed`; signing an account out emits `session.changed`.
+- **Still to build**: the `snapshot` on-connect state dump, and the client
+  SharedWorker that holds one `EventSource` per app and fans decoded payloads out
+  to windows (below).
 
 The SharedWorker decodes the envelope with the generated schema and posts the
 typed payload to windows, so the protobuf contract holds end to end. The `event:`

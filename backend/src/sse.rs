@@ -1,118 +1,223 @@
-//! Server-Sent Events: the server-to-client realtime channel (see `docs/realtime.md`).
+//! Server-Sent Events: the server-to-client realtime bus (see `docs/realtime.md`).
 //!
-//! This is the transport skeleton. It authenticates exactly like the rest of the
-//! API, via the [`crate::session::SessionUser`] cookie extractor, so the single
-//! SharedWorker connection the frontend will hold rides the same session with no
-//! token in the URL. The typed `EventEnvelope` fan-out and the per-user broadcast
-//! bus are the next phase; today the stream proves auth, the connection cap, and
-//! liveness with a periodic heartbeat.
+//! Each user has a broadcast channel; every live SSE stream for that user
+//! subscribes to it, so publishing an event to a user reaches all of their
+//! connections (the SharedWorker holds one per app). Events are the typed
+//! [`EventEnvelope`] proto, base64-encoded into the SSE `data:` line, with the
+//! `kind` mirrored as the SSE `event:` name and a per-user `sequence` as the `id:`
+//! for Last-Event-ID resume. Higher-level fan-out (to an org's members, to a
+//! user's teammates) lives in [`crate::events`]; this module is the transport.
+//!
+//! Authentication is the session cookie ([`crate::session::SessionUser`]), so the
+//! stream rides the same session with no token in the URL.
 
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
-use tokio_stream::wrappers::IntervalStream;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+use chrono::Utc;
+use prost::Message;
+use tokio::sync::broadcast;
+use tokio_stream::wrappers::{BroadcastStream, IntervalStream};
 use tokio_stream::StreamExt;
 
+use crate::proto::common::v1::Timestamp;
+use crate::proto::realtime::v1::event_envelope::Payload;
+use crate::proto::realtime::v1::{EventEnvelope, EventKind};
 use crate::session::SessionUser;
 use crate::state::AppState;
 
 /// Maximum concurrent SSE connections a single user may hold across all clients.
 ///
 /// One connection per client (the SharedWorker holds it), but a user can have
-/// several clients at once (desktop, browser, another device). Adjust here.
+/// several clients at once (desktop, browser, another device).
 pub const MAX_SSE_CONNECTIONS_PER_USER: usize = 30;
+
+/// Events buffered per user before a slow client is told it lagged.
+const BROADCAST_CAPACITY: usize = 64;
 
 /// Interval between heartbeat comments that hold the connection open through idle
 /// periods and proxies.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 
-/// Tracks live SSE connections per user so the cap can be enforced. Cheaply
-/// cloneable; the counts live behind a shared `Arc<Mutex<..>>`.
-#[derive(Clone, Debug, Default)]
+/// A user's broadcast channel plus its live-connection count and event sequence.
+struct UserChannel {
+    sender: broadcast::Sender<EventEnvelope>,
+    count: usize,
+    sequence: u64,
+}
+
+/// Per-user realtime channels: the connection cap, presence source, and event bus.
+/// Cheaply cloneable; the state lives behind a shared `Arc<Mutex<..>>`.
+#[derive(Clone, Default)]
 pub struct SseRegistry {
-    counts: Arc<Mutex<HashMap<String, usize>>>,
+    inner: Arc<Mutex<HashMap<String, UserChannel>>>,
 }
 
 impl SseRegistry {
     /// Whether the user currently holds at least one live SSE connection.
     ///
-    /// This is the source of derived presence: a user with a live stream is
-    /// online (see `crate::profile`). Per-instance only, like the connection cap.
+    /// The source of derived presence (see `crate::profile`). Per-instance only.
     pub fn is_online(&self, subject: &str) -> bool {
-        let counts = self.counts.lock().expect("SSE registry mutex poisoned");
-        counts.get(subject).is_some_and(|count| *count > 0)
+        let map = self.inner.lock().expect("SSE registry mutex poisoned");
+        map.get(subject).is_some_and(|channel| channel.count > 0)
     }
 
-    /// Reserves a connection slot for `subject`, or returns `None` at the cap.
+    /// Reserves a connection slot and returns a receiver on the user's channel.
     ///
-    /// The returned guard releases the slot when dropped, i.e. when the stream
-    /// ends, so a closed connection frees its slot automatically.
-    fn acquire(&self, subject: &str) -> Option<ConnectionGuard> {
-        let mut counts = self.counts.lock().expect("SSE registry mutex poisoned");
-        let count = counts.entry(subject.to_owned()).or_insert(0);
-        if *count >= MAX_SSE_CONNECTIONS_PER_USER {
+    /// `None` at the cap. The `bool` is whether this connection brought the user
+    /// online (their first), so the caller can announce presence.
+    fn acquire(&self, subject: &str) -> Option<(broadcast::Receiver<EventEnvelope>, bool)> {
+        let mut map = self.inner.lock().expect("SSE registry mutex poisoned");
+        let channel = map
+            .entry(subject.to_owned())
+            .or_insert_with(|| UserChannel {
+                sender: broadcast::channel(BROADCAST_CAPACITY).0,
+                count: 0,
+                sequence: 0,
+            });
+        if channel.count >= MAX_SSE_CONNECTIONS_PER_USER {
             return None;
         }
-        *count += 1;
-        Some(ConnectionGuard {
-            registry: self.clone(),
-            subject: subject.to_owned(),
-        })
+        let became_online = channel.count == 0;
+        channel.count += 1;
+        Some((channel.sender.subscribe(), became_online))
+    }
+
+    /// Releases a connection slot; returns whether the user is now offline.
+    fn release(&self, subject: &str) -> bool {
+        let mut map = self.inner.lock().expect("SSE registry mutex poisoned");
+        let Some(channel) = map.get_mut(subject) else {
+            return false;
+        };
+        channel.count = channel.count.saturating_sub(1);
+        if channel.count == 0 {
+            map.remove(subject);
+            return true;
+        }
+        false
+    }
+
+    /// Publishes an event to one user's live connections (no-op if none).
+    ///
+    /// Assigns the user's next sequence and sends; a send error means no receivers
+    /// are attached, which is fine.
+    pub fn send(&self, subject: &str, payload: Payload) {
+        let mut map = self.inner.lock().expect("SSE registry mutex poisoned");
+        let Some(channel) = map.get_mut(subject) else {
+            return;
+        };
+        channel.sequence += 1;
+        let envelope = EventEnvelope {
+            sequence: channel.sequence,
+            emitted_at: Some(now()),
+            kind: kind_of(&payload) as i32,
+            payload: Some(payload),
+        };
+        let _ = channel.sender.send(envelope);
     }
 }
 
-/// Releases a user's connection slot when the stream is dropped.
-#[derive(Debug)]
+/// Frees a connection slot when the SSE stream ends, announcing presence offline
+/// if it was the user's last one. Held for the lifetime of the stream.
 struct ConnectionGuard {
-    registry: SseRegistry,
+    state: AppState,
     subject: String,
 }
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        let mut counts = self
-            .registry
-            .counts
-            .lock()
-            .expect("SSE registry mutex poisoned");
-        if let Some(count) = counts.get_mut(&self.subject) {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                counts.remove(&self.subject);
-            }
+        if self.state.sse.release(&self.subject) {
+            crate::events::announce_presence(&self.state, self.subject.clone(), false);
         }
     }
 }
 
-/// `GET /api/v1/events`: the authenticated event stream.
+/// `GET /api/v1/events`: the authenticated realtime stream.
 ///
-/// Protected by the session cookie: [`SessionUser`] rejects an unauthenticated
-/// request with `401` before this runs. A user already holding
-/// [`MAX_SSE_CONNECTIONS_PER_USER`] streams is rejected with `429`.
+/// Protected by the session cookie. A user already holding
+/// [`MAX_SSE_CONNECTIONS_PER_USER`] streams is rejected with `429`. The stream
+/// merges the user's broadcast channel with a heartbeat so it stays warm while
+/// idle.
 pub async fn events(
     axum::extract::State(state): axum::extract::State<AppState>,
     SessionUser(principal): SessionUser,
 ) -> Response {
-    let Some(guard) = state.sse.acquire(&principal.sub) else {
+    let Some((receiver, became_online)) = state.sse.acquire(&principal.sub) else {
         tracing::debug!(subject = %principal.sub, "SSE connection cap reached");
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     };
     tracing::debug!(subject = %principal.sub, "SSE stream opened");
 
-    // Placeholder stream until the per-user broadcast bus lands: a periodic tick
-    // that keeps the connection warm and proves end-to-end auth + delivery. The
-    // move closure owns `guard`, so the slot is released when the stream ends.
-    let stream = IntervalStream::new(tokio::time::interval(HEARTBEAT_INTERVAL)).map(move |_| {
+    // Announce presence online now; the guard announces offline when the stream
+    // ends. Both are best-effort teammate fan-outs.
+    if became_online {
+        crate::events::announce_presence(&state, principal.sub.clone(), true);
+    }
+    let guard = ConnectionGuard {
+        state,
+        subject: principal.sub,
+    };
+
+    // Each broadcast envelope becomes an SSE event; a lagged slow client skips the
+    // dropped envelopes (its next event resyncs it).
+    let broadcast =
+        BroadcastStream::new(receiver).filter_map(|item| item.ok().map(|e| to_event(&e)));
+    // The heartbeat keeps the connection warm; the guard moves into this closure,
+    // so the slot frees (and offline fires) exactly when the stream ends.
+    let heartbeat = IntervalStream::new(tokio::time::interval(HEARTBEAT_INTERVAL)).map(move |_| {
         let _keep_slot = &guard;
-        Ok::<Event, Infallible>(Event::default().event("heartbeat").data("{}"))
+        Ok(Event::default().event("heartbeat").data("{}"))
     });
 
-    Sse::new(stream)
+    Sse::new(broadcast.merge(heartbeat))
         .keep_alive(KeepAlive::default())
         .into_response()
+}
+
+/// Serializes an envelope into an SSE event (base64 proto, kind name, sequence id).
+fn to_event(envelope: &EventEnvelope) -> Result<Event, std::convert::Infallible> {
+    let kind = EventKind::try_from(envelope.kind).unwrap_or(EventKind::Unspecified);
+    Ok(Event::default()
+        .event(event_name(kind))
+        .id(envelope.sequence.to_string())
+        .data(STANDARD.encode(envelope.encode_to_vec())))
+}
+
+/// The SSE `event:` name for a kind; clients subscribe by these.
+fn event_name(kind: EventKind) -> &'static str {
+    match kind {
+        EventKind::Unspecified => "unspecified",
+        EventKind::Snapshot => "snapshot",
+        EventKind::OrgUpdated => "org.updated",
+        EventKind::ProfileUpdated => "profile.updated",
+        EventKind::PresenceChanged => "presence.changed",
+        EventKind::SessionChanged => "session.changed",
+    }
+}
+
+/// The kind that matches a payload variant.
+fn kind_of(payload: &Payload) -> EventKind {
+    match payload {
+        Payload::Snapshot(_) => EventKind::Snapshot,
+        Payload::OrgUpdated(_) => EventKind::OrgUpdated,
+        Payload::ProfileUpdated(_) => EventKind::ProfileUpdated,
+        Payload::PresenceChanged(_) => EventKind::PresenceChanged,
+        Payload::SessionChanged(_) => EventKind::SessionChanged,
+    }
+}
+
+/// The current instant as a proto `Timestamp`.
+fn now() -> Timestamp {
+    let instant = Utc::now();
+    Timestamp {
+        epoch_seconds: instant.timestamp(),
+        nanos: instant.timestamp_subsec_nanos(),
+        timezone: "Etc/UTC".to_string(),
+    }
 }

@@ -14,6 +14,7 @@ const PROTO_FILES: &[&str] = &[
     "../proto/user.proto",
     "../proto/health.proto",
     "../proto/auth.proto",
+    "../proto/realtime.proto",
 ];
 
 /// Import root passed to `protoc` so `import "common.proto";` resolves.

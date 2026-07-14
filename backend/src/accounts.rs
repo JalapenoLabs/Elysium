@@ -16,6 +16,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::cookies;
+use crate::events;
 use crate::session::{self, SessionUser, SESSION_COOKIE};
 use crate::state::AppState;
 
@@ -168,7 +169,11 @@ pub async fn signout(
     };
 
     match session::remove_account(&state.pool, session_id, target).await {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(true) => {
+            // This session's other windows re-read their account list.
+            events::announce_session_change(&state, &principal.sub, "account_signed_out");
+            StatusCode::NO_CONTENT.into_response()
+        }
         // No accounts remain: the session is gone, so clear the cookie too.
         Ok(false) => (
             jar.remove(cookies::clearing(SESSION_COOKIE)),

@@ -17,6 +17,7 @@ mod config;
 mod cookies;
 mod credentials;
 mod enrollment;
+mod events;
 mod invites;
 mod login_events;
 mod opaque;

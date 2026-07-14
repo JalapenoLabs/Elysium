@@ -44,3 +44,15 @@ pub mod auth {
         include!(concat!(env!("OUT_DIR"), "/elysium.auth.v1.rs"));
     }
 }
+
+/// Server-to-client realtime events (SSE).
+pub mod realtime {
+    /// Version 1 of the realtime contract.
+    // The generated event union has one large variant (a full `User`); boxing it
+    // is not worth it for a short-lived broadcast message, and this is generated
+    // code, where an `allow` is appropriate.
+    #[allow(dead_code, clippy::large_enum_variant)]
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/elysium.realtime.v1.rs"));
+    }
+}
