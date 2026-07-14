@@ -141,6 +141,19 @@ pub async fn authenticate_begin(
         }
     }
 
+    // Enforce org policy: refuse a password sign-in when no org the profile belongs
+    // to permits passwords. This mirrors method discovery (the source of truth the
+    // client already honors), so an unknown identifier still gets the buildable
+    // defaults and the response cannot be used to probe which accounts exist.
+    match allowed_methods(&state, &identifier).await {
+        Ok(methods) if methods.contains(&"password") => {}
+        Ok(_) => return (StatusCode::FORBIDDEN, "password sign-in is not enabled").into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "sign-in policy check failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    }
+
     // Look up the user and their record; an unknown user yields `None`, which
     // opaque::login_start turns into an indistinguishable dummy response.
     let user = match users::find_by_email(&state.pool, &identifier).await {

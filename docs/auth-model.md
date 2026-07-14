@@ -249,5 +249,7 @@ attempt is recorded in `login_events`.
 2. Magic-link sign-in, once the SMTP service lands.
 3. Per-org SSO / custom OAuth brokering (`openidconnect`), configured in Postgres.
 4. Security Center surfaces: login history, listing/removing credentials, active-session
-   revocation; full org-policy enforcement (disabled-method rejection, org-wide
-   `require_totp`, session lifetime).
+   revocation. Remaining org-policy enforcement: force TOTP enrollment for a member of a
+   `require_totp` org who has none, and honor `session_lifetime_seconds`. (Password
+   sign-in already refuses when no org the profile belongs to permits passwords, and an
+   enrolled TOTP is always required; see `password::authenticate_begin`.)
