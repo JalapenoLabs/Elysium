@@ -1,65 +1,154 @@
 # Authentication model (authoritative)
 
-This document states Elysium's authentication architecture. Where it conflicts with
-`auth.md` (the earlier Keycloakify / redirect-BFF design), **this document wins**:
-the browser never contacts Keycloak, and the API brokers everything.
+This document states Elysium's authentication architecture. Auth is first-party:
+the API owns every credential flow and Postgres is the system of record. There is
+no external identity provider in the deployment.
 
 ## The one rule
 
-**The browser only ever talks to Elysium's own SPA and API. Only the API ever
-touches Keycloak, server-side.** There is no redirect to Keycloak, no Keycloak-served
-page (themed or not), and no Keycloak origin in the browser. Our React renders every
-input: the email field, the passkey button, the TOTP field, recovery.
+**The browser only ever talks to Elysium's own SPA and API, and the API brokers
+all authentication.** Our React renders every input: the email field, the passkey
+button, the (future) password and TOTP fields, recovery. No auth redirect ever
+leaves the app's origin.
 
 ## Roles
 
 - **SPA (React).** Renders the entire auth UI and drives the browser-native passkey
   ceremony via `navigator.credentials`. Holds only the session cookie.
-- **API (Rust).** Is the **WebAuthn Relying Party** (`webauthn-rs`): it issues
-  challenges, verifies assertions, and owns the passkey / TOTP / recovery logic and
-  the sessions. It is the only component that would ever talk to Keycloak.
+- **API (Rust).** The **WebAuthn Relying Party** (`webauthn-rs`) and the broker for
+  every other method as it ships: it issues challenges, verifies assertions, and
+  owns the passkey / password / TOTP / recovery logic and the sessions.
 - **Postgres (app DB).** The **system of record** for auth: users, their passkeys,
-  (future) TOTP secrets and recovery codes, and sessions all live here.
-- **Keycloak.** Retained in the deployment but **outside the auth path** (dormant
-  for now): kept for future federation / IdP brokering (SSO) and OIDC token issuance
-  to the service/worker layer, which only the API would use, server-side. It is not
-  the WebAuthn Relying Party and never runs the browser login. (If you would rather
-  Keycloak be the canonical user directory synced from the API, say so; it is a
-  small additive layer on top of this.)
+  login history, per-org auth policy, (future) OPAQUE password records, TOTP
+  secrets, and recovery codes all live here.
 
-## Passwordless sign-in (passkey)
+## Sign-in methods
 
-1. SPA: user enters their email, taps **Sign in with a passkey**.
-2. SPA → `POST /api/v1/auth/passkey/authenticate/begin { email }`. The API looks the
-   user up (Postgres), builds a WebAuthn authentication challenge for that user's
-   registered credentials, stashes the challenge in a short-lived cookie, and returns
-   the public-key request options.
-3. SPA → `navigator.credentials.get({ publicKey })`. The browser shows the native
-   passkey prompt (biometric / PIN). No webpage, no redirect.
-4. SPA → `POST /api/v1/auth/passkey/authenticate/finish { assertion }`. The API
-   verifies the assertion against the stored credential and challenge, and on success
-   creates a session and sets the HttpOnly session cookie.
-5. SPA re-resolves the session (`GET /api/v1/me`) and routes into the app.
+Elysium is deliberately **not passkey-only**. Passkeys are the flagship path;
+passwords with a mandated second factor are the compatible path orgs can rely on.
+Which methods an org's members may use is org policy (see below).
 
-## Passkey enrollment (onboarding / recovery)
+### Passkeys (built)
 
-Enrollment (root claim, invite acceptance, or adding a passkey) is the same shape
-with `register/begin` + `register/finish` and `navigator.credentials.create()`. The
-API stores the new credential in Postgres. Enrollment always issues recovery codes.
+The primary, phishing-resistant method. The API is authenticator-agnostic: platform
+authenticators (Windows Hello, Touch ID), hardware keys, and credential-manager
+passkey providers (Bitwarden, 1Password, ...) all work through the same WebAuthn
+ceremony. In the browser build, extension providers intercept
+`navigator.credentials`; in the Electron shell the OS passkey-provider APIs carry
+the same role (verify per platform when the shell lands).
 
-## TOTP and recovery
+### Passwords via OPAQUE (built)
 
-TOTP is a fallback factor verified by the API (a vetted TOTP library) against a
-secret stored in our DB; enrollment shows a QR the SPA renders. Recovery codes are
-one-time codes the API issues at enrollment and consumes on a lost-device sign-in,
-which then forces a fresh passkey enrollment.
+Password sign-in uses the **OPAQUE aPAKE ([RFC 9807](https://www.rfc-editor.org/info/rfc9807/))**,
+not password-over-TLS: the API never sees the password, any hash of it, or anything
+replayable. Plain client-side hashing (e.g. SHA-256 before submit) is explicitly
+rejected as a pass-the-hash anti-pattern; OPAQUE is the correct construction for
+"the password never leaves the client".
+
+- **Server**: `opaque-ke` 4.x (Meta's audited, RFC-compliant Rust implementation),
+  suite ristretto255 OPRF + triple-DH over SHA-512 + Argon2 KSF. The server setup
+  (its OPRF seed and keypair) is a singleton persisted in `opaque_server_setup` and
+  loaded on boot; one registration record per user in `user_password_credentials`,
+  with a `scheme_version` so a future cipher-suite bump can force re-enrollment on
+  next login instead of a breaking migration. Pure crypto lives in `backend/src/opaque.rs`.
+- **Client**: `@serenity-kit/opaque` (a WASM build of the same crate), so both ends
+  share one implementation and one pinned suite. Wire messages are **base64url
+  without padding** (the encoding that library emits); the server matches it. Cross-
+  language interop is verified end to end.
+- **Identifier**: the OPAQUE credential identifier is the **lowercased, trimmed
+  email**, used identically at registration and login so the OPRF keys agree.
+- **Flow**: registration is one round trip; login is the KE1/KE2/KE3 exchange (two
+  round trips). A wrong password fails client-side (no valid finalization), and an
+  unknown user gets an indistinguishable dummy response (`ServerLogin::start(None)`),
+  so the endpoint never reveals which accounts exist. Success mints the same opaque
+  session cookie as a passkey sign-in.
+- **Rate limiting**: `password/authenticate/begin` returns `429` once an identifier
+  has 5 failures in 15 minutes, counted from `login_events`. This blunts online
+  guessing (offline attack is already out of reach by construction).
+- **Accepted tradeoffs**: password-strength rules and breach checks (HIBP
+  k-anonymity) run client-side, because the server never sees the password.
+- **Reserved bonus**: OPAQUE's `export_key` (a stable client-side key the server
+  never learns) is a foundation for future end-to-end-encrypted features.
+
+### Magic links (decided, not built)
+
+Passwordless email sign-in: a single-use, short-lived signed link delivered by
+Elysium's own (planned) SMTP service. Lands after that service exists; invite
+delivery stays copyable-link so air-gapped installs never need email.
+
+### TOTP second factor (built)
+
+TOTP is a second factor verified by the API (`totp-rs`, SHA-1 / 6 digits / 30s, one
+step of skew) against a secret stored in `user_totp_secrets`; enrollment returns an
+`otpauth://` provisioning URI the SPA renders as a QR (any RFC 6238 app works: Google
+Authenticator, Bitwarden, ...). It ships together with password login: claiming or
+signing in with a password requires a confirmed TOTP code, so a password without a
+second factor is never a complete method. After a correct password,
+`password/authenticate/finish` answers `401 { reason: "totp_required" }` and the flow
+completes at `totp/verify`. Recovery codes (one-time codes issued at enrollment) are
+the next roadmap item.
+
+### SSO / custom OAuth providers (roadmap)
+
+Per-org federation is API-brokered: the org configures its provider (issuer URL,
+client id/secret) in Postgres, and the API runs the OIDC/OAuth client flow
+(`openidconnect`) server-side. The browser still only ever holds the Elysium
+session cookie.
+
+## First-run claim (atomic, method-aware)
+
+A fresh instance has no users; the first (root) user claims it. The claim is a
+two-step wizard (name the workspace, then create the owner with a chosen method)
+backed by an **atomic** begin/finish contract in `backend/src/bootstrap.rs`:
+
+- **`begin` persists nothing.** It mints a candidate user id and, per the chosen
+  method, either starts a passkey registration challenge or answers the OPAQUE
+  registration request and issues a TOTP provisioning URI. All of it (candidate id,
+  entered details, method-specific ceremony state) rides a short-lived HttpOnly
+  cookie.
+- **`finish` verifies the credential, then writes everything in one transaction**:
+  the org, its seeded `org_auth_policies` row, the user, the credential
+  (passkey, or OPAQUE record + confirmed TOTP secret), and a session. The chosen
+  method seeds the policy (passkey -> passkeys allowed; password -> passwords
+  allowed and TOTP mandatory).
+
+Because nothing is written until the credential verifies, abandoning `begin` (for
+example closing the passkey dialog) leaves the instance **unclaimed** rather than
+claimed-with-no-way-in. This closes the earlier lockout hole where the org and user
+were created before the ceremony completed.
+
+## Org auth policy (built; enforcement expanding)
+
+`org_auth_policies` (one row per org, created with the org) is the control surface
+for org-enforced auth rules: which sign-in methods are allowed (at least one must
+stay enabled), whether TOTP is mandatory, and the session lifetime. The row is
+seeded at claim time from the owner's chosen method, and method discovery
+(`/api/v1/auth/methods`) already reads it. Remaining enforcement (rejecting a
+disabled method mid-flow, applying `require_totp` to every member, honoring
+`session_lifetime_seconds`) lands with the Security Center admin surface.
+
+## Login history (built)
+
+`login_events` is an append-only audit trail: every sign-in attempt (successful or
+not) records the user (when resolved), the presented email, method, outcome, client
+IP (nearest proxy hop, falling back to the socket peer), and user agent. The trail
+outlives account deletion (`ON DELETE SET NULL`). It feeds the Security Center's
+account-access view and the rate-limiting/lockout work that ships with passwords.
 
 ## Sessions
 
-Unchanged from the current implementation: an opaque HttpOnly, Secure, SameSite=Lax
-session cookie backed by the `sessions` table; the `SessionUser` extractor protects
-every `/api/v1/*` route and the SSE stream. Same-origin (the SPA proxies `/api` to
-the API), so the cookie is first-party.
+An opaque HttpOnly, Secure, SameSite=Lax session cookie backed by the `sessions`
+table; the `SessionUser` extractor resolves it to the session's **active account**
+and protects every `/api/v1/*` route and the SSE stream. Same-origin (the SPA
+proxies `/api` to the API), so the cookie is first-party. Sessions hold no tokens.
+
+A session is **multi-account** (Google-style): `session_accounts` lists every
+profile signed into the browser session and `sessions.active_user_id` /
+`active_org_id` say which account (and which of its orgs) is active. Adding an
+account is a normal sign-in performed while the cookie is present, which
+`session::establish` appends instead of replacing. Switching is only allowed to
+accounts already in the session, so a caller can never switch to a profile it never
+authenticated. See `docs/identity.md` for the profile/org/session model.
 
 ## WebAuthn configuration
 
@@ -70,22 +159,13 @@ the API), so the cookie is first-party.
 - Credentials are discoverable (resident keys) with user verification required, so a
   passkey is a true passwordless factor.
 
-## What is retired
-
-The redirect-based BFF is removed entirely: `oidc.rs` (the OIDC Authorization Code
-+ PKCE code exchange and the `/auth/login` + `/auth/callback` redirects) and `auth.rs`
-(Keycloak JWKS / JWT validation, which only served that flow) are deleted, along with
-their dependencies (`jsonwebtoken`, `reqwest`). Keycloak stays in the deployment but
-its realm login flow is dormant; the API talks to it only if and when the federation
-or service-token features are built.
-
 ## Build notes
 
 - The RP uses `webauthn-rs` 0.5 (`WebauthnBuilder::new(rp_id, rp_origin)`), verified
   to build on Linux. It pulls in native OpenSSL (`openssl-sys`), unlike the rest of
   the backend which is rustls: the backend image already has `libssl-dev`, and CI
-  installs `openssl-devel` on the Fedora runner. RP id = the app host (`localhost`
-  in dev), RP origin = the app origin (`http://localhost:5173`).
+  installs `openssl-devel` on the Fedora runner. This also means the backend does
+  not compile on a bare Windows host; build inside the dev container.
 - The registration/authentication ceremony state (the `webauthn-rs`
   `PasskeyRegistration` / `PasskeyAuthentication`, behind the
   `danger-allow-state-serialisation` feature) is carried between begin and finish
@@ -94,24 +174,77 @@ or service-token features are built.
 - The SPA uses `@simplewebauthn/browser` (`startRegistration` / `startAuthentication`)
   to convert the challenge JSON to/from the `ArrayBuffer` shapes `navigator.
   credentials` needs, rather than hand-rolling base64url conversion.
+- Client IPs reach the audit trail via `X-Forwarded-For` (the SPA proxy / the
+  operator's gateway) with the socket peer as fallback (`ConnectInfo`).
+- The OPAQUE and TOTP crates pull `sha2`/`argon2` (suite match) and native
+  `ring`/`getrandom`; they build in the same dev container as `webauthn-rs`. The
+  OPAQUE server setup is loaded from Postgres after migrations run, so `AppState`
+  is assembled in `main` (not a bare `from_env`) once the setup exists.
+- Auth cookies (session, and the ephemeral passkey / password / bootstrap ceremony
+  cookies) are all built through `backend/src/cookies.rs`, so their security
+  attributes are defined once. Session establishment is shared via
+  `session::establish`, used by every method's success path.
 
 ## API surface (implemented)
 
+Discovery and first-run:
+
 - `GET /api/v1/auth/context` -> `{ claimed }`.
-- `POST /api/v1/auth/bootstrap/begin` `{ email, display_name }` -> registration
-  challenge (first-run only; 409 once claimed).
-- `POST /api/v1/auth/bootstrap/finish` (credential) -> stores the passkey, signs in.
+- `POST /api/v1/auth/methods` `{ identifier }` -> `{ methods: [...] }`. The permitted
+  methods from the applicable org policy; non-enumerating (an unknown identifier gets
+  the default org's policy, never an error).
+- `POST /api/v1/auth/bootstrap/begin` `{ org_name, email, display_name, method,
+  opaque_registration_request? }` -> passkey challenge, or OPAQUE registration
+  response + TOTP provisioning URI (first-run only; 409 once claimed).
+- `POST /api/v1/auth/bootstrap/finish` (passkey credential, or
+  `{ opaque_registration_upload, totp_code }`) -> claims atomically, signs in.
+
+Sign-in:
+
 - `POST /api/v1/auth/passkey/authenticate/begin` `{ email }` -> auth challenge.
 - `POST /api/v1/auth/passkey/authenticate/finish` (assertion) -> verifies, signs in.
+- `POST /api/v1/auth/password/authenticate/begin` `{ identifier, ke1 }` -> `{ ke2 }`
+  (always answers; `429` when rate-limited).
+- `POST /api/v1/auth/password/authenticate/finish` `{ ke3 }` -> `204` + session, or
+  `401 { reason: "totp_required" }`.
+- `POST /api/v1/auth/totp/verify` `{ code }` -> `204` + session.
+- `POST /api/v1/auth/recovery/authenticate` `{ email, code }` -> `204` + session
+  (single-use; generic `401` on unknown email or wrong code).
 - `POST /api/v1/auth/logout` -> ends the session.
 - `GET /api/v1/me` -> the session principal (session probe).
 
+Invites and add-credential (see `docs/auth.md` for the full flow):
+
+- `POST /api/v1/auth/invites` (authed) -> mints a link token + acceptance URL.
+- `GET /api/v1/auth/invites/:token` -> preview (org/team/role); generic `404`.
+- `POST /api/v1/auth/invites/:token/accept/begin` + `/accept/finish` -> enroll a
+  credential; atomically provisions the member + recovery codes and consumes the invite.
+- `POST /api/v1/credentials/enroll/begin` + `/finish` (authed) -> add a passkey or
+  set/change the password for the signed-in user.
+- `POST /api/v1/auth/invites/:token/accept/join` (authed) -> an existing profile
+  joins the invite's org (multi-org), no enrollment.
+
+Profiles, orgs, and sessions (see `docs/identity.md`):
+
+- `POST /api/v1/orgs` (authed) -> create a new org (creator becomes owner).
+- `GET /api/v1/session/accounts` -> the accounts in this session + the active
+  account's orgs + `active_org_id`.
+- `POST /api/v1/session/switch` `{ user_id }` -> make another signed-in account active.
+- `POST /api/v1/session/switch-org` `{ org_id }` -> change the active account's org.
+- `POST /api/v1/session/signout` `{ user_id? }` -> sign one account out (default active).
+
+Enrollment (claim, invite acceptance, add-credential) shares `backend/src/enrollment.rs`,
+and both claim and invite acceptance issue one-time recovery codes. Every sign-in
+attempt is recorded in `login_events`.
+
 ## Roadmap
 
-1. WebAuthn RP in the API (`webauthn-rs`), credential + challenge storage, the
-   authenticate begin/finish endpoints, and the SPA passkey sign-in against them.
-2. Enrollment for additional passkeys + recovery codes, wired to onboarding and
-   invite acceptance (the first-run root claim already enrolls the first passkey).
-3. TOTP fallback (enroll + verify) in the API and SPA.
-4. (Optional) Keycloak for federation / IdP brokering (SSO) and service/worker token
-   issuance, synced from the Postgres user store, all server-side.
+1. TOTP enrollment for the passkey path so a passkey account can add a second factor;
+   regenerating recovery codes from the Security Center.
+2. Magic-link sign-in, once the SMTP service lands.
+3. Per-org SSO / custom OAuth brokering (`openidconnect`), configured in Postgres.
+4. Security Center surfaces: login history, listing/removing credentials, active-session
+   revocation; full org-policy enforcement (disabled-method rejection, org-wide
+   `require_totp`, session lifetime).
+5. Near-term hardening: rate-limit TOTP and recovery verification (only password
+   sign-in is throttled today); update `last_seen_at` on activity.

@@ -1,109 +1,126 @@
-# Identity & Authentication
+# Identity
 
-Elysium does not roll its own authentication. **Keycloak** owns every credential and runs every
-login ceremony; the application never sees or stores a password. Elysium owns only profile and
-membership data, linked back to Keycloak by the user's subject (`sub`).
+Elysium owns identity end to end: users, credentials, organizations, teams, and
+memberships live in the application's Postgres, and the API brokers every
+authentication flow. The authentication architecture itself (methods, ceremonies,
+sessions, org auth policy) is specified in `auth-model.md`; this document covers
+the identity domain around it.
 
 ## Principles
 
-- **Passwordless from day 0.** No password is ever stored. Users authenticate with a passkey
-  (WebAuthn passwordless) or a TOTP code.
-- **2FA from day 0.** WebAuthn passkeys and TOTP (authenticator app / QR) are first-class.
-- **Keycloak owns security.** All credential storage, MFA enrollment, and login flows live in
-  Keycloak. We never reimplement them.
-- **Our own React UI.** The login/register/2FA screens are Elysium's own React, delivered as a
-  Keycloak theme via Keycloakify (Phase C), not Keycloak's stock pages and not a headless flow.
-
-## Deployment
-
-Two services in `compose.yaml`:
-
-- **`keycloak`** (`quay.io/keycloak/keycloak:26.3.2`) on port `8080`. Runs `start-dev
-  --import-realm` in development; production runs `start` behind the operator's TLS and
-  hostname (their responsibility). Health and metrics are exposed on the management port
-  `9000` (`KC_HEALTH_ENABLED=true`).
-- **`keycloak-database`** a dedicated Postgres, isolated from the application database so
-  identity data and app data never share a store.
-
-Configuration is driven by `.env` (`KEYCLOAK_*`). The bootstrap admin (`KEYCLOAK_ADMIN`) governs
-the Keycloak master realm and admin console only; it is not an application user.
-
-## The `elysium` realm
-
-Defined in `keycloak/realm-export.json`, imported on first boot:
-
-- **Clients**: `elysium-frontend`, a public SPA client using Authorization Code + PKCE (S256),
-  redirecting to `http://localhost:5173/*` in development. (The backend validates tokens via the
-  realm's JWKS and does not need its own client yet; an audience mapper arrives in Phase C.)
-- **WebAuthn passwordless policy**: resident key required and user verification required, so
-  registered credentials are true passkeys (discoverable + user-verifying).
-- **OTP policy**: standard TOTP (SHA1, 6 digits, 30s), compatible with common authenticator apps.
-- **Passwordless browser flow** (`browser-passwordless`, set as the realm `browserFlow`):
-  1. `auth-cookie` / `identity-provider-redirector` (alternatives, for existing sessions / IdP)
-  2. otherwise the forms subflow: `auth-username-form` (required), then a passwordless factor
-     subflow offering **passkey** (`webauthn-authenticator-passwordless`) or **TOTP**
-     (`auth-otp-form`) as alternatives.
-
-There is no password authenticator anywhere in the flow.
-
-## Token validation (backend)
-
-The API issues no tokens of its own. Clients present a Keycloak bearer token, and the Axum
-middleware in `backend/src/auth.rs` validates it: RS256 signature against the realm's JWKS,
-issuer against the configured realm URL, and expiry. The JWKS is fetched lazily and cached,
-refetched when a token references an unknown key id (rotation), so the API can start before
-Keycloak is reachable. Any handler that takes the `AuthenticatedUser` extractor is protected;
-unauthenticated requests get `401` before the handler runs. `GET /api/v1/me` is the first such
-route, returning the principal (`elysium.auth.v1.MeResponse`) from the token claims.
-
-Issuer consistency is handled by pinning Keycloak's base URL (`KC_HOSTNAME`) so every token
-declares the same `iss` (the browser-facing realm URL) regardless of whether it was requested
-from the browser or another container. The backend derives that browser-facing issuer and the
-internal JWKS URL from the base deployment config (`backend/src/config.rs`, from
-`ELYSIUM_HOSTNAME` + the ports), so it validates against the issuer clients see while fetching
-keys over the internal `keycloak` service, not the public host.
-
-Audience is not yet enforced; a resource-server audience mapper is a planned hardening step.
+- **Passkey-first, not passkey-only.** A passkey (WebAuthn) is the flagship
+  factor; passwords (OPAQUE) plus a mandated TOTP second factor are the
+  compatible path. See `auth-model.md` for the method set and decisions.
+- **The API is the credential authority.** Credential storage, verification, and
+  every ceremony are the API's (`webauthn-rs` today; `opaque-ke` and `totp-rs` on
+  the roadmap). No external IdP is required to run Elysium.
+- **Our own React UI.** Every auth screen is Elysium's SPA (see `auth.md`).
+- **Invite-only, with a first-run root.** A fresh instance is claimed by its first
+  (root) user; everyone after that arrives by a copyable invite link. No open
+  public registration.
+- **A profile is global; membership is many-to-many.** A `users` row is a
+  deployment-global profile (identity + credentials + a globally-unique email)
+  that can belong to many orgs. A person may hold several distinct profiles and be
+  signed into more than one at once (see Profiles, orgs, and sessions below).
 
 ## Identity schema (database)
 
-`backend/migrations/0001_identity.sql` creates the application's view of identity, applied at
-startup via `sqlx::migrate!`:
+Applied at startup via `sqlx::migrate!` from `backend/migrations/`:
 
-- `orgs` (tenants), `teams` (groups within an org), `users` (keyed by `keycloak_sub`, one org
-  per user), and `team_members` (user-team edges with a role).
-- Roles (`member`/`admin`/`owner`) and status (`online`/`offline`/`away`/`out_of_office`) are
-  text guarded by CHECK constraints, mirroring the `elysium.user.v1` proto enums.
-- A trigger keeps `users.updated_at` current.
+- `orgs` (tenants), `teams` (groups within an org), `users` (a deployment-global
+  profile, keyed by a stable opaque `subject`, with a globally-unique email),
+  `org_members` (profile-org edges with a role) and `team_members` (profile-team
+  edges with a role).
+- Names follow the Slack model: `given_name` + `family_name` (both optional) are
+  the full name; `display_name` is the single field the UI renders and defaults to
+  `given_name` when blank. Never concatenate given + family for display.
+- Roles (`member`/`admin`/`owner`) are text guarded by CHECK constraints.
+- `manual_status` (`out_of_office`/`do_not_disturb`/`custom`) + `manual_status_text`
+  + `manual_status_expires_at`: the user-set status override. **Presence itself
+  (`online`/`away`/`offline`) is derived, never stored** (see below).
+- `webauthn_credentials`: each user's passkeys (credential id, the serialized
+  `Passkey`, signature counters).
+- `user_password_credentials`: each user's OPAQUE record + `scheme_version`.
+- `user_totp_secrets`: each user's TOTP secret + `confirmed_at`.
+- `opaque_server_setup`: the process-wide OPAQUE server setup (singleton).
+- `sessions`: browser sessions behind the opaque HttpOnly cookie, each carrying an
+  `active_user_id` + `active_org_id`; `session_accounts` lists the profiles signed
+  into a session.
+- `org_auth_policies`: one row per org; the org-enforced auth controls
+  (allowed methods, mandatory TOTP, session lifetime).
+- `login_events`: the append-only sign-in audit trail.
+- `invites`: single-use, expiring onboarding links (only the token hash is stored).
+- `recovery_codes`: one-time codes for regaining access (only hashes stored).
+- A trigger keeps `updated_at` columns honest.
 
-Just-in-time provisioning (upserting a `users` row on a user's first authenticated request,
-including org assignment) is deferred until the onboarding flow is designed.
+## Profiles, orgs, and sessions
 
-## First-login enrollment (open item)
+Three ideas, kept distinct (`backend/src/{session,accounts,orgs}.rs`):
 
-Passwordless onboarding has a bootstrapping nuance: a brand-new user has no passkey or TOTP yet,
-so they cannot pass the passwordless factor on their very first login. This is resolved out of
-band, by an admin-initiated "set up credential" action email or a dedicated onboarding path. That
-onboarding UX is deferred to the Keycloakify work (Phase C) and the account/admin surfaces; it is
-intentionally not solved by the realm import alone.
+- **Profile** (`users`): a deployment-global identity with credentials and a
+  globally-unique email. Sign-in authenticates a profile by email, regardless of
+  which orgs it belongs to. The same person can hold several profiles (e.g.
+  `adnavarro001@gmail.com` and `alex@mooreslab.ai`).
+- **Org membership** (`org_members`): a profile joins many orgs, each membership
+  carrying its own role. First-run claim makes the root org and its owner;
+  `POST /api/v1/orgs` creates further orgs (any deployment can host several, e.g.
+  NavarroCity + JalapenoLabs + MooresLabAI); invite acceptance adds a membership,
+  and an already-signed-in profile can join a second org in one click
+  (`accept/join`). Because a profile can be in many orgs, method discovery is the
+  union of its orgs' policies (see `auth-model.md`).
+- **Session** (`sessions` + `session_accounts`): a browser session holds several
+  signed-in profiles with one active (Google-style), and the active profile has one
+  active org. **Adding an account is a normal sign-in performed while a session
+  cookie is present**, which `session::establish` appends rather than replaces.
+  `GET /api/v1/session/accounts` lists them; `POST /api/v1/session/switch`,
+  `.../switch-org`, and `.../signout` drive the profile and org switchers.
+  `POST /api/v1/auth/logout` signs out every account on the device.
 
-## Auth UI direction
+### Org-issued emails (roadmap)
 
-The user-facing auth surface is designed in `auth.md`. Keycloak owns user security and auth fully
-(it stores and verifies every passkey/TOTP secret and runs every ceremony, as the WebAuthn
-Relying Party). The login UI is Elysium's own React compiled to a Keycloak theme via
-**Keycloakify**, and Keycloak is deployed behind Elysium's gateway on one origin so the browser
-never sees a non-Elysium page. Token custody is a **BFF token-handler**: Elysium's API is a
-**confidential** OIDC client that keeps tokens server-side and hands the browser only an HttpOnly
-session cookie. This retires the browser-side PKCE + public SPA client wiring; the realm's client
-becomes confidential.
+The model above already allows an org to provision a member by email (invites). The
+next layer, once the SMTP service lands, is **org-owned email domains**: an org
+(e.g. NavarroCity) can issue and own addresses under its domain
+(`alex@navarrocity.com`), so the profile is created by the org and may carry a
+distinct initial-authentication path (org-provisioned credentials). Email stays the
+global profile key throughout; org domain ownership and org-managed provisioning
+sit on top of it. This is not built yet.
+
+## Presence and status
+
+Presence (`online` / `away` / `offline`) is **derived, never a stored choice**:
+`GET /api/v1/users/me` computes it at read time. Online means the user holds at
+least one live SSE connection (`SseRegistry::is_online`); offline means none
+(render "last seen" from `last_seen_at`); `away` (connected-but-idle) awaits a
+client idle signal. So onboarding never asks the user to pick a presence.
+
+What the user *can* set is a **manual status override** with an expiry
+(`PUT /api/v1/users/me/status`): `out_of_office`, `do_not_disturb`, or a free-text
+`custom` label, defaulting to a 24-hour lifetime. While it is unexpired it
+supersedes derived presence; once `manual_status_expires_at` passes it reads back
+as none and presence reverts to automatic. Render precedence: show the override
+when set, otherwise the derived presence.
+
+The profile surface lives in `backend/src/profile.rs`: `GET`/`PATCH
+/api/v1/users/me` for names + bio, and `PUT /api/v1/users/me/status` for the
+override. All three speak protobuf (`elysium.user.v1.User` /
+`UpdateProfileRequest` / `SetStatusRequest`).
+
+## Provisioning
+
+- **First run**: the atomic bootstrap (`backend/src/bootstrap.rs`) creates the org
+  (slug `root`), its seeded auth policy, the root user, the chosen credential, and a
+  session in one transaction, only after the credential verifies. The subject is a
+  locally minted UUID. See `auth-model.md` for the method-aware begin/finish contract.
+- **Steady state**: invite links (org/team/role/expiry) minted by any member;
+  acceptance (`backend/src/invites.rs`) atomically provisions the user, their
+  membership, their first credential, and recovery codes, and consumes the invite.
+  Delivery is copy/paste, never SMTP-dependent. See `docs/auth.md`.
 
 ## Roadmap
 
-- Confidential OIDC client, server-side session store + HttpOnly cookie, reverse-proxy topology
-  putting Keycloak, the SPA, and the API on one origin, and the `/api/v1/auth/*` contract in
-  `auth.md`.
-- Keycloakify theme for the ceremony (login, passkey, TOTP, enrollment, recovery).
-- Invite-only onboarding via copyable signed links, and first-run root-user bootstrap.
-- A permission model over teams, and audience enforcement on the API.
-- Organization-, team-, and user-provided Keycloak identity providers / brokering.
+- Signed invite links and invite acceptance (mint, verify, accept endpoints).
+- A permission model over teams.
+- User directory surfaces: profile, avatar, presence (`last_seen_at` feeds
+  "last seen").
+- Per-org SSO / custom OAuth federation, API-brokered (see `auth-model.md`).

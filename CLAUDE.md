@@ -53,6 +53,17 @@ I should be able to deploy this on a computer I have at home, expose it to the i
 Users can belong to teams and users and teams have individual permissions.
 Examples of teams are admin teams, dev teams, qa teams, contractor teams, intern teams, etc.
 
+Identity is multi-org and multi-account. A profile is a deployment-global identity
+keyed by a globally-unique email and can belong to many organizations at once (one
+deployment can host several orgs, e.g. NavarroCity + JalapenoLabs + MooresLabAI). A
+person can hold several distinct profiles and be signed into more than one at the
+same time, swapping between them (a profile switcher) and between orgs (an org
+switcher), Google-Workspace style. Email is the primary source of auth truth.
+Eventually orgs will own email domains and be able to issue addresses under them
+(alex@navarrocity.com created by the NavarroCity org), which may use a different
+initial-authentication path; this rides on the planned SMTP integration and does not
+change email being the global profile key. See docs/identity.md for the built model.
+
 On the Claude level, I should be able to OAuth to multiple Claude subscriptions and then if my usage dries up one one of them with the subscription it'll auto-switch to the next one.
 
 # Challenging the system
@@ -145,8 +156,8 @@ public GitHub repos (not published to npm yet), so both must be allowlisted in
 
 Pin tool versions everywhere; never rely on a floating `latest` tag. Yarn is
 pinned to `4.17.0` (via `packageManager` and an explicit `corepack prepare` in
-CI). Node, Rust, Postgres, and Keycloak are all pinned to exact versions in CI
-and Docker so local, CI, and production never drift.
+CI). Node, Rust, and Postgres are all pinned to exact versions in CI and Docker
+so local, CI, and production never drift.
 
 # Naming
 

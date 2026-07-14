@@ -7,9 +7,8 @@ monitors.
 
 ## Principle: dockerize the app, the shell just launches it
 
-The shell does not rebuild the app. The Elysium stack (backend, Postgres,
-Keycloak, and the frontend) runs as the dockerized Compose stack, and the shell
-loads the frontend:
+The shell does not rebuild the app. The Elysium stack (backend, Postgres, and the
+frontend) runs as the dockerized Compose stack, and the shell loads the frontend:
 
 - **Dev**: the shell loads the Vite dev server at `http://localhost:5173`.
   Override with `ELYSIUM_APP_URL`.

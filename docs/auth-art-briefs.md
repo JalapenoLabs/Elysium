@@ -5,8 +5,9 @@ can go straight to a designer, a motion artist, a sound designer, or an asset ma
 design intent behind these assets lives in `auth.md` (the cinematic layer); this document is the
 procurement list.
 
-Shared direction for everything below: **futuristic, artistic, sci-fi**, calm and premium, never
-loud or gamer-neon. It must read as a product that has existed for years, not a launch demo.
+Shared direction for everything below: **futuristic, artistic, sci-fi** with cinematic
+game-title energy (huge type, staged transitions, a world that reacts), while staying premium,
+never loud or gamer-neon. It must read as a product that has existed for years, not a launch demo.
 Everything ships in both **dark and light** themes and must respect `prefers-reduced-motion`.
 
 ## 1. Signature ambient background (the hero asset)

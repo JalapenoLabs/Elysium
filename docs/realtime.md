@@ -92,15 +92,12 @@ without decoding everything.
 the query string (it leaks into logs). Instead the SSE endpoint authenticates a
 short-lived **HttpOnly, Secure session cookie**:
 
-1. After the Keycloak login, the SPA calls `POST /api/v1/session` with its bearer
-   token (validated by the existing `backend/src/auth.rs` path). The backend
-   verifies it and responds with `Set-Cookie` for an HttpOnly, Secure,
-   SameSite-appropriate session cookie bound to the user. The token itself never
-   touches JavaScript-readable storage for this channel.
+1. The sign-in ceremony (see `auth-model.md`) sets the opaque HttpOnly, Secure
+   session cookie; no separate SSE handshake exists and no token is ever involved.
 2. The SharedWorker opens `EventSource('/api/v1/events', { withCredentials: true })`;
    the browser attaches the cookie. The backend reads and validates it.
-3. On expiry the backend closes the stream with an auth error; the worker refreshes
-   the Keycloak token, re-establishes the session cookie, and reconnects.
+3. On expiry the backend closes the stream with an auth error; the SPA
+   re-authenticates and the worker reconnects once a fresh session exists.
 
 Cross-origin cookies are the wrinkle: the app origin (Vite dev server, or
 `app://-` in Electron) differs from the API origin. To keep the cookie
@@ -195,14 +192,15 @@ Confirm on the target Electron version before building for real:
    (log a connection counter from the worker; the second connect must reuse it).
 2. One `EventSource` in the worker delivers to **both** windows.
 3. Reconnect + `Last-Event-ID` resume works after a dropped connection.
-4. Token refresh on reconnect via `keycloak.updateToken()`.
+4. Reconnect after session expiry: the stream closes with an auth error, the SPA
+   re-authenticates, and the worker reconnects on the fresh session.
 
 Run this once PR #1 (the Electron shell) merges and a second window can be created.
 
 ## Roadmap
 
-- **Phase 1**: **(landed)** the session cookie now comes from the BFF login
-  (`/auth/callback`, see `auth.md`), and `GET /api/v1/events` authenticates with it
+- **Phase 1**: **(landed)** the session cookie comes from the passkey sign-in
+  (see `auth-model.md`), and `GET /api/v1/events` authenticates with it
   and enforces `MAX_SSE_CONNECTIONS_PER_USER`. **Remaining**: the `EventEnvelope`
   proto + per-user broadcast bus, and a plain browser `EventSource` client to prove
   the stream end to end.
