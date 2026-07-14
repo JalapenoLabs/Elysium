@@ -11,8 +11,8 @@ import { logout } from '../api/routes/authRoutes'
 
 // Exposes the current session plus a sign-out action.
 //
-// Signing in is a native passkey ceremony owned by the sign-in screen (see
-// pages/Auth/SignIn): it needs the user's email and drives `navigator.credentials`,
+// Signing in is a native ceremony owned by the login screen (see
+// pages/Auth/Login): it needs the user's email and drives `navigator.credentials`,
 // so it is not a context-free action to expose here. The browser never talks to any
 // identity provider directly.
 export function useSession() {

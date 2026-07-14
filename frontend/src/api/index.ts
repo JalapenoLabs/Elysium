@@ -8,7 +8,7 @@ import type { GenMessage } from '@bufbuild/protobuf/codegenv2'
 import ky from 'ky'
 
 // Lib
-import { fromBinary } from '@bufbuild/protobuf'
+import { fromBinary, toBinary } from '@bufbuild/protobuf'
 
 // Misc
 import { API_BASE_URL } from '../constants'
@@ -39,4 +39,24 @@ export async function getProto<Shape extends Message>(
 ): Promise<Shape> {
   const buffer = await apiClient.get(path, options).arrayBuffer()
   return fromBinary(schema, new Uint8Array(buffer))
+}
+
+// The write half of the typed contract: encodes a request message to binary
+// protobuf, sends it, and decodes the response against its schema. Mutating
+// endpoints (`PATCH`/`PUT`/`POST` with protobuf bodies both ways) go through here.
+export async function sendProto<RequestShape extends Message, ResponseShape extends Message>(
+  path: string,
+  options: {
+    method: 'post' | 'put' | 'patch'
+    requestSchema: GenMessage<RequestShape>
+    request: RequestShape
+    responseSchema: GenMessage<ResponseShape>
+  },
+): Promise<ResponseShape> {
+  const buffer = await apiClient(path, {
+    method: options.method,
+    body: toBinary(options.requestSchema, options.request),
+    headers: { 'content-type': 'application/x-protobuf' },
+  }).arrayBuffer()
+  return fromBinary(options.responseSchema, new Uint8Array(buffer))
 }

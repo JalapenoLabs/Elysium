@@ -6,6 +6,8 @@ import { useTranslation } from 'react-i18next'
 
 // UI
 import { Navbar, NavbarBrand, NavbarContent, NavbarItem, Link, Switch, Button } from '@heroui/react'
+import { StatusControl } from './user/StatusControl'
+import { ProfileBadge } from './user/ProfileBadge'
 
 // Redux
 import { dispatch } from '../store'
@@ -35,6 +37,11 @@ export function NavBar() {
       </NavbarItem>
     </NavbarContent>
     <NavbarContent justify='end'>
+      { session.isAuthenticated
+        && <NavbarItem>
+          <StatusControl />
+        </NavbarItem>
+      }
       <NavbarItem>
         <Switch
           isSelected={themeMode === 'dark'}
@@ -45,14 +52,8 @@ export function NavBar() {
       </NavbarItem>
       <NavbarItem>{
         session.isAuthenticated
-          ? <Button variant='flat' onPress={session.signOut}>
-            <span>{
-              session.principal?.username
-                ? t('actions.signOutAs', { name: session.principal.username })
-                : t('actions.signOut')
-            }</span>
-          </Button>
-          : <Button color='primary' onPress={() => navigate(UrlTree.signIn)}>
+          ? <ProfileBadge />
+          : <Button color='primary' onPress={() => navigate(UrlTree.login)}>
             <span>{ t('actions.signIn') }</span>
           </Button>
       }</NavbarItem>

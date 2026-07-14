@@ -11,7 +11,7 @@ import { AuthNotice } from '../../components/auth/AuthNotice'
 import { resolveSession } from '../../auth/session'
 import { UrlTree } from '../../urls'
 
-// The identity service (API/Keycloak) is unreachable. A branded, reassuring
+// The identity service (the API) is unreachable. A branded, reassuring
 // degraded state; retry re-probes the session and, if it recovers, returns home.
 export function IdentityUnavailable() {
   const { t } = useTranslation('auth')

@@ -21,6 +21,6 @@ export function Suspended() {
     title={t('fault.suspended.title')}
     body={t('fault.suspended.body')}
     actionLabel={t('fault.suspended.action')}
-    onAction={() => navigate(UrlTree.signIn)}
+    onAction={() => navigate(UrlTree.login)}
   />
 }

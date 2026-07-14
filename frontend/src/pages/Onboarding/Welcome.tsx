@@ -12,8 +12,8 @@ import { AuthCard } from '../../components/auth/AuthCard'
 // Misc
 import { UrlTree } from '../../urls'
 
-// First-login welcome. Sets expectations, then hands off to Keycloak enrollment
-// (passkey + recovery codes) before returning for the profile step.
+// First-login welcome. Sets expectations, then hands off to credential
+// enrollment (passkey + recovery codes) before returning for the profile step.
 export function Welcome() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const navigate = useNavigate()

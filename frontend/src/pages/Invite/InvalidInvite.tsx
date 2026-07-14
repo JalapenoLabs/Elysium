@@ -20,6 +20,6 @@ export function InvalidInvite() {
     title={t('invite.invalid.title')}
     body={t('invite.invalid.body')}
     actionLabel={t('invite.invalid.action')}
-    onAction={() => navigate(UrlTree.signIn)}
+    onAction={() => navigate(UrlTree.login)}
   />
 }

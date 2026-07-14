@@ -33,8 +33,8 @@ export function RequireAuth(props: Props) {
     return <Navigate to={UrlTree.identityUnavailable} replace />
   }
   if (status === 'anonymous') {
-    console.debug('RequireAuth: no session, redirecting to sign-in', { from: location.pathname })
-    return <Navigate to={UrlTree.signIn} replace state={{ from: location.pathname }} />
+    console.debug('RequireAuth: no session, redirecting to login', { from: location.pathname })
+    return <Navigate to={UrlTree.login} replace state={{ from: location.pathname }} />
   }
 
   // unknown | loading

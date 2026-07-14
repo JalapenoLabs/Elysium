@@ -5,14 +5,14 @@ import { configureStore } from '@reduxjs/toolkit'
 
 // Redux
 import { themeReducer } from './themeSlice'
-import { counterReducer } from './counterSlice'
 import { sessionReducer } from './sessionSlice'
+import { currentUserReducer } from './currentUserSlice'
 
 export const store = configureStore({
   reducer: {
     theme: themeReducer,
-    counter: counterReducer,
     session: sessionReducer,
+    currentUser: currentUserReducer,
   },
 })
 

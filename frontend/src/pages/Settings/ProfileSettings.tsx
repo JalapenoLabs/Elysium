@@ -7,53 +7,105 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // UI
-import { Card, CardBody, Input, Textarea, Select, SelectItem } from '@heroui/react'
+import { Card, CardBody, Input, Textarea } from '@heroui/react'
 import { SubmitButton } from '../../components/form/SubmitButton'
 
 // Misc
-import { useSession } from '../../auth/useSession'
+import { useCurrentUser } from '../../auth/useCurrentUser'
+import { updateMyProfile } from '../../api/routes/userRoutes'
 
-// User-status options mirror `elysium.user.v1.UserStatus`; only labels translate.
-const statusOptions = [ 'online', 'away', 'offline', 'outOfOffice' ] as const
-
-// The account profile: name, bio, and status. Saving persists via the profile
-// endpoint (pending backend); the values seed from the resolved session.
+// The account profile: the split name model (given/family are the full name,
+// display name is the render field with a server-side given-name fallback) and
+// the bio. Presence is derived automatically and the manual override lives in
+// the navbar status control, so there is no status field here.
 export function ProfileSettings() {
   const { t } = useTranslation([ 'auth', 'common' ])
-  const session = useSession()
+  const user = useCurrentUser()
 
-  const [ displayName, setDisplayName ] = useState(session.principal?.username ?? '')
+  const [ givenName, setGivenName ] = useState('')
+  const [ familyName, setFamilyName ] = useState('')
+  const [ displayName, setDisplayName ] = useState('')
   const [ bio, setBio ] = useState('')
-  const [ status, setStatus ] = useState<string>('online')
+  const [ isSubmitting, setIsSubmitting ] = useState(false)
+  const [ isSaved, setIsSaved ] = useState(false)
+  const [ errorMessage, setErrorMessage ] = useState<string | null>(null)
+
+  // Seed the form when the profile arrives; anything already typed wins so a
+  // slow load never clobbers the user's edits.
+  useEffect(() => {
+    if (!user) {
+      return
+    }
+    setGivenName((current) => current || user.givenName)
+    setFamilyName((current) => current || user.familyName)
+    setDisplayName((current) => current || user.displayName)
+    setBio((current) => current || user.bio)
+  }, [ user ])
 
   // Focus the first field on mount.
-  const displayNameRef = useRef<HTMLInputElement>(null)
+  const givenNameRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
-    displayNameRef.current?.focus()
+    givenNameRef.current?.focus()
   }, [])
 
-  const canSubmit = Boolean(displayName.trim())
+  const canSubmit = Boolean(givenName.trim())
 
-  function onSave(event: FormEvent<HTMLFormElement>) {
+  async function onSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    console.debug('ProfileSettings save (pending backend)', { displayName, bio, status })
+
+    setIsSubmitting(true)
+    setIsSaved(false)
+    setErrorMessage(null)
+    try {
+      const updated = await updateMyProfile({
+        givenName: givenName.trim(),
+        familyName: familyName.trim(),
+        displayName: displayName.trim(),
+        bio: bio.trim(),
+      })
+      // Reflect server-side normalization (e.g. the display-name fallback).
+      setDisplayName(updated.displayName)
+      setIsSaved(true)
+    }
+    catch (error) {
+      console.debug('profile save failed', { error })
+      setErrorMessage(t('auth:settings.profile.failed'))
+    }
+    finally {
+      setIsSubmitting(false)
+    }
   }
 
-  return <section className='container mx-auto p-6'>
+  return <section className='w-full'>
     <div className='relaxed'>
-      <h1 className='text-3xl'>
+      <h2 className='text-2xl'>
         <strong>{ t('auth:settings.profile.title') }</strong>
-      </h1>
+      </h2>
       <p className='opacity-80'>{ t('auth:settings.profile.subtitle') }</p>
     </div>
 
     <form onSubmit={onSave}>
       <Card className='p-1'>
         <CardBody>
+          <div className='compact level items-start'>
+            <Input
+              ref={givenNameRef}
+              className='w-full'
+              label={t('auth:settings.profile.givenNameLabel')}
+              value={givenName}
+              onChange={(event) => setGivenName(event.currentTarget.value)}
+            />
+            <Input
+              className='w-full'
+              label={t('auth:settings.profile.familyNameLabel')}
+              value={familyName}
+              onChange={(event) => setFamilyName(event.currentTarget.value)}
+            />
+          </div>
           <div className='compact'>
             <Input
-              ref={displayNameRef}
               label={t('auth:settings.profile.displayNameLabel')}
+              description={t('auth:settings.profile.displayNameHint')}
               value={displayName}
               onChange={(event) => setDisplayName(event.currentTarget.value)}
             />
@@ -66,26 +118,24 @@ export function ProfileSettings() {
               minRows={3}
             />
           </div>
-          <div className='compact'>
-            <Select
-              label={t('auth:settings.profile.statusLabel')}
-              selectedKeys={[ status ]}
-              onChange={(event) => setStatus(event.target.value)}
-            >
-              { statusOptions.map((option) =>
-                <SelectItem key={option}>{ t(`common:status.${option}`) }</SelectItem>,
-              ) }
-            </Select>
-          </div>
         </CardBody>
       </Card>
 
-      <div className='level-right mt-6'>
+      <div className='level mt-6'>
+        <div>
+          { errorMessage
+            ? <p className='text-sm text-danger'>{ errorMessage }</p>
+            : null }
+          { isSaved
+            ? <p className='text-sm text-success'>{ t('auth:settings.profile.saved') }</p>
+            : null }
+        </div>
         <SubmitButton
           fullWidth={false}
           label={t('common:actions.save')}
           isValid={canSubmit}
           invalidReason={t('auth:settings.profile.required')}
+          isSubmitting={isSubmitting}
         />
       </div>
     </form>

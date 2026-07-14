@@ -15,11 +15,11 @@ export function ActiveSessions() {
   const { t } = useTranslation('auth')
   const session = useSession()
 
-  return <section className='container mx-auto p-6'>
+  return <section className='w-full'>
     <div className='relaxed'>
-      <h1 className='text-3xl'>
+      <h2 className='text-2xl'>
         <strong>{ t('settings.sessions.title') }</strong>
-      </h1>
+      </h2>
       <p className='opacity-80'>{ t('settings.sessions.subtitle') }</p>
     </div>
 

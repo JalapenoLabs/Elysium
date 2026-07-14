@@ -3,14 +3,39 @@
     "tagline": "Your entire workspace, in one place.",
     "resolving": "Getting things ready"
   },
-  "signIn": {
-    "title": "Welcome back",
-    "subtitle": "Sign in to continue to {{appName}}.",
-    "emailLabel": "Email",
-    "emailPlaceholder": "you@example.com",
-    "emailRequired": "Enter your email to continue.",
-    "action": "Sign in with your passkey",
-    "failed": "We couldn't sign you in with a passkey. Check your email and try again."
+  "login": {
+    "identifierLabel": "Email",
+    "hint": "Just start typing your email",
+    "enterHint": "Press Enter to continue",
+    "emailRequired": "Type your email, then press Enter.",
+    "emailInvalid": "Keep going, that isn't a full email address yet.",
+    "signingInAs": "Signing in as {{email}}",
+    "failed": "We couldn't sign you in. Check your details and try again.",
+    "rateLimited": "Too many attempts. Give it a moment, then try again.",
+    "differentEmail": "Use a different email",
+    "passkey": {
+      "prompt": "Tap your passkey",
+      "hint": "Follow your device's prompt to finish signing in",
+      "retry": "Try again",
+      "usePassword": "Use your password instead",
+      "useRecovery": "Lost your device? Use a recovery code"
+    },
+    "password": {
+      "prompt": "Password",
+      "hint": "Type your password, then press Enter",
+      "required": "Type your password, then press Enter."
+    },
+    "totp": {
+      "prompt": "One-time code",
+      "hint": "Enter the 6-digit code from your authenticator app",
+      "required": "Enter the 6-digit code, then press Enter.",
+      "invalidCode": "That code didn't match. Enter the current one from your app."
+    },
+    "recovery": {
+      "prompt": "Recovery code",
+      "hint": "Enter one of your saved recovery codes, then press Enter. Each works once.",
+      "required": "Type a recovery code, then press Enter."
+    }
   },
   "signingIn": {
     "title": "Signing you in",
@@ -27,19 +52,74 @@
     "action": "Continue"
   },
   "setup": {
-    "eyebrow": "First-time setup",
-    "title": "Claim this {{appName}} instance",
-    "subtitle": "You're the first one here. Create the owner account that will run this workspace.",
-    "displayNameLabel": "Your name",
-    "displayNamePlaceholder": "Ada Lovelace",
-    "emailLabel": "Email",
-    "emailPlaceholder": "you@example.com",
-    "orgNameLabel": "Organization name",
-    "orgNamePlaceholder": "Analytical Engines",
-    "action": "Create owner account",
-    "note": "Next, you'll create a passkey and save your recovery codes. No passwords, ever.",
-    "required": "Enter your name and email to continue.",
-    "failed": "We couldn't set up your passkey. Please try again."
+    "stepLabel": "Step {{current}} of {{total}}",
+    "step1": {
+      "eyebrow": "First-time setup",
+      "title": "Name your {{appName}} workspace",
+      "subtitle": "You're the first one here. Start by naming the workspace this instance will run.",
+      "orgNameLabel": "Workspace name",
+      "orgNamePlaceholder": "Analytical Engines",
+      "action": "Continue",
+      "required": "Enter a workspace name to continue."
+    },
+    "step2": {
+      "eyebrow": "Owner account",
+      "title": "Create the owner account",
+      "subtitle": "This is the first admin. You can invite everyone else once you're in.",
+      "givenNameLabel": "First name",
+      "givenNamePlaceholder": "Alexander",
+      "familyNameLabel": "Last name",
+      "familyNamePlaceholder": "Hamilton",
+      "displayNameLabel": "Display name",
+      "displayNamePlaceholder": "Alex",
+      "displayNameHint": "What teammates see. Defaults to your first name.",
+      "emailLabel": "Email",
+      "emailPlaceholder": "you@example.com",
+      "methodTitle": "How do you want to sign in?",
+      "back": "Back",
+      "required": "Enter your first name and email to continue.",
+      "failed": "We couldn't finish setup. Please try again."
+    },
+    "passkey": {
+      "action": "Create passkey and finish",
+      "hint": "Your device will ask you to create a passkey (fingerprint, face, security key, or password manager)."
+    },
+    "password": {
+      "passwordLabel": "Password",
+      "confirmLabel": "Confirm password",
+      "mismatch": "Those passwords don't match.",
+      "tooShort": "Use at least 8 characters.",
+      "action": "Continue to two-factor"
+    },
+    "totp": {
+      "title": "Set up two-factor",
+      "subtitle": "Scan this with your authenticator app, then enter the 6-digit code to finish.",
+      "manualHint": "Can't scan? Enter this setup key manually:",
+      "codeLabel": "6-digit code",
+      "action": "Verify and finish",
+      "invalidCode": "That code didn't match. Enter the current one from your app.",
+      "required": "Enter the 6-digit code to finish."
+    },
+    "recovery": {
+      "title": "Save your recovery codes",
+      "subtitle": "Store these somewhere safe. Each one signs you in once if you lose your device. This is the only time they're shown.",
+      "copy": "Copy codes",
+      "action": "I've saved them, continue"
+    }
+  },
+  "method": {
+    "passkey": {
+      "title": "Passkey",
+      "blurb": "Sign in with your fingerprint, face, security key, or password manager. Nothing to remember."
+    },
+    "password": {
+      "title": "Password and authenticator",
+      "blurb": "A password you know, plus a one-time code from an authenticator app."
+    },
+    "magicLink": {
+      "title": "Email link",
+      "blurb": "Get a one-time sign-in link by email."
+    }
   },
   "onboarding": {
     "welcome": {
@@ -54,13 +134,15 @@
     "profile": {
       "title": "Set up your profile",
       "subtitle": "This is how teammates will see you.",
+      "givenNameLabel": "First name",
+      "familyNameLabel": "Last name",
       "displayNameLabel": "Display name",
-      "displayNamePlaceholder": "Ada Lovelace",
+      "displayNameHint": "What teammates see. Defaults to your first name.",
       "bioLabel": "Short bio",
       "bioPlaceholder": "What you do, in a sentence.",
-      "statusLabel": "Status",
       "action": "Finish setup",
-      "required": "Enter your display name to continue."
+      "required": "Enter your first name to continue.",
+      "failed": "We couldn't save your profile. Please try again."
     }
   },
   "invite": {
@@ -88,7 +170,10 @@
       "recoveryTitle": "Recovery codes",
       "recoveryBody": "One-time codes for when you lose a device.",
       "addPasskey": "Add a passkey",
+      "passkeyAdded": "Passkey added. You can sign in with it right away.",
+      "passkeyFailed": "We couldn't add that passkey. Please try again.",
       "manage": "Manage",
+      "comingSoon": "Coming soon. You'll manage this right here in an upcoming update.",
       "empty": "Nothing here yet."
     },
     "sessions": {
@@ -102,11 +187,15 @@
     },
     "profile": {
       "title": "Profile",
-      "subtitle": "Your name, avatar, and status.",
+      "subtitle": "Your name and how teammates see you.",
+      "givenNameLabel": "First name",
+      "familyNameLabel": "Last name",
       "displayNameLabel": "Display name",
+      "displayNameHint": "What teammates see. Defaults to your first name.",
       "bioLabel": "Short bio",
-      "statusLabel": "Status",
-      "required": "Enter a display name to save."
+      "required": "Enter your first name to save.",
+      "saved": "Profile saved.",
+      "failed": "We couldn't save your profile. Please try again."
     }
   },
   "fault": {

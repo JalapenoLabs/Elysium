@@ -5205,6 +5205,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@serenity-kit/opaque@npm:^1.1.0":
+  version: 1.1.0
+  resolution: "@serenity-kit/opaque@npm:1.1.0"
+  bin:
+    opaque: bin/index.js
+  checksum: 10c0/366ede1622b7fa9d57d6c68579c305e367d8800d1fdee0892e8cff419f21a24d3eac8043076f1cbc1a4cb85740c09449f41bb7bf58f96d58c59dbd06b4bb3fc3
+  languageName: node
+  linkType: hard
+
 "@simplewebauthn/browser@npm:^13.3.0":
   version: 13.3.0
   resolution: "@simplewebauthn/browser@npm:13.3.0"
@@ -7121,6 +7130,7 @@ __metadata:
     "@heroui/react": "npm:2.8.10"
     "@jalapenolabs/cli": "https://github.com/jalapenolabs/cli.git"
     "@reduxjs/toolkit": "npm:2.12.0"
+    "@serenity-kit/opaque": "npm:^1.1.0"
     "@simplewebauthn/browser": "npm:^13.3.0"
     "@types/react": "npm:^19.0.0"
     "@types/react-dom": "npm:^19.0.0"
@@ -7134,6 +7144,7 @@ __metadata:
     ky: "npm:2.0.2"
     moment-timezone: "npm:^0.6.2"
     postcss: "npm:^8.4.49"
+    qrcode.react: "npm:^4.2.0"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     react-i18next: "npm:^17.0.8"
@@ -9722,6 +9733,15 @@ __metadata:
   version: 2.3.1
   resolution: "punycode@npm:2.3.1"
   checksum: 10c0/14f76a8206bc3464f794fb2e3d3cc665ae416c01893ad7a02b23766eb07159144ee612ad67af5e84fa4479ccfe67678c4feb126b0485651b302babf66f04f9e9
+  languageName: node
+  linkType: hard
+
+"qrcode.react@npm:^4.2.0":
+  version: 4.2.0
+  resolution: "qrcode.react@npm:4.2.0"
+  peerDependencies:
+    react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+  checksum: 10c0/68c691d130e5fda2f57cee505ed7aea840e7d02033100687b764601f9595e1116e34c13876628a93e1a5c2b85e4efc27d30b2fda72e2050c02f3e1c4e998d248
   languageName: node
   linkType: hard
 

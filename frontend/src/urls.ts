@@ -6,9 +6,11 @@ export const UrlTree = {
   home: '/',
   about: '/about',
 
-  // Sign-in ceremony (the credential steps themselves are Keycloak's themed flow;
-  // these are the app-side entry and exit points).
-  signIn: '/sign-in',
+  // Sign-in ceremony (the SPA drives the native passkey prompt against the API).
+  login: '/login',
+  // The old sign-in path stays routable as a redirect so bookmarks and links
+  // minted before the rename still land on the login screen.
+  legacySignIn: '/sign-in',
   signedOut: '/signed-out',
 
   // Bootstrap & onboarding.
@@ -19,7 +21,9 @@ export const UrlTree = {
   // Invitations (signed link).
   invite: '/invite/:token',
 
-  // Account & security.
+  // Account & security. `settings` is the hub; the children render inside its
+  // sidebar layout.
+  settings: '/settings',
   settingsSecurity: '/settings/security',
   settingsSessions: '/settings/sessions',
   settingsProfile: '/settings/profile',
@@ -43,3 +47,8 @@ export type ExternalLinkValue = typeof ExternalLinks[keyof typeof ExternalLinks]
 // Builds the acceptance URL for a signed invite token.
 export const getInviteUrl = (token: string) =>
   UrlTree.invite.replace(':token', token)
+
+// Login in "add account" mode: skips the authenticated redirect so a signed-in
+// user can authenticate an additional account (see the profile badge menu).
+export const getAddAccountUrl = () =>
+  `${UrlTree.login}?intent=add`

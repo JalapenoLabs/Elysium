@@ -5,21 +5,12 @@ import { useState } from 'react'
 
 // UI
 import { Button, Card, CardBody, CardHeader, Chip, Code, Divider } from '@heroui/react'
-
-// Redux
-import { dispatch } from '../../store'
-import { useAppSelector } from '../../store/hooks'
-import { increment, decrement, reset } from '../../store/counterSlice'
-
-// UI
 import { ProfilePanel } from './ProfilePanel'
 
 // Misc
 import { getHello, getDatabaseHealth } from '../../api/routes/healthRoutes'
 
 export function Home() {
-  const count = useAppSelector((state) => state.counter.value)
-
   const [ apiMessage, setApiMessage ] = useState<string | null>(null)
   const [ databaseStatus, setDatabaseStatus ] = useState<string | null>(null)
   const [ errorMessage, setErrorMessage ] = useState<string | null>(null)
@@ -54,38 +45,6 @@ export function Home() {
       <p className='opacity-80'>
         A base template wiring a Rust API and a Postgres database to this React SPA.
       </p>
-    </div>
-
-    <div className='relaxed'>
-      <Card className='p-2'>
-        <CardHeader>
-          <h2 className='text-xl'>
-            <strong>Redux counter</strong>
-          </h2>
-        </CardHeader>
-        <Divider />
-        <CardBody className='relaxed'>
-          <p className='opacity-80'>
-            State lives in a Redux Toolkit slice, proving the store is wired up.
-          </p>
-          <div className='level'>
-            <Chip size='lg' variant='flat' color='secondary'>
-              { count }
-            </Chip>
-            <div className='level-right'>
-              <Button variant='flat' onPress={() => dispatch(decrement())}>
-                <span>Decrement</span>
-              </Button>
-              <Button variant='flat' onPress={() => dispatch(reset())}>
-                <span>Reset</span>
-              </Button>
-              <Button color='primary' onPress={() => dispatch(increment())}>
-                <span>Increment</span>
-              </Button>
-            </div>
-          </div>
-        </CardBody>
-      </Card>
     </div>
 
     <div className='relaxed'>

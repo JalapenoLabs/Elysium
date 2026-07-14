@@ -8,7 +8,6 @@
   "actions": {
     "signIn": "Sign in",
     "signOut": "Sign out",
-    "signOutAs": "Sign out ({{name}})",
     "continue": "Continue",
     "back": "Back",
     "retry": "Try again",
@@ -21,10 +20,45 @@
   "theme": {
     "dark": "Dark"
   },
+  "account": {
+    "menuLabel": "Account menu",
+    "otherAccounts": "Other accounts",
+    "addAccount": "Add account",
+    "myProfile": "My profile"
+  },
+  "invite": {
+    "title": "Invite people",
+    "subtitle": "Anyone with the link can join this workspace.",
+    "explainer": "Create a one-time invite link and share it however you like. Links expire and work exactly once.",
+    "linkLabel": "Invite link",
+    "linkHint": "This is the only time this link is shown.",
+    "mint": "Create invite link",
+    "mintAnother": "Create another link",
+    "failed": "We couldn't create an invite link. Please try again."
+  },
+  "settings": {
+    "title": "Settings",
+    "profile": "Profile",
+    "security": "Security",
+    "sessions": "Sessions"
+  },
   "status": {
     "online": "Online",
     "away": "Away",
     "offline": "Offline",
-    "outOfOffice": "Out of office"
+    "outOfOffice": "Out of office",
+    "doNotDisturb": "Do not disturb",
+    "custom": "Custom status",
+    "setStatus": "Set a status",
+    "clearStatus": "Clear status",
+    "customLabel": "What's happening?",
+    "customAction": "Set status",
+    "durationLabel": "Clear after",
+    "durations": {
+      "hour1": "1 hour",
+      "hour4": "4 hours",
+      "day1": "24 hours",
+      "week1": "1 week"
+    }
   }
 }

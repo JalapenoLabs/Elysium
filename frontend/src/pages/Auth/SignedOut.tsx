@@ -20,6 +20,6 @@ export function SignedOut() {
     title={t('signedOut.title')}
     body={t('signedOut.body')}
     actionLabel={t('signedOut.action')}
-    onAction={() => navigate(UrlTree.signIn)}
+    onAction={() => navigate(UrlTree.login)}
   />
 }

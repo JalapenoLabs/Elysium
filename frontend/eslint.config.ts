@@ -2,6 +2,7 @@
 
 import { defineConfig, globalIgnores } from 'eslint/config'
 import cliBaseConfig from '@jalapenolabs/cli/eslint'
+import licenseHeader from 'eslint-plugin-license-header'
 
 export default defineConfig([
   {
@@ -16,6 +17,11 @@ export default defineConfig([
   ]),
   {
     // Override the CLI's default header text to "Jalapeno Labs" (with a space).
+    // The plugin is named explicitly: a rule override cannot rely on the shared
+    // config's plugin registration surviving that config's internal merging.
+    plugins: {
+      'license-header': licenseHeader,
+    },
     rules: {
       'license-header/header': [
         'error',
