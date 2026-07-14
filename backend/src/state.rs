@@ -48,6 +48,13 @@ pub struct AppState {
     pub opaque_setup: Arc<ServerSetup<Suite>>,
     /// Seals and opens secrets at rest (OPAQUE setup, TOTP secrets).
     pub crypto: Crypto,
+    /// Redis connection string when configured. Wiring only for now: `/health`
+    /// reports its presence, and a real client lands with the first feature that
+    /// needs the cache.
+    pub redis_url: Option<String>,
+    /// RabbitMQ connection string when configured. Same wiring-only status as
+    /// `redis_url`.
+    pub rabbitmq_url: Option<String>,
     /// The app's own origin, used to build user-facing links (e.g. invites).
     pub app_origin: String,
 }
@@ -57,6 +64,7 @@ impl AppState {
     ///
     /// The pool and setup are passed in because the setup must be loaded from the
     /// database after migrations have run (see `main`), which the caller owns.
+    /// Redis and RabbitMQ are optional: an unset or blank variable reads as absent.
     ///
     /// # Errors
     /// Returns an error if the WebAuthn RP cannot be built from the derived config.
@@ -74,7 +82,17 @@ impl AppState {
             webauthn,
             opaque_setup,
             crypto,
+            redis_url: read_optional("REDIS_URL"),
+            rabbitmq_url: read_optional("RABBITMQ_URL"),
             app_origin: deployment.app_origin,
         })
+    }
+}
+
+/// Reads an environment variable, treating unset or blank values as absent.
+fn read_optional(key: &str) -> Option<String> {
+    match std::env::var(key) {
+        Ok(value) if !value.trim().is_empty() => Some(value),
+        _ => None,
     }
 }

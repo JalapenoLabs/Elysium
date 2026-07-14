@@ -88,7 +88,7 @@ impl Crypto {
     ///
     /// # Errors
     /// Errors if `key` is not exactly [`KEY_LEN`] bytes.
-    fn new(key: &[u8]) -> eyre::Result<Self> {
+    pub(crate) fn new(key: &[u8]) -> eyre::Result<Self> {
         if key.len() != KEY_LEN {
             return Err(eyre!(
                 "{KEY_VAR} must decode to {KEY_LEN} bytes, got {}",

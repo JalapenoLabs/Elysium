@@ -50,6 +50,11 @@ totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
 # src/crypto.rs), so a database dump alone never exposes them.
 chacha20poly1305 = "0.10"
 
+[dev-dependencies]
+# Exercise routes in-process (tower::ServiceExt::oneshot) without a socket.
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+
 [build-dependencies]
 # Compiles the shared `../proto` tree into Rust at build time.
 prost-build = "0.13"

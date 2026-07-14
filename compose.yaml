@@ -4,6 +4,8 @@ name: elysium
 # Elysium base template
 #
 #   database  -> Postgres (pinned), the app's persistent state
+#   redis     -> cache / ephemeral state on port 31417
+#   rabbitmq  -> message broker on port 31418, management UI on 31419
 #   backend   -> Rust / Axum API on port 31416, hot-reloaded
 #   frontend  -> Vite + React SPA on port 5173, hot-reloaded
 #
@@ -30,6 +32,45 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    container_name: elysium-redis
+    # Pinned to a specific patch release rather than `latest` for reproducibility.
+    image: redis:7.4.1-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    ports:
+      - "${REDIS_PORT:-31417}:6379"
+    volumes:
+      - elysium-redis-data:/data
+    healthcheck:
+      # `$$` defers expansion to the container so the password is read there.
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    environment:
+      # Referenced by the healthcheck above.
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+  rabbitmq:
+    container_name: elysium-rabbitmq
+    # Pinned to a specific patch release rather than `latest` for reproducibility.
+    image: rabbitmq:4.0.4-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "${RABBITMQ_PORT:-31418}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-31419}:15672"
+    volumes:
+      - elysium-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
   backend:
     container_name: elysium-backend
     build:
@@ -38,6 +79,11 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
+      # Wired through for the cache and broker; the backend reports their
+      # configured state via /health. Real client connections land with the
+      # features that need them (see the roadmap).
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
       RUST_LOG: ${RUST_LOG:-info}
       # Base deployment config. The backend derives its app origin and WebAuthn
       # Relying Party from these (see backend/src/config.rs).
@@ -69,6 +115,10 @@ services:
       - elysium-cargo-registry:/usr/local/cargo/registry
     depends_on:
       database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:31416/health || exit 1"]
@@ -104,5 +154,7 @@ services:
 
 volumes:
   elysium-postgres-data:
+  elysium-redis-data:
+  elysium-rabbitmq-data:
   elysium-cargo-target:
   elysium-cargo-registry:

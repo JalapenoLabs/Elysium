@@ -35,6 +35,12 @@ concurrency:
 permissions:
   contents: read
 
+# Tools like vitest, Earthly, and cargo detect no TTY in CI and drop color;
+# force it workflow-wide so logs stay readable.
+env:
+  FORCE_COLOR: "1"
+  CARGO_TERM_COLOR: always
+
 jobs:
   # ----------------------------------------------------------------------------
   # Proto contract: lint and formatting of the single-source-of-truth tree.
@@ -69,6 +75,23 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      # Throwaway postgres for the migration integration tests. `ports: - 5432`
+      # publishes onto a runner-assigned free host port (never assume a fixed
+      # port is available), surfaced via the job.services context below.
+      postgres:
+        image: postgres:17.5-alpine
+        env:
+          POSTGRES_USER: elysia_ci
+          POSTGRES_PASSWORD: elysia-ci-throwaway
+          POSTGRES_DB: elysia_ci
+        ports:
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -U elysia_ci -d elysia_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       # clean: false preserves backend/target across runs on the self-hosted
       # runner, so incremental cargo builds stay warm without a cache action.
@@ -105,6 +128,15 @@ jobs:
       - name: cargo test
         if: ${{ !cancelled() }}
         run: cargo test --locked
+
+      # The embedded-migrator integration tests (backend/tests/migrations.rs)
+      # are #[ignore] so a plain `cargo test` never needs a database; here they
+      # run explicitly against the throwaway service container above.
+      - name: cargo test (migrations, throwaway postgres)
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: postgres://elysia_ci:elysia-ci-throwaway@localhost:${{ job.services.postgres.ports['5432'] }}/elysia_ci
+        run: cargo test --locked -- --ignored
 
   # ----------------------------------------------------------------------------
   # TypeScript frontend. Modeled on the Jalapeno Labs house pattern (see the
@@ -154,6 +186,11 @@ jobs:
         continue-on-error: true
         run: yarn typecheck
 
+      - name: Unit tests
+        id: unit-tests
+        continue-on-error: true
+        run: yarn test
+
       # Regenerate from the proto tree and fail if the committed output drifted.
       - name: Generated proto in sync
         id: proto-sync
@@ -166,6 +203,16 @@ jobs:
         id: build
         continue-on-error: true
         run: yarn build
+
+      # Serves the built bundle on a kernel-assigned ephemeral port and loads it
+      # in headless chromium with the API stubbed; fails on any uncaught page
+      # error or console error. Proves the production bundle actually boots.
+      - name: Runtime load check
+        id: smoke
+        continue-on-error: true
+        run: |
+          yarn playwright install --with-deps chromium
+          node scripts/runtime-smoke.mjs
 
       # Production-dependency advisory scan; gates on shipped code at high+.
       - name: Dependency audit
@@ -187,8 +234,10 @@ jobs:
           echo "==================== FRONTEND STATUS ===================="
           report "${{ steps.lint.outcome }}"       "Lint"
           report "${{ steps.typecheck.outcome }}"  "Typecheck"
+          report "${{ steps.unit-tests.outcome }}" "Unit tests"
           report "${{ steps.proto-sync.outcome }}" "Generated proto in sync"
           report "${{ steps.build.outcome }}"      "Build"
+          report "${{ steps.smoke.outcome }}"      "Runtime load check"
           report "${{ steps.audit.outcome }}"      "Dependency audit"
           echo "========================================================"
           [ "$fail" = "0" ] || { echo "One or more frontend checks failed."; exit 1; }
@@ -231,6 +280,10 @@ jobs:
           pong=$(curl -s http://localhost:31416/)
           echo "root body: $pong"
           [ "$pong" = "pong" ] || { echo "expected 'pong'"; exit 1; }
+          # /ok is the plain-text liveness alias.
+          ok=$(curl -s http://localhost:31416/ok)
+          echo "/ok body: $ok"
+          [ "$ok" = "ok" ] || { echo "expected 'ok'"; exit 1; }
           # /health is plain JSON for monitors, not protobuf.
           health_type=$(curl -s -D - -o /dev/null http://localhost:31416/health \
             | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2}')
@@ -239,6 +292,12 @@ jobs:
             application/json*) ;;
             *) echo "expected application/json"; exit 1 ;;
           esac
+          # Redis and RabbitMQ are wired through Compose, so /health must report
+          # both as configured.
+          health_body=$(curl -s http://localhost:31416/health)
+          echo "health body: $health_body"
+          echo "$health_body" | grep -q '"redis":true' || { echo "expected redis configured"; exit 1; }
+          echo "$health_body" | grep -q '"rabbitmq":true' || { echo "expected rabbitmq configured"; exit 1; }
           # The versioned API must answer as binary protobuf.
           hello_type=$(curl -s -D - -o /dev/null http://localhost:31416/api/v1/hello \
             | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2}')
@@ -317,6 +376,24 @@ jobs:
           echo "all migrations applied cleanly to a fresh database"
 
   # ----------------------------------------------------------------------------
+  # Workflow lint: static analysis for the workflow files themselves. Catches
+  # expression typos (which silently evaluate to empty strings at runtime),
+  # schema violations, and shellcheck findings in every run block, in seconds,
+  # before a mistake costs a full runner cycle. Custom runner labels are
+  # declared in .github/actionlint.yaml.
+  # ----------------------------------------------------------------------------
+  actionlint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: actionlint
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" --workdir /repo \
+            rhysd/actionlint:1.7.12 -color
+
+  # ----------------------------------------------------------------------------
   # Desktop shell: package the Electron app with Earthly. One matrix job per
   # installer target (deb, rpm, AppImage, Windows) so they run as independent,
   # parallel checks. Only on pull requests and on-demand (workflow_dispatch),
@@ -332,9 +409,6 @@ jobs:
     name: Desktop (${{ matrix.target }})
     if: ${{ github.event_name != 'push' }}
     runs-on: [self-hosted, linux, earthly]
-    # Earthly renders monochrome without this; force color for readable logs.
-    env:
-      FORCE_COLOR: 1
     strategy:
       # Report every target's result; one failing target must not cancel the
       # others, matching the rest of this workflow.
