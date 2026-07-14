@@ -14,6 +14,7 @@ use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use serde_json::json;
 
+use crate::recovery;
 use crate::session::SessionUser;
 use crate::state::AppState;
 use crate::users;
@@ -66,6 +67,46 @@ pub async fn login_history(
         Err(error) => {
             tracing::error!(error = %error, "login-history query failed");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
+/// `POST /api/v1/me/recovery-codes`: regenerate the caller's recovery codes.
+///
+/// Replaces every existing code with a fresh single-use set in one transaction,
+/// so old codes stop working the moment new ones are issued. The plaintext codes
+/// are returned exactly once (only their hashes are stored); the client must show
+/// them to the user immediately.
+pub async fn regenerate_recovery_codes(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+) -> Response {
+    let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "recovery regenerate user lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+
+    let codes = recovery::generate();
+    let outcome = async {
+        let mut tx = state.pool.begin().await?;
+        sqlx::query("DELETE FROM recovery_codes WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        recovery::store(&mut tx, user_id, &codes).await?;
+        tx.commit().await
+    }
+    .await;
+
+    match outcome {
+        Ok(()) => Json(json!({ "recovery_codes": codes })).into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "recovery regenerate failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
 }

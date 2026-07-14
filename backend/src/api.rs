@@ -44,8 +44,12 @@ pub fn router(state: AppState) -> Router {
             get(profile::get_me).patch(profile::update_me),
         )
         .route("/api/v1/users/me/status", put(profile::set_status))
-        // Security Center: the caller's own recent sign-in history.
+        // Security Center: the caller's own recent sign-in history and recovery codes.
         .route("/api/v1/me/login-history", get(security::login_history))
+        .route(
+            "/api/v1/me/recovery-codes",
+            post(security::regenerate_recovery_codes),
+        )
         // Session bootstrap: one aggregated read the client gates itself on.
         .route("/api/v1/context", get(context::context))
         .route("/api/v1/events", get(sse::events))
