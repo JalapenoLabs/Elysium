@@ -56,3 +56,12 @@ pub mod realtime {
         include!(concat!(env!("OUT_DIR"), "/elysium.realtime.v1.rs"));
     }
 }
+
+/// Authenticated session bootstrap (`GET /api/v1/context`).
+pub mod session {
+    /// Version 1 of the session contract.
+    #[allow(dead_code)]
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/elysium.session.v1.rs"));
+    }
+}

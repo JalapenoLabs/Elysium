@@ -20,7 +20,8 @@ use crate::protobuf::Protobuf;
 use crate::session::SessionUser;
 use crate::state::AppState;
 use crate::{
-    accounts, bootstrap, credentials, invites, orgs, password, profile, recovery, sse, webauthn,
+    accounts, bootstrap, context, credentials, invites, orgs, password, profile, recovery, sse,
+    webauthn,
 };
 
 /// Builds the application router with shared state and middleware attached.
@@ -40,6 +41,8 @@ pub fn router(state: AppState) -> Router {
             get(profile::get_me).patch(profile::update_me),
         )
         .route("/api/v1/users/me/status", put(profile::set_status))
+        // Session bootstrap: one aggregated read the client gates itself on.
+        .route("/api/v1/context", get(context::context))
         .route("/api/v1/events", get(sse::events))
         // Auth: the API brokers every method. First-run claim (bootstrap) and
         // method discovery are public; the SPA drives each ceremony against these.

@@ -142,9 +142,12 @@ struct ProfileRow {
 
 /// Builds the current `User` for a subject, deriving presence.
 ///
+/// Shared with the session bootstrap (see `crate::context`), which returns the
+/// same profile shape as `GET /api/v1/users/me`.
+///
 /// # Errors
 /// Returns an error if the query fails.
-async fn fetch(state: &AppState, subject: &str) -> sqlx::Result<Option<User>> {
+pub async fn fetch(state: &AppState, subject: &str) -> sqlx::Result<Option<User>> {
     let row = sqlx::query_as::<_, ProfileRow>(
         "SELECT id, subject, email, given_name, family_name, display_name, avatar_url, bio,
                 manual_status, manual_status_text, manual_status_expires_at,

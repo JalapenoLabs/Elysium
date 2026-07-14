@@ -1,10 +1,16 @@
 # Realtime (Server-Sent Events)
 
-Scope for the server-to-client realtime channel. The **server side is built**: the
+Scope for the server-to-client realtime channel. **Both sides are built**: the
 per-user broadcast bus, the typed `EventEnvelope`, the authenticated stream, and
 the first event kinds (`org.updated`, `presence.changed`, `profile.updated`,
-`session.changed`) publish live (`backend/src/{sse,events}.rs`; see "What is
-built" below). The **SharedWorker fan-out on the client is the remaining piece**.
+`session.changed`) publish live (`backend/src/{sse,events}.rs`), and the client
+fans them out from one SharedWorker-owned `EventSource` per app
+(`frontend/src/realtime/`: the worker broadcasts base64 frames to every window's
+`MessagePort`; windows decode only the kinds they subscribe to via
+`subscribeRealtime(kind, handler)`, with a direct-`EventSource` fallback when a
+SharedWorker isn't available). Session-level kinds wire into Redux in
+`useRealtimeSession` (mounted by `AppLayout`); feature surfaces subscribe to
+their own kinds (the taskbar's org switcher refreshes on `org.updated`).
 
 ## Goal
 
@@ -100,9 +106,9 @@ message EventEnvelope {
 - **Publishers**: `PATCH /api/v1/orgs/:id` emits `org.updated` to members;
   profile/status edits emit `profile.updated` to teammates; SSE connect/disconnect
   emits `presence.changed`; signing an account out emits `session.changed`.
-- **Still to build**: the `snapshot` on-connect state dump, and the client
-  SharedWorker that holds one `EventSource` per app and fans decoded payloads out
-  to windows (below).
+- **Built**: the client SharedWorker holds one `EventSource` per app and fans
+  decoded payloads to every window; `GET /api/v1/context` is the session bootstrap
+  and resync, reconciled against the live stream by `as_of_sequence` (below).
 
 The SharedWorker decodes the envelope with the generated schema and posts the
 typed payload to windows, so the protobuf contract holds end to end. The `event:`
@@ -149,27 +155,42 @@ changes, settings changes, team/membership changes, incoming data, other relevan
 information, and Claude session streams. Each is a `kind` on the envelope. The
 client should never need to reload to see the latest state.
 
-## Reconnection, snapshots, and resync-on-focus
+## Session bootstrap and resync (GET /api/v1/context)
 
-- `EventSource` auto-reconnects; the server sets `retry:` and honors
-  `Last-Event-ID` to resume missed events.
-- The worker relays connection state (connecting / open / error) to windows so the
-  UI can render it. This is what powers the reactive session background colors.
-- On every (re)connect the server sends a `SNAPSHOT` first, then deltas, so a
-  newly-opened window is immediately consistent.
-- **Resync on focus**: when a window regains focus it tells the SharedWorker,
-  which requests a fresh dump so nothing is stale. Mechanism: a tiny control call
-  `POST /api/v1/events/resync` (same session cookie) makes the server emit a
-  `SNAPSHOT` down the existing SSE stream; the worker applies it and rebroadcasts.
-  Debounced, and skippable when the connection has been continuously healthy, so
-  focus churn does not hammer the server.
+Initial and resync state does not ride the SSE stream; it is a plain
+authenticated request, `GET /api/v1/context`, returning the active profile, the
+session's accounts, the active account's orgs, and an `as_of_sequence` (the user's
+realtime high-water mark at read time). This decouples the large initial read from
+the event transport and gives the client one response to authorize its pages on,
+built from reads the backend runs together.
+
+- **Order**: the client connects the SSE stream first (or reuses the
+  SharedWorker's existing one), then fetches `/context`. Subscribing before
+  reading is what guarantees no event slips through the gap between the two.
+- **Reconcile by sequence**: the worker applies only SSE events whose `sequence`
+  exceeds the context's `as_of_sequence` and discards older ones as already
+  reflected. That makes apply order irrelevant and a redundant delivery idempotent,
+  which is what actually closes the race, not the ordering alone.
+- **Reconnect**: `EventSource` auto-reconnects; the server sets `retry:` and honors
+  `Last-Event-ID` to resume missed events. The worker relays connection state
+  (connecting / open / error) to windows, which powers the reactive session
+  background colors.
+- **Resync on focus**: when a window regains focus the worker re-fetches
+  `/context` in the background and rebroadcasts it, but only when it is worth it,
+  the SSE connection dropped while hidden or the tab was hidden past a short
+  threshold. If the stream stayed healthy the snapshot is already current and the
+  refetch is skipped. The worker keeps the last `/context` in memory, so a refocus
+  restores instantly while any refetch is in flight.
+
+`EVENT_KIND_SNAPSHOT` stays reserved but unused: the snapshot is `/context`, not an
+SSE frame.
 
 ## Into Redux
 
 The SharedWorker is the single source of truth for pushed state. Each window
 receives decoded envelopes over its `MessagePort` and dispatches them into its
-Redux store (a `SNAPSHOT` replaces the relevant slices; deltas patch them). Every
-window stays live and consistent because they all drink from the one connection.
+Redux store (the `/context` response seeds the relevant slices; deltas patch them).
+Every window stays live and consistent because they all drink from one connection.
 
 ## Backend (Axum)
 
@@ -227,8 +248,8 @@ Run this once PR #1 (the Electron shell) merges and a second window can be creat
   and enforces `MAX_SSE_CONNECTIONS_PER_USER`. **Remaining**: the `EventEnvelope`
   proto + per-user broadcast bus, and a plain browser `EventSource` client to prove
   the stream end to end.
-- **Phase 2**: SharedWorker fan-out with `SNAPSHOT` + reconnect + resync-on-focus;
-  dispatch envelopes into Redux.
+- **Phase 2**: SharedWorker fan-out with the `/context` bootstrap + reconnect +
+  resync-on-focus; dispatch envelopes into Redux.
 - **Phase 3**: Electron verification (the 4-point check); `utilityProcess` fallback
   only if SharedWorker sharing proves flaky.
 - **Phase 4**: RabbitMQ-to-SSE bridge so worker/service events fan out to clients.

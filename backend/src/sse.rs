@@ -68,6 +68,16 @@ impl SseRegistry {
         map.get(subject).is_some_and(|channel| channel.count > 0)
     }
 
+    /// The user's current realtime high-water sequence, or `0` if none exists yet.
+    ///
+    /// A session-bootstrap read (see `crate::context`) captures this after loading
+    /// state, so the client applies only later SSE events and the initial fetch and
+    /// the live stream reconcile without a gap.
+    pub fn sequence(&self, subject: &str) -> u64 {
+        let map = self.inner.lock().expect("SSE registry mutex poisoned");
+        map.get(subject).map_or(0, |channel| channel.sequence)
+    }
+
     /// Reserves a connection slot and returns a receiver on the user's channel.
     ///
     /// `None` at the cap. The `bool` is whether this connection brought the user

@@ -14,6 +14,7 @@ mod accounts;
 mod api;
 mod bootstrap;
 mod config;
+mod context;
 mod cookies;
 mod credentials;
 mod crypto;

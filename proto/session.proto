@@ -1,0 +1,50 @@
+// Copyright © 2026 Jalapeno Labs
+//
+// The authenticated session bootstrap. One request (GET /api/v1/context) returns
+// everything a client needs to render and gate itself after sign-in or a refresh:
+// the active profile, every account signed into the session, the active account's
+// orgs, and the realtime high-water mark to reconcile the live SSE stream against.
+// See docs/realtime.md.
+
+syntax = "proto3";
+
+package elysium.session.v1;
+
+import "common.proto";
+import "user.proto";
+
+// One profile signed into this browser session (the profile switcher).
+message SessionAccount {
+  elysium.common.v1.Uuid user_id = 1;
+  string email = 2;
+  string display_name = 3;
+  string avatar_url = 4;
+  bool is_active = 5;
+}
+
+// One org the active account belongs to (the org switcher).
+message SessionOrg {
+  elysium.common.v1.Uuid id = 1;
+  string name = 2;
+  string slug = 3;
+  string role = 4;
+  string logo_url = 5;
+}
+
+// The full session context returned by GET /api/v1/context.
+message SessionContext {
+  // The active account's profile (same shape as GET /api/v1/users/me).
+  elysium.user.v1.User user = 1;
+  // Every profile signed into this session.
+  repeated SessionAccount accounts = 2;
+  // The active account's orgs.
+  repeated SessionOrg orgs = 3;
+  // The active org, if the active account has one.
+  elysium.common.v1.Uuid active_org_id = 4;
+  // Realtime high-water mark: the client applies only SSE events whose sequence
+  // is greater than this, so the initial fetch and the live stream reconcile with
+  // no gap and no double-apply. Zero when no realtime channel exists yet.
+  uint64 as_of_sequence = 5;
+  // Server time when this context was built, for client clock-skew correction.
+  elysium.common.v1.Timestamp server_time = 6;
+}
