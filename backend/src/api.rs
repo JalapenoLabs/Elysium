@@ -7,8 +7,9 @@
 //! `/api/v1/*` answers as binary protobuf, authenticated by the session cookie the
 //! sign-in flow sets. The API brokers all authentication.
 
-use axum::extract::State;
-use axum::http::StatusCode;
+use axum::extract::{Request, State};
+use axum::http::{HeaderValue, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post, put};
 use axum::{Json, Router};
@@ -112,8 +113,27 @@ pub fn router(state: AppState) -> Router {
             post(credentials::enroll_finish),
         )
         .route("/api/v1/auth/logout", post(webauthn::logout))
+        .layer(middleware::from_fn(security_headers))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+/// Adds baseline security headers to every response.
+///
+/// Defense in depth for a self-hosted deployment: responses never contain HTML the
+/// browser should sniff or frame, so `nosniff` and `DENY` are always safe, and the
+/// API should never leak a referrer. TLS/HSTS and the app-origin CSP remain the
+/// operator's responsibility (see `CLAUDE.md`).
+async fn security_headers(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert("X-Frame-Options", HeaderValue::from_static("DENY"));
+    headers.insert("Referrer-Policy", HeaderValue::from_static("no-referrer"));
+    response
 }
 
 /// Liveness ping. Returns `200 OK` with the plain text `pong` while running.
