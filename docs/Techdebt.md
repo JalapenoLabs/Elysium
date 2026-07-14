@@ -41,13 +41,3 @@ current state, the desired state, and what unblocks it. Remove an entry when it 
 - **Desired:** idle expiry + sliding renewal driven by `last_seen_at`, honoring the per-org
   `org_auth_policies.session_lifetime_seconds`.
 - **Unblocks on:** nothing external; a hardening pass on the session store.
-
-## TOTP secrets and the OPAQUE server setup are stored unencrypted at rest
-
-- **Today:** `user_totp_secrets.secret` and `opaque_server_setup.setup` are plaintext `BYTEA`.
-  A database read exposes TOTP secrets (enabling code generation) and the OPAQUE server's
-  OPRF seed. The OPAQUE password *records* are not password-equivalent (that is the point of
-  OPAQUE), but the TOTP secrets are second-factor-equivalent.
-- **Desired:** application-level envelope encryption (a KEK from the environment / KMS) or
-  Postgres `pgcrypto` for the TOTP secrets and the OPAQUE setup, decrypted only in memory.
-- **Unblocks on:** nothing external; a key-management decision (where the KEK lives).

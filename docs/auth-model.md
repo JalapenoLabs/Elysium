@@ -51,6 +51,9 @@ rejected as a pass-the-hash anti-pattern; OPAQUE is the correct construction for
   loaded on boot; one registration record per user in `user_password_credentials`,
   with a `scheme_version` so a future cipher-suite bump can force re-enrollment on
   next login instead of a breaking migration. Pure crypto lives in `backend/src/opaque.rs`.
+  The server setup and every TOTP secret are sealed at rest with XChaCha20-Poly1305
+  under a required `ELYSIUM_SECRET_KEY` (`backend/src/crypto.rs`), so a database dump
+  alone exposes neither; a row written before encryption reseals on first read.
 - **Client**: `@serenity-kit/opaque` (a WASM build of the same crate), so both ends
   share one implementation and one pinned suite. Wire messages are **base64url
   without padding** (the encoding that library emits); the server matches it. Cross-
@@ -133,7 +136,9 @@ disabled method mid-flow, applying `require_totp` to every member, honoring
 not) records the user (when resolved), the presented email, method, outcome, client
 IP (nearest proxy hop, falling back to the socket peer), and user agent. The trail
 outlives account deletion (`ON DELETE SET NULL`). It feeds the Security Center's
-account-access view and the rate-limiting/lockout work that ships with passwords.
+account-access view and the sliding-window rate limiting: every verification path
+(password, TOTP, recovery) is throttled by a count of recent failures read from
+here, which doubles as a temporary, self-expiring lockout (`backend/src/rate_limit.rs`).
 
 ## Sessions
 
@@ -246,5 +251,3 @@ attempt is recorded in `login_events`.
 4. Security Center surfaces: login history, listing/removing credentials, active-session
    revocation; full org-policy enforcement (disabled-method rejection, org-wide
    `require_totp`, session lifetime).
-5. Near-term hardening: rate-limit TOTP and recovery verification (only password
-   sign-in is throttled today); update `last_seen_at` on activity.
