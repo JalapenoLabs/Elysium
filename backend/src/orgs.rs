@@ -17,6 +17,7 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::authz;
 use crate::proto::common::v1::Uuid as ProtoUuid;
 use crate::proto::realtime::v1::event_envelope::Payload;
 use crate::proto::realtime::v1::OrgUpdated;
@@ -87,30 +88,11 @@ pub async fn update(
     Path(org_id): Path<Uuid>,
     Json(body): Json<UpdateOrg>,
 ) -> Response {
-    let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
-        Err(error) => {
-            tracing::error!(error = %error, "user lookup failed");
-            return StatusCode::SERVICE_UNAVAILABLE.into_response();
-        }
-    };
-
     // Only an owner or admin of the org may edit it.
-    let role = sqlx::query_scalar::<_, String>(
-        "SELECT role FROM org_members WHERE user_id = $1 AND org_id = $2",
-    )
-    .bind(user_id)
-    .bind(org_id)
-    .fetch_optional(&state.pool)
-    .await;
-    match role {
-        Ok(Some(role)) if role == "owner" || role == "admin" => {}
-        Ok(_) => return StatusCode::FORBIDDEN.into_response(),
-        Err(error) => {
-            tracing::error!(error = %error, "org role lookup failed");
-            return StatusCode::SERVICE_UNAVAILABLE.into_response();
-        }
+    if let Err(response) =
+        authz::require_org_role(&state, &principal, org_id, authz::OrgRole::Admin).await
+    {
+        return response;
     }
 
     // COALESCE keeps a field unchanged when its bind is NULL (the client omitted it).
