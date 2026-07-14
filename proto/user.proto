@@ -2,8 +2,8 @@
 //
 // Identity domain: the application's view of users, organizations, and teams.
 //
-// Keycloak owns credentials and authentication; these messages describe the
-// profile and membership data Elysium owns, keyed back to Keycloak by `keycloak_sub`.
+// The API owns credentials and authentication (see docs/auth-model.md); these
+// messages describe the profile and membership data, keyed by the stable `subject`.
 
 syntax = "proto3";
 
@@ -11,34 +11,80 @@ package elysium.user.v1;
 
 import "common.proto";
 
-// Presence state a user broadcasts to their org.
-enum UserStatus {
-  USER_STATUS_UNSPECIFIED = 0;
-  USER_STATUS_ONLINE = 1;
-  USER_STATUS_OFFLINE = 2;
-  USER_STATUS_AWAY = 3;
-  USER_STATUS_OUT_OF_OFFICE = 4;
+// Derived presence: computed from live connections and activity, never a stored
+// user choice. Online means at least one live session; away is connected-but-idle;
+// offline is no live connection (render "last seen" from `last_seen_at`).
+enum Presence {
+  PRESENCE_UNSPECIFIED = 0;
+  PRESENCE_ONLINE = 1;
+  PRESENCE_AWAY = 2;
+  PRESENCE_OFFLINE = 3;
 }
 
-// A member of an organization, mirrored from Keycloak plus Elysium-owned profile.
+// A user-declared status that overrides derived presence while it is in effect.
+// The zero value means no override (fall back to `presence`).
+enum ManualStatusKind {
+  MANUAL_STATUS_KIND_UNSPECIFIED = 0;
+  MANUAL_STATUS_KIND_OUT_OF_OFFICE = 1;
+  MANUAL_STATUS_KIND_DO_NOT_DISTURB = 2;
+  // A free-text status (`manual_status_text` carries the label).
+  MANUAL_STATUS_KIND_CUSTOM = 3;
+}
+
+// A member of an organization and their Elysium-owned profile.
 message User {
   elysium.common.v1.Uuid id = 1;
 
-  // Keycloak subject claim (`sub`); the stable link to the credential store.
-  string keycloak_sub = 2;
+  // Stable opaque identifier for the user (the token/session subject).
+  string subject = 2;
 
   string email = 3;
+
+  // The person's name. `given_name`/`family_name` are the full name (both
+  // optional; not everyone has both, and order varies by culture); `display_name`
+  // is what the UI renders everywhere and defaults to `given_name` when blank.
+  // Never concatenate given + family for display; use `display_name`.
+  string given_name = 11;
+  string family_name = 12;
   string display_name = 4;
+
   string avatar_url = 5;
   string bio = 6;
 
-  UserStatus status = 7;
+  // Derived, read-only. Computed server-side; ignored on writes.
+  Presence presence = 7;
+
+  // The active manual override, if any. `manual_status` is the zero value when
+  // none is set or the override has expired. `manual_status_expires_at` is when
+  // it lapses back to derived presence.
+  ManualStatusKind manual_status = 13;
+  string manual_status_text = 14;
+  elysium.common.v1.Timestamp manual_status_expires_at = 15;
 
   // Last time the user was seen active; used to render "last seen" presence.
   elysium.common.v1.Timestamp last_seen_at = 8;
 
   elysium.common.v1.Timestamp created_at = 9;
   elysium.common.v1.Timestamp updated_at = 10;
+}
+
+// Editable profile fields. Presence and manual status are set elsewhere; this is
+// the "who you are" surface (the onboarding profile step and account settings).
+message UpdateProfileRequest {
+  string given_name = 1;
+  string family_name = 2;
+  // When blank, the server falls back to `given_name`.
+  string display_name = 3;
+  string bio = 4;
+}
+
+// Sets or clears the manual status override. `kind` = UNSPECIFIED clears it.
+// `text` labels a CUSTOM status; `duration_seconds` sets the expiry (0 uses the
+// default 24h), after which presence reverts to automatic.
+message SetStatusRequest {
+  ManualStatusKind kind = 1;
+  string text = 2;
+  int64 duration_seconds = 3;
 }
 
 // A top-level tenant. Every team and user belongs to exactly one organization.

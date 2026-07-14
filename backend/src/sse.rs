@@ -39,6 +39,15 @@ pub struct SseRegistry {
 }
 
 impl SseRegistry {
+    /// Whether the user currently holds at least one live SSE connection.
+    ///
+    /// This is the source of derived presence: a user with a live stream is
+    /// online (see `crate::profile`). Per-instance only, like the connection cap.
+    pub fn is_online(&self, subject: &str) -> bool {
+        let counts = self.counts.lock().expect("SSE registry mutex poisoned");
+        counts.get(subject).is_some_and(|count| *count > 0)
+    }
+
     /// Reserves a connection slot for `subject`, or returns `None` at the cap.
     ///
     /// The returned guard releases the slot when dropped, i.e. when the stream

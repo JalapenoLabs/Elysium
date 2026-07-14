@@ -4,12 +4,12 @@
 //! JSON. The auth endpoints under `/api/v1/auth/*` run the WebAuthn passkey
 //! ceremony (see [`crate::webauthn`]) and speak the standardized WebAuthn JSON.
 //! The rest of `/api/v1/*` answers as binary protobuf, authenticated by the
-//! session cookie the passkey flow sets. The browser never contacts Keycloak.
+//! session cookie the passkey flow sets. The API brokers all authentication.
 
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde_json::{json, Value};
 use tower_http::trace::TraceLayer;
@@ -19,7 +19,9 @@ use crate::proto::health::v1::{DatabaseHealthResponse, HelloResponse};
 use crate::protobuf::Protobuf;
 use crate::session::SessionUser;
 use crate::state::AppState;
-use crate::{sse, webauthn};
+use crate::{
+    accounts, bootstrap, credentials, invites, orgs, password, profile, recovery, sse, webauthn,
+};
 
 /// Builds the application router with shared state and middleware attached.
 ///
@@ -32,18 +34,19 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/hello", get(hello))
         .route("/api/v1/db/health", get(database_health))
         .route("/api/v1/me", get(me))
+        // Full profile: names, bio, derived presence, and the manual status override.
+        .route(
+            "/api/v1/users/me",
+            get(profile::get_me).patch(profile::update_me),
+        )
+        .route("/api/v1/users/me/status", put(profile::set_status))
         .route("/api/v1/events", get(sse::events))
-        // Auth: the API is the WebAuthn Relying Party; the SPA drives the native
-        // passkey ceremony against these endpoints (WebAuthn JSON).
-        .route("/api/v1/auth/context", get(webauthn::context))
-        .route(
-            "/api/v1/auth/bootstrap/begin",
-            post(webauthn::bootstrap_begin),
-        )
-        .route(
-            "/api/v1/auth/bootstrap/finish",
-            post(webauthn::bootstrap_finish),
-        )
+        // Auth: the API brokers every method. First-run claim (bootstrap) and
+        // method discovery are public; the SPA drives each ceremony against these.
+        .route("/api/v1/auth/context", get(bootstrap::context))
+        .route("/api/v1/auth/methods", post(password::methods))
+        .route("/api/v1/auth/bootstrap/begin", post(bootstrap::begin))
+        .route("/api/v1/auth/bootstrap/finish", post(bootstrap::finish))
         .route(
             "/api/v1/auth/passkey/authenticate/begin",
             post(webauthn::authenticate_begin),
@@ -51,6 +54,50 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/auth/passkey/authenticate/finish",
             post(webauthn::authenticate_finish),
+        )
+        .route(
+            "/api/v1/auth/password/authenticate/begin",
+            post(password::authenticate_begin),
+        )
+        .route(
+            "/api/v1/auth/password/authenticate/finish",
+            post(password::authenticate_finish),
+        )
+        .route("/api/v1/auth/totp/verify", post(password::verify_totp))
+        .route(
+            "/api/v1/auth/recovery/authenticate",
+            post(recovery::authenticate),
+        )
+        // Invites: mint (authed), preview (public), and method-aware acceptance.
+        .route("/api/v1/auth/invites", post(invites::mint))
+        .route("/api/v1/auth/invites/{token}", get(invites::preview))
+        .route(
+            "/api/v1/auth/invites/{token}/accept/begin",
+            post(invites::accept_begin),
+        )
+        .route(
+            "/api/v1/auth/invites/{token}/accept/join",
+            post(invites::accept_join),
+        )
+        .route(
+            "/api/v1/auth/invites/accept/finish",
+            post(invites::accept_finish),
+        )
+        // Orgs: create additional orgs beyond the first-run root.
+        .route("/api/v1/orgs", post(orgs::create))
+        // Session accounts: the profile + org switchers.
+        .route("/api/v1/session/accounts", get(accounts::list))
+        .route("/api/v1/session/switch", post(accounts::switch))
+        .route("/api/v1/session/switch-org", post(accounts::switch_org))
+        .route("/api/v1/session/signout", post(accounts::signout))
+        // Authenticated add-credential (Security Center + post-recovery re-enroll).
+        .route(
+            "/api/v1/credentials/enroll/begin",
+            post(credentials::enroll_begin),
+        )
+        .route(
+            "/api/v1/credentials/enroll/finish",
+            post(credentials::enroll_finish),
         )
         .route("/api/v1/auth/logout", post(webauthn::logout))
         .layer(TraceLayer::new_for_http())

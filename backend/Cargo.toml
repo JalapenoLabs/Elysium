@@ -13,8 +13,12 @@ futures-core = "0.3"
 tower-http = { version = "0.6", features = ["trace"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid"] }
-# Session ids and OIDC state/PKCE-verifier generation (v4 is CSPRNG-backed).
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "ipnetwork", "chrono"] }
+# Bridges client IPs into Postgres INET columns (sqlx's `ipnetwork` feature).
+ipnetwork = "0.20"
+# Decodes Postgres TIMESTAMPTZ and builds the proto Timestamp (UTC instants).
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Session ids and user subjects (v4 is CSPRNG-backed).
 uuid = { version = "1", features = ["v4"] }
 # Encodes WebAuthn credential ids for storage/lookup.
 base64 = "0.22"
@@ -25,10 +29,22 @@ mimalloc = "0.1"
 # Generated protobuf types (see build.rs) share this runtime.
 prost = "0.13"
 # The API is the WebAuthn Relying Party (see docs/auth-model.md); it runs the
-# passkey ceremony itself rather than delegating to Keycloak. The
-# state-serialisation feature lets the in-flight ceremony state ride a short-lived
-# HttpOnly cookie between begin and finish (stored carefully, per its "danger" name).
+# passkey ceremony itself. The state-serialisation feature lets the in-flight
+# ceremony state ride a short-lived HttpOnly cookie between begin and finish
+# (stored carefully, per its "danger" name).
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+# OPAQUE aPAKE (RFC 9807) password auth. The suite (ristretto255 + TripleDH-SHA512
+# + Argon2) matches @serenity-kit/opaque on the client, so both ends interop; the
+# suite types below (sha2, argon2) must therefore mirror that client's Cargo.
+opaque-ke = { version = "4", features = ["argon2"] }
+sha2 = "0.10"
+argon2 = "0.5"
+# CSPRNG for the OPAQUE server setup and per-login nonces (rand_core 0.6 API,
+# which opaque-ke expects).
+rand = "0.8"
+# TOTP second factor (RFC 6238): secret generation, otpauth:// provisioning URIs
+# (for the QR code), and code verification.
+totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
 
 [build-dependencies]
 # Compiles the shared `../proto` tree into Rust at build time.

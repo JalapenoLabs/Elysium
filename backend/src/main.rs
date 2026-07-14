@@ -10,18 +10,32 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+mod accounts;
 mod api;
+mod bootstrap;
 mod config;
+mod cookies;
+mod credentials;
+mod enrollment;
+mod invites;
+mod login_events;
+mod opaque;
+mod orgs;
+mod password;
+mod profile;
 mod proto;
 mod protobuf;
+mod recovery;
 mod session;
 mod sse;
 mod state;
+mod totp;
 mod users;
 mod webauthn;
 
 use std::env;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use eyre::WrapErr;
 use tracing_subscriber::EnvFilter;
@@ -41,18 +55,29 @@ async fn main() -> eyre::Result<()> {
         .unwrap_or_else(|_| EnvFilter::new("info,elysium_backend=debug"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
-    // Lazy pool and lazy JWKS: the process starts even if Postgres or Keycloak
-    // are briefly unavailable, and reports real connectivity on demand.
-    let state = AppState::from_env().wrap_err("failed to initialize application state")?;
+    // Lazy pool: the process starts even if Postgres is briefly unavailable, and
+    // reports real connectivity on demand.
+    let pool = state::connect_pool()?;
 
     // Bring the database schema up to date before serving. This is the one place
     // startup genuinely needs Postgres; Compose gates the backend on a healthy
     // database, and the container restarts if it is not yet reachable.
     sqlx::migrate!("./migrations")
-        .run(&state.pool)
+        .run(&pool)
         .await
         .wrap_err("failed to run database migrations")?;
     tracing::info!("database migrations applied");
+
+    // The OPAQUE server setup lives in a table the migrations just created, so it
+    // is loaded (or minted, on first boot) only now.
+    let opaque_setup = Arc::new(
+        opaque::load_or_create_setup(&pool)
+            .await
+            .wrap_err("failed to initialize the OPAQUE server setup")?,
+    );
+
+    let state =
+        AppState::new(pool, opaque_setup).wrap_err("failed to initialize application state")?;
 
     let port = env::var("API_PORT")
         .ok()
@@ -66,9 +91,14 @@ async fn main() -> eyre::Result<()> {
 
     tracing::info!(address = %address, "Elysium API listening");
 
-    axum::serve(listener, api::router(state))
-        .await
-        .wrap_err("server error")?;
+    // ConnectInfo exposes the socket peer address to handlers; the login history
+    // uses it as the IP fallback when no proxy forwarded an address.
+    axum::serve(
+        listener,
+        api::router(state).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .wrap_err("server error")?;
 
     Ok(())
 }

@@ -1,66 +1,282 @@
-//! Server-side sessions.
+//! Multi-account server-side sessions.
 //!
-//! The browser holds only an opaque, HttpOnly cookie carrying a session id; the
-//! session references the authenticated user (`migrations/0002_sessions.sql`).
-//! [`SessionUser`] is the Axum extractor that turns the cookie into an
-//! authenticated [`Principal`]; any handler that takes it is protected and rejects
-//! an unauthenticated (or expired) request with `401`.
+//! A session is a browser session that can hold several signed-in accounts with
+//! one active (Google-style): the opaque HttpOnly `elysium_session` cookie carries
+//! the session id, `session_accounts` lists the profiles signed into it, and
+//! `sessions.active_user_id` / `active_org_id` say which account (and which of its
+//! orgs) is currently in use. [`SessionUser`] resolves the active account into a
+//! [`Principal`]; any handler that takes it is protected. See `docs/identity.md`.
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::cookie::CookieJar;
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
+use crate::cookies;
 use crate::state::AppState;
+use crate::users;
 
 /// Name of the HttpOnly cookie carrying the opaque session id.
 pub const SESSION_COOKIE: &str = "elysium_session";
 
-/// The authenticated principal, projected from the user the session references.
+/// The authenticated principal: the session's active account, with its active org.
 #[derive(Debug, Clone)]
 pub struct Principal {
     pub sub: String,
     pub email: String,
     pub username: String,
+    /// The org this account is currently acting in, if any (the org switcher).
+    pub active_org_id: Option<Uuid>,
 }
 
-/// Creates a session for a user and returns its id (the cookie value).
+/// Reads and parses the session id from the cookie jar, if present and well-formed.
+pub fn session_id(jar: &CookieJar) -> Option<Uuid> {
+    jar.get(SESSION_COOKIE)
+        .and_then(|entry| Uuid::parse_str(entry.value()).ok())
+}
+
+/// Whether `session_id` is a live (unexpired) session that includes `user_id`.
+async fn holds_account(pool: &PgPool, session_id: Uuid, user_id: Uuid) -> sqlx::Result<bool> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (
+             SELECT 1 FROM session_accounts sa
+               JOIN sessions s ON s.id = sa.session_id
+              WHERE sa.session_id = $1 AND sa.user_id = $2 AND s.expires_at > now()
+         )",
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+}
+
+/// Signs `user_id` into the request's session and makes it active.
+///
+/// If the request already carries a live session cookie, the account is appended
+/// to it (multiple simultaneous accounts); otherwise a fresh session is created.
+/// Either way the account becomes active and the response carries the cookie.
+pub async fn establish(pool: &PgPool, jar: CookieJar, user_id: Uuid) -> Response {
+    let existing = match session_id(&jar) {
+        Some(id) => match live(pool, id).await {
+            Ok(alive) => alive.then_some(id),
+            Err(error) => {
+                tracing::error!(error = %error, "session liveness check failed");
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
+        },
+        None => None,
+    };
+
+    let result = match existing {
+        Some(id) => add_account(pool, id, user_id).await.map(|()| id),
+        None => create(pool, user_id).await,
+    };
+
+    match result {
+        Ok(session_id) => {
+            let cookie = cookies::build(SESSION_COOKIE, session_id.to_string());
+            (jar.add(cookie), StatusCode::NO_CONTENT).into_response()
+        }
+        Err(error) => {
+            tracing::error!(error = %error, "failed to establish session");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// Whether a session exists and has not expired.
+async fn live(pool: &PgPool, id: Uuid) -> sqlx::Result<bool> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM sessions WHERE id = $1 AND expires_at > now())",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await
+}
+
+/// Creates a new session with `user_id` as its sole, active account.
 ///
 /// # Errors
-/// Returns an error if the insert fails.
-pub async fn create(pool: &PgPool, user_id: Uuid) -> sqlx::Result<Uuid> {
-    sqlx::query_scalar::<_, Uuid>("INSERT INTO sessions (user_id) VALUES ($1) RETURNING id")
-        .bind(user_id)
-        .fetch_one(pool)
-        .await
+/// Returns an error if the inserts fail.
+async fn create(pool: &PgPool, user_id: Uuid) -> sqlx::Result<Uuid> {
+    let org_id = users::default_org(pool, user_id).await?;
+    let mut tx = pool.begin().await?;
+    let session_id = create_on(&mut tx, user_id, org_id).await?;
+    tx.commit().await?;
+    Ok(session_id)
 }
 
-/// Returns the principal for a live (unexpired) session, if one exists.
+/// Creates a new one-account session on the caller's connection.
+///
+/// Lets provisioning flows (first-run claim, invite acceptance) mint the session
+/// inside the same transaction that creates the profile, with `active_org_id` set
+/// to the org just joined.
+///
+/// # Errors
+/// Returns an error if the inserts fail.
+pub async fn create_on(
+    conn: &mut PgConnection,
+    user_id: Uuid,
+    org_id: Option<Uuid>,
+) -> sqlx::Result<Uuid> {
+    let session_id = sqlx::query_scalar::<_, Uuid>(
+        "INSERT INTO sessions (active_user_id, active_org_id) VALUES ($1, $2) RETURNING id",
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    sqlx::query("INSERT INTO session_accounts (session_id, user_id) VALUES ($1, $2)")
+        .bind(session_id)
+        .bind(user_id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(session_id)
+}
+
+/// Adds `user_id` to an existing session and makes it the active account.
+///
+/// # Errors
+/// Returns an error if the writes fail.
+pub async fn add_account(pool: &PgPool, session_id: Uuid, user_id: Uuid) -> sqlx::Result<()> {
+    let org_id = users::default_org(pool, user_id).await?;
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO session_accounts (session_id, user_id) VALUES ($1, $2)
+         ON CONFLICT (session_id, user_id) DO NOTHING",
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE sessions SET active_user_id = $1, active_org_id = $2 WHERE id = $3")
+        .bind(user_id)
+        .bind(org_id)
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Switches the active account to `user_id`, which must already be in the session.
+///
+/// Returns whether the switch happened (false when the account is not in the
+/// session, so a caller cannot switch to an account it never authenticated).
+///
+/// # Errors
+/// Returns an error if the query fails.
+pub async fn switch_account(pool: &PgPool, session_id: Uuid, user_id: Uuid) -> sqlx::Result<bool> {
+    if !holds_account(pool, session_id, user_id).await? {
+        return Ok(false);
+    }
+    let org_id = users::default_org(pool, user_id).await?;
+    sqlx::query("UPDATE sessions SET active_user_id = $1, active_org_id = $2 WHERE id = $3")
+        .bind(user_id)
+        .bind(org_id)
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+    Ok(true)
+}
+
+/// Sets the active org for the session's active account.
+///
+/// Returns whether it happened (false when the active account is not a member of
+/// `org_id`).
+///
+/// # Errors
+/// Returns an error if the query fails.
+pub async fn switch_org(pool: &PgPool, session_id: Uuid, org_id: Uuid) -> sqlx::Result<bool> {
+    let affected = sqlx::query(
+        "UPDATE sessions s SET active_org_id = $1
+          WHERE s.id = $2
+            AND EXISTS (SELECT 1 FROM org_members m
+                         WHERE m.user_id = s.active_user_id AND m.org_id = $1)",
+    )
+    .bind(org_id)
+    .bind(session_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected == 1)
+}
+
+/// Removes one account from the session; if it was active, re-points to another.
+///
+/// Returns `true` if accounts remain (the session lives on), `false` if the last
+/// account was removed (the caller should delete the session and clear the cookie).
+///
+/// # Errors
+/// Returns an error if the queries fail.
+pub async fn remove_account(pool: &PgPool, session_id: Uuid, user_id: Uuid) -> sqlx::Result<bool> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM session_accounts WHERE session_id = $1 AND user_id = $2")
+        .bind(session_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Pick any remaining account to become active (its default org follows).
+    let next = sqlx::query_scalar::<_, Uuid>(
+        "SELECT user_id FROM session_accounts WHERE session_id = $1 ORDER BY added_at ASC LIMIT 1",
+    )
+    .bind(session_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    match next {
+        Some(next_user) => {
+            let org_id = users::default_org(pool, next_user).await?;
+            sqlx::query(
+                "UPDATE sessions SET active_user_id = $1, active_org_id = $2 WHERE id = $3",
+            )
+            .bind(next_user)
+            .bind(org_id)
+            .bind(session_id)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok(true)
+        }
+        None => {
+            sqlx::query("DELETE FROM sessions WHERE id = $1")
+                .bind(session_id)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+            Ok(false)
+        }
+    }
+}
+
+/// Returns the principal for a live session's active account, if any.
 ///
 /// # Errors
 /// Returns an error if the query fails.
 pub async fn principal(pool: &PgPool, id: Uuid) -> sqlx::Result<Option<Principal>> {
-    let row = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT u.subject, u.email, u.display_name
+    let row = sqlx::query_as::<_, (String, String, String, Option<Uuid>)>(
+        "SELECT u.subject, u.email, u.display_name, s.active_org_id
            FROM sessions s
-           JOIN users u ON u.id = s.user_id
+           JOIN users u ON u.id = s.active_user_id
           WHERE s.id = $1 AND s.expires_at > now()",
     )
     .bind(id)
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(|(sub, email, username)| Principal {
+    Ok(row.map(|(sub, email, username, active_org_id)| Principal {
         sub,
         email,
         username,
+        active_org_id,
     }))
 }
 
-/// Deletes a session (logout).
+/// Deletes a session and every account in it (sign out everywhere on this device).
 ///
 /// # Errors
 /// Returns an error if the delete fails.
@@ -85,13 +301,7 @@ impl FromRequestParts<AppState> for SessionUser {
     ) -> Result<Self, Self::Rejection> {
         let jar = CookieJar::from_headers(&parts.headers);
 
-        let Some(raw) = jar
-            .get(SESSION_COOKIE)
-            .map(|entry| entry.value().to_owned())
-        else {
-            return Err(StatusCode::UNAUTHORIZED.into_response());
-        };
-        let Ok(id) = Uuid::parse_str(&raw) else {
+        let Some(id) = session_id(&jar) else {
             return Err(StatusCode::UNAUTHORIZED.into_response());
         };
 
