@@ -48,15 +48,19 @@ pub async fn update_me(
         chosen => chosen,
     };
 
+    // `avatar_url` is an optional partial update: COALESCE leaves it unchanged when
+    // the field is omitted, and sets it (including to empty, which clears) when sent.
     let result = sqlx::query(
         "UPDATE users
-            SET given_name = $1, family_name = $2, display_name = $3, bio = $4
-          WHERE subject = $5",
+            SET given_name = $1, family_name = $2, display_name = $3, bio = $4,
+                avatar_url = COALESCE($5, avatar_url)
+          WHERE subject = $6",
     )
     .bind(given_name)
     .bind(family_name)
     .bind(display_name)
     .bind(request.bio.trim())
+    .bind(request.avatar_url.as_deref().map(str::trim))
     .bind(&principal.sub)
     .execute(&state.pool)
     .await;
