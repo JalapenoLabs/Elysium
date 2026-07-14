@@ -40,10 +40,17 @@ that already resolved the caller's id (e.g. to write an audit row) calls
 
 Every org-privileged mutation runs through the guard:
 
-- `PATCH /api/v1/orgs/:id` (rename / logo) requires **admin**.
+- `PATCH /api/v1/orgs/:id` (rename / logo / branding) requires **admin**.
 - `POST /api/v1/auth/invites` (mint an invite) requires **admin**, and the
   invited role may not outrank the inviter, so an admin cannot mint an owner
   invite and escalate.
+- **Member management** (`.../orgs/:id/members`): any member may view the roster;
+  changing a role or removing a member requires **admin**, the actor must outrank
+  the target, and no new role may exceed the actor's own. Owners are therefore
+  never demoted or removed here and the last owner is always safe.
+- **Teams** (`.../orgs/:id/teams`, `.../teams/:id`): creating, renaming, deleting a
+  team and managing its members require org **admin**; viewing is open to any
+  member. A team member must already belong to the team's org.
 
 Routes that are not gated are so by design: self-scoped reads and edits (`/me`,
 `/users/me`, `/context`, status), session-scoped switches that already check
@@ -53,11 +60,11 @@ token-gated invite acceptance.
 
 ## Roadmap
 
-- Org member management (list members, change a member's role, remove a member),
-  each gated on the guard, with the same no-escalation rule on role changes.
-- Team-level roles and permissions (`team_members` exists; no management flow
-  yet).
+- Team-scoped permissions: today a team's own roles are stored but not yet used to
+  gate anything (org role is the gate); wire team roles to team-scoped actions.
+- Ownership transfer and self-service "leave an org" (member management
+  deliberately forbids self-management and touching owners).
 - The access-denied surface: the client renders its `/denied` route on a 403.
-- Enforcing `org_auth_policies` at sign-in (disabled-method rejection, org-wide
-  mandatory TOTP, session lifetime), which is policy enforcement adjacent to this
-  RBAC layer.
+- Remaining `org_auth_policies` enforcement (org-wide mandatory TOTP for members
+  with none, `session_lifetime_seconds`); the password disabled-method rejection is
+  already enforced (see `security.md`).
