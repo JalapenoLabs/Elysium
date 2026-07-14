@@ -154,6 +154,19 @@ The application and deployable will be called Elysium.
 The AI within will be called/named Elysia.
 This is hosted, maintained and created by JalapenoLabs LLC
 
+# CI monitoring
+
+After every git push, monitor the resulting CI run in the background and keep working;
+only block on the run when the push is the end of your task.
+When working through multiple commits in a row, fold any CI failures into the next wave
+of commits instead of stopping to fix each one. Iterate until CI is green.
+
+# Unit testing
+
+Write unit tests for everything you write on both the frontend and the backend.
+The only exception is page-level JSX (page components); everything else gets tests.
+Feel free to use a sub-agent to write unit tests, to help preserve context.
+
 # Claude.md
 
 The USER is the source of truth, and this CLAUDE.md document is the second source of truth.

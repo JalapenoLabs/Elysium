@@ -111,6 +111,22 @@ impl Auth {
         })
     }
 
+    /// Builds an [`Auth`] with fixed configuration and an empty key cache.
+    ///
+    /// Test-only: lets route tests construct an [`crate::state::AppState`]
+    /// without Keycloak environment variables or network access.
+    #[cfg(test)]
+    pub fn for_tests() -> Self {
+        Self {
+            config: AuthConfig {
+                issuer: "http://localhost/realms/test".to_string(),
+                jwks_url: "http://localhost/jwks".to_string(),
+            },
+            http: reqwest::Client::new(),
+            keys: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
     /// Validates a bearer token and returns its claims.
     ///
     /// # Errors

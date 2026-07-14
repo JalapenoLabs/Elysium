@@ -22,6 +22,11 @@ jsonwebtoken = "9"
 # Fetches the JWKS from Keycloak; rustls to match the sqlx TLS stack.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+[dev-dependencies]
+# Exercise routes in-process (tower::ServiceExt::oneshot) without a socket.
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+
 [build-dependencies]
 # Compiles the shared `../proto` tree into Rust at build time.
 prost-build = "0.13"

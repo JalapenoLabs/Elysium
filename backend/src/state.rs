@@ -21,6 +21,13 @@ const MAX_DB_CONNECTIONS: u32 = 5;
 pub struct AppState {
     pub pool: PgPool,
     pub auth: Auth,
+    /// Redis connection string when configured. Wiring only for now: `/health`
+    /// reports its presence, and a real client lands with the first feature
+    /// that needs the cache.
+    pub redis_url: Option<String>,
+    /// RabbitMQ connection string when configured. Same wiring-only status as
+    /// `redis_url`.
+    pub rabbitmq_url: Option<String>,
 }
 
 impl AppState {
@@ -28,7 +35,8 @@ impl AppState {
     ///
     /// The Postgres pool is lazy, so the API can start before Postgres is ready.
     /// Token validation ([`Auth`]) likewise fetches its keys on demand, so the
-    /// API can also start before Keycloak is reachable.
+    /// API can also start before Keycloak is reachable. Redis and RabbitMQ are
+    /// optional: unset or blank variables simply mean "not configured".
     ///
     /// # Errors
     /// Returns an error if `DATABASE_URL` or the Keycloak variables are unset or
@@ -43,6 +51,19 @@ impl AppState {
 
         let auth = Auth::from_env()?;
 
-        Ok(Self { pool, auth })
+        Ok(Self {
+            pool,
+            auth,
+            redis_url: read_optional("REDIS_URL"),
+            rabbitmq_url: read_optional("RABBITMQ_URL"),
+        })
+    }
+}
+
+/// Reads an environment variable, treating unset or blank values as absent.
+fn read_optional(key: &str) -> Option<String> {
+    match std::env::var(key) {
+        Ok(value) if !value.trim().is_empty() => Some(value),
+        _ => None,
     }
 }

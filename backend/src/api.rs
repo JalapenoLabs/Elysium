@@ -1,9 +1,9 @@
 //! HTTP routing and request handlers for the Elysium API.
 //!
-//! Two kinds of routes live here. Infrastructure endpoints (`/` liveness and
-//! `/health`) answer as plain text and JSON, the shapes load balancers and uptime
-//! monitors expect. The versioned `/api/v1/*` routes answer as binary protobuf so
-//! the wire format matches the typed client end to end.
+//! Two kinds of routes live here. Infrastructure endpoints (`/` and `/ok`
+//! liveness, plus `/health`) answer as plain text and JSON, the shapes load
+//! balancers and uptime monitors expect. The versioned `/api/v1/*` routes answer
+//! as binary protobuf so the wire format matches the typed client end to end.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -24,6 +24,7 @@ use crate::state::AppState;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(ping))
+        .route("/ok", get(ok))
         .route("/health", get(health))
         .route("/api/v1/hello", get(hello))
         .route("/api/v1/db/health", get(database_health))
@@ -41,11 +42,24 @@ async fn ping() -> &'static str {
     "pong"
 }
 
+/// Liveness check. Returns `200 OK` with the plain text `ok` while running.
+async fn ok() -> &'static str {
+    "ok"
+}
+
 /// Server health as JSON, for load balancers and uptime monitors.
-async fn health() -> Json<Value> {
+///
+/// The `services` block reports which optional backing services are configured
+/// (wired through the environment), not their live connectivity; Postgres
+/// connectivity has its own probe at `/api/v1/db/health`.
+async fn health(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "status": "ok",
         "service": "elysium-backend",
+        "services": {
+            "redis": state.redis_url.is_some(),
+            "rabbitmq": state.rabbitmq_url.is_some(),
+        },
     }))
 }
 
@@ -93,5 +107,86 @@ async fn database_health(State(state): State<AppState>) -> Response {
             )
                 .into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use axum::body::Body;
+    use axum::http::Request;
+    use http_body_util::BodyExt;
+    use sqlx::postgres::PgPoolOptions;
+    use tower::ServiceExt;
+
+    use crate::auth::Auth;
+
+    /// Builds an [`AppState`] with a lazy (never-connected) pool, test auth
+    /// config, redis configured, and rabbitmq absent, so both `services`
+    /// branches are observable.
+    fn test_state() -> AppState {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://tester:tester@localhost:1/elysia_test")
+            .expect("a lazy pool never connects at build time");
+
+        AppState {
+            pool,
+            auth: Auth::for_tests(),
+            redis_url: Some("redis://:secret@localhost:1".to_string()),
+            rabbitmq_url: None,
+        }
+    }
+
+    async fn get(path: &str) -> (StatusCode, Vec<u8>) {
+        let request = Request::get(path)
+            .body(Body::empty())
+            .expect("a valid test request");
+        let response = router(test_state())
+            .oneshot(request)
+            .await
+            .expect("the router must produce a response");
+
+        let status = response.status();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("a readable response body")
+            .to_bytes()
+            .to_vec();
+
+        (status, body)
+    }
+
+    #[tokio::test]
+    async fn ping_answers_pong_at_the_root() {
+        let (status, body) = get("/").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"pong");
+    }
+
+    #[tokio::test]
+    async fn ok_answers_plain_text_ok() {
+        let (status, body) = get("/ok").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, b"ok");
+    }
+
+    #[tokio::test]
+    async fn health_reports_status_and_configured_services() {
+        let (status, body) = get("/health").await;
+
+        assert_eq!(status, StatusCode::OK);
+
+        let json: Value = serde_json::from_slice(&body).expect("valid JSON from /health");
+        assert_eq!(json["status"], "ok");
+        assert_eq!(json["service"], "elysium-backend");
+        // The test state configures redis but not rabbitmq; the flags must
+        // mirror that without exposing the connection strings themselves.
+        assert_eq!(json["services"]["redis"], true);
+        assert_eq!(json["services"]["rabbitmq"], false);
     }
 }

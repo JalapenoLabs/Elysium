@@ -311,6 +311,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "eyre",
+ "http-body-util",
  "jsonwebtoken",
  "mimalloc",
  "prost",
@@ -320,6 +321,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
