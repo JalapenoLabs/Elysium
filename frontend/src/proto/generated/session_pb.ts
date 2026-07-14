@@ -22,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file session.proto.
  */
 export const file_session: GenFile = /*@__PURE__*/
-  fileDesc("Cg1zZXNzaW9uLnByb3RvEhJlbHlzaXVtLnNlc3Npb24udjEihgEKDlNlc3Npb25BY2NvdW50EigKB3VzZXJfaWQYASABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkEg0KBWVtYWlsGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRISCgphdmF0YXJfdXJsGAQgASgJEhEKCWlzX2FjdGl2ZRgFIAEoCCJtCgpTZXNzaW9uT3JnEiMKAmlkGAEgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBIMCgRuYW1lGAIgASgJEgwKBHNsdWcYAyABKAkSDAoEcm9sZRgEIAEoCRIQCghsb2dvX3VybBgFIAEoCSKUAgoOU2Vzc2lvbkNvbnRleHQSIwoEdXNlchgBIAEoCzIVLmVseXNpdW0udXNlci52MS5Vc2VyEjQKCGFjY291bnRzGAIgAygLMiIuZWx5c2l1bS5zZXNzaW9uLnYxLlNlc3Npb25BY2NvdW50EiwKBG9yZ3MYAyADKAsyHi5lbHlzaXVtLnNlc3Npb24udjEuU2Vzc2lvbk9yZxIuCg1hY3RpdmVfb3JnX2lkGAQgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBIWCg5hc19vZl9zZXF1ZW5jZRgFIAEoBBIxCgtzZXJ2ZXJfdGltZRgGIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcGIGcHJvdG8z", [file_common, file_user]);
+  fileDesc("Cg1zZXNzaW9uLnByb3RvEhJlbHlzaXVtLnNlc3Npb24udjEihgEKDlNlc3Npb25BY2NvdW50EigKB3VzZXJfaWQYASABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkEg0KBWVtYWlsGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRISCgphdmF0YXJfdXJsGAQgASgJEhEKCWlzX2FjdGl2ZRgFIAEoCCKVAQoKU2Vzc2lvbk9yZxIjCgJpZBgBIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSDAoEbmFtZRgCIAEoCRIMCgRzbHVnGAMgASgJEgwKBHJvbGUYBCABKAkSEAoIbG9nb191cmwYBSABKAkSFAoMYWNjZW50X2NvbG9yGAYgASgJEhAKCHdvcmRtYXJrGAcgASgJIpQCCg5TZXNzaW9uQ29udGV4dBIjCgR1c2VyGAEgASgLMhUuZWx5c2l1bS51c2VyLnYxLlVzZXISNAoIYWNjb3VudHMYAiADKAsyIi5lbHlzaXVtLnNlc3Npb24udjEuU2Vzc2lvbkFjY291bnQSLAoEb3JncxgDIAMoCzIeLmVseXNpdW0uc2Vzc2lvbi52MS5TZXNzaW9uT3JnEi4KDWFjdGl2ZV9vcmdfaWQYBCABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkEhYKDmFzX29mX3NlcXVlbmNlGAUgASgEEjEKC3NlcnZlcl90aW1lGAYgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wYgZwcm90bzM", [file_common, file_user]);
 
 /**
  * One profile signed into this browser session (the profile switcher).
@@ -93,6 +93,18 @@ export type SessionOrg = Message<"elysium.session.v1.SessionOrg"> & {
    * @generated from field: string logo_url = 5;
    */
   logoUrl: string;
+
+  /**
+   * Branding / white-label fields (empty = fall back to the Elysium defaults).
+   *
+   * @generated from field: string accent_color = 6;
+   */
+  accentColor: string;
+
+  /**
+   * @generated from field: string wordmark = 7;
+   */
+  wordmark: string;
 };
 
 /**

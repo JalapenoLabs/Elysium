@@ -60,8 +60,8 @@ pub async fn context(
     .fetch_all(&state.pool)
     .await;
 
-    let orgs = sqlx::query_as::<_, (Uuid, String, String, String, String)>(
-        "SELECT o.id, o.name, o.slug, m.role, o.logo_url
+    let orgs = sqlx::query_as::<_, (Uuid, String, String, String, String, String, String)>(
+        "SELECT o.id, o.name, o.slug, m.role, o.logo_url, o.accent_color, o.wordmark
            FROM sessions s
            JOIN org_members m ON m.user_id = s.active_user_id
            JOIN orgs o ON o.id = m.org_id
@@ -101,13 +101,17 @@ pub async fn context(
             .collect(),
         orgs: orgs
             .into_iter()
-            .map(|(id, name, slug, role, logo_url)| SessionOrg {
-                id: Some(proto_uuid(id)),
-                name,
-                slug,
-                role,
-                logo_url,
-            })
+            .map(
+                |(id, name, slug, role, logo_url, accent_color, wordmark)| SessionOrg {
+                    id: Some(proto_uuid(id)),
+                    name,
+                    slug,
+                    role,
+                    logo_url,
+                    accent_color,
+                    wordmark,
+                },
+            )
             .collect(),
         active_org_id: principal.active_org_id.map(proto_uuid),
         as_of_sequence,

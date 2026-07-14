@@ -30,6 +30,9 @@ message OrgUpdated {
   elysium.common.v1.Uuid id = 1;
   string name = 2;
   string logo_url = 3;
+  // Branding / white-label fields (empty = fall back to the Elysium defaults).
+  string accent_color = 4;
+  string wordmark = 5;
 }
 
 // A profile changed (name, avatar, bio, or status). Carries the full profile so

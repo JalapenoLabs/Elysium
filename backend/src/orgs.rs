@@ -76,9 +76,11 @@ pub async fn create(
 pub struct UpdateOrg {
     name: Option<String>,
     logo_url: Option<String>,
+    accent_color: Option<String>,
+    wordmark: Option<String>,
 }
 
-/// `PATCH /api/v1/orgs/:id`: update an org's name/logo (owner or admin only).
+/// `PATCH /api/v1/orgs/:id`: update an org's name, logo, and branding (admin only).
 ///
 /// On success, fans out an `org.updated` realtime event to every connected member,
 /// so their views reflect the change live (see `docs/realtime.md`).
@@ -95,18 +97,32 @@ pub async fn update(
         return response;
     }
 
+    // Validate the accent color when present: empty (reset) or a `#RRGGBB` hex.
+    if let Some(color) = body.accent_color.as_deref().map(str::trim) {
+        if !color.is_empty() && !is_hex_color(color) {
+            return (StatusCode::BAD_REQUEST, "accent_color must be #RRGGBB").into_response();
+        }
+    }
+
     // COALESCE keeps a field unchanged when its bind is NULL (the client omitted it).
-    let updated = sqlx::query_as::<_, (String, String)>(
-        "UPDATE orgs SET name = COALESCE($1, name), logo_url = COALESCE($2, logo_url)
-          WHERE id = $3 RETURNING name, logo_url",
+    let updated = sqlx::query_as::<_, (String, String, String, String)>(
+        "UPDATE orgs
+            SET name = COALESCE($1, name),
+                logo_url = COALESCE($2, logo_url),
+                accent_color = COALESCE($3, accent_color),
+                wordmark = COALESCE($4, wordmark)
+          WHERE id = $5
+      RETURNING name, logo_url, accent_color, wordmark",
     )
     .bind(body.name.as_deref().map(str::trim))
     .bind(body.logo_url.as_deref().map(str::trim))
+    .bind(body.accent_color.as_deref().map(str::trim))
+    .bind(body.wordmark.as_deref().map(str::trim))
     .bind(org_id)
     .fetch_optional(&state.pool)
     .await;
 
-    let (name, logo_url) = match updated {
+    let (name, logo_url, accent_color, wordmark) = match updated {
         Ok(Some(row)) => row,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(error) => {
@@ -124,11 +140,28 @@ pub async fn update(
             }),
             name: name.clone(),
             logo_url: logo_url.clone(),
+            accent_color: accent_color.clone(),
+            wordmark: wordmark.clone(),
         }),
     )
     .await;
 
-    Json(json!({ "id": org_id, "name": name, "logo_url": logo_url })).into_response()
+    Json(json!({
+        "id": org_id,
+        "name": name,
+        "logo_url": logo_url,
+        "accent_color": accent_color,
+        "wordmark": wordmark,
+    }))
+    .into_response()
+}
+
+/// Whether `value` is a `#RRGGBB` hex color.
+fn is_hex_color(value: &str) -> bool {
+    let Some(digits) = value.strip_prefix('#') else {
+        return false;
+    };
+    digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 /// Creates the org, its default auth policy, and the creator's owner membership.

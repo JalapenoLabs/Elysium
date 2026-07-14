@@ -29,6 +29,9 @@ message SessionOrg {
   string slug = 3;
   string role = 4;
   string logo_url = 5;
+  // Branding / white-label fields (empty = fall back to the Elysium defaults).
+  string accent_color = 6;
+  string wordmark = 7;
 }
 
 // The full session context returned by GET /api/v1/context.
