@@ -18,49 +18,37 @@ import {
   User,
 } from '@heroui/react'
 
+// Redux
+import { useAppSelector } from '../../store/hooks'
+
 // Misc
 import { useSession } from '../../auth/useSession'
 import { useCurrentUser } from '../../auth/useCurrentUser'
 import { effectiveStatusOf } from './presence'
 import { InvitePeopleModal } from './InvitePeopleModal'
-import { listSessionAccounts, switchAccount, type SessionAccount } from '../../api/routes/sessionRoutes'
+import { switchAccount } from '../../api/routes/sessionRoutes'
 import { resolveSession } from '../../auth/session'
 import { UrlTree, getAddAccountUrl } from '../../urls'
 
-// The signed-in identity in the navbar: avatar + display name with the
+// The signed-in identity in the taskbar: avatar + display name with the
 // effective status dot, opening the account menu. The "Other accounts" section
-// lists every other profile signed into this browser session with one-click
-// switching; it degrades to just "Add account" while the multi-session
-// endpoints aren't reachable.
+// renders every other profile signed into this browser session straight from
+// the session-context slice (seeded by `/context`, kept live by the realtime
+// stream), with one-click switching.
 export function ProfileBadge() {
   const { t } = useTranslation('common')
   const navigate = useNavigate()
   const session = useSession()
   const user = useCurrentUser()
+  const accounts = useAppSelector((state) => state.sessionContext.accounts)
 
   const [ isInviteOpen, setIsInviteOpen ] = useState(false)
-  const [ otherAccounts, setOtherAccounts ] = useState<SessionAccount[]>([])
 
-  // Refreshed on every open so the list reflects accounts added or signed out
-  // in other tabs; a failure (including the endpoints not being live yet)
-  // simply leaves the section with "Add account".
-  async function onMenuOpenChange(isOpen: boolean) {
-    if (!isOpen) {
-      return
-    }
-    try {
-      const sessionAccounts = await listSessionAccounts()
-      setOtherAccounts(sessionAccounts.accounts.filter((account) => !account.is_active))
-    }
-    catch (error) {
-      console.debug('session accounts unavailable', { error })
-      setOtherAccounts([])
-    }
-  }
+  const otherAccounts = accounts.filter((account) => !account.isActive)
 
-  // One click flips the active account server-side; re-resolving the session
-  // swaps the principal (which also drops the cached profile) and home renders
-  // in the newly active account's context.
+  // One click flips the active account server-side; re-resolving reseeds the
+  // whole session context for the new principal, and home renders in its
+  // context.
   async function onSwitchAccount(userId: string) {
     try {
       await switchAccount(userId)
@@ -90,7 +78,7 @@ export function ProfileBadge() {
       isOpen={isInviteOpen}
       onOpenChange={setIsInviteOpen}
     />
-    <Dropdown placement='bottom-end' onOpenChange={onMenuOpenChange}>
+    <Dropdown placement='top-start'>
     <DropdownTrigger>
       <Button variant='light' className='h-12'>
         { status
@@ -108,21 +96,35 @@ export function ProfileBadge() {
       </Button>
     </DropdownTrigger>
     <DropdownMenu aria-label={t('account.menuLabel')}>
+      {/* Who you are comes first; everything else hangs off it. */}
+      <DropdownSection showDivider>
+        <DropdownItem key='identity' isReadOnly textValue={fullName}>
+          <User
+            name={fullName}
+            description={email}
+            avatarProps={{
+              size: 'sm',
+              name: displayName,
+              src: avatarUrl,
+            }}
+          />
+        </DropdownItem>
+      </DropdownSection>
       <DropdownSection title={t('account.otherAccounts')} showDivider>
         { [
           ...otherAccounts.map((account) =>
             <DropdownItem
-              key={account.user_id}
+              key={account.userId}
               textValue={account.email}
-              onPress={() => onSwitchAccount(account.user_id)}
+              onPress={() => onSwitchAccount(account.userId)}
             >
               <User
-                name={account.display_name}
+                name={account.displayName}
                 description={account.email}
                 avatarProps={{
                   size: 'sm',
-                  name: account.display_name,
-                  src: account.avatar_url || undefined,
+                  name: account.displayName,
+                  src: account.avatarUrl || undefined,
                 }}
               />
             </DropdownItem>,
@@ -136,17 +138,6 @@ export function ProfileBadge() {
         ] }
       </DropdownSection>
       <DropdownSection>
-        <DropdownItem key='identity' isReadOnly textValue={fullName}>
-          <User
-            name={fullName}
-            description={email}
-            avatarProps={{
-              size: 'sm',
-              name: displayName,
-              src: avatarUrl,
-            }}
-          />
-        </DropdownItem>
         <DropdownItem
           key='my-profile'
           onPress={() => navigate(UrlTree.settingsProfile)}

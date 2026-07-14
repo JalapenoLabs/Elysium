@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { PayloadAction } from '@reduxjs/toolkit'
-import type { ManualStatusKind, Presence } from '../proto/generated/user_pb'
+import type { ManualStatusKind, Presence, User } from '../proto/generated/user_pb'
 
 // Core
 import { createSlice } from '@reduxjs/toolkit'
@@ -11,8 +11,9 @@ import { sessionAnonymous, sessionAuthenticated, sessionError } from './sessionS
 
 // A serializable projection of `elysium.user.v1.User` for the signed-in user.
 // The generated proto message carries bigint timestamps, which Redux can't
-// store; `userRoutes` projects responses into this shape before dispatching.
+// store; every producer projects through `toCurrentUser` before dispatching.
 export type CurrentUser = {
+  id: string
   subject: string
   email: string
   givenName: string
@@ -23,6 +24,24 @@ export type CurrentUser = {
   presence: Presence
   manualStatus: ManualStatusKind
   manualStatusText: string
+}
+
+// The one projection from the wire shape into the stored shape, shared by the
+// API routes and the realtime stream.
+export function toCurrentUser(user: User): CurrentUser {
+  return {
+    id: user.id?.value ?? '',
+    subject: user.subject,
+    email: user.email,
+    givenName: user.givenName,
+    familyName: user.familyName,
+    displayName: user.displayName,
+    avatarUrl: user.avatarUrl,
+    bio: user.bio,
+    presence: user.presence,
+    manualStatus: user.manualStatus,
+    manualStatusText: user.manualStatusText,
+  }
 }
 
 type CurrentUserState = {
@@ -40,6 +59,13 @@ export const currentUserSlice = createSlice({
   reducers: {
     currentUserLoaded(state, action: PayloadAction<CurrentUser>) {
       state.user = action.payload
+    },
+    // Live presence pushes only carry the new presence; the rest of the
+    // profile stays as loaded.
+    currentUserPresenceChanged(state, action: PayloadAction<Presence>) {
+      if (state.user) {
+        state.user.presence = action.payload
+      }
     },
   },
   // The profile is meaningless without a session, so it clears itself whenever
@@ -61,5 +87,5 @@ export const currentUserSlice = createSlice({
   },
 })
 
-export const { currentUserLoaded } = currentUserSlice.actions
+export const { currentUserLoaded, currentUserPresenceChanged } = currentUserSlice.actions
 export const currentUserReducer = currentUserSlice.reducer

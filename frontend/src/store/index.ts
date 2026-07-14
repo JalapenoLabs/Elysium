@@ -7,12 +7,14 @@ import { configureStore } from '@reduxjs/toolkit'
 import { themeReducer } from './themeSlice'
 import { sessionReducer } from './sessionSlice'
 import { currentUserReducer } from './currentUserSlice'
+import { sessionContextReducer } from './sessionContextSlice'
 
 export const store = configureStore({
   reducer: {
     theme: themeReducer,
     session: sessionReducer,
     currentUser: currentUserReducer,
+    sessionContext: sessionContextReducer,
   },
 })
 

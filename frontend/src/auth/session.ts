@@ -7,14 +7,16 @@ import { HTTPError } from 'ky'
 import { dispatch } from '../store'
 import {
   sessionLoading,
-  sessionAuthenticated,
   sessionAnonymous,
   sessionError,
   instanceClaimedResolved,
 } from '../store/sessionSlice'
 
 // Misc
-import { getMe, getAuthContext } from '../api/routes/authRoutes'
+import { getAuthContext } from '../api/routes/authRoutes'
+import { getSessionContext } from '../api/routes/sessionRoutes'
+import { startRealtime, stopRealtime, shareContextSnapshot } from '../realtime/client'
+import { seedFromContext } from '../realtime/seedContext'
 
 // Deduplicates concurrent session probes. React StrictMode invokes mount effects
 // twice in dev, and route guards can trigger a resolve while one is already in
@@ -25,10 +27,11 @@ let inFlightResolve: Promise<void> | null = null
 // Resolves the browser's session against the API and records it in Redux.
 //
 // The session is an HttpOnly cookie the browser cannot read, so the only way to
-// know whether we're signed in is to ask the API: a 200 from `/api/v1/me` means
-// authenticated, a 401 means anonymous, and anything else means the identity
-// service is unreachable (rendered as a degraded state rather than a silent
-// anonymous view).
+// know whether we're signed in is to ask the API. The bootstrap is ordered for
+// realtime correctness (docs/realtime.md): the SSE stream connects FIRST, then
+// `GET /api/v1/context` seeds every session slice in one response carrying the
+// stream's high-water mark, so an event can neither slip between the fetch and
+// the subscribe nor double-apply onto the state it is already part of.
 export function resolveSession(): Promise<void> {
   if (inFlightResolve) {
     return inFlightResolve
@@ -42,24 +45,29 @@ export function resolveSession(): Promise<void> {
 async function runResolveSession(): Promise<void> {
   dispatch(sessionLoading())
 
+  // Subscribe before reading; idempotent when the stream is already up.
+  startRealtime()
+
   try {
-    const principal = await getMe()
-    dispatch(sessionAuthenticated({
-      subject: principal.subject,
-      email: principal.email,
-      username: principal.username,
-    }))
+    const { context, encoded } = await getSessionContext()
+    seedFromContext(context)
+    // The worker holds it for instant restore in future windows, and siblings
+    // reseed from the rebroadcast.
+    shareContextSnapshot({ data: encoded, asOfSequence: Number(context.asOfSequence) })
   }
   catch (error) {
     if (error instanceof HTTPError && error.response.status === 401) {
+      // Anonymous: don't leave a stream hammering an endpoint that will 401.
+      stopRealtime()
       dispatch(sessionAnonymous())
-      // Anonymous: also resolve whether this instance still needs its first-run
-      // claim, so the sign-in gate can route to setup instead of asking an
-      // unclaimed instance to sign in.
+      // Also resolve whether this instance still needs its first-run claim, so
+      // the login gate can route to setup instead of asking an unclaimed
+      // instance to sign in.
       await resolveInstanceClaimed()
       return
     }
     console.debug('resolveSession could not reach the identity service', { error })
+    stopRealtime()
     dispatch(sessionError())
   }
 }

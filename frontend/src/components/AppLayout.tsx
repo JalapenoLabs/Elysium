@@ -4,13 +4,23 @@
 import { Outlet } from 'react-router'
 
 // UI
-import { NavBar } from './NavBar'
+import { Taskbar } from './taskbar/Taskbar'
 
-// The in-app chrome: the NavBar over the routed page. Wraps the protected app
-// pages (home, about, settings), not the full-screen auth screens.
+// Misc
+import { useRealtimeSession } from '../realtime/useRealtimeSession'
+
+// The in-app chrome: the routed page over a fixed bottom taskbar (the app has
+// no topbar, by design). The main region reserves the taskbar's height so
+// content never hides behind it. Wraps the protected app pages, not the
+// full-screen auth screens. Mounting here also brings up the app's realtime
+// stream and its session-level wiring.
 export function AppLayout() {
+  useRealtimeSession()
+
   return <>
-    <NavBar />
-    <Outlet />
+    <main className='app-main'>
+      <Outlet />
+    </main>
+    <Taskbar />
   </>
 }

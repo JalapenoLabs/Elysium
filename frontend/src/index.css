@@ -218,6 +218,96 @@ input, textarea {
 }
 
 /*
+  The taskbar. Elysium's only chrome: a fixed bottom bar, Windows-11 style.
+  Three grid zones (left / center / right) keep the app buttons visually
+  centered regardless of how wide the side zones grow.
+*/
+.app-main {
+  min-height: 100vh;
+  padding-bottom: 4.5rem;
+}
+
+/* Glassmorphism: a translucent, saturated blur with a hairline highlight on
+   top and a soft lift shadow, so the workspace glows through the bar. */
+.taskbar {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.75rem;
+  height: 3.5rem;
+  padding: 0 0.75rem;
+  background: hsl(var(--heroui-background) / 0.5);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  border-top: 1px solid hsl(var(--heroui-foreground) / 0.1);
+  box-shadow: 0 -8px 32px rgb(0 0 0 / 0.25);
+}
+
+.taskbar__zone {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.taskbar__zone--left {
+  justify-content: flex-start;
+}
+
+.taskbar__zone--center {
+  justify-content: center;
+}
+
+.taskbar__zone--right {
+  justify-content: flex-end;
+}
+
+.taskbar__apps {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.taskbar__app {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.625rem;
+  opacity: 0.75;
+  transition: background-color 150ms ease, opacity 150ms ease;
+}
+
+.taskbar__app:hover {
+  background: hsl(var(--heroui-default) / 0.4);
+  opacity: 1;
+}
+
+/* The Windows-style running indicator: a small bar under the active app. */
+.taskbar__app--active {
+  opacity: 1;
+}
+
+.taskbar__app--active::after {
+  content: '';
+  position: absolute;
+  bottom: 0.125rem;
+  width: 1rem;
+  height: 0.1875rem;
+  border-radius: 9999px;
+  background: hsl(var(--heroui-primary));
+}
+
+.taskbar__search {
+  width: 16rem;
+}
+
+/*
   The Gate (login). A full-bleed, staged screen: an invisible input owns focus
   while the typed value renders as hero glyphs mid-screen. These classes cover
   the stage layout, the wordmark's hero-to-kicker morph, the glyph line with its

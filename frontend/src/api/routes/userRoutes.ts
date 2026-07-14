@@ -7,7 +7,7 @@ import { create } from '@bufbuild/protobuf'
 
 // Redux
 import { dispatch } from '../../store'
-import { currentUserLoaded } from '../../store/currentUserSlice'
+import { currentUserLoaded, toCurrentUser } from '../../store/currentUserSlice'
 
 // Misc
 import { getProto, sendProto } from '../index'
@@ -21,18 +21,7 @@ import {
 // serializable projection), so the chrome that renders the signed-in user stays
 // current without each consumer fetching for itself.
 function recordCurrentUser(user: User): User {
-  dispatch(currentUserLoaded({
-    subject: user.subject,
-    email: user.email,
-    givenName: user.givenName,
-    familyName: user.familyName,
-    displayName: user.displayName,
-    avatarUrl: user.avatarUrl,
-    bio: user.bio,
-    presence: user.presence,
-    manualStatus: user.manualStatus,
-    manualStatusText: user.manualStatusText,
-  }))
+  dispatch(currentUserLoaded(toCurrentUser(user)))
   return user
 }
 

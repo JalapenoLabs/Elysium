@@ -18,7 +18,22 @@
     "done": "Done"
   },
   "theme": {
-    "dark": "Dark"
+    "dark": "Dark",
+    "toggle": "Switch theme"
+  },
+  "taskbar": {
+    "search": "Search",
+    "searchPlaceholder": "Search Elysium"
+  },
+  "org": {
+    "menuLabel": "Organization menu",
+    "sectionTitle": "Your organizations",
+    "switcherFallback": "Organization",
+    "addOrganization": "Add organization",
+    "createTitle": "Create organization",
+    "createAction": "Create",
+    "nameLabel": "Organization name",
+    "createFailed": "We couldn't create that organization. Please try again."
   },
   "account": {
     "menuLabel": "Account menu",

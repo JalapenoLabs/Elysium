@@ -174,7 +174,7 @@ If the code drifts from this doc, report it to the user.
 
 # Documentation
 
-There should be a @./docs/ directory in this repository.
+There should be a @docs/ directory in this repository.
 Inside of docs, maintain a .md document for each category of decisions made for the application.
 For example, docs/email.md would be a good place to keep up with and learn about existing email decisions.
 Keep it uniform, follow the docs and leverage the documentation in docs. Keep it up to date as you go! (critical)

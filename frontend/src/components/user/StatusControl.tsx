@@ -63,7 +63,7 @@ export function StatusControl() {
     }
   }
 
-  return <Popover placement='bottom-end' isOpen={isOpen} onOpenChange={setIsOpen}>
+  return <Popover placement='top-end' isOpen={isOpen} onOpenChange={setIsOpen}>
     <PopoverTrigger>
       <Button variant='light'>
         <span className={`inline-block h-2.5 w-2.5 rounded-full ${status.dotColor}`} />
