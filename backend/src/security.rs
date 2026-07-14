@@ -1,0 +1,71 @@
+//! Security Center: the account owner's read-only view of their own security state.
+//!
+//! Backs the settings security surface. For now it exposes the caller's own
+//! sign-in history from the login-event audit trail (`login_events`); listing and
+//! removing credentials and revoking active sessions are later additions on the
+//! same module. Everything here is scoped to the authenticated caller, never
+//! another account.
+
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use chrono::{DateTime, Utc};
+use ipnetwork::IpNetwork;
+use serde_json::json;
+
+use crate::session::SessionUser;
+use crate::state::AppState;
+use crate::users;
+
+/// How many recent sign-in events the history returns.
+const HISTORY_LIMIT: i64 = 50;
+
+/// `GET /api/v1/me/login-history`: the caller's recent sign-in attempts.
+///
+/// Returns only the authenticated user's own events, most recent first.
+pub async fn login_history(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+) -> Response {
+    let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "login-history user lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+
+    let rows = sqlx::query_as::<_, (String, String, Option<IpNetwork>, String, DateTime<Utc>)>(
+        "SELECT method, outcome, ip_address, user_agent, created_at
+           FROM login_events
+          WHERE user_id = $1
+          ORDER BY created_at DESC
+          LIMIT $2",
+    )
+    .bind(user_id)
+    .bind(HISTORY_LIMIT)
+    .fetch_all(&state.pool)
+    .await;
+
+    match rows {
+        Ok(rows) => Json(json!({
+            "events": rows
+                .iter()
+                .map(|(method, outcome, ip, user_agent, created_at)| json!({
+                    "method": method,
+                    "outcome": outcome,
+                    "ip": ip.map(|net| net.ip().to_string()),
+                    "user_agent": user_agent,
+                    "created_at": created_at.to_rfc3339(),
+                }))
+                .collect::<Vec<_>>(),
+        }))
+        .into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "login-history query failed");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}

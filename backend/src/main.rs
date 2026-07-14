@@ -32,6 +32,7 @@ mod proto;
 mod protobuf;
 mod rate_limit;
 mod recovery;
+mod security;
 mod session;
 mod sse;
 mod state;

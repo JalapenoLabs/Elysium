@@ -23,7 +23,7 @@ use crate::session::SessionUser;
 use crate::state::AppState;
 use crate::{
     accounts, bootstrap, context, credentials, invites, members, orgs, password, profile, recovery,
-    sse, teams, webauthn,
+    security, sse, teams, webauthn,
 };
 
 /// Builds the application router with shared state and middleware attached.
@@ -44,6 +44,8 @@ pub fn router(state: AppState) -> Router {
             get(profile::get_me).patch(profile::update_me),
         )
         .route("/api/v1/users/me/status", put(profile::set_status))
+        // Security Center: the caller's own recent sign-in history.
+        .route("/api/v1/me/login-history", get(security::login_history))
         // Session bootstrap: one aggregated read the client gates itself on.
         .route("/api/v1/context", get(context::context))
         .route("/api/v1/events", get(sse::events))
