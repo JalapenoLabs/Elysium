@@ -33,7 +33,10 @@ pub enum OrgRole {
 
 impl OrgRole {
     /// Parses a stored `org_members.role` value; an unknown value is `None`.
-    fn from_db(value: &str) -> Option<Self> {
+    ///
+    /// The same three tokens are used for invited roles, so callers comparing a
+    /// requested role against the caller's (anti-escalation) parse through here.
+    pub(crate) fn from_db(value: &str) -> Option<Self> {
         match value {
             "owner" => Some(Self::Owner),
             "admin" => Some(Self::Admin),

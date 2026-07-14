@@ -211,7 +211,10 @@ jobs:
         id: smoke
         continue-on-error: true
         run: |
-          yarn playwright install --with-deps chromium
+          # `--with-deps` shells out to apt-get, which the Fedora self-hosted
+          # runner does not have (it uses dnf); install just the browser binary
+          # and rely on the runner's system libraries being present.
+          yarn playwright install chromium
           node scripts/runtime-smoke.mjs
 
       # Production-dependency advisory scan; gates on shipped code at high+.

@@ -23,6 +23,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::authz;
 use crate::crypto::Crypto;
 use crate::enrollment::{self, FinishBody, PendingCredential};
 use crate::login_events::{self, ClientInfo};
@@ -52,8 +53,9 @@ pub struct MintRequest {
 
 /// `POST /api/v1/auth/invites`: mint an invite link for the caller's org.
 ///
-/// Any authenticated member may invite for now; finer-grained authorization is a
-/// later hardening step. Returns the one-time link token and its acceptance URL.
+/// Inviting is an owner/admin capability, and the invited role may not exceed the
+/// inviter's own, so an admin cannot mint an owner invite and escalate. Returns the
+/// one-time link token and its acceptance URL.
 pub async fn mint(
     State(state): State<AppState>,
     SessionUser(principal): SessionUser,
@@ -72,10 +74,25 @@ pub async fn mint(
         }
     };
 
+    // Only an owner or admin of the active org may invite. Reuse `created_by` so we
+    // resolve the caller once rather than through the extractor a second time.
+    let inviter_role = match authz::role_in_org(&state.pool, created_by, org_id).await {
+        Ok(Some(role)) if role >= authz::OrgRole::Admin => role,
+        Ok(_) => return StatusCode::FORBIDDEN.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "inviter role lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+
     let role = match body.role.as_deref().unwrap_or("member") {
         role @ ("member" | "admin" | "owner") => role,
         _ => return (StatusCode::BAD_REQUEST, "invalid role").into_response(),
     };
+    // No privilege escalation: the invited role cannot outrank the inviter.
+    if authz::OrgRole::from_db(role).is_some_and(|requested| requested > inviter_role) {
+        return (StatusCode::FORBIDDEN, "cannot invite above your own role").into_response();
+    }
 
     // A team, if given, must belong to the caller's org.
     if let Some(team_id) = body.team_id {
