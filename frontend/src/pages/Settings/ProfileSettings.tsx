@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // UI
-import { Card, CardBody, Input, Textarea } from '@heroui/react'
+import { Avatar, Card, CardBody, Input, Textarea } from '@heroui/react'
 import { SubmitButton } from '../../components/form/SubmitButton'
 
 // Misc
@@ -26,6 +26,7 @@ export function ProfileSettings() {
   const [ familyName, setFamilyName ] = useState('')
   const [ displayName, setDisplayName ] = useState('')
   const [ bio, setBio ] = useState('')
+  const [ avatarUrl, setAvatarUrl ] = useState('')
   const [ isSubmitting, setIsSubmitting ] = useState(false)
   const [ isSaved, setIsSaved ] = useState(false)
   const [ errorMessage, setErrorMessage ] = useState<string | null>(null)
@@ -40,6 +41,7 @@ export function ProfileSettings() {
     setFamilyName((current) => current || user.familyName)
     setDisplayName((current) => current || user.displayName)
     setBio((current) => current || user.bio)
+    setAvatarUrl((current) => current || user.avatarUrl)
   }, [ user ])
 
   // Focus the first field on mount.
@@ -62,6 +64,7 @@ export function ProfileSettings() {
         familyName: familyName.trim(),
         displayName: displayName.trim(),
         bio: bio.trim(),
+        avatarUrl: avatarUrl.trim(),
       })
       // Reflect server-side normalization (e.g. the display-name fallback).
       setDisplayName(updated.displayName)
@@ -108,6 +111,21 @@ export function ProfileSettings() {
               description={t('auth:settings.profile.displayNameHint')}
               value={displayName}
               onChange={(event) => setDisplayName(event.currentTarget.value)}
+            />
+          </div>
+          <div className='compact level items-center'>
+            <Avatar
+              size='lg'
+              name={displayName || givenName}
+              src={avatarUrl.trim() || undefined}
+            />
+            <Input
+              className='w-full'
+              label={t('auth:settings.profile.avatarLabel')}
+              placeholder='https://example.com/me.png'
+              description={t('auth:settings.profile.avatarHint')}
+              value={avatarUrl}
+              onChange={(event) => setAvatarUrl(event.currentTarget.value)}
             />
           </div>
           <div className='compact'>

@@ -221,9 +221,9 @@ Built today:
   assets yet) and honor `prefers-reduced-motion`.
 - **i18n.** `i18next` + `react-i18next` with `common` and `auth` namespaces (en-US).
 
-Remaining (tracks the roadmap in `auth-model.md`): recovery-code enrollment UI,
-invite mint/accept flows against the planned endpoints, the Security Center's live
-data (credentials, sessions, login history), and the cinematic layer's real assets.
+Remaining (tracks the roadmap in `auth-model.md`): regenerating recovery codes and
+listing/removing credentials and sessions from the Security Center (login history
+is live), and the cinematic layer's real assets.
 
 ## Open items
 

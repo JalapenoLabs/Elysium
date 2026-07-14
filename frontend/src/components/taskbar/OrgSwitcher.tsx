@@ -67,7 +67,8 @@ export function OrgSwitcher() {
       <DropdownTrigger>
         <Button variant='light'>
           <LuBuilding2 className='h-4 w-4' />
-          <span>{ activeOrg?.name ?? t('org.switcherFallback') }</span>
+          {/* The wordmark is the white-label brand text; the org name backs it up. */}
+          <span>{ activeOrg?.wordmark || activeOrg?.name || t('org.switcherFallback') }</span>
         </Button>
       </DropdownTrigger>
       <DropdownMenu aria-label={t('org.menuLabel')}>

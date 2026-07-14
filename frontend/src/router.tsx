@@ -15,6 +15,9 @@ import { Welcome } from './pages/Onboarding/Welcome'
 import { ProfileStep } from './pages/Onboarding/ProfileStep'
 import { InviteAcceptance } from './pages/Invite/InviteAcceptance'
 import { SettingsLayout } from './pages/Settings/SettingsLayout'
+import { OrgSettings } from './pages/Settings/OrgSettings'
+import { OrgMembers } from './pages/Settings/OrgMembers'
+import { Teams } from './pages/Settings/Teams'
 import { SecurityCenter } from './pages/Settings/SecurityCenter'
 import { ActiveSessions } from './pages/Settings/ActiveSessions'
 import { ProfileSettings } from './pages/Settings/ProfileSettings'
@@ -58,6 +61,9 @@ export const router = createBrowserRouter([
             children: [
               { index: true, element: <Navigate to={UrlTree.settingsProfile} replace /> },
               { path: UrlTree.settingsProfile, element: <ProfileSettings /> },
+              { path: UrlTree.settingsOrganization, element: <OrgSettings /> },
+              { path: UrlTree.settingsMembers, element: <OrgMembers /> },
+              { path: UrlTree.settingsTeams, element: <Teams /> },
               { path: UrlTree.settingsSecurity, element: <SecurityCenter /> },
               { path: UrlTree.settingsSessions, element: <ActiveSessions /> },
             ],

@@ -9,6 +9,9 @@ import { UrlTree } from '../../urls'
 
 const sections = [
   { to: UrlTree.settingsProfile, labelKey: 'settings.profile' },
+  { to: UrlTree.settingsOrganization, labelKey: 'settings.organization' },
+  { to: UrlTree.settingsMembers, labelKey: 'settings.members' },
+  { to: UrlTree.settingsTeams, labelKey: 'settings.teams' },
   { to: UrlTree.settingsSecurity, labelKey: 'settings.security' },
   { to: UrlTree.settingsSessions, labelKey: 'settings.sessions' },
 ] as const
@@ -45,7 +48,9 @@ export function SettingsLayout() {
         ) }
       </nav>
 
-      <div className='min-w-0 flex-1'>
+      {/* A bounded reading column: forms stay legible and their actions sit
+          near their inputs instead of stretching across a wide monitor. */}
+      <div className='min-w-0 max-w-2xl flex-1'>
         <Outlet />
       </div>
     </div>

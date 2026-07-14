@@ -26,6 +26,9 @@ export type SessionOrgView = {
   slug: string
   role: string
   logoUrl: string
+  // White-label branding; empty strings fall back to Elysium defaults.
+  accentColor: string
+  wordmark: string
 }
 
 type SessionContextState = {
@@ -77,11 +80,22 @@ export const sessionContextSlice = createSlice({
       }
     },
     // A live `org.updated` push: patch the one org in place.
-    orgPatched(state, action: PayloadAction<{ id: string, name: string, logoUrl: string }>) {
+    orgPatched(
+      state,
+      action: PayloadAction<{
+        id: string
+        name: string
+        logoUrl: string
+        accentColor: string
+        wordmark: string
+      }>,
+    ) {
       const org = state.orgs.find((candidate) => candidate.id === action.payload.id)
       if (org) {
         org.name = action.payload.name
         org.logoUrl = action.payload.logoUrl
+        org.accentColor = action.payload.accentColor
+        org.wordmark = action.payload.wordmark
       }
     },
   },

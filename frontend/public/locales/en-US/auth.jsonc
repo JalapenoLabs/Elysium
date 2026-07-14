@@ -149,9 +149,44 @@
     "accept": {
       "eyebrow": "You're invited",
       "title": "Join {{orgName}}",
-      "body": "{{inviterName}} invited you to join as {{roleName}}. Create a passkey to accept.",
-      "action": "Accept invitation",
-      "verifying": "Checking your invitation"
+      "body": "You've been invited to join as {{roleName}}. Enter your details and choose how you'll sign in.",
+      "verifying": "Checking your invitation",
+      "givenNameLabel": "First name",
+      "familyNameLabel": "Last name",
+      "displayNameLabel": "Display name",
+      "displayNameHint": "What teammates see. Defaults to your first name.",
+      "emailLabel": "Email",
+      "methodTitle": "How do you want to sign in?",
+      "failed": "We couldn't accept the invitation. Please try again.",
+      "accountExists": "That email already has an account here. Sign in, then open this invite link again to join.",
+      "signInFirst": "Sign in",
+      "joinBody": "Accept to join {{orgName}} as {{roleName}}. Your account and its settings come with you.",
+      "joinAction": "Join organization",
+      "joinFailed": "We couldn't join you to this organization. The invite may have expired or been used."
+    },
+    "password": {
+      "title": "Choose a password",
+      "passwordLabel": "Password",
+      "confirmLabel": "Confirm password",
+      "tooShort": "Use at least 8 characters.",
+      "mismatch": "Those passwords don't match.",
+      "required": "Enter and confirm a password to continue.",
+      "action": "Continue to two-factor"
+    },
+    "totp": {
+      "title": "Set up two-factor",
+      "subtitle": "Scan this with your authenticator app, then enter the 6-digit code to finish.",
+      "manualHint": "Can't scan? Enter this setup key manually:",
+      "codeLabel": "6-digit code",
+      "action": "Verify and join",
+      "invalidCode": "That code didn't match. Enter the current one from your app.",
+      "required": "Enter the 6-digit code to finish."
+    },
+    "recovery": {
+      "title": "Save your recovery codes",
+      "subtitle": "Store these somewhere safe. Each one signs you in once if you lose your device. This is the only time they're shown.",
+      "copy": "Copy codes",
+      "action": "I've saved them, continue"
     },
     "invalid": {
       "title": "This invitation isn't valid",
@@ -160,6 +195,58 @@
     }
   },
   "settings": {
+    "organization": {
+      "title": "Organization",
+      "subtitle": "Your organization's name and logo, shown to every member.",
+      "nameLabel": "Organization name",
+      "logoLabel": "Logo URL",
+      "logoHint": "A square image works best.",
+      "accentLabel": "Accent color",
+      "accentHint": "A hex color like #F97316. Recolors the app for every member; leave empty for the Elysium default.",
+      "accentInvalid": "Enter a hex color like #F97316, or leave it empty.",
+      "wordmarkLabel": "Wordmark",
+      "wordmarkHint": "Short brand text shown in the taskbar. Leave empty to show the organization name.",
+      "required": "Enter an organization name to save.",
+      "readOnly": "Only owners and admins can edit the organization.",
+      "saved": "Organization saved. Every member sees the change immediately.",
+      "failed": "We couldn't save the organization. Please try again."
+    },
+    "members": {
+      "title": "Members",
+      "subtitle": "Everyone in this organization and their role.",
+      "loading": "Loading members",
+      "roleLabel": "Role",
+      "roles": {
+        "owner": "Owner",
+        "admin": "Admin",
+        "member": "Member"
+      },
+      "remove": "Remove",
+      "removeConfirm": "Remove {{name}} from the organization? They lose access immediately.",
+      "removeAction": "Remove member",
+      "loadFailed": "We couldn't load the member list. Please try again.",
+      "updateFailed": "We couldn't update that member. Please try again."
+    },
+    "teams": {
+      "title": "Teams",
+      "subtitle": "Group members into teams; permissions build on these.",
+      "loading": "Loading teams",
+      "none": "No teams yet.",
+      "empty": "No members on this team yet.",
+      "createLabel": "New team name",
+      "createAction": "Create team",
+      "createFailed": "We couldn't create that team. Please try again.",
+      "nameLabel": "Team name",
+      "rename": "Rename",
+      "delete": "Delete",
+      "deleteConfirm": "Delete {{name}}? Its members stay in the organization.",
+      "deleteAction": "Delete team",
+      "addLabel": "Add a member",
+      "addAction": "Add",
+      "removeMember": "Remove",
+      "loadFailed": "We couldn't load teams. Please try again.",
+      "updateFailed": "We couldn't update that team. Please try again."
+    },
     "security": {
       "title": "Security",
       "subtitle": "Manage how you sign in.",
@@ -173,6 +260,21 @@
       "passkeyAdded": "Passkey added. You can sign in with it right away.",
       "passkeyFailed": "We couldn't add that passkey. Please try again.",
       "manage": "Manage",
+      "historyTitle": "Recent sign-ins",
+      "historyBody": "The latest attempts to sign in to your account. Spot anything you don't recognize.",
+      "historyLoading": "Loading sign-in history",
+      "historyEmpty": "No sign-in history yet.",
+      "method": {
+        "passkey": "Passkey",
+        "password": "Password",
+        "recovery": "Recovery code",
+        "totp": "Two-factor code"
+      },
+      "outcome": {
+        "success": "Success",
+        "failed": "Failed",
+        "locked": "Locked out"
+      },
       "comingSoon": "Coming soon. You'll manage this right here in an upcoming update.",
       "empty": "Nothing here yet."
     },
@@ -192,6 +294,8 @@
       "familyNameLabel": "Last name",
       "displayNameLabel": "Display name",
       "displayNameHint": "What teammates see. Defaults to your first name.",
+      "avatarLabel": "Profile picture URL",
+      "avatarHint": "A square image works best. Uploads arrive with the storage service.",
       "bioLabel": "Short bio",
       "required": "Enter your first name to save.",
       "saved": "Profile saved.",

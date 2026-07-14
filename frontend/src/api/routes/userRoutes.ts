@@ -10,7 +10,7 @@ import { dispatch } from '../../store'
 import { currentUserLoaded, toCurrentUser } from '../../store/currentUserSlice'
 
 // Misc
-import { getProto, sendProto } from '../index'
+import { apiClient, getProto, sendProto } from '../index'
 import {
   SetStatusRequestSchema,
   UpdateProfileRequestSchema,
@@ -39,6 +39,8 @@ type UpdateMyProfileFields = {
   // display name optional.
   displayName: string
   bio: string
+  // Optional partial: omit to leave the picture unchanged, '' to clear it.
+  avatarUrl?: string
 }
 
 export async function updateMyProfile(fields: UpdateMyProfileFields): Promise<User> {
@@ -54,6 +56,22 @@ export async function updateMyProfile(fields: UpdateMyProfileFields): Promise<Us
 // Sets or clears the manual status override. `kind` of UNSPECIFIED clears it;
 // `text` only applies to CUSTOM; `durationSeconds` of 0 uses the server's 24h
 // default. Derived online/away/offline presence is never set by the client.
+export type LoginEvent = {
+  method: string
+  outcome: string
+  ip: string
+  user_agent: string
+  created_at: string
+}
+
+// The signed-in account's recent sign-in attempts, most recent first (its own
+// only). Feeds the Security Center's account-access view.
+export function getLoginHistory(): Promise<{ events: LoginEvent[] }> {
+  return apiClient
+    .get('api/v1/me/login-history')
+    .json<{ events: LoginEvent[] }>()
+}
+
 export async function setMyStatus(
   kind: ManualStatusKind,
   text: string = '',

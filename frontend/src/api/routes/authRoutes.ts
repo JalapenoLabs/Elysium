@@ -161,6 +161,38 @@ export function previewInvite(token: string): Promise<InvitePreview> {
     .json<InvitePreview>()
 }
 
+// Invite acceptance, step 1 (method-aware, mirrors bootstrap/begin): posts the
+// invitee's identity + chosen method. Returns a passkey challenge or the OPAQUE
+// registration response + TOTP provisioning URI. A 409 means the email already
+// has a profile (the caller offers "sign in to join" instead).
+export function inviteAcceptBegin(
+  token: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return apiClient
+    .post(`api/v1/auth/invites/${token}/accept/begin`, { json: body })
+    .json<Record<string, unknown>>()
+}
+
+// Invite acceptance, step 2 (cookie-driven): on success the API has atomically
+// created the user, membership, credential, and session, and returns the
+// one-time recovery codes to display exactly once.
+export function inviteAcceptFinish(
+  body: Record<string, unknown>,
+): Promise<{ recovery_codes: string[] }> {
+  return apiClient
+    .post('api/v1/auth/invites/accept/finish', { json: body })
+    .json<{ recovery_codes: string[] }>()
+}
+
+// One-click join for an already-signed-in profile: consumes the invite and adds
+// the active account to its org (no new credential involved).
+export function inviteAcceptJoin(token: string): Promise<{ org_id: string, org_name: string }> {
+  return apiClient
+    .post(`api/v1/auth/invites/${token}/accept/join`)
+    .json<{ org_id: string, org_name: string }>()
+}
+
 // Lost-device sign-in: redeems a one-time recovery code for a session. An
 // unknown email and a wrong code are the same generic 401.
 export function recoveryAuthenticate(email: string, code: string): Promise<Response> {

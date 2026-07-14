@@ -38,6 +38,8 @@ export function seedFromContext(context: SessionContext) {
       slug: org.slug,
       role: org.role,
       logoUrl: org.logoUrl,
+      accentColor: org.accentColor,
+      wordmark: org.wordmark,
     })),
     activeOrgId: context.activeOrgId?.value ?? null,
     asOfSequence: Number(context.asOfSequence),

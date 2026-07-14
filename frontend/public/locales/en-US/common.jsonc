@@ -54,6 +54,9 @@
   "settings": {
     "title": "Settings",
     "profile": "Profile",
+    "organization": "Organization",
+    "members": "Members",
+    "teams": "Teams",
     "security": "Security",
     "sessions": "Sessions"
   },

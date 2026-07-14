@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 
 // UI
 import { Button, Card, CardBody, Tooltip } from '@heroui/react'
+import { LoginHistory } from './LoginHistory'
 
 // Misc
 import { enrollPasskey } from '../../api/routes/authRoutes'
@@ -120,6 +121,9 @@ export function SecurityCenter() {
         actionLabel={t('settings.security.manage')}
         disabledReason={comingSoon}
       />
+    </div>
+    <div className='relaxed'>
+      <LoginHistory />
     </div>
   </section>
 }

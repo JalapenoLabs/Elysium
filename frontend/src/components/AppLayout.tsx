@@ -8,14 +8,16 @@ import { Taskbar } from './taskbar/Taskbar'
 
 // Misc
 import { useRealtimeSession } from '../realtime/useRealtimeSession'
+import { useOrgBranding } from '../theme/orgBranding'
 
 // The in-app chrome: the routed page over a fixed bottom taskbar (the app has
 // no topbar, by design). The main region reserves the taskbar's height so
 // content never hides behind it. Wraps the protected app pages, not the
 // full-screen auth screens. Mounting here also brings up the app's realtime
-// stream and its session-level wiring.
+// stream, its session-level wiring, and the active org's white-label accent.
 export function AppLayout() {
   useRealtimeSession()
+  useOrgBranding()
 
   return <>
     <main className='app-main'>

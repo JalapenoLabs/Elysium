@@ -24,9 +24,12 @@ export const UrlTree = {
   // Account & security. `settings` is the hub; the children render inside its
   // sidebar layout.
   settings: '/settings',
+  settingsProfile: '/settings/profile',
+  settingsOrganization: '/settings/organization',
+  settingsMembers: '/settings/members',
+  settingsTeams: '/settings/teams',
   settingsSecurity: '/settings/security',
   settingsSessions: '/settings/sessions',
-  settingsProfile: '/settings/profile',
 
   // Denied & fault states.
   accessDenied: '/denied',

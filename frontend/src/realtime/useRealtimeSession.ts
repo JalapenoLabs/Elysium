@@ -63,6 +63,8 @@ export function useRealtimeSession() {
           id: updated.id?.value ?? '',
           name: updated.name,
           logoUrl: updated.logoUrl,
+          accentColor: updated.accentColor,
+          wordmark: updated.wordmark,
         }))
       }),
 
