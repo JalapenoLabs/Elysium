@@ -16,6 +16,7 @@ mod bootstrap;
 mod config;
 mod cookies;
 mod credentials;
+mod crypto;
 mod enrollment;
 mod events;
 mod invites;
@@ -57,6 +58,11 @@ async fn main() -> eyre::Result<()> {
         .unwrap_or_else(|_| EnvFilter::new("info,elysium_backend=debug"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
+    // Load the secret-encryption key before touching the database, so a missing or
+    // malformed key fails fast rather than after migrations run. Secrets at rest
+    // (the OPAQUE setup, TOTP secrets) are sealed under it (see `crate::crypto`).
+    let crypto = crypto::Crypto::from_env().wrap_err("failed to load the secret-encryption key")?;
+
     // Lazy pool: the process starts even if Postgres is briefly unavailable, and
     // reports real connectivity on demand.
     let pool = state::connect_pool()?;
@@ -73,13 +79,13 @@ async fn main() -> eyre::Result<()> {
     // The OPAQUE server setup lives in a table the migrations just created, so it
     // is loaded (or minted, on first boot) only now.
     let opaque_setup = Arc::new(
-        opaque::load_or_create_setup(&pool)
+        opaque::load_or_create_setup(&pool, &crypto)
             .await
             .wrap_err("failed to initialize the OPAQUE server setup")?,
     );
 
-    let state =
-        AppState::new(pool, opaque_setup).wrap_err("failed to initialize application state")?;
+    let state = AppState::new(pool, opaque_setup, crypto)
+        .wrap_err("failed to initialize application state")?;
 
     let port = env::var("API_PORT")
         .ok()

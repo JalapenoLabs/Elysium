@@ -8,6 +8,7 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 
 use crate::config::Deployment;
+use crate::crypto::Crypto;
 use crate::opaque::Suite;
 use crate::sse::SseRegistry;
 
@@ -45,6 +46,8 @@ pub struct AppState {
     pub webauthn: Arc<webauthn_rs::Webauthn>,
     /// The process-wide OPAQUE server setup for password auth.
     pub opaque_setup: Arc<ServerSetup<Suite>>,
+    /// Seals and opens secrets at rest (OPAQUE setup, TOTP secrets).
+    pub crypto: Crypto,
     /// The app's own origin, used to build user-facing links (e.g. invites).
     pub app_origin: String,
 }
@@ -57,7 +60,11 @@ impl AppState {
     ///
     /// # Errors
     /// Returns an error if the WebAuthn RP cannot be built from the derived config.
-    pub fn new(pool: PgPool, opaque_setup: Arc<ServerSetup<Suite>>) -> eyre::Result<Self> {
+    pub fn new(
+        pool: PgPool,
+        opaque_setup: Arc<ServerSetup<Suite>>,
+        crypto: Crypto,
+    ) -> eyre::Result<Self> {
         let deployment = Deployment::from_env();
         let webauthn = crate::webauthn::build(&deployment.rp_id, &deployment.app_origin)?;
 
@@ -66,6 +73,7 @@ impl AppState {
             sse: SseRegistry::default(),
             webauthn,
             opaque_setup,
+            crypto,
             app_origin: deployment.app_origin,
         })
     }

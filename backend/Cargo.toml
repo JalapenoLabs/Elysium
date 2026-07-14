@@ -45,6 +45,10 @@ rand = "0.8"
 # TOTP second factor (RFC 6238): secret generation, otpauth:// provisioning URIs
 # (for the QR code), and code verification.
 totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
+# Authenticated encryption (XChaCha20-Poly1305) for secrets at rest: the OPAQUE
+# server setup and TOTP secrets are sealed under ELYSIUM_SECRET_KEY (see
+# src/crypto.rs), so a database dump alone never exposes them.
+chacha20poly1305 = "0.10"
 
 [build-dependencies]
 # Compiles the shared `../proto` tree into Rust at build time.

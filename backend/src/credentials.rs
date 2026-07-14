@@ -123,7 +123,9 @@ pub async fn enroll_finish(
             return (jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
         }
     };
-    if let Err(error) = enrollment::insert(&mut tx, pending.user_id, &credential).await {
+    if let Err(error) =
+        enrollment::insert(&mut tx, &state.crypto, pending.user_id, &credential).await
+    {
         tracing::error!(error = %error, "failed to insert credential");
         return (jar, StatusCode::INTERNAL_SERVER_ERROR).into_response();
     }

@@ -23,6 +23,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::crypto::Crypto;
 use crate::enrollment::{self, FinishBody, PendingCredential};
 use crate::login_events::{self, ClientInfo};
 use crate::session::{self, SessionUser, SESSION_COOKIE};
@@ -258,7 +259,7 @@ pub async fn accept_finish(
     let method = credential.method();
 
     let codes = recovery::generate();
-    let session_id = match join(&state.pool, &pending, &credential, &codes).await {
+    let session_id = match join(&state.pool, &state.crypto, &pending, &credential, &codes).await {
         Ok(Some(session_id)) => session_id,
         // The invite was consumed or expired between begin and finish.
         Ok(None) => return (StatusCode::CONFLICT, "invite is no longer valid").into_response(),
@@ -378,6 +379,7 @@ fn is_duplicate_email(error: &sqlx::Error) -> bool {
 /// Returns an error if any insert fails.
 async fn join(
     pool: &PgPool,
+    crypto: &Crypto,
     pending: &Pending,
     credential: &enrollment::Credential,
     recovery_codes: &[String],
@@ -422,7 +424,7 @@ async fn join(
             .await?;
     }
 
-    enrollment::insert(&mut tx, pending.user_id, credential).await?;
+    enrollment::insert(&mut tx, crypto, pending.user_id, credential).await?;
     recovery::store(&mut tx, pending.user_id, recovery_codes).await?;
 
     let session_id = session::create_on(&mut tx, pending.user_id, Some(pending.org_id)).await?;

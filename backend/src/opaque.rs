@@ -29,6 +29,11 @@ use rand::rngs::OsRng;
 use sha2::Sha512;
 use sqlx::PgPool;
 
+use crate::crypto::Crypto;
+
+/// Associated data binding the sealed OPAQUE setup to its purpose.
+const SETUP_AAD: &[u8] = b"opaque_server_setup";
+
 /// Elysium's OPAQUE cipher suite; mirrors `@serenity-kit/opaque`'s default suite.
 pub struct Suite;
 
@@ -45,37 +50,62 @@ impl CipherSuite for Suite {
 /// created exactly once. A concurrent first-boot race is resolved by inserting
 /// with `ON CONFLICT DO NOTHING` and then reading the winning row back.
 ///
+/// It is sealed at rest under `crypto` (see [`crate::crypto`]); a row written
+/// before encryption existed is read as legacy plaintext and resealed in place, so
+/// the setup bytes are preserved exactly and every stored password record keeps
+/// working.
+///
 /// # Errors
-/// Returns an error if the database is unreachable or a stored setup cannot be
-/// deserialized (which would indicate corruption or a suite change).
-pub async fn load_or_create_setup(pool: &PgPool) -> eyre::Result<ServerSetup<Suite>> {
-    if let Some(bytes) =
+/// Returns an error if the database is unreachable, the stored setup cannot be
+/// decrypted (wrong key or tampering), or it cannot be deserialized (corruption or
+/// a suite change).
+pub async fn load_or_create_setup(
+    pool: &PgPool,
+    crypto: &Crypto,
+) -> eyre::Result<ServerSetup<Suite>> {
+    if let Some(stored) =
         sqlx::query_scalar::<_, Vec<u8>>("SELECT setup FROM opaque_server_setup WHERE id = TRUE")
             .fetch_optional(pool)
             .await
             .wrap_err("failed to read OPAQUE server setup")?
     {
-        return ServerSetup::<Suite>::deserialize(&bytes)
+        let opened = crypto
+            .open(&stored, SETUP_AAD)
+            .wrap_err("failed to open the stored OPAQUE server setup")?;
+        // Migrate a pre-encryption plaintext row to sealed, preserving the bytes.
+        if !opened.was_sealed {
+            let sealed = crypto.seal(&opened.plaintext, SETUP_AAD);
+            sqlx::query("UPDATE opaque_server_setup SET setup = $1 WHERE id = TRUE")
+                .bind(&sealed)
+                .execute(pool)
+                .await
+                .wrap_err("failed to reseal the OPAQUE server setup")?;
+        }
+        return ServerSetup::<Suite>::deserialize(&opened.plaintext)
             .wrap_err("stored OPAQUE server setup is corrupt");
     }
 
     let setup = ServerSetup::<Suite>::new(&mut OsRng);
-    let serialized = setup.serialize().to_vec();
+    let sealed = crypto.seal(&setup.serialize(), SETUP_AAD);
     sqlx::query(
         "INSERT INTO opaque_server_setup (id, setup) VALUES (TRUE, $1) ON CONFLICT DO NOTHING",
     )
-    .bind(&serialized)
+    .bind(&sealed)
     .execute(pool)
     .await
     .wrap_err("failed to store OPAQUE server setup")?;
 
     // Re-read so a racing insert's winning row is the one every caller uses.
-    let bytes =
+    let stored =
         sqlx::query_scalar::<_, Vec<u8>>("SELECT setup FROM opaque_server_setup WHERE id = TRUE")
             .fetch_one(pool)
             .await
             .wrap_err("failed to re-read OPAQUE server setup")?;
-    ServerSetup::<Suite>::deserialize(&bytes).wrap_err("stored OPAQUE server setup is corrupt")
+    let opened = crypto
+        .open(&stored, SETUP_AAD)
+        .wrap_err("failed to open the stored OPAQUE server setup")?;
+    ServerSetup::<Suite>::deserialize(&opened.plaintext)
+        .wrap_err("stored OPAQUE server setup is corrupt")
 }
 
 /// Answers a client's registration request; returns the base64 response message.

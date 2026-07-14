@@ -21,6 +21,7 @@ use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::crypto::Crypto;
 use crate::enrollment::{self, Credential, FinishBody, PendingCredential};
 use crate::login_events::{self, ClientInfo};
 use crate::session::{self, SESSION_COOKIE};
@@ -160,7 +161,7 @@ pub async fn finish(
     let method = credential.method();
 
     let codes = recovery::generate();
-    let session_id = match claim(&state.pool, &pending, &credential, &codes).await {
+    let session_id = match claim(&state.pool, &state.crypto, &pending, &credential, &codes).await {
         Ok(session_id) => session_id,
         Err(error) => {
             tracing::error!(error = %error, "failed to claim instance");
@@ -192,6 +193,7 @@ pub async fn finish(
 /// Returns an error if any insert fails (e.g. a raced claim violating uniqueness).
 async fn claim(
     pool: &PgPool,
+    crypto: &Crypto,
     pending: &Pending,
     credential: &Credential,
     recovery_codes: &[String],
@@ -235,7 +237,7 @@ async fn claim(
     .await?;
 
     users::add_membership(&mut tx, pending.user_id, org_id, "owner").await?;
-    enrollment::insert(&mut tx, pending.user_id, credential).await?;
+    enrollment::insert(&mut tx, crypto, pending.user_id, credential).await?;
     recovery::store(&mut tx, pending.user_id, recovery_codes).await?;
 
     let session_id = session::create_on(&mut tx, pending.user_id, Some(org_id)).await?;

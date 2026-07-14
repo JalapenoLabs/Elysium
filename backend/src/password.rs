@@ -241,8 +241,8 @@ pub async fn authenticate_finish(
 
     // A password success is a complete sign-in only when no second factor is
     // enrolled; otherwise hand off to the TOTP step.
-    match users::totp_secret(&state.pool, user_id).await {
-        Ok(Some(_)) => {
+    match users::has_totp(&state.pool, user_id).await {
+        Ok(true) => {
             let cookie = cookies::build(TOTP_PENDING_COOKIE, user_id.to_string());
             (
                 StatusCode::UNAUTHORIZED,
@@ -251,7 +251,7 @@ pub async fn authenticate_finish(
             )
                 .into_response()
         }
-        Ok(None) => session::establish(&state.pool, jar, user_id).await,
+        Ok(false) => session::establish(&state.pool, jar, user_id).await,
         Err(error) => {
             tracing::error!(error = %error, "totp lookup failed");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -291,7 +291,7 @@ pub async fn verify_totp(
         }
     }
 
-    let secret = match users::totp_secret(&state.pool, user_id).await {
+    let secret = match users::totp_secret(&state.pool, &state.crypto, user_id).await {
         Ok(Some(secret)) => secret,
         Ok(None) => return StatusCode::BAD_REQUEST.into_response(),
         Err(error) => {

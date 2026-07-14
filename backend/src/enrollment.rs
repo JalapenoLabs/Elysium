@@ -18,6 +18,7 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential};
 
+use crate::crypto::Crypto;
 use crate::login_events::Method;
 use crate::password::normalize;
 use crate::state::AppState;
@@ -189,12 +190,14 @@ pub fn verify(
 /// Persists a verified credential for `user_id` on the given connection.
 ///
 /// Runs inside the caller's transaction (pass `&mut *tx`), so the credential lands
-/// atomically with whatever else the flow writes.
+/// atomically with whatever else the flow writes. A TOTP secret is sealed under
+/// `crypto` (bound to the user id) before it is stored (see [`crate::crypto`]).
 ///
 /// # Errors
 /// Returns an error if any insert fails.
 pub async fn insert(
     conn: &mut PgConnection,
+    crypto: &Crypto,
     user_id: Uuid,
     credential: &Credential,
 ) -> sqlx::Result<()> {
@@ -227,7 +230,7 @@ pub async fn insert(
                  ON CONFLICT (user_id) DO UPDATE SET secret = EXCLUDED.secret, confirmed_at = now()",
             )
             .bind(user_id)
-            .bind(secret)
+            .bind(crypto.seal(secret, user_id.as_bytes()))
             .execute(&mut *conn)
             .await?;
         }
