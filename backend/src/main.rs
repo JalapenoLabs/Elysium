@@ -23,6 +23,7 @@ mod enrollment;
 mod events;
 mod invites;
 mod login_events;
+mod members;
 mod opaque;
 mod orgs;
 mod password;

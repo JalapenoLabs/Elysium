@@ -44,6 +44,15 @@ impl OrgRole {
             _ => None,
         }
     }
+
+    /// The stored `org_members.role` value for this role.
+    pub(crate) fn as_db(self) -> &'static str {
+        match self {
+            Self::Owner => "owner",
+            Self::Admin => "admin",
+            Self::Member => "member",
+        }
+    }
 }
 
 /// The caller's role in `org_id`, or `None` when they are not a member.

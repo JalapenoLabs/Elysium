@@ -51,6 +51,17 @@ pub async fn id_for_subject(pool: &PgPool, subject: &str) -> sqlx::Result<Option
         .await
 }
 
+/// Resolves a profile id to its opaque session subject (for realtime fan-out).
+///
+/// # Errors
+/// Returns an error if the query fails.
+pub async fn subject_for_id(pool: &PgPool, user_id: Uuid) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar::<_, String>("SELECT subject FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+}
+
 /// The org a profile defaults to (its earliest membership), if any.
 ///
 /// A profile can belong to many orgs (see `org_members`); this picks the one a
