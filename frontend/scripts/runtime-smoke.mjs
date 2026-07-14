@@ -3,9 +3,9 @@
 // Runtime smoke check: proves the production bundle actually boots in a real
 // browser. It serves the built `dist/` through Vite's preview server, opens it
 // in headless Chromium, and fails on any page error or console error. The API
-// is stubbed at the network layer (the session probe answers 401, the normal
-// anonymous path), so the check is hermetic: no backend, no Keycloak, no
-// network access required.
+// is stubbed at the network layer (the session bootstrap answers 401, the
+// normal anonymous path), so the check is hermetic: no backend and no network
+// access required.
 //
 // Run from the frontend directory, after `yarn build`:
 //   node scripts/runtime-smoke.mjs
@@ -13,12 +13,16 @@
 import { preview } from 'vite'
 import { chromium } from 'playwright'
 
-// The signed-out boot path: the SPA probes /api/v1/me on load, treats the 401
-// as "anonymous", and redirects to the sign-in screen. Waiting for the sign-in
-// heading proves the whole chain ran: bundle parsed, i18n bundles fetched,
-// session resolved, router redirected, and React painted the signed-out view.
-const SESSION_PROBE_PATH = '/api/v1/me'
-const SIGN_IN_HEADING = 'h1:has-text("Welcome back")'
+// The signed-out boot path: the SPA connects its realtime stream, fetches the
+// GET /api/v1/context bootstrap, treats the 401 as "anonymous" (tearing the
+// stream back down), confirms the instance is claimed, and redirects to the
+// login gate. Waiting for the gate's wordmark proves the whole chain ran:
+// bundle parsed, i18n bundles fetched, session resolved, router redirected,
+// and React painted the signed-out view.
+const SESSION_BOOTSTRAP_PATH = '/api/v1/context'
+const CLAIM_PROBE_PATH = '/api/v1/auth/context'
+const EVENTS_PATH = '/api/v1/events'
+const GATE_WORDMARK = '.login-wordmark:has-text("Elysium")'
 
 const pageErrors = []
 const consoleErrors = []
@@ -55,10 +59,10 @@ try {
     }
     const url = message.location().url || ''
     const text = message.text()
-    // The stubbed 401 on the session probe makes Chromium log
-    // "Failed to load resource ... 401". That is the expected anonymous
-    // path, not an app failure, so it is the one error we tolerate.
-    if (url.includes(SESSION_PROBE_PATH) && text.includes('401')) {
+    // The stubbed 401s on the session bootstrap and the SSE endpoint make
+    // Chromium log "Failed to load resource ... 401". That is the expected
+    // anonymous path, not an app failure, so those are the errors we tolerate.
+    if (url.includes('/api/v1/') && text.includes('401')) {
       return
     }
     consoleErrors.push(`${text} (${url})`)
@@ -74,11 +78,25 @@ try {
       'access-control-allow-credentials': 'true',
     }
 
-    if (new URL(request.url()).pathname === SESSION_PROBE_PATH) {
-      // 401 is the normal anonymous answer; the SPA treats it as signed-out.
+    const pathname = new URL(request.url()).pathname
+
+    if (pathname === SESSION_BOOTSTRAP_PATH || pathname === EVENTS_PATH) {
+      // 401 is the normal anonymous answer: the SPA treats the bootstrap 401
+      // as signed-out and stops the realtime stream.
       await route.fulfill({
         status: 401,
         headers: corsHeaders,
+      })
+      return
+    }
+
+    if (pathname === CLAIM_PROBE_PATH) {
+      // A claimed instance sends the anonymous visitor to /login (an
+      // unclaimed one would route to first-run setup instead).
+      await route.fulfill({
+        status: 200,
+        headers: { ...corsHeaders, 'content-type': 'application/json' },
+        body: JSON.stringify({ claimed: true }),
       })
       return
     }
@@ -93,10 +111,10 @@ try {
   await page.goto(baseUrl, { waitUntil: 'load' })
 
   // The signed-out view must actually paint, not just leave #root non-empty.
-  await page.waitForSelector(SIGN_IN_HEADING, { timeout: 15_000 })
+  await page.waitForSelector(GATE_WORDMARK, { timeout: 15_000 })
 
-  if (!page.url().includes('/sign-in')) {
-    throw new Error(`Expected the anonymous boot to land on /sign-in, but ended at ${page.url()}`)
+  if (!page.url().includes('/login')) {
+    throw new Error(`Expected the anonymous boot to land on /login, but ended at ${page.url()}`)
   }
 
   if (pageErrors.length || consoleErrors.length) {

@@ -335,10 +335,9 @@ jobs:
 
       - name: Migration version prefixes are unique
         run: |
-          dupes=$(ls backend/migrations/*.sql \
-            | xargs -n1 basename \
-            | sed -E 's/^([0-9]+)_.*/\1/' \
-            | sort | uniq -d)
+          dupes=$(for f in backend/migrations/*.sql; do
+              basename "$f" | sed -E 's/^([0-9]+)_.*/\1/'
+            done | sort | uniq -d)
           if [ -n "$dupes" ]; then
             echo "::error::Duplicate migration version prefix(es): $dupes"
             echo "Two migrations share a numeric prefix; renumber one of them."
@@ -367,7 +366,7 @@ jobs:
             sleep 1
           done
 
-          for file in $(ls backend/migrations/*.sql | sort); do
+          for file in backend/migrations/*.sql; do
             echo "applying $(basename "$file")"
             docker exec -i "$container" \
               psql -U migrator -d elysium_migrate_test -v ON_ERROR_STOP=1 --single-transaction \
