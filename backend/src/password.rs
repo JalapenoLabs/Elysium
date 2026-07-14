@@ -18,8 +18,9 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::cookies;
-use crate::login_events::{self, ClientInfo};
+use crate::login_events::{self, ClientInfo, Method};
 use crate::opaque;
+use crate::rate_limit::{self, Scope};
 use crate::session;
 use crate::state::AppState;
 use crate::totp;
@@ -30,15 +31,6 @@ const PASSWORD_COOKIE: &str = "elysium_password";
 
 /// Short-lived cookie marking a password login awaiting its TOTP second factor.
 const TOTP_PENDING_COOKIE: &str = "elysium_totp_pending";
-
-/// Failed password attempts per identifier before the endpoint rate-limits.
-///
-/// A deliberately small window: OPAQUE resists offline attack, so this only has
-/// to blunt online guessing. Tuned with `RATE_LIMIT_WINDOW_MINUTES`.
-const MAX_RECENT_FAILURES: i64 = 5;
-
-/// Window over which `MAX_RECENT_FAILURES` is counted, in minutes.
-const RATE_LIMIT_WINDOW_MINUTES: i64 = 15;
 
 /// Normalizes an identifier to its canonical form (trimmed, lowercased email).
 ///
@@ -140,11 +132,11 @@ pub async fn authenticate_begin(
 ) -> Response {
     let identifier = normalize(&body.identifier);
 
-    match too_many_recent_failures(&state, &identifier).await {
+    match rate_limit::is_throttled(&state.pool, Scope::Email(&identifier), Method::Password).await {
         Ok(true) => return StatusCode::TOO_MANY_REQUESTS.into_response(),
         Ok(false) => {}
         Err(error) => {
-            tracing::error!(error = %error, "rate-limit check failed");
+            tracing::error!(error = %error, "password rate-limit check failed");
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     }
@@ -287,6 +279,18 @@ pub async fn verify_totp(
         return (StatusCode::BAD_REQUEST, "no second factor in progress").into_response();
     };
 
+    // A 6-digit code is guessable without this: the password first factor has
+    // already passed, so nothing else caps retries. Scope by user id (not the
+    // spoofable identifier) to count failures across every client.
+    match rate_limit::is_throttled(&state.pool, Scope::User(user_id), Method::Totp).await {
+        Ok(true) => return StatusCode::TOO_MANY_REQUESTS.into_response(),
+        Ok(false) => {}
+        Err(error) => {
+            tracing::error!(error = %error, "totp rate-limit check failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    }
+
     let secret = match users::totp_secret(&state.pool, user_id).await {
         Ok(Some(secret)) => secret,
         Ok(None) => return StatusCode::BAD_REQUEST.into_response(),
@@ -314,31 +318,12 @@ pub async fn verify_totp(
 
     if !accepted {
         // Keep the pending cookie so the user can retry the code; the failure is
-        // recorded and the password rate limit still governs abuse.
+        // recorded, and the TOTP rate limit (checked above) governs abuse.
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
     let jar = jar.remove(cookies::clearing(TOTP_PENDING_COOKIE));
     session::establish(&state.pool, jar, user_id).await
-}
-
-/// Whether `identifier` has exceeded the recent-failure threshold.
-///
-/// # Errors
-/// Returns an error if the count query fails.
-async fn too_many_recent_failures(state: &AppState, identifier: &str) -> sqlx::Result<bool> {
-    let count = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM login_events
-          WHERE lower(email) = $1
-            AND method = 'password'
-            AND outcome = 'failure'
-            AND created_at > now() - make_interval(mins => $2)",
-    )
-    .bind(identifier)
-    .bind(RATE_LIMIT_WINDOW_MINUTES as i32)
-    .fetch_one(&state.pool)
-    .await?;
-    Ok(count >= MAX_RECENT_FAILURES)
 }
 
 /// Reads the in-flight OPAQUE login state from the cookie, if present and valid.

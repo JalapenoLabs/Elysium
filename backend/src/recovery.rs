@@ -19,6 +19,7 @@ use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 use crate::login_events::{self, ClientInfo};
+use crate::rate_limit::{self, Scope};
 use crate::session;
 use crate::state::AppState;
 use crate::users;
@@ -102,6 +103,23 @@ pub async fn authenticate(
     client: ClientInfo,
     Json(body): Json<RecoveryRequest>,
 ) -> Response {
+    // High-entropy codes resist guessing, but throttle anyway so the endpoint is
+    // not a free oracle for hammering; scope by the presented email.
+    match rate_limit::is_throttled(
+        &state.pool,
+        Scope::Email(body.email.trim()),
+        login_events::Method::Recovery,
+    )
+    .await
+    {
+        Ok(true) => return StatusCode::TOO_MANY_REQUESTS.into_response(),
+        Ok(false) => {}
+        Err(error) => {
+            tracing::error!(error = %error, "recovery rate-limit check failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    }
+
     let user = match users::find_by_email(&state.pool, body.email.trim()).await {
         Ok(user) => user,
         Err(error) => {

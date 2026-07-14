@@ -56,6 +56,20 @@ pub fn announce_presence(state: &AppState, subject: String, online: bool) {
         let Ok(Some(user_id)) = users::id_for_subject(&state.pool, &subject).await else {
             return;
         };
+
+        // Going offline stamps "last seen": while online, presence renders live
+        // and the timestamp is moot, so the moment the last connection drops is
+        // exactly the last time the user was present.
+        if !online {
+            if let Err(error) = sqlx::query("UPDATE users SET last_seen_at = now() WHERE id = $1")
+                .bind(user_id)
+                .execute(&state.pool)
+                .await
+            {
+                tracing::error!(error = %error, "failed to stamp last_seen_at");
+            }
+        }
+
         let presence = if online {
             Presence::Online
         } else {

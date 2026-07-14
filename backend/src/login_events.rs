@@ -25,7 +25,10 @@ pub enum Method {
 
 impl Method {
     /// The stable identifier persisted in `login_events.method`.
-    fn as_str(self) -> &'static str {
+    ///
+    /// Also the value the rate limiter (see [`crate::rate_limit`]) filters on,
+    /// so it counts failures of the same method it is guarding.
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Passkey => "passkey",
             Self::Password => "password",

@@ -26,6 +26,7 @@ mod password;
 mod profile;
 mod proto;
 mod protobuf;
+mod rate_limit;
 mod recovery;
 mod session;
 mod sse;
