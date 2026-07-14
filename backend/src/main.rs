@@ -35,6 +35,7 @@ mod recovery;
 mod session;
 mod sse;
 mod state;
+mod teams;
 mod totp;
 mod users;
 mod webauthn;

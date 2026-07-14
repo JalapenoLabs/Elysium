@@ -11,7 +11,7 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, patch, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router};
 use serde_json::{json, Value};
 use tower_http::trace::TraceLayer;
@@ -23,7 +23,7 @@ use crate::session::SessionUser;
 use crate::state::AppState;
 use crate::{
     accounts, bootstrap, context, credentials, invites, members, orgs, password, profile, recovery,
-    sse, webauthn,
+    sse, teams, webauthn,
 };
 
 /// Builds the application router with shared state and middleware attached.
@@ -97,6 +97,23 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/orgs/{id}/members/{user_id}",
             patch(members::change_role).delete(members::remove),
+        )
+        // Teams: org-scoped collection, then team-scoped item and roster.
+        .route(
+            "/api/v1/orgs/{id}/teams",
+            get(teams::list).post(teams::create),
+        )
+        .route(
+            "/api/v1/teams/{team_id}",
+            patch(teams::rename).delete(teams::delete),
+        )
+        .route(
+            "/api/v1/teams/{team_id}/members",
+            get(teams::members).post(teams::add_member),
+        )
+        .route(
+            "/api/v1/teams/{team_id}/members/{user_id}",
+            delete(teams::remove_member),
         )
         // Session accounts: the profile + org switchers.
         .route("/api/v1/session/accounts", get(accounts::list))

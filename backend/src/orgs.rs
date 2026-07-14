@@ -190,11 +190,12 @@ async fn provision(
     Ok(org_id)
 }
 
-/// Builds a URL-safe, deployment-unique slug from a display name.
+/// Builds a URL-safe, unique slug from a display name.
 ///
 /// Non-alphanumeric runs collapse to single hyphens; a short random suffix keeps
-/// it unique without a retry loop (the `orgs.slug` column is unique).
-fn slugify(name: &str) -> String {
+/// it unique without a retry loop (the `orgs.slug` and per-org `teams.slug` columns
+/// are unique). Shared with team creation ([`crate::teams`]).
+pub(crate) fn slugify(name: &str) -> String {
     let mut base = String::new();
     let mut last_dash = true;
     for ch in name.chars() {
