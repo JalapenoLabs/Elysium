@@ -33,6 +33,10 @@ prost = "0.13"
 # ceremony state ride a short-lived HttpOnly cookie between begin and finish
 # (stored carefully, per its "danger" name).
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
+# webauthn-rs's high-level API omits a resident-key toggle, so we reach into its
+# core proto types to request a discoverable credential (see enrollment.rs). Same
+# 0.5 line as webauthn-rs, so Cargo unifies them to one version.
+webauthn-rs-core = "0.5"
 # OPAQUE aPAKE (RFC 9807) password auth. The suite (ristretto255 + TripleDH-SHA512
 # + Argon2) matches @serenity-kit/opaque on the client, so both ends interop; the
 # suite types below (sha2, argon2) must therefore mirror that client's Cargo.

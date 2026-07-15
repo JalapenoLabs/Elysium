@@ -16,7 +16,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgConnection;
 use uuid::Uuid;
-use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential};
+use webauthn_rs::prelude::{
+    CreationChallengeResponse, PasskeyRegistration, RegisterPublicKeyCredential,
+};
+use webauthn_rs_core::proto::ResidentKeyRequirement;
 
 use crate::crypto::Crypto;
 use crate::login_events::Method;
@@ -63,6 +66,27 @@ pub struct FinishBody {
     pub totp_code: Option<String>,
 }
 
+/// Requests a discoverable credential on a passkey registration challenge.
+///
+/// `webauthn-rs`'s `start_passkey_registration` asks for `residentKey: "discouraged"`
+/// (it calls `require_resident_key(false)` internally). Credential-manager passkey
+/// providers such as Bitwarden and 1Password only create discoverable credentials, so
+/// under "discouraged" they step aside and the platform authenticator (Windows Hello,
+/// Touch ID) silently takes over, leaving the user no way to save the passkey in their
+/// manager. Requesting a discoverable credential restores that choice and makes the
+/// passkey a true passwordless factor, matching `docs/auth-model.md`.
+///
+/// Only the challenge sent to the client is changed; the stored registration state is
+/// left as-is. That is sound because `finish_passkey_registration` does not verify the
+/// resident-key requirement against the returned credential (a discoverable credential
+/// is a strict superset of a non-discoverable one), so the ceremony still completes.
+fn request_discoverable_credential(challenge: &mut CreationChallengeResponse) {
+    if let Some(selection) = challenge.public_key.authenticator_selection.as_mut() {
+        selection.resident_key = Some(ResidentKeyRequirement::Required);
+        selection.require_resident_key = true;
+    }
+}
+
 /// Starts enrollment for `method`, returning the pending state and client payload.
 ///
 /// `user_id` is the WebAuthn user handle for the passkey path (the caller keeps it
@@ -87,13 +111,14 @@ pub fn begin(
 ) -> Result<(PendingCredential, serde_json::Value), Response> {
     match method {
         "passkey" => {
-            let (challenge, registration) = state
+            let (mut challenge, registration) = state
                 .webauthn
                 .start_passkey_registration(user_id, email, display_name, None)
                 .map_err(|error| {
                     tracing::error!(error = %error, "start_passkey_registration failed");
                     StatusCode::INTERNAL_SERVER_ERROR.into_response()
                 })?;
+            request_discoverable_credential(&mut challenge);
             Ok((
                 PendingCredential::Passkey(registration),
                 json!({ "passkey": challenge }),
@@ -236,4 +261,42 @@ pub async fn insert(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    /// The passkey challenge we send must request a discoverable credential, otherwise
+    /// credential-manager providers (Bitwarden, 1Password) decline and only the platform
+    /// authenticator is offered. This drives the real `webauthn-rs` ceremony and asserts
+    /// the emitted wire JSON, so a library default change that regresses this is caught.
+    #[test]
+    fn passkey_challenge_requests_a_discoverable_credential() {
+        let webauthn =
+            crate::webauthn::build("localhost", "http://localhost:5173").expect("RP builds");
+        let (mut challenge, _registration) = webauthn
+            .start_passkey_registration(Uuid::new_v4(), "owner@example.com", "Owner", None)
+            .expect("registration starts");
+
+        // Guard the premise: webauthn-rs's untouched default is the setting we override.
+        let before = serde_json::to_value(&challenge).expect("challenge serializes");
+        assert_eq!(
+            before["publicKey"]["authenticatorSelection"]["residentKey"],
+            "discouraged"
+        );
+
+        request_discoverable_credential(&mut challenge);
+
+        let after = serde_json::to_value(&challenge).expect("challenge serializes");
+        assert_eq!(
+            after["publicKey"]["authenticatorSelection"]["residentKey"],
+            "required"
+        );
+        assert_eq!(
+            after["publicKey"]["authenticatorSelection"]["requireResidentKey"],
+            true
+        );
+    }
 }

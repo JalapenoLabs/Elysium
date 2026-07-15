@@ -214,6 +214,14 @@ authenticated. See `docs/identity.md` for the profile/org/session model.
   the backend which is rustls: the backend image already has `libssl-dev`, and CI
   installs `openssl-devel` on the Fedora runner. This also means the backend does
   not compile on a bare Windows host; build inside the dev container.
+- `webauthn-rs`'s `start_passkey_registration` requests `residentKey: "discouraged"`,
+  which makes credential-manager passkey providers (Bitwarden, 1Password) decline and
+  forces the platform authenticator (Windows Hello, Touch ID) to handle the request. To
+  keep passkeys discoverable (the passwordless factor this doc describes) and let the
+  user pick their provider, `enrollment::begin` upgrades the outgoing challenge to
+  `residentKey: "required"`. Only the client challenge changes; finish does not verify
+  the resident-key requirement, so the ceremony still completes. This is why the backend
+  depends on `webauthn-rs-core` directly (to name `ResidentKeyRequirement`).
 - The registration/authentication ceremony state (the `webauthn-rs`
   `PasskeyRegistration` / `PasskeyAuthentication`, behind the
   `danger-allow-state-serialisation` feature) is carried between begin and finish
