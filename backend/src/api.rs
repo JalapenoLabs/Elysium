@@ -44,7 +44,8 @@ pub fn router(state: AppState) -> Router {
             get(profile::get_me).patch(profile::update_me),
         )
         .route("/api/v1/users/me/status", put(profile::set_status))
-        // Security Center: the caller's own recent sign-in history and recovery codes.
+        // Security Center: the caller's own credentials, sign-in history, recovery codes.
+        .route("/api/v1/me/credentials", get(security::credentials))
         .route("/api/v1/me/login-history", get(security::login_history))
         .route(
             "/api/v1/me/recovery-codes",

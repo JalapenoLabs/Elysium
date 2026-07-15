@@ -28,6 +28,60 @@ const TOTP_ENROLL_COOKIE: &str = "elysium_totp_enroll";
 /// How many recent sign-in events the history returns.
 const HISTORY_LIMIT: i64 = 50;
 
+/// `GET /api/v1/me/credentials`: the caller's enrolled credentials.
+///
+/// Lists the account's passkeys (with when each was added and last used) and
+/// whether a password and an authenticator (TOTP) are set, so the Security Center
+/// can show what the account can sign in with. Never returns secret material.
+pub async fn credentials(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+) -> Response {
+    let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "credentials user lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+
+    let passkeys = sqlx::query_as::<_, (uuid::Uuid, DateTime<Utc>, Option<DateTime<Utc>>)>(
+        "SELECT id, created_at, last_used_at FROM webauthn_credentials
+          WHERE user_id = $1 ORDER BY created_at ASC",
+    )
+    .bind(user_id)
+    .fetch_all(&state.pool)
+    .await;
+    let has_password = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM user_password_credentials WHERE user_id = $1)",
+    )
+    .bind(user_id)
+    .fetch_one(&state.pool)
+    .await;
+    let has_totp = users::has_totp(&state.pool, user_id).await;
+
+    match (passkeys, has_password, has_totp) {
+        (Ok(passkeys), Ok(has_password), Ok(has_totp)) => Json(json!({
+            "passkeys": passkeys
+                .iter()
+                .map(|(id, created_at, last_used_at)| json!({
+                    "id": id,
+                    "created_at": created_at.to_rfc3339(),
+                    "last_used_at": last_used_at.map(|at| at.to_rfc3339()),
+                }))
+                .collect::<Vec<_>>(),
+            "password": { "enrolled": has_password },
+            "totp": { "enrolled": has_totp },
+        }))
+        .into_response(),
+        _ => {
+            tracing::error!("credentials read failed");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
 /// `GET /api/v1/me/login-history`: the caller's recent sign-in attempts.
 ///
 /// Returns only the authenticated user's own events, most recent first.
