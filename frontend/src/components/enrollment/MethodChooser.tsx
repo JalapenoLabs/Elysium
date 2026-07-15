@@ -21,9 +21,14 @@ type Props = {
 
 // The sign-in-method chooser: one pressable card per method, titled and described
 // from the shared registry (`method.*` i18n keys). Shared by first-run claim and
-// invite acceptance so the two present identically. See docs/auth-model.md.
+// invite acceptance so the two present identically. When both passkey and
+// password are offered, a footnote explains that password-manager passkeys hide
+// under the browser's "more options" and don't work in the desktop app, so the
+// password path is the manager-friendly choice. See docs/auth-model.md.
 export function MethodChooser(props: Props) {
   const { t } = useTranslation('auth')
+
+  const showManagerNote = props.methods.includes('passkey') && props.methods.includes('password')
 
   return <div className='mt-3 flex flex-col gap-3'>
     { props.methods.map((kind) => {
@@ -43,5 +48,8 @@ export function MethodChooser(props: Props) {
         </CardBody>
       </Card>
     }) }
+    { showManagerNote
+      ? <p className='text-xs opacity-60'>{ t('method.managerNote') }</p>
+      : null }
   </div>
 }

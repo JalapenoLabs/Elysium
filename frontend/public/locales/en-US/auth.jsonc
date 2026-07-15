@@ -200,16 +200,17 @@
   "method": {
     "passkey": {
       "title": "Passkey",
-      "blurb": "Sign in with your fingerprint, face, security key, or password manager. Nothing to remember."
+      "blurb": "Use this device's built-in security (Windows Hello, Touch ID) or a phone or security key. Nothing to remember."
     },
     "password": {
-      "title": "Password and authenticator",
-      "blurb": "A password you know, plus a one-time code from an authenticator app."
+      "title": "Email & password",
+      "blurb": "A password you set, plus a one-time code from an authenticator app. Works with any password manager."
     },
     "magicLink": {
       "title": "Email link",
       "blurb": "Get a one-time sign-in link by email."
-    }
+    },
+    "managerNote": "Using a password manager like Bitwarden? As a passkey it shows under your browser's \"more options,\" and it isn't available in the desktop app. Pick Email & password for a manager-controlled login."
   },
   "onboarding": {
     "welcome": {
