@@ -1,0 +1,67 @@
+// Copyright © 2026 Jalapeno Labs
+
+syntax = "proto3";
+
+package elysium.security.v1;
+
+import "common.proto";
+
+// The signed-in account's security activity: its active sessions and its recent
+// sign-in attempts. Both feed one settings page, so they travel in one response.
+message SecurityActivity {
+  // Active (unexpired) sessions across the account's devices, newest activity first.
+  repeated Session sessions = 1;
+
+  // Recent sign-in attempts, successful or not, newest first.
+  repeated SignInEvent recent_sign_ins = 2;
+}
+
+// One active session (a signed-in device) for the account.
+message Session {
+  // Opaque session id, used to revoke this specific session.
+  string id = 1;
+
+  // The device's reported user agent.
+  string user_agent = 2;
+
+  // The origin IP, absent when it was not recorded.
+  optional string ip = 3;
+
+  // Coarse location behind the IP, absent when unresolved (see docs/geoip.md).
+  Location location = 4;
+
+  elysium.common.v1.Timestamp created_at = 5;
+  elysium.common.v1.Timestamp last_seen_at = 6;
+  elysium.common.v1.Timestamp expires_at = 7;
+
+  // Whether this is the session making the request.
+  bool current = 8;
+}
+
+// One recorded sign-in attempt against the account.
+message SignInEvent {
+  // Sign-in method, e.g. "passkey" or "password".
+  string method = 1;
+
+  // Outcome, e.g. "success" or "failure".
+  string outcome = 2;
+
+  // The origin IP, absent when it was not recorded.
+  optional string ip = 3;
+
+  // Coarse location behind the IP, absent when unresolved (see docs/geoip.md).
+  Location location = 4;
+
+  elysium.common.v1.Timestamp created_at = 5;
+
+  // The device's reported user agent.
+  string user_agent = 6;
+}
+
+// A coarse, human-facing location for an IP. Any field may be absent; the whole
+// message is absent on a Session or SignInEvent whose IP could not be resolved.
+message Location {
+  optional string city = 1;
+  optional string country = 2;
+  optional string country_code = 3;
+}

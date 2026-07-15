@@ -1,10 +1,9 @@
-//! Security Center: the account owner's read-only view of their own security state.
+//! Security Center: the account owner's view of their own security state.
 //!
-//! Backs the settings security surface. For now it exposes the caller's own
-//! sign-in history from the login-event audit trail (`login_events`); listing and
-//! removing credentials and revoking active sessions are later additions on the
-//! same module. Everything here is scoped to the authenticated caller, never
-//! another account.
+//! Backs the settings security surface, every endpoint scoped to the authenticated
+//! caller and never another account: their credentials, one combined read of active
+//! sessions and recent sign-ins (`security_activity`, protobuf), recovery-code
+//! regeneration, self-service TOTP enrollment, and session revocation.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -19,6 +18,9 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::proto::common::v1::Timestamp;
+use crate::proto::security::v1 as pb;
+use crate::protobuf::Protobuf;
 use crate::session::{self, SessionUser, SESSION_COOKIE};
 use crate::state::AppState;
 use crate::{cookies, geoip, recovery, totp, users};
@@ -83,54 +85,120 @@ pub async fn credentials(
     }
 }
 
-/// `GET /api/v1/me/login-history`: the caller's recent sign-in attempts.
+/// `GET /api/v1/me/security-activity`: the caller's sessions and recent sign-ins.
 ///
-/// Returns only the authenticated user's own events, most recent first.
-pub async fn login_history(
+/// One protobuf response for the one settings page that shows both: every unexpired
+/// session across the account's devices (newest activity first) and the recent
+/// sign-in attempts from the audit trail (newest first). Each entry carries the
+/// coarse geolocation of its IP when resolved (see `crate::geoip`). Scoped to the
+/// authenticated caller, never another account.
+pub async fn security_activity(
     State(state): State<AppState>,
     SessionUser(principal): SessionUser,
+    jar: CookieJar,
 ) -> Response {
+    let current = session::session_id(&jar);
     let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
         Ok(Some(id)) => id,
         Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
         Err(error) => {
-            tracing::error!(error = %error, "login-history user lookup failed");
+            tracing::error!(error = %error, "security-activity user lookup failed");
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
 
-    let rows = sqlx::query_as::<_, (String, String, Option<IpNetwork>, String, DateTime<Utc>)>(
-        "SELECT method, outcome, ip_address, user_agent, created_at
-           FROM login_events
-          WHERE user_id = $1
-          ORDER BY created_at DESC
-          LIMIT $2",
+    let session_rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            Option<IpNetwork>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        ),
+    >(
+        "SELECT s.id, s.user_agent, s.ip_address, s.created_at, s.last_seen_at, s.expires_at
+           FROM sessions s
+           JOIN session_accounts sa ON sa.session_id = s.id
+          WHERE sa.user_id = $1 AND s.expires_at > now()
+          ORDER BY s.last_seen_at DESC",
     )
     .bind(user_id)
-    .bind(HISTORY_LIMIT)
     .fetch_all(&state.pool)
     .await;
 
-    match rows {
-        Ok(rows) => {
-            let mut events = Vec::with_capacity(rows.len());
-            for (method, outcome, ip, user_agent, created_at) in &rows {
-                let addr = ip.map(|net| net.ip());
-                events.push(json!({
-                    "method": method,
-                    "outcome": outcome,
-                    "ip": addr.map(|addr| addr.to_string()),
-                    "location": geoip::locate(&state, addr).await,
-                    "user_agent": user_agent,
-                    "created_at": created_at.to_rfc3339(),
-                }));
-            }
-            Json(json!({ "events": events })).into_response()
+    let event_rows =
+        sqlx::query_as::<_, (String, String, Option<IpNetwork>, String, DateTime<Utc>)>(
+            "SELECT method, outcome, ip_address, user_agent, created_at
+               FROM login_events
+              WHERE user_id = $1
+              ORDER BY created_at DESC
+              LIMIT $2",
+        )
+        .bind(user_id)
+        .bind(HISTORY_LIMIT)
+        .fetch_all(&state.pool)
+        .await;
+
+    let (session_rows, event_rows) = match (session_rows, event_rows) {
+        (Ok(sessions), Ok(events)) => (sessions, events),
+        (Err(error), _) | (_, Err(error)) => {
+            tracing::error!(error = %error, "security-activity query failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
-        Err(error) => {
-            tracing::error!(error = %error, "login-history query failed");
-            StatusCode::SERVICE_UNAVAILABLE.into_response()
-        }
+    };
+
+    let mut sessions = Vec::with_capacity(session_rows.len());
+    for (id, user_agent, ip, created_at, last_seen_at, expires_at) in &session_rows {
+        let addr = ip.map(|net| net.ip());
+        sessions.push(pb::Session {
+            id: id.to_string(),
+            user_agent: user_agent.clone(),
+            ip: addr.map(|addr| addr.to_string()),
+            location: geoip::locate(&state, addr).await.map(into_location),
+            created_at: Some(to_timestamp(*created_at)),
+            last_seen_at: Some(to_timestamp(*last_seen_at)),
+            expires_at: Some(to_timestamp(*expires_at)),
+            current: Some(*id) == current,
+        });
+    }
+
+    let mut recent_sign_ins = Vec::with_capacity(event_rows.len());
+    for (method, outcome, ip, user_agent, created_at) in &event_rows {
+        let addr = ip.map(|net| net.ip());
+        recent_sign_ins.push(pb::SignInEvent {
+            method: method.clone(),
+            outcome: outcome.clone(),
+            ip: addr.map(|addr| addr.to_string()),
+            location: geoip::locate(&state, addr).await.map(into_location),
+            created_at: Some(to_timestamp(*created_at)),
+            user_agent: user_agent.clone(),
+        });
+    }
+
+    Protobuf(pb::SecurityActivity {
+        sessions,
+        recent_sign_ins,
+    })
+    .into_response()
+}
+
+/// Converts a resolved geolocation into its protobuf form.
+fn into_location(location: geoip::Location) -> pb::Location {
+    pb::Location {
+        city: location.city,
+        country: location.country,
+        country_code: location.country_code,
+    }
+}
+
+/// Builds a UTC protobuf `Timestamp` from a `chrono` instant; the zone is display-only.
+fn to_timestamp(instant: DateTime<Utc>) -> Timestamp {
+    Timestamp {
+        epoch_seconds: instant.timestamp(),
+        nanos: instant.timestamp_subsec_nanos(),
+        timezone: "Etc/UTC".to_string(),
     }
 }
 
@@ -251,71 +319,6 @@ pub async fn totp_confirm(
         Err(error) => {
             tracing::error!(error = %error, "totp confirm store failed");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        }
-    }
-}
-
-/// `GET /api/v1/me/sessions`: the caller's active sessions across devices.
-///
-/// Each entry carries the device (user agent), origin IP, when it started and was
-/// last active, when it expires, and whether it is the session making this request.
-pub async fn sessions(
-    State(state): State<AppState>,
-    SessionUser(principal): SessionUser,
-    jar: CookieJar,
-) -> Response {
-    let current = session::session_id(&jar);
-    let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
-        Err(error) => {
-            tracing::error!(error = %error, "sessions user lookup failed");
-            return StatusCode::SERVICE_UNAVAILABLE.into_response();
-        }
-    };
-
-    let rows = sqlx::query_as::<
-        _,
-        (
-            Uuid,
-            String,
-            Option<IpNetwork>,
-            DateTime<Utc>,
-            DateTime<Utc>,
-            DateTime<Utc>,
-        ),
-    >(
-        "SELECT s.id, s.user_agent, s.ip_address, s.created_at, s.last_seen_at, s.expires_at
-           FROM sessions s
-           JOIN session_accounts sa ON sa.session_id = s.id
-          WHERE sa.user_id = $1 AND s.expires_at > now()
-          ORDER BY s.last_seen_at DESC",
-    )
-    .bind(user_id)
-    .fetch_all(&state.pool)
-    .await;
-
-    match rows {
-        Ok(rows) => {
-            let mut sessions = Vec::with_capacity(rows.len());
-            for (id, user_agent, ip, created_at, last_seen_at, expires_at) in &rows {
-                let addr = ip.map(|net| net.ip());
-                sessions.push(json!({
-                    "id": id,
-                    "user_agent": user_agent,
-                    "ip": addr.map(|addr| addr.to_string()),
-                    "location": geoip::locate(&state, addr).await,
-                    "created_at": created_at.to_rfc3339(),
-                    "last_seen_at": last_seen_at.to_rfc3339(),
-                    "expires_at": expires_at.to_rfc3339(),
-                    "current": Some(*id) == current,
-                }));
-            }
-            Json(json!({ "sessions": sessions })).into_response()
-        }
-        Err(error) => {
-            tracing::error!(error = %error, "sessions read failed");
-            StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }
 }

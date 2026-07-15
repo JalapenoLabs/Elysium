@@ -65,3 +65,12 @@ pub mod session {
         include!(concat!(env!("OUT_DIR"), "/elysium.session.v1.rs"));
     }
 }
+
+/// Account security activity (`GET /api/v1/me/security-activity`).
+pub mod security {
+    /// Version 1 of the security contract.
+    #[allow(dead_code)]
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/elysium.security.v1.rs"));
+    }
+}

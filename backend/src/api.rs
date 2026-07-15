@@ -46,9 +46,12 @@ pub fn router(state: AppState) -> Router {
             get(profile::get_me).patch(profile::update_me),
         )
         .route("/api/v1/users/me/status", put(profile::set_status))
-        // Security Center: the caller's own credentials, sign-in history, recovery codes.
+        // Security Center: credentials, plus one combined sessions + sign-ins read.
         .route("/api/v1/me/credentials", get(security::credentials))
-        .route("/api/v1/me/login-history", get(security::login_history))
+        .route(
+            "/api/v1/me/security-activity",
+            get(security::security_activity),
+        )
         .route(
             "/api/v1/me/recovery-codes",
             post(security::regenerate_recovery_codes),
@@ -56,8 +59,7 @@ pub fn router(state: AppState) -> Router {
         // Self-service TOTP enrollment (Security Center, and the require-2FA gate).
         .route("/api/v1/me/totp/begin", post(security::totp_begin))
         .route("/api/v1/me/totp/confirm", post(security::totp_confirm))
-        // Active sessions: list this account's devices, revoke one or all-others.
-        .route("/api/v1/me/sessions", get(security::sessions))
+        // Session revocation: sign one device out, or all others.
         .route(
             "/api/v1/me/sessions/revoke-others",
             post(security::revoke_other_sessions),
