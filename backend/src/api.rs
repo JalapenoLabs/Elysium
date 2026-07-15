@@ -36,6 +36,8 @@ pub fn router(state: AppState) -> Router {
         .route("/ok", get(ok))
         .route("/health", get(health))
         .route("/api/v1/hello", get(hello))
+        // Public instance identity, for a client validating a server before login.
+        .route("/api/v1/instance", get(bootstrap::instance))
         .route("/api/v1/db/health", get(database_health))
         .route("/api/v1/me", get(me))
         // Full profile: names, bio, derived presence, and the manual status override.

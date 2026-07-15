@@ -42,6 +42,33 @@ pub async fn context(State(state): State<AppState>) -> Response {
     }
 }
 
+/// `GET /api/v1/instance`: the instance's public identity, for the connection screen.
+///
+/// Unauthenticated: a client validating a server URL before signing in needs this
+/// to confirm the address is an Elysium instance and show whose it is. Returns the
+/// root org's name once claimed (the instance identity, e.g. "NavarroCity"), the
+/// claim state, and the build version.
+pub async fn instance(State(state): State<AppState>) -> Response {
+    match sqlx::query_scalar::<_, String>("SELECT name FROM orgs WHERE slug = 'root'")
+        .fetch_optional(&state.pool)
+        .await
+    {
+        Ok(name) => {
+            let claimed = name.is_some();
+            Json(json!({
+                "name": name,
+                "claimed": claimed,
+                "version": env!("CARGO_PKG_VERSION"),
+            }))
+            .into_response()
+        }
+        Err(error) => {
+            tracing::error!(error = %error, "instance info lookup failed");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
 /// The full in-flight bootstrap, serialized into the cookie.
 #[derive(Serialize, Deserialize)]
 struct Pending {
