@@ -50,6 +50,9 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/me/recovery-codes",
             post(security::regenerate_recovery_codes),
         )
+        // Self-service TOTP enrollment (Security Center, and the require-2FA gate).
+        .route("/api/v1/me/totp/begin", post(security::totp_begin))
+        .route("/api/v1/me/totp/confirm", post(security::totp_confirm))
         // Session bootstrap: one aggregated read the client gates itself on.
         .route("/api/v1/context", get(context::context))
         .route("/api/v1/events", get(sse::events))
