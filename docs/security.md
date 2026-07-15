@@ -39,13 +39,19 @@ live in `auth-model.md`, authorization in `authz.md`, encryption in
 TLS termination, HSTS, and the app-origin Content-Security-Policy are the
 deployment's responsibility (Elysium does not own hosting; see `CLAUDE.md`).
 
+## Org security controls
+
+Owners/admins configure per-org auth policy (`docs/org-admin.md`): allowed sign-in
+methods, mandatory TOTP, and session lifetime. Enforcement is live: a disabled
+password method is refused at sign-in; the strictest `session_lifetime_seconds`
+across a member's orgs bounds their session; `require_totp` hard-gates a member
+without TOTP into enrollment; and an admin can revoke a member's sessions
+(force sign-out + live-SSE drop).
+
 ## Remaining hardening
 
-- Force TOTP enrollment for a member of a `require_totp` org who has none, and
-  honor `org_auth_policies.session_lifetime_seconds` (idle timeout / sliding
-  renewal).
-- Admin-driven active-session revocation, and force-dropping a revoked session's
-  open SSE stream (until then a revoked session's own-data realtime persists until
-  the connection drops).
+- Server-side teeth for `require_totp` (today the enrollment gate is
+  client-enforced from the `/context` signal).
+- Idle timeout / sliding session renewal (absolute lifetime is enforced).
 - Encrypt-at-rest key rotation (the sealed-blob format carries a version tag for
   this).
