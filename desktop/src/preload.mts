@@ -25,6 +25,16 @@ const elysiumBridge = {
     chrome: process.versions.chrome,
     node: process.versions.node,
   },
+  // Connection management: which instance the client talks to. Every call is an
+  // async round-trip to the main process, which owns the config and the proxy.
+  connection: {
+    list: () => ipcRenderer.invoke(IpcChannel.ConnectionList),
+    active: () => ipcRenderer.invoke(IpcChannel.ConnectionActive),
+    add: (url: string) => ipcRenderer.invoke(IpcChannel.ConnectionAdd, url),
+    remove: (id: string) => ipcRenderer.invoke(IpcChannel.ConnectionRemove, id),
+    select: (id: string) => ipcRenderer.invoke(IpcChannel.ConnectionSelect, id),
+    test: (url: string) => ipcRenderer.invoke(IpcChannel.ConnectionTest, url),
+  },
 } satisfies ElysiumBridge
 
 contextBridge.exposeInMainWorld('elysium', elysiumBridge)

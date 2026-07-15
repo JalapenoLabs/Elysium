@@ -2,15 +2,11 @@
 
 // Core
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
-import serve from 'electron-serve'
 import localShortcut from 'electron-localshortcut'
 
 // Misc
 import { IpcChannel } from './ipc.js'
 import {
-  IS_DEV,
-  APP_URL,
-  RENDERER_DIRECTORY,
   PRELOAD_SCRIPT,
   WINDOW_WIDTH,
   WINDOW_HEIGHT,
@@ -18,16 +14,12 @@ import {
   WINDOW_MIN_HEIGHT,
 } from './constants.js'
 
-// Serves the packaged frontend over a custom protocol in production. Created once
-// here (even in dev, where it simply goes unused) so it is always ready and
-// registers its privileged scheme before the app is ready.
-const loadPackagedRenderer = serve({ directory: RENDERER_DIRECTORY })
-
-// Creates a top-level window and loads the app into it: the live dev URL in
-// development, the packaged renderer in production. Multiple windows are expected
-// in the future, so nothing here is held as a singleton; callers and
-// `BrowserWindow.getAllWindows()` own the lifecycle.
-export function createWindow(): BrowserWindow {
+// Creates a top-level window and loads the app into it from `appUrl`: the Vite dev
+// server in development, or the local connection proxy (which serves the packaged
+// renderer and forwards API traffic to the chosen instance) in a packaged build.
+// Multiple windows are expected in the future, so nothing here is a singleton;
+// callers and `BrowserWindow.getAllWindows()` own the lifecycle.
+export function createWindow(appUrl: string): BrowserWindow {
   const window = new BrowserWindow({
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
@@ -70,12 +62,7 @@ export function createWindow(): BrowserWindow {
     localShortcut.unregisterAll(window)
   })
 
-  if (IS_DEV) {
-    window.loadURL(APP_URL)
-  }
-  else {
-    loadPackagedRenderer(window)
-  }
+  window.loadURL(appUrl)
 
   return window
 }
