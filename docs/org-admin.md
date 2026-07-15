@@ -37,18 +37,26 @@ Every mature admin console is really six planes; this is Elysium's map of them.
   their live SSE.
 - **Member management**: roster, role changes, removal, with the no-escalation
   rules (see `authz.md`).
+- **Member lifecycle**: suspend / reactivate (a suspended member keeps their row
+  but has no access and no realtime; `/context` flags it), a guest tier below
+  member, and ownership transfer (owner-only, atomic).
+- **Delegated admin capabilities**: grant a member `manage_members`,
+  `manage_security`, `manage_teams`, or `view_audit` without full admin. Owners and
+  admins hold all implicitly; grant management is owner/admin-only so delegation
+  never cascades. No billing capability (nothing is gated).
+- **Audit log**: an append-only org-wide trail of admin-consequential actions,
+  readable by admins (or `view_audit`).
 - **Teams**: create / rename / delete + rosters.
 - **Branding / white-label**: accent color, wordmark, logo.
 
 ## Roadmap
 
-- **Member lifecycle**: suspend / reactivate (the `/suspended` screen exists),
-  ownership transfer, a guest role, and self-service "leave an org".
-- **Delegated / custom admin roles**: security-admin, user-admin, billing-admin,
-  the granular privilege model beyond owner/admin/member.
 - **SSO / SAML + OIDC and SCIM provisioning**: bring-your-own IdP and automatic
   user provisioning/deprovisioning. The largest enterprise unlock; wants its own
   design pass.
+- Self-service "leave an org" and custom (fully user-defined) admin roles beyond
+  the four fixed capabilities.
+- Audit-log export and retention.
 - **Org units + policy inheritance**, dynamic groups, IP allowlisting.
 - **Verified domains + org-issued addresses + domain auto-join** (with the SMTP
   layer).

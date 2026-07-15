@@ -8,15 +8,26 @@ org, are they allowed to do this?
 
 ## Model
 
-Membership and role live in `org_members` (`user_id`, `org_id`, `role`). The role
-is one of three values, totally ordered by privilege:
+Membership and role live in `org_members` (`user_id`, `org_id`, `role`,
+`suspended_at`). The role is one of four values, totally ordered by privilege:
 
 ```
-owner > admin > member
+owner > admin > member > guest
 ```
 
 A profile can belong to many orgs with a different role in each, so authorization
-is always evaluated against a specific target org, never globally.
+is always evaluated against a specific target org, never globally. A **suspended**
+member (`suspended_at` set) keeps their row but has no effective access: the guard
+treats them as a non-member and realtime fan-out excludes them.
+
+### Delegated capabilities
+
+An org can grant a *member* specific admin powers without full admin, recorded in
+`org_admin_grants`: `manage_members`, `manage_security`, `manage_teams`,
+`view_audit`. Owners and admins hold every capability implicitly; a member holds
+one only if it was granted; guests and suspended members hold none. Managing the
+grants themselves requires being a real owner/admin, so delegation never cascades.
+There is deliberately no billing capability, the project gates nothing.
 
 ## The guard
 
