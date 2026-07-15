@@ -78,6 +78,18 @@ impl SseRegistry {
         map.get(subject).map_or(0, |channel| channel.sequence)
     }
 
+    /// Force-disconnects all of a user's live SSE streams (e.g. on revocation).
+    ///
+    /// Removes the user's channel, dropping its broadcast sender; each open stream's
+    /// `BroadcastStream` then observes the close and ends, so the connections
+    /// terminate promptly. A later reconnect simply creates a fresh channel. Used to
+    /// cut realtime the instant a session is revoked, so a revoked client cannot
+    /// keep receiving events on an already-open stream.
+    pub fn disconnect(&self, subject: &str) {
+        let mut map = self.inner.lock().expect("SSE registry mutex poisoned");
+        map.remove(subject);
+    }
+
     /// Reserves a connection slot and returns a receiver on the user's channel.
     ///
     /// `None` at the cap. The `bool` is whether this connection brought the user

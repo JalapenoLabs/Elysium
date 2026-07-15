@@ -113,6 +113,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/orgs/{id}/members/{user_id}",
             patch(members::change_role).delete(members::remove),
         )
+        .route(
+            "/api/v1/orgs/{id}/members/{user_id}/revoke-sessions",
+            post(members::revoke_sessions),
+        )
         // Teams: org-scoped collection, then team-scoped item and roster.
         .route(
             "/api/v1/orgs/{id}/teams",

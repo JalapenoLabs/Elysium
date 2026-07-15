@@ -154,6 +154,45 @@ pub async fn remove(
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// `POST /api/v1/orgs/:id/members/:user_id/revoke-sessions`: force sign-out a member.
+///
+/// Deletes every session the target is part of and force-drops their live SSE, so a
+/// revoked member is signed out everywhere at once. Same admin + outrank rules as
+/// the other mutations.
+pub async fn revoke_sessions(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    Path((org_id, target_id)): Path<(Uuid, Uuid)>,
+) -> Response {
+    let (actor_id, actor_role) = match authorize_manager(&state, &principal, org_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    if let Err(response) = manageable_target(&state, org_id, target_id, actor_id, actor_role).await
+    {
+        return response;
+    }
+
+    let deleted = sqlx::query(
+        "DELETE FROM sessions
+          WHERE id IN (SELECT session_id FROM session_accounts WHERE user_id = $1)",
+    )
+    .bind(target_id)
+    .execute(&state.pool)
+    .await;
+    if let Err(error) = deleted {
+        tracing::error!(error = %error, "session revocation failed");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    // Cut the target's live realtime immediately, then announce them offline.
+    if let Ok(Some(subject)) = users::subject_for_id(&state.pool, target_id).await {
+        state.sse.disconnect(&subject);
+        events::announce_presence(&state, subject, false);
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
 /// Resolves the actor and requires they are at least an admin of `org_id`.
 ///
 /// # Errors

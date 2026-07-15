@@ -122,11 +122,15 @@ pub async fn create_on(
     user_id: Uuid,
     org_id: Option<Uuid>,
 ) -> sqlx::Result<Uuid> {
+    // Honor the strictest session lifetime across the user's orgs' policies.
+    let lifetime = lifetime_seconds(&mut *conn, user_id).await?;
     let session_id = sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO sessions (active_user_id, active_org_id) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO sessions (active_user_id, active_org_id, expires_at)
+         VALUES ($1, $2, now() + make_interval(secs => $3)) RETURNING id",
     )
     .bind(user_id)
     .bind(org_id)
+    .bind(lifetime as f64)
     .fetch_one(&mut *conn)
     .await?;
     sqlx::query("INSERT INTO session_accounts (session_id, user_id) VALUES ($1, $2)")
@@ -135,6 +139,31 @@ pub async fn create_on(
         .execute(&mut *conn)
         .await?;
     Ok(session_id)
+}
+
+/// Default absolute session lifetime (30 days), matching the `sessions` and
+/// `org_auth_policies` table defaults; used when the user has no org policy yet.
+const DEFAULT_SESSION_LIFETIME_SECONDS: i64 = 30 * 24 * 60 * 60;
+
+/// The strictest (smallest) session lifetime across the user's orgs' policies.
+///
+/// A profile in several orgs gets the most restrictive one, so no org's policy can
+/// be undercut by membership in a laxer org. Falls back to the default when the
+/// user has no org yet.
+///
+/// # Errors
+/// Returns an error if the query fails.
+async fn lifetime_seconds(conn: &mut PgConnection, user_id: Uuid) -> sqlx::Result<i64> {
+    let seconds = sqlx::query_scalar::<_, Option<i32>>(
+        "SELECT min(p.session_lifetime_seconds)
+           FROM org_members m
+           JOIN org_auth_policies p ON p.org_id = m.org_id
+          WHERE m.user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(conn)
+    .await?;
+    Ok(seconds.map_or(DEFAULT_SESSION_LIFETIME_SECONDS, i64::from))
 }
 
 /// Adds `user_id` to an existing session and makes it the active account.
