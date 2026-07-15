@@ -249,10 +249,16 @@ pub async fn insert(
             .bind(record)
             .execute(&mut *conn)
             .await?;
+            // The password path always enrolls one TOTP; name it by default and make
+            // it the user's default authenticator only when they have none yet, so
+            // the one-default-per-user invariant holds even on a later add.
             sqlx::query(
-                "INSERT INTO user_totp_secrets (user_id, secret, confirmed_at)
-                 VALUES ($1, $2, now())
-                 ON CONFLICT (user_id) DO UPDATE SET secret = EXCLUDED.secret, confirmed_at = now()",
+                "INSERT INTO user_totp_secrets (user_id, name, secret, is_default, confirmed_at)
+                 VALUES ($1, 'Authenticator', $2,
+                         NOT EXISTS (
+                             SELECT 1 FROM user_totp_secrets WHERE user_id = $1 AND is_default
+                         ),
+                         now())",
             )
             .bind(user_id)
             .bind(crypto.seal(secret, user_id.as_bytes()))

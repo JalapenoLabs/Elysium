@@ -63,3 +63,24 @@ fn build(secret: &[u8], account: &str) -> eyre::Result<TOTP> {
     )
     .wrap_err("failed to build TOTP from secret")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_a_codes_own_secret_and_rejects_a_different_one() {
+        let secret_a = generate_secret();
+        let secret_b = generate_secret();
+        let code_a = build(&secret_a, "elysium")
+            .expect("builds")
+            .generate_current()
+            .expect("generates a current code");
+
+        // The matching secret accepts its own current code; a different secret does
+        // not. This is what lets a multi-authenticator sign-in identify which one
+        // matched (see `password::verify_totp`).
+        assert!(verify(&secret_a, &code_a).unwrap_or(false));
+        assert!(!verify(&secret_b, &code_a).unwrap_or(false));
+    }
+}

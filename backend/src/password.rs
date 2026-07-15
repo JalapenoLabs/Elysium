@@ -304,16 +304,22 @@ pub async fn verify_totp(
         }
     }
 
-    let secret = match users::totp_secret(&state.pool, &state.crypto, user_id).await {
-        Ok(Some(secret)) => secret,
-        Ok(None) => return StatusCode::BAD_REQUEST.into_response(),
+    let secrets = match users::confirmed_totp_secrets(&state.pool, &state.crypto, user_id).await {
+        Ok(secrets) if !secrets.is_empty() => secrets,
+        Ok(_) => return StatusCode::BAD_REQUEST.into_response(),
         Err(error) => {
             tracing::error!(error = %error, "totp lookup failed");
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
 
-    let accepted = totp::verify(&secret, &body.code).unwrap_or(false);
+    // Accept a code from any of the user's authenticators; remember which matched so
+    // its last-used time updates on success.
+    let matched = secrets
+        .iter()
+        .find(|(_, secret)| totp::verify(secret, &body.code).unwrap_or(false))
+        .map(|(id, _)| *id);
+    let accepted = matched.is_some();
     let outcome = if accepted {
         login_events::Outcome::Success
     } else {
@@ -333,6 +339,12 @@ pub async fn verify_totp(
         // Keep the pending cookie so the user can retry the code; the failure is
         // recorded, and the TOTP rate limit (checked above) governs abuse.
         return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    if let Some(id) = matched {
+        if let Err(error) = users::touch_totp(&state.pool, id).await {
+            tracing::warn!(error = %error, "failed to update TOTP last-used");
+        }
     }
 
     let jar = jar.remove(cookies::clearing(TOTP_PENDING_COOKIE));

@@ -134,42 +134,57 @@ pub async fn has_totp(pool: &PgPool, user_id: Uuid) -> sqlx::Result<bool> {
     .await
 }
 
-/// Loads and decrypts the confirmed TOTP secret for a user, if one is enrolled.
+/// Loads and decrypts every confirmed TOTP authenticator for a user.
 ///
-/// The secret is sealed at rest (see [`crate::crypto`]); a row written before
-/// encryption existed is read as legacy plaintext and resealed in place, so the
-/// column converges to all-encrypted without a migration step.
+/// Returns each as `(id, plaintext_secret)`, so a sign-in can accept a code from any
+/// of the user's authenticators and record which one was used. Secrets are sealed at
+/// rest (see [`crate::crypto`]); a row written before encryption existed is read as
+/// legacy plaintext and resealed in place, so the column converges to all-encrypted
+/// without a migration step.
 ///
 /// # Errors
-/// Returns an error if the query fails or the stored secret cannot be decrypted
-/// (wrong key or tampering).
-pub async fn totp_secret(
+/// Returns an error if the query fails or a stored secret cannot be decrypted (wrong
+/// key or tampering).
+pub async fn confirmed_totp_secrets(
     pool: &PgPool,
     crypto: &Crypto,
     user_id: Uuid,
-) -> eyre::Result<Option<Vec<u8>>> {
-    let Some(stored) = sqlx::query_scalar::<_, Vec<u8>>(
-        "SELECT secret FROM user_totp_secrets WHERE user_id = $1 AND confirmed_at IS NOT NULL",
+) -> eyre::Result<Vec<(Uuid, Vec<u8>)>> {
+    let rows = sqlx::query_as::<_, (Uuid, Vec<u8>)>(
+        "SELECT id, secret FROM user_totp_secrets WHERE user_id = $1 AND confirmed_at IS NOT NULL",
     )
     .bind(user_id)
-    .fetch_optional(pool)
+    .fetch_all(pool)
     .await
-    .wrap_err("failed to read TOTP secret")?
-    else {
-        return Ok(None);
-    };
+    .wrap_err("failed to read TOTP secrets")?;
 
-    let opened = crypto
-        .open(&stored, user_id.as_bytes())
-        .wrap_err("failed to open the stored TOTP secret")?;
-    if !opened.was_sealed {
-        let sealed = crypto.seal(&opened.plaintext, user_id.as_bytes());
-        sqlx::query("UPDATE user_totp_secrets SET secret = $1 WHERE user_id = $2")
-            .bind(&sealed)
-            .bind(user_id)
-            .execute(pool)
-            .await
-            .wrap_err("failed to reseal the TOTP secret")?;
+    let mut secrets = Vec::with_capacity(rows.len());
+    for (id, stored) in rows {
+        let opened = crypto
+            .open(&stored, user_id.as_bytes())
+            .wrap_err("failed to open a stored TOTP secret")?;
+        if !opened.was_sealed {
+            let sealed = crypto.seal(&opened.plaintext, user_id.as_bytes());
+            sqlx::query("UPDATE user_totp_secrets SET secret = $1 WHERE id = $2")
+                .bind(&sealed)
+                .bind(id)
+                .execute(pool)
+                .await
+                .wrap_err("failed to reseal a TOTP secret")?;
+        }
+        secrets.push((id, opened.plaintext));
     }
-    Ok(Some(opened.plaintext))
+    Ok(secrets)
+}
+
+/// Records that a TOTP authenticator was just used, for its "last used" display.
+///
+/// # Errors
+/// Returns an error if the update fails.
+pub async fn touch_totp(pool: &PgPool, id: Uuid) -> sqlx::Result<()> {
+    sqlx::query("UPDATE user_totp_secrets SET last_used_at = now() WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map(|_| ())
 }

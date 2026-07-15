@@ -268,13 +268,17 @@ pub async fn totp_begin(
 #[derive(Deserialize)]
 pub struct TotpConfirm {
     code: String,
+    /// User label for the authenticator; defaults to "Authenticator" when blank.
+    #[serde(default)]
+    name: String,
 }
 
-/// `POST /api/v1/me/totp/confirm`: verify a code and store the TOTP factor.
+/// `POST /api/v1/me/totp/confirm`: verify a code and add a named TOTP authenticator.
 ///
 /// Confirms the authenticator holds the secret from [`totp_begin`], then seals and
-/// stores it (upserting, so this also re-keys an existing authenticator). Sealed at
-/// rest under the account's id, like every TOTP secret (see [`crate::crypto`]).
+/// stores it as a new named authenticator (the user may hold several). It becomes the
+/// default only when the user has none yet. Sealed at rest under the account's id,
+/// like every TOTP secret (see [`crate::crypto`]).
 pub async fn totp_confirm(
     State(state): State<AppState>,
     SessionUser(principal): SessionUser,
@@ -300,13 +304,21 @@ pub async fn totp_confirm(
         }
     };
 
+    let name = match body.name.trim() {
+        "" => "Authenticator",
+        chosen => chosen,
+    };
     let sealed = state.crypto.seal(&secret, user_id.as_bytes());
     let result = sqlx::query(
-        "INSERT INTO user_totp_secrets (user_id, secret, confirmed_at)
-         VALUES ($1, $2, now())
-         ON CONFLICT (user_id) DO UPDATE SET secret = EXCLUDED.secret, confirmed_at = now()",
+        "INSERT INTO user_totp_secrets (user_id, name, secret, is_default, confirmed_at)
+         VALUES ($1, $2, $3,
+                 NOT EXISTS (
+                     SELECT 1 FROM user_totp_secrets WHERE user_id = $1 AND is_default
+                 ),
+                 now())",
     )
     .bind(user_id)
+    .bind(name)
     .bind(sealed)
     .execute(&state.pool)
     .await;
