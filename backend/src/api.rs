@@ -101,6 +101,10 @@ pub fn router(state: AppState) -> Router {
         // Orgs: create additional orgs, and edit name/logo (fans out org.updated).
         .route("/api/v1/orgs", post(orgs::create))
         .route("/api/v1/orgs/{id}", patch(orgs::update))
+        .route(
+            "/api/v1/orgs/{id}/transfer-ownership",
+            post(orgs::transfer_ownership),
+        )
         // Org auth policy (admin+): the security control plane over sign-in methods,
         // mandatory 2FA, and session lifetime.
         .route(

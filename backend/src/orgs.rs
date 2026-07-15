@@ -164,6 +164,85 @@ fn is_hex_color(value: &str) -> bool {
     digits.len() == 6 && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+/// Body of the ownership-transfer request.
+#[derive(Deserialize)]
+pub struct TransferOwnership {
+    user_id: Uuid,
+}
+
+/// `POST /api/v1/orgs/:id/transfer-ownership`: hand ownership to another member.
+///
+/// Owner-only. Promotes the target to owner and demotes the caller to admin in one
+/// transaction, so the org always has exactly the intended owner and the previous
+/// owner is never left stuck. The target must be an active (non-suspended) member.
+pub async fn transfer_ownership(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    Path(org_id): Path<Uuid>,
+    Json(body): Json<TransferOwnership>,
+) -> Response {
+    let actor_id = match users::id_for_subject(&state.pool, &principal.sub).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "user lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+
+    // Only an owner may transfer ownership.
+    match authz::role_in_org(&state.pool, actor_id, org_id).await {
+        Ok(Some(authz::OrgRole::Owner)) => {}
+        Ok(_) => return StatusCode::FORBIDDEN.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "owner check failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    }
+
+    let target_id = body.user_id;
+    if target_id == actor_id {
+        return (StatusCode::BAD_REQUEST, "already the owner").into_response();
+    }
+    // The target must be an active member of this org.
+    match authz::membership(&state.pool, target_id, org_id).await {
+        Ok(Some(entry)) if !entry.suspended => {}
+        Ok(_) => return (StatusCode::BAD_REQUEST, "not an active member").into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "target lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    }
+
+    let outcome = async {
+        let mut tx = state.pool.begin().await?;
+        sqlx::query("UPDATE org_members SET role = 'owner' WHERE user_id = $1 AND org_id = $2")
+            .bind(target_id)
+            .bind(org_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE org_members SET role = 'admin' WHERE user_id = $1 AND org_id = $2")
+            .bind(actor_id)
+            .bind(org_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await
+    }
+    .await;
+
+    if let Err(error) = outcome {
+        tracing::error!(error = %error, "ownership transfer failed");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    // Both parties' roles changed; nudge their clients to re-read context.
+    events::announce_session_change(&state, &principal.sub, "ownership_transferred");
+    if let Ok(Some(subject)) = users::subject_for_id(&state.pool, target_id).await {
+        events::announce_session_change(&state, &subject, "ownership_transferred");
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
 /// Creates the org, its default auth policy, and the creator's owner membership.
 ///
 /// # Errors
