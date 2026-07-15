@@ -24,12 +24,20 @@ present and the raw IP otherwise.
 
 ## The response
 
-`GET /api/v1/me/sessions` and `GET /api/v1/me/login-history` add a `location`
-field to each row, `null` when unresolved:
+`GET /api/v1/me/security-activity` returns the `elysium.security.v1.SecurityActivity`
+protobuf, in which every `Session` and `SignInEvent` carries a `location` alongside
+its `ip`. Each field is optional: an unresolved address omits `location` entirely,
+and a provider that resolves only part of an address omits the pieces it lacks.
 
-```json
-{ "ip": "8.8.8.8", "location": { "city": "Mountain View", "country": "United States", "country_code": "US" } }
+```proto
+message Location {
+  optional string city = 1;
+  optional string country = 2;
+  optional string country_code = 3;
+}
 ```
+
+The UI renders the raw IP whenever `location` is absent.
 
 ## Provider
 

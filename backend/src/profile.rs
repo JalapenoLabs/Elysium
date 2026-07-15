@@ -10,6 +10,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Duration, Utc};
+use chrono_tz::Tz;
 
 use crate::proto::common::v1::{Timestamp, Uuid as ProtoUuid};
 use crate::proto::realtime::v1::event_envelope::Payload;
@@ -60,8 +61,8 @@ pub async fn update_me(
             SET given_name = $1, family_name = $2, display_name = $3, bio = $4,
                 avatar_url = COALESCE($5, avatar_url),
                 pronouns = $6, web_link = $7, contact_phone = $8, backup_email = $9,
-                language = $10
-          WHERE subject = $11",
+                language = $10, timezone = $11
+          WHERE subject = $12",
     )
     .bind(given_name)
     .bind(family_name)
@@ -73,6 +74,7 @@ pub async fn update_me(
     .bind(request.contact_phone.trim())
     .bind(request.backup_email.trim())
     .bind(language)
+    .bind(sanitize_timezone(&request.timezone))
     .bind(&principal.sub)
     .execute(&state.pool)
     .await;
@@ -159,6 +161,7 @@ struct ProfileRow {
     contact_phone: String,
     backup_email: String,
     language: i16,
+    timezone: String,
 }
 
 /// Builds the current `User` for a subject, deriving presence.
@@ -173,7 +176,7 @@ pub async fn fetch(state: &AppState, subject: &str) -> sqlx::Result<Option<User>
         "SELECT id, subject, email, given_name, family_name, display_name, avatar_url, bio,
                 manual_status, manual_status_text, manual_status_expires_at,
                 last_seen_at, created_at, updated_at,
-                pronouns, web_link, contact_phone, backup_email, language
+                pronouns, web_link, contact_phone, backup_email, language, timezone
            FROM users WHERE subject = $1",
     )
     .bind(subject)
@@ -268,6 +271,7 @@ fn to_user(row: ProfileRow, online: bool) -> User {
         contact_phone: row.contact_phone,
         backup_email: row.backup_email,
         language: language_from_db(row.language) as i32,
+        timezone: row.timezone,
     }
 }
 
@@ -278,6 +282,24 @@ fn to_user(row: ProfileRow, online: bool) -> User {
 /// showing a broken selection.
 fn language_from_db(value: i16) -> Language {
     Language::try_from(i32::from(value)).unwrap_or(Language::Unspecified)
+}
+
+/// Validates an IANA timezone name, clamping an unknown zone to auto-detect.
+///
+/// Empty is the documented "auto-detect" value and short-circuits the lookup.
+/// Anything else must resolve against the tz database, so a client typo or a stale
+/// zone never persists; the value is read back for display and, later, for
+/// server-side rendering of times. An unknown zone clamps to auto-detect rather
+/// than failing the request, because this is one field of a whole-profile update
+/// and rejecting it would discard the user's other edits over a display hint.
+fn sanitize_timezone(raw: &str) -> &str {
+    let name = raw.trim();
+    if name.is_empty() || name.parse::<Tz>().is_ok() {
+        return name;
+    }
+
+    tracing::warn!(timezone = %name, "unknown IANA timezone; storing auto-detect");
+    ""
 }
 
 /// Maps a manual-status kind to its stored text value.
@@ -320,5 +342,21 @@ mod tests {
         // A code with no shipped variant falls back to auto-detect, never a panic.
         assert_eq!(language_from_db(9999), Language::Unspecified);
         assert_eq!(language_from_db(-1), Language::Unspecified);
+    }
+
+    #[test]
+    fn timezone_keeps_real_zones_and_clamps_anything_else_to_auto() {
+        assert_eq!(sanitize_timezone("America/Denver"), "America/Denver");
+        assert_eq!(sanitize_timezone("Etc/UTC"), "Etc/UTC");
+        // Empty is the documented auto-detect value and stays empty.
+        assert_eq!(sanitize_timezone(""), "");
+        assert_eq!(sanitize_timezone("   "), "");
+        // Surrounding whitespace is not a reason to discard a valid zone.
+        assert_eq!(sanitize_timezone("  Europe/Madrid  "), "Europe/Madrid");
+        // A typo, a UTC offset, and a raw abbreviation are all not IANA names, so
+        // they clamp to auto-detect rather than persisting an unrenderable zone.
+        assert_eq!(sanitize_timezone("America/Denverr"), "");
+        assert_eq!(sanitize_timezone("UTC+7"), "");
+        assert_eq!(sanitize_timezone("PST"), "");
     }
 }

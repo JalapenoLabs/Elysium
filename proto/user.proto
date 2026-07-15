@@ -82,6 +82,11 @@ message User {
   string contact_phone = 18;
   string backup_email = 19;
   Language language = 20;
+
+  // Preferred display timezone as an IANA name, e.g. "America/Denver". Empty is
+  // auto-detect, the default, leaving the client to use its own guessed zone.
+  // Display-only: it never changes a stored instant, which is always UTC.
+  string timezone = 21;
 }
 
 // Editable profile fields. Presence and manual status are set elsewhere; this is
@@ -104,6 +109,11 @@ message UpdateProfileRequest {
   string contact_phone = 8;
   string backup_email = 9;
   Language language = 10;
+
+  // IANA timezone name; empty means auto-detect. Validated against the tz
+  // database on write: an unknown zone stores as empty rather than rejecting
+  // the whole update.
+  string timezone = 11;
 }
 
 // Sets or clears the manual status override. `kind` = UNSPECIFIED clears it.

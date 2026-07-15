@@ -18,6 +18,9 @@ sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid"
 ipnetwork = "0.20"
 # Decodes Postgres TIMESTAMPTZ and builds the proto Timestamp (UTC instants).
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Ships the IANA tz database, so a user's stored timezone name can be validated
+# against real zones on write rather than trusting the client (see docs/proto.md).
+chrono-tz = "0.10"
 # Session ids and user subjects (v4 is CSPRNG-backed).
 uuid = { version = "1", features = ["v4"] }
 # Encodes WebAuthn credential ids for storage/lookup.
