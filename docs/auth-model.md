@@ -73,11 +73,54 @@ rejected as a pass-the-hash anti-pattern; OPAQUE is the correct construction for
 - **Reserved bonus**: OPAQUE's `export_key` (a stable client-side key the server
   never learns) is a foundation for future end-to-end-encrypted features.
 
-### Magic links (decided, not built)
+### Passwordless email sign-in (designed, not built)
 
-Passwordless email sign-in: a single-use, short-lived signed link delivered by
-Elysium's own (planned) SMTP service. Lands after that service exists; invite
-delivery stays copyable-link so air-gapped installs never need email.
+Sign-in by proving control of an email inbox, in two interchangeable shapes: a
+single-use **magic link** and a typed **one-time code** (the code is the friendlier
+path when the link would open on a different device). It is a *sign-in* method, not a
+stored credential: unlike a passkey or an OPAQUE record there is nothing per user to
+enroll, so it is available to any account whose email is verified and whose org policy
+permits it.
+
+**Prerequisite.** Delivery rides Elysium's own (planned) SMTP service; this method
+lands only after outbound mail exists. First-run **claim stays passkey / password**
+(neither needs an external service), which avoids the chicken-and-egg of emailing a
+link from an instance whose mail is not yet configured. Email sign-in becomes
+available once an operator configures SMTP and an org enables the method. Invite
+delivery stays copyable-link regardless, so air-gapped installs never need email.
+
+**Challenge store.** `email_login_challenges` holds one row per outstanding request:
+the lowercased email, the SHA-256 **hash** of the link token and of the code (never
+the plaintext, so a database dump cannot be replayed to sign in), a purpose, the
+resolved `user_id` when known, a short expiry (~15 min), a single-use `consumed_at`,
+and an attempt counter. Verifying compares hashes, checks liveness and single-use,
+then consumes the row.
+
+**Flow and endpoints.**
+
+- `POST /api/v1/auth/email/begin` `{ identifier }` -> always `204` (non-enumerating,
+  like `password/authenticate/begin`): a challenge is minted and mailed only when the
+  email resolves to a user whose org permits the method, but the response never
+  reveals that. Issuance is rate-limited per email and per IP (`429` on abuse) so the
+  endpoint cannot be used to flood an inbox.
+- `POST /api/v1/auth/email/finish` `{ token }` (link) or `{ identifier, code }`
+  (code) -> verifies and consumes the challenge, then mints the same session cookie as
+  every other method, or answers `401 { reason: "totp_required" }` when the org
+  mandates TOTP. The high-entropy link needs no attempt cap; the short code locks
+  after a few wrong tries (counted in `login_events`, reusing `rate_limit.rs`).
+
+**Security stance.** Inbox possession is a genuine factor but a weaker one than a
+passkey, so a `require_totp` org still forces the second factor after an email
+sign-in, exactly as the password path does. The method is gated in `org_auth_policies`
+(a new `magic_link` allowed-method flag, default **off**) and by a per-user
+`email_verified_at`: claiming or accepting an invite verifies the address inherently,
+and a passkey / password account verifies on its first successful email challenge.
+
+**Client contract (handed to the FE once SMTP lands).** An "Email me a link or code"
+card in the method chooser, shown only when `/auth/methods` reports the method
+enabled, plus a screen to type the code and a landing route that posts the link token
+to `finish`. The `magic_link` kind and its copy already exist in the frontend method
+registry, unused, waiting on this.
 
 ### TOTP second factor (built)
 
@@ -246,7 +289,8 @@ attempt is recorded in `login_events`.
 
 1. TOTP enrollment for the passkey path so a passkey account can add a second factor;
    regenerating recovery codes from the Security Center.
-2. Magic-link sign-in, once the SMTP service lands.
+2. Passwordless email sign-in (magic link / one-time code), once the SMTP service
+   lands; the design is in "Passwordless email sign-in" above.
 3. Per-org SSO / custom OAuth brokering (`openidconnect`), configured in Postgres.
 4. Security Center surfaces: login history, listing/removing credentials, active-session
    revocation. Remaining org-policy enforcement: force TOTP enrollment for a member of a
