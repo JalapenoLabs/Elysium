@@ -114,10 +114,19 @@ The `State` column names the ambient background color from Elysium's state gramm
 | Invalid / expired invite | `/invite/:token` (fault) | Kind dead-end with a path to request a new invite. | error |
 | Signed out | `/signed-out` | Confirmed sign-out, invite back in. | idle |
 | Session expired | modal (any route) | Session ended; re-authenticate in place without losing work. | needs-input |
-| Settings hub | `/settings` | Sidebar layout nesting the settings sections; `/settings` redirects to the profile section. | idle |
-| Security center | `/settings/security` | Passkeys, authenticators, recovery-code status, login history. | idle |
-| Active sessions | `/settings/sessions` | Devices, locations, last-seen; remote sign-out. | idle |
-| Profile settings | `/settings/profile` | Avatar, bio, status, display name. | idle |
+| Profile settings hub | `/settings` | Personal account settings, a simple flat sidebar; redirects to the profile section. | idle |
+| Profile settings | `/settings/profile` | Given/family/display name, avatar URL, bio. | idle |
+| Security center | `/settings/security` | Enrolled passkeys (added/last-used), password + authenticator status, add-passkey / add-authenticator, recent sign-ins. | idle |
+| Active sessions | `/settings/sessions` | Live sessions with device, IP, last-active; revoke one or all others. | idle |
+| Organization settings hub | `/organization` | Org-level settings, a grouped accordion sidebar (General, People); redirects to the general section. Reached from the taskbar org switcher. | idle |
+| Org identity & branding | `/organization/general` | Name, logo, accent color, wordmark (owner/admin edit). | idle |
+| Org members | `/organization/members` | Roster, role changes (incl. guest), suspend/reactivate, ownership transfer, removal (admin+). | idle |
+| Org teams | `/organization/teams` | Teams and their members (admin+). | idle |
+| Org roles & access | `/organization/roles` | Delegate admin capabilities to members (owner/admin). | idle |
+| Org sign-in policy | `/organization/security` | Allowed methods, require-2FA, session lifetime (admin or manage_security). | idle |
+| Org audit log | `/organization/audit` | Recent org activity (admin or view_audit). | idle |
+| Suspended | `/suspended` | Where a member suspended in their active org lands (from `active_org_suspended`). | error |
+| Two-factor gate | any protected route | Hard interstitial when a require-2FA org member has no authenticator; blocks the app until enrolled. | needs-input |
 | Access denied | `/denied` | Authenticated but lacks the team permission. | error |
 | Account suspended | `/suspended` | Brute-force lockout or admin suspension, with the right recovery CTA. | error |
 | Identity unavailable | fallback | The API is unreachable. A branded, reassuring degraded state, not a silent anonymous render. | error |
@@ -221,9 +230,10 @@ Built today:
   assets yet) and honor `prefers-reduced-motion`.
 - **i18n.** `i18next` + `react-i18next` with `common` and `auth` namespaces (en-US).
 
-Remaining (tracks the roadmap in `auth-model.md`): regenerating recovery codes and
-listing/removing credentials and sessions from the Security Center (login history
-is live), and the cinematic layer's real assets.
+Remaining (tracks the roadmap in `auth-model.md`): removing individual passkeys and
+regenerating recovery codes from the Security Center (listing credentials, sessions
+with revoke, login history, add-passkey, and add-authenticator are live), and the
+cinematic layer's real assets.
 
 ## Open items
 

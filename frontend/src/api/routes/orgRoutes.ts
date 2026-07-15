@@ -48,6 +48,7 @@ export type OrgMember = {
   display_name: string
   avatar_url: string
   role: string
+  suspended: boolean
   joined_at: string
 }
 
@@ -67,6 +68,68 @@ export function updateOrgMemberRole(orgId: string, userId: string, role: string)
 
 export function removeOrgMember(orgId: string, userId: string): Promise<Response> {
   return apiClient.delete(`api/v1/orgs/${orgId}/members/${userId}`)
+}
+
+// Suspends a member: they keep their membership but lose access until
+// reactivated (their live sessions are dropped server-side).
+export function suspendOrgMember(orgId: string, userId: string): Promise<Response> {
+  return apiClient.post(`api/v1/orgs/${orgId}/members/${userId}/suspend`)
+}
+
+export function reactivateOrgMember(orgId: string, userId: string): Promise<Response> {
+  return apiClient.post(`api/v1/orgs/${orgId}/members/${userId}/reactivate`)
+}
+
+// Hands the org's ownership to another member: they become owner, the caller is
+// demoted to admin. Owner-only, irreversible without the new owner's help.
+export function transferOrgOwnership(orgId: string, userId: string): Promise<Response> {
+  return apiClient.post(`api/v1/orgs/${orgId}/transfer-ownership`, {
+    json: { user_id: userId },
+  })
+}
+
+// Delegated admin capabilities. Owners and admins hold all of these implicitly;
+// they can also grant individual capabilities to members, who then gain access
+// to just that admin area (the server enforces it; 403 rules are unchanged).
+export type OrgCapability = 'manage_members' | 'manage_security' | 'manage_teams' | 'view_audit'
+
+export type OrgGrant = {
+  user_id: string
+  email: string
+  display_name: string
+  capability: OrgCapability
+}
+
+export function listOrgGrants(orgId: string): Promise<{ grants: OrgGrant[] }> {
+  return apiClient
+    .get(`api/v1/orgs/${orgId}/grants`)
+    .json<{ grants: OrgGrant[] }>()
+}
+
+// Replaces a member's full capability set (owner/admin only).
+export function setOrgMemberGrants(
+  orgId: string,
+  userId: string,
+  capabilities: OrgCapability[],
+): Promise<Response> {
+  return apiClient.put(`api/v1/orgs/${orgId}/members/${userId}/grants`, {
+    json: { capabilities },
+  })
+}
+
+export type AuditEntry = {
+  action: string
+  actor: { email: string, display_name: string }
+  target: { email?: string, display_name?: string } | null
+  detail: string
+  created_at: string
+}
+
+// The org's audit trail, most recent first (admin or `view_audit`).
+export function getOrgAuditLog(orgId: string): Promise<{ entries: AuditEntry[] }> {
+  return apiClient
+    .get(`api/v1/orgs/${orgId}/audit-log`)
+    .json<{ entries: AuditEntry[] }>()
 }
 
 // Which sign-in methods the org permits, whether a second factor is mandatory,

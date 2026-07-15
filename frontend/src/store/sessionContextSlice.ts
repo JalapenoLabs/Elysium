@@ -38,6 +38,9 @@ type SessionContextState = {
   // The active account belongs to a require-TOTP org but has no authenticator
   // enrolled: the app hard-gates into enrollment until this clears.
   totpEnrollmentRequired: boolean
+  // The active account is suspended in the active org: they're routed to the
+  // suspended screen instead of the app.
+  activeOrgSuspended: boolean
   // The realtime high-water mark: inbound envelopes at or below this sequence
   // are already reflected in this state and must be dropped, which is what
   // closes the connect/fetch race (docs/realtime.md).
@@ -50,6 +53,7 @@ const initialState: SessionContextState = {
   orgs: [],
   activeOrgId: null,
   totpEnrollmentRequired: false,
+  activeOrgSuspended: false,
   asOfSequence: 0,
   isLoaded: false,
 }
@@ -59,6 +63,7 @@ type SeededPayload = {
   orgs: SessionOrgView[]
   activeOrgId: string | null
   totpEnrollmentRequired: boolean
+  activeOrgSuspended: boolean
   asOfSequence: number
 }
 
@@ -76,6 +81,7 @@ export const sessionContextSlice = createSlice({
       state.orgs = action.payload.orgs
       state.activeOrgId = action.payload.activeOrgId
       state.totpEnrollmentRequired = action.payload.totpEnrollmentRequired
+      state.activeOrgSuspended = action.payload.activeOrgSuspended
       state.asOfSequence = action.payload.asOfSequence
       state.isLoaded = true
     },

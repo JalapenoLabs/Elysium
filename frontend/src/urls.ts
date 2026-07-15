@@ -33,7 +33,9 @@ export const UrlTree = {
   organizationGeneral: '/organization/general',
   organizationMembers: '/organization/members',
   organizationTeams: '/organization/teams',
+  organizationRoles: '/organization/roles',
   organizationSecurity: '/organization/security',
+  organizationAudit: '/organization/audit',
 
   // Denied & fault states.
   accessDenied: '/denied',

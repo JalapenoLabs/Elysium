@@ -64,7 +64,9 @@
     "general": "Identity & branding",
     "members": "Members",
     "teams": "Teams",
+    "roles": "Roles & access",
     "security": "Sign-in policy",
+    "audit": "Audit log",
     "groups": {
       "general": "General",
       "people": "People",

@@ -33,6 +33,7 @@ const groups = [
     items: [
       { to: UrlTree.organizationMembers, labelKey: 'orgSettings.members' },
       { to: UrlTree.organizationTeams, labelKey: 'orgSettings.teams' },
+      { to: UrlTree.organizationRoles, labelKey: 'orgSettings.roles' },
     ],
   },
   {
@@ -41,6 +42,7 @@ const groups = [
     Icon: LuShieldCheck,
     items: [
       { to: UrlTree.organizationSecurity, labelKey: 'orgSettings.security' },
+      { to: UrlTree.organizationAudit, labelKey: 'orgSettings.audit' },
     ],
   },
 ] as const

@@ -87,6 +87,50 @@ export function getLoginHistory(): Promise<{ events: LoginEvent[] }> {
     .json<{ events: LoginEvent[] }>()
 }
 
+export type CredentialsSummary = {
+  passkeys: { id: string, created_at: string, last_used_at: string }[]
+  password: { enrolled: boolean }
+  totp: { enrolled: boolean }
+}
+
+// Which credentials the account has enrolled: its passkeys (with added and
+// last-used times), whether a password is set, and whether an authenticator is
+// enrolled. Backs the Security Center's credential views.
+export function getCredentials(): Promise<CredentialsSummary> {
+  return apiClient
+    .get('api/v1/me/credentials')
+    .json<CredentialsSummary>()
+}
+
+export type ActiveSession = {
+  id: string
+  user_agent: string
+  ip: string
+  created_at: string
+  last_seen_at: string
+  expires_at: string
+  current: boolean
+}
+
+// Every live session for the account: where it signed in, its device, and when
+// it was last active. `current` marks this browser's session.
+export function getActiveSessions(): Promise<{ sessions: ActiveSession[] }> {
+  return apiClient
+    .get('api/v1/me/sessions')
+    .json<{ sessions: ActiveSession[] }>()
+}
+
+// Revokes one session by id. Revoking the current session clears the cookie
+// server-side, which signs this browser out.
+export function revokeSession(sessionId: string): Promise<Response> {
+  return apiClient.delete(`api/v1/me/sessions/${sessionId}`)
+}
+
+// Signs out every OTHER session, leaving this one active.
+export function revokeOtherSessions(): Promise<Response> {
+  return apiClient.post('api/v1/me/sessions/revoke-others')
+}
+
 export async function setMyStatus(
   kind: ManualStatusKind,
   text: string = '',

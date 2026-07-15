@@ -16,6 +16,40 @@
       "failed": "We couldn't start two-factor setup. Please try again."
     }
   },
+  "orgRoles": {
+    "title": "Roles & access",
+    "subtitle": "Grant members access to specific admin areas without making them full admins.",
+    "loading": "Loading roles",
+    "loadFailed": "We couldn't load roles. Please try again.",
+    "updateFailed": "We couldn't update access. Please try again.",
+    "allCapabilities": "Full access",
+    "capabilities": {
+      "manage_members": "Manage members",
+      "manage_security": "Manage sign-in policy",
+      "manage_teams": "Manage teams",
+      "view_audit": "View audit log"
+    }
+  },
+  "orgAudit": {
+    "title": "Audit log",
+    "subtitle": "Recent activity in this organization, most recent first.",
+    "loading": "Loading activity",
+    "loadFailed": "We couldn't load the audit log. Please try again.",
+    "empty": "No activity yet.",
+    "actions": {
+      "member.role_changed": "changed the role of",
+      "member.suspended": "suspended",
+      "member.reactivated": "reactivated",
+      "member.removed": "removed",
+      "member.invited": "invited",
+      "org.updated": "updated the organization",
+      "auth_policy.updated": "updated the sign-in policy",
+      "ownership.transferred": "transferred ownership to",
+      "grants.updated": "changed access for",
+      "team.created": "created a team",
+      "team.deleted": "deleted a team"
+    }
+  },
   "orgSecurity": {
     "title": "Sign-in policy",
     "subtitle": "Control how members of this organization sign in.",
@@ -258,9 +292,17 @@
       "roles": {
         "owner": "Owner",
         "admin": "Admin",
-        "member": "Member"
+        "member": "Member",
+        "guest": "Guest"
       },
-      "remove": "Remove",
+      "actions": "Member actions",
+      "suspended": "Suspended",
+      "suspend": "Suspend member",
+      "reactivate": "Reactivate member",
+      "transferOwnership": "Transfer ownership",
+      "transferConfirm": "Make {{name}} the owner of this organization? You'll be demoted to admin, and only they can transfer it back.",
+      "transferAction": "Transfer ownership",
+      "remove": "Remove member",
       "removeConfirm": "Remove {{name}} from the organization? They lose access immediately.",
       "removeAction": "Remove member",
       "loadFailed": "We couldn't load the member list. Please try again.",
@@ -298,6 +340,14 @@
       "addPasskey": "Add a passkey",
       "passkeyAdded": "Passkey added. You can sign in with it right away.",
       "passkeyFailed": "We couldn't add that passkey. Please try again.",
+      "enrolled": "Enrolled",
+      "notSet": "Not set",
+      "passkeyAddedOn": "Added {{when}}",
+      "passkeyLastUsed": "Last used {{when}}",
+      "passkeyNeverUsed": "Never used",
+      "passkeysEmpty": "No passkeys yet.",
+      "passwordTitle": "Password",
+      "passwordBody": "A password plus an authenticator app, if your organization allows it.",
       "addAuthenticator": "Add authenticator",
       "authenticatorAdded": "Authenticator added. It's ready for your next sign-in.",
       "authenticatorInvalid": "That code didn't match. Enter the current one from your app.",
@@ -331,9 +381,13 @@
       "title": "Active sessions",
       "subtitle": "Where you're signed in right now.",
       "thisDevice": "This device",
-      "lastSeen": "Last seen {{when}}",
+      "unknownDevice": "Unknown device",
+      "lastSeen": "active {{when}}",
       "signOut": "Sign out",
       "signOutAll": "Sign out everywhere else",
+      "loading": "Loading sessions",
+      "loadFailed": "We couldn't load your sessions. Please try again.",
+      "revokeFailed": "We couldn't sign that session out. Please try again.",
       "empty": "No other active sessions."
     },
     "profile": {

@@ -22,7 +22,9 @@ import { OrgSettingsLayout } from './pages/Organization/OrgSettingsLayout'
 import { OrgGeneral } from './pages/Organization/OrgGeneral'
 import { OrgMembers } from './pages/Organization/OrgMembers'
 import { Teams } from './pages/Organization/Teams'
+import { OrgRoles } from './pages/Organization/OrgRoles'
 import { OrgSecurity } from './pages/Organization/OrgSecurity'
+import { OrgAuditLog } from './pages/Organization/OrgAuditLog'
 import { AccessDenied } from './pages/Fault/AccessDenied'
 import { Suspended } from './pages/Fault/Suspended'
 import { IdentityUnavailable } from './pages/Fault/IdentityUnavailable'
@@ -83,7 +85,9 @@ export const router = createBrowserRouter([
               { path: UrlTree.organizationGeneral, element: <OrgGeneral /> },
               { path: UrlTree.organizationMembers, element: <OrgMembers /> },
               { path: UrlTree.organizationTeams, element: <Teams /> },
+              { path: UrlTree.organizationRoles, element: <OrgRoles /> },
               { path: UrlTree.organizationSecurity, element: <OrgSecurity /> },
+              { path: UrlTree.organizationAudit, element: <OrgAuditLog /> },
             ],
           },
         ],

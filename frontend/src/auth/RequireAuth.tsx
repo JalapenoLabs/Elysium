@@ -20,12 +20,19 @@ type Props = {
 
 // Gates protected routes on the resolved session. While the session is still
 // resolving it shows the splash; an unreachable identity service routes to a
-// degraded state rather than silently showing an anonymous view.
+// degraded state rather than silently showing an anonymous view. A member
+// suspended in their active org is a valid session but has no access, so they
+// are sent to the suspended screen instead of the app.
 export function RequireAuth(props: Props) {
   const status = useAppSelector((state) => state.session.status)
+  const activeOrgSuspended = useAppSelector((state) => state.sessionContext.activeOrgSuspended)
   const location = useLocation()
 
   if (status === 'authenticated') {
+    if (activeOrgSuspended) {
+      console.debug('RequireAuth: active account suspended in its org, routing to suspended')
+      return <Navigate to={UrlTree.suspended} replace />
+    }
     return props.children
   }
   if (status === 'error') {
