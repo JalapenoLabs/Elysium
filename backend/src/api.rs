@@ -56,9 +56,22 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/me/recovery-codes",
             post(security::regenerate_recovery_codes),
         )
-        // Self-service TOTP enrollment (Security Center, and the require-2FA gate).
+        // Self-service TOTP enrollment + management of named authenticators.
         .route("/api/v1/me/totp/begin", post(security::totp_begin))
         .route("/api/v1/me/totp/confirm", post(security::totp_confirm))
+        .route(
+            "/api/v1/me/totp/{id}",
+            patch(security::rename_totp).delete(security::remove_totp),
+        )
+        .route(
+            "/api/v1/me/totp/{id}/default",
+            post(security::set_default_totp),
+        )
+        // Named passkeys: rename or remove one (never the account's last credential).
+        .route(
+            "/api/v1/me/passkeys/{id}",
+            patch(security::rename_passkey).delete(security::remove_passkey),
+        )
         // Session revocation: sign one device out, or all others.
         .route(
             "/api/v1/me/sessions/revoke-others",

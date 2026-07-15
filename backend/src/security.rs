@@ -33,9 +33,10 @@ const HISTORY_LIMIT: i64 = 50;
 
 /// `GET /api/v1/me/credentials`: the caller's enrolled credentials.
 ///
-/// Lists the account's passkeys (with when each was added and last used) and
-/// whether a password and an authenticator (TOTP) are set, so the Security Center
-/// can show what the account can sign in with. Never returns secret material.
+/// Lists the account's named passkeys and TOTP authenticators (each with when it was
+/// added and last used, and which authenticator is the default) plus whether a
+/// password is set, so the Security Center can show and manage what the account signs
+/// in with. Never returns secret material.
 pub async fn credentials(
     State(state): State<AppState>,
     SessionUser(principal): SessionUser,
@@ -49,9 +50,25 @@ pub async fn credentials(
         }
     };
 
-    let passkeys = sqlx::query_as::<_, (uuid::Uuid, DateTime<Utc>, Option<DateTime<Utc>>)>(
-        "SELECT id, created_at, last_used_at FROM webauthn_credentials
-          WHERE user_id = $1 ORDER BY created_at ASC",
+    let passkeys = sqlx::query_as::<_, (uuid::Uuid, String, DateTime<Utc>, Option<DateTime<Utc>>)>(
+        "SELECT id, name, created_at, last_used_at FROM webauthn_credentials
+              WHERE user_id = $1 ORDER BY created_at ASC",
+    )
+    .bind(user_id)
+    .fetch_all(&state.pool)
+    .await;
+    let totp_methods = sqlx::query_as::<
+        _,
+        (
+            uuid::Uuid,
+            String,
+            bool,
+            DateTime<Utc>,
+            Option<DateTime<Utc>>,
+        ),
+    >(
+        "SELECT id, name, is_default, created_at, last_used_at FROM user_totp_secrets
+              WHERE user_id = $1 AND confirmed_at IS NOT NULL ORDER BY created_at ASC",
     )
     .bind(user_id)
     .fetch_all(&state.pool)
@@ -62,20 +79,29 @@ pub async fn credentials(
     .bind(user_id)
     .fetch_one(&state.pool)
     .await;
-    let has_totp = users::has_totp(&state.pool, user_id).await;
 
-    match (passkeys, has_password, has_totp) {
-        (Ok(passkeys), Ok(has_password), Ok(has_totp)) => Json(json!({
+    match (passkeys, totp_methods, has_password) {
+        (Ok(passkeys), Ok(totp_methods), Ok(has_password)) => Json(json!({
             "passkeys": passkeys
                 .iter()
-                .map(|(id, created_at, last_used_at)| json!({
+                .map(|(id, name, created_at, last_used_at)| json!({
                     "id": id,
+                    "name": name,
+                    "created_at": created_at.to_rfc3339(),
+                    "last_used_at": last_used_at.map(|at| at.to_rfc3339()),
+                }))
+                .collect::<Vec<_>>(),
+            "totp_methods": totp_methods
+                .iter()
+                .map(|(id, name, is_default, created_at, last_used_at)| json!({
+                    "id": id,
+                    "name": name,
+                    "is_default": is_default,
                     "created_at": created_at.to_rfc3339(),
                     "last_used_at": last_used_at.map(|at| at.to_rfc3339()),
                 }))
                 .collect::<Vec<_>>(),
             "password": { "enrolled": has_password },
-            "totp": { "enrolled": has_totp },
         }))
         .into_response(),
         _ => {
@@ -331,6 +357,274 @@ pub async fn totp_confirm(
         Err(error) => {
             tracing::error!(error = %error, "totp confirm store failed");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// A new label for a credential (a TOTP authenticator or a passkey).
+#[derive(Deserialize)]
+pub struct RenameCredential {
+    name: String,
+}
+
+/// Resolves the caller's user id, or returns a ready error response.
+async fn resolve_user(state: &AppState, subject: &str) -> Result<Uuid, Response> {
+    match users::id_for_subject(&state.pool, subject).await {
+        Ok(Some(id)) => Ok(id),
+        Ok(None) => Err(StatusCode::UNAUTHORIZED.into_response()),
+        Err(error) => {
+            tracing::error!(error = %error, "credential-management user lookup failed");
+            Err(StatusCode::SERVICE_UNAVAILABLE.into_response())
+        }
+    }
+}
+
+/// Maps a scoped mutation to 204 (done), 404 (nothing matched), or 503 (error).
+fn respond_affected(
+    result: sqlx::Result<sqlx::postgres::PgQueryResult>,
+    operation: &str,
+) -> Response {
+    match result {
+        Ok(done) if done.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, operation, "credential mutation failed");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
+/// `PATCH /api/v1/me/totp/{id}`: rename one of the caller's TOTP authenticators.
+pub async fn rename_totp(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<RenameCredential>,
+) -> Response {
+    let name = body.name.trim();
+    if name.is_empty() {
+        return (StatusCode::BAD_REQUEST, "name is required").into_response();
+    }
+    let user_id = match resolve_user(&state, &principal.sub).await {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let result =
+        sqlx::query("UPDATE user_totp_secrets SET name = $1 WHERE id = $2 AND user_id = $3")
+            .bind(name)
+            .bind(id)
+            .bind(user_id)
+            .execute(&state.pool)
+            .await;
+    respond_affected(result, "totp.rename")
+}
+
+/// `POST /api/v1/me/totp/{id}/default`: make a TOTP authenticator the default.
+///
+/// Clears the current default and sets the new one in a transaction, so the
+/// one-default-per-user invariant is never transiently violated.
+pub async fn set_default_totp(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    Path(id): Path<Uuid>,
+) -> Response {
+    let user_id = match resolve_user(&state, &principal.sub).await {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+
+    let outcome = async {
+        let mut tx = state.pool.begin().await?;
+        let owned = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (
+                 SELECT 1 FROM user_totp_secrets
+                  WHERE id = $1 AND user_id = $2 AND confirmed_at IS NOT NULL
+             )",
+        )
+        .bind(id)
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !owned {
+            return Ok::<bool, sqlx::Error>(false);
+        }
+        sqlx::query(
+            "UPDATE user_totp_secrets SET is_default = FALSE WHERE user_id = $1 AND is_default",
+        )
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE user_totp_secrets SET is_default = TRUE WHERE id = $1 AND user_id = $2",
+        )
+        .bind(id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+    .await;
+
+    match outcome {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "set default totp failed");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
+/// `DELETE /api/v1/me/totp/{id}`: remove one of the caller's TOTP authenticators.
+///
+/// If the removed one was the default and others remain, the oldest is promoted so
+/// the account keeps a default. Removing the last leaves the account with no TOTP; a
+/// `require_totp` org re-prompts enrollment on the next password sign-in (see
+/// `crate::context`).
+pub async fn remove_totp(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    Path(id): Path<Uuid>,
+) -> Response {
+    let user_id = match resolve_user(&state, &principal.sub).await {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+
+    let outcome = async {
+        let mut tx = state.pool.begin().await?;
+        let removed = sqlx::query_scalar::<_, bool>(
+            "DELETE FROM user_totp_secrets WHERE id = $1 AND user_id = $2 RETURNING is_default",
+        )
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(was_default) = removed else {
+            return Ok::<bool, sqlx::Error>(false);
+        };
+        if was_default {
+            sqlx::query(
+                "UPDATE user_totp_secrets SET is_default = TRUE
+                  WHERE id = (
+                      SELECT id FROM user_totp_secrets
+                       WHERE user_id = $1 AND confirmed_at IS NOT NULL
+                       ORDER BY created_at ASC
+                       LIMIT 1
+                  )",
+            )
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(true)
+    }
+    .await;
+
+    match outcome {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "remove totp failed");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
+/// `PATCH /api/v1/me/passkeys/{id}`: rename one of the caller's passkeys.
+pub async fn rename_passkey(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<RenameCredential>,
+) -> Response {
+    let user_id = match resolve_user(&state, &principal.sub).await {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    let result =
+        sqlx::query("UPDATE webauthn_credentials SET name = $1 WHERE id = $2 AND user_id = $3")
+            .bind(body.name.trim())
+            .bind(id)
+            .bind(user_id)
+            .execute(&state.pool)
+            .await;
+    respond_affected(result, "passkey.rename")
+}
+
+/// The result of attempting to remove a passkey.
+enum PasskeyRemoval {
+    Done,
+    NotFound,
+    /// Would leave the account with no way to sign in.
+    LastCredential,
+}
+
+/// `DELETE /api/v1/me/passkeys/{id}`: remove one of the caller's passkeys.
+///
+/// Refuses to remove the account's last sign-in credential: a passkey cannot be
+/// deleted when it is the user's only passkey and they have no password, which would
+/// otherwise lock them out.
+pub async fn remove_passkey(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    Path(id): Path<Uuid>,
+) -> Response {
+    let user_id = match resolve_user(&state, &principal.sub).await {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+
+    let outcome = async {
+        let mut tx = state.pool.begin().await?;
+        let owned = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM webauthn_credentials WHERE id = $1 AND user_id = $2)",
+        )
+        .bind(id)
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !owned {
+            return Ok::<PasskeyRemoval, sqlx::Error>(PasskeyRemoval::NotFound);
+        }
+        let passkeys = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM webauthn_credentials WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let has_password = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM user_password_credentials WHERE user_id = $1)",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if passkeys <= 1 && !has_password {
+            return Ok(PasskeyRemoval::LastCredential);
+        }
+        sqlx::query("DELETE FROM webauthn_credentials WHERE id = $1 AND user_id = $2")
+            .bind(id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(PasskeyRemoval::Done)
+    }
+    .await;
+
+    match outcome {
+        Ok(PasskeyRemoval::Done) => StatusCode::NO_CONTENT.into_response(),
+        Ok(PasskeyRemoval::NotFound) => StatusCode::NOT_FOUND.into_response(),
+        Ok(PasskeyRemoval::LastCredential) => (
+            StatusCode::CONFLICT,
+            "cannot remove your only sign-in credential",
+        )
+            .into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "remove passkey failed");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }
 }
