@@ -313,6 +313,9 @@ mod tests {
             opaque_setup: Arc::new(ServerSetup::<Suite>::new(&mut OsRng)),
             crypto: Crypto::new(&[0u8; 32]).expect("a 32-byte test key is valid"),
             redis_url: Some("redis://:secret@localhost:1".to_string()),
+            redis: None,
+            http: reqwest::Client::new(),
+            geoip_endpoint: None,
             rabbitmq_url: None,
             app_origin: "http://localhost:5173".to_string(),
         }

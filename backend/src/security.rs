@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use crate::session::{self, SessionUser, SESSION_COOKIE};
 use crate::state::AppState;
-use crate::{cookies, recovery, totp, users};
+use crate::{cookies, geoip, recovery, totp, users};
 
 /// Short-lived cookie carrying the unconfirmed TOTP secret between begin and confirm.
 const TOTP_ENROLL_COOKIE: &str = "elysium_totp_enroll";
@@ -112,19 +112,21 @@ pub async fn login_history(
     .await;
 
     match rows {
-        Ok(rows) => Json(json!({
-            "events": rows
-                .iter()
-                .map(|(method, outcome, ip, user_agent, created_at)| json!({
+        Ok(rows) => {
+            let mut events = Vec::with_capacity(rows.len());
+            for (method, outcome, ip, user_agent, created_at) in &rows {
+                let addr = ip.map(|net| net.ip());
+                events.push(json!({
                     "method": method,
                     "outcome": outcome,
-                    "ip": ip.map(|net| net.ip().to_string()),
+                    "ip": addr.map(|addr| addr.to_string()),
+                    "location": geoip::locate(&state, addr).await,
                     "user_agent": user_agent,
                     "created_at": created_at.to_rfc3339(),
-                }))
-                .collect::<Vec<_>>(),
-        }))
-        .into_response(),
+                }));
+            }
+            Json(json!({ "events": events })).into_response()
+        }
         Err(error) => {
             tracing::error!(error = %error, "login-history query failed");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
@@ -294,21 +296,23 @@ pub async fn sessions(
     .await;
 
     match rows {
-        Ok(rows) => Json(json!({
-            "sessions": rows
-                .iter()
-                .map(|(id, user_agent, ip, created_at, last_seen_at, expires_at)| json!({
+        Ok(rows) => {
+            let mut sessions = Vec::with_capacity(rows.len());
+            for (id, user_agent, ip, created_at, last_seen_at, expires_at) in &rows {
+                let addr = ip.map(|net| net.ip());
+                sessions.push(json!({
                     "id": id,
                     "user_agent": user_agent,
-                    "ip": ip.map(|net| net.ip().to_string()),
+                    "ip": addr.map(|addr| addr.to_string()),
+                    "location": geoip::locate(&state, addr).await,
                     "created_at": created_at.to_rfc3339(),
                     "last_seen_at": last_seen_at.to_rfc3339(),
                     "expires_at": expires_at.to_rfc3339(),
                     "current": Some(*id) == current,
-                }))
-                .collect::<Vec<_>>(),
-        }))
-        .into_response(),
+                }));
+            }
+            Json(json!({ "sessions": sessions })).into_response()
+        }
         Err(error) => {
             tracing::error!(error = %error, "sessions read failed");
             StatusCode::SERVICE_UNAVAILABLE.into_response()

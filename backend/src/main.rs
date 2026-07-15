@@ -22,6 +22,7 @@ mod credentials;
 mod crypto;
 mod enrollment;
 mod events;
+mod geoip;
 mod grants;
 mod invites;
 mod login_events;
@@ -92,8 +93,13 @@ async fn main() -> eyre::Result<()> {
             .wrap_err("failed to initialize the OPAQUE server setup")?,
     );
 
-    let state = AppState::new(pool, opaque_setup, crypto)
+    let mut state = AppState::new(pool, opaque_setup, crypto)
         .wrap_err("failed to initialize application state")?;
+
+    // Attach the Redis cache handle now that we are in an async context. A failure is
+    // non-fatal: cache-backed features (IP geolocation) fall back to their uncached
+    // behavior rather than blocking startup.
+    state.redis = state::connect_redis(state.redis_url.as_deref()).await;
 
     let port = env::var("API_PORT")
         .ok()

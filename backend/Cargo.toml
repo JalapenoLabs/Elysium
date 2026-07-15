@@ -37,6 +37,13 @@ webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"]
 # core proto types to request a discoverable credential (see enrollment.rs). Same
 # 0.5 line as webauthn-rs, so Cargo unifies them to one version.
 webauthn-rs-core = "0.5"
+# Redis is the deployment's cache layer (see docs/geoip.md); the connection manager
+# multiplexes one reconnecting connection across handlers. tokio-comp for the async
+# runtime, connection-manager for the reconnecting handle.
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+# Outbound HTTP for best-effort IP geolocation. rustls (not native-tls) matches the
+# sqlx stack and keeps the build off system OpenSSL for this dependency.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 # OPAQUE aPAKE (RFC 9807) password auth. The suite (ristretto255 + TripleDH-SHA512
 # + Argon2) matches @serenity-kit/opaque on the client, so both ends interop; the
 # suite types below (sha2, argon2) must therefore mirror that client's Cargo.

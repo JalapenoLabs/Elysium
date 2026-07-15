@@ -48,10 +48,18 @@ pub struct AppState {
     pub opaque_setup: Arc<ServerSetup<Suite>>,
     /// Seals and opens secrets at rest (OPAQUE setup, TOTP secrets).
     pub crypto: Crypto,
-    /// Redis connection string when configured. Wiring only for now: `/health`
-    /// reports its presence, and a real client lands with the first feature that
-    /// needs the cache.
+    /// Redis connection string when configured. `/health` reports its presence.
     pub redis_url: Option<String>,
+    /// Reconnecting Redis handle when a connection was established (see
+    /// [`connect_redis`]). `None` when Redis is unconfigured or unreachable, in which
+    /// case cache-backed features degrade gracefully rather than fail.
+    pub redis: Option<redis::aio::ConnectionManager>,
+    /// Shared outbound HTTP client (connection-pooled, cheap to clone), used for
+    /// best-effort IP geolocation.
+    pub http: reqwest::Client,
+    /// Geolocation provider endpoint when the feature is enabled (see
+    /// `crate::geoip`); `None` disables IP geolocation.
+    pub geoip_endpoint: Option<String>,
     /// RabbitMQ connection string when configured. Same wiring-only status as
     /// `redis_url`.
     pub rabbitmq_url: Option<String>,
@@ -83,9 +91,58 @@ impl AppState {
             opaque_setup,
             crypto,
             redis_url: read_optional("REDIS_URL"),
+            // The reconnecting handle is attached by `main` after boot, because
+            // establishing it is async; it starts absent.
+            redis: None,
+            http: reqwest::Client::new(),
+            geoip_endpoint: crate::geoip::endpoint_from_env(),
             rabbitmq_url: read_optional("RABBITMQ_URL"),
             app_origin: deployment.app_origin,
         })
+    }
+}
+
+/// How long to wait for the initial Redis connection before giving up.
+///
+/// Compose gates the API on a healthy Redis, so this only guards the rare case where
+/// Redis is briefly unreachable at boot; the API still starts, with caches disabled.
+const REDIS_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Builds a reconnecting Redis handle from an optional connection string.
+///
+/// Returns `None` when the URL is absent or blank, cannot be parsed, or the initial
+/// connection does not complete within [`REDIS_CONNECT_TIMEOUT`]. A `None` result is not
+/// fatal: cache-backed features fall back to their uncached behavior. Once connected,
+/// the manager reconnects on its own after transient drops.
+pub async fn connect_redis(url: Option<&str>) -> Option<redis::aio::ConnectionManager> {
+    let url = url.filter(|value| !value.trim().is_empty())?;
+
+    let client = match redis::Client::open(url) {
+        Ok(client) => client,
+        Err(error) => {
+            tracing::warn!(error = %error, "invalid REDIS_URL; caches disabled");
+            return None;
+        }
+    };
+
+    match tokio::time::timeout(
+        REDIS_CONNECT_TIMEOUT,
+        redis::aio::ConnectionManager::new(client),
+    )
+    .await
+    {
+        Ok(Ok(manager)) => {
+            tracing::info!("redis cache connected");
+            Some(manager)
+        }
+        Ok(Err(error)) => {
+            tracing::warn!(error = %error, "redis connection failed; caches disabled");
+            None
+        }
+        Err(_) => {
+            tracing::warn!("redis connection timed out; caches disabled");
+            None
+        }
     }
 }
 
