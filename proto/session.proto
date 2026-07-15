@@ -50,4 +50,7 @@ message SessionContext {
   uint64 as_of_sequence = 5;
   // Server time when this context was built, for client clock-skew correction.
   elysium.common.v1.Timestamp server_time = 6;
+  // True when the caller belongs to an org that mandates a second factor but has
+  // no TOTP enrolled; the client must route them into TOTP enrollment before use.
+  bool totp_enrollment_required = 7;
 }

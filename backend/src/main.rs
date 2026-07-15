@@ -27,6 +27,7 @@ mod members;
 mod opaque;
 mod orgs;
 mod password;
+mod policies;
 mod profile;
 mod proto;
 mod protobuf;

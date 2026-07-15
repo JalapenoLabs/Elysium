@@ -22,8 +22,8 @@ use crate::protobuf::Protobuf;
 use crate::session::SessionUser;
 use crate::state::AppState;
 use crate::{
-    accounts, bootstrap, context, credentials, invites, members, orgs, password, profile, recovery,
-    security, sse, teams, webauthn,
+    accounts, bootstrap, context, credentials, invites, members, orgs, password, policies, profile,
+    recovery, security, sse, teams, webauthn,
 };
 
 /// Builds the application router with shared state and middleware attached.
@@ -98,6 +98,12 @@ pub fn router(state: AppState) -> Router {
         // Orgs: create additional orgs, and edit name/logo (fans out org.updated).
         .route("/api/v1/orgs", post(orgs::create))
         .route("/api/v1/orgs/{id}", patch(orgs::update))
+        // Org auth policy (admin+): the security control plane over sign-in methods,
+        // mandatory 2FA, and session lifetime.
+        .route(
+            "/api/v1/orgs/{id}/auth-policy",
+            get(policies::get_policy).patch(policies::update_policy),
+        )
         // Org member management (admin+): view the roster, change a role, remove.
         .route("/api/v1/orgs/{id}/members", get(members::list))
         .route(

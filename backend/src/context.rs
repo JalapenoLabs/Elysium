@@ -85,6 +85,16 @@ pub async fn context(
     // snapshot is never double-applied and never misses a change.
     let as_of_sequence = state.sse.sequence(&principal.sub);
 
+    // Whether the caller must enroll a second factor before using the app: they
+    // belong to an org that mandates TOTP and have none confirmed yet.
+    let totp_enrollment_required = match mandatory_totp_missing(&state, &principal.sub).await {
+        Ok(required) => required,
+        Err(error) => {
+            tracing::error!(error = %error, "totp requirement check failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+
     let context = SessionContext {
         user: Some(user),
         accounts: accounts
@@ -116,9 +126,36 @@ pub async fn context(
         active_org_id: principal.active_org_id.map(proto_uuid),
         as_of_sequence,
         server_time: Some(now()),
+        totp_enrollment_required,
     };
 
     Protobuf(context).into_response()
+}
+
+/// Whether the caller is in a `require_totp` org but has no confirmed TOTP.
+///
+/// TOTP is one factor per profile, so any mandating org means the profile must
+/// have it; an unknown subject reads as not required.
+///
+/// # Errors
+/// Returns an error if a query fails.
+async fn mandatory_totp_missing(state: &AppState, subject: &str) -> sqlx::Result<bool> {
+    let Some(user_id) = crate::users::id_for_subject(&state.pool, subject).await? else {
+        return Ok(false);
+    };
+    let mandated = sqlx::query_scalar::<_, bool>(
+        "SELECT COALESCE(bool_or(p.require_totp), false)
+           FROM org_members m
+           JOIN org_auth_policies p ON p.org_id = m.org_id
+          WHERE m.user_id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.pool)
+    .await?;
+    if !mandated {
+        return Ok(false);
+    }
+    Ok(!crate::users::has_totp(&state.pool, user_id).await?)
 }
 
 /// Wraps a database `Uuid` in the proto string form.
