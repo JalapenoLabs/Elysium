@@ -53,4 +53,7 @@ message SessionContext {
   // True when the caller belongs to an org that mandates a second factor but has
   // no TOTP enrolled; the client must route them into TOTP enrollment before use.
   bool totp_enrollment_required = 7;
+  // True when the caller's active-org membership is suspended; the client routes
+  // them to the suspended screen (they keep access to any other orgs).
+  bool active_org_suspended = 8;
 }

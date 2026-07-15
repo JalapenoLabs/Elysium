@@ -86,7 +86,7 @@ pub async fn mint(
     };
 
     let role = match body.role.as_deref().unwrap_or("member") {
-        role @ ("member" | "admin" | "owner") => role,
+        role @ ("guest" | "member" | "admin" | "owner") => role,
         _ => return (StatusCode::BAD_REQUEST, "invalid role").into_response(),
     };
     // No privilege escalation: the invited role cannot outrank the inviter.

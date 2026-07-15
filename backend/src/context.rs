@@ -95,6 +95,17 @@ pub async fn context(
         }
     };
 
+    // Whether the caller's active-org membership is suspended, so the client can
+    // route them to the suspended screen without waiting for a 403.
+    let active_org_suspended =
+        match active_org_suspended(&state, &principal.sub, principal.active_org_id).await {
+            Ok(suspended) => suspended,
+            Err(error) => {
+                tracing::error!(error = %error, "active-org suspension check failed");
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
+        };
+
     let context = SessionContext {
         user: Some(user),
         accounts: accounts
@@ -127,9 +138,30 @@ pub async fn context(
         as_of_sequence,
         server_time: Some(now()),
         totp_enrollment_required,
+        active_org_suspended,
     };
 
     Protobuf(context).into_response()
+}
+
+/// Whether the caller's active-org membership is suspended.
+///
+/// # Errors
+/// Returns an error if a query fails.
+async fn active_org_suspended(
+    state: &AppState,
+    subject: &str,
+    active_org_id: Option<Uuid>,
+) -> sqlx::Result<bool> {
+    let Some(org_id) = active_org_id else {
+        return Ok(false);
+    };
+    let Some(user_id) = crate::users::id_for_subject(&state.pool, subject).await? else {
+        return Ok(false);
+    };
+    Ok(crate::authz::membership(&state.pool, user_id, org_id)
+        .await?
+        .is_some_and(|entry| entry.suspended))
 }
 
 /// Whether the caller is in a `require_totp` org but has no confirmed TOTP.

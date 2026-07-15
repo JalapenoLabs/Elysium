@@ -35,8 +35,19 @@ pub async fn list(
         return response;
     }
 
-    let rows = sqlx::query_as::<_, (Uuid, String, String, String, String, DateTime<Utc>)>(
-        "SELECT u.id, u.email, u.display_name, u.avatar_url, m.role, m.joined_at
+    let rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            DateTime<Utc>,
+            Option<DateTime<Utc>>,
+        ),
+    >(
+        "SELECT u.id, u.email, u.display_name, u.avatar_url, m.role, m.joined_at, m.suspended_at
            FROM org_members m
            JOIN users u ON u.id = m.user_id
           WHERE m.org_id = $1
@@ -50,7 +61,7 @@ pub async fn list(
         Ok(rows) => Json(json!({
             "members": rows
                 .iter()
-                .map(|(id, email, display_name, avatar_url, role, joined_at)| {
+                .map(|(id, email, display_name, avatar_url, role, joined_at, suspended_at)| {
                     json!({
                         "user_id": id,
                         "email": email,
@@ -58,6 +69,7 @@ pub async fn list(
                         "avatar_url": avatar_url,
                         "role": role,
                         "joined_at": joined_at.to_rfc3339(),
+                        "suspended": suspended_at.is_some(),
                     })
                 })
                 .collect::<Vec<_>>(),
@@ -193,6 +205,60 @@ pub async fn revoke_sessions(
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// `POST /api/v1/orgs/:id/members/:user_id/suspend`: suspend a member's access.
+pub async fn suspend(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    Path((org_id, target_id)): Path<(Uuid, Uuid)>,
+) -> Response {
+    set_suspended(&state, &principal, org_id, target_id, true).await
+}
+
+/// `POST /api/v1/orgs/:id/members/:user_id/reactivate`: restore a member's access.
+pub async fn reactivate(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    Path((org_id, target_id)): Path<(Uuid, Uuid)>,
+) -> Response {
+    set_suspended(&state, &principal, org_id, target_id, false).await
+}
+
+/// Suspends (or reactivates) a member; the guard does the rest live.
+///
+/// A suspended member keeps their row but the RBAC guard treats them as having no
+/// access, and realtime fan-out already excludes them, so no session teardown is
+/// needed; a `session.changed` nudge routes their client to `/suspended`.
+async fn set_suspended(
+    state: &AppState,
+    principal: &Principal,
+    org_id: Uuid,
+    target_id: Uuid,
+    suspend: bool,
+) -> Response {
+    let (actor_id, actor_role) = match authorize_manager(state, principal, org_id).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    if let Err(response) = manageable_target(state, org_id, target_id, actor_id, actor_role).await {
+        return response;
+    }
+
+    let result =
+        sqlx::query("UPDATE org_members SET suspended_at = $1 WHERE user_id = $2 AND org_id = $3")
+            .bind(suspend.then(Utc::now))
+            .bind(target_id)
+            .bind(org_id)
+            .execute(&state.pool)
+            .await;
+    if let Err(error) = result {
+        tracing::error!(error = %error, "member suspension update failed");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    notify_membership_changed(state, target_id).await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
 /// Resolves the actor and requires they are at least an admin of `org_id`.
 ///
 /// # Errors
@@ -239,8 +305,10 @@ async fn manageable_target(
     if target_id == actor_id {
         return Err((StatusCode::FORBIDDEN, "cannot manage your own membership").into_response());
     }
-    match authz::role_in_org(&state.pool, target_id, org_id).await {
-        Ok(Some(role)) if role < actor_role => Ok(role),
+    // `membership` (not `role_in_org`) so a suspended target stays visible to be
+    // reactivated or otherwise managed.
+    match authz::membership(&state.pool, target_id, org_id).await {
+        Ok(Some(entry)) if entry.role < actor_role => Ok(entry.role),
         Ok(Some(_)) => Err(StatusCode::FORBIDDEN.into_response()),
         Ok(None) => Err(StatusCode::NOT_FOUND.into_response()),
         Err(error) => {

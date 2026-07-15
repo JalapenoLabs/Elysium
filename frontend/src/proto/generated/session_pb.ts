@@ -22,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file session.proto.
  */
 export const file_session: GenFile = /*@__PURE__*/
-  fileDesc("Cg1zZXNzaW9uLnByb3RvEhJlbHlzaXVtLnNlc3Npb24udjEihgEKDlNlc3Npb25BY2NvdW50EigKB3VzZXJfaWQYASABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkEg0KBWVtYWlsGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRISCgphdmF0YXJfdXJsGAQgASgJEhEKCWlzX2FjdGl2ZRgFIAEoCCKVAQoKU2Vzc2lvbk9yZxIjCgJpZBgBIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSDAoEbmFtZRgCIAEoCRIMCgRzbHVnGAMgASgJEgwKBHJvbGUYBCABKAkSEAoIbG9nb191cmwYBSABKAkSFAoMYWNjZW50X2NvbG9yGAYgASgJEhAKCHdvcmRtYXJrGAcgASgJIrYCCg5TZXNzaW9uQ29udGV4dBIjCgR1c2VyGAEgASgLMhUuZWx5c2l1bS51c2VyLnYxLlVzZXISNAoIYWNjb3VudHMYAiADKAsyIi5lbHlzaXVtLnNlc3Npb24udjEuU2Vzc2lvbkFjY291bnQSLAoEb3JncxgDIAMoCzIeLmVseXNpdW0uc2Vzc2lvbi52MS5TZXNzaW9uT3JnEi4KDWFjdGl2ZV9vcmdfaWQYBCABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkEhYKDmFzX29mX3NlcXVlbmNlGAUgASgEEjEKC3NlcnZlcl90aW1lGAYgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEiAKGHRvdHBfZW5yb2xsbWVudF9yZXF1aXJlZBgHIAEoCGIGcHJvdG8z", [file_common, file_user]);
+  fileDesc("Cg1zZXNzaW9uLnByb3RvEhJlbHlzaXVtLnNlc3Npb24udjEihgEKDlNlc3Npb25BY2NvdW50EigKB3VzZXJfaWQYASABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkEg0KBWVtYWlsGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRISCgphdmF0YXJfdXJsGAQgASgJEhEKCWlzX2FjdGl2ZRgFIAEoCCKVAQoKU2Vzc2lvbk9yZxIjCgJpZBgBIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSDAoEbmFtZRgCIAEoCRIMCgRzbHVnGAMgASgJEgwKBHJvbGUYBCABKAkSEAoIbG9nb191cmwYBSABKAkSFAoMYWNjZW50X2NvbG9yGAYgASgJEhAKCHdvcmRtYXJrGAcgASgJItQCCg5TZXNzaW9uQ29udGV4dBIjCgR1c2VyGAEgASgLMhUuZWx5c2l1bS51c2VyLnYxLlVzZXISNAoIYWNjb3VudHMYAiADKAsyIi5lbHlzaXVtLnNlc3Npb24udjEuU2Vzc2lvbkFjY291bnQSLAoEb3JncxgDIAMoCzIeLmVseXNpdW0uc2Vzc2lvbi52MS5TZXNzaW9uT3JnEi4KDWFjdGl2ZV9vcmdfaWQYBCABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkEhYKDmFzX29mX3NlcXVlbmNlGAUgASgEEjEKC3NlcnZlcl90aW1lGAYgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEiAKGHRvdHBfZW5yb2xsbWVudF9yZXF1aXJlZBgHIAEoCBIcChRhY3RpdmVfb3JnX3N1c3BlbmRlZBgIIAEoCGIGcHJvdG8z", [file_common, file_user]);
 
 /**
  * One profile signed into this browser session (the profile switcher).
@@ -171,6 +171,14 @@ export type SessionContext = Message<"elysium.session.v1.SessionContext"> & {
    * @generated from field: bool totp_enrollment_required = 7;
    */
   totpEnrollmentRequired: boolean;
+
+  /**
+   * True when the caller's active-org membership is suspended; the client routes
+   * them to the suspended screen (they keep access to any other orgs).
+   *
+   * @generated from field: bool active_org_suspended = 8;
+   */
+  activeOrgSuspended: boolean;
 };
 
 /**

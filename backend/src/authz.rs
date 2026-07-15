@@ -13,6 +13,7 @@
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -26,6 +27,7 @@ use crate::users;
 /// a `role >= minimum` comparison is therefore "at least this privileged".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OrgRole {
+    Guest,
     Member,
     Admin,
     Owner,
@@ -34,13 +36,14 @@ pub enum OrgRole {
 impl OrgRole {
     /// Parses a stored `org_members.role` value; an unknown value is `None`.
     ///
-    /// The same three tokens are used for invited roles, so callers comparing a
+    /// The same tokens are used for invited roles, so callers comparing a
     /// requested role against the caller's (anti-escalation) parse through here.
     pub(crate) fn from_db(value: &str) -> Option<Self> {
         match value {
             "owner" => Some(Self::Owner),
             "admin" => Some(Self::Admin),
             "member" => Some(Self::Member),
+            "guest" => Some(Self::Guest),
             _ => None,
         }
     }
@@ -51,11 +54,51 @@ impl OrgRole {
             Self::Owner => "owner",
             Self::Admin => "admin",
             Self::Member => "member",
+            Self::Guest => "guest",
         }
     }
 }
 
-/// The caller's role in `org_id`, or `None` when they are not a member.
+/// A raw membership: the stored role and whether it is currently suspended.
+///
+/// For inspecting a *target* of management, where a suspended member must still be
+/// visible (to reactivate or otherwise manage them). Access decisions use
+/// [`role_in_org`], which hides suspended members instead.
+pub struct Membership {
+    pub role: OrgRole,
+    pub suspended: bool,
+}
+
+/// The raw membership of `user_id` in `org_id`, or `None` when not a member.
+///
+/// Includes suspended members; use this to inspect a management *target*.
+///
+/// # Errors
+/// Returns an error if the query fails.
+pub async fn membership(
+    pool: &PgPool,
+    user_id: Uuid,
+    org_id: Uuid,
+) -> sqlx::Result<Option<Membership>> {
+    let row = sqlx::query_as::<_, (String, Option<DateTime<Utc>>)>(
+        "SELECT role, suspended_at FROM org_members WHERE user_id = $1 AND org_id = $2",
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.and_then(|(role, suspended_at)| {
+        OrgRole::from_db(&role).map(|role| Membership {
+            role,
+            suspended: suspended_at.is_some(),
+        })
+    }))
+}
+
+/// The caller's effective role in `org_id`, or `None` when they have no access.
+///
+/// A suspended member has no effective role, so access checks treat them as a
+/// non-member (indistinguishable, per the non-enumeration rule).
 ///
 /// # Errors
 /// Returns an error if the query fails.
@@ -64,14 +107,10 @@ pub async fn role_in_org(
     user_id: Uuid,
     org_id: Uuid,
 ) -> sqlx::Result<Option<OrgRole>> {
-    let role = sqlx::query_scalar::<_, String>(
-        "SELECT role FROM org_members WHERE user_id = $1 AND org_id = $2",
-    )
-    .bind(user_id)
-    .bind(org_id)
-    .fetch_optional(pool)
-    .await?;
-    Ok(role.and_then(|value| OrgRole::from_db(&value)))
+    Ok(membership(pool, user_id, org_id)
+        .await?
+        .filter(|entry| !entry.suspended)
+        .map(|entry| entry.role))
 }
 
 /// Ensures the caller holds at least `minimum` in `org_id`, returning their role.

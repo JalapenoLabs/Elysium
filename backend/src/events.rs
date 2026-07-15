@@ -97,18 +97,22 @@ pub fn announce_session_change(state: &AppState, subject: &str, reason: &str) {
     );
 }
 
-/// The subjects of every member of an org.
+/// The subjects of every active member of an org (suspended members excluded).
 async fn member_subjects(state: &AppState, org_id: Uuid) -> sqlx::Result<Vec<String>> {
     sqlx::query_scalar::<_, String>(
-        "SELECT u.subject FROM users u JOIN org_members m ON m.user_id = u.id WHERE m.org_id = $1",
+        "SELECT u.subject FROM users u
+           JOIN org_members m ON m.user_id = u.id
+          WHERE m.org_id = $1 AND m.suspended_at IS NULL",
     )
     .bind(org_id)
     .fetch_all(&state.pool)
     .await
 }
 
-/// The subjects of everyone who shares at least one org with `subject` (including
-/// the user themselves).
+/// The subjects of everyone who shares an active org membership with `subject`.
+///
+/// Suspended memberships on either side are excluded, so a suspended member neither
+/// receives an org's teammate events nor leaks their own to it.
 async fn teammate_subjects(state: &AppState, subject: &str) -> sqlx::Result<Vec<String>> {
     sqlx::query_scalar::<_, String>(
         "SELECT DISTINCT u2.subject
@@ -116,7 +120,9 @@ async fn teammate_subjects(state: &AppState, subject: &str) -> sqlx::Result<Vec<
            JOIN org_members m1 ON m1.user_id = u1.id
            JOIN org_members m2 ON m2.org_id = m1.org_id
            JOIN users u2 ON u2.id = m2.user_id
-          WHERE u1.subject = $1",
+          WHERE u1.subject = $1
+            AND m1.suspended_at IS NULL
+            AND m2.suspended_at IS NULL",
     )
     .bind(subject)
     .fetch_all(&state.pool)
