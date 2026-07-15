@@ -16,9 +16,11 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::audit;
 use crate::authz::{self, OrgRole};
 use crate::session::SessionUser;
 use crate::state::AppState;
+use crate::users;
 
 /// Smallest allowed session lifetime (5 minutes): short, but not self-defeating.
 const MIN_SESSION_LIFETIME_SECONDS: i32 = 300;
@@ -160,7 +162,20 @@ pub async fn update_policy(
     .await;
 
     match result {
-        Ok(_) => Json(merged.to_json()).into_response(),
+        Ok(_) => {
+            if let Ok(Some(actor_id)) = users::id_for_subject(&state.pool, &principal.sub).await {
+                audit::record(
+                    &state.pool,
+                    org_id,
+                    actor_id,
+                    "org.auth_policy_updated",
+                    None,
+                    merged.to_json(),
+                )
+                .await;
+            }
+            Json(merged.to_json()).into_response()
+        }
         Err(error) => {
             tracing::error!(error = %error, "auth-policy update failed");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()

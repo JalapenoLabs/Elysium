@@ -17,6 +17,7 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::audit;
 use crate::authz::{self, OrgRole};
 use crate::events;
 use crate::session::{Principal, SessionUser};
@@ -131,6 +132,15 @@ pub async fn change_role(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
+    audit::record(
+        &state.pool,
+        org_id,
+        actor_id,
+        "member.role_changed",
+        Some(target_id),
+        json!({ "role": new_role.as_db() }),
+    )
+    .await;
     // Nudge the affected member's clients to re-read their context (role changed).
     notify_membership_changed(&state, target_id).await;
     StatusCode::NO_CONTENT.into_response()
@@ -161,6 +171,15 @@ pub async fn remove(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
+    audit::record(
+        &state.pool,
+        org_id,
+        actor_id,
+        "member.removed",
+        Some(target_id),
+        json!({}),
+    )
+    .await;
     // The removed member lost access to this org; nudge their clients to re-read.
     notify_membership_changed(&state, target_id).await;
     StatusCode::NO_CONTENT.into_response()
@@ -197,6 +216,15 @@ pub async fn revoke_sessions(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
+    audit::record(
+        &state.pool,
+        org_id,
+        actor_id,
+        "member.sessions_revoked",
+        Some(target_id),
+        json!({}),
+    )
+    .await;
     // Cut the target's live realtime immediately, then announce them offline.
     if let Ok(Some(subject)) = users::subject_for_id(&state.pool, target_id).await {
         state.sse.disconnect(&subject);
@@ -255,6 +283,20 @@ async fn set_suspended(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
+    let action = if suspend {
+        "member.suspended"
+    } else {
+        "member.reactivated"
+    };
+    audit::record(
+        &state.pool,
+        org_id,
+        actor_id,
+        action,
+        Some(target_id),
+        json!({}),
+    )
+    .await;
     notify_membership_changed(state, target_id).await;
     StatusCode::NO_CONTENT.into_response()
 }

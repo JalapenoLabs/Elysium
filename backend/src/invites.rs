@@ -23,6 +23,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::audit;
 use crate::authz;
 use crate::crypto::Crypto;
 use crate::enrollment::{self, FinishBody, PendingCredential};
@@ -127,6 +128,15 @@ pub async fn mint(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
+    audit::record(
+        &state.pool,
+        org_id,
+        created_by,
+        "invite.created",
+        None,
+        json!({ "role": role, "email": body.email.as_deref().unwrap_or("").trim() }),
+    )
+    .await;
     Json(json!({
         "token": token,
         "url": format!("{}/invite/{}", state.app_origin, token),

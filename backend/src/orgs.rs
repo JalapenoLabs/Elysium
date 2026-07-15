@@ -17,6 +17,7 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::audit;
 use crate::authz;
 use crate::proto::common::v1::Uuid as ProtoUuid;
 use crate::proto::realtime::v1::event_envelope::Payload;
@@ -235,6 +236,15 @@ pub async fn transfer_ownership(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
+    audit::record(
+        &state.pool,
+        org_id,
+        actor_id,
+        "org.ownership_transferred",
+        Some(target_id),
+        json!({}),
+    )
+    .await;
     // Both parties' roles changed; nudge their clients to re-read context.
     events::announce_session_change(&state, &principal.sub, "ownership_transferred");
     if let Ok(Some(subject)) = users::subject_for_id(&state.pool, target_id).await {
