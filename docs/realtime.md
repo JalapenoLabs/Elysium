@@ -211,9 +211,10 @@ session/partition**, and the **same worker URL**:
 
 - **Dev**: PR #1 loads the app from `http://localhost:5173`, a real origin, so a
   SharedWorker is shared across windows. Good.
-- **Prod**: `electron-serve` serves the built app from a `standard: true,
-  secure: true` `app://-` origin, which also shares. Good. This is the decided
-  production path.
+- **Prod**: the Electron main process serves the packaged app from a local reverse
+  proxy at `http://127.0.0.1:<port>` (a real, secure-context origin, so SharedWorker
+  sharing works) and forwards `/api`, `/auth`, and this stream to the chosen
+  instance (see `networking.md`). This is the decided production path.
 - **Never load the app from `file://`.** Chromium treats it as an opaque origin
   and SharedWorker sharing breaks. PR #1's `file://` `launcher.html` is only an
   error page (not the app), so it is fine.
