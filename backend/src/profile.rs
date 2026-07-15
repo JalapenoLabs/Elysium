@@ -15,7 +15,7 @@ use crate::proto::common::v1::{Timestamp, Uuid as ProtoUuid};
 use crate::proto::realtime::v1::event_envelope::Payload;
 use crate::proto::realtime::v1::ProfileUpdated;
 use crate::proto::user::v1::{
-    ManualStatusKind, Presence, SetStatusRequest, UpdateProfileRequest, User,
+    Language, ManualStatusKind, Presence, SetStatusRequest, UpdateProfileRequest, User,
 };
 use crate::protobuf::Protobuf;
 use crate::session::SessionUser;
@@ -48,19 +48,31 @@ pub async fn update_me(
         chosen => chosen,
     };
 
+    // Sanitize the language to a known variant so a bad client value never persists;
+    // an unknown code would just read back as auto-detect anyway.
+    let language = Language::try_from(request.language).unwrap_or(Language::Unspecified) as i16;
+
     // `avatar_url` is an optional partial update: COALESCE leaves it unchanged when
     // the field is omitted, and sets it (including to empty, which clears) when sent.
+    // The contact fields are sent whole, so an empty string clears them.
     let result = sqlx::query(
         "UPDATE users
             SET given_name = $1, family_name = $2, display_name = $3, bio = $4,
-                avatar_url = COALESCE($5, avatar_url)
-          WHERE subject = $6",
+                avatar_url = COALESCE($5, avatar_url),
+                pronouns = $6, web_link = $7, contact_phone = $8, backup_email = $9,
+                language = $10
+          WHERE subject = $11",
     )
     .bind(given_name)
     .bind(family_name)
     .bind(display_name)
     .bind(request.bio.trim())
     .bind(request.avatar_url.as_deref().map(str::trim))
+    .bind(request.pronouns.trim())
+    .bind(request.web_link.trim())
+    .bind(request.contact_phone.trim())
+    .bind(request.backup_email.trim())
+    .bind(language)
     .bind(&principal.sub)
     .execute(&state.pool)
     .await;
@@ -142,6 +154,11 @@ struct ProfileRow {
     last_seen_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    pronouns: String,
+    web_link: String,
+    contact_phone: String,
+    backup_email: String,
+    language: i16,
 }
 
 /// Builds the current `User` for a subject, deriving presence.
@@ -155,7 +172,8 @@ pub async fn fetch(state: &AppState, subject: &str) -> sqlx::Result<Option<User>
     let row = sqlx::query_as::<_, ProfileRow>(
         "SELECT id, subject, email, given_name, family_name, display_name, avatar_url, bio,
                 manual_status, manual_status_text, manual_status_expires_at,
-                last_seen_at, created_at, updated_at
+                last_seen_at, created_at, updated_at,
+                pronouns, web_link, contact_phone, backup_email, language
            FROM users WHERE subject = $1",
     )
     .bind(subject)
@@ -245,7 +263,21 @@ fn to_user(row: ProfileRow, online: bool) -> User {
         last_seen_at: row.last_seen_at.map(to_timestamp),
         created_at: Some(to_timestamp(row.created_at)),
         updated_at: Some(to_timestamp(row.updated_at)),
+        pronouns: row.pronouns,
+        web_link: row.web_link,
+        contact_phone: row.contact_phone,
+        backup_email: row.backup_email,
+        language: language_from_db(row.language) as i32,
     }
+}
+
+/// Clamps a stored language code to a known `Language`, defaulting to auto-detect.
+///
+/// An unrecognized code (a value written before its variant shipped, or removed
+/// since) reads as `LANGUAGE_UNSPECIFIED`, so the client auto-detects rather than
+/// showing a broken selection.
+fn language_from_db(value: i16) -> Language {
+    Language::try_from(i32::from(value)).unwrap_or(Language::Unspecified)
 }
 
 /// Maps a manual-status kind to its stored text value.
@@ -274,5 +306,19 @@ fn to_timestamp(instant: DateTime<Utc>) -> Timestamp {
         epoch_seconds: instant.timestamp(),
         nanos: instant.timestamp_subsec_nanos(),
         timezone: "Etc/UTC".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn language_maps_known_codes_and_defaults_unknown_to_auto() {
+        assert_eq!(language_from_db(0), Language::Unspecified);
+        assert_eq!(language_from_db(1), Language::EnUs);
+        // A code with no shipped variant falls back to auto-detect, never a panic.
+        assert_eq!(language_from_db(9999), Language::Unspecified);
+        assert_eq!(language_from_db(-1), Language::Unspecified);
     }
 }

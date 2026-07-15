@@ -31,6 +31,14 @@ enum ManualStatusKind {
   MANUAL_STATUS_KIND_CUSTOM = 3;
 }
 
+// The user's preferred UI language. UNSPECIFIED is auto-detect from the client, the
+// default. Extended as translations ship; a value with no shipped translation falls
+// back to auto-detect at render time.
+enum Language {
+  LANGUAGE_UNSPECIFIED = 0;
+  LANGUAGE_EN_US = 1;
+}
+
 // A member of an organization and their Elysium-owned profile.
 message User {
   elysium.common.v1.Uuid id = 1;
@@ -66,6 +74,14 @@ message User {
 
   elysium.common.v1.Timestamp created_at = 9;
   elysium.common.v1.Timestamp updated_at = 10;
+
+  // Contact and personalization fields (account settings). All optional; empty
+  // means unset. `language` is auto-detect when LANGUAGE_UNSPECIFIED.
+  string pronouns = 16;
+  string web_link = 17;
+  string contact_phone = 18;
+  string backup_email = 19;
+  Language language = 20;
 }
 
 // Editable profile fields. Presence and manual status are set elsewhere; this is
@@ -80,6 +96,14 @@ message UpdateProfileRequest {
   // lands). Optional for a partial update: omitted leaves the avatar unchanged,
   // an empty string clears it.
   optional string avatar_url = 5;
+
+  // Contact and personalization fields. Sent whole (empty clears); `language`
+  // of LANGUAGE_UNSPECIFIED means auto-detect.
+  string pronouns = 6;
+  string web_link = 7;
+  string contact_phone = 8;
+  string backup_email = 9;
+  Language language = 10;
 }
 
 // Sets or clears the manual status override. `kind` = UNSPECIFIED clears it.

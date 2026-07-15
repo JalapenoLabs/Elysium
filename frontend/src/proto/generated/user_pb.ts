@@ -19,7 +19,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file user.proto.
  */
 export const file_user: GenFile = /*@__PURE__*/
-  fileDesc("Cgp1c2VyLnByb3RvEg9lbHlzaXVtLnVzZXIudjEihgQKBFVzZXISIwoCaWQYASABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkEg8KB3N1YmplY3QYAiABKAkSDQoFZW1haWwYAyABKAkSEgoKZ2l2ZW5fbmFtZRgLIAEoCRITCgtmYW1pbHlfbmFtZRgMIAEoCRIUCgxkaXNwbGF5X25hbWUYBCABKAkSEgoKYXZhdGFyX3VybBgFIAEoCRILCgNiaW8YBiABKAkSKwoIcHJlc2VuY2UYByABKA4yGS5lbHlzaXVtLnVzZXIudjEuUHJlc2VuY2USOAoNbWFudWFsX3N0YXR1cxgNIAEoDjIhLmVseXNpdW0udXNlci52MS5NYW51YWxTdGF0dXNLaW5kEhoKEm1hbnVhbF9zdGF0dXNfdGV4dBgOIAEoCRI+ChhtYW51YWxfc3RhdHVzX2V4cGlyZXNfYXQYDyABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXASMgoMbGFzdF9zZWVuX2F0GAggASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEjAKCmNyZWF0ZWRfYXQYCSABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXASMAoKdXBkYXRlZF9hdBgKIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcCKKAQoUVXBkYXRlUHJvZmlsZVJlcXVlc3QSEgoKZ2l2ZW5fbmFtZRgBIAEoCRITCgtmYW1pbHlfbmFtZRgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSCwoDYmlvGAQgASgJEhcKCmF2YXRhcl91cmwYBSABKAlIAIgBAUINCgtfYXZhdGFyX3VybCJrChBTZXRTdGF0dXNSZXF1ZXN0Ei8KBGtpbmQYASABKA4yIS5lbHlzaXVtLnVzZXIudjEuTWFudWFsU3RhdHVzS2luZBIMCgR0ZXh0GAIgASgJEhgKEGR1cmF0aW9uX3NlY29uZHMYAyABKAMieAoDT3JnEiMKAmlkGAEgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBIMCgRuYW1lGAIgASgJEgwKBHNsdWcYAyABKAkSMAoKY3JlYXRlZF9hdBgEIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcCKiAQoEVGVhbRIjCgJpZBgBIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSJwoGb3JnX2lkGAIgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBIMCgRuYW1lGAMgASgJEgwKBHNsdWcYBCABKAkSMAoKY3JlYXRlZF9hdBgFIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcCK+AQoOVGVhbU1lbWJlcnNoaXASKAoHdXNlcl9pZBgBIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSKAoHdGVhbV9pZBgCIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSJwoEcm9sZRgDIAEoDjIZLmVseXNpdW0udXNlci52MS5UZWFtUm9sZRIvCglqb2luZWRfYXQYBCABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXAqYgoIUHJlc2VuY2USGAoUUFJFU0VOQ0VfVU5TUEVDSUZJRUQQABITCg9QUkVTRU5DRV9PTkxJTkUQARIRCg1QUkVTRU5DRV9BV0FZEAISFAoQUFJFU0VOQ0VfT0ZGTElORRADKqIBChBNYW51YWxTdGF0dXNLaW5kEiIKHk1BTlVBTF9TVEFUVVNfS0lORF9VTlNQRUNJRklFRBAAEiQKIE1BTlVBTF9TVEFUVVNfS0lORF9PVVRfT0ZfT0ZGSUNFEAESJQohTUFOVUFMX1NUQVRVU19LSU5EX0RPX05PVF9ESVNUVVJCEAISHQoZTUFOVUFMX1NUQVRVU19LSU5EX0NVU1RPTRADKmUKCFRlYW1Sb2xlEhkKFVRFQU1fUk9MRV9VTlNQRUNJRklFRBAAEhQKEFRFQU1fUk9MRV9NRU1CRVIQARITCg9URUFNX1JPTEVfQURNSU4QAhITCg9URUFNX1JPTEVfT1dORVIQA2IGcHJvdG8z", [file_common]);
+  fileDesc("Cgp1c2VyLnByb3RvEg9lbHlzaXVtLnVzZXIudjEihAUKBFVzZXISIwoCaWQYASABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkEg8KB3N1YmplY3QYAiABKAkSDQoFZW1haWwYAyABKAkSEgoKZ2l2ZW5fbmFtZRgLIAEoCRITCgtmYW1pbHlfbmFtZRgMIAEoCRIUCgxkaXNwbGF5X25hbWUYBCABKAkSEgoKYXZhdGFyX3VybBgFIAEoCRILCgNiaW8YBiABKAkSKwoIcHJlc2VuY2UYByABKA4yGS5lbHlzaXVtLnVzZXIudjEuUHJlc2VuY2USOAoNbWFudWFsX3N0YXR1cxgNIAEoDjIhLmVseXNpdW0udXNlci52MS5NYW51YWxTdGF0dXNLaW5kEhoKEm1hbnVhbF9zdGF0dXNfdGV4dBgOIAEoCRI+ChhtYW51YWxfc3RhdHVzX2V4cGlyZXNfYXQYDyABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXASMgoMbGFzdF9zZWVuX2F0GAggASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEjAKCmNyZWF0ZWRfYXQYCSABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXASMAoKdXBkYXRlZF9hdBgKIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcBIQCghwcm9ub3VucxgQIAEoCRIQCgh3ZWJfbGluaxgRIAEoCRIVCg1jb250YWN0X3Bob25lGBIgASgJEhQKDGJhY2t1cF9lbWFpbBgTIAEoCRIrCghsYW5ndWFnZRgUIAEoDjIZLmVseXNpdW0udXNlci52MS5MYW5ndWFnZSKIAgoUVXBkYXRlUHJvZmlsZVJlcXVlc3QSEgoKZ2l2ZW5fbmFtZRgBIAEoCRITCgtmYW1pbHlfbmFtZRgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSCwoDYmlvGAQgASgJEhcKCmF2YXRhcl91cmwYBSABKAlIAIgBARIQCghwcm9ub3VucxgGIAEoCRIQCgh3ZWJfbGluaxgHIAEoCRIVCg1jb250YWN0X3Bob25lGAggASgJEhQKDGJhY2t1cF9lbWFpbBgJIAEoCRIrCghsYW5ndWFnZRgKIAEoDjIZLmVseXNpdW0udXNlci52MS5MYW5ndWFnZUINCgtfYXZhdGFyX3VybCJrChBTZXRTdGF0dXNSZXF1ZXN0Ei8KBGtpbmQYASABKA4yIS5lbHlzaXVtLnVzZXIudjEuTWFudWFsU3RhdHVzS2luZBIMCgR0ZXh0GAIgASgJEhgKEGR1cmF0aW9uX3NlY29uZHMYAyABKAMieAoDT3JnEiMKAmlkGAEgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBIMCgRuYW1lGAIgASgJEgwKBHNsdWcYAyABKAkSMAoKY3JlYXRlZF9hdBgEIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcCKiAQoEVGVhbRIjCgJpZBgBIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSJwoGb3JnX2lkGAIgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBIMCgRuYW1lGAMgASgJEgwKBHNsdWcYBCABKAkSMAoKY3JlYXRlZF9hdBgFIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcCK+AQoOVGVhbU1lbWJlcnNoaXASKAoHdXNlcl9pZBgBIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSKAoHdGVhbV9pZBgCIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSJwoEcm9sZRgDIAEoDjIZLmVseXNpdW0udXNlci52MS5UZWFtUm9sZRIvCglqb2luZWRfYXQYBCABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXAqYgoIUHJlc2VuY2USGAoUUFJFU0VOQ0VfVU5TUEVDSUZJRUQQABITCg9QUkVTRU5DRV9PTkxJTkUQARIRCg1QUkVTRU5DRV9BV0FZEAISFAoQUFJFU0VOQ0VfT0ZGTElORRADKqIBChBNYW51YWxTdGF0dXNLaW5kEiIKHk1BTlVBTF9TVEFUVVNfS0lORF9VTlNQRUNJRklFRBAAEiQKIE1BTlVBTF9TVEFUVVNfS0lORF9PVVRfT0ZfT0ZGSUNFEAESJQohTUFOVUFMX1NUQVRVU19LSU5EX0RPX05PVF9ESVNUVVJCEAISHQoZTUFOVUFMX1NUQVRVU19LSU5EX0NVU1RPTRADKjgKCExhbmd1YWdlEhgKFExBTkdVQUdFX1VOU1BFQ0lGSUVEEAASEgoOTEFOR1VBR0VfRU5fVVMQASplCghUZWFtUm9sZRIZChVURUFNX1JPTEVfVU5TUEVDSUZJRUQQABIUChBURUFNX1JPTEVfTUVNQkVSEAESEwoPVEVBTV9ST0xFX0FETUlOEAISEwoPVEVBTV9ST0xFX09XTkVSEANiBnByb3RvMw", [file_common]);
 
 /**
  * A member of an organization and their Elysium-owned profile.
@@ -116,6 +116,34 @@ export type User = Message<"elysium.user.v1.User"> & {
    * @generated from field: elysium.common.v1.Timestamp updated_at = 10;
    */
   updatedAt?: Timestamp | undefined;
+
+  /**
+   * Contact and personalization fields (account settings). All optional; empty
+   * means unset. `language` is auto-detect when LANGUAGE_UNSPECIFIED.
+   *
+   * @generated from field: string pronouns = 16;
+   */
+  pronouns: string;
+
+  /**
+   * @generated from field: string web_link = 17;
+   */
+  webLink: string;
+
+  /**
+   * @generated from field: string contact_phone = 18;
+   */
+  contactPhone: string;
+
+  /**
+   * @generated from field: string backup_email = 19;
+   */
+  backupEmail: string;
+
+  /**
+   * @generated from field: elysium.user.v1.Language language = 20;
+   */
+  language: Language;
 };
 
 /**
@@ -162,6 +190,34 @@ export type UpdateProfileRequest = Message<"elysium.user.v1.UpdateProfileRequest
    * @generated from field: optional string avatar_url = 5;
    */
   avatarUrl?: string | undefined;
+
+  /**
+   * Contact and personalization fields. Sent whole (empty clears); `language`
+   * of LANGUAGE_UNSPECIFIED means auto-detect.
+   *
+   * @generated from field: string pronouns = 6;
+   */
+  pronouns: string;
+
+  /**
+   * @generated from field: string web_link = 7;
+   */
+  webLink: string;
+
+  /**
+   * @generated from field: string contact_phone = 8;
+   */
+  contactPhone: string;
+
+  /**
+   * @generated from field: string backup_email = 9;
+   */
+  backupEmail: string;
+
+  /**
+   * @generated from field: elysium.user.v1.Language language = 10;
+   */
+  language: Language;
 };
 
 /**
@@ -385,6 +441,31 @@ export const ManualStatusKindSchema: GenEnum<ManualStatusKind> = /*@__PURE__*/
   enumDesc(file_user, 1);
 
 /**
+ * The user's preferred UI language. UNSPECIFIED is auto-detect from the client, the
+ * default. Extended as translations ship; a value with no shipped translation falls
+ * back to auto-detect at render time.
+ *
+ * @generated from enum elysium.user.v1.Language
+ */
+export enum Language {
+  /**
+   * @generated from enum value: LANGUAGE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: LANGUAGE_EN_US = 1;
+   */
+  EN_US = 1,
+}
+
+/**
+ * Describes the enum elysium.user.v1.Language.
+ */
+export const LanguageSchema: GenEnum<Language> = /*@__PURE__*/
+  enumDesc(file_user, 2);
+
+/**
  * A user's role within a single team. Permissions derive from (user, team, role).
  *
  * @generated from enum elysium.user.v1.TeamRole
@@ -415,5 +496,5 @@ export enum TeamRole {
  * Describes the enum elysium.user.v1.TeamRole.
  */
 export const TeamRoleSchema: GenEnum<TeamRole> = /*@__PURE__*/
-  enumDesc(file_user, 2);
+  enumDesc(file_user, 3);
 
