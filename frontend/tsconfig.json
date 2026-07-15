@@ -27,7 +27,8 @@
       "@/*": ["./src/*"]
     }
   },
-  // Consume the desktop shell's single-source declaration so `window.elysium` is
-  // typed here too (the desktop package owns the definition; see docs/desktop.md).
-  "include": ["src", "../desktop/src/global.d.ts"]
+  // `window.elysium` is typed by `src/connection/bridge.ts`, a self-contained
+  // mirror of the desktop shell's contract (see docs/desktop.md), so the
+  // frontend compiles without reaching into the desktop project.
+  "include": ["src"]
 }

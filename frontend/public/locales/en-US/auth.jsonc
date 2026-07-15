@@ -3,6 +3,23 @@
     "tagline": "Your entire workspace, in one place.",
     "resolving": "Getting things ready"
   },
+  "connection": {
+    "eyebrow": "Connect",
+    "title": "Connect to your Elysium instance",
+    "subtitle": "Enter the address of the Elysium server you host. You can save more than one and switch between them.",
+    "urlLabel": "Server address",
+    "test": "Test",
+    "connect": "Connect",
+    "testFailed": "We couldn't reach an Elysium instance at that address. Check it and try again.",
+    "connectFailed": "We couldn't connect to that instance. Please try again.",
+    "previewName": "Found: {{name}}",
+    "previewMeta": "Version {{version}} · {{state}}",
+    "unnamed": "Unnamed instance",
+    "claimed": "Set up",
+    "unclaimed": "Awaiting first-run setup",
+    "saved": "Saved instances",
+    "remove": "Remove instance"
+  },
   "gate": {
     "totp": {
       "eyebrow": "One more step",

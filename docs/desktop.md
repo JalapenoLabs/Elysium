@@ -37,7 +37,7 @@ desktop/
     ├── bridge.ts                # ElysiumBridge: the shared window.elysium contract
     ├── ipc.ts                   # central map of IPC channel names
     ├── constants.ts             # app URL, window sizing, paths, timings
-    ├── global.d.ts              # augments window.elysium (desktop + frontend)
+    ├── global.d.ts              # augments window.elysium (desktop package)
     └── electron-localshortcut.d.ts  # ambient types for the untyped shortcut lib
 ```
 
@@ -69,11 +69,30 @@ literal. Today: `Relaunch` (quit and start a fresh instance via
 `app.relaunch()`). The window loads the app directly in `createWindow` (dev URL or
 packaged renderer); there is no retry path, the load is expected to succeed.
 
-`window.elysium`'s shape is defined once in `src/bridge.ts` (`ElysiumBridge`,
-kept free of electron imports). `src/global.d.ts` augments the global `Window`
-with it, and the frontend consumes that same declaration by including
-`../desktop/src/global.d.ts` in its `tsconfig.json`, so there is one source of
-truth. It is declared optional because it is absent in a plain browser.
+`window.elysium`'s shape is defined in `src/bridge.ts` (`ElysiumBridge`, kept
+free of electron imports); `src/global.d.ts` augments the global `Window` with it
+for the desktop package. The RUNTIME source of truth (what the preload
+implements) is this desktop `bridge.ts`. The frontend keeps a small self-contained
+type mirror at `frontend/src/connection/bridge.ts` (same electron-free shape, plus
+its own `Window` augmentation) rather than reaching into the desktop project from
+its `tsconfig.json` — a cross-package `include` proved fragile across
+environments. Both are small and change rarely; keep them in sync. `window.elysium`
+is optional because it is absent in a plain browser.
+
+### Connection / instance picker (renderer)
+
+The desktop shell can connect to any self-hosted Elysium instance, so the
+renderer gates on a chosen connection before anything else. `RootLayout` calls
+`useConnectionGate` (`frontend/src/connection/`): in a plain browser
+`window.elysium` is undefined and the API is same-origin, so the gate is a no-op
+and the app resolves its session immediately; in the desktop shell it reads
+`connection.active()` and, when null, renders `pages/Connection/ConnectionScreen`
+instead of the app. That screen enters an address, `connection.test(url)` previews
+the instance identity (`GET /api/v1/instance`) without saving, and Connect runs
+`connection.add` + `connection.select` (the main process clears cookies and
+reloads the window at the chosen instance). Saved instances list for one-click
+switching and removal. The session is only resolved once a connection is
+established, so the client never probes an instance it hasn't picked.
 
 ## Running in dev
 
