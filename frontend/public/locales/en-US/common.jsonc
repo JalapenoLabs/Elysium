@@ -29,6 +29,7 @@
     "menuLabel": "Organization menu",
     "sectionTitle": "Your organizations",
     "switcherFallback": "Organization",
+    "settings": "Organization settings",
     "addOrganization": "Add organization",
     "createTitle": "Create organization",
     "createAction": "Create",
@@ -54,11 +55,21 @@
   "settings": {
     "title": "Settings",
     "profile": "Profile",
-    "organization": "Organization",
-    "members": "Members",
-    "teams": "Teams",
     "security": "Security",
     "sessions": "Sessions"
+  },
+  "orgSettings": {
+    "title": "Organization settings",
+    "fallback": "Organization",
+    "general": "Identity & branding",
+    "members": "Members",
+    "teams": "Teams",
+    "security": "Sign-in policy",
+    "groups": {
+      "general": "General",
+      "people": "People",
+      "security": "Security"
+    }
   },
   "status": {
     "online": "Online",

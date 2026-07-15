@@ -42,6 +42,7 @@ export function seedFromContext(context: SessionContext) {
       wordmark: org.wordmark,
     })),
     activeOrgId: context.activeOrgId?.value ?? null,
+    totpEnrollmentRequired: context.totpEnrollmentRequired,
     asOfSequence: Number(context.asOfSequence),
   }))
 }

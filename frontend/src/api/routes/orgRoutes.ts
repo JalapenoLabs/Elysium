@@ -68,3 +68,30 @@ export function updateOrgMemberRole(orgId: string, userId: string, role: string)
 export function removeOrgMember(orgId: string, userId: string): Promise<Response> {
   return apiClient.delete(`api/v1/orgs/${orgId}/members/${userId}`)
 }
+
+// Which sign-in methods the org permits, whether a second factor is mandatory,
+// and how long sessions live. Members view; admins and owners change it.
+export type OrgAuthPolicy = {
+  allow_passkeys: boolean
+  allow_passwords: boolean
+  allow_magic_links: boolean
+  require_totp: boolean
+  session_lifetime_seconds: number
+}
+
+export function getOrgAuthPolicy(orgId: string): Promise<OrgAuthPolicy> {
+  return apiClient
+    .get(`api/v1/orgs/${orgId}/auth-policy`)
+    .json<OrgAuthPolicy>()
+}
+
+// Accepts any subset. The server rejects (400) a change that would disable
+// every sign-in method or set a lifetime outside 5 minutes .. 90 days.
+export function updateOrgAuthPolicy(
+  orgId: string,
+  body: Partial<OrgAuthPolicy>,
+): Promise<OrgAuthPolicy> {
+  return apiClient
+    .patch(`api/v1/orgs/${orgId}/auth-policy`, { json: body })
+    .json<OrgAuthPolicy>()
+}

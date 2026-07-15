@@ -21,15 +21,19 @@ export const UrlTree = {
   // Invitations (signed link).
   invite: '/invite/:token',
 
-  // Account & security. `settings` is the hub; the children render inside its
-  // sidebar layout.
+  // Personal account settings: the simple, flat-sidebar hub for "me" concerns.
   settings: '/settings',
   settingsProfile: '/settings/profile',
-  settingsOrganization: '/settings/organization',
-  settingsMembers: '/settings/members',
-  settingsTeams: '/settings/teams',
   settingsSecurity: '/settings/security',
   settingsSessions: '/settings/sessions',
+
+  // Organization settings: a separate hub with an accordion sidebar for
+  // org-level concerns (identity, branding, people).
+  organization: '/organization',
+  organizationGeneral: '/organization/general',
+  organizationMembers: '/organization/members',
+  organizationTeams: '/organization/teams',
+  organizationSecurity: '/organization/security',
 
   // Denied & fault states.
   accessDenied: '/denied',

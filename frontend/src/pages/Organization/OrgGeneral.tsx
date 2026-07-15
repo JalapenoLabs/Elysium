@@ -27,10 +27,10 @@ import { UrlTree } from '../../urls'
 // view. The server enforces this too (403), this just keeps honest UI.
 const EDITOR_ROLES = [ 'owner', 'admin' ]
 
-// The active organization's identity: name and logo. Saving fans out
-// `org.updated` to every member, so their taskbars update live; branding /
-// white-label fields join this form when the endpoint grows them.
-export function OrgSettings() {
+// The active organization's identity and branding: name, logo, accent color,
+// and wordmark. Saving fans out `org.updated` to every member so their chrome
+// updates live. This is the "General" section of the organization settings.
+export function OrgGeneral() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const navigate = useNavigate()
 

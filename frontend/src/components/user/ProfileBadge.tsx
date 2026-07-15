@@ -17,6 +17,7 @@ import {
   DropdownTrigger,
   User,
 } from '@heroui/react'
+import { LuLogOut, LuUserPlus, LuUserRound, LuUsersRound } from 'react-icons/lu'
 
 // Redux
 import { useAppSelector } from '../../store/hooks'
@@ -131,6 +132,7 @@ export function ProfileBadge() {
           ),
           <DropdownItem
             key='add-account'
+            startContent={<LuUserPlus className='h-4 w-4' />}
             onPress={() => navigate(getAddAccountUrl())}
           >
             { t('account.addAccount') }
@@ -140,12 +142,14 @@ export function ProfileBadge() {
       <DropdownSection>
         <DropdownItem
           key='my-profile'
+          startContent={<LuUserRound className='h-4 w-4' />}
           onPress={() => navigate(UrlTree.settingsProfile)}
         >
           { t('account.myProfile') }
         </DropdownItem>
         <DropdownItem
           key='invite-people'
+          startContent={<LuUsersRound className='h-4 w-4' />}
           onPress={() => setIsInviteOpen(true)}
         >
           { t('invite.title') }
@@ -153,6 +157,7 @@ export function ProfileBadge() {
         <DropdownItem
           key='sign-out'
           color='danger'
+          startContent={<LuLogOut className='h-4 w-4' />}
           onPress={session.signOut}
         >
           { t('actions.signOut') }

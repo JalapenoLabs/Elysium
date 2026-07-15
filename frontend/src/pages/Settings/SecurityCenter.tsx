@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 // UI
 import { Button, Card, CardBody, Tooltip } from '@heroui/react'
 import { LoginHistory } from './LoginHistory'
+import { AddAuthenticatorModal } from './AddAuthenticatorModal'
 
 // Misc
 import { enrollPasskey } from '../../api/routes/authRoutes'
@@ -66,6 +67,8 @@ export function SecurityCenter() {
   const [ enrollOutcome, setEnrollOutcome ] = useState<
     { tone: 'success' | 'danger', message: string } | null
   >(null)
+  const [ isAuthenticatorOpen, setIsAuthenticatorOpen ] = useState(false)
+  const [ authenticatorAdded, setAuthenticatorAdded ] = useState(false)
 
   const comingSoon = t('settings.security.comingSoon')
 
@@ -89,6 +92,12 @@ export function SecurityCenter() {
   }
 
   return <section className='w-full'>
+    <AddAuthenticatorModal
+      isOpen={isAuthenticatorOpen}
+      onOpenChange={setIsAuthenticatorOpen}
+      onEnrolled={() => setAuthenticatorAdded(true)}
+    />
+
     <div className='relaxed'>
       <h2 className='text-2xl'>
         <strong>{ t('settings.security.title') }</strong>
@@ -110,8 +119,11 @@ export function SecurityCenter() {
       <SecuritySection
         title={t('settings.security.authenticatorsTitle')}
         body={t('settings.security.authenticatorsBody')}
-        actionLabel={t('settings.security.manage')}
-        disabledReason={comingSoon}
+        actionLabel={t('settings.security.addAuthenticator')}
+        onAction={() => setIsAuthenticatorOpen(true)}
+        statusLine={authenticatorAdded
+          ? { tone: 'success', message: t('settings.security.authenticatorAdded') }
+          : null}
       />
     </div>
     <div className='relaxed'>

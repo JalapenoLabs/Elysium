@@ -56,6 +56,21 @@ export async function updateMyProfile(fields: UpdateMyProfileFields): Promise<Us
 // Sets or clears the manual status override. `kind` of UNSPECIFIED clears it;
 // `text` only applies to CUSTOM; `durationSeconds` of 0 uses the server's 24h
 // default. Derived online/away/offline presence is never set by the client.
+// TOTP enrollment for the signed-in account: begin returns the provisioning
+// URI to render as a QR, confirm stores it once the code verifies. Powers both
+// the require-2FA gate and the Security Center's add-authenticator action.
+export function beginTotpEnrollment(): Promise<{ provisioning_uri: string }> {
+  return apiClient
+    .post('api/v1/me/totp/begin')
+    .json<{ provisioning_uri: string }>()
+}
+
+export function confirmTotpEnrollment(code: string): Promise<Response> {
+  return apiClient.post('api/v1/me/totp/confirm', {
+    json: { code: code.trim() },
+  })
+}
+
 export type LoginEvent = {
   method: string
   outcome: string

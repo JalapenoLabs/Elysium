@@ -3,6 +3,45 @@
     "tagline": "Your entire workspace, in one place.",
     "resolving": "Getting things ready"
   },
+  "gate": {
+    "totp": {
+      "eyebrow": "One more step",
+      "title": "Set up two-factor to continue",
+      "subtitle": "Your organization requires an authenticator app. Scan this, then enter the 6-digit code.",
+      "manualHint": "Can't scan? Enter this setup key manually:",
+      "codeLabel": "6-digit code",
+      "action": "Verify and continue",
+      "required": "Enter the 6-digit code to continue.",
+      "invalidCode": "That code didn't match. Enter the current one from your app.",
+      "failed": "We couldn't start two-factor setup. Please try again."
+    }
+  },
+  "orgSecurity": {
+    "title": "Sign-in policy",
+    "subtitle": "Control how members of this organization sign in.",
+    "loading": "Loading policy",
+    "loadFailed": "We couldn't load the sign-in policy. Please try again.",
+    "saveFailed": "We couldn't save the policy. Please try again.",
+    "saved": "Sign-in policy saved.",
+    "readOnly": "Only owners and admins can change the sign-in policy.",
+    "noMethod": "Keep at least one sign-in method enabled.",
+    "passkeys": "Allow passkeys",
+    "passkeysHint": "The phishing-resistant, passwordless method.",
+    "passwords": "Allow passwords",
+    "passwordsHint": "A password plus a mandatory authenticator app.",
+    "magicLinks": "Allow email links",
+    "magicLinksHint": "One-time sign-in links by email.",
+    "requireTotp": "Require two-factor",
+    "requireTotpHint": "Members must set up an authenticator app before using the app.",
+    "sessionLifetime": "Sessions expire after",
+    "lifetimes": {
+      "hour1": "1 hour",
+      "hour12": "12 hours",
+      "day1": "1 day",
+      "week1": "1 week",
+      "day30": "30 days"
+    }
+  },
   "login": {
     "identifierLabel": "Email",
     "hint": "Just start typing your email",
@@ -259,6 +298,16 @@
       "addPasskey": "Add a passkey",
       "passkeyAdded": "Passkey added. You can sign in with it right away.",
       "passkeyFailed": "We couldn't add that passkey. Please try again.",
+      "addAuthenticator": "Add authenticator",
+      "authenticatorAdded": "Authenticator added. It's ready for your next sign-in.",
+      "authenticatorInvalid": "That code didn't match. Enter the current one from your app.",
+      "authenticatorFailed": "We couldn't set up that authenticator. Please try again.",
+      "authenticatorTitle": "Set up an authenticator app",
+      "authenticatorSubtitle": "Scan this with your authenticator app, then enter the 6-digit code.",
+      "authenticatorManualHint": "Can't scan? Enter this setup key manually:",
+      "authenticatorCodeLabel": "6-digit code",
+      "authenticatorAction": "Add authenticator",
+      "authenticatorRequired": "Enter the 6-digit code to add it.",
       "manage": "Manage",
       "historyTitle": "Recent sign-ins",
       "historyBody": "The latest attempts to sign in to your account. Spot anything you don't recognize.",

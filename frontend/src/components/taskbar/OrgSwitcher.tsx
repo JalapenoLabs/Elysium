@@ -10,6 +10,7 @@ import { useAppSelector } from '../../store/hooks'
 
 // UI
 import {
+  Avatar,
   Button,
   Dropdown,
   DropdownItem,
@@ -17,7 +18,7 @@ import {
   DropdownSection,
   DropdownTrigger,
 } from '@heroui/react'
-import { LuBuilding2, LuCheck, LuPlus } from 'react-icons/lu'
+import { LuBuilding2, LuCheck, LuPlus, LuSettings } from 'react-icons/lu'
 import { CreateOrgModal } from './CreateOrgModal'
 
 // Misc
@@ -66,7 +67,10 @@ export function OrgSwitcher() {
     <Dropdown placement='top-start'>
       <DropdownTrigger>
         <Button variant='light'>
-          <LuBuilding2 className='h-4 w-4' />
+          {/* The org's own logo when it has one; the building icon otherwise. */}
+          { activeOrg?.logoUrl
+            ? <Avatar size='sm' radius='sm' className='h-5 w-5' src={activeOrg.logoUrl} />
+            : <LuBuilding2 className='h-4 w-4' /> }
           {/* The wordmark is the white-label brand text; the org name backs it up. */}
           <span>{ activeOrg?.wordmark || activeOrg?.name || t('org.switcherFallback') }</span>
         </Button>
@@ -88,6 +92,13 @@ export function OrgSwitcher() {
           ) }
         </DropdownSection>
         <DropdownSection>
+          <DropdownItem
+            key='org-settings'
+            startContent={<LuSettings className='h-4 w-4' />}
+            onPress={() => navigate(UrlTree.organization)}
+          >
+            { t('org.settings') }
+          </DropdownItem>
           <DropdownItem
             key='add-org'
             startContent={<LuPlus className='h-4 w-4' />}
