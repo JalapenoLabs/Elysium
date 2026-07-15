@@ -184,7 +184,7 @@ pub async fn authenticate_finish(
         &client,
     )
     .await;
-    session::establish(&state.pool, clear_ceremony(jar), user_id).await
+    session::establish(&state.pool, clear_ceremony(jar), user_id, &client).await
 }
 
 /// `POST /api/v1/auth/logout`: end the session and clear the cookie.

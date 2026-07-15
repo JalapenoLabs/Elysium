@@ -161,7 +161,16 @@ pub async fn finish(
     let method = credential.method();
 
     let codes = recovery::generate();
-    let session_id = match claim(&state.pool, &state.crypto, &pending, &credential, &codes).await {
+    let session_id = match claim(
+        &state.pool,
+        &state.crypto,
+        &client,
+        &pending,
+        &credential,
+        &codes,
+    )
+    .await
+    {
         Ok(session_id) => session_id,
         Err(error) => {
             tracing::error!(error = %error, "failed to claim instance");
@@ -194,6 +203,7 @@ pub async fn finish(
 async fn claim(
     pool: &PgPool,
     crypto: &Crypto,
+    client: &ClientInfo,
     pending: &Pending,
     credential: &Credential,
     recovery_codes: &[String],
@@ -240,7 +250,7 @@ async fn claim(
     enrollment::insert(&mut tx, crypto, pending.user_id, credential).await?;
     recovery::store(&mut tx, pending.user_id, recovery_codes).await?;
 
-    let session_id = session::create_on(&mut tx, pending.user_id, Some(org_id)).await?;
+    let session_id = session::create_on(&mut tx, pending.user_id, Some(org_id), client).await?;
 
     tx.commit().await?;
     Ok(session_id)

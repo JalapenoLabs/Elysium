@@ -54,6 +54,16 @@ pub fn router(state: AppState) -> Router {
         // Self-service TOTP enrollment (Security Center, and the require-2FA gate).
         .route("/api/v1/me/totp/begin", post(security::totp_begin))
         .route("/api/v1/me/totp/confirm", post(security::totp_confirm))
+        // Active sessions: list this account's devices, revoke one or all-others.
+        .route("/api/v1/me/sessions", get(security::sessions))
+        .route(
+            "/api/v1/me/sessions/revoke-others",
+            post(security::revoke_other_sessions),
+        )
+        .route(
+            "/api/v1/me/sessions/{session_id}",
+            delete(security::revoke_session),
+        )
         // Session bootstrap: one aggregated read the client gates itself on.
         .route("/api/v1/context", get(context::context))
         .route("/api/v1/events", get(sse::events))

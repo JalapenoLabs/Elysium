@@ -12,10 +12,12 @@ use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::cookie::CookieJar;
+use ipnetwork::IpNetwork;
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 use crate::cookies;
+use crate::login_events::ClientInfo;
 use crate::state::AppState;
 use crate::users;
 
@@ -58,7 +60,12 @@ async fn holds_account(pool: &PgPool, session_id: Uuid, user_id: Uuid) -> sqlx::
 /// If the request already carries a live session cookie, the account is appended
 /// to it (multiple simultaneous accounts); otherwise a fresh session is created.
 /// Either way the account becomes active and the response carries the cookie.
-pub async fn establish(pool: &PgPool, jar: CookieJar, user_id: Uuid) -> Response {
+pub async fn establish(
+    pool: &PgPool,
+    jar: CookieJar,
+    user_id: Uuid,
+    client: &ClientInfo,
+) -> Response {
     let existing = match session_id(&jar) {
         Some(id) => match live(pool, id).await {
             Ok(alive) => alive.then_some(id),
@@ -72,7 +79,7 @@ pub async fn establish(pool: &PgPool, jar: CookieJar, user_id: Uuid) -> Response
 
     let result = match existing {
         Some(id) => add_account(pool, id, user_id).await.map(|()| id),
-        None => create(pool, user_id).await,
+        None => create(pool, user_id, client).await,
     };
 
     match result {
@@ -101,10 +108,10 @@ async fn live(pool: &PgPool, id: Uuid) -> sqlx::Result<bool> {
 ///
 /// # Errors
 /// Returns an error if the inserts fail.
-async fn create(pool: &PgPool, user_id: Uuid) -> sqlx::Result<Uuid> {
+async fn create(pool: &PgPool, user_id: Uuid, client: &ClientInfo) -> sqlx::Result<Uuid> {
     let org_id = users::default_org(pool, user_id).await?;
     let mut tx = pool.begin().await?;
-    let session_id = create_on(&mut tx, user_id, org_id).await?;
+    let session_id = create_on(&mut tx, user_id, org_id, client).await?;
     tx.commit().await?;
     Ok(session_id)
 }
@@ -121,16 +128,19 @@ pub async fn create_on(
     conn: &mut PgConnection,
     user_id: Uuid,
     org_id: Option<Uuid>,
+    client: &ClientInfo,
 ) -> sqlx::Result<Uuid> {
     // Honor the strictest session lifetime across the user's orgs' policies.
     let lifetime = lifetime_seconds(&mut *conn, user_id).await?;
     let session_id = sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO sessions (active_user_id, active_org_id, expires_at)
-         VALUES ($1, $2, now() + make_interval(secs => $3)) RETURNING id",
+        "INSERT INTO sessions (active_user_id, active_org_id, expires_at, user_agent, ip_address)
+         VALUES ($1, $2, now() + make_interval(secs => $3), $4, $5) RETURNING id",
     )
     .bind(user_id)
     .bind(org_id)
     .bind(lifetime as f64)
+    .bind(&client.user_agent)
+    .bind(client.ip.map(IpNetwork::from))
     .fetch_one(&mut *conn)
     .await?;
     sqlx::query("INSERT INTO session_accounts (session_id, user_id) VALUES ($1, $2)")
@@ -335,7 +345,10 @@ impl FromRequestParts<AppState> for SessionUser {
         };
 
         match principal(&state.pool, id).await {
-            Ok(Some(principal)) => Ok(SessionUser(principal)),
+            Ok(Some(principal)) => {
+                touch_last_seen(&state.pool, id).await;
+                Ok(SessionUser(principal))
+            }
             Ok(None) => Err(StatusCode::UNAUTHORIZED.into_response()),
             Err(error) => {
                 tracing::error!(error = %error, "session lookup failed");
@@ -343,4 +356,19 @@ impl FromRequestParts<AppState> for SessionUser {
             }
         }
     }
+}
+
+/// Refreshes a session's `last_seen_at`, at most once a minute, for the sessions view.
+///
+/// Fire-and-forget: a failed or skipped update never affects the request, and the
+/// `WHERE` clause throttles it to at most one small write per minute per active
+/// session rather than one per request.
+async fn touch_last_seen(pool: &PgPool, id: Uuid) {
+    let _ = sqlx::query(
+        "UPDATE sessions SET last_seen_at = now()
+          WHERE id = $1 AND last_seen_at < now() - interval '1 minute'",
+    )
+    .bind(id)
+    .execute(pool)
+    .await;
 }

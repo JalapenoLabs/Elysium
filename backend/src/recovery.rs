@@ -158,7 +158,7 @@ pub async fn authenticate(
         &client,
     )
     .await;
-    session::establish(&state.pool, jar, user_id).await
+    session::establish(&state.pool, jar, user_id, &client).await
 }
 
 /// Normalizes then SHA-256-hashes a code to its stored hex form.

@@ -286,7 +286,16 @@ pub async fn accept_finish(
     let method = credential.method();
 
     let codes = recovery::generate();
-    let session_id = match join(&state.pool, &state.crypto, &pending, &credential, &codes).await {
+    let session_id = match join(
+        &state.pool,
+        &state.crypto,
+        &client,
+        &pending,
+        &credential,
+        &codes,
+    )
+    .await
+    {
         Ok(Some(session_id)) => session_id,
         // The invite was consumed or expired between begin and finish.
         Ok(None) => return (StatusCode::CONFLICT, "invite is no longer valid").into_response(),
@@ -407,6 +416,7 @@ fn is_duplicate_email(error: &sqlx::Error) -> bool {
 async fn join(
     pool: &PgPool,
     crypto: &Crypto,
+    client: &ClientInfo,
     pending: &Pending,
     credential: &enrollment::Credential,
     recovery_codes: &[String],
@@ -454,7 +464,8 @@ async fn join(
     enrollment::insert(&mut tx, crypto, pending.user_id, credential).await?;
     recovery::store(&mut tx, pending.user_id, recovery_codes).await?;
 
-    let session_id = session::create_on(&mut tx, pending.user_id, Some(pending.org_id)).await?;
+    let session_id =
+        session::create_on(&mut tx, pending.user_id, Some(pending.org_id), client).await?;
 
     tx.commit().await?;
     Ok(Some(session_id))

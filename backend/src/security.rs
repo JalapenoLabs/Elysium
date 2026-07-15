@@ -6,7 +6,7 @@
 //! same module. Everything here is scoped to the authenticated caller, never
 //! another account.
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -17,8 +17,9 @@ use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use serde::Deserialize;
 use serde_json::json;
+use uuid::Uuid;
 
-use crate::session::SessionUser;
+use crate::session::{self, SessionUser, SESSION_COOKIE};
 use crate::state::AppState;
 use crate::{cookies, recovery, totp, users};
 
@@ -247,6 +248,150 @@ pub async fn totp_confirm(
         }
         Err(error) => {
             tracing::error!(error = %error, "totp confirm store failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// `GET /api/v1/me/sessions`: the caller's active sessions across devices.
+///
+/// Each entry carries the device (user agent), origin IP, when it started and was
+/// last active, when it expires, and whether it is the session making this request.
+pub async fn sessions(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    jar: CookieJar,
+) -> Response {
+    let current = session::session_id(&jar);
+    let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "sessions user lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+
+    let rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            String,
+            Option<IpNetwork>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+            DateTime<Utc>,
+        ),
+    >(
+        "SELECT s.id, s.user_agent, s.ip_address, s.created_at, s.last_seen_at, s.expires_at
+           FROM sessions s
+           JOIN session_accounts sa ON sa.session_id = s.id
+          WHERE sa.user_id = $1 AND s.expires_at > now()
+          ORDER BY s.last_seen_at DESC",
+    )
+    .bind(user_id)
+    .fetch_all(&state.pool)
+    .await;
+
+    match rows {
+        Ok(rows) => Json(json!({
+            "sessions": rows
+                .iter()
+                .map(|(id, user_agent, ip, created_at, last_seen_at, expires_at)| json!({
+                    "id": id,
+                    "user_agent": user_agent,
+                    "ip": ip.map(|net| net.ip().to_string()),
+                    "created_at": created_at.to_rfc3339(),
+                    "last_seen_at": last_seen_at.to_rfc3339(),
+                    "expires_at": expires_at.to_rfc3339(),
+                    "current": Some(*id) == current,
+                }))
+                .collect::<Vec<_>>(),
+        }))
+        .into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "sessions read failed");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
+/// `DELETE /api/v1/me/sessions/:session_id`: sign one of the caller's sessions out.
+///
+/// Only a session the caller is part of can be revoked; revoking the current one
+/// signs this client out and clears its cookie.
+pub async fn revoke_session(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    jar: CookieJar,
+    Path(session_id): Path<Uuid>,
+) -> Response {
+    let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "revoke-session user lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+
+    let affected = sqlx::query(
+        "DELETE FROM sessions
+          WHERE id = $1 AND id IN (SELECT session_id FROM session_accounts WHERE user_id = $2)",
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .execute(&state.pool)
+    .await;
+    match affected {
+        Ok(result) if result.rows_affected() == 0 => StatusCode::NOT_FOUND.into_response(),
+        Ok(_) => {
+            if session::session_id(&jar) == Some(session_id) {
+                return (
+                    jar.remove(cookies::clearing(SESSION_COOKIE)),
+                    StatusCode::NO_CONTENT,
+                )
+                    .into_response();
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Err(error) => {
+            tracing::error!(error = %error, "session revoke failed");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+/// `POST /api/v1/me/sessions/revoke-others`: sign out every session but this one.
+pub async fn revoke_other_sessions(
+    State(state): State<AppState>,
+    SessionUser(principal): SessionUser,
+    jar: CookieJar,
+) -> Response {
+    let Some(current) = session::session_id(&jar) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "revoke-others user lookup failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+
+    let result = sqlx::query(
+        "DELETE FROM sessions
+          WHERE id <> $1 AND id IN (SELECT session_id FROM session_accounts WHERE user_id = $2)",
+    )
+    .bind(current)
+    .bind(user_id)
+    .execute(&state.pool)
+    .await;
+    match result {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "revoke-others failed");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }

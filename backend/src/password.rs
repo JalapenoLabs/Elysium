@@ -264,7 +264,7 @@ pub async fn authenticate_finish(
             )
                 .into_response()
         }
-        Ok(false) => session::establish(&state.pool, jar, user_id).await,
+        Ok(false) => session::establish(&state.pool, jar, user_id, &client).await,
         Err(error) => {
             tracing::error!(error = %error, "totp lookup failed");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -336,7 +336,7 @@ pub async fn verify_totp(
     }
 
     let jar = jar.remove(cookies::clearing(TOTP_PENDING_COOKIE));
-    session::establish(&state.pool, jar, user_id).await
+    session::establish(&state.pool, jar, user_id, &client).await
 }
 
 /// Reads the in-flight OPAQUE login state from the cookie, if present and valid.
