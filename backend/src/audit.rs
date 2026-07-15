@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::authz::{self, OrgRole};
+use crate::authz::{self, Capability};
 use crate::session::SessionUser;
 use crate::state::AppState;
 
@@ -68,7 +68,8 @@ pub async fn list(
     SessionUser(principal): SessionUser,
     Path(org_id): Path<Uuid>,
 ) -> Response {
-    if let Err(response) = authz::require_org_role(&state, &principal, org_id, OrgRole::Admin).await
+    if let Err(response) =
+        authz::require_capability(&state, &principal, org_id, Capability::ViewAudit).await
     {
         return response;
     }

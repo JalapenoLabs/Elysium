@@ -22,8 +22,8 @@ use crate::protobuf::Protobuf;
 use crate::session::SessionUser;
 use crate::state::AppState;
 use crate::{
-    accounts, audit, bootstrap, context, credentials, invites, members, orgs, password, policies,
-    profile, recovery, security, sse, teams, webauthn,
+    accounts, audit, bootstrap, context, credentials, grants, invites, members, orgs, password,
+    policies, profile, recovery, security, sse, teams, webauthn,
 };
 
 /// Builds the application router with shared state and middleware attached.
@@ -110,6 +110,12 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/orgs/{id}/auth-policy",
             get(policies::get_policy).patch(policies::update_policy),
+        )
+        // Delegated admin grants (owner/admin only): list, and set a member's set.
+        .route("/api/v1/orgs/{id}/grants", get(grants::list))
+        .route(
+            "/api/v1/orgs/{id}/members/{user_id}/grants",
+            put(grants::set),
         )
         // Org-wide audit log (admin+): who did what, to whom, when.
         .route("/api/v1/orgs/{id}/audit-log", get(audit::list))

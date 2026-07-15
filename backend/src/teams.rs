@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::authz::{self, OrgRole};
+use crate::authz::{self, Capability, OrgRole};
 use crate::orgs;
 use crate::session::{Principal, SessionUser};
 use crate::state::AppState;
@@ -37,7 +37,8 @@ pub async fn create(
     if name.is_empty() {
         return (StatusCode::BAD_REQUEST, "name is required").into_response();
     }
-    if let Err(response) = authz::require_org_role(&state, &principal, org_id, OrgRole::Admin).await
+    if let Err(response) =
+        authz::require_capability(&state, &principal, org_id, Capability::ManageTeams).await
     {
         return response;
     }
@@ -117,7 +118,8 @@ pub async fn rename(
     if name.is_empty() {
         return (StatusCode::BAD_REQUEST, "name is required").into_response();
     }
-    if let Err(response) = require_team_org_role(&state, &principal, team_id, OrgRole::Admin).await
+    if let Err(response) =
+        require_team_capability(&state, &principal, team_id, Capability::ManageTeams).await
     {
         return response;
     }
@@ -142,7 +144,8 @@ pub async fn delete(
     SessionUser(principal): SessionUser,
     Path(team_id): Path<Uuid>,
 ) -> Response {
-    if let Err(response) = require_team_org_role(&state, &principal, team_id, OrgRole::Admin).await
+    if let Err(response) =
+        require_team_capability(&state, &principal, team_id, Capability::ManageTeams).await
     {
         return response;
     }
@@ -223,10 +226,11 @@ pub async fn add_member(
         role @ ("member" | "admin" | "owner") => role,
         _ => return (StatusCode::BAD_REQUEST, "invalid role").into_response(),
     };
-    let org_id = match require_team_org_role(&state, &principal, team_id, OrgRole::Admin).await {
-        Ok(org_id) => org_id,
-        Err(response) => return response,
-    };
+    let org_id =
+        match require_team_capability(&state, &principal, team_id, Capability::ManageTeams).await {
+            Ok(org_id) => org_id,
+            Err(response) => return response,
+        };
 
     // A team member must first be a member of the team's org.
     match authz::role_in_org(&state.pool, body.user_id, org_id).await {
@@ -262,7 +266,8 @@ pub async fn remove_member(
     SessionUser(principal): SessionUser,
     Path((team_id, user_id)): Path<(Uuid, Uuid)>,
 ) -> Response {
-    if let Err(response) = require_team_org_role(&state, &principal, team_id, OrgRole::Admin).await
+    if let Err(response) =
+        require_team_capability(&state, &principal, team_id, Capability::ManageTeams).await
     {
         return response;
     }
@@ -307,5 +312,35 @@ async fn require_team_org_role(
         }
     };
     authz::require_org_role(state, principal, org_id, minimum).await?;
+    Ok(org_id)
+}
+
+/// Resolves a team's org and requires the caller holds `capability` in it.
+///
+/// The `manage_teams`-capable path for team mutations, mirroring
+/// [`require_team_org_role`] for the view path. Returns the team's `org_id`.
+///
+/// # Errors
+/// Returns a ready HTTP response when the team is unknown or the capability check
+/// fails.
+async fn require_team_capability(
+    state: &AppState,
+    principal: &Principal,
+    team_id: Uuid,
+    capability: Capability,
+) -> Result<Uuid, Response> {
+    let org_id = sqlx::query_scalar::<_, Uuid>("SELECT org_id FROM teams WHERE id = $1")
+        .bind(team_id)
+        .fetch_optional(&state.pool)
+        .await;
+    let org_id = match org_id {
+        Ok(Some(org_id)) => org_id,
+        Ok(None) => return Err(StatusCode::NOT_FOUND.into_response()),
+        Err(error) => {
+            tracing::error!(error = %error, "team org lookup failed");
+            return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+        }
+    };
+    authz::require_capability(state, principal, org_id, capability).await?;
     Ok(org_id)
 }

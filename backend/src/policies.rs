@@ -17,7 +17,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::audit;
-use crate::authz::{self, OrgRole};
+use crate::authz::{self, Capability};
 use crate::session::SessionUser;
 use crate::state::AppState;
 use crate::users;
@@ -69,7 +69,8 @@ pub async fn get_policy(
     SessionUser(principal): SessionUser,
     Path(org_id): Path<Uuid>,
 ) -> Response {
-    if let Err(response) = authz::require_org_role(&state, &principal, org_id, OrgRole::Admin).await
+    if let Err(response) =
+        authz::require_capability(&state, &principal, org_id, Capability::ManageSecurity).await
     {
         return response;
     }
@@ -103,7 +104,8 @@ pub async fn update_policy(
     Path(org_id): Path<Uuid>,
     Json(body): Json<UpdatePolicy>,
 ) -> Response {
-    if let Err(response) = authz::require_org_role(&state, &principal, org_id, OrgRole::Admin).await
+    if let Err(response) =
+        authz::require_capability(&state, &principal, org_id, Capability::ManageSecurity).await
     {
         return response;
     }

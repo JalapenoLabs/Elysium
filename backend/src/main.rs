@@ -22,6 +22,7 @@ mod credentials;
 mod crypto;
 mod enrollment;
 mod events;
+mod grants;
 mod invites;
 mod login_events;
 mod members;

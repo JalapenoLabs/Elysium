@@ -147,6 +147,167 @@ pub async fn require_org_role(
     }
 }
 
+/// A delegated admin capability an org can grant to a member.
+///
+/// Owners and admins hold every capability implicitly; a member holds one only if
+/// it was delegated (`org_admin_grants`). There is deliberately no billing
+/// capability: the project gates nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Capability {
+    ManageMembers,
+    ManageSecurity,
+    ManageTeams,
+    ViewAudit,
+}
+
+impl Capability {
+    /// Parses a stored capability token; an unknown value is `None`.
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "manage_members" => Some(Self::ManageMembers),
+            "manage_security" => Some(Self::ManageSecurity),
+            "manage_teams" => Some(Self::ManageTeams),
+            "view_audit" => Some(Self::ViewAudit),
+            _ => None,
+        }
+    }
+
+    /// The stored token for this capability.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::ManageMembers => "manage_members",
+            Self::ManageSecurity => "manage_security",
+            Self::ManageTeams => "manage_teams",
+            Self::ViewAudit => "view_audit",
+        }
+    }
+}
+
+/// Whether a member has been granted `capability` in `org_id`.
+async fn has_grant(
+    pool: &PgPool,
+    user_id: Uuid,
+    org_id: Uuid,
+    capability: Capability,
+) -> sqlx::Result<bool> {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM org_admin_grants
+                         WHERE org_id = $1 AND user_id = $2 AND capability = $3)",
+    )
+    .bind(org_id)
+    .bind(user_id)
+    .bind(capability.as_str())
+    .fetch_one(pool)
+    .await
+}
+
+/// Ensures the caller may act in `capability`'s area of `org_id`.
+///
+/// Owner and admin hold every capability implicitly; a member holds one only if it
+/// was delegated to them; guests and suspended members hold none.
+///
+/// # Errors
+/// Returns a ready `401`/`403`/`503` response when the check does not pass.
+pub async fn require_capability(
+    state: &AppState,
+    principal: &Principal,
+    org_id: Uuid,
+    capability: Capability,
+) -> Result<(), Response> {
+    let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return Err(StatusCode::UNAUTHORIZED.into_response()),
+        Err(error) => {
+            tracing::error!(error = %error, "authz user lookup failed");
+            return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+        }
+    };
+    match role_in_org(&state.pool, user_id, org_id).await {
+        Ok(Some(role)) if role >= OrgRole::Admin => Ok(()),
+        Ok(Some(OrgRole::Member)) => {
+            match has_grant(&state.pool, user_id, org_id, capability).await {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(StatusCode::FORBIDDEN.into_response()),
+                Err(error) => {
+                    tracing::error!(error = %error, "capability grant lookup failed");
+                    Err(StatusCode::SERVICE_UNAVAILABLE.into_response())
+                }
+            }
+        }
+        Ok(_) => Err(StatusCode::FORBIDDEN.into_response()),
+        Err(error) => {
+            tracing::error!(error = %error, "authz role lookup failed");
+            Err(StatusCode::SERVICE_UNAVAILABLE.into_response())
+        }
+    }
+}
+
+/// The caller's authority to manage members in an org.
+///
+/// A member may be acted on only if their role is strictly below `manage_below`,
+/// and may be assigned a role no higher than `grant_ceiling`. An owner manages
+/// everyone below owner and grants up to owner; an admin manages below admin and
+/// grants up to admin; a member delegated `manage_members` manages the same set as
+/// an admin but grants only up to member, so a delegate can never mint an admin.
+pub struct ManageAuthority {
+    pub actor_id: Uuid,
+    pub manage_below: OrgRole,
+    pub grant_ceiling: OrgRole,
+}
+
+/// Resolves the caller's member-management authority in `org_id`.
+///
+/// # Errors
+/// Returns a ready `401`/`403`/`503` response when the caller has no authority.
+pub async fn member_management_authority(
+    state: &AppState,
+    principal: &Principal,
+    org_id: Uuid,
+) -> Result<ManageAuthority, Response> {
+    let user_id = match users::id_for_subject(&state.pool, &principal.sub).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return Err(StatusCode::UNAUTHORIZED.into_response()),
+        Err(error) => {
+            tracing::error!(error = %error, "authz user lookup failed");
+            return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+        }
+    };
+    let role = match role_in_org(&state.pool, user_id, org_id).await {
+        Ok(role) => role,
+        Err(error) => {
+            tracing::error!(error = %error, "authz role lookup failed");
+            return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+        }
+    };
+    match role {
+        Some(OrgRole::Owner) => Ok(ManageAuthority {
+            actor_id: user_id,
+            manage_below: OrgRole::Owner,
+            grant_ceiling: OrgRole::Owner,
+        }),
+        Some(OrgRole::Admin) => Ok(ManageAuthority {
+            actor_id: user_id,
+            manage_below: OrgRole::Admin,
+            grant_ceiling: OrgRole::Admin,
+        }),
+        Some(OrgRole::Member) => {
+            match has_grant(&state.pool, user_id, org_id, Capability::ManageMembers).await {
+                Ok(true) => Ok(ManageAuthority {
+                    actor_id: user_id,
+                    manage_below: OrgRole::Admin,
+                    grant_ceiling: OrgRole::Member,
+                }),
+                Ok(false) => Err(StatusCode::FORBIDDEN.into_response()),
+                Err(error) => {
+                    tracing::error!(error = %error, "capability grant lookup failed");
+                    Err(StatusCode::SERVICE_UNAVAILABLE.into_response())
+                }
+            }
+        }
+        _ => Err(StatusCode::FORBIDDEN.into_response()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

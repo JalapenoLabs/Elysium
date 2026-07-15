@@ -18,7 +18,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::audit;
-use crate::authz::{self, OrgRole};
+use crate::authz::{self, ManageAuthority, OrgRole};
 use crate::events;
 use crate::session::{Principal, SessionUser};
 use crate::state::AppState;
@@ -102,20 +102,23 @@ pub async fn change_role(
         return (StatusCode::BAD_REQUEST, "invalid role").into_response();
     };
 
-    let (actor_id, actor_role) = match authorize_manager(&state, &principal, org_id).await {
-        Ok(actor) => actor,
+    let authority = match authz::member_management_authority(&state, &principal, org_id).await {
+        Ok(authority) => authority,
         Err(response) => return response,
     };
 
-    // Manageable only if the target ranks strictly below the actor, and the new
-    // role does not exceed the actor's own (no escalation, no self-change).
-    let target_role = match manageable_target(&state, org_id, target_id, actor_id, actor_role).await
-    {
+    // Manageable only if the target ranks below the caller's reach, and the new
+    // role does not exceed what the caller may grant (no escalation, no self-change).
+    let target_role = match manageable_target(&state, org_id, target_id, &authority).await {
         Ok(role) => role,
         Err(response) => return response,
     };
-    if new_role > actor_role {
-        return (StatusCode::FORBIDDEN, "cannot grant a role above your own").into_response();
+    if new_role > authority.grant_ceiling {
+        return (
+            StatusCode::FORBIDDEN,
+            "cannot grant a role above your authority",
+        )
+            .into_response();
     }
     if new_role == target_role {
         return StatusCode::NO_CONTENT.into_response();
@@ -135,7 +138,7 @@ pub async fn change_role(
     audit::record(
         &state.pool,
         org_id,
-        actor_id,
+        authority.actor_id,
         "member.role_changed",
         Some(target_id),
         json!({ "role": new_role.as_db() }),
@@ -152,12 +155,11 @@ pub async fn remove(
     SessionUser(principal): SessionUser,
     Path((org_id, target_id)): Path<(Uuid, Uuid)>,
 ) -> Response {
-    let (actor_id, actor_role) = match authorize_manager(&state, &principal, org_id).await {
-        Ok(actor) => actor,
+    let authority = match authz::member_management_authority(&state, &principal, org_id).await {
+        Ok(authority) => authority,
         Err(response) => return response,
     };
-    if let Err(response) = manageable_target(&state, org_id, target_id, actor_id, actor_role).await
-    {
+    if let Err(response) = manageable_target(&state, org_id, target_id, &authority).await {
         return response;
     }
 
@@ -174,7 +176,7 @@ pub async fn remove(
     audit::record(
         &state.pool,
         org_id,
-        actor_id,
+        authority.actor_id,
         "member.removed",
         Some(target_id),
         json!({}),
@@ -195,12 +197,11 @@ pub async fn revoke_sessions(
     SessionUser(principal): SessionUser,
     Path((org_id, target_id)): Path<(Uuid, Uuid)>,
 ) -> Response {
-    let (actor_id, actor_role) = match authorize_manager(&state, &principal, org_id).await {
-        Ok(actor) => actor,
+    let authority = match authz::member_management_authority(&state, &principal, org_id).await {
+        Ok(authority) => authority,
         Err(response) => return response,
     };
-    if let Err(response) = manageable_target(&state, org_id, target_id, actor_id, actor_role).await
-    {
+    if let Err(response) = manageable_target(&state, org_id, target_id, &authority).await {
         return response;
     }
 
@@ -219,7 +220,7 @@ pub async fn revoke_sessions(
     audit::record(
         &state.pool,
         org_id,
-        actor_id,
+        authority.actor_id,
         "member.sessions_revoked",
         Some(target_id),
         json!({}),
@@ -263,11 +264,11 @@ async fn set_suspended(
     target_id: Uuid,
     suspend: bool,
 ) -> Response {
-    let (actor_id, actor_role) = match authorize_manager(state, principal, org_id).await {
-        Ok(actor) => actor,
+    let authority = match authz::member_management_authority(state, principal, org_id).await {
+        Ok(authority) => authority,
         Err(response) => return response,
     };
-    if let Err(response) = manageable_target(state, org_id, target_id, actor_id, actor_role).await {
+    if let Err(response) = manageable_target(state, org_id, target_id, &authority).await {
         return response;
     }
 
@@ -291,7 +292,7 @@ async fn set_suspended(
     audit::record(
         &state.pool,
         org_id,
-        actor_id,
+        authority.actor_id,
         action,
         Some(target_id),
         json!({}),
@@ -301,39 +302,13 @@ async fn set_suspended(
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// Resolves the actor and requires they are at least an admin of `org_id`.
+/// Confirms `target_id` is a member of `org_id` the caller's `authority` may manage.
 ///
-/// # Errors
-/// Returns a ready `401`/`403`/`503` response when the actor is unknown, not a
-/// sufficiently-privileged member, or the lookup fails.
-async fn authorize_manager(
-    state: &AppState,
-    principal: &Principal,
-    org_id: Uuid,
-) -> Result<(Uuid, OrgRole), Response> {
-    let actor_id = match users::id_for_subject(&state.pool, &principal.sub).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return Err(StatusCode::UNAUTHORIZED.into_response()),
-        Err(error) => {
-            tracing::error!(error = %error, "actor lookup failed");
-            return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
-        }
-    };
-    match authz::role_in_org(&state.pool, actor_id, org_id).await {
-        Ok(Some(role)) if role >= OrgRole::Admin => Ok((actor_id, role)),
-        Ok(_) => Err(StatusCode::FORBIDDEN.into_response()),
-        Err(error) => {
-            tracing::error!(error = %error, "actor role lookup failed");
-            Err(StatusCode::SERVICE_UNAVAILABLE.into_response())
-        }
-    }
-}
-
-/// Confirms `target_id` is a member of `org_id` the actor may manage.
-///
-/// A target the actor does not strictly outrank (including the actor themselves,
-/// who cannot rank below themselves) is a `403`, indistinguishable from a target
-/// that is not a member, so the endpoint never reveals another org's membership.
+/// Manageable only when the target's role is strictly below `manage_below` and the
+/// target is not the actor. An out-of-range target is a `403`, indistinguishable
+/// from a non-member, so the endpoint never reveals another org's membership. Uses
+/// [`authz::membership`] (not `role_in_org`) so a suspended target stays visible to
+/// be reactivated or otherwise managed.
 ///
 /// # Errors
 /// Returns a ready `403`/`503` response, or `404` when there is no such member.
@@ -341,16 +316,13 @@ async fn manageable_target(
     state: &AppState,
     org_id: Uuid,
     target_id: Uuid,
-    actor_id: Uuid,
-    actor_role: OrgRole,
+    authority: &ManageAuthority,
 ) -> Result<OrgRole, Response> {
-    if target_id == actor_id {
+    if target_id == authority.actor_id {
         return Err((StatusCode::FORBIDDEN, "cannot manage your own membership").into_response());
     }
-    // `membership` (not `role_in_org`) so a suspended target stays visible to be
-    // reactivated or otherwise managed.
     match authz::membership(&state.pool, target_id, org_id).await {
-        Ok(Some(entry)) if entry.role < actor_role => Ok(entry.role),
+        Ok(Some(entry)) if entry.role < authority.manage_below => Ok(entry.role),
         Ok(Some(_)) => Err(StatusCode::FORBIDDEN.into_response()),
         Ok(None) => Err(StatusCode::NOT_FOUND.into_response()),
         Err(error) => {
