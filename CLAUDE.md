@@ -131,6 +131,44 @@ In the GUI, this is totally possible. In a browser, it's no problem to limit the
 
 It should also be able to be used as a standalone in-browser app. We should use preload as little as possible, and put the minimal amount of things into electron.
 
+# Storage and service integrations
+
+Two foundational pillars, fully designed in `docs/storage.md` and
+`docs/integrations.md`. Those docs are the source of truth; the summary here is the
+load-bearing shape.
+
+- **Storage is a gateway, not a sync engine.** An org owns many **Drives** (local FS,
+  S3, SFTP in v1; WebDAV/OAuth clouds later), each an OpenDAL operator rooted where the
+  org points it. The provider is always the source of truth; nothing is mirrored. Search
+  is live, federated, streaming, and index-free. Transfer proxies through the backend
+  (presign-if-available later). Access is Drive-level (org-wide vs restricted, admin
+  bypass); per-file Google-Drive-style sharing is a deferred pillar.
+
+- **Providers advertise capabilities; consumers require them.** `PLAIN_FILES` (any
+  provider), `OBJECT_STORE` (FS + S3), `POSIX_FS` (local FS only). A consumer binds each
+  storage role to a capability-eligible Drive. This is why git and Astraval-metadata
+  (POSIX_FS) are local-FS-only, and why "git on OneDrive" is an enforced impossibility.
+
+- **Elysium is a control plane, not a re-implementation.** We do not rebuild git, SMTP, a
+  registry, or Perforce. Elysium **provisions and manages best-of-breed OSS containers**
+  (Forgejo for git, a mail server, a registry, Astraval) and unifies them. Provisioning is
+  behind a **`Provisioner` abstraction**, Docker-first (Podman-friendly, behind a scoped
+  socket-proxy, never the raw socket on the API), with Kubernetes as a later opt-in
+  backend. Managed integrations are desired state in Postgres, reconciled on boot.
+
+- **An integration is to services what a Drive is to files.** Many per org, each a `kind`
+  (git/mail/registry/perforce/runner), a `mode` (managed | linked), and an `owner_scope`
+  (org | personal). Unified surfaces aggregate across instances ("all my repos", "all my
+  mail"). Provisioning is admin-only (`manage_integrations`); personal linking is gated by
+  per-kind admin policies.
+
+- **One login, zero re-prompt, for the user and Elysia.** Elysium is the single identity
+  authority, extended to be an **OIDC/OAuth2 provider** so managed services SSO against it
+  (plus reverse-proxy forward-auth for zero-flicker), and to **mint SSH keys + scoped
+  tokens** for git/registry/SMTP transport auth. For linked services Elysium is the OAuth
+  *client*, silently refreshing the user's grant. The token-minting layer serves the AI
+  exactly as it serves the user.
+
 # Frontend tooling and shared Jalapeno Labs packages
 
 These are Jalapeno Labs house standards. They are installed straight from their
@@ -145,12 +183,20 @@ public GitHub repos (not published to npm yet), so both must be allowlisted in
   `yarn lint` / `yarn lint:fix`. Do not hand-roll ESLint rules; changes to the
   shared style belong in the CLI repo.
 
-- **Shared UI: `@jalapenolabs/uikit`.** The reusable React component library and
-  design system. Prefer its components over rebuilding primitives. **Going
-  forward, any UI that is sharable across Jalapeno Labs projects should be
-  contributed back to `uikit`, not duplicated in Elysium.** (uikit is not on npm
-  yet; the first release must be bootstrapped before it can be consumed as a
-  normal `^x.y.z` dependency.)
+- **Shared UI: `@jalapenolabs/uikit`.** The reusable React component library,
+  hooks, utilities, and brand tokens. Consumed straight from git, pinned to the
+  `develop` branch (`frontend/package.json`:
+  `"@jalapenolabs/uikit": "https://github.com/JalapenoLabs/uikit.git#develop"`),
+  the same way `@jalapenolabs/cli` is. It builds on install via its `prepare`
+  script and needs no HeroUI/Tailwind coupling (React 18+ peer only). **Prefer its
+  components, hooks, and utils over rebuilding primitives, and contribute sharable
+  UI back to `uikit` rather than duplicating it in Elysium.** It ships components
+  (Button, Accordion, Loader, Timer, DisabledTimerButton, LanguageSelector,
+  ThemeSelector, StatusChip, DragNDrop, LuminescentText, ...), hooks (`useHotkey`,
+  `usePagination`, `useScrollOnMount`, `useScrollPositionRestore`, ...), and utils
+  (`parseJsonSafe`, `reorderArray`, `formatBytes`, `fuzzyMatch`, `deepDiff`,
+  `clipText`, ...). Because these are git dependencies, the frontend Docker image
+  installs `git` + `ca-certificates` so a clean build can fetch them.
 
 # Version pinning
 
