@@ -284,12 +284,13 @@ async fn provision(
     Ok(org_id)
 }
 
-/// Builds a URL-safe, unique slug from a display name.
+/// Builds a URL-safe base slug from a display name, without a uniqueness suffix.
 ///
-/// Non-alphanumeric runs collapse to single hyphens; a short random suffix keeps
-/// it unique without a retry loop (the `orgs.slug` and per-org `teams.slug` columns
-/// are unique). Shared with team creation ([`crate::teams`]).
-pub(crate) fn slugify(name: &str) -> String {
+/// Non-alphanumeric runs collapse to single hyphens and the whole thing is
+/// lowercased. Returns an empty string when the name has no alphanumeric
+/// characters; callers that need a non-empty slug supply their own fallback.
+/// Shared by [`slugify`] and project slug derivation ([`crate::projects`]).
+pub(crate) fn slug_base(name: &str) -> String {
     let mut base = String::new();
     let mut last_dash = true;
     for ch in name.chars() {
@@ -301,7 +302,16 @@ pub(crate) fn slugify(name: &str) -> String {
             last_dash = true;
         }
     }
-    let base = base.trim_matches('-');
+    base.trim_matches('-').to_string()
+}
+
+/// Builds a URL-safe, unique slug from a display name.
+///
+/// Appends a short random suffix to [`slug_base`] so the slug is unique without a
+/// retry loop (the `orgs.slug` and per-org `teams.slug` columns are unique). Shared
+/// with team creation ([`crate::teams`]).
+pub(crate) fn slugify(name: &str) -> String {
+    let base = slug_base(name);
 
     let mut suffix = [0u8; 3];
     OsRng.fill_bytes(&mut suffix);

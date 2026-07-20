@@ -23,11 +23,13 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
-use sqlx::PgConnection;
+use rand::rngs::OsRng;
+use rand::RngCore;
+use sqlx::{Acquire, PgConnection};
 use uuid::Uuid;
 
 use crate::authz::{self, Capability, OrgRole};
-use crate::orgs::slugify;
+use crate::orgs::slug_base;
 use crate::proto::common::v1::{Timestamp, Uuid as ProtoUuid};
 use crate::proto::project::v1::{
     AddProjectDomainRequest, CreateProjectRequest, ListProjectMembersResponse,
@@ -496,40 +498,135 @@ pub async fn create(
         }
     }
 
-    let slug = match request.slug.trim() {
-        "" => slugify(name),
-        chosen => chosen.to_string(),
-    };
-
-    // Insert the project and its owner membership atomically.
-    let outcome = async {
-        let mut tx = state.pool.begin().await?;
-        let project_id = sqlx::query_scalar::<_, Uuid>(
-            "INSERT INTO projects (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id",
-        )
-        .bind(org_id)
-        .bind(name)
-        .bind(&slug)
-        .fetch_one(&mut *tx)
-        .await?;
-        add_member(&mut tx, project_id, owner_id, ProjectRole::Owner).await?;
-        tx.commit().await?;
-        Ok::<Uuid, sqlx::Error>(project_id)
-    }
-    .await;
-
-    let project_id = match outcome {
-        Ok(project_id) => project_id,
-        Err(error) if is_unique_violation(&error) => {
-            return (StatusCode::CONFLICT, "slug already in use").into_response();
+    let mut conn = match state.pool.acquire().await {
+        Ok(conn) => conn,
+        Err(error) => {
+            tracing::error!(error = %error, "project create connection acquire failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
+    };
+    let project_id = match create_project(&mut conn, org_id, name, &request.slug, owner_id).await {
+        Ok(Some(project_id)) => project_id,
+        Ok(None) => return (StatusCode::CONFLICT, "slug already in use").into_response(),
         Err(error) => {
             tracing::error!(error = %error, "project creation failed");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
+    drop(conn);
 
     project_response(&state, project_id).await
+}
+
+/// How many times a derived slug is retried against `UNIQUE (org_id, slug)`.
+///
+/// The first attempt uses the clean base slug; each retry appends a fresh random
+/// numeric suffix. A handful of attempts makes a repeated random collision
+/// astronomically unlikely while keeping the loop bounded. Only derived slugs
+/// retry; an explicit slug conflict is surfaced immediately.
+const MAX_SLUG_ATTEMPTS: usize = 5;
+
+/// Inserts a project with a unique slug and makes `owner_id` its OWNER, atomically.
+///
+/// An empty `requested_slug` derives the slug from `name`: the clean base
+/// ([`project_slug_base`]) is used when free within the org, and a numeric suffix is
+/// appended only on an actual `UNIQUE (org_id, slug)` collision, which also resolves
+/// the race against a concurrent create. A non-empty `requested_slug` is used
+/// verbatim; a collision returns `Ok(None)` for the caller to surface as `409`
+/// rather than being retried. The new project id is `Ok(Some(id))`.
+///
+/// Each attempt runs in its own transaction (a nested savepoint when `conn` is
+/// already in one), so a rejected insert never poisons the outer state and the
+/// project insert plus owner membership always commit together.
+///
+/// # Errors
+/// Returns an error for any database failure other than the slug conflict.
+pub(crate) async fn create_project(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    name: &str,
+    requested_slug: &str,
+    owner_id: Uuid,
+) -> sqlx::Result<Option<Uuid>> {
+    let explicit = !requested_slug.trim().is_empty();
+    let mut slug = if explicit {
+        requested_slug.trim().to_string()
+    } else {
+        project_slug_base(name)
+    };
+
+    for _ in 0..MAX_SLUG_ATTEMPTS {
+        let mut tx = conn.begin().await?;
+        let attempt = insert_project(&mut tx, org_id, name, &slug, owner_id).await;
+        match attempt {
+            Ok(project_id) => {
+                tx.commit().await?;
+                return Ok(Some(project_id));
+            }
+            Err(error) if is_unique_violation(&error) => {
+                // Clear the aborted transaction/savepoint before the next attempt.
+                tx.rollback().await?;
+                if explicit {
+                    return Ok(None);
+                }
+                slug = format!("{}-{}", project_slug_base(name), slug_suffix());
+            }
+            Err(error) => {
+                // Roll back, ignoring its error so the original cause reaches the caller.
+                let _ = tx.rollback().await;
+                return Err(error);
+            }
+        }
+    }
+
+    // A derived slug still collided after every attempt: report it as a conflict.
+    Ok(None)
+}
+
+/// Inserts one project row and its owner membership on the caller's connection.
+///
+/// # Errors
+/// Returns an error if either insert fails, including the `UNIQUE (org_id, slug)`
+/// violation that [`create_project`] handles.
+async fn insert_project(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    name: &str,
+    slug: &str,
+    owner_id: Uuid,
+) -> sqlx::Result<Uuid> {
+    let project_id = sqlx::query_scalar::<_, Uuid>(
+        "INSERT INTO projects (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(org_id)
+    .bind(name)
+    .bind(slug)
+    .fetch_one(&mut *conn)
+    .await?;
+    add_member(conn, project_id, owner_id, ProjectRole::Owner).await?;
+    Ok(project_id)
+}
+
+/// The clean base slug for a project name, falling back to `project` when empty.
+///
+/// Derives from [`slug_base`]; a name with no slug-able characters yields the stable
+/// `project` fallback so the slug is always non-empty and URL-safe.
+fn project_slug_base(name: &str) -> String {
+    let base = slug_base(name);
+    if base.is_empty() {
+        "project".to_string()
+    } else {
+        base
+    }
+}
+
+/// A random six-digit numeric suffix appended to a slug on a collision.
+///
+/// Zero-padded to six digits, matching the `name-724004` shape shown to users. Six
+/// digits give enough spread that a repeated collision across [`MAX_SLUG_ATTEMPTS`]
+/// is negligible.
+fn slug_suffix() -> String {
+    format!("{:06}", OsRng.next_u32() % 1_000_000)
 }
 
 /// `PATCH /api/v1/projects/{id}`: rename or re-slug a project.
@@ -1113,6 +1210,33 @@ mod tests {
         assert!(!is_valid_domain("double..dot.com"));
     }
 
+    #[test]
+    fn project_slug_base_is_clean_and_url_safe() {
+        assert_eq!(project_slug_base("Jalapeno Labs"), "jalapeno-labs");
+        assert_eq!(project_slug_base("  Weird!!Name  "), "weird-name");
+        assert_eq!(project_slug_base("NavarroCity"), "navarrocity");
+        // A name with no slug-able characters falls back to a stable, non-empty slug.
+        assert_eq!(project_slug_base("!!!"), "project");
+        assert_eq!(project_slug_base(""), "project");
+    }
+
+    #[test]
+    fn slug_suffix_is_six_numeric_digits() {
+        // Sampled repeatedly since the suffix is random; the shape must always hold.
+        for _ in 0..256 {
+            let suffix = slug_suffix();
+            assert_eq!(
+                suffix.len(),
+                6,
+                "the suffix is zero-padded to six digits: {suffix}",
+            );
+            assert!(
+                suffix.chars().all(|c| c.is_ascii_digit()),
+                "the suffix is purely numeric: {suffix}",
+            );
+        }
+    }
+
     // Ignored by default because it needs a reachable postgres, exactly like
     // `tests/migrations.rs`. Run with `cargo test -- --ignored` and a DATABASE_URL.
     // Everything happens inside a rolled-back transaction, so the database is left
@@ -1688,6 +1812,86 @@ mod tests {
                 .await
                 .expect("member view gate"),
             "a project member can still view the roster",
+        );
+
+        tx.rollback().await.expect("rollback transaction");
+    }
+
+    /// Reads a project's stored slug.
+    async fn slug_of(conn: &mut PgConnection, project: Uuid) -> String {
+        sqlx::query_scalar::<_, String>("SELECT slug FROM projects WHERE id = $1")
+            .bind(project)
+            .fetch_one(conn)
+            .await
+            .expect("read project slug")
+    }
+
+    // Slug generation: a derived slug stays clean when the base is free within the
+    // org and only gains a numeric suffix on a real collision, while an explicit
+    // slug is honored verbatim and its collision is a conflict, not a retry. Ignored
+    // (needs postgres); everything rolls back at the end.
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn derived_slug_is_clean_when_free_and_suffixed_on_collision() {
+        let pool = connect_test_pool().await;
+        let mut tx = pool.begin().await.expect("begin transaction");
+
+        let org = insert_org(&mut tx, "slugs").await;
+        let owner = insert_user(&mut tx, "owner").await;
+        add_org_member(&mut tx, org, owner, "owner", false).await;
+
+        // A first project derived from its name gets the clean base slug, no suffix.
+        let first = create_project(&mut tx, org, "Jalapeno Labs", "", owner)
+            .await
+            .expect("create first project")
+            .expect("the clean slug was free");
+        assert_eq!(
+            slug_of(&mut tx, first).await,
+            "jalapeno-labs",
+            "a free base slug is used verbatim",
+        );
+        // The owner became the project OWNER, mirroring create_default.
+        assert_eq!(
+            explicit_project_role(&mut *tx, owner, first)
+                .await
+                .expect("owner role"),
+            Some(ProjectRole::Owner),
+            "the named owner owns the project",
+        );
+
+        // A second project with the same name collides on the clean slug, so it keeps
+        // the base and gains a numeric suffix.
+        let second = create_project(&mut tx, org, "Jalapeno Labs", "", owner)
+            .await
+            .expect("create second project")
+            .expect("the collision resolved with a suffix");
+        let second_slug = slug_of(&mut tx, second).await;
+        assert_ne!(
+            second_slug, "jalapeno-labs",
+            "the collision forced a new slug"
+        );
+        let suffix = second_slug
+            .strip_prefix("jalapeno-labs-")
+            .expect("the suffixed slug keeps the clean base");
+        assert!(
+            !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()),
+            "the appended suffix is numeric: {second_slug}",
+        );
+
+        // An explicit slug is honored verbatim when free.
+        let explicit = create_project(&mut tx, org, "Anything At All", "custom-slug", owner)
+            .await
+            .expect("create explicit-slug project")
+            .expect("the explicit slug was free");
+        assert_eq!(slug_of(&mut tx, explicit).await, "custom-slug");
+
+        // An explicit slug that collides is a conflict (None), never silently suffixed.
+        let conflict = create_project(&mut tx, org, "Anything At All", "custom-slug", owner)
+            .await
+            .expect("explicit-slug conflict resolves without a db error");
+        assert!(
+            conflict.is_none(),
+            "an explicit slug collision is surfaced as a conflict, not retried",
         );
 
         tx.rollback().await.expect("rollback transaction");

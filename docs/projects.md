@@ -108,8 +108,10 @@ the caller's active org; item routes carry the project id.
   project for a full org member, only the explicitly-granted ones for a guest. The
   set is filtered through `resolve_project_access`, never re-derived in SQL.
 - `POST /projects` creates a project (requires `manage_projects`). The named owner, or
-  the creator when unset, becomes its OWNER; the slug is derived from the name when
-  omitted.
+  the creator when unset, becomes its OWNER. An omitted slug is derived from the name:
+  the clean, URL-safe base is used when free within the org, and a numeric suffix is
+  appended only on an actual `UNIQUE (org_id, slug)` collision (retried, so a concurrent
+  create races safely). An explicit slug is used verbatim and a collision returns `409`.
 - `PATCH /projects/{id}` renames or re-slugs a project (a project owner/admin, or a
   `manage_projects` holder). An empty field is left unchanged.
 - `DELETE /projects/{id}` deletes a project (requires `manage_projects`), refused with
