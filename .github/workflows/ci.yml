@@ -361,13 +361,25 @@ jobs:
             -e POSTGRES_DB=elysium_migrate_test \
             postgres:17.5-alpine >/dev/null
 
-          echo "waiting for Postgres..."
-          for _ in $(seq 1 30); do
-            if docker exec "$container" pg_isready -U migrator -d elysium_migrate_test >/dev/null 2>&1; then
-              break
+          # The postgres:alpine entrypoint starts a TEMPORARY server for initdb,
+          # then shuts it down to start the real one. pg_isready (and even a single
+          # query) can pass against that temp server, and migrations then race its
+          # shutdown -> "FATAL: the database system is shutting down". Require several
+          # CONSECUTIVE real queries so we are provably past the initdb handoff.
+          echo "waiting for Postgres to stabilize past the initdb temp server..."
+          ready=0
+          for _ in $(seq 1 60); do
+            if docker exec "$container" psql -U migrator -d elysium_migrate_test -tAc 'SELECT 1' >/dev/null 2>&1; then
+              ready=$((ready + 1))
+              [ "$ready" -ge 3 ] && break
+            else
+              ready=0
             fi
             sleep 1
           done
+          if [ "$ready" -lt 3 ]; then
+            echo "Postgres did not stabilize in time"; docker logs "$container" 2>&1 | tail -20; exit 1
+          fi
 
           for file in backend/migrations/*.sql; do
             echo "applying $(basename "$file")"
