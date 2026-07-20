@@ -301,8 +301,22 @@ account manages its own credentials under the Security Center (`/api/v1/me/ssh-k
   Deleting an integration cascades to the tokens bound to it, so a token never outlives or
   broadens past its service.
 
-Stamping `last_used_at` and enforcing a token's scopes at the SSH/HTTPS front ride the
-routing layer (#29) and the git vertical (#38).
+**Git over HTTPS is wired at the routing front** (`src/orchestration/forward_auth.rs`). A git
+smart-HTTP request with no Elysium session authenticates with an `ely_pat_` token supplied as
+the HTTP Basic password (the username is ignored; an empty password falls back to the
+username), so `git clone https://anything:<token>@host/services/{id}/org/repo.git` works with
+no separate git login. The forward-auth layer classifies the request (a fetch needs
+`git.read`, a push needs `git.write` specifically), enforces the token's optional
+per-integration bind, runs the same account-policy gate as the session/OIDC paths (a
+suspended, non-member, or mandatory-2FA-delinquent owner is refused), then asserts the token
+owner's trusted identity so Forgejo sees the user with no git login. A missing or unresolvable
+token yields `401 WWW-Authenticate: Basic realm="Elysium Git"` (so git re-prompts); an
+authenticated-but-unauthorized token yields `403`. Usage stamps `last_used_at` best-effort,
+never failing the request; revocation fails transport at once.
+
+**Git over SSH is deferred to the SSH router (#30).** SSH transport auth waits on the SSH
+front that #30 builds; that router resolves a presented key to its owner via the existing
+`resolve_ssh_key_owner` seam, then asserts the same identity, mirroring the HTTPS path.
 
 **Linked services invert the trust direction:** Elysium is the OAuth *client*, holding the
 user's grant to GitHub/Google/Microsoft, silently refreshing it. For an embedded web view of
@@ -374,8 +388,8 @@ mail, Astraval) → runners & workers → unified action-center surfaces. Each p
 milestone depends on the storage, orchestration, and identity foundations.
 
 Remaining on the git milestone (M4), each an individual issue: the Forgejo login-source
-first-boot init (deliver + idempotent `add-oauth`/`update-oauth`), git transport auth (HTTPS
-scoped tokens + SSH minted keys), linked GitHub/GitLab (OAuth + repos into the unified view),
-the repo resource model (repos as resources with org/team ownership and access), and the
-embedded git panel + federated "all repos" surface. On the orchestration milestone (M2): a
+first-boot init (deliver + idempotent `add-oauth`/`update-oauth`), git transport auth over SSH
+(the SSH router, #30; the HTTPS scoped-token half is wired), linked GitHub/GitLab (OAuth +
+repos into the unified view), the repo resource model (repos as resources with org/team
+ownership and access), and the embedded git panel + federated "all repos" surface. On the orchestration milestone (M2): a
 persisted per-integration host-port allocation to replace the deterministic derivation.

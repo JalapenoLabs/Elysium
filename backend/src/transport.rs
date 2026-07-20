@@ -669,13 +669,13 @@ fn is_unique_violation(error: &sqlx::Error) -> bool {
 ///
 /// # Errors
 /// Returns an error only if the database query fails, never for an unknown key.
-// The transport-auth resolution seam lands ahead of its consumers; #29/#38 wire
-// the SSH router that calls it. Mirrors `orchestration`'s "seam ahead of
-// consumers" allowance rather than `expect`, since the DB-gated tests below use
-// it, which would leave an `expect(dead_code)` unfulfilled under `--all-targets`.
+// The SSH resolution seam lands ahead of its consumer; the SSH router (#30) wires
+// the transport that calls it. Mirrors `orchestration`'s "seam ahead of consumers"
+// allowance rather than `expect`, since the DB-gated tests below use it, which
+// would leave an `expect(dead_code)` unfulfilled under `--all-targets`.
 #[allow(
     dead_code,
-    reason = "transport-auth resolution seam; #29/#38 wire the consumer"
+    reason = "SSH transport-auth resolution seam; the SSH router (#30) wires the consumer"
 )]
 pub async fn resolve_ssh_key_owner(pool: &PgPool, public_key: &str) -> sqlx::Result<Option<Uuid>> {
     let Ok(parsed) = PublicKey::from_openssh(public_key.trim()) else {
@@ -696,10 +696,6 @@ pub async fn resolve_ssh_key_owner(pool: &PgPool, public_key: &str) -> sqlx::Res
 /// token's capability (its `scopes`) and its optional instance bind
 /// (`integration_id`) before allowing a git, registry, or SMTP operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(
-    dead_code,
-    reason = "transport-auth resolution seam; #29/#38 wire the consumer"
-)]
 pub struct TokenGrant {
     pub token_id: Uuid,
     pub user_id: Uuid,
@@ -712,15 +708,11 @@ pub struct TokenGrant {
 /// The transport-auth path (HTTPS git, `docker login`, SMTP AUTH; #29 / #38) calls
 /// this with the token a client presented. It hashes the token and looks the hash
 /// up, honoring expiry, so an expired, revoked (deleted), or unknown token resolves
-/// to `None` and fails closed. Usage stamping (`last_used_at`) is the caller's to
-/// wire; this issue leaves it `NULL`.
+/// to `None` and fails closed. A caller stamps usage with [`stamp_token_used`] after
+/// a token authenticates.
 ///
 /// # Errors
 /// Returns an error only if the database query fails, never for an invalid token.
-#[allow(
-    dead_code,
-    reason = "transport-auth resolution seam; #29/#38 wire the consumer"
-)]
 pub async fn resolve_access_token(pool: &PgPool, secret: &str) -> sqlx::Result<Option<TokenGrant>> {
     let token_hash = hash_token(secret);
     let row = sqlx::query_as::<_, AccessTokenRow>(
@@ -752,6 +744,22 @@ pub async fn resolve_access_token(pool: &PgPool, secret: &str) -> sqlx::Result<O
             .collect(),
         integration_id: row.integration_id,
     }))
+}
+
+/// Stamps a token's `last_used_at` to now, so the owner sees when it last authenticated.
+///
+/// The transport-auth path calls this after a token resolves and is authorized. It
+/// is deliberately best-effort: the caller runs it out of band (fire-and-forget), so
+/// a stamp that fails or lags never fails or delays the transport request it records.
+///
+/// # Errors
+/// Returns an error only if the update query fails; callers may ignore it.
+pub async fn stamp_token_used(pool: &PgPool, token_id: Uuid) -> sqlx::Result<()> {
+    sqlx::query("UPDATE access_tokens SET last_used_at = now() WHERE id = $1")
+        .bind(token_id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 #[cfg(test)]
