@@ -11,14 +11,14 @@ import { useTranslation } from 'react-i18next'
 import {
   Button,
   Input,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Select,
   SelectItem,
   User,
 } from '@heroui/react'
 import { LuTrash2 } from 'react-icons/lu'
+
+// Misc
+import { useConfirm } from '../../hooks/useConfirm'
 
 // Misc
 import {
@@ -44,6 +44,7 @@ type Props = {
 // the accordion opens it).
 export function TeamPanel(props: Props) {
   const { t } = useTranslation([ 'auth', 'common' ])
+  const confirm = useConfirm()
 
   const [ members, setMembers ] = useState<TeamMember[]>([])
   const [ name, setName ] = useState(props.team.name)
@@ -109,28 +110,22 @@ export function TeamPanel(props: Props) {
         >
           <span>{ t('auth:settings.teams.rename') }</span>
         </Button>
-        <Popover placement='top-end'>
-          <PopoverTrigger>
-            <Button size='sm' variant='light' color='danger' isDisabled={isBusy}>
-              <LuTrash2 className='h-4 w-4' />
-              <span>{ t('auth:settings.teams.delete') }</span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className='p-4'>
-            <p className='compact text-sm'>
-              { t('auth:settings.teams.deleteConfirm', { name: props.team.name }) }
-            </p>
-            <Button
-              size='sm'
-              color='danger'
-              className='w-full'
-              isLoading={isBusy}
-              onPress={() => run(() => deleteTeam(props.team.id), props.onChanged)}
-            >
-              <span>{ t('auth:settings.teams.deleteAction') }</span>
-            </Button>
-          </PopoverContent>
-        </Popover>
+        <Button
+          size='sm'
+          variant='light'
+          color='danger'
+          isDisabled={isBusy}
+          onPress={() => confirm({
+            title: t('auth:settings.teams.delete'),
+            message: t('auth:settings.teams.deleteConfirm', { name: props.team.name }),
+            confirmLabel: t('auth:settings.teams.deleteAction'),
+            confirmColor: 'danger',
+            onConfirm: () => run(() => deleteTeam(props.team.id), props.onChanged),
+          })}
+        >
+          <LuTrash2 className='h-4 w-4' />
+          <span>{ t('auth:settings.teams.delete') }</span>
+        </Button>
       </div>
       : null }
 

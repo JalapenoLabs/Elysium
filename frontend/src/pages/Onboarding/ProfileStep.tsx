@@ -15,6 +15,7 @@ import { SubmitButton } from '../../components/form/SubmitButton'
 
 // Misc
 import { getMyProfile, updateMyProfile } from '../../api/routes/userRoutes'
+import { Language } from '../../proto/generated/user_pb'
 import { UrlTree } from '../../urls'
 
 // Final onboarding step: the app-owned profile. Names follow the split model
@@ -78,6 +79,15 @@ export function ProfileStep() {
         familyName: familyName.trim(),
         displayName: displayName.trim(),
         bio: bio.trim(),
+        // Onboarding collects only the essentials; contact and personalization
+        // fields start empty and are filled in later from settings.
+        pronouns: '',
+        webLink: '',
+        contactPhone: '',
+        backupEmail: '',
+        // First-time setup leaves the UI language and timezone on auto-detect.
+        language: Language.UNSPECIFIED,
+        timezone: '',
       })
       navigate(UrlTree.home)
     }

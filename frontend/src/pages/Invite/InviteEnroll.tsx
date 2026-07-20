@@ -152,6 +152,7 @@ export function InviteEnroll(props: Props) {
       title={t('auth:invite.recovery.title')}
       subtitle={t('auth:invite.recovery.subtitle')}
       copyLabel={t('auth:invite.recovery.copy')}
+      downloadLabel={t('auth:invite.recovery.download')}
       actionLabel={t('auth:invite.recovery.action')}
       onContinue={onRecoveryContinue}
     />

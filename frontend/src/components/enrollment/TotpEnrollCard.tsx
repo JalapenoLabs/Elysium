@@ -1,9 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 
 // UI
-import { Input } from '@heroui/react'
+import { Input, Skeleton } from '@heroui/react'
 import { QRCodeSVG } from 'qrcode.react'
 import { SubmitButton } from '../form/SubmitButton'
 
@@ -19,6 +19,10 @@ type Props = {
   codeLabel: string
   actionLabel: string
   requiredReason: string
+  // Optional field rendered above the code input, inside the form (so it submits
+  // on Enter). The Security Center passes a name input here; the first-run and
+  // invite flows leave it out.
+  nameField?: ReactNode
   errorMessage?: string | null
   isBusy?: boolean
 }
@@ -39,11 +43,13 @@ export function TotpEnrollCard(props: Props) {
     </h1>
     <p className='mt-3 opacity-80'>{ props.subtitle }</p>
 
+    {/* The QR is fetched lazily (only when this step is actually reached), so a
+        skeleton holds its place until the provisioning URI arrives. */}
     { props.provisioningUri
       ? <div className='mt-6 flex justify-center rounded-xl bg-white p-4'>
         <QRCodeSVG value={props.provisioningUri} size={180} />
       </div>
-      : null }
+      : <Skeleton className='mt-6 h-[13rem] w-full rounded-xl' /> }
     { manualKey
       ? <p className='mt-3 break-all text-center text-xs opacity-70'>
         { props.manualHint } <code>{ manualKey }</code>
@@ -51,6 +57,9 @@ export function TotpEnrollCard(props: Props) {
       : null }
 
     <form onSubmit={props.onSubmit}>
+      { props.nameField
+        ? <div className='mt-6 compact'>{ props.nameField }</div>
+        : null }
       <div className='mt-6 compact'>
         <Input
           label={props.codeLabel}

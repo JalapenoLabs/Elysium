@@ -13,6 +13,14 @@
 FROM node:24.13.0-slim AS dev
 WORKDIR /app
 
+# git is required to install the Jalapeno Labs packages (`@jalapenolabs/cli`,
+# `@jalapenolabs/uikit`), which Yarn fetches straight from their public git repos
+# rather than npm; ca-certificates lets git verify the GitHub TLS cert. The slim
+# base ships without either.
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN corepack enable
 
 # Install dependencies first so this layer is cached until the manifest,

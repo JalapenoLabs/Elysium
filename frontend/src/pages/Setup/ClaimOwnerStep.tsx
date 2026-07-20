@@ -130,6 +130,7 @@ export function ClaimOwnerStep(props: Props) {
         title={t('auth:setup.recovery.title')}
         subtitle={t('auth:setup.recovery.subtitle')}
         copyLabel={t('auth:setup.recovery.copy')}
+        downloadLabel={t('auth:setup.recovery.download')}
         actionLabel={t('auth:setup.recovery.action')}
         isBusy={enroll.isBusy}
         onContinue={() => {

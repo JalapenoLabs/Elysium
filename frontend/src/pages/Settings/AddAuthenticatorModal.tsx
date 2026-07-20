@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // UI
-import { Modal, ModalBody, ModalContent, ModalHeader } from '@heroui/react'
+import { Input, Modal, ModalBody, ModalContent, ModalHeader } from '@heroui/react'
 import { TotpEnrollCard } from '../../components/enrollment/TotpEnrollCard'
 
 // Misc
@@ -29,20 +29,22 @@ export function AddAuthenticatorModal(props: Props) {
   const enrollment = useTotpEnrollment()
   const { begin } = enrollment
   const [ code, setCode ] = useState('')
+  const [ name, setName ] = useState('')
 
-  // A fresh provisioning URI each time the modal opens; clear the field on close.
+  // A fresh provisioning URI each time the modal opens; clear the fields on close.
   useEffect(() => {
     if (props.isOpen) {
       void begin()
     }
     else {
       setCode('')
+      setName('')
     }
   }, [ props.isOpen, begin ])
 
   async function onConfirm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const confirmed = await enrollment.confirm(code)
+    const confirmed = await enrollment.confirm(code, name)
     if (confirmed) {
       props.onEnrolled()
       props.onOpenChange(false)
@@ -70,6 +72,16 @@ export function AddAuthenticatorModal(props: Props) {
           codeLabel={t('settings.security.authenticatorCodeLabel')}
           actionLabel={t('settings.security.authenticatorAction')}
           requiredReason={t('settings.security.authenticatorRequired')}
+          nameField={
+            <Input
+              size='sm'
+              radius='sm'
+              label={t('settings.security.authenticatorNameLabel')}
+              placeholder={t('settings.security.authenticatorNamePlaceholder')}
+              value={name}
+              onValueChange={setName}
+            />
+          }
           errorMessage={errorMessage}
           isBusy={enrollment.isBusy}
         />

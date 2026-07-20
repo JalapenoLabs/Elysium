@@ -7,6 +7,28 @@ input, textarea {
 }
 
 /*
+  Status-color grammar (docs/ux.md): idle / active / needs-input / error / done.
+  HeroUI-style `H S% L%` triples so Tailwind can compose alpha (`bg-status-active/15`).
+  Light values sit on :root, dark overrides on `.dark` (Tailwind darkMode: 'class').
+  The TypeScript mirror is src/theme/statusColors.ts; a unit test keeps them in sync.
+*/
+:root {
+  --status-idle: 243 75% 59%;
+  --status-active: 21 90% 48%;
+  --status-needs-input: 333 71% 51%;
+  --status-error: 0 72% 51%;
+  --status-done: 142 76% 36%;
+}
+
+.dark {
+  --status-idle: 239 84% 67%;
+  --status-active: 25 95% 53%;
+  --status-needs-input: 330 81% 60%;
+  --status-error: 0 84% 60%;
+  --status-done: 142 71% 45%;
+}
+
+/*
   Small, theme-agnostic layout helpers the team likes to reach for:
   `relaxed`/`compact` for vertical rhythm and `level` for horizontal rows.
   They intentionally avoid setting colors so the HeroUI theme stays in control.
@@ -215,6 +237,78 @@ input, textarea {
   0% { transform: scale(0.92); }
   50% { transform: scale(1.08); }
   100% { transform: scale(0.92); }
+}
+
+/*
+  The workspace: the rc-dock canvas that is the app's main screen. It fills
+  the viewport above the taskbar; the dock layout is absolutely positioned
+  inside it. rc-dock ships light-theme styles, so the overrides below restyle
+  its chrome with HeroUI variables to follow the app theme in both modes.
+*/
+.workspace {
+  position: relative;
+  height: calc(100vh - 4.5rem);
+}
+
+.workspace__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.dock-layout {
+  background: transparent;
+}
+
+.dock-layout .dock-panel {
+  background: hsl(var(--heroui-content1));
+  border-color: hsl(var(--heroui-foreground) / 0.12);
+  border-radius: 0.625rem;
+}
+
+.dock-layout .dock-bar {
+  background: transparent;
+  border-bottom: 1px solid hsl(var(--heroui-foreground) / 0.1);
+}
+
+.dock-layout .dock-tab {
+  background: transparent;
+  border: none;
+  color: hsl(var(--heroui-foreground) / 0.6);
+}
+
+.dock-layout .dock-tab:hover,
+.dock-layout .dock-tab-active {
+  color: hsl(var(--heroui-foreground));
+}
+
+.dock-layout .dock-ink-bar {
+  background: hsl(var(--heroui-primary));
+}
+
+.dock-layout .dock-tab-close-btn {
+  color: hsl(var(--heroui-foreground) / 0.5);
+}
+
+.dock-layout .dock-tab-close-btn:hover {
+  color: hsl(var(--heroui-foreground));
+}
+
+.dock-layout .dock-panel-max-btn {
+  color: hsl(var(--heroui-foreground) / 0.5);
+}
+
+.dock-layout .dock-dropdown-menu {
+  background: hsl(var(--heroui-content1));
+  color: hsl(var(--heroui-foreground));
+}
+
+/* The locked main panel stays mounted while empty so new tabs always have a
+   landing zone; hide its tabless header so the clear workspace reads clean. */
+.dock-layout .dock-panel:not(:has(.dock-tab)) .dock-bar {
+  display: none;
 }
 
 /*

@@ -3,7 +3,7 @@
 import type { FormEvent, ReactNode } from 'react'
 
 // Core
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -15,7 +15,7 @@ import { AuthCard } from '../components/auth/AuthCard'
 import { TotpEnrollCard } from '../components/enrollment/TotpEnrollCard'
 
 // Misc
-import { useAutoStartedTotpEnrollment } from './methods/useTotpEnrollment'
+import { useTotpEnrollment } from './methods/useTotpEnrollment'
 import { resolveSession } from './session'
 
 type Props = {
@@ -31,8 +31,19 @@ export function RequireTotpEnrollment(props: Props) {
   const { t } = useTranslation('auth')
   const required = useAppSelector((state) => state.sessionContext.totpEnrollmentRequired)
 
-  const enrollment = useAutoStartedTotpEnrollment()
+  const enrollment = useTotpEnrollment()
+  const { begin } = enrollment
   const [ code, setCode ] = useState('')
+
+  // Begin enrollment ONLY when the gate is actually shown. This component wraps
+  // the whole app, so an unconditional auto-start would mint a throwaway TOTP
+  // secret on every page load; gating it on `required` means the server is only
+  // asked when the user really has to enroll.
+  useEffect(() => {
+    if (required) {
+      void begin()
+    }
+  }, [ required, begin ])
 
   if (!required) {
     return props.children

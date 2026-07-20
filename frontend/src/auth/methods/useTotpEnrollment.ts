@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 // Misc
 import { beginTotpEnrollment, confirmTotpEnrollment } from '../../api/routes/userRoutes'
@@ -34,13 +34,14 @@ export function useTotpEnrollment() {
     }
   }, [])
 
-  // Confirms the code. Resolves true once stored; the caller re-resolves the
-  // session (which clears `totp_enrollment_required`).
-  const confirm = useCallback(async (code: string) => {
+  // Confirms the code, optionally naming the authenticator. Resolves true once
+  // stored; the caller re-resolves the session (which clears
+  // `totp_enrollment_required`).
+  const confirm = useCallback(async (code: string, name?: string) => {
     setError(null)
     setIsBusy(true)
     try {
-      const response = await confirmTotpEnrollment(code)
+      const response = await confirmTotpEnrollment(code, name)
       if (response.status === 204) {
         return true
       }
@@ -59,17 +60,4 @@ export function useTotpEnrollment() {
   }, [])
 
   return { provisioningUri, isBusy, error, begin, confirm } as const
-}
-
-// A convenience wrapper that begins enrollment as soon as it mounts, for
-// surfaces (the gate) that always want a QR immediately.
-export function useAutoStartedTotpEnrollment() {
-  const enrollment = useTotpEnrollment()
-  const { begin } = enrollment
-
-  useEffect(() => {
-    void begin()
-  }, [ begin ])
-
-  return enrollment
 }

@@ -31,6 +31,8 @@ export const UrlTree = {
   // org-level concerns (identity, branding, people).
   organization: '/organization',
   organizationGeneral: '/organization/general',
+  organizationProjects: '/organization/projects',
+  organizationStorage: '/organization/storage',
   organizationMembers: '/organization/members',
   organizationTeams: '/organization/teams',
   organizationRoles: '/organization/roles',

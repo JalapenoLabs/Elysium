@@ -8,6 +8,7 @@ import { themeReducer } from './themeSlice'
 import { sessionReducer } from './sessionSlice'
 import { currentUserReducer } from './currentUserSlice'
 import { sessionContextReducer } from './sessionContextSlice'
+import { projectsReducer } from './projectsSlice'
 
 export const store = configureStore({
   reducer: {
@@ -15,6 +16,7 @@ export const store = configureStore({
     session: sessionReducer,
     currentUser: currentUserReducer,
     sessionContext: sessionContextReducer,
+    projects: projectsReducer,
   },
 })
 

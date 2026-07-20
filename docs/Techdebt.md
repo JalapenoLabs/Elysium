@@ -13,16 +13,6 @@ current state, the desired state, and what unblocks it. Remove an entry when it 
   existing `i18next-http-backend`.
 - **Unblocks on:** adding the first non-`en-US` locale bundle under `frontend/public/locales`.
 
-## Auth state-color hexes are hardcoded
-
-- **Today:** the state-color grammar (`accentByState` / `auraSecondaryByState` in
-  `frontend/src/components/auth/authFlowState.ts`) hardcodes hex values. If the Tailwind/HeroUI
-  theme changes, these do not follow.
-- **Desired:** drive these colors from the Tailwind/HeroUI theme so a theme change updates them in
-  one place. This is also a prerequisite for per-company theming / white-labeling, where the auth
-  colors must match the customer's branding.
-- **Unblocks on:** the theming/white-label work landing a themeable color source to bind to.
-
 ## SSE connection cap is per-instance (in-memory)
 
 - **Today:** `MAX_SSE_CONNECTIONS_PER_USER` is enforced by an in-memory
@@ -32,6 +22,32 @@ current state, the desired state, and what unblocks it. Remove an entry when it 
   enforce the cap at a shared gateway, so the cap is global regardless of instance count.
 - **Unblocks on:** the API running as more than one instance (the worker / horizontal-scale
   architecture in `CLAUDE.md`). Fine while it is single-instance.
+
+## Shared UI primitives live in Elysium instead of `uikit`
+
+- **Today:** the app-wide confirm modal (`frontend/src/gates/ConfirmGate.tsx` +
+  `hooks/useConfirm.ts`), the app-wide prompt modal (`frontend/src/gates/PromptGate.tsx` +
+  `hooks/usePrompt.ts`), and the `OhLookAtTheTime` timestamp element
+  (`frontend/src/components/OhLookAtTheTime.tsx`) are all generic, cross-project UI that
+  currently lives inside Elysium.
+- **Desired:** move each into `@jalapenolabs/uikit` (the shared design system) so every
+  Jalapeno Labs project consumes one implementation, per the "contribute sharable UI back to
+  uikit" rule in `CLAUDE.md`. Elysium then imports them from the package.
+- **Unblocks on:** nothing external. `uikit` is now consumed from git (the `develop` branch),
+  so this is porting the three into the `uikit` repo, releasing them, and swapping Elysium's
+  imports over. The confirm/prompt modals need a HeroUI-free restyle to match uikit's own
+  design system first.
+
+## `uikit` has no streamlined table kit
+
+- **Today:** settings tables (Sessions, Recent sign-ins) are hand-built `<table>` markup. There
+  is no shared, feature-rich table component, so niceties like column sorting, column picking,
+  and column reordering would be re-implemented per table.
+- **Desired:** `@jalapenolabs/uikit` ships one streamlined `Table` kit with built-in column
+  sorting, show/hide column picking, and drag reordering (its `DragNDrop` primitives already
+  cover the reordering), which Elysium's tables then adopt.
+- **Unblocks on:** building the table kit in the `uikit` repo. It is a `uikit` deliverable, not
+  an Elysium one; `uikit` itself is already consumable from git.
 
 ## Sessions have no idle timeout or sliding renewal
 

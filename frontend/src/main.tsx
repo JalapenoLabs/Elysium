@@ -1,7 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
-import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Provider } from 'react-redux'
 import { RouterProvider } from 'react-router'
@@ -25,16 +24,18 @@ const root = createRoot(container)
 // the first paint already has translations. The session itself resolves later:
 // it lives in an HttpOnly cookie the browser can't read, so RootLayout probes the
 // API and the route guards react to the result.
+//
+// StrictMode is intentionally off: its dev-only double-invocation of effects
+// double-fired our load-time fetches (session probe, page data, TOTP begin),
+// which was noise during development. Production was never affected.
 i18nReady
   .catch((error) => {
     console.debug('i18n failed to load initial locale; rendering with keys', error)
   })
   .finally(() => {
     root.render(
-      <StrictMode>
-        <Provider store={store}>
-          <RouterProvider router={router} />
-        </Provider>
-      </StrictMode>,
+      <Provider store={store}>
+        <RouterProvider router={router} />
+      </Provider>,
     )
   })

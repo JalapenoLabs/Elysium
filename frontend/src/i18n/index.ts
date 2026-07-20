@@ -6,7 +6,7 @@ import HttpBackend from 'i18next-http-backend'
 import { initReactI18next } from 'react-i18next'
 
 // Misc
-import { parseJsonSafe } from '../lib/json'
+import { parseJsonSafe } from '@jalapenolabs/uikit'
 
 // Locale bundles are fetched at runtime from the static `/public/locales` folder,
 // not imported at build time. Bundling every translation into the app JS would
@@ -24,6 +24,11 @@ export const i18nReady = i18next
   .init({
     lng: DEFAULT_LOCALE,
     fallbackLng: DEFAULT_LOCALE,
+    // Load only the exact locale (`en-US`), never the region-stripped variant.
+    // i18next's default (`load: 'all'`) would ALSO request `/locales/en/*.jsonc`,
+    // which doesn't exist; the SPA then serves index.html for it, and the JSONC
+    // parser fails on the HTML. `currentOnly` avoids that phantom fetch entirely.
+    load: 'currentOnly',
     ns: [ 'common', 'auth' ],
     defaultNS: 'common',
     backend: {

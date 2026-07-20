@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { Button, Tooltip } from '@heroui/react'
 import { LuMoon, LuSun } from 'react-icons/lu'
 import { OrgSwitcher } from './OrgSwitcher'
+import { ProjectSwitcher } from './ProjectSwitcher'
 import { TaskbarSearch } from './TaskbarSearch'
 import { TaskbarApps } from './TaskbarApps'
 import { ProfileBadge } from '../user/ProfileBadge'
@@ -28,6 +29,7 @@ export function Taskbar() {
   return <footer className='taskbar'>
     <div className='taskbar__zone taskbar__zone--left'>
       <OrgSwitcher />
+      <ProjectSwitcher />
       <ProfileBadge />
     </div>
 

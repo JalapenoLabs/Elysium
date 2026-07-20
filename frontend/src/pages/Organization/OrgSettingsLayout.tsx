@@ -9,7 +9,7 @@ import { useAppSelector } from '../../store/hooks'
 
 // UI
 import { Accordion, AccordionItem } from '@heroui/react'
-import { LuIdCard, LuShieldCheck, LuUsersRound } from 'react-icons/lu'
+import { LuIdCard, LuLayers, LuShieldCheck, LuUsersRound } from 'react-icons/lu'
 
 // Misc
 import { UrlTree } from '../../urls'
@@ -24,6 +24,15 @@ const groups = [
     Icon: LuIdCard,
     items: [
       { to: UrlTree.organizationGeneral, labelKey: 'orgSettings.general' },
+    ],
+  },
+  {
+    key: 'projects',
+    titleKey: 'orgSettings.groups.projects',
+    Icon: LuLayers,
+    items: [
+      { to: UrlTree.organizationProjects, labelKey: 'orgSettings.projects' },
+      { to: UrlTree.organizationStorage, labelKey: 'orgSettings.storage' },
     ],
   },
   {

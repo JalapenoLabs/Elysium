@@ -8,6 +8,8 @@ import { Outlet, useHref, useNavigate } from 'react-router'
 import { HeroUIProvider } from '@heroui/react'
 import { Splash } from '../pages/Auth/Splash'
 import { ConnectionScreen } from '../pages/Connection/ConnectionScreen'
+import { ConfirmGate } from '../gates/ConfirmGate'
+import { PromptGate } from '../gates/PromptGate'
 
 // Redux
 import { useAppSelector } from '../store/hooks'
@@ -44,12 +46,16 @@ export function RootLayout() {
   // AppLayout so the full-screen auth screens render without it. Passing
   // navigate/useHref lets HeroUI's Link route client-side via React Router.
   return <HeroUIProvider navigate={navigate} useHref={useHref}>
-    <div className='bg-background text-foreground min-h-screen'>
-      { connectionStatus === 'checking'
-        ? <Splash />
-        : connectionStatus === 'needs-connection'
-          ? <ConnectionScreen />
-          : <Outlet /> }
-    </div>
+    <ConfirmGate>
+      <PromptGate>
+        <div className='bg-background text-foreground min-h-screen'>
+          { connectionStatus === 'checking'
+            ? <Splash />
+            : connectionStatus === 'needs-connection'
+              ? <ConnectionScreen />
+              : <Outlet /> }
+        </div>
+      </PromptGate>
+    </ConfirmGate>
   </HeroUIProvider>
 }

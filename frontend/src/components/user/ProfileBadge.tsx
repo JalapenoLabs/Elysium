@@ -143,7 +143,7 @@ export function ProfileBadge() {
         <DropdownItem
           key='my-profile'
           startContent={<LuUserRound className='h-4 w-4' />}
-          onPress={() => navigate(UrlTree.settingsProfile)}
+          onPress={() => navigate(UrlTree.settings)}
         >
           { t('account.myProfile') }
         </DropdownItem>

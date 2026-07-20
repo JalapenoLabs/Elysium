@@ -20,11 +20,6 @@ import {
   DropdownItem,
   DropdownMenu,
   DropdownTrigger,
-  Modal,
-  ModalBody,
-  ModalContent,
-  ModalFooter,
-  ModalHeader,
   Select,
   SelectItem,
   User,
@@ -35,6 +30,7 @@ import { LuEllipsisVertical } from 'react-icons/lu'
 import { HTTPError } from 'ky'
 
 // Misc
+import { useConfirm } from '../../hooks/useConfirm'
 import {
   listOrgMembers,
   reactivateOrgMember,
@@ -67,14 +63,12 @@ export function OrgMembers() {
   const canManage = Boolean(activeOrg && MANAGER_ROLES.includes(activeOrg.role))
   const isOwner = activeOrg?.role === 'owner'
 
+  const confirm = useConfirm()
+
   const [ members, setMembers ] = useState<OrgMember[]>([])
   const [ isLoading, setIsLoading ] = useState(true)
   const [ busyMemberId, setBusyMemberId ] = useState<string | null>(null)
   const [ errorMessage, setErrorMessage ] = useState<string | null>(null)
-  // A pending irreversible action awaiting confirmation (remove, transfer).
-  const [ pendingConfirm, setPendingConfirm ] = useState<
-    { title: string, body: string, actionLabel: string, run:() => void } | null
-  >(null)
 
   async function loadMembers(orgId: string) {
     try {
@@ -131,29 +125,6 @@ export function OrgMembers() {
   }
 
   return <section className='w-full'>
-    <Modal isOpen={Boolean(pendingConfirm)} onOpenChange={() => setPendingConfirm(null)}>
-      <ModalContent>
-        <ModalHeader>{ pendingConfirm?.title }</ModalHeader>
-        <ModalBody>
-          <p className='opacity-80'>{ pendingConfirm?.body }</p>
-        </ModalBody>
-        <ModalFooter>
-          <Button variant='light' onPress={() => setPendingConfirm(null)}>
-            <span>{ t('common:actions.cancel') }</span>
-          </Button>
-          <Button
-            color='danger'
-            onPress={() => {
-              pendingConfirm?.run()
-              setPendingConfirm(null)
-            }}
-          >
-            <span>{ pendingConfirm?.actionLabel }</span>
-          </Button>
-        </ModalFooter>
-      </ModalContent>
-    </Modal>
-
     <div className='relaxed'>
       <h2 className='text-2xl'>
         <strong>{ t('auth:settings.members.title') }</strong>
@@ -242,13 +213,14 @@ export function OrgMembers() {
                         { isOwner
                           ? <DropdownItem
                             key='transfer'
-                            onPress={() => setPendingConfirm({
+                            onPress={() => confirm({
                               title: t('auth:settings.members.transferOwnership'),
-                              body: t('auth:settings.members.transferConfirm', {
+                              message: t('auth:settings.members.transferConfirm', {
                                 name: member.display_name || member.email,
                               }),
-                              actionLabel: t('auth:settings.members.transferAction'),
-                              run: () => onMemberAction(member.user_id, () =>
+                              confirmLabel: t('auth:settings.members.transferAction'),
+                              confirmColor: 'danger',
+                              onConfirm: () => onMemberAction(member.user_id, () =>
                                 transferOrgOwnership(activeOrgId ?? '', member.user_id)),
                             })}
                           >
@@ -259,13 +231,14 @@ export function OrgMembers() {
                           key='remove'
                           color='danger'
                           className='text-danger'
-                          onPress={() => setPendingConfirm({
+                          onPress={() => confirm({
                             title: t('auth:settings.members.remove'),
-                            body: t('auth:settings.members.removeConfirm', {
+                            message: t('auth:settings.members.removeConfirm', {
                               name: member.display_name || member.email,
                             }),
-                            actionLabel: t('auth:settings.members.removeAction'),
-                            run: () => onMemberAction(member.user_id, () =>
+                            confirmLabel: t('auth:settings.members.removeAction'),
+                            confirmColor: 'danger',
+                            onConfirm: () => onMemberAction(member.user_id, () =>
                               removeOrgMember(activeOrgId ?? '', member.user_id)),
                           })}
                         >

@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { PayloadAction } from '@reduxjs/toolkit'
-import type { ManualStatusKind, Presence, User } from '../proto/generated/user_pb'
+import type { Language, ManualStatusKind, Presence, User } from '../proto/generated/user_pb'
 
 // Core
 import { createSlice } from '@reduxjs/toolkit'
@@ -21,6 +21,16 @@ export type CurrentUser = {
   displayName: string
   avatarUrl: string
   bio: string
+  pronouns: string
+  // A single self-chosen profile link (e.g. a LinkedIn URL).
+  webLink: string
+  contactPhone: string
+  // A secondary email, distinct from the identity `email`.
+  backupEmail: string
+  // Preferred UI language; UNSPECIFIED means auto-detect from the client.
+  language: Language
+  // Preferred display timezone as an IANA name; empty means auto-detect.
+  timezone: string
   presence: Presence
   manualStatus: ManualStatusKind
   manualStatusText: string
@@ -38,6 +48,12 @@ export function toCurrentUser(user: User): CurrentUser {
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
     bio: user.bio,
+    pronouns: user.pronouns,
+    webLink: user.webLink,
+    contactPhone: user.contactPhone,
+    backupEmail: user.backupEmail,
+    language: user.language,
+    timezone: user.timezone,
     presence: user.presence,
     manualStatus: user.manualStatus,
     manualStatusText: user.manualStatusText,

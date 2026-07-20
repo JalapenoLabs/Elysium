@@ -8,9 +8,12 @@ import { useTranslation } from 'react-i18next'
 import { Button, Input, Tooltip } from '@heroui/react'
 import { LuSearch } from 'react-icons/lu'
 
+// Misc
+import { openDriveSearch } from '../../drive/searchController'
+
 // The taskbar search: a quiet icon that expands into the universal search bar.
-// Today it only carries the interaction; results arrive with the universal
-// search / ctrl+p navigation work (see CLAUDE.md's action-center vision).
+// Enter hands the query to the unified drive search; people/messages/repos
+// join it as those pillars land (CLAUDE.md's action-center vision).
 export function TaskbarSearch() {
   const { t } = useTranslation('common')
 
@@ -58,9 +61,7 @@ export function TaskbarSearch() {
         setIsExpanded(false)
       }
       if (event.key === 'Enter') {
-        // Universal search lands with the workspace; until then Enter simply
-        // closes the bar rather than pretending to search.
-        console.debug('universal search is not built yet', { query })
+        openDriveSearch(query)
         setIsExpanded(false)
       }
     }}
