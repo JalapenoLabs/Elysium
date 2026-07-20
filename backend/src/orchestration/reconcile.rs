@@ -9,10 +9,17 @@
 //!
 //! For each managed integration the reconciler builds a [`ServiceSpec`] (the
 //! kind's blessed default image, volumes resolved from the storage-role bindings
-//! through their Drives, and, for now, an empty env block) and walks the row's
-//! `status` through `PROVISIONING -> RUNNING` (or `FAILED`); an explicit stop
-//! converges to `STOPPED`, and a spec that cannot be built yet (a storage role
-//! not bound) parks at `PENDING` with a human-readable `status_detail`.
+//! through their Drives, and the env block rendered by the per-kind templates in
+//! [`crate::orchestration::config`], service secret included) and walks the
+//! row's `status` through `PROVISIONING -> RUNNING` (or `FAILED`); an explicit
+//! stop converges to `STOPPED`, and a spec that cannot be built yet (a storage
+//! role not bound) parks at `PENDING` with a human-readable `status_detail`. A
+//! spec that can never be built as stored (a malformed config, an unopenable
+//! secret) parks at `FAILED` with the reason. The secret is unsealed only here,
+//! at injection time, and enters the spec as a redacted
+//! [`crate::orchestration::provisioner::EnvValue`], so no reconcile log or
+//! debug rendering ever carries it; because the secret is part of the spec, a
+//! rotated credential changes the spec and the next converge re-injects it.
 //!
 //! One integration is one container: a project-scoped integration therefore gets
 //! its own isolated container per project (`docs/projects.md` Runtime), named
@@ -23,6 +30,8 @@ use std::collections::HashMap;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
+use crate::crypto::Crypto;
+use crate::orchestration::config::{self, SecretPlan, ServiceSecret};
 use crate::orchestration::integrations::{
     storage_roles, BindingRow, DesiredState, IntegrationKind, IntegrationMode, IntegrationRow,
     ReconcileStatus,
@@ -72,23 +81,34 @@ pub(crate) enum SpecPlan {
 
 /// Plans the [`ServiceSpec`] for a managed integration from its bindings.
 ///
-/// Pure: every input is loaded by the caller, so spec construction is unit-tested
-/// without a database. Volumes come from the FS-backed bindings: the Drive's root
-/// joined with the binding prefix (or the reserved `.elysium/<kind>/<role>` area
-/// when the prefix is empty), mounted at the role's declared container path.
-/// Object-store roles bound to a non-FS Drive (e.g. registry blobs on S3) carry
-/// no host volume; translating those into the service's provider-native settings
-/// (like the registry's S3 storage driver) is per-kind env wiring owned by the
-/// per-service milestones on top of the env injection seam (M2-06).
+/// Pure: every input is loaded by the caller (the service secret through
+/// [`config::ensure_service_secret`]), so spec construction is unit-tested
+/// without a database. The env block comes from the per-kind template
+/// ([`config::render_env`]); a config that does not fit the kind's shape parks
+/// the plan as [`SpecPlan::Broken`]. Volumes come from the FS-backed bindings:
+/// the Drive's root joined with the binding prefix (or the reserved
+/// `.elysium/<kind>/<role>` area when the prefix is empty), mounted at the
+/// role's declared container path. Object-store roles bound to a non-FS Drive
+/// (e.g. registry blobs on S3) carry no host volume; translating those into
+/// the service's provider-native settings (like the registry's S3 storage
+/// driver) is per-kind env wiring owned by the per-service milestones on top
+/// of this seam.
 pub(crate) fn build_spec(
     integration: &IntegrationRow,
     bindings: &[BindingRow],
     drives: &HashMap<Uuid, DriveRow>,
+    secret: Option<&ServiceSecret>,
 ) -> SpecPlan {
     let mut spec = ServiceSpec::new(service_name(integration), default_image(integration.kind));
 
-    // Env is deliberately empty for now: admin credentials, SSO wiring, and
-    // per-kind settings are injected by the env/secrets seam (M2-06).
+    // The per-kind template renders config_json plus the service secret into
+    // the env the kind's blessed image expects. Secrets enter as redacted
+    // EnvValues, so the spec stays safe to debug-format everywhere below.
+    match config::render_env(integration, secret) {
+        Ok(env) => spec.env = env,
+        Err(error) => return SpecPlan::Broken(error.to_string()),
+    }
+
     spec.labels
         .insert("io.elysium.managed".to_string(), "true".to_string());
     spec.labels.insert(
@@ -213,6 +233,7 @@ pub(crate) async fn converge(
 pub async fn reconcile_all(
     conn: &mut PgConnection,
     provisioner: &impl Provisioner,
+    crypto: &Crypto,
 ) -> sqlx::Result<()> {
     let rows = sqlx::query_as::<_, IntegrationRow>(
         "SELECT * FROM integrations WHERE mode = $1 ORDER BY created_at ASC",
@@ -223,7 +244,7 @@ pub async fn reconcile_all(
 
     tracing::info!(count = rows.len(), "reconciling managed integrations");
     for row in rows {
-        reconcile_row(conn, provisioner, &row).await?;
+        reconcile_row(conn, provisioner, crypto, &row).await?;
     }
     Ok(())
 }
@@ -239,6 +260,7 @@ pub async fn reconcile_all(
 pub async fn reconcile_integration(
     conn: &mut PgConnection,
     provisioner: &impl Provisioner,
+    crypto: &Crypto,
     integration_id: Uuid,
 ) -> sqlx::Result<()> {
     let row = sqlx::query_as::<_, IntegrationRow>("SELECT * FROM integrations WHERE id = $1")
@@ -247,7 +269,7 @@ pub async fn reconcile_integration(
         .await?;
     match row {
         Some(row) if row.mode == IntegrationMode::Managed => {
-            reconcile_row(conn, provisioner, &row).await
+            reconcile_row(conn, provisioner, crypto, &row).await
         }
         _ => Ok(()),
     }
@@ -257,12 +279,24 @@ pub async fn reconcile_integration(
 async fn reconcile_row(
     conn: &mut PgConnection,
     provisioner: &impl Provisioner,
+    crypto: &Crypto,
     row: &IntegrationRow,
 ) -> sqlx::Result<()> {
     let service = service_name(row);
 
     // Mark the walk so the console sees progress while a slow engine converges.
     set_status(&mut *conn, row.id, ReconcileStatus::Provisioning, "").await?;
+
+    // Resolve the service secret at injection time only: unseal what is
+    // stored, or mint and persist one where the kind consumes a secret and
+    // none exists yet. An unusable stored secret parks the row FAILED.
+    let secret = match config::ensure_service_secret(&mut *conn, crypto, row).await? {
+        SecretPlan::NotNeeded => None,
+        SecretPlan::Ready(secret) => Some(secret),
+        SecretPlan::Broken(detail) => {
+            return set_status(conn, row.id, ReconcileStatus::Failed, &detail).await;
+        }
+    };
 
     let bindings = crate::orchestration::integrations::bindings_for(&mut *conn, row.id).await?;
     let drive_ids: Vec<Uuid> = bindings.iter().map(|binding| binding.drive_id).collect();
@@ -275,7 +309,7 @@ async fn reconcile_row(
             .map(|drive| (drive.id, drive))
             .collect();
 
-    let plan = build_spec(row, &bindings, &drives);
+    let plan = build_spec(row, &bindings, &drives, secret.as_ref());
     let (status, detail) = converge(provisioner, &service, row.desired, plan).await;
 
     tracing::info!(
@@ -387,7 +421,7 @@ mod tests {
         let bindings = vec![binding(&row, "repos", &fs, "")];
         let drives = HashMap::from([(fs.id, fs)]);
 
-        let SpecPlan::Ready(spec) = build_spec(&row, &bindings, &drives) else {
+        let SpecPlan::Ready(spec) = build_spec(&row, &bindings, &drives, None) else {
             panic!("a fully-bound git integration plans a ready spec");
         };
         // The kind's blessed pinned image, a deployment-unique name, and the
@@ -420,7 +454,7 @@ mod tests {
         let bindings = vec![binding(&row, "repos", &fs, "forges/main")];
         let drives = HashMap::from([(fs.id, fs)]);
 
-        let SpecPlan::Ready(spec) = build_spec(&row, &bindings, &drives) else {
+        let SpecPlan::Ready(spec) = build_spec(&row, &bindings, &drives, None) else {
             panic!("ready");
         };
         assert_eq!(spec.volumes[0].host_source, "/srv/data/forges/main");
@@ -429,7 +463,7 @@ mod tests {
     #[test]
     fn build_spec_waits_on_an_unbound_role() {
         let row = managed_row(IntegrationKind::Git);
-        let SpecPlan::Waiting(detail) = build_spec(&row, &[], &HashMap::new()) else {
+        let SpecPlan::Waiting(detail) = build_spec(&row, &[], &HashMap::new(), None) else {
             panic!("an unbound required role parks the plan as waiting");
         };
         assert!(detail.contains("repos"), "names the missing role: {detail}");
@@ -445,7 +479,7 @@ mod tests {
         let bindings = vec![binding(&row, "blobs", &s3, "")];
         let drives = HashMap::from([(s3.id, s3)]);
 
-        let SpecPlan::Ready(spec) = build_spec(&row, &bindings, &drives) else {
+        let SpecPlan::Ready(spec) = build_spec(&row, &bindings, &drives, None) else {
             panic!("ready");
         };
         assert!(spec.volumes.is_empty());
@@ -460,7 +494,7 @@ mod tests {
         let bindings = vec![binding(&row, "repos", &bad, "")];
         let drives = HashMap::from([(bad.id, bad)]);
 
-        let SpecPlan::Broken(detail) = build_spec(&row, &bindings, &drives) else {
+        let SpecPlan::Broken(detail) = build_spec(&row, &bindings, &drives, None) else {
             panic!("a corrupt Drive config breaks the plan");
         };
         assert!(detail.contains("repos"));
@@ -472,10 +506,98 @@ mod tests {
         let fs = drive(DriveKind::Fs, serde_json::json!({ "root": "/srv" }));
         let bindings = vec![binding(&row, "repos", &fs, "")];
         // The drives map does not contain the bound Drive.
-        let SpecPlan::Broken(detail) = build_spec(&row, &bindings, &HashMap::new()) else {
+        let SpecPlan::Broken(detail) = build_spec(&row, &bindings, &HashMap::new(), None) else {
             panic!("a vanished Drive breaks the plan");
         };
         assert!(detail.contains("no longer exists"));
+    }
+
+    #[test]
+    fn build_spec_injects_the_rendered_env_and_secret() {
+        let row = managed_row(IntegrationKind::Git);
+        let secret = ServiceSecret::new("known-secret-value-77aa");
+
+        let SpecPlan::Ready(spec) = ready_plan_with_secret(&row, Some(&secret)) else {
+            panic!("ready");
+        };
+        // The per-kind template's env rides the spec: the base identity, the
+        // kind's own entries, and the service secret tagged secret.
+        assert_eq!(
+            spec.env["ELYSIUM_INTEGRATION_ID"].expose(),
+            row.id.to_string()
+        );
+        assert_eq!(spec.env["FORGEJO__security__INSTALL_LOCK"].expose(), "true");
+        let key = &spec.env["FORGEJO__security__SECRET_KEY"];
+        assert_eq!(key.expose(), "known-secret-value-77aa");
+        assert!(key.is_secret());
+    }
+
+    #[test]
+    fn build_spec_debug_output_never_contains_the_secret() {
+        // The spec-building path's rendered debug output (what any log of a
+        // plan or spec would carry) must redact the injected secret.
+        let row = managed_row(IntegrationKind::Git);
+        let secret = ServiceSecret::new("known-secret-value-3c1b");
+        let plan = ready_plan_with_secret(&row, Some(&secret));
+
+        let rendered = format!("{plan:?}");
+        assert!(!rendered.contains("known-secret-value-3c1b"));
+        assert!(rendered.contains("FORGEJO__security__SECRET_KEY"));
+        assert!(rendered.contains("<redacted>"));
+    }
+
+    #[test]
+    fn build_spec_breaks_on_a_malformed_config() {
+        // A stored config that does not fit the kind's shape parks the plan
+        // as Broken (the row goes FAILED with the reason), never a panic.
+        let mut row = managed_row(IntegrationKind::Git);
+        row.config = serde_json::json!({ "domain": 123 });
+
+        let SpecPlan::Broken(detail) = ready_plan(&row) else {
+            panic!("a malformed config breaks the plan");
+        };
+        assert!(detail.contains("malformed config_json"), "detail: {detail}");
+    }
+
+    #[tokio::test]
+    async fn a_rotated_secret_reinjects_on_the_next_converge() {
+        // Rotating the stored secret changes the rendered env, so the spec
+        // differs and ensure replaces the container on the next reconcile.
+        let provisioner = InMemoryProvisioner::new();
+        let row = managed_row(IntegrationKind::Git);
+        let service = service_name(&row);
+
+        let first = ServiceSecret::new("initial-secret");
+        converge(
+            &provisioner,
+            &service,
+            DesiredState::Running,
+            ready_plan_with_secret(&row, Some(&first)),
+        )
+        .await;
+        assert_eq!(provisioner.generation(&service), Some(1));
+
+        // Same secret: converged already, nothing replaced.
+        converge(
+            &provisioner,
+            &service,
+            DesiredState::Running,
+            ready_plan_with_secret(&row, Some(&first)),
+        )
+        .await;
+        assert_eq!(provisioner.generation(&service), Some(1));
+
+        // Rotated secret: the container is replaced with the new injection.
+        let rotated = ServiceSecret::new("rotated-secret");
+        let (status, _) = converge(
+            &provisioner,
+            &service,
+            DesiredState::Running,
+            ready_plan_with_secret(&row, Some(&rotated)),
+        )
+        .await;
+        assert_eq!(status, ReconcileStatus::Running);
+        assert_eq!(provisioner.generation(&service), Some(2));
     }
 
     #[test]
@@ -493,10 +615,15 @@ mod tests {
 
     /// Plans the ready spec for `row` bound to a valid FS drive.
     fn ready_plan(row: &IntegrationRow) -> SpecPlan {
+        ready_plan_with_secret(row, None)
+    }
+
+    /// Like [`ready_plan`], with a service secret to inject.
+    fn ready_plan_with_secret(row: &IntegrationRow, secret: Option<&ServiceSecret>) -> SpecPlan {
         let fs = drive(DriveKind::Fs, serde_json::json!({ "root": "/srv/data" }));
         let bindings = vec![binding(row, "repos", &fs, "")];
         let drives = HashMap::from([(fs.id, fs)]);
-        build_spec(row, &bindings, &drives)
+        build_spec(row, &bindings, &drives, secret)
     }
 
     #[tokio::test]
@@ -534,7 +661,7 @@ mod tests {
     async fn converge_parks_a_waiting_plan_as_pending() {
         let provisioner = InMemoryProvisioner::new();
         let row = managed_row(IntegrationKind::Git);
-        let plan = build_spec(&row, &[], &HashMap::new());
+        let plan = build_spec(&row, &[], &HashMap::new(), None);
 
         let (status, detail) = converge(
             &provisioner,
@@ -625,7 +752,7 @@ mod tests {
             &provisioner,
             &service_name(&row),
             DesiredState::Stopped,
-            build_spec(&row, &[], &HashMap::new()),
+            build_spec(&row, &[], &HashMap::new(), None),
         )
         .await;
         assert_eq!(status, ReconcileStatus::Stopped);
@@ -664,6 +791,11 @@ mod tests {
     // inside a rolled-back transaction, exactly like the storage matrices.
 
     use sqlx::PgConnection;
+
+    /// A fixed 32-byte key for deterministic crypto in DB tests.
+    fn test_crypto() -> Crypto {
+        Crypto::new(&[3u8; 32]).expect("32-byte key is valid")
+    }
 
     async fn connect_test_pool() -> sqlx::PgPool {
         use sqlx::postgres::PgPoolOptions;
@@ -757,6 +889,7 @@ mod tests {
         let pool = connect_test_pool().await;
         let mut tx = pool.begin().await.expect("begin transaction");
         let provisioner = InMemoryProvisioner::new();
+        let crypto = test_crypto();
 
         let bound = seed_bound_git(&mut tx).await;
         assert_eq!(
@@ -766,7 +899,7 @@ mod tests {
         );
 
         // First reconcile brings the bound integration to RUNNING and persists it.
-        reconcile_all(&mut tx, &provisioner)
+        reconcile_all(&mut tx, &provisioner, &crypto)
             .await
             .expect("reconcile");
         let (status, detail) = status_of(&mut tx, bound.id).await;
@@ -775,9 +908,21 @@ mod tests {
         let service = service_name(&bound);
         assert_eq!(provisioner.generation(&service), Some(1));
 
+        // A git integration consumes a service secret: the first reconcile
+        // minted and persisted one, sealed at rest.
+        let sealed = sqlx::query_scalar::<_, Option<Vec<u8>>>(
+            "SELECT secret FROM integrations WHERE id = $1",
+        )
+        .bind(bound.id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("read secret");
+        assert!(sealed.is_some(), "the first reconcile mints a secret");
+
         // A second run (a simulated restart) re-converges without duplicating
-        // the container: same generation, still RUNNING.
-        reconcile_all(&mut tx, &provisioner)
+        // the container: same generation, still RUNNING (the minted secret is
+        // reused, so the spec, secret included, is unchanged).
+        reconcile_all(&mut tx, &provisioner, &crypto)
             .await
             .expect("re-reconcile");
         let (status, _) = status_of(&mut tx, bound.id).await;
@@ -796,7 +941,7 @@ mod tests {
         .fetch_one(&mut *tx)
         .await
         .expect("insert unbound integration");
-        reconcile_all(&mut tx, &provisioner)
+        reconcile_all(&mut tx, &provisioner, &crypto)
             .await
             .expect("reconcile");
         let (status, detail) = status_of(&mut tx, unbound.id).await;
@@ -810,7 +955,7 @@ mod tests {
             .execute(&mut *tx)
             .await
             .expect("set desired stopped");
-        reconcile_integration(&mut tx, &provisioner, bound.id)
+        reconcile_integration(&mut tx, &provisioner, &crypto, bound.id)
             .await
             .expect("reconcile one");
         let (status, _) = status_of(&mut tx, bound.id).await;

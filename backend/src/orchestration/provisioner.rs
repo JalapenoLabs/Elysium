@@ -42,8 +42,10 @@ pub struct ServiceSpec {
     ///
     /// [`validate`]: ServiceSpec::validate
     pub image: String,
-    /// Environment variables injected into the container.
-    pub env: BTreeMap<String, String>,
+    /// Environment variables injected into the container. Values are
+    /// [`EnvValue`]s so a secret entry never leaks through a debug-formatted
+    /// spec; backends read the real value with [`EnvValue::expose`].
+    pub env: BTreeMap<String, EnvValue>,
     /// Host paths bound into the container (see [`VolumeBind`]).
     pub volumes: Vec<VolumeBind>,
     /// Ports published from the container to the host (see [`PortBind`]).
@@ -128,6 +130,62 @@ impl ServiceSpec {
             }
         }
         Ok(())
+    }
+}
+
+/// One environment variable value, tagged plain or secret.
+///
+/// A [`ServiceSpec`] carries admin passwords and minted tokens to the engine,
+/// and the same spec flows through reconcile logging and error paths. Tagging
+/// each value at construction makes the safe rendering automatic: `Debug` on a
+/// secret value (and therefore on any spec containing one) prints `<redacted>`
+/// instead of the material, mirroring the [`crate::crypto::Crypto`] debug
+/// redaction. There is deliberately no `Display` impl; the only way to read
+/// the real value is the explicit [`EnvValue::expose`] call a backend makes
+/// when it hands the env to the engine.
+#[derive(Clone, PartialEq, Eq)]
+pub struct EnvValue {
+    value: String,
+    secret: bool,
+}
+
+impl EnvValue {
+    /// A non-sensitive value; `Debug` renders it as-is.
+    pub fn plain(value: impl Into<String>) -> Self {
+        Self {
+            value: value.into(),
+            secret: false,
+        }
+    }
+
+    /// A sensitive value; `Debug` renders `<redacted>` in its place.
+    pub fn secret(value: impl Into<String>) -> Self {
+        Self {
+            value: value.into(),
+            secret: true,
+        }
+    }
+
+    /// The real value, for handing to the container engine.
+    pub fn expose(&self) -> &str {
+        &self.value
+    }
+
+    /// Whether this value is redacted from debug output.
+    pub fn is_secret(&self) -> bool {
+        self.secret
+    }
+}
+
+// Redacts secret values: the debug output of a spec must never carry secret
+// material, even by accident (see the `env_value_debug_redacts_secrets` test).
+impl std::fmt::Debug for EnvValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.secret {
+            f.write_str("<redacted>")
+        } else {
+            std::fmt::Debug::fmt(&self.value, f)
+        }
     }
 }
 
@@ -765,9 +823,45 @@ mod tests {
         let mut spec = ServiceSpec::new("forgejo", "codeberg.org/forgejo/forgejo:13.0.1");
         spec.env.insert(
             "FORGEJO__server__DOMAIN".to_string(),
-            "git.local".to_string(),
+            EnvValue::plain("git.local"),
         );
         spec
+    }
+
+    // --- Env values ----------------------------------------------------------
+
+    #[test]
+    fn env_value_debug_redacts_secrets() {
+        // Mirrors the crypto::Crypto debug-redaction test: a secret value must
+        // never reach a log through Debug, while a plain value stays readable.
+        let key = "552d3454-d0d5-445d-ab9f-ef2ae3a8896a";
+        let secret = EnvValue::secret(key);
+        assert_eq!(format!("{secret:?}"), "<redacted>");
+        assert_eq!(secret.expose(), key);
+        assert!(secret.is_secret());
+
+        let plain = EnvValue::plain("git.local");
+        assert_eq!(format!("{plain:?}"), "\"git.local\"");
+        assert_eq!(plain.expose(), "git.local");
+        assert!(!plain.is_secret());
+    }
+
+    #[test]
+    fn spec_debug_redacts_secret_env_values() {
+        let key = "generated-admin-token-2b7f04c1";
+        let mut spec = forgejo_spec();
+        spec.env.insert(
+            "FORGEJO__security__SECRET_KEY".to_string(),
+            EnvValue::secret(key),
+        );
+
+        let rendered = format!("{spec:?}");
+        // The key name and plain values stay visible for debugging; the secret
+        // material itself never appears.
+        assert!(rendered.contains("FORGEJO__security__SECRET_KEY"));
+        assert!(rendered.contains("git.local"));
+        assert!(!rendered.contains(key));
+        assert!(rendered.contains("<redacted>"));
     }
 
     // --- Spec validation ----------------------------------------------------

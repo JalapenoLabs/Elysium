@@ -1149,8 +1149,9 @@ pub async fn create(
 ///
 /// Kind, mode, scope, project, and org are immutable. An empty field leaves its
 /// value unchanged; an empty `credential` keeps the existing sealed secret. A
-/// managed integration reconciles after the update so the config change (once the
-/// per-kind specs consume it) converges immediately.
+/// managed integration reconciles after the update, so a config change (the
+/// per-kind templates in [`crate::orchestration::config`] consume it) or a
+/// rotated credential re-injects into the container immediately.
 pub async fn update(
     State(state): State<AppState>,
     SessionUser(principal): SessionUser,
@@ -1522,7 +1523,8 @@ async fn reconcile_and_respond(
     integration_id: Uuid,
 ) -> Response {
     if let Err(error) =
-        reconcile::reconcile_integration(conn, &state.provisioner, integration_id).await
+        reconcile::reconcile_integration(conn, &state.provisioner, &state.crypto, integration_id)
+            .await
     {
         tracing::error!(error = %error, "integration reconcile failed");
     }

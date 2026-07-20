@@ -139,13 +139,45 @@ env/secrets seam.
 
 `backend/src/orchestration/reconcile.rs` converges every managed integration on boot
 and after every management-API change: it plans a `ServiceSpec` (the kind's pinned
-default image, bindings resolved to volumes, one container per integration named
-`elysium-<kind>-<id>`, so project-scoped services are isolated per project) and
-drives `Provisioner::ensure`/`start`/`stop`, persisting the resulting status.
+default image, bindings resolved to volumes, the env block rendered by the per-kind
+config templates, one container per integration named `elysium-<kind>-<id>`, so
+project-scoped services are isolated per project) and drives
+`Provisioner::ensure`/`start`/`stop`, persisting the resulting status.
 Idempotent throughout: a restart re-converges the same containers, never duplicates.
 The `Provisioner` behind `AppState` is currently the in-memory backend; the Docker
 backend swaps in behind the same handle. Roadmap: fan status changes out over SSE so
 the console updates live.
+
+### Config templating and secret injection
+
+`backend/src/orchestration/config.rs` turns an integration's stored ingredients
+(non-secret `config_json`, storage-role bindings, one sealed secret) into the env
+its kind's blessed image expects. All per-kind knowledge lives in one lookup table
+(one template per kind); no other module matches on kind to shape a service's env.
+
+- **Pinned contracts render their real schema.** git renders Forgejo's
+  `FORGEJO__<section>__<KEY>` env (installer locked, optional `domain` /
+  `root_url` from `config_json`, the service secret as `security.SECRET_KEY`);
+  registry renders CNCF distribution's `REGISTRY_*` env (filesystem driver rooted
+  at the `blobs` mount, the service secret as `REGISTRY_HTTP_SECRET`).
+- **Unpinned contracts render a documented placeholder.** mail carries only the
+  base env until M6 pins the image; perforce and runner inject
+  `ELYSIUM_SERVICE_TOKEN`, the intended handshake for JalapenoLabs images, with
+  the full schemas owned by their per-service milestones. Every managed container
+  also carries `ELYSIUM_INTEGRATION_ID`.
+- **Secrets unseal at injection time only.** The reconciler opens the sealed
+  secret (`crypto.rs`, bound to the integration id) right before spec planning;
+  where a kind consumes a secret and none is stored, one is minted (CSPRNG),
+  sealed, and persisted. Secret env values are redacted from every debug and log
+  rendering of a spec, enforced by type and covered by tests. Rotating the
+  credential (PATCH) changes the rendered env, so the next reconcile replaces the
+  container with the new injection.
+- **Failure parks, never panics.** A malformed `config_json` or an unopenable
+  secret parks the row at `FAILED` with the reason in `status_detail`.
+- Object-store roles on a non-FS Drive (registry blobs on S3) still need their
+  provider-native env (`REGISTRY_STORAGE_S3_*`) wired from the bound Drive's
+  config and credential; that rides this seam and is owned by the per-service
+  milestones.
 
 ## Routing
 

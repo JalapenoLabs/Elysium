@@ -19,6 +19,9 @@
 //! - [`integration_policies`]: the per-kind member-linking toggles and their
 //!   admin control plane (`/api/v1/orgs/{id}/integration-policies`), enforced by
 //!   the personal-linked creation path in [`integrations`].
+//! - [`config`]: per-kind config templating and secret injection, turning an
+//!   integration's stored config and sealed secret into the env its blessed
+//!   image expects.
 //! - [`reconcile`]: the desired-state reconciler converging managed rows to
 //!   containers on boot and after every change.
 //!
@@ -28,6 +31,7 @@
 //! a binary build that does not call them yet.
 #![allow(dead_code)]
 
+pub mod config;
 pub mod integration_policies;
 pub mod integrations;
 pub mod provisioner;
