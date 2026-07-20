@@ -43,6 +43,15 @@ reshapes resource ownership across storage (`docs/storage.md`) and integrations
 Effective permission on a resource resolves through whichever tier grants it: org admin
 bypass, then project role, then team role, then direct individual grant.
 
+`backend/src/projects.rs::resolve_project_access` is the single source of truth for this
+resolution. It returns the strongest `ProjectRole` a user holds on a project across every
+tier: an org owner/admin bypasses to owner; a full org member cascades to member; a guest
+cascades to nothing and is scoped to explicit project/team grants; an org-level team
+(`teams.project_id IS NULL`) is inherited by every project while a project-scoped team
+never leaks; and a suspended org member is cut entirely. Resource authz (storage,
+integrations, mail) resolves through it, `has_project_access` (the role-threshold `can`
+check), or the `require_project_role` HTTP guard, never by re-deriving access.
+
 ## Resource ownership
 
 Work resources are **project-scoped**. Concretely, `owner_scope` becomes **`org | project |

@@ -71,12 +71,15 @@ pub struct Membership {
 
 /// The raw membership of `user_id` in `org_id`, or `None` when not a member.
 ///
-/// Includes suspended members; use this to inspect a management *target*.
+/// Includes suspended members; use this to inspect a management *target*. Accepts
+/// any executor (`&PgPool`, or a `&mut PgConnection` from a transaction) so callers
+/// can resolve org membership on their own connection, which the project-tier
+/// resolver in [`crate::projects`] relies on.
 ///
 /// # Errors
 /// Returns an error if the query fails.
 pub async fn membership(
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
     user_id: Uuid,
     org_id: Uuid,
 ) -> sqlx::Result<Option<Membership>> {
@@ -85,7 +88,7 @@ pub async fn membership(
     )
     .bind(user_id)
     .bind(org_id)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await?;
     Ok(row.and_then(|(role, suspended_at)| {
         OrgRole::from_db(&role).map(|role| Membership {
