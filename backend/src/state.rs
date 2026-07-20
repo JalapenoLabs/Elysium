@@ -74,8 +74,9 @@ pub struct AppState {
     pub data_dir: String,
     /// The container-engine seam the reconciler and integration handlers drive.
     ///
-    /// Currently the in-memory placeholder backend; the Docker backend (#27)
-    /// swaps in behind the same handle without touching any consumer.
+    /// The Docker backend when a proxy URL is configured, else the in-memory
+    /// backend; either swaps in behind the same handle without touching any
+    /// consumer (see [`crate::config::docker_proxy_url`]).
     pub provisioner: ProvisionerHandle,
 }
 
@@ -96,6 +97,18 @@ impl AppState {
         let deployment = Deployment::from_env();
         let webauthn = crate::webauthn::build(&deployment.rp_id, &deployment.app_origin)?;
 
+        // Select the provisioner backend from deployment config: a configured
+        // Docker proxy URL drives real containers through the scoped socket-proxy;
+        // its absence keeps the in-memory backend, so dev and test boot with zero
+        // config. All POSIX_FS Drive host paths live under `data_dir`, so it is
+        // the sole allowed bind-mount root.
+        let data_dir = crate::config::data_dir();
+        let provisioner = match crate::config::docker_proxy_url() {
+            Some(proxy_url) => ProvisionerHandle::docker(&proxy_url, vec![data_dir.clone().into()])
+                .wrap_err("failed to connect the Docker provisioner backend")?,
+            None => ProvisionerHandle::in_memory(),
+        };
+
         Ok(Self {
             pool,
             sse: SseRegistry::default(),
@@ -110,11 +123,8 @@ impl AppState {
             geoip_endpoint: crate::geoip::endpoint_from_env(),
             rabbitmq_url: read_optional("RABBITMQ_URL"),
             app_origin: deployment.app_origin,
-            data_dir: crate::config::data_dir(),
-            // TODO(#27): select the Docker backend (behind the scoped
-            // socket-proxy) from deployment config; the in-memory backend keeps
-            // desired state coherent until then without running real containers.
-            provisioner: ProvisionerHandle::in_memory(),
+            data_dir,
+            provisioner,
         })
     }
 }

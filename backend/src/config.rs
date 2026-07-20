@@ -11,6 +11,9 @@ const DEFAULT_FRONTEND_PORT: &str = "5173";
 /// The env var naming the base directory Elysium may write local files to.
 const DATA_DIR_VAR: &str = "ELYSIUM_DATA_DIR";
 
+/// The env var naming the scoped Docker socket-proxy endpoint.
+const DOCKER_PROXY_URL_VAR: &str = "ELYSIUM_DOCKER_PROXY_URL";
+
 /// Where Elysium roots local files when `ELYSIUM_DATA_DIR` is unset.
 ///
 /// A POSIX-absolute path, since Drives root on the deployment host's POSIX
@@ -54,6 +57,21 @@ impl Deployment {
 /// Drive's config, not re-derived at read time (see `crate::storage::defaults`).
 pub fn data_dir() -> String {
     env_or(DATA_DIR_VAR, DEFAULT_DATA_DIR)
+}
+
+/// The scoped Docker socket-proxy endpoint, when the Docker backend is enabled.
+///
+/// Returns the `ELYSIUM_DOCKER_PROXY_URL` value (e.g. `http://socket-proxy:2375`)
+/// or `None` when unset or blank. This names the engine transport, exactly like
+/// `DATABASE_URL` or `REDIS_URL` name theirs, so it is boot/infra config and
+/// belongs in the environment, not the in-app settings. When set, the
+/// orchestration provisioner drives real containers through the proxy; when
+/// unset, the in-memory backend keeps zero-config dev and test boot working.
+pub fn docker_proxy_url() -> Option<String> {
+    match std::env::var(DOCKER_PROXY_URL_VAR) {
+        Ok(value) if !value.trim().is_empty() => Some(value),
+        _ => None,
+    }
 }
 
 /// Reads an environment variable, falling back to a default when unset.

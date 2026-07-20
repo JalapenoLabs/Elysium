@@ -61,17 +61,39 @@ restricted visibility as Drives.
 
 The API never hardcodes Docker and never holds the raw Docker socket.
 
-- **`Provisioner` trait.** The control plane talks to a provisioner interface: create / start
-  / stop / remove / inspect a managed service, attach volumes (bound to capability-eligible
-  Drives), wire network and routes, inject secrets. A **Docker backend** ships first; the
-  seam lets Podman (rootless, Docker-API-compatible — likely drives the Docker backend
-  unchanged) and later a **Kubernetes backend** (`kube-rs`, ServiceAccount RBAC) slot in
+- **`Provisioner` trait.** The control plane talks to a provisioner interface
+  (`backend/src/orchestration/provisioner.rs`): create / start / stop / remove / inspect /
+  logs a managed service, attach volumes (bound to capability-eligible Drives), wire network,
+  inject secrets. The `Provisioner` is deliberately backend-agnostic; no engine type ever
+  appears in its signatures. A `ProvisionerHandle` enum dispatches to the active backend so
+  `AppState` holds one cloneable handle and consumers stay generic.
+- **The Docker backend** (`backend/src/orchestration/docker.rs`, `DockerProvisioner`)
+  implements the trait against the Docker Engine API using `bollard` over plain HTTP. A
+  **Kubernetes backend** (`kube-rs`, ServiceAccount RBAC) can slot in behind the same seam
   without touching integrations. Kubernetes is an opt-in backend, never the required floor —
   requiring a cluster would gut the "runs on a home machine" premise.
-- **The raw socket stays out of the main API.** Docker access sits behind a **scoped
-  socket-proxy** (whitelist only the API calls the provisioner makes) or a small dedicated
-  provisioner sidecar. Blast radius drops from "own the host" to "manage Elysium's own
-  containers."
+- **The raw socket stays out of the main API.** The backend never mounts
+  `/var/run/docker.sock`. It talks over an internal Docker network to a **scoped
+  socket-proxy** (`tecnativa/docker-socket-proxy`, pinned by tag and digest) that mounts the
+  host socket read-only and whitelists only the Engine API groups the provisioner uses
+  (containers, networks, images, volumes, info, POST), denying `exec`, auth, secrets,
+  configs, swarm, and daemon control. Blast radius drops from "own the host" to "manage
+  Elysium's own containers." The endpoint is configured by **`ELYSIUM_DOCKER_PROXY_URL`**
+  (e.g. `http://socket-proxy:2375`); when unset, `AppState` selects the in-memory backend, so
+  dev and test boot with zero config.
+- **Podman, same code path.** Rootless Podman exposes a Docker-compatible API; point
+  `ELYSIUM_DOCKER_PROXY_URL` at its socket (through the same proxy pattern) and the Docker
+  backend drives it unchanged. There is no forked Podman path.
+- **Hardened by construction.** The generated container config is never privileged, joins no
+  host namespace, adds no capabilities, and never binds the Docker socket; `ServiceSpec`
+  carries no field that could request otherwise. A **bind-mount allow-list** rejects any
+  volume whose host source resolves (symlinks and `..` folded) outside the deployment data
+  directory, so a spec can never mount `/`, `/etc`, or the socket. The guard runs in the pure
+  spec-to-config translation, before any Docker call. Managed containers join a dedicated
+  `elysium-managed` bridge network and carry an Elysium managed label plus a fingerprint of
+  their desired spec; `ensure` compares the fingerprint to decide no-op versus replace, so a
+  re-drive of unchanged state launches nothing new and a rotated secret triggers a clean
+  replace.
 - **Desired state in Postgres, reconciled on boot.** Managed integrations are stored as
   desired state and reconciled to actual containers when Elysium starts, so a host reboot or
   image upgrade never loses them. This is a small controller/reconciler, not a static
@@ -144,9 +166,9 @@ config templates, one container per integration named `elysium-<kind>-<id>`, so
 project-scoped services are isolated per project) and drives
 `Provisioner::ensure`/`start`/`stop`, persisting the resulting status.
 Idempotent throughout: a restart re-converges the same containers, never duplicates.
-The `Provisioner` behind `AppState` is currently the in-memory backend; the Docker
-backend swaps in behind the same handle. Roadmap: fan status changes out over SSE so
-the console updates live.
+The `Provisioner` behind `AppState` is the Docker backend when `ELYSIUM_DOCKER_PROXY_URL`
+is set, else the in-memory backend, selected without touching the reconciler. Roadmap:
+fan status changes out over SSE so the console updates live.
 
 ### Config templating and secret injection
 

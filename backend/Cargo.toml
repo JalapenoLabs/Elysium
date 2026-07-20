@@ -71,6 +71,15 @@ opendal = { version = "0.57", features = ["services-fs", "services-s3", "service
 # Materializes a Drive's sealed SFTP private key to a 0600 keyfile whose lifetime the
 # operator holds, since OpenDAL's `openssh` SFTP transport authenticates from a path.
 tempfile = "3"
+# The Docker Engine API client for the container-provisioner backend (see
+# src/orchestration/docker.rs). Only the plain-`http` transport is enabled: the
+# backend never touches the host Docker socket, it talks to a scoped
+# socket-proxy over an internal Docker network, so no TLS, Unix-socket, or
+# named-pipe transport is needed. `default-features = false` drops the `pipe`
+# feature (local socket/named-pipe) we must never use; bollard's optional TLS
+# rides rustls, so even unused it keeps no OpenSSL in the tree (matches
+# sqlx/reqwest/opendal).
+bollard = { version = "0.21.0", default-features = false, features = ["http"] }
 
 [dev-dependencies]
 # Exercise routes in-process (tower::ServiceExt::oneshot) without a socket.

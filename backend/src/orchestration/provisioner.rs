@@ -540,18 +540,37 @@ pub trait Provisioner: Send + Sync {
 pub enum ProvisionerHandle {
     /// The in-memory bookkeeping backend: full trait semantics, no real engine.
     ///
-    /// The boot-time placeholder until the Docker backend lands; it converges
-    /// desired state coherently but launches no actual containers.
-    // TODO(#27): add a `Docker(DockerProvisioner)` variant (behind the scoped
-    // socket-proxy) and select the backend from deployment config in
-    // `AppState::new`, leaving this variant as the test double.
+    /// Used in tests and for zero-config dev/test boot (no Docker proxy set): it
+    /// converges desired state coherently but launches no actual containers.
     InMemory(std::sync::Arc<memory::InMemoryProvisioner>),
+    /// The Docker backend, talking to the engine through a scoped socket-proxy.
+    ///
+    /// Selected at boot when a Docker proxy URL is configured. Drives a
+    /// Docker-compatible Podman socket unchanged (see
+    /// [`super::docker::DockerProvisioner`]).
+    Docker(std::sync::Arc<super::docker::DockerProvisioner>),
 }
 
 impl ProvisionerHandle {
     /// Creates a handle over a fresh in-memory backend.
     pub fn in_memory() -> Self {
         Self::InMemory(std::sync::Arc::new(memory::InMemoryProvisioner::new()))
+    }
+
+    /// Creates a handle over the Docker backend at `proxy_url`.
+    ///
+    /// `allowed_roots` are the host directories a managed bind mount may target
+    /// (the deployment's data directory). The client is lazy, so a dead proxy
+    /// surfaces on the first reconcile, not here.
+    ///
+    /// # Errors
+    /// Fails when a Docker client cannot be constructed for `proxy_url`.
+    pub fn docker(
+        proxy_url: &str,
+        allowed_roots: Vec<std::path::PathBuf>,
+    ) -> Result<Self, ProvisionError> {
+        let backend = super::docker::DockerProvisioner::connect(proxy_url, allowed_roots)?;
+        Ok(Self::Docker(std::sync::Arc::new(backend)))
     }
 }
 
@@ -561,36 +580,42 @@ impl Provisioner for ProvisionerHandle {
     async fn ensure(&self, spec: &ServiceSpec) -> Result<ServiceHandle, ProvisionError> {
         match self {
             Self::InMemory(backend) => backend.ensure(spec).await,
+            Self::Docker(backend) => backend.ensure(spec).await,
         }
     }
 
     async fn start(&self, name: &str) -> Result<(), ProvisionError> {
         match self {
             Self::InMemory(backend) => backend.start(name).await,
+            Self::Docker(backend) => backend.start(name).await,
         }
     }
 
     async fn stop(&self, name: &str) -> Result<(), ProvisionError> {
         match self {
             Self::InMemory(backend) => backend.stop(name).await,
+            Self::Docker(backend) => backend.stop(name).await,
         }
     }
 
     async fn remove(&self, name: &str) -> Result<(), ProvisionError> {
         match self {
             Self::InMemory(backend) => backend.remove(name).await,
+            Self::Docker(backend) => backend.remove(name).await,
         }
     }
 
     async fn inspect(&self, name: &str) -> Result<ServiceState, ProvisionError> {
         match self {
             Self::InMemory(backend) => backend.inspect(name).await,
+            Self::Docker(backend) => backend.inspect(name).await,
         }
     }
 
     async fn logs(&self, name: &str) -> Result<String, ProvisionError> {
         match self {
             Self::InMemory(backend) => backend.logs(name).await,
+            Self::Docker(backend) => backend.logs(name).await,
         }
     }
 }

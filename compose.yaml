@@ -71,6 +71,40 @@ services:
       timeout: 10s
       retries: 10
 
+  socket-proxy:
+    container_name: elysium-socket-proxy
+    # Scoped Docker Engine API gateway. The backend's orchestration provisioner
+    # talks to THIS, never the raw socket, so a backend compromise cannot own the
+    # host. Pinned to a released tag plus its multi-arch digest (never `latest`).
+    image: tecnativa/docker-socket-proxy:v0.4.2@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
+    restart: unless-stopped
+    # The host socket is mounted read-only into the proxy ONLY. It is never
+    # exposed to the backend; the proxy is the only container that sees it.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # Whitelist only the Engine API groups the provisioner uses: containers
+      # (create/start/stop/remove/inspect/logs), networks, images, volumes, and
+      # the daemon info the client version-negotiates against.
+      CONTAINERS: 1
+      NETWORKS: 1
+      IMAGES: 1
+      VOLUMES: 1
+      INFO: 1
+      # Allow the write verbs (POST); the proxy is read-only by default.
+      POST: 1
+      # Everything dangerous stays denied. Stated explicitly for auditability:
+      # no container exec, no auth/secrets/configs, no swarm, no daemon control.
+      EXEC: 0
+      AUTH: 0
+      SECRETS: 0
+      CONFIGS: 0
+      SWARM: 0
+      SYSTEM: 0
+      PLUGINS: 0
+    # No published host port: reachable only inside the Compose network, at
+    # http://socket-proxy:2375, which is where the backend points.
+
   backend:
     container_name: elysium-backend
     build:
@@ -98,6 +132,11 @@ services:
       # elysium-data volume below so files persist across restarts; mounting a
       # writable volume here is the one storage deployment concern.
       ELYSIUM_DATA_DIR: ${ELYSIUM_DATA_DIR:-/var/lib/elysium}
+      # Scoped Docker Engine API endpoint for the orchestration provisioner (see
+      # backend/src/orchestration/docker.rs). Points at the socket-proxy above,
+      # never the raw socket. Set empty in .env to fall back to the in-memory
+      # backend (no real containers).
+      ELYSIUM_DOCKER_PROXY_URL: ${ELYSIUM_DOCKER_PROXY_URL-http://socket-proxy:2375}
     ports:
       - "${API_PORT:-31416}:31416"
     volumes:
@@ -127,6 +166,10 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      socket-proxy:
+        # No healthcheck on the proxy image; start-order is enough since the
+        # client is lazy and reconcile tolerates a briefly-unreachable engine.
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:31416/health || exit 1"]
       interval: 10s
