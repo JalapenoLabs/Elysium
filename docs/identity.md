@@ -76,15 +76,18 @@ Three ideas, kept distinct (`backend/src/{session,accounts,orgs}.rs`):
   `.../switch-org`, and `.../signout` drive the profile and org switchers.
   `POST /api/v1/auth/logout` signs out every account on the device.
 
-### Org-issued emails (roadmap)
+### Project-issued emails (roadmap)
 
 The model above already allows an org to provision a member by email (invites). The
-next layer, once the SMTP service lands, is **org-owned email domains**: an org
-(e.g. NavarroCity) can issue and own addresses under its domain
-(`alex@navarrocity.com`), so the profile is created by the org and may carry a
-distinct initial-authentication path (org-provisioned credentials). Email stays the
-global profile key throughout; org domain ownership and org-managed provisioning
-sit on top of it. This is not built yet.
+next layer, once the mail service lands, is **project-owned email domains**: a
+**project** (the sub-tenant workspace under an org, e.g. NavarroCity.com within the
+NavarroCity org) owns its domain and issues addresses under it
+(`alex@navarrocity.com`), so a profile may be provisioned by the project and carry a
+distinct initial-authentication path (project-provisioned credentials). The org
+stays the umbrella (identity, membership); the **project** owns the domain and the
+mail server. Email stays the global profile key throughout; domain ownership and
+managed provisioning sit on top of it. See `docs/projects.md` and `docs/mail.md`.
+This is not built yet.
 
 ## Presence and status
 
@@ -102,9 +105,13 @@ as none and presence reverts to automatic. Render precedence: show the override
 when set, otherwise the derived presence.
 
 The profile surface lives in `backend/src/profile.rs`: `GET`/`PATCH
-/api/v1/users/me` for names + bio, and `PUT /api/v1/users/me/status` for the
-override. All three speak protobuf (`elysium.user.v1.User` /
-`UpdateProfileRequest` / `SetStatusRequest`).
+/api/v1/users/me` for names, display name, bio, preferred `language`
+(`LANGUAGE_UNSPECIFIED` = auto-detect), and the contact/personalization fields
+(pronouns, web link, contact phone, backup email), and `PUT
+/api/v1/users/me/status` for the override. The `PATCH` is a full replace: every
+editable field is sent on save, an empty value clears it, so callers send the
+current value for fields they are not changing. All speak protobuf
+(`elysium.user.v1.User` / `UpdateProfileRequest` / `SetStatusRequest`).
 
 ## Provisioning
 
