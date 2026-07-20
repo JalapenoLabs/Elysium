@@ -28,6 +28,7 @@ mod invites;
 mod login_events;
 mod members;
 mod opaque;
+mod orchestration;
 mod orgs;
 mod password;
 mod policies;
