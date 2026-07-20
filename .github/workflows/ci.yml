@@ -173,6 +173,16 @@ jobs:
           corepack prepare yarn@4.17.0 --activate
           yarn --version
 
+      - name: Reclaim workspace ownership (self-hosted runner hygiene)
+        # `clean: false` preserves node_modules/.yarn across runs so installs stay
+        # warm, but a root docker step elsewhere can leave root-owned files in them,
+        # breaking `yarn install` with EACCES ("permission denied, mkdir @bufbuild").
+        # Reclaim ownership for the runner user via a root container, keeping the
+        # cache warm (no delete). No-op on a clean/first run.
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w alpine:3 \
+            sh -c 'chown -R '"$(id -u):$(id -g)"' frontend/node_modules frontend/.yarn 2>/dev/null || true'
+
       - name: Install dependencies
         run: yarn install --immutable
 
