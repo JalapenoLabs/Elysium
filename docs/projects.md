@@ -93,8 +93,10 @@ Four projects, four isolated mail containers, one shared API/DB/router.
   full org members are granted implicitly, guests explicitly.
 - `teams` gains a nullable `project_id` — **NULL = org-level (inherited by all projects)**,
   set = project-scoped.
-- `drives` and `integrations` gain a nullable `project_id` (with `owner_scope`), so
-  resources attribute to a project.
+- `drives` gain a **NOT NULL** `project_id` (every org always has a default project, so a
+  Drive always has a project home); `integrations` gain a nullable `project_id` (with
+  `owner_scope`, since an integration may be org-shared or personal), so resources
+  attribute to a project.
 
 ## Management API
 

@@ -97,8 +97,9 @@ where they touch this design.
 
 ## Default Drive and system files
 
-- Exactly one Drive per org is the **default** (`is_default`, enforced by a partial unique
-  index). Drag-and-drop uploads land there.
+- Exactly one Drive per **project** is the **default** (`is_default`, enforced by a partial
+  unique index keyed on `project_id`). Drives are project-scoped, so each project has its own
+  default; drag-and-drop uploads land in the active project's default.
 - On org creation, Elysium **auto-provisions** a local-FS default Drive rooted at a
   platform-default data directory, so uploads and avatars work on first run with zero admin
   config. The org can change its default to an S3 Drive at any time.

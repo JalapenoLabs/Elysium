@@ -41,6 +41,7 @@ mod security;
 mod session;
 mod sse;
 mod state;
+mod storage;
 mod teams;
 mod totp;
 mod users;
