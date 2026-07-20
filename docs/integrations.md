@@ -233,11 +233,32 @@ Elysium's reverse proxy routes inbound traffic to the right managed container:
     `Proxy-*`, and any header named in `Connection`) are stripped, `X-Forwarded-{For,Host,Proto}`
     and the upstream `Host` are set, and a `101 Switching Protocols` is tunnelled both ways so
     the websocket features of forge/registry UIs work.
-  - **Forward-auth seam.** Every request passes through one async choke point,
+  - **Forward-auth.** Every request passes through one async choke point,
     `routing::authorize_proxy(&state, &parts, integration_id) -> ProxyAuth`, before the
-    upstream connection opens. It returns `Allow` today (open pass-through); M3-02 fills it in
-    to require an Elysium session and assert identity to the upstream via trusted headers
-    (`X-Elysium-User`, `X-Elysium-Email`).
+    upstream connection opens; the logic lives in `src/orchestration/forward_auth.rs`. It
+    authenticates the request against the Elysium session cookie (`session::session_id` +
+    `session::principal`) and enforces the **same** auth policies the OIDC authorize endpoint
+    does (`oidc::endpoints::enforce_policies`: suspension, org membership, mandatory 2FA), so a
+    suspended or non-member caller never reaches a service. A signed-out or policy-failed
+    browser navigation (its `Accept` lists `text/html`) is bounced to the SPA login carrying
+    `return_to` and returns afterward; every other request (API, git) gets `401`, never a
+    redirect. On success the proxy injects the trusted identity header set the upstream is
+    configured to trust: `X-WEBAUTH-USER` (the stable login, the sanitized email local-part),
+    `X-Elysium-User` (the account uuid, matching the OIDC `sub`), `X-Elysium-Email`,
+    `X-Elysium-Name`, and `X-Elysium-Groups` (comma-joined active-org team slugs), built from
+    the same `Subject` an OIDC token carries.
+  - **Spoofing defense.** The proxy strips every trusted identity header from the inbound
+    request *before* it reads the session or forwards anything, on every path, so a
+    client-forged `X-WEBAUTH-USER` / `X-Elysium-*` can neither reach an upstream nor influence
+    the auth decision — only Elysium sets them. A managed Forgejo is configured for
+    reverse-proxy auth (`config::render_git`): `ENABLE_REVERSE_PROXY_AUTHENTICATION`,
+    `ENABLE_REVERSE_PROXY_AUTO_REGISTRATION` (header-driven JIT account creation),
+    `ENABLE_REVERSE_PROXY_EMAIL` / `_FULL_NAME` with the email/full-name header names pointed at
+    the injected `X-Elysium-*` headers, and `REVERSE_PROXY_TRUSTED_PROXIES` set to the private
+    ranges plus loopback (the backend reaches Forgejo from the Docker gateway; the header strip,
+    not this list, is the real barrier). Forward-auth composes with the OIDC login source:
+    forward-auth is the zero-flicker web path, OIDC the standards path, both asserting one
+    Elysium identity.
 - **SSH / TCP** for `git@…` and similar (roadmap, M2-05). This is the harder case: an SSH
   front maps a presented key to an Elysium user and routes to the correct backend container.
   Design this explicitly; do not assume HTTP-only.

@@ -30,7 +30,11 @@
 //!   HTTP routes as integrations come and go.
 //! - [`routing`]: the embedded HTTP reverse proxy that makes a managed service's
 //!   web surface reachable and embeddable at `/services/{id}` (streaming, with
-//!   websocket upgrades and a forward-auth seam for #33).
+//!   websocket upgrades).
+//! - [`forward_auth`]: the reverse-proxy forward-auth layer that authenticates
+//!   every proxied request against the Elysium session and asserts the identity to
+//!   the upstream via trusted headers (zero-prompt SSO), stripping any client-forged
+//!   identity headers first.
 //!
 //! The module-wide `dead_code` allowance covers the parts of the seam landed
 //! ahead of their consumers (`Provisioner::logs` awaits the console's log
@@ -39,6 +43,7 @@
 
 pub mod config;
 pub mod docker;
+pub mod forward_auth;
 pub mod integration_policies;
 pub mod integrations;
 pub mod provisioner;

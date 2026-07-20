@@ -178,9 +178,13 @@ pub async fn authorize(
 /// re-deriving them. A `None` active org needs no membership check; a mandating org
 /// with no confirmed TOTP is refused.
 ///
+/// Shared with the reverse-proxy forward-auth layer
+/// ([`crate::orchestration::forward_auth`]), so a proxied request into a managed
+/// service enforces the exact same policy gate this OIDC endpoint does.
+///
 /// # Errors
 /// Returns an error if a policy query fails.
-async fn enforce_policies(
+pub(crate) async fn enforce_policies(
     state: &AppState,
     subject: &str,
     user_id: Uuid,

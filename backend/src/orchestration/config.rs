@@ -41,6 +41,7 @@ use serde::Deserialize;
 use sqlx::PgConnection;
 
 use crate::crypto::Crypto;
+use crate::orchestration::forward_auth::{HEADER_ELYSIUM_EMAIL, HEADER_ELYSIUM_NAME};
 use crate::orchestration::integrations::{
     open_secret, seal_secret, storage_role, IntegrationKind, IntegrationRow,
 };
@@ -230,6 +231,20 @@ pub(crate) const OIDC_SOURCE_NAME: &str = "elysium";
 /// three (`SUPPORTED_SCOPES`).
 const OIDC_SCOPES: &str = "openid email profile";
 
+/// The source ranges Forgejo trusts to assert reverse-proxy identity headers.
+///
+/// Forgejo honors the injected `X-WEBAUTH-USER` / `X-Elysium-*` headers only from a
+/// source in this list. The backend reaches Forgejo through the host gateway (see
+/// [`crate::orchestration::routing::MANAGED_UPSTREAM_HOST`]), so Forgejo sees the
+/// request arrive from the Docker network gateway, an RFC 1918 address whose exact
+/// value depends on the engine's chosen subnet. Trusting the private ranges (plus
+/// loopback) covers that gateway regardless of subnet without ever trusting a public
+/// source. The real spoofing barrier is not this list but the proxy stripping every
+/// client-supplied identity header ([`crate::orchestration::forward_auth`]): only
+/// Elysium can reach Forgejo's published port, and only Elysium sets these headers.
+const REVERSE_PROXY_TRUSTED_PROXIES: &str =
+    "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16";
+
 /// Env var carrying the OIDC login-source name to the first-boot init.
 const OIDC_ENV_SOURCE_NAME: &str = "ELYSIUM_OIDC_SOURCE_NAME";
 /// Env var carrying the OIDC discovery URL to the first-boot init.
@@ -314,6 +329,46 @@ fn render_git(input: &RenderInput<'_>) -> Result<RenderedEntries, TemplateError>
         (
             "FORGEJO__service__SHOW_REGISTRATION_BUTTON".to_string(),
             EnvValue::plain("false"),
+        ),
+        // Reverse-proxy (forward-auth) authentication: Forgejo trusts the identity
+        // headers Elysium's proxy injects, so an embedded page opened while signed
+        // into Elysium lands authenticated with no visible login (#33). Composes
+        // with the OIDC login source above: forward-auth is the zero-flicker web
+        // path, OIDC the standards path, both asserting one Elysium identity.
+        (
+            "FORGEJO__service__ENABLE_REVERSE_PROXY_AUTHENTICATION".to_string(),
+            EnvValue::plain("true"),
+        ),
+        // Auto-provision (JIT) the Forgejo account on the first proxied request from
+        // a user it has not seen, keyed by the injected `X-WEBAUTH-USER`.
+        (
+            "FORGEJO__service__ENABLE_REVERSE_PROXY_AUTO_REGISTRATION".to_string(),
+            EnvValue::plain("true"),
+        ),
+        // Populate the JIT account's email and full name from the injected headers
+        // rather than a synthesized placeholder.
+        (
+            "FORGEJO__service__ENABLE_REVERSE_PROXY_EMAIL".to_string(),
+            EnvValue::plain("true"),
+        ),
+        (
+            "FORGEJO__service__ENABLE_REVERSE_PROXY_FULL_NAME".to_string(),
+            EnvValue::plain("true"),
+        ),
+        // The user header stays Forgejo's default `X-WEBAUTH-USER` (which the proxy
+        // injects); point the email and full-name headers at the `X-Elysium-*` ones
+        // the proxy injects, so a single source of truth drives both sides.
+        (
+            "FORGEJO__security__REVERSE_PROXY_AUTHENTICATION_EMAIL".to_string(),
+            EnvValue::plain(HEADER_ELYSIUM_EMAIL),
+        ),
+        (
+            "FORGEJO__security__REVERSE_PROXY_AUTHENTICATION_FULL_NAME".to_string(),
+            EnvValue::plain(HEADER_ELYSIUM_NAME),
+        ),
+        (
+            "FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES".to_string(),
+            EnvValue::plain(REVERSE_PROXY_TRUSTED_PROXIES),
         ),
     ];
     if !config.domain.trim().is_empty() {
@@ -685,6 +740,47 @@ mod tests {
         let key = &env["FORGEJO__security__SECRET_KEY"];
         assert_eq!(key.expose(), secret.expose());
         assert!(key.is_secret());
+    }
+
+    #[test]
+    fn git_template_enables_reverse_proxy_forward_auth() {
+        // Forgejo must trust the identity headers the proxy injects (#33), and JIT
+        // the account on first proxied request. A fresh integration (`{}`, no OIDC
+        // client) still renders the full reverse-proxy-auth block.
+        let row = managed_row(IntegrationKind::Git, serde_json::json!({}));
+        let env =
+            render_env(&row, Some(&known_secret()), &Provisioning::default()).expect("renders");
+
+        assert_eq!(
+            env["FORGEJO__service__ENABLE_REVERSE_PROXY_AUTHENTICATION"].expose(),
+            "true"
+        );
+        assert_eq!(
+            env["FORGEJO__service__ENABLE_REVERSE_PROXY_AUTO_REGISTRATION"].expose(),
+            "true"
+        );
+        assert_eq!(
+            env["FORGEJO__service__ENABLE_REVERSE_PROXY_EMAIL"].expose(),
+            "true"
+        );
+        assert_eq!(
+            env["FORGEJO__service__ENABLE_REVERSE_PROXY_FULL_NAME"].expose(),
+            "true"
+        );
+        // The configured email/full-name header names match the headers the proxy
+        // injects, so the trusted-header contract has one source of truth.
+        assert_eq!(
+            env["FORGEJO__security__REVERSE_PROXY_AUTHENTICATION_EMAIL"].expose(),
+            HEADER_ELYSIUM_EMAIL
+        );
+        assert_eq!(
+            env["FORGEJO__security__REVERSE_PROXY_AUTHENTICATION_FULL_NAME"].expose(),
+            HEADER_ELYSIUM_NAME
+        );
+        // The trusted proxies cover the Docker gateway (private ranges) and loopback.
+        let trusted = env["FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES"].expose();
+        assert!(trusted.contains("172.16.0.0/12"));
+        assert!(trusted.contains("127.0.0.0/8"));
     }
 
     #[test]

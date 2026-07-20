@@ -12,9 +12,10 @@
 //! things a sidecar proxy container would not:
 //!
 //! - **Forward-auth needs no external round-trip.** [`authorize_proxy`] is the one
-//!   choke point where #33 will require an Elysium session and assert identity to
-//!   the upstream via trusted headers; it reads the session directly instead of
-//!   bouncing every request out to an auth endpoint.
+//!   choke point that requires an Elysium session and asserts identity to the
+//!   upstream via trusted headers (see [`crate::orchestration::forward_auth`]); it
+//!   reads the session directly instead of bouncing every request out to an auth
+//!   endpoint.
 //! - **Single-origin embedding stays clean.** Everything is served from the
 //!   Elysium origin under `/services/{id}`, so an embedded `<iframe>` faces no
 //!   cross-origin cookie or CSP friction.
@@ -185,16 +186,16 @@ impl RouteTable {
     }
 }
 
-/// The decision the forward-auth seam returns for a proxied request.
+/// The decision the forward-auth layer returns for a proxied request.
 ///
-/// Today only [`ProxyAuth::allow`] is produced (open pass-through); the variants
-/// are the shape #33 fills in. `Deny` short-circuits with a ready response (e.g.
-/// a redirect to sign-in when no Elysium session is present); `Allow` carries the
-/// trusted identity headers to inject upstream (empty until #33).
+/// `Deny` short-circuits with a ready response (a redirect to sign-in for a browser,
+/// a `401` for an API/git request when no Elysium session is present); `Allow`
+/// carries the trusted identity headers ([`crate::orchestration::forward_auth`]) to
+/// inject into the upstream request.
 pub enum ProxyAuth {
     /// Proceed, injecting these trusted identity headers into the upstream request.
     Allow {
-        /// Headers asserted to the upstream (e.g. `X-Elysium-User`), empty today.
+        /// Headers asserted to the upstream (`X-WEBAUTH-USER`, `X-Elysium-*`).
         identity: HeaderMap,
     },
     /// Reject the request before proxying, returning this response to the caller.
@@ -218,23 +219,14 @@ impl ProxyAuth {
 /// The forward-auth choke point: authorizes a request before it is proxied.
 ///
 /// Every proxied request passes through here exactly once, before the upstream
-/// connection is opened. Today it allows everything, so a managed service is
-/// reachable to any caller who can reach the backend. This is the single seam
-/// #33 fills in: it will (a) require a valid Elysium session, denying with a
-/// redirect otherwise, and (b) return the trusted identity headers
-/// (`X-Elysium-User`, `X-Elysium-Email`) to assert the caller's identity to the
-/// upstream, which forge/registry images consume as forward-auth. Keeping this a
-/// function of `(&AppState, &Parts, integration_id)` means #33 has the session
-/// cookie, the database handle, and the target integration in hand without
-/// reshaping the proxy.
-pub async fn authorize_proxy(
-    _state: &AppState,
-    _parts: &Parts,
-    _integration_id: Uuid,
-) -> ProxyAuth {
-    // TODO(#33): resolve the Elysium session from `_parts` and `_state`, deny with
-    // a sign-in redirect when absent, and populate the trusted identity headers.
-    ProxyAuth::allow()
+/// connection is opened. It requires a valid Elysium session (denying with a login
+/// redirect for a browser, `401` otherwise), enforces the same auth policies the
+/// OIDC endpoint does, and returns the trusted identity headers to assert the
+/// caller's identity to the upstream. The logic lives in
+/// [`crate::orchestration::forward_auth`]; this stays the thin seam the proxy calls,
+/// so the proxy mechanics and the auth policy stay separable.
+pub async fn authorize_proxy(state: &AppState, parts: &Parts, integration_id: Uuid) -> ProxyAuth {
+    crate::orchestration::forward_auth::authorize(state, parts, integration_id).await
 }
 
 /// Proxy handler for `ANY /services/{integration_id}` (the service root).
@@ -287,7 +279,13 @@ async fn forward(
 
     let (mut parts, body) = request.into_parts();
 
-    // The forward-auth choke point (#33 fills this in). A denial short-circuits.
+    // Spoofing defense: strip any client-supplied trusted identity header before
+    // anything reads the session or forwards the request, so a forged
+    // `X-WEBAUTH-USER` / `X-Elysium-*` can neither reach the upstream nor influence
+    // the auth decision. Only the forward-auth layer re-adds them, authenticated.
+    crate::orchestration::forward_auth::strip_trusted_headers(&mut parts.headers);
+
+    // The forward-auth choke point. A denial short-circuits with its response.
     let identity = match authorize_proxy(state, &parts, integration_id).await {
         ProxyAuth::Deny(response) => return response,
         ProxyAuth::Allow { identity } => identity,
@@ -795,7 +793,9 @@ mod tests {
     // --- Forward-auth seam ---------------------------------------------------
 
     #[test]
-    fn proxy_auth_allow_is_permissive_and_carries_no_identity_today() {
+    fn proxy_auth_allow_constructor_permits_with_no_identity_headers() {
+        // The bare `allow()` constructor carries no identity; the forward-auth layer
+        // is what populates the trusted headers on a real allow decision.
         match ProxyAuth::allow() {
             ProxyAuth::Allow { identity } => assert!(identity.is_empty()),
             ProxyAuth::Deny(_) => panic!("allow() must permit the request"),
