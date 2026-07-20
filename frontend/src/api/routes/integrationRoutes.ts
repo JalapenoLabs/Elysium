@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type {
+  GetIntegrationPoliciesResponse,
   Integration,
   IntegrationKind,
   IntegrationMode,
@@ -17,9 +18,11 @@ import { create, fromBinary } from '@bufbuild/protobuf'
 import { apiClient, getProto, sendProto } from '../index'
 import {
   CreateIntegrationRequestSchema,
+  GetIntegrationPoliciesResponseSchema,
   IntegrationSchema,
   ListIntegrationsResponseSchema,
   SetIntegrationBindingsRequestSchema,
+  UpdateIntegrationPolicyRequestSchema,
   UpdateIntegrationRequestSchema,
 } from '../../proto/generated/integration_pb'
 
@@ -112,5 +115,26 @@ export function setIntegrationBindings(
     requestSchema: SetIntegrationBindingsRequestSchema,
     request: create(SetIntegrationBindingsRequestSchema, { bindings }),
     responseSchema: IntegrationSchema,
+  })
+}
+
+// Per-kind member-linking policies (#36): whether org members may connect
+// personal accounts of each integration kind. Admin-only; defaults off.
+
+export function getIntegrationPolicies(orgId: string): Promise<GetIntegrationPoliciesResponse> {
+  return getProto(`api/v1/orgs/${orgId}/integration-policies`, GetIntegrationPoliciesResponseSchema)
+}
+
+// Returns the refreshed full policy set.
+export function updateIntegrationPolicy(
+  orgId: string,
+  kind: IntegrationKind,
+  membersMayLink: boolean,
+): Promise<GetIntegrationPoliciesResponse> {
+  return sendProto(`api/v1/orgs/${orgId}/integration-policies`, {
+    method: 'patch',
+    requestSchema: UpdateIntegrationPolicyRequestSchema,
+    request: create(UpdateIntegrationPolicyRequestSchema, { kind, membersMayLink }),
+    responseSchema: GetIntegrationPoliciesResponseSchema,
   })
 }

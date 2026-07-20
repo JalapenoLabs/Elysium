@@ -13,6 +13,7 @@ import { useAppSelector } from '../../store/hooks'
 
 // UI
 import { Card, CardBody, Select, SelectItem, Switch } from '@heroui/react'
+import { MemberLinkingCard } from './MemberLinkingCard'
 import { SubmitButton } from '../../components/form/SubmitButton'
 
 // Utility
@@ -219,5 +220,9 @@ export function OrgSecurity() {
       : errorMessage
         ? <p className='text-sm text-danger'>{ errorMessage }</p>
         : <p className='opacity-60'>{ t('auth:orgSecurity.loading') }</p> }
+
+    { activeOrgId
+      ? <MemberLinkingCard orgId={activeOrgId} canManage={canEdit} />
+      : null }
   </section>
 }

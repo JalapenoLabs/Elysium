@@ -406,7 +406,13 @@
       "deleteAction": "Delete integration",
       "loadFailed": "We couldn't load integrations. Please try again.",
       "saveFailed": "We couldn't save that integration. Please try again.",
-      "updateFailed": "We couldn't update that integration. Please try again."
+      "updateFailed": "We couldn't update that integration. Please try again.",
+      "linking": {
+        "title": "Personal account linking",
+        "subtitle": "Which services members may connect their own accounts to. Off by default.",
+        "loadFailed": "We couldn't load the linking policies. Please try again.",
+        "updateFailed": "We couldn't update that policy. Please try again."
+      }
     },
     "storage": {
       "title": "Storage",
