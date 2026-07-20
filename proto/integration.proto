@@ -191,3 +191,29 @@ message SetIntegrationBindingsRequest {
 message ListIntegrationsResponse {
   repeated Integration integrations = 1;
 }
+
+// One per-kind member-linking toggle of an org's integration policy set.
+//
+// Governs PERSONAL LINKED creation only: a member may link their own account of
+// this kind exactly while members_may_link is on. The default is off, per kind,
+// until an admin enables it (docs/integrations.md). Managed and org-linked
+// creation are gated by `manage_integrations` and never by these toggles.
+message IntegrationPolicy {
+  IntegrationKind kind = 1;
+  bool members_may_link = 2;
+}
+
+// The org's full per-kind policy set, one entry for every known kind.
+//
+// A kind an admin never touched appears with members_may_link = false, so the
+// console always renders the complete toggle board.
+message GetIntegrationPoliciesResponse {
+  repeated IntegrationPolicy policies = 1;
+}
+
+// Request to set one kind's members_may_link toggle. The response is the full
+// refreshed policy set (GetIntegrationPoliciesResponse).
+message UpdateIntegrationPolicyRequest {
+  IntegrationKind kind = 1;
+  bool members_may_link = 2;
+}

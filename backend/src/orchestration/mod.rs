@@ -16,6 +16,9 @@
 //! - [`integrations`]: the integration data model (kinds, modes, owner scopes,
 //!   capability-gated storage-role bindings) and the `/api/v1/integrations`
 //!   management surface.
+//! - [`integration_policies`]: the per-kind member-linking toggles and their
+//!   admin control plane (`/api/v1/orgs/{id}/integration-policies`), enforced by
+//!   the personal-linked creation path in [`integrations`].
 //! - [`reconcile`]: the desired-state reconciler converging managed rows to
 //!   containers on boot and after every change.
 //!
@@ -25,6 +28,7 @@
 //! a binary build that does not call them yet.
 #![allow(dead_code)]
 
+pub mod integration_policies;
 pub mod integrations;
 pub mod provisioner;
 pub mod reconcile;

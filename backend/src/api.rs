@@ -16,7 +16,7 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 use tower_http::trace::TraceLayer;
 
-use crate::orchestration::integrations;
+use crate::orchestration::{integration_policies, integrations};
 use crate::proto::auth::v1::MeResponse;
 use crate::proto::health::v1::{DatabaseHealthResponse, HelloResponse};
 use crate::protobuf::Protobuf;
@@ -243,9 +243,10 @@ pub fn router(state: AppState) -> Router {
         // Integrations: the service control plane. The collection lists what the
         // caller can access (optionally filtered by `?project_id=`) with live
         // reconcile status; managed/org-linked writes need `manage_integrations`
-        // (or project owner/admin), personal linking is open to members. Start,
-        // stop, and bindings apply to managed integrations and reconcile
-        // immediately; bindings are capability-gated against the bound Drives.
+        // (or project owner/admin), personal linking is open to members where the
+        // org's per-kind policy allows it. Start, stop, and bindings apply to
+        // managed integrations and reconcile immediately; bindings are
+        // capability-gated against the bound Drives.
         .route(
             "/api/v1/integrations",
             get(integrations::list).post(integrations::create),
@@ -259,6 +260,13 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/integrations/{id}/bindings",
             put(integrations::set_bindings),
+        )
+        // Integration policies (`manage_integrations`): the per-kind toggles
+        // governing whether members may link personal integrations of a kind,
+        // mirroring the org auth-policy control plane. Default off, per kind.
+        .route(
+            "/api/v1/orgs/{id}/integration-policies",
+            get(integration_policies::get_policies).patch(integration_policies::update_policy),
         )
         // Storage search: live, federated, streaming, index-free. Fans out across the
         // caller's accessible Drives and streams length-delimited `SearchFrame`

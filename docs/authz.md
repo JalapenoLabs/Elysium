@@ -24,8 +24,11 @@ treats them as a non-member and realtime fan-out excludes them.
 
 An org can grant a *member* specific admin powers without full admin, recorded in
 `org_admin_grants`: `manage_members`, `manage_security`, `manage_teams`,
-`manage_projects`, `view_audit`. `manage_projects` gates creating and deleting
-projects and managing their domains (see `docs/projects.md`). Owners and admins hold
+`manage_projects`, `manage_storage`, `manage_integrations`, `view_audit`.
+`manage_projects` gates creating and deleting projects and managing their domains
+(see `docs/projects.md`); `manage_storage` gates the Drive control plane
+(`docs/storage.md`); `manage_integrations` gates managed/org-linked integrations and
+the per-kind member-linking policies (`docs/integrations.md`). Owners and admins hold
 every capability implicitly; a member holds
 one only if it was granted; guests and suspended members hold none. Managing the
 grants themselves requires being a real owner/admin, so delegation never cascades.

@@ -80,8 +80,9 @@ The API never hardcodes Docker and never holds the raw Docker socket.
 ## Data model and management API
 
 The model lives in `backend/src/orchestration/integrations.rs` (tables:
-`integrations`, `integration_storage_bindings`, `integration_access`), the wire
-contract in `proto/integration.proto` (`elysium.integration.v1`), and the routes in
+`integrations`, `integration_storage_bindings`, `integration_access`, plus
+`integration_policies` in `integration_policies.rs`), the wire contract in
+`proto/integration.proto` (`elysium.integration.v1`), and the routes in
 `backend/src/api.rs` under `/api/v1/integrations` (protobuf, session-authenticated):
 
 - `GET /api/v1/integrations?project_id=`: the integrations the caller can access,
@@ -104,6 +105,13 @@ contract in `proto/integration.proto` (`elysium.integration.v1`), and the routes
   **capability-gated**: the role must exist for the kind and the Drive must advertise
   its required capability. A project-scoped integration binds only its own project's
   Drives.
+- `GET /api/v1/orgs/{id}/integration-policies` / `PATCH ...`: the per-kind
+  `members_may_link` toggle board, gated by `manage_integrations` and mirroring the
+  org auth-policy control plane. The GET always returns the full set (one
+  `IntegrationPolicy` per kind, missing rows read as off); the PATCH upserts one
+  kind's toggle (`UpdateIntegrationPolicyRequest`), writes an
+  `org.integration_policy_updated` audit entry, and answers with the refreshed full
+  set.
 
 Credentials are write-only: sealed (`crypto.rs`, bound to the integration id) and
 surfaced only as `credential_set`. `ReconcileStatus` is the live provisioning state

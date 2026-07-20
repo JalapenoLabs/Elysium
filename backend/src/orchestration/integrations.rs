@@ -35,6 +35,7 @@ use uuid::Uuid;
 
 use crate::authz::{self, Capability, OrgRole};
 use crate::crypto::Crypto;
+use crate::orchestration::integration_policies;
 use crate::orchestration::provisioner::Provisioner;
 use crate::orchestration::reconcile;
 use crate::projects::{has_project_access, resolve_project_access, ProjectRole};
@@ -770,19 +771,20 @@ pub async fn can_manage_integration(
 
 /// Whether org policy lets a member link a personal integration of `kind`.
 ///
-/// This is the seam the per-kind admin policies slot into. Today every kind is
-/// permitted so members can link personal accounts at all; the documented default
-/// ("personal linking is off until an admin enables it, per kind",
-/// `docs/integrations.md`) begins to be enforced when the `integration_policies`
-/// toggle set lands.
-// TODO(#36): consult the org's per-kind `integration_policies` toggles here; the
-// create handler already routes every personal-linked creation through this check.
+/// The enforcement seam every personal-linked creation routes through. It reads
+/// the org's per-kind `integration_policies` toggle set
+/// ([`crate::orchestration::integration_policies`]); a kind without a row is the
+/// documented default: personal linking is off until an admin enables it, per
+/// kind (`docs/integrations.md`).
+///
+/// # Errors
+/// Returns an error if the policy lookup fails.
 pub async fn member_linking_permitted(
-    _conn: &mut PgConnection,
-    _org_id: Uuid,
-    _kind: IntegrationKind,
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    kind: IntegrationKind,
 ) -> sqlx::Result<bool> {
-    Ok(true)
+    integration_policies::members_may_link(&mut *conn, org_id, kind).await
 }
 
 // --- Model helpers -----------------------------------------------------------
@@ -990,8 +992,8 @@ pub async fn list(
 ///
 /// Gates by mode and scope: **managed** and **org- or project-linked** creation
 /// require [`can_manage_integrations`] at the owning tier; **personal-linked**
-/// creation is open to full org members, routed through
-/// [`member_linking_permitted`] so the per-kind org policies (#36) slot in. A
+/// creation is open to full org members whose org enabled the kind's
+/// `members_may_link` toggle, enforced through [`member_linking_permitted`]. A
 /// managed personal integration is refused: provisioning is never personal.
 /// A managed creation reconciles immediately, so the response carries live status.
 pub async fn create(
