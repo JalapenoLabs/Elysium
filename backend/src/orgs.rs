@@ -54,7 +54,7 @@ pub async fn create(
     };
 
     let slug = slugify(name);
-    let org_id = match provision(&state.pool, name, &slug, user_id).await {
+    let org_id = match provision(&state.pool, name, &slug, user_id, &state.data_dir).await {
         Ok(org_id) => org_id,
         Err(error) => {
             tracing::error!(error = %error, "org creation failed");
@@ -262,6 +262,7 @@ async fn provision(
     name: &str,
     slug: &str,
     user_id: Uuid,
+    data_dir: &str,
 ) -> sqlx::Result<Uuid> {
     let mut tx = pool.begin().await?;
     let org_id =
@@ -276,9 +277,9 @@ async fn provision(
         .await?;
     users::add_membership(&mut tx, user_id, org_id, "owner").await?;
 
-    // Every org has at least one project: seed the default and make the creator its
-    // owner. The M1 default Drive will attach here (see `crate::projects`).
-    projects::create_default(&mut tx, org_id, user_id).await?;
+    // Every org has at least one project: seed the default, make the creator its
+    // owner, and auto-provision the project's default Drive (see `crate::projects`).
+    projects::create_default(&mut tx, org_id, user_id, data_dir).await?;
 
     tx.commit().await?;
     Ok(org_id)

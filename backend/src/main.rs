@@ -103,6 +103,13 @@ async fn main() -> eyre::Result<()> {
     // behavior rather than blocking startup.
     state.redis = state::connect_redis(state.redis_url.as_deref()).await;
 
+    // Reconcile the "every project has a default Drive" invariant on boot. New projects
+    // provision their default Drive inline; this backfills the projects created before
+    // that wiring (migration 0022) so uploads and avatars work with zero admin config.
+    storage::defaults::ensure_default_drives(&state.pool, &state.data_dir)
+        .await
+        .wrap_err("failed to reconcile default Drives")?;
+
     let port = env::var("API_PORT")
         .ok()
         .and_then(|value| value.parse().ok())

@@ -39,6 +39,7 @@ use crate::proto::project::v1::{
 use crate::protobuf::Protobuf;
 use crate::session::{Principal, SessionUser};
 use crate::state::AppState;
+use crate::storage;
 use crate::users;
 
 /// The name of the default project auto-created for every new org.
@@ -106,18 +107,23 @@ impl ProjectRole {
     }
 }
 
-/// Creates an org's default project and makes `owner_user_id` its owner.
+/// Creates an org's default project, its default Drive, and its owner.
 ///
 /// Runs on the caller's connection so it is atomic with the org creation that
-/// precedes it. Returns the new project's id, the anchor the M1 default Drive
-/// attaches to (`drives.project_id`).
+/// precedes it: the project, the owner membership, and the auto-provisioned default
+/// local-FS Drive (rooted under `data_dir`, see [`crate::storage::defaults`]) all
+/// commit together, so a fresh org has a working upload target with zero admin config.
+/// Returns the new project's id, the anchor the default Drive attaches to
+/// (`drives.project_id`).
 ///
 /// # Errors
-/// Returns an error if inserting the project or its owner membership fails.
+/// Returns an error if inserting the project, its owner membership, or its default
+/// Drive fails.
 pub async fn create_default(
     conn: &mut PgConnection,
     org_id: Uuid,
     owner_user_id: Uuid,
+    data_dir: &str,
 ) -> sqlx::Result<Uuid> {
     let project_id = sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO projects (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id",
@@ -128,7 +134,15 @@ pub async fn create_default(
     .fetch_one(&mut *conn)
     .await?;
 
-    add_member(conn, project_id, owner_user_id, ProjectRole::Owner).await?;
+    add_member(&mut *conn, project_id, owner_user_id, ProjectRole::Owner).await?;
+    storage::defaults::provision_default_drive(
+        conn,
+        org_id,
+        project_id,
+        data_dir,
+        Some(owner_user_id),
+    )
+    .await?;
     Ok(project_id)
 }
 
@@ -504,7 +518,16 @@ pub async fn create(
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
-    let project_id = match create_project(&mut conn, org_id, name, &request.slug, owner_id).await {
+    let project_id = match create_project(
+        &mut conn,
+        org_id,
+        name,
+        &request.slug,
+        owner_id,
+        &state.data_dir,
+    )
+    .await
+    {
         Ok(Some(project_id)) => project_id,
         Ok(None) => return (StatusCode::CONFLICT, "slug already in use").into_response(),
         Err(error) => {
@@ -536,7 +559,8 @@ const MAX_SLUG_ATTEMPTS: usize = 5;
 ///
 /// Each attempt runs in its own transaction (a nested savepoint when `conn` is
 /// already in one), so a rejected insert never poisons the outer state and the
-/// project insert plus owner membership always commit together.
+/// project insert, its owner membership, and its auto-provisioned default Drive
+/// (rooted under `data_dir`) always commit together.
 ///
 /// # Errors
 /// Returns an error for any database failure other than the slug conflict.
@@ -546,6 +570,7 @@ pub(crate) async fn create_project(
     name: &str,
     requested_slug: &str,
     owner_id: Uuid,
+    data_dir: &str,
 ) -> sqlx::Result<Option<Uuid>> {
     let explicit = !requested_slug.trim().is_empty();
     let mut slug = if explicit {
@@ -556,7 +581,7 @@ pub(crate) async fn create_project(
 
     for _ in 0..MAX_SLUG_ATTEMPTS {
         let mut tx = conn.begin().await?;
-        let attempt = insert_project(&mut tx, org_id, name, &slug, owner_id).await;
+        let attempt = insert_project(&mut tx, org_id, name, &slug, owner_id, data_dir).await;
         match attempt {
             Ok(project_id) => {
                 tx.commit().await?;
@@ -582,10 +607,14 @@ pub(crate) async fn create_project(
     Ok(None)
 }
 
-/// Inserts one project row and its owner membership on the caller's connection.
+/// Inserts a project, its owner membership, and its default Drive on one connection.
+///
+/// The owner-cascade mirrors [`create_default`]; the auto-provisioned default local-FS
+/// Drive (rooted under `data_dir`) gives the new project a working upload target from
+/// the moment it exists.
 ///
 /// # Errors
-/// Returns an error if either insert fails, including the `UNIQUE (org_id, slug)`
+/// Returns an error if any insert fails, including the `UNIQUE (org_id, slug)`
 /// violation that [`create_project`] handles.
 async fn insert_project(
     conn: &mut PgConnection,
@@ -593,6 +622,7 @@ async fn insert_project(
     name: &str,
     slug: &str,
     owner_id: Uuid,
+    data_dir: &str,
 ) -> sqlx::Result<Uuid> {
     let project_id = sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO projects (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id",
@@ -602,7 +632,9 @@ async fn insert_project(
     .bind(slug)
     .fetch_one(&mut *conn)
     .await?;
-    add_member(conn, project_id, owner_id, ProjectRole::Owner).await?;
+    add_member(&mut *conn, project_id, owner_id, ProjectRole::Owner).await?;
+    storage::defaults::provision_default_drive(conn, org_id, project_id, data_dir, Some(owner_id))
+        .await?;
     Ok(project_id)
 }
 
@@ -1280,7 +1312,7 @@ mod tests {
         .await
         .expect("insert user");
 
-        let project_id = create_default(&mut tx, org_id, user_id)
+        let project_id = create_default(&mut tx, org_id, user_id, "/var/lib/elysium")
             .await
             .expect("create default project");
 
@@ -1306,6 +1338,29 @@ mod tests {
             ProjectRole::from_db(role),
             Some(ProjectRole::Owner),
             "the creator owns the default project",
+        );
+
+        // The default project is provisioned with exactly one default FS Drive rooted
+        // under the data dir, so a fresh org can store files with zero admin config.
+        let (drive_count, kind, is_default, root) = sqlx::query_as::<_, (i64, i16, bool, String)>(
+            "SELECT count(*), min(kind), bool_and(is_default), min(config->>'root')
+                   FROM drives WHERE project_id = $1 AND is_default",
+        )
+        .bind(project_id)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("read default drive");
+        assert_eq!(drive_count, 1, "the default project has one default Drive");
+        assert_eq!(
+            kind,
+            storage::DriveKind::Fs.as_db(),
+            "the default Drive is local-FS",
+        );
+        assert!(is_default, "the provisioned Drive is the project default");
+        assert_eq!(
+            root,
+            format!("/var/lib/elysium/{org_id}/{project_id}"),
+            "the default Drive is rooted under the data dir by org and project",
         );
 
         // Never commit: the seeded rows vanish on drop, leaving the database clean.
@@ -1840,7 +1895,7 @@ mod tests {
         add_org_member(&mut tx, org, owner, "owner", false).await;
 
         // A first project derived from its name gets the clean base slug, no suffix.
-        let first = create_project(&mut tx, org, "Jalapeno Labs", "", owner)
+        let first = create_project(&mut tx, org, "Jalapeno Labs", "", owner, "/var/lib/elysium")
             .await
             .expect("create first project")
             .expect("the clean slug was free");
@@ -1860,7 +1915,7 @@ mod tests {
 
         // A second project with the same name collides on the clean slug, so it keeps
         // the base and gains a numeric suffix.
-        let second = create_project(&mut tx, org, "Jalapeno Labs", "", owner)
+        let second = create_project(&mut tx, org, "Jalapeno Labs", "", owner, "/var/lib/elysium")
             .await
             .expect("create second project")
             .expect("the collision resolved with a suffix");
@@ -1878,16 +1933,30 @@ mod tests {
         );
 
         // An explicit slug is honored verbatim when free.
-        let explicit = create_project(&mut tx, org, "Anything At All", "custom-slug", owner)
-            .await
-            .expect("create explicit-slug project")
-            .expect("the explicit slug was free");
+        let explicit = create_project(
+            &mut tx,
+            org,
+            "Anything At All",
+            "custom-slug",
+            owner,
+            "/var/lib/elysium",
+        )
+        .await
+        .expect("create explicit-slug project")
+        .expect("the explicit slug was free");
         assert_eq!(slug_of(&mut tx, explicit).await, "custom-slug");
 
         // An explicit slug that collides is a conflict (None), never silently suffixed.
-        let conflict = create_project(&mut tx, org, "Anything At All", "custom-slug", owner)
-            .await
-            .expect("explicit-slug conflict resolves without a db error");
+        let conflict = create_project(
+            &mut tx,
+            org,
+            "Anything At All",
+            "custom-slug",
+            owner,
+            "/var/lib/elysium",
+        )
+        .await
+        .expect("explicit-slug conflict resolves without a db error");
         assert!(
             conflict.is_none(),
             "an explicit slug collision is surfaced as a conflict, not retried",

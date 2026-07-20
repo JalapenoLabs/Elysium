@@ -191,6 +191,7 @@ pub async fn finish(
     let session_id = match claim(
         &state.pool,
         &state.crypto,
+        &state.data_dir,
         &client,
         &pending,
         &credential,
@@ -230,6 +231,7 @@ pub async fn finish(
 async fn claim(
     pool: &PgPool,
     crypto: &Crypto,
+    data_dir: &str,
     client: &ClientInfo,
     pending: &Pending,
     credential: &Credential,
@@ -275,9 +277,9 @@ async fn claim(
 
     users::add_membership(&mut tx, pending.user_id, org_id, "owner").await?;
 
-    // Every org has at least one project: seed the default and make the root user
-    // its owner. The M1 default Drive will attach here (see `crate::projects`).
-    projects::create_default(&mut tx, org_id, pending.user_id).await?;
+    // Every org has at least one project: seed the default, make the root user its
+    // owner, and auto-provision the project's default Drive (see `crate::projects`).
+    projects::create_default(&mut tx, org_id, pending.user_id, data_dir).await?;
 
     enrollment::insert(&mut tx, crypto, pending.user_id, credential).await?;
     recovery::store(&mut tx, pending.user_id, recovery_codes).await?;

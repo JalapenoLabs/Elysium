@@ -8,6 +8,18 @@
 const DEFAULT_HOSTNAME: &str = "localhost";
 const DEFAULT_FRONTEND_PORT: &str = "5173";
 
+/// The env var naming the base directory Elysium may write local files to.
+const DATA_DIR_VAR: &str = "ELYSIUM_DATA_DIR";
+
+/// Where Elysium roots local files when `ELYSIUM_DATA_DIR` is unset.
+///
+/// A POSIX-absolute path, since Drives root on the deployment host's POSIX
+/// filesystem (see `docs/storage.md`). In the Docker deployment this is the mounted
+/// writable volume; that mount is the one deployment knob left, and it is a
+/// compose-file detail, not app config. The single optional override is
+/// `ELYSIUM_DATA_DIR`; everything else about storage is configured in-app.
+const DEFAULT_DATA_DIR: &str = "/var/lib/elysium";
+
 /// The externally-shaped values the backend derives from the base config.
 ///
 /// The SPA and API share one origin (the SPA proxies `/api` to the backend), so
@@ -32,6 +44,16 @@ impl Deployment {
             rp_id: host,
         }
     }
+}
+
+/// The base directory Elysium may write local files to.
+///
+/// Resolves `ELYSIUM_DATA_DIR` when set, otherwise [`DEFAULT_DATA_DIR`]. This is the
+/// only storage-related deployment knob: auto-provisioned local-FS Drives root under
+/// `<data_dir>/<org_id>/<project_id>`, and the resolved root is persisted in each
+/// Drive's config, not re-derived at read time (see `crate::storage::defaults`).
+pub fn data_dir() -> String {
+    env_or(DATA_DIR_VAR, DEFAULT_DATA_DIR)
 }
 
 /// Reads an environment variable, falling back to a default when unset.

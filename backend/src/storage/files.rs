@@ -853,6 +853,7 @@ mod tests {
             geoip_endpoint: None,
             rabbitmq_url: None,
             app_origin: "http://localhost:5173".to_string(),
+            data_dir: "/srv/elysium".to_string(),
         }
     }
 

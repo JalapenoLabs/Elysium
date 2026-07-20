@@ -93,6 +93,11 @@ services:
       # Master key for secrets at rest (see backend/src/crypto.rs). Required: the
       # backend refuses to start without it. Set it in .env (see .env.example).
       ELYSIUM_SECRET_KEY: ${ELYSIUM_SECRET_KEY:?set ELYSIUM_SECRET_KEY in .env (see .env.example)}
+      # Base directory Elysium writes local files to. Auto-provisioned local-FS
+      # Drives root under it (see backend/src/storage/defaults.rs). Backed by the
+      # elysium-data volume below so files persist across restarts; mounting a
+      # writable volume here is the one storage deployment concern.
+      ELYSIUM_DATA_DIR: ${ELYSIUM_DATA_DIR:-/var/lib/elysium}
     ports:
       - "${API_PORT:-31416}:31416"
     volumes:
@@ -113,6 +118,8 @@ services:
       # restarts, so incremental rebuilds stay fast.
       - elysium-cargo-target:/app/target
       - elysium-cargo-registry:/usr/local/cargo/registry
+      # Writable store for auto-provisioned local-FS Drives (ELYSIUM_DATA_DIR).
+      - elysium-data:/var/lib/elysium
     depends_on:
       database:
         condition: service_healthy
@@ -158,3 +165,4 @@ volumes:
   elysium-rabbitmq-data:
   elysium-cargo-target:
   elysium-cargo-registry:
+  elysium-data:

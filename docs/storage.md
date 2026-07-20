@@ -105,13 +105,26 @@ where they touch this design.
 - Exactly one Drive per **project** is the **default** (`is_default`, enforced by a partial
   unique index keyed on `project_id`). Drives are project-scoped, so each project has its own
   default; drag-and-drop uploads land in the active project's default.
-- On org creation, Elysium **auto-provisions** a local-FS default Drive rooted at a
-  platform-default data directory, so uploads and avatars work on first run with zero admin
-  config. The org can change its default to an S3 Drive at any time.
+- Every project **auto-provisions** a local-FS default Drive when it is created (org
+  creation seeds the org's default project, so a fresh org has one immediately), rooted at
+  `<data_dir>/<org_id>/<project_id>`, so uploads and avatars work on first run with zero
+  admin config. The provider creates the directory on first write. The project can change
+  its default to an S3 Drive at any time.
+- `data_dir` is the base directory Elysium may write local files to. It resolves from the
+  single optional `ELYSIUM_DATA_DIR` env var, defaulting to `/var/lib/elysium` (the mounted
+  writable volume in Docker). The resolved per-project root is **persisted in the Drive's
+  config**, not re-derived from env at read time, so moving `data_dir` never orphans an
+  existing Drive.
+- On boot, Elysium **reconciles** the invariant "every project has a default Drive,"
+  provisioning the missing ones (idempotent, logged). This backfills projects that predate
+  the auto-provisioning wiring.
 - System files (avatars, org logos, and each consumer's reserved area) live under
-  `.elysium/` inside the org's default Drive, hidden from the file browser.
-- Known gap: changing the default Drive does not migrate the existing `.elysium/` system
-  files; the deploying org manages that for now.
+  `.elysium/` inside the project's default Drive, hidden from the file browser (the public
+  file API never lists or writes it).
+- Known gap: `avatar_url`/`logo_url` are still plain string columns; wiring uploads to write
+  under `.elysium/avatars/` and `.elysium/logos/` is a deferred follow-up. Changing the
+  default Drive also does not migrate the existing `.elysium/` system files; the deploying
+  org manages that for now.
 
 ## Search
 
@@ -146,9 +159,12 @@ millions of files, and creates "file no longer exists" staleness footguns.
 ## Configuration philosophy
 
 `.env` holds only what is needed to boot and protect the box: the master encryption key
-(`ELYSIUM_SECRET_KEY`), the database URL, the bind port. Everything operational is configured
-in-app and stored in the DB: the upload cap, Drive definitions, the default Drive's root.
-"Set an encryption password and launch, configure the rest in the app" is the north star.
+(`ELYSIUM_SECRET_KEY`), the database URL, the bind port, and the single optional
+`ELYSIUM_DATA_DIR` (where Elysium may write local files; defaults to `/var/lib/elysium`, the
+mounted Docker volume). Everything operational is configured in-app and stored in the DB: the
+upload cap (`org_storage_settings.max_upload_bytes`, no env var governs it), Drive
+definitions, and each Drive's persisted root. "Set an encryption password and launch,
+configure the rest in the app" is the north star.
 
 ## Encryption at rest
 

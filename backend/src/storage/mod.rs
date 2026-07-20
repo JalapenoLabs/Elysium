@@ -22,6 +22,7 @@
 //! not call them yet.
 #![allow(dead_code)]
 
+pub mod defaults;
 pub mod drives;
 pub mod files;
 pub mod provider;

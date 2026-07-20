@@ -65,6 +65,12 @@ pub struct AppState {
     pub rabbitmq_url: Option<String>,
     /// The app's own origin, used to build user-facing links (e.g. invites).
     pub app_origin: String,
+    /// Base directory Elysium may write local files to (see [`crate::config::data_dir`]).
+    ///
+    /// Auto-provisioned local-FS Drives root under `<data_dir>/<org_id>/<project_id>`;
+    /// the resolved root is persisted per Drive, so this is read only when a Drive is
+    /// provisioned, never to serve a Drive already recorded in the database.
+    pub data_dir: String,
 }
 
 impl AppState {
@@ -98,6 +104,7 @@ impl AppState {
             geoip_endpoint: crate::geoip::endpoint_from_env(),
             rabbitmq_url: read_optional("RABBITMQ_URL"),
             app_origin: deployment.app_origin,
+            data_dir: crate::config::data_dir(),
         })
     }
 }
