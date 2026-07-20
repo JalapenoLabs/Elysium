@@ -36,6 +36,15 @@ pub mod project {
     }
 }
 
+/// Storage domain: project-scoped Drives, the gateway over many providers.
+pub mod storage {
+    /// Version 1 of the storage contract.
+    #[allow(dead_code)]
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/elysium.storage.v1.rs"));
+    }
+}
+
 /// Health, greeting, and database-reachability responses.
 pub mod health {
     /// Version 1 of the health contract.
