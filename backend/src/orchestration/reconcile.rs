@@ -60,7 +60,15 @@ pub fn default_image(kind: IntegrationKind) -> &'static str {
              b34718b23370d19265f9e13ff28651f3258408360b4a13811184e45feff49456"
         }
         IntegrationKind::Mail => "stalwartlabs/stalwart:0.13.1",
-        IntegrationKind::Registry => "registry:3.0.0",
+        // Pinned by tag *and* digest, like git. CNCF distribution v3 (the reference
+        // OCI registry); the `3.0.0` multi-arch index digest from Docker Hub
+        // `library/registry`. distribution over Zot: it is the simplest, no bundled
+        // web UI to secure, and is the reference implementation of the registry API;
+        // Zot/Harbor are the later choice when a UI or vulnerability scanning matters.
+        IntegrationKind::Registry => {
+            "registry:3.0.0@sha256:\
+             6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
+        }
         IntegrationKind::Perforce => "ghcr.io/jalapenolabs/astraval:0.1.0",
         IntegrationKind::Runner => "ghcr.io/jalapenolabs/elysium-runner:0.1.0",
     }
@@ -115,13 +123,12 @@ pub fn http_route_for(integration: &IntegrationRow, spec: &ServiceSpec) -> Optio
 /// Whether a kind's milestone publishes its HTTP surface to a host port yet.
 ///
 /// Publishing a surface port is what lights up a kind's proxy route (#29), and it
-/// is opt-in per per-service milestone: git (this milestone) publishes, so its web
-/// UI is reachable and its OAuth callback resolves; the registry's port lights up
-/// with M5, and mail/perforce/runner have no web surface. Kept distinct from
-/// [`http_surface_port`] so a kind can declare a surface before its milestone
-/// chooses to expose it.
+/// is opt-in per per-service milestone: git and the registry (M5) publish, so the
+/// forge web UI and the docker registry v2 API are reachable through the proxy, and
+/// mail/perforce/runner have no web surface. Kept distinct from [`http_surface_port`]
+/// so a kind can declare a surface before its milestone chooses to expose it.
 fn publishes_http_surface(kind: IntegrationKind) -> bool {
-    matches!(kind, IntegrationKind::Git)
+    matches!(kind, IntegrationKind::Git | IntegrationKind::Registry)
 }
 
 /// Base of the host-port band managed HTTP surfaces publish on.
@@ -297,8 +304,11 @@ pub fn git_oidc_client_id(integration_id: Uuid) -> String {
 
 /// Whether a managed kind SSOs against Elysium's OIDC provider.
 ///
-/// Only git today (Forgejo is registered as an OIDC client at provision time).
-/// The registry and future kinds join here as their milestones wire SSO.
+/// Only git today (Forgejo is registered as an OIDC client at provision time). The
+/// registry deliberately stays out: its v2 API authenticates through the proxy with
+/// minted scoped tokens (`docker login`, see [`crate::orchestration::forward_auth`]),
+/// not an OIDC login source, so it needs no registered client. A registry web
+/// console with its own SSO is a later, separate addition.
 fn kind_uses_oidc(kind: IntegrationKind) -> bool {
     matches!(kind, IntegrationKind::Git)
 }
@@ -441,11 +451,7 @@ pub(crate) fn build_spec(
             // mount. Other providers satisfy their capability contract through
             // provider-native service settings, not a bind mount (see above).
             Ok(DriveConfig::Fs(fs)) => {
-                let sub = if binding.prefix.is_empty() {
-                    format!(".elysium/{}/{}", integration.kind.slug(), role.name)
-                } else {
-                    binding.prefix.clone()
-                };
+                let sub = binding_sub_area(integration.kind, role.name, binding);
                 spec.volumes.push(VolumeBind {
                     host_source: format!("{}/{}", fs.root.trim_end_matches('/'), sub),
                     container_path: role.mount_path.to_string(),
@@ -463,6 +469,95 @@ pub(crate) fn build_spec(
     }
 
     SpecPlan::Ready(Box::new(spec))
+}
+
+/// The sub-area within a Drive a role's data lives in for one binding.
+///
+/// An explicit binding prefix wins; an empty prefix uses the reserved
+/// `.elysium/<kind>/<role>` area, so an unconfigured binding never dumps a service's
+/// data at a shared Drive's root. Shared by the FS bind-mount path and the registry
+/// S3 blob-store resolution, so both compute the same reserved location.
+fn binding_sub_area(kind: IntegrationKind, role: &str, binding: &BindingRow) -> String {
+    if binding.prefix.is_empty() {
+        format!(".elysium/{}/{}", kind.slug(), role)
+    } else {
+        binding.prefix.clone()
+    }
+}
+
+/// Joins an S3 Drive's own key prefix with a sub-area into one `/`-separated root.
+///
+/// Trims stray separators from both sides and drops an empty half, so a Drive prefix
+/// of `team/` and a sub of `.elysium/registry/blobs` yield
+/// `team/.elysium/registry/blobs`, and an empty Drive prefix yields the sub alone.
+fn join_key_prefix(drive_prefix: &str, sub: &str) -> String {
+    let drive = drive_prefix.trim_matches('/');
+    let sub = sub.trim_matches('/');
+    match (drive.is_empty(), sub.is_empty()) {
+        (true, _) => sub.to_string(),
+        (false, true) => drive.to_string(),
+        (false, false) => format!("{drive}/{sub}"),
+    }
+}
+
+/// Resolves a managed registry's S3 blob store from its `blobs` binding, when S3-backed.
+///
+/// Returns `Ok(None)` for any non-registry kind, an unbound `blobs` role, a vanished
+/// Drive, an unparseable Drive config, or an FS-backed blobs Drive: those cases are
+/// either handled by the filesystem driver and the bind mount, or surfaced by
+/// [`build_spec`] itself (a `Waiting`/`Broken` plan), so this resolver stays quiet and
+/// lets the shared path report them. For an S3-backed `blobs` role it parses the
+/// bucket settings and unseals the provider credential (sealed against the Drive's
+/// `project_id`, exactly like the storage layer opens it), so the config template can
+/// render distribution's S3 storage driver.
+///
+/// # Errors
+/// Returns the failure detail (which parks the row `FAILED`) when an S3 blobs Drive
+/// carries no credential, or its sealed credential cannot be opened or decoded, so a
+/// broken secret is a clear status rather than a silent fall-through to no storage.
+fn resolve_registry_blobs(
+    integration: &IntegrationRow,
+    bindings: &[BindingRow],
+    drives: &HashMap<Uuid, DriveRow>,
+    crypto: &Crypto,
+) -> Result<Option<config::RegistryS3Blobs>, String> {
+    if integration.kind != IntegrationKind::Registry {
+        return Ok(None);
+    }
+    // The blobs role table lives in one place; find its binding and Drive, deferring
+    // every "not ready" case to build_spec's shared Waiting/Broken handling.
+    let Some(binding) = bindings.iter().find(|binding| binding.role == "blobs") else {
+        return Ok(None);
+    };
+    let Some(drive) = drives.get(&binding.drive_id) else {
+        return Ok(None);
+    };
+    let Ok(DriveConfig::S3(s3)) = drive.parse_config() else {
+        return Ok(None);
+    };
+
+    // S3 requires a credential (the capability gate admits only FS + S3, and FS is
+    // handled above), so a missing or unopenable one is a real, reportable failure.
+    let sealed = drive.secret.as_ref().ok_or_else(|| {
+        "the registry blobs S3 Drive has no stored provider credential".to_string()
+    })?;
+    let opened = crate::storage::open_secret(crypto, drive.project_id, sealed)
+        .map_err(|error| format!("cannot open the registry blobs S3 Drive credential: {error}"))?;
+    let credential = crate::storage::provider::S3Secret::from_bytes(&opened)
+        .map_err(|error| format!("malformed registry blobs S3 Drive credential: {error}"))?;
+
+    // Root the registry under the Drive's own prefix joined with the binding's
+    // reserved area, so it never collides with other consumers of the same Drive.
+    let sub = binding_sub_area(IntegrationKind::Registry, "blobs", binding);
+    let root_prefix = join_key_prefix(&s3.prefix, &sub);
+    Ok(Some(config::RegistryS3Blobs {
+        endpoint: s3.endpoint,
+        region: s3.region,
+        bucket: s3.bucket,
+        root_prefix,
+        access_key_id: credential.access_key_id,
+        secret_access_key: ServiceSecret::new(credential.secret_access_key),
+    }))
 }
 
 /// Converges one service toward its desired state, reporting the outcome.
@@ -625,11 +720,6 @@ async fn reconcile_row(
     } else {
         None
     };
-    let provisioning = config::Provisioning {
-        app_origin,
-        oidc: oidc.as_ref(),
-    };
-
     let bindings = crate::orchestration::integrations::bindings_for(&mut *conn, row.id).await?;
     let drive_ids: Vec<Uuid> = bindings.iter().map(|binding| binding.drive_id).collect();
     let drives: HashMap<Uuid, DriveRow> =
@@ -640,6 +730,23 @@ async fn reconcile_row(
             .into_iter()
             .map(|drive| (drive.id, drive))
             .collect();
+
+    // Resolve a managed registry's S3 blob store (bucket settings + unsealed
+    // credential) when its `blobs` role binds to an S3 Drive, so the config template
+    // can render distribution's S3 storage driver. A credential that cannot be opened
+    // parks the row FAILED rather than crashing the reconcile. FS-backed blobs resolve
+    // to `None` (the filesystem driver plus the bind mount below handle them).
+    let registry_blobs = match resolve_registry_blobs(row, &bindings, &drives, crypto) {
+        Ok(blobs) => blobs,
+        Err(detail) => {
+            return set_status(conn, row.id, ReconcileStatus::Failed, &detail).await;
+        }
+    };
+    let provisioning = config::Provisioning {
+        app_origin,
+        oidc: oidc.as_ref(),
+        registry_blobs: registry_blobs.as_ref(),
+    };
 
     // Allocate this integration's published host port (persisted, stable across
     // restarts, unique per host) when its kind exposes an HTTP surface. A full band
@@ -1057,6 +1164,168 @@ mod tests {
         assert!(!image.contains(' '), "no stray whitespace in the image ref");
     }
 
+    #[test]
+    fn the_registry_image_pins_distribution_by_tag_and_digest() {
+        // CNCF distribution v3, pinned by tag *and* the multi-arch index digest so the
+        // pull is byte-exact and immune to a re-tag.
+        let image = default_image(IntegrationKind::Registry);
+        assert!(image.contains("registry:3.0.0"));
+        assert!(
+            image.contains("@sha256:"),
+            "the registry image must pin a digest"
+        );
+        assert!(!image.contains(' '), "no stray whitespace in the image ref");
+    }
+
+    // --- Registry blob-store resolution -------------------------------------
+
+    /// A fixed 32-byte key for deterministic crypto in the blob-store tests.
+    fn blobs_test_crypto() -> Crypto {
+        Crypto::new(&[3u8; 32]).expect("32-byte key is valid")
+    }
+
+    /// An S3 DriveRow whose sealed secret carries the given credential.
+    fn s3_drive_with_credential(
+        crypto: &Crypto,
+        config: serde_json::Value,
+        access_key_id: &str,
+        secret_access_key: &str,
+    ) -> DriveRow {
+        let mut row = drive(DriveKind::S3, config);
+        let sealed = crate::storage::seal_secret(
+            crypto,
+            row.project_id,
+            &crate::storage::provider::S3Secret {
+                access_key_id: access_key_id.to_string(),
+                secret_access_key: secret_access_key.to_string(),
+            }
+            .to_bytes(),
+        );
+        row.secret = Some(sealed);
+        row
+    }
+
+    #[test]
+    fn resolve_registry_blobs_unseals_an_s3_binding() {
+        let crypto = blobs_test_crypto();
+        let registry = managed_row(IntegrationKind::Registry);
+        let s3 = s3_drive_with_credential(
+            &crypto,
+            serde_json::json!({
+                "bucket": "layers",
+                "region": "us-west-2",
+                "endpoint": "https://s3.example.com",
+                "prefix": "team",
+            }),
+            "AKIAEXAMPLE",
+            "the-secret-key",
+        );
+        let bindings = vec![binding(&registry, "blobs", &s3, "")];
+        let drives = HashMap::from([(s3.id, s3)]);
+
+        let resolved = resolve_registry_blobs(&registry, &bindings, &drives, &crypto)
+            .expect("resolution succeeds")
+            .expect("an S3 blobs binding resolves");
+        assert_eq!(resolved.bucket, "layers");
+        assert_eq!(resolved.region, "us-west-2");
+        assert_eq!(resolved.endpoint, "https://s3.example.com");
+        assert_eq!(resolved.access_key_id, "AKIAEXAMPLE");
+        assert_eq!(resolved.secret_access_key.expose(), "the-secret-key");
+        // The registry roots under the Drive's own prefix plus the reserved area, so it
+        // cannot collide with another consumer sharing the bucket.
+        assert_eq!(resolved.root_prefix, "team/.elysium/registry/blobs");
+    }
+
+    #[test]
+    fn resolve_registry_blobs_honors_an_explicit_binding_prefix() {
+        let crypto = blobs_test_crypto();
+        let registry = managed_row(IntegrationKind::Registry);
+        let s3 = s3_drive_with_credential(
+            &crypto,
+            serde_json::json!({ "bucket": "layers" }),
+            "AKIA",
+            "secret",
+        );
+        let bindings = vec![binding(&registry, "blobs", &s3, "custom/area")];
+        let drives = HashMap::from([(s3.id, s3)]);
+
+        let resolved = resolve_registry_blobs(&registry, &bindings, &drives, &crypto)
+            .expect("resolution succeeds")
+            .expect("resolves");
+        // No Drive prefix, an explicit binding prefix: the binding prefix stands alone.
+        assert_eq!(resolved.root_prefix, "custom/area");
+    }
+
+    #[test]
+    fn resolve_registry_blobs_is_none_for_fs_and_non_registry() {
+        let crypto = blobs_test_crypto();
+        // FS-backed blobs: handled by the filesystem driver + bind mount, not here.
+        let registry = managed_row(IntegrationKind::Registry);
+        let fs = drive(DriveKind::Fs, serde_json::json!({ "root": "/srv/blobs" }));
+        let fs_bindings = vec![binding(&registry, "blobs", &fs, "")];
+        let fs_drives = HashMap::from([(fs.id, fs)]);
+        assert!(
+            resolve_registry_blobs(&registry, &fs_bindings, &fs_drives, &crypto)
+                .expect("ok")
+                .is_none()
+        );
+
+        // A non-registry kind never resolves a registry blob store.
+        let git = managed_row(IntegrationKind::Git);
+        assert!(resolve_registry_blobs(&git, &[], &HashMap::new(), &crypto)
+            .expect("ok")
+            .is_none());
+
+        // An unbound blobs role defers to build_spec's Waiting handling.
+        assert!(
+            resolve_registry_blobs(&registry, &[], &HashMap::new(), &crypto)
+                .expect("ok")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn resolve_registry_blobs_fails_on_an_unopenable_credential() {
+        let crypto = blobs_test_crypto();
+        let registry = managed_row(IntegrationKind::Registry);
+        // An S3 Drive whose credential was sealed under a *different* project id (a
+        // tampered or replayed blob) cannot be opened, and that is a reportable failure.
+        let mut s3 = drive(DriveKind::S3, serde_json::json!({ "bucket": "layers" }));
+        s3.secret = Some(crate::storage::seal_secret(
+            &crypto,
+            Uuid::new_v4(),
+            b"stolen",
+        ));
+        let bindings = vec![binding(&registry, "blobs", &s3, "")];
+        let drives = HashMap::from([(s3.id, s3)]);
+
+        let detail = resolve_registry_blobs(&registry, &bindings, &drives, &crypto)
+            .expect_err("an unopenable credential is a failure");
+        assert!(detail.contains("credential"), "detail: {detail}");
+    }
+
+    #[test]
+    fn resolve_registry_blobs_fails_on_an_s3_drive_without_a_credential() {
+        let crypto = blobs_test_crypto();
+        let registry = managed_row(IntegrationKind::Registry);
+        // An S3 Drive missing its sealed credential entirely (S3 always needs one).
+        let s3 = drive(DriveKind::S3, serde_json::json!({ "bucket": "layers" }));
+        let bindings = vec![binding(&registry, "blobs", &s3, "")];
+        let drives = HashMap::from([(s3.id, s3)]);
+
+        let detail = resolve_registry_blobs(&registry, &bindings, &drives, &crypto)
+            .expect_err("a missing credential is a failure");
+        assert!(detail.contains("credential"), "detail: {detail}");
+    }
+
+    #[test]
+    fn join_key_prefix_combines_and_trims() {
+        assert_eq!(join_key_prefix("team/", "/sub/area"), "team/sub/area");
+        assert_eq!(join_key_prefix("", "sub"), "sub");
+        assert_eq!(join_key_prefix("team", ""), "team");
+        assert_eq!(join_key_prefix("", ""), "");
+    }
+
     // --- Surface publishing, host port, OIDC id -----------------------------
 
     #[test]
@@ -1089,9 +1358,9 @@ mod tests {
     }
 
     #[test]
-    fn only_a_surfaced_milestone_publishes_a_port() {
-        // Git's milestone publishes; the registry's port stays unpublished until M5,
-        // so its spec carries no port and gets no route yet.
+    fn the_registry_publishes_its_v2_surface_and_routes() {
+        // The registry milestone (M5) publishes container port 5000 on its allocated
+        // host port, so the docker v2 API is reachable through the proxy and routes.
         let registry = managed_row(IntegrationKind::Registry);
         let s3 = drive(DriveKind::S3, serde_json::json!({ "bucket": "blobs" }));
         let bindings = vec![binding(&registry, "blobs", &s3, "")];
@@ -1106,8 +1375,36 @@ mod tests {
         ) else {
             panic!("ready");
         };
-        assert!(spec.ports.is_empty(), "the registry does not publish yet");
-        assert!(http_route_for(&registry, &spec).is_none());
+        let published = spec
+            .ports
+            .iter()
+            .find(|port| port.container_port == 5000)
+            .expect("the registry v2 API port is published");
+        assert_eq!(published.host_port, TEST_HOST_PORT);
+        assert!(matches!(published.protocol, PortProtocol::Tcp));
+        assert!(http_route_for(&registry, &spec).is_some());
+    }
+
+    #[test]
+    fn a_kind_without_an_http_surface_never_publishes_a_port() {
+        // Mail advertises no HTTP surface, so it publishes nothing and gets no route,
+        // even when the caller resolved a host port.
+        let mail = managed_row(IntegrationKind::Mail);
+        let fs = drive(DriveKind::Fs, serde_json::json!({ "root": "/srv/mail" }));
+        let bindings = vec![binding(&mail, "bodies", &fs, "")];
+        let drives = HashMap::from([(fs.id, fs)]);
+        let SpecPlan::Ready(spec) = build_spec(
+            &mail,
+            &bindings,
+            &drives,
+            None,
+            &config::Provisioning::default(),
+            Some(TEST_HOST_PORT),
+        ) else {
+            panic!("ready");
+        };
+        assert!(spec.ports.is_empty(), "mail has no surface to publish");
+        assert!(http_route_for(&mail, &spec).is_none());
     }
 
     #[test]
@@ -1535,7 +1832,7 @@ mod tests {
         let pool = connect_test_pool().await;
         let mut tx = pool.begin().await.expect("begin transaction");
         let provisioner = InMemoryProvisioner::new();
-        let crypto = test_crypto();
+        let crypto = blobs_test_crypto();
         let routes = RouteTable::new();
 
         let app_origin = "https://elysium.test";
@@ -1924,6 +2221,7 @@ mod tests {
         let provisioning = config::Provisioning {
             app_origin: "http://host.docker.internal:8080",
             oidc: Some(&oidc),
+            ..config::Provisioning::default()
         };
         // A fixed in-band port stands in for the persisted allocation this live
         // path never touches a database to make.
@@ -1981,5 +2279,189 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
         Err("forge never served its UI".to_string())
+    }
+
+    // --- Live registry provisioning + blobs-on-Drive (ignored, needs Docker) ---
+    //
+    // Runs only when ELYSIUM_DOCKER_PROXY_URL points at a real engine (CI runs it via
+    // `cargo test -- --ignored` inside the backend container, where
+    // host.docker.internal resolves to the host gateway). It provisions the pinned
+    // registry image with FS-backed blobs on a temp Drive, then exercises the docker
+    // registry v2 API (base ping, a blob upload, and a pull) directly against the
+    // published port, and asserts the uploaded blob **landed on the bound Drive**
+    // (the acceptance: blobs on the bound OBJECT_STORE Drive).
+    //
+    // The full `docker login`/`push`/`pull` **through the Elysium proxy with a PAT**
+    // needs the whole backend listening on a socket (the proxy is in-process); the
+    // token-transport auth for that path is covered by the DB-gated
+    // `authenticated_registry_push_token_*` tests in `forward_auth.rs`. To verify the
+    // full path by hand against a running deployment:
+    //
+    //   1. Provision a managed registry, bind its `blobs` role to an OBJECT_STORE Drive.
+    //   2. Mint a token with `registry.pull`+`registry.push` (POST /api/v1/me/tokens),
+    //      optionally bound to the registry integration id.
+    //   3. `docker login <host>/services/{id}` (username anything, password the token).
+    //   4. `docker tag busybox:latest <host>/services/{id}/demo/app:v1 && docker push …`
+    //   5. `docker pull <host>/services/{id}/demo/app:v1` from a clean daemon.
+    //   6. Confirm the layers appear under the bound Drive (S3 bucket key prefix, or the
+    //      FS Drive's `.elysium/registry/blobs/docker/registry/v2/blobs/…` tree).
+
+    #[tokio::test]
+    #[ignore = "requires a Docker engine via ELYSIUM_DOCKER_PROXY_URL"]
+    async fn provisions_a_managed_registry_and_stores_a_blob_on_the_drive() {
+        let Some(proxy_url) = std::env::var("ELYSIUM_DOCKER_PROXY_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            return;
+        };
+
+        let root = TempDir::new().expect("tempdir");
+        let provisioner = ProvisionerHandle::docker(&proxy_url, vec![root.path().to_path_buf()])
+            .expect("connect docker backend");
+
+        // A synthetic registry integration with FS-backed blobs on the temp Drive.
+        let mut row = managed_row(IntegrationKind::Registry);
+        row.id = Uuid::new_v4();
+        let fs = drive(
+            DriveKind::Fs,
+            serde_json::json!({ "root": root.path().to_string_lossy() }),
+        );
+        let bindings = vec![binding(&row, "blobs", &fs, "")];
+        let drives = HashMap::from([(fs.id, fs)]);
+        let host_port = MANAGED_HOST_PORT_BASE + 4243;
+        let SpecPlan::Ready(spec) = build_spec(
+            &row,
+            &bindings,
+            &drives,
+            Some(&ServiceSecret::new("registry-http-secret-live")),
+            &config::Provisioning::default(),
+            Some(host_port),
+        ) else {
+            panic!("the bound registry integration plans a ready spec");
+        };
+
+        let outcome = drive_registry(&provisioner, &spec, host_port, root.path()).await;
+        provisioner
+            .remove(&spec.name)
+            .await
+            .expect("cleanup remove");
+        outcome.expect("live registry assertions");
+    }
+
+    /// Ensures the registry, pushes and pulls a blob, and asserts it lands on disk.
+    async fn drive_registry(
+        provisioner: &ProvisionerHandle,
+        spec: &ServiceSpec,
+        host_port: u16,
+        drive_root: &std::path::Path,
+    ) -> Result<(), String> {
+        use sha2::{Digest, Sha256};
+
+        provisioner
+            .ensure(spec)
+            .await
+            .map_err(|error| format!("ensure registry: {error}"))?;
+
+        let client = reqwest::Client::new();
+        let base = format!("http://{MANAGED_UPSTREAM_HOST}:{host_port}");
+
+        // Poll the v2 base ping until the registry answers (200, no auth: the registry
+        // itself is unauthenticated; Elysium's proxy is the gate).
+        let mut ready = false;
+        for _ in 0..60 {
+            if let Ok(response) = client.get(format!("{base}/v2/")).send().await {
+                if response.status().is_success() {
+                    ready = true;
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        if !ready {
+            return Err("registry never served its v2 API".to_string());
+        }
+
+        // Push a tiny blob: start an upload, then PUT the bytes with their digest.
+        let blob = b"elysium-registry-live-e2e-blob".to_vec();
+        let digest = format!("sha256:{:x}", Sha256::digest(&blob));
+        let start = client
+            .post(format!("{base}/v2/demo/app/blobs/uploads/"))
+            .send()
+            .await
+            .map_err(|error| format!("start upload: {error}"))?;
+        let location = start
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .ok_or_else(|| "upload start returned no Location".to_string())?
+            .to_string();
+        // The Location may be absolute or origin-relative; normalize to an absolute URL.
+        let location = if location.starts_with("http") {
+            location
+        } else {
+            format!("{base}{location}")
+        };
+        let separator = if location.contains('?') { '&' } else { '?' };
+        let put = client
+            .put(format!("{location}{separator}digest={digest}"))
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .body(blob.clone())
+            .send()
+            .await
+            .map_err(|error| format!("finish upload: {error}"))?;
+        if !put.status().is_success() {
+            return Err(format!("blob PUT failed: {}", put.status()));
+        }
+
+        // Pull it back: the registry serves the exact bytes for its digest.
+        let pulled = client
+            .get(format!("{base}/v2/demo/app/blobs/{digest}"))
+            .send()
+            .await
+            .map_err(|error| format!("pull blob: {error}"))?;
+        let pulled = pulled
+            .bytes()
+            .await
+            .map_err(|error| format!("read pulled blob: {error}"))?;
+        if pulled.as_ref() != blob.as_slice() {
+            return Err("pulled blob bytes did not match the pushed blob".to_string());
+        }
+
+        // The acceptance: the blob physically landed on the bound FS Drive, under the
+        // reserved `.elysium/registry/blobs` area distribution's filesystem driver roots at.
+        let blobs_tree = drive_root
+            .join(".elysium")
+            .join("registry")
+            .join("blobs")
+            .join("docker")
+            .join("registry")
+            .join("v2")
+            .join("blobs");
+        if !dir_has_files(&blobs_tree) {
+            return Err(format!(
+                "no blob files under the bound Drive at {}",
+                blobs_tree.display()
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether a directory tree contains at least one regular file.
+    fn dir_has_files(dir: &std::path::Path) -> bool {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if dir_has_files(&path) {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+        false
     }
 }

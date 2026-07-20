@@ -180,8 +180,13 @@ its kind's blessed image expects. All per-kind knowledge lives in one lookup tab
 - **Pinned contracts render their real schema.** git renders Forgejo's
   `FORGEJO__<section>__<KEY>` env (installer locked, optional `domain` /
   `root_url` from `config_json`, the service secret as `security.SECRET_KEY`);
-  registry renders CNCF distribution's `REGISTRY_*` env (filesystem driver rooted
-  at the `blobs` mount, the service secret as `REGISTRY_HTTP_SECRET`).
+  registry renders CNCF distribution's `REGISTRY_*` env (`REGISTRY_HTTP_ADDR` on the
+  routed port, `REGISTRY_STORAGE_DELETE_ENABLED`, the service secret as
+  `REGISTRY_HTTP_SECRET`, and the storage driver picked from the bound `blobs` Drive:
+  the filesystem driver rooted at the `blobs` container mount for an FS Drive, or the
+  full `REGISTRY_STORAGE_S3_*` family for an S3 Drive). The registry runs with **no
+  registry-level auth** (`REGISTRY_AUTH` unset); the proxy is its only reachable
+  entrance and its gate (see *Managed registry* below).
 - **Unpinned contracts render a documented placeholder.** mail carries only the
   base env until M6 pins the image; perforce and runner inject
   `ELYSIUM_SERVICE_TOKEN`, the intended handshake for JalapenoLabs images, with
@@ -196,10 +201,12 @@ its kind's blessed image expects. All per-kind knowledge lives in one lookup tab
   container with the new injection.
 - **Failure parks, never panics.** A malformed `config_json` or an unopenable
   secret parks the row at `FAILED` with the reason in `status_detail`.
-- Object-store roles on a non-FS Drive (registry blobs on S3) still need their
-  provider-native env (`REGISTRY_STORAGE_S3_*`) wired from the bound Drive's
-  config and credential; that rides this seam and is owned by the per-service
-  milestones.
+- Object-store roles on a non-FS Drive carry no host mount; their provider-native
+  service settings ride this seam instead. The registry's S3 blobs are wired: the
+  reconciler resolves the bound S3 Drive's bucket settings and **unseals** its
+  provider credential (like the git OIDC client is resolved live), and the template
+  renders `REGISTRY_STORAGE_S3_*` with `ACCESSKEY`/`SECRETKEY` secret-tagged so
+  neither survives a debug or log rendering.
 
 ## Routing
 
@@ -225,9 +232,9 @@ Elysium's reverse proxy routes inbound traffic to the right managed container:
     HTTP surface and a published port to *running*, and unregisters on stop, removal, or a
     parked reconcile, so a route appears and disappears with its integration; the boot
     reconcile rebuilds the whole table. A kind's HTTP surface is declared in
-    `reconcile::http_surface_port` (git → 3000, registry → 5000); the route binds to the host
-    port that publishes it, so a per-service milestone that publishes the port lights routing
-    up with no extra wiring.
+    `reconcile::http_surface_port` (git → 3000, registry → 5000), and both publish their port,
+    so the forge web UI and the docker registry v2 API are reachable and routed; the route binds
+    to the host port that publishes it.
   - **Proxying.** Request and response bodies stream (never buffered whole); hop-by-hop
     headers (`Connection`, `Keep-Alive`, `TE`, `Trailer`, `Transfer-Encoding`, `Upgrade`,
     `Proxy-*`, and any header named in `Connection`) are stripped, `X-Forwarded-{For,Host,Proto}`
@@ -301,18 +308,28 @@ account manages its own credentials under the Security Center (`/api/v1/me/ssh-k
   Deleting an integration cascades to the tokens bound to it, so a token never outlives or
   broadens past its service.
 
-**Git over HTTPS is wired at the routing front** (`src/orchestration/forward_auth.rs`). A git
-smart-HTTP request with no Elysium session authenticates with an `ely_pat_` token supplied as
-the HTTP Basic password (the username is ignored; an empty password falls back to the
-username), so `git clone https://anything:<token>@host/services/{id}/org/repo.git` works with
-no separate git login. The forward-auth layer classifies the request (a fetch needs
-`git.read`, a push needs `git.write` specifically), enforces the token's optional
-per-integration bind, runs the same account-policy gate as the session/OIDC paths (a
-suspended, non-member, or mandatory-2FA-delinquent owner is refused), then asserts the token
-owner's trusted identity so Forgejo sees the user with no git login. A missing or unresolvable
-token yields `401 WWW-Authenticate: Basic realm="Elysium Git"` (so git re-prompts); an
-authenticated-but-unauthorized token yields `403`. Usage stamps `last_used_at` best-effort,
-never failing the request; revocation fails transport at once.
+**Git and the container registry over HTTPS are wired at the routing front**
+(`src/orchestration/forward_auth.rs`). A transport request with no Elysium session
+authenticates with an `ely_pat_` token supplied as the HTTP Basic password (the username is
+ignored; an empty password falls back to the username), so
+`git clone https://anything:<token>@host/services/{id}/org/repo.git` and `docker login` against
+`host/services/{id}` both work with no separate service login. One shared core
+(`authorize_token_transport`) decodes the credential, resolves it, enforces a required scope and
+the token's optional per-integration bind, runs the same account-policy gate as the
+session/OIDC paths (a suspended, non-member, or mandatory-2FA-delinquent owner is refused), then
+asserts the token owner's trusted identity and stamps `last_used_at` best-effort. Each transport
+differs only in how it classifies a request and which realm it challenges under:
+
+- **Git** classifies by the smart-HTTP service: a fetch (`git-upload-pack`) needs `git.read`, a
+  push (`git-receive-pack`) needs `git.write`; realm `Elysium Git`.
+- **Registry** classifies a docker v2 API request (path `/v2/…` after the `/services/{id}`
+  strip) by method: a read (`GET`/`HEAD`) needs `registry.pull`, a write
+  (`POST`/`PUT`/`PATCH`/`DELETE`) needs `registry.push`; realm `Elysium Registry`. A
+  `registry.pull`-only token can never satisfy a push.
+
+A missing or unresolvable token yields `401 WWW-Authenticate: Basic realm=…` (so git re-prompts
+and `docker login` sends Basic credentials); an authenticated-but-unauthorized token yields
+`403`. Revocation fails transport at once, since resolution checks live state.
 
 **Git over SSH is deferred to the SSH router (#30).** SSH transport auth waits on the SSH
 front that #30 builds; that router resolves a presented key to its owner via the existing
@@ -387,6 +404,42 @@ win, and the loser retries onto the next gap. Deleting an integration frees its 
 column travels with the cascade-deleted row), so a later allocation reuses the lowest freed
 gap. A CHECK pins the column to the band. This replaces the former hash-of-id derivation,
 whose birthday-problem collisions could fail the second container's publish.
+
+## Managed registry (CNCF distribution)
+
+The registry kind provisions a managed **CNCF `distribution`** (registry v3), pinned by tag
+**and** digest (`registry:3.0.0@sha256:…`). distribution is the choice over Zot or Harbor: it is
+the simplest, the reference implementation of the OCI registry API, and ships no bundled web UI
+to secure. Zot or Harbor become the choice when a web console or vulnerability scanning matters.
+The reconciler renders its env through the per-kind config template
+(`backend/src/orchestration/config.rs`, `render_registry`):
+
+- **Blobs on an OBJECT_STORE Drive.** The `blobs` role requires `OBJECT_STORE`, which only FS
+  and S3 Drives advertise, so the capability gate makes binding blobs to SFTP/WebDAV an enforced
+  impossibility ("git on OneDrive" for images). The storage driver follows the bound Drive:
+  - **FS Drive** → the filesystem driver rooted at the `blobs` container mount
+    (`/var/lib/registry`), which the reconciler bind-mounts to the host Drive area (the binding
+    prefix, or the reserved `.elysium/registry/blobs`).
+  - **S3 Drive** → distribution's S3 storage driver (`REGISTRY_STORAGE_S3_*`): bucket, region,
+    region endpoint, and a key `rootdirectory` under the Drive's own prefix joined with the
+    reserved area, plus `ACCESSKEY`/`SECRETKEY` from the Drive's **unsealed** provider
+    credential (secret-tagged, never logged). The two drivers are mutually exclusive.
+- **Served under the proxy.** `REGISTRY_HTTP_ADDR=:5000` matches the routed surface port; the
+  container's port 5000 is published on a host port and the route auto-registers when the
+  service runs, so the v2 API is reachable at `host/services/{id}/v2/`. `REGISTRY_HTTP_SECRET`
+  (the sealed service secret) pins upload sessions across container replacement, and
+  `REGISTRY_STORAGE_DELETE_ENABLED=true` lets image garbage collection work through the API.
+- **Trust boundary: the proxy is the only auth.** The registry runs with **no registry-level
+  auth** (`REGISTRY_AUTH` unset). Its published host port is Elysium-only; every request arrives
+  through Elysium's reverse proxy, which authenticates the `ely_pat_` token, enforces
+  `registry.pull`/`registry.push` scope, the per-integration bind, and the account-policy gate,
+  and asserts the token owner's identity before forwarding. `docker login`/`push`/`pull` against
+  `host/services/{id}` use Elysium credentials; no htpasswd or registry-native user store exists.
+- **Host-port allocation** is the same persisted band mechanism as git (`ensure_host_port`).
+
+Deferred: a registry **web console with its own SSO** (distribution has no UI; a Zot/Harbor
+image or a separate console is the later addition) and **linked external registries** (Docker
+Hub/GHCR as an OAuth-client integration, mirroring linked git).
 
 ## Roadmap
 

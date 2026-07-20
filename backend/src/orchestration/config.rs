@@ -99,6 +99,38 @@ pub(crate) struct Provisioning<'a> {
     /// The OIDC client registered for this integration, when its kind SSOs against
     /// Elysium (git today); `None` in the pure "no SSO wired yet" path.
     pub oidc: Option<&'a OidcClientCreds>,
+    /// The S3 blob store for a managed registry, resolved when its `blobs` role binds
+    /// to an S3 Drive; `None` for FS-backed blobs (the filesystem driver plus the bind
+    /// mount the reconciler adds). Like [`Provisioning::oidc`], it is resolved live
+    /// (the credential is sealed), not read from the stored config.
+    pub registry_blobs: Option<&'a RegistryS3Blobs>,
+}
+
+/// The bucket settings and unsealed credential a managed registry's S3 blob store needs.
+///
+/// The reconciler resolves the registry's `blobs` role to its Drive and, for an S3
+/// Drive, parses the bucket settings and unseals the provider credential before
+/// templating (mirroring how the git OIDC client is resolved live). It becomes the
+/// `REGISTRY_STORAGE_S3_*` env of CNCF distribution's S3 storage driver. The secret
+/// access key is a redacting [`ServiceSecret`], so it never leaks through a
+/// debug-formatted spec or reconcile log; the access key id (an identifier, like a
+/// user name) stays visible.
+#[derive(Debug)]
+pub(crate) struct RegistryS3Blobs {
+    /// The S3 endpoint URL (`REGIONENDPOINT`); empty for AWS's default endpoint.
+    pub endpoint: String,
+    /// The bucket region (`REGION`); empty when the provider needs none.
+    pub region: String,
+    /// The bucket the layers land in (`BUCKET`).
+    pub bucket: String,
+    /// The key prefix under the bucket the registry roots its blobs at
+    /// (`ROOTDIRECTORY`): the bound Drive's own prefix joined with the binding's
+    /// reserved area, so the registry never collides with other Drive consumers.
+    pub root_prefix: String,
+    /// The S3 access key id (`ACCESSKEY`).
+    pub access_key_id: String,
+    /// The S3 secret access key (`SECRETKEY`), redacted in debug output.
+    pub secret_access_key: ServiceSecret,
 }
 
 /// The OIDC client credentials injected into a managed service's config.
@@ -215,6 +247,13 @@ pub(crate) fn render_env(
 /// proxy routes to (#29); the `git_http_port_matches_the_routed_surface` test in
 /// `reconcile` guards the two against drift.
 const GIT_HTTP_PORT: u16 = 3000;
+
+/// The container port CNCF distribution's HTTP API listens on.
+///
+/// Pinned into `REGISTRY_HTTP_ADDR`. Must equal `reconcile::http_surface_port(Registry)`,
+/// the port the reconciler publishes and the proxy routes to (#29); the
+/// `registry_http_port_matches_the_routed_surface` test guards the two against drift.
+const REGISTRY_HTTP_PORT: u16 = 5000;
 
 /// The Forgejo login-source name Elysium's OIDC provider is registered under.
 ///
@@ -444,20 +483,100 @@ fn render_mail(input: &RenderInput<'_>) -> Result<RenderedEntries, TemplateError
     Ok(Vec::new())
 }
 
-/// CNCF distribution env: `REGISTRY_<section>_<KEY>` overrides.
+/// Renders a runnable CNCF distribution env: `REGISTRY_<SECTION>_<KEY>` overrides.
+///
+/// The registry listens on [`REGISTRY_HTTP_PORT`] (the routed surface), pins upload
+/// sessions with the sealed `REGISTRY_HTTP_SECRET` (injected by [`render_env`]), and
+/// enables blob/manifest deletes so image garbage collection works through the API.
+/// It runs with **no registry-level auth** (`REGISTRY_AUTH` unset): the only route to
+/// its published host port is Elysium's reverse proxy, which authenticates every
+/// request and enforces the token's `RegistryPull`/`RegistryPush` scope before
+/// forwarding (see [`crate::orchestration::forward_auth`]). That proxy is the gate;
+/// see `docs/integrations.md` for the trust boundary.
+///
+/// Blobs bind to an `OBJECT_STORE` Drive (the capability gate in
+/// [`crate::orchestration::integrations`] already rejects SFTP/WebDAV, so binding to a
+/// non-object-store Drive never reaches here). The storage driver follows the bound
+/// Drive's kind: an S3 Drive drives the `REGISTRY_STORAGE_S3_*` family from
+/// [`Provisioning::registry_blobs`] (the reconciler resolves and unseals it); an
+/// FS-backed (or not-yet-resolved) binding uses the filesystem driver rooted at the
+/// `blobs` role's container mount, which the reconciler bind-mounts to the host Drive.
 fn render_registry(input: &RenderInput<'_>) -> Result<RenderedEntries, TemplateError> {
     let _: EmptyConfig = parse_config(IntegrationKind::Registry, input.config)?;
-    // Pin the filesystem driver's root to the `blobs` role's mount point so the
-    // image and the storage-role table can never drift apart. An S3-backed
-    // `blobs` binding instead needs the `REGISTRY_STORAGE_S3_*` family wired
-    // from the bound Drive's config and sealed credential; that provider-native
-    // wiring is owned by M5 (the registry milestone) on top of this seam.
-    let blobs = storage_role(IntegrationKind::Registry, "blobs")
-        .expect("the registry kind declares a blobs role");
-    Ok(vec![(
-        "REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY".to_string(),
-        EnvValue::plain(blobs.mount_path),
-    )])
+
+    let mut env = vec![
+        // Listen where the reconciler publishes and the proxy dials (#29).
+        (
+            "REGISTRY_HTTP_ADDR".to_string(),
+            EnvValue::plain(format!(":{REGISTRY_HTTP_PORT}")),
+        ),
+        // Let blob/manifest deletes through so image GC and retention work via the API.
+        (
+            "REGISTRY_STORAGE_DELETE_ENABLED".to_string(),
+            EnvValue::plain("true"),
+        ),
+    ];
+
+    match input.provisioning.registry_blobs {
+        // S3-backed blobs: the provider-native S3 storage driver, keys sealed.
+        Some(s3) => env.extend(registry_s3_env(s3)),
+        // FS-backed (or not-yet-resolved) blobs: the filesystem driver rooted at the
+        // role's container mount, which the storage-role table and the bind mount agree
+        // on by construction. Setting the filesystem root and no S3 keys picks the
+        // filesystem driver; the two drivers are never set together.
+        None => {
+            let blobs = storage_role(IntegrationKind::Registry, "blobs")
+                .expect("the registry kind declares a blobs role");
+            env.push((
+                "REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY".to_string(),
+                EnvValue::plain(blobs.mount_path),
+            ));
+        }
+    }
+    Ok(env)
+}
+
+/// The `REGISTRY_STORAGE_S3_*` env for distribution's S3 storage driver.
+///
+/// Renders the bucket settings and the unsealed credential; `ACCESSKEY` and
+/// `SECRETKEY` enter as [`EnvValue::secret`] so neither survives a debug rendering.
+/// `REGION`, `REGIONENDPOINT`, and `ROOTDIRECTORY` are emitted only when the bound
+/// Drive sets them, so an empty value falls back to the provider default rather than
+/// pinning an empty string (matching how the storage provider builds its operator).
+fn registry_s3_env(s3: &RegistryS3Blobs) -> RenderedEntries {
+    let mut env = vec![
+        (
+            "REGISTRY_STORAGE_S3_BUCKET".to_string(),
+            EnvValue::plain(s3.bucket.clone()),
+        ),
+        (
+            "REGISTRY_STORAGE_S3_ACCESSKEY".to_string(),
+            EnvValue::secret(s3.access_key_id.clone()),
+        ),
+        (
+            "REGISTRY_STORAGE_S3_SECRETKEY".to_string(),
+            EnvValue::secret(s3.secret_access_key.expose()),
+        ),
+    ];
+    if !s3.region.is_empty() {
+        env.push((
+            "REGISTRY_STORAGE_S3_REGION".to_string(),
+            EnvValue::plain(s3.region.clone()),
+        ));
+    }
+    if !s3.endpoint.is_empty() {
+        env.push((
+            "REGISTRY_STORAGE_S3_REGIONENDPOINT".to_string(),
+            EnvValue::plain(s3.endpoint.clone()),
+        ));
+    }
+    if !s3.root_prefix.is_empty() {
+        env.push((
+            "REGISTRY_STORAGE_S3_ROOTDIRECTORY".to_string(),
+            EnvValue::plain(s3.root_prefix.clone()),
+        ));
+    }
+    env
 }
 
 /// Placeholder: the Astraval image is not published yet.
@@ -693,6 +812,7 @@ mod tests {
         let provisioning = Provisioning {
             app_origin: "https://elysium.example.com",
             oidc: Some(&oidc),
+            ..Provisioning::default()
         };
         let env = render_env(&row, Some(&secret), &provisioning).expect("valid config renders");
 
@@ -792,6 +912,7 @@ mod tests {
         let provisioning = Provisioning {
             app_origin: "https://elysium.example.com/",
             oidc: None,
+            ..Provisioning::default()
         };
         let env =
             render_env(&row, Some(&known_secret()), &provisioning).expect("empty config renders");
@@ -811,12 +932,16 @@ mod tests {
     }
 
     #[test]
-    fn registry_template_pins_the_blob_root_and_http_secret() {
+    fn registry_template_fs_blobs_pins_the_root_addr_and_http_secret() {
+        // Default provisioning (no S3 blobs resolved): the filesystem driver path.
         let row = managed_row(IntegrationKind::Registry, serde_json::json!({}));
         let secret = known_secret();
         let env = render_env(&row, Some(&secret), &Provisioning::default()).expect("renders");
 
-        // The filesystem driver root equals the blobs role's declared mount,
+        // Listens on the routed surface port, and lets deletes through.
+        assert_eq!(env["REGISTRY_HTTP_ADDR"].expose(), ":5000");
+        assert_eq!(env["REGISTRY_STORAGE_DELETE_ENABLED"].expose(), "true");
+        // The filesystem driver root equals the blobs role's declared container mount,
         // so the storage-role table and the image agree by construction.
         assert_eq!(
             env["REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY"].expose(),
@@ -824,9 +949,95 @@ mod tests {
                 .expect("registry declares blobs")
                 .mount_path
         );
+        // FS blobs never emit the S3 driver: the two drivers are mutually exclusive.
+        assert!(!env.contains_key("REGISTRY_STORAGE_S3_BUCKET"));
         let http_secret = &env["REGISTRY_HTTP_SECRET"];
         assert_eq!(http_secret.expose(), secret.expose());
         assert!(http_secret.is_secret());
+    }
+
+    #[test]
+    fn registry_template_s3_blobs_renders_the_full_driver_with_secrets_redacted() {
+        // An S3-backed blobs binding drives the provider-native S3 storage driver.
+        let row = managed_row(IntegrationKind::Registry, serde_json::json!({}));
+        let secret = known_secret();
+        let blobs = RegistryS3Blobs {
+            endpoint: "https://s3.example.com".to_string(),
+            region: "us-east-1".to_string(),
+            bucket: "elysium-layers".to_string(),
+            root_prefix: "team/.elysium/registry/blobs".to_string(),
+            access_key_id: "AKIAEXAMPLE".to_string(),
+            secret_access_key: ServiceSecret::new("s3-secret-access-key-value"),
+        };
+        let provisioning = Provisioning {
+            registry_blobs: Some(&blobs),
+            ..Provisioning::default()
+        };
+        let env = render_env(&row, Some(&secret), &provisioning).expect("renders");
+
+        // The full REGISTRY_STORAGE_S3_* family, from the bound Drive's config.
+        assert_eq!(env["REGISTRY_STORAGE_S3_BUCKET"].expose(), "elysium-layers");
+        assert_eq!(env["REGISTRY_STORAGE_S3_REGION"].expose(), "us-east-1");
+        assert_eq!(
+            env["REGISTRY_STORAGE_S3_REGIONENDPOINT"].expose(),
+            "https://s3.example.com"
+        );
+        assert_eq!(
+            env["REGISTRY_STORAGE_S3_ROOTDIRECTORY"].expose(),
+            "team/.elysium/registry/blobs"
+        );
+        // The access key id is visible; both key fields are secret-tagged.
+        let access = &env["REGISTRY_STORAGE_S3_ACCESSKEY"];
+        assert_eq!(access.expose(), "AKIAEXAMPLE");
+        assert!(access.is_secret());
+        let secret_key = &env["REGISTRY_STORAGE_S3_SECRETKEY"];
+        assert_eq!(secret_key.expose(), "s3-secret-access-key-value");
+        assert!(secret_key.is_secret());
+        // The S3 driver is exclusive: the filesystem root is never set alongside it.
+        assert!(!env.contains_key("REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY"));
+        assert_eq!(env["REGISTRY_HTTP_ADDR"].expose(), ":5000");
+
+        // The rendered env (what a spec carries into logs) redacts the secret key.
+        let rendered = format!("{env:?}");
+        assert!(!rendered.contains("s3-secret-access-key-value"));
+        assert!(rendered.contains("REGISTRY_STORAGE_S3_SECRETKEY"));
+        assert!(rendered.contains("<redacted>"));
+    }
+
+    #[test]
+    fn registry_template_s3_blobs_omits_empty_optional_fields() {
+        // Only the bucket is required; empty region/endpoint/prefix fall back to the
+        // provider default rather than pinning an empty string.
+        let row = managed_row(IntegrationKind::Registry, serde_json::json!({}));
+        let blobs = RegistryS3Blobs {
+            endpoint: String::new(),
+            region: String::new(),
+            bucket: "only-bucket".to_string(),
+            root_prefix: String::new(),
+            access_key_id: "AKIA".to_string(),
+            secret_access_key: ServiceSecret::new("s"),
+        };
+        let provisioning = Provisioning {
+            registry_blobs: Some(&blobs),
+            ..Provisioning::default()
+        };
+        let env = render_env(&row, Some(&known_secret()), &provisioning).expect("renders");
+
+        assert_eq!(env["REGISTRY_STORAGE_S3_BUCKET"].expose(), "only-bucket");
+        assert!(!env.contains_key("REGISTRY_STORAGE_S3_REGION"));
+        assert!(!env.contains_key("REGISTRY_STORAGE_S3_REGIONENDPOINT"));
+        assert!(!env.contains_key("REGISTRY_STORAGE_S3_ROOTDIRECTORY"));
+    }
+
+    #[test]
+    fn registry_http_port_matches_the_routed_surface() {
+        // The templated REGISTRY_HTTP_ADDR port must equal the container surface port
+        // the reconciler publishes and the proxy dials, or the registry listens where
+        // the proxy does not reach.
+        assert_eq!(
+            Some(REGISTRY_HTTP_PORT),
+            crate::orchestration::reconcile::http_surface_port(IntegrationKind::Registry)
+        );
     }
 
     // --- render_env: the placeholder kinds -----------------------------------
@@ -906,6 +1117,7 @@ mod tests {
         let provisioning = Provisioning {
             app_origin: "https://elysium.example.com",
             oidc: Some(&oidc),
+            ..Provisioning::default()
         };
         let env = render_env(&row, Some(&secret), &provisioning).expect("renders");
 

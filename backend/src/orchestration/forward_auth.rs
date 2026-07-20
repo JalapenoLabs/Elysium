@@ -35,27 +35,40 @@
 //! runs the strip before it even reads the session, so a forged header can influence
 //! neither the injected identity nor the auth decision.
 //!
-//! # Git transport tokens (HTTPS)
+//! # Transport tokens (HTTPS): git and the container registry
 //!
-//! A git client cannot carry an Elysium session cookie, so a smart-HTTP git request
-//! with no session authenticates with an `ely_pat_` scoped token instead. The token
-//! rides in the HTTP Basic password (the username is ignored; an empty password
+//! A transport client (git, `docker`) cannot carry an Elysium session cookie, so a
+//! request with no session authenticates with an `ely_pat_` scoped token instead. The
+//! token rides in the HTTP Basic password (the username is ignored; an empty password
 //! falls back to the username, tolerating clients that put the token there), so
-//! `git clone https://anything:<token>@host/services/{id}/org/repo.git` just works.
-//! [`git_transport_op`] classifies the request: a fetch (`git-upload-pack`) needs the
-//! `git.read` scope, a push (`git-receive-pack`) needs `git.write` specifically. A
-//! token bound to an integration may transport only for that integration. On success
-//! the same trusted [`Identity`] is asserted (Forgejo sees the token's owner, no git
-//! login) and `last_used_at` is stamped best-effort. A missing or unresolvable
-//! (unknown, expired, revoked) token yields `401` with
-//! `WWW-Authenticate: Basic realm="Elysium Git"` so the client re-prompts; an
-//! authenticated token lacking the scope, bound elsewhere, or whose owner fails the
-//! policy gate yields `403`. Revocation fails transport at once, since resolution
-//! checks live state. SSH transport auth is the SSH router's job (#30), which
-//! resolves a presented key via [`crate::transport::resolve_ssh_key_owner`].
+//! `git clone https://anything:<token>@host/services/{id}/org/repo.git` and
+//! `docker login` against `host/services/{id}` both just work.
+//!
+//! One shared core, [`authorize_token_transport`], authenticates every transport
+//! token: decode the Basic credential, resolve it (failing closed on unknown, expired,
+//! or revoked), enforce the required scope and the token's optional per-integration
+//! bind, run the same account-policy gate the session and OIDC paths use, then assert
+//! the token owner's trusted [`Identity`] and stamp `last_used_at` best-effort. Each
+//! transport differs only in how it classifies a request into a required scope and
+//! which realm it challenges under:
+//!
+//! - **Git** ([`git_transport_op`]): a fetch (`git-upload-pack`) needs `git.read`, a
+//!   push (`git-receive-pack`) needs `git.write` specifically; realm `Elysium Git`.
+//! - **Registry** ([`registry_transport_op`]): a docker v2 API read (`GET`/`HEAD`)
+//!   needs `registry.pull`, a write (`POST`/`PUT`/`PATCH`/`DELETE`) needs
+//!   `registry.push`; realm `Elysium Registry`. A `registry.pull`-only token can never
+//!   satisfy a push.
+//!
+//! A missing or unresolvable token yields `401` with the transport's
+//! `WWW-Authenticate: Basic realm=...` so the client re-prompts (which is what lets
+//! `docker login` send Basic credentials); an authenticated token lacking the scope,
+//! bound elsewhere, or whose owner fails the policy gate yields `403`. Revocation fails
+//! transport at once, since resolution checks live state. SSH transport auth is the SSH
+//! router's job (#30), which resolves a presented key via
+//! [`crate::transport::resolve_ssh_key_owner`].
 
 use axum::http::request::Parts;
-use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum_extra::extract::cookie::CookieJar;
 use base64::engine::general_purpose::STANDARD;
@@ -298,18 +311,39 @@ async fn session_principal(
 
 /// Authorizes a request that carries no Elysium session.
 ///
-/// A git smart-HTTP request authenticates with an `ely_pat_` scoped token
-/// ([`authorize_git_token`]); anything else keeps the #33 behavior: a browser
-/// navigation bounces to login, an API request gets `401`.
+/// A transport client authenticates with an `ely_pat_` scoped token: a git smart-HTTP
+/// request ([`git_transport_op`]) or a docker registry v2 request
+/// ([`registry_transport_op`]) is classified into the exact scope it needs and routed
+/// through the shared [`authorize_token_transport`] core. Anything else keeps the #33
+/// behavior: a browser navigation bounces to login, an API request gets `401`.
 async fn authorize_without_session(
     state: &AppState,
     parts: &Parts,
     integration_id: Uuid,
 ) -> ProxyAuth {
-    match git_transport_op(parts.uri.path(), parts.uri.query()) {
-        Some(op) => authorize_git_token(state, parts, integration_id, op).await,
-        None => deny_unauthenticated(parts),
+    // Git first: its detection is prefix-agnostic (suffix-matched), and its paths are
+    // disjoint from the registry's `/v2/` space, so the order cannot misclassify.
+    if let Some(op) = git_transport_op(parts.uri.path(), parts.uri.query()) {
+        return authorize_token_transport(
+            state,
+            parts,
+            integration_id,
+            git_scope(op),
+            GIT_AUTH_REALM,
+        )
+        .await;
     }
+    if let Some(op) = registry_transport_op(&parts.method, parts.uri.path(), integration_id) {
+        return authorize_token_transport(
+            state,
+            parts,
+            integration_id,
+            registry_scope(op),
+            REGISTRY_AUTH_REALM,
+        )
+        .await;
+    }
+    deny_unauthenticated(parts)
 }
 
 /// The capability a git smart-HTTP request needs: read (fetch) or write (push).
@@ -321,6 +355,14 @@ enum GitOp {
     Write,
 }
 
+/// The exact scope a git transport op requires.
+fn git_scope(op: GitOp) -> TokenScope {
+    match op {
+        GitOp::Read => TokenScope::GitRead,
+        GitOp::Write => TokenScope::GitWrite,
+    }
+}
+
 /// The git service name a fetch advertises and runs under.
 const GIT_UPLOAD_PACK: &str = "git-upload-pack";
 
@@ -329,6 +371,9 @@ const GIT_RECEIVE_PACK: &str = "git-receive-pack";
 
 /// The realm on the git Basic-auth challenge, naming the credential a client must send.
 const GIT_AUTH_REALM: &str = "Elysium Git";
+
+/// The realm on the registry Basic-auth challenge (what `docker login` prompts against).
+const REGISTRY_AUTH_REALM: &str = "Elysium Registry";
 
 /// Classifies a request as a git smart-HTTP transport op, or `None` if it is not one.
 ///
@@ -363,40 +408,95 @@ fn service_param(query: &str) -> Option<&str> {
         .find_map(|pair| pair.strip_prefix("service="))
 }
 
-/// Authorizes a git smart-HTTP request against an `ely_pat_` scoped token.
+/// The capability a docker registry v2 request needs: pull (read) or push (write).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RegistryOp {
+    /// A read (`GET`/`HEAD`): manifest/blob pulls, the `/v2/` version ping, catalog
+    /// and tag listings; requires [`TokenScope::RegistryPull`].
+    Pull,
+    /// A write (`POST`/`PUT`/`PATCH`/`DELETE`): blob upload, manifest put, delete;
+    /// requires [`TokenScope::RegistryPush`].
+    Push,
+}
+
+/// The exact scope a registry transport op requires.
+fn registry_scope(op: RegistryOp) -> TokenScope {
+    match op {
+        RegistryOp::Pull => TokenScope::RegistryPull,
+        RegistryOp::Push => TokenScope::RegistryPush,
+    }
+}
+
+/// Classifies a request as a docker registry v2 API op, or `None` if it is not one.
+///
+/// The registry HTTP API v2 roots every endpoint under `/v2/`; after the proxy's
+/// `/services/{id}` prefix is stripped, a registry request is `/v2/…` (or the base
+/// `/v2` version ping). Read methods (`GET`/`HEAD`) pull; mutating methods
+/// (`POST`/`PUT`/`PATCH`/`DELETE`) push. Any other path or method is not a registry
+/// transport request and stays on the session/redirect path.
+fn registry_transport_op(method: &Method, path: &str, integration_id: Uuid) -> Option<RegistryOp> {
+    let relative = service_relative_path(path, integration_id)?;
+    if relative != "/v2" && !relative.starts_with("/v2/") {
+        return None;
+    }
+    match *method {
+        Method::GET | Method::HEAD => Some(RegistryOp::Pull),
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE => Some(RegistryOp::Push),
+        _ => None,
+    }
+}
+
+/// Strips the `/services/{integration_id}` prefix, yielding the upstream-relative path.
+///
+/// The router serves a managed service under `/services/{id}`; the docker client
+/// addresses `/services/{id}/v2/…`, so the registry classifier matches `/v2/` only
+/// after this strip. Returns `None` when the path is not under this integration's
+/// service prefix.
+fn service_relative_path(path: &str, integration_id: Uuid) -> Option<&str> {
+    let prefix = format!("/services/{integration_id}");
+    path.strip_prefix(prefix.as_str())
+}
+
+/// Authorizes a transport request against an `ely_pat_` scoped token, shared by git
+/// and the registry.
 ///
 /// Decodes the Basic credential, resolves the token (failing closed on an unknown,
-/// expired, or revoked one), enforces the op's scope and the token's optional
-/// integration bind, runs the same account-policy gate the session and OIDC paths
-/// use, and on success asserts the token owner's trusted identity and stamps usage.
-async fn authorize_git_token(
+/// expired, or revoked one), enforces the caller-classified `required_scope` and the
+/// token's optional integration bind, runs the same account-policy gate the session
+/// and OIDC paths use, and on success asserts the token owner's trusted identity and
+/// stamps usage. `realm` names the credential in the `401` challenge, so git and the
+/// registry each prompt under their own realm while sharing this one policy core.
+async fn authorize_token_transport(
     state: &AppState,
     parts: &Parts,
     integration_id: Uuid,
-    op: GitOp,
+    required_scope: TokenScope,
+    realm: &str,
 ) -> ProxyAuth {
-    // The PAT rides in the Basic password (username fallback). No credential means
-    // the client has not authenticated yet: challenge it so git re-prompts/retries.
+    // The PAT rides in the Basic password (username fallback). No credential means the
+    // client has not authenticated yet: challenge it so the client re-prompts/retries
+    // (this is what makes `docker login` send Basic credentials).
     let Some(token) =
         basic_credential(&parts.headers).and_then(|(user, pass)| token_from_basic(&user, &pass))
     else {
-        return ProxyAuth::Deny(git_auth_challenge());
+        return ProxyAuth::Deny(basic_challenge(realm));
     };
 
     // Resolve the token to its owner and grant. An unknown/expired/revoked token
     // resolves to `None`; a bad credential is an auth challenge, not a hard refusal.
     let grant = match transport::resolve_access_token(&state.pool, &token).await {
         Ok(Some(grant)) => grant,
-        Ok(None) => return ProxyAuth::Deny(git_auth_challenge()),
+        Ok(None) => return ProxyAuth::Deny(basic_challenge(realm)),
         Err(error) => {
-            tracing::error!(error = %error, "git token resolution failed");
+            tracing::error!(error = %error, "transport token resolution failed");
             return ProxyAuth::Deny(StatusCode::SERVICE_UNAVAILABLE.into_response());
         }
     };
 
     // Authenticated but unauthorized past this point is a `403`, distinct from the
-    // `401` challenge above: the credential is valid, it just may not do this.
-    if !grant_permits(&grant, op) {
+    // `401` challenge above: the credential is valid, it just may not do this. The
+    // scope is exact, so a `registry.pull`-only token can never satisfy a push.
+    if !grant_has_scope(&grant, required_scope) {
         return ProxyAuth::Deny(forbidden());
     }
     if !bind_admits(grant.integration_id, integration_id) {
@@ -409,7 +509,7 @@ async fn authorize_git_token(
         Ok(Some(org_id)) => org_id,
         Ok(None) => return ProxyAuth::Deny(forbidden()),
         Err(error) => {
-            tracing::error!(error = %error, "git token integration lookup failed");
+            tracing::error!(error = %error, "transport token integration lookup failed");
             return ProxyAuth::Deny(StatusCode::SERVICE_UNAVAILABLE.into_response());
         }
     };
@@ -417,7 +517,7 @@ async fn authorize_git_token(
         Ok(Some(subject)) => subject,
         Ok(None) => return ProxyAuth::Deny(forbidden()),
         Err(error) => {
-            tracing::error!(error = %error, "git token subject lookup failed");
+            tracing::error!(error = %error, "transport token subject lookup failed");
             return ProxyAuth::Deny(StatusCode::SERVICE_UNAVAILABLE.into_response());
         }
     };
@@ -431,7 +531,7 @@ async fn authorize_git_token(
         Ok(true) => {}
         Ok(false) => return ProxyAuth::Deny(forbidden()),
         Err(error) => {
-            tracing::error!(error = %error, "git token policy check failed");
+            tracing::error!(error = %error, "transport token policy check failed");
             return ProxyAuth::Deny(StatusCode::SERVICE_UNAVAILABLE.into_response());
         }
     }
@@ -441,7 +541,7 @@ async fn authorize_git_token(
         Ok(Some(subject)) => Identity::from_subject(&subject),
         Ok(None) => return ProxyAuth::Deny(forbidden()),
         Err(error) => {
-            tracing::error!(error = %error, "git token subject load failed");
+            tracing::error!(error = %error, "transport token subject load failed");
             return ProxyAuth::Deny(StatusCode::SERVICE_UNAVAILABLE.into_response());
         }
     };
@@ -454,15 +554,11 @@ async fn authorize_git_token(
     }
 }
 
-/// Whether `grant` carries the exact scope git operation `op` requires.
+/// Whether `grant` carries the exact scope a transport op requires.
 ///
-/// A push requires [`TokenScope::GitWrite`] specifically; a read-only token never
-/// satisfies it, and a write-only token does not imply read.
-fn grant_permits(grant: &TokenGrant, op: GitOp) -> bool {
-    let required = match op {
-        GitOp::Read => TokenScope::GitRead,
-        GitOp::Write => TokenScope::GitWrite,
-    };
+/// The scope is exact, never hierarchical: a `git.write` token does not imply
+/// `git.read`, and a `registry.pull` token never satisfies a `registry.push`.
+fn grant_has_scope(grant: &TokenGrant, required: TokenScope) -> bool {
     grant.scopes.contains(&required)
 }
 
@@ -520,18 +616,16 @@ fn token_from_basic(username: &str, password: &str) -> Option<String> {
     }
 }
 
-/// A `401` that asks a git client to retry with Basic credentials.
+/// A `401` that asks a transport client to retry with Basic credentials under `realm`.
 ///
 /// The `WWW-Authenticate` challenge is what makes git prompt for (or replay) a
-/// credential rather than give up, and distinguishes "who are you?" from the `403`
-/// "you may not do this".
-fn git_auth_challenge() -> Response {
+/// credential and `docker login` send Basic credentials, rather than give up, and
+/// distinguishes "who are you?" from the `403` "you may not do this". Each transport
+/// names its own realm so the client prompt reads correctly.
+fn basic_challenge(realm: &str) -> Response {
     (
         StatusCode::UNAUTHORIZED,
-        [(
-            header::WWW_AUTHENTICATE,
-            format!("Basic realm=\"{GIT_AUTH_REALM}\""),
-        )],
+        [(header::WWW_AUTHENTICATE, format!("Basic realm=\"{realm}\""))],
     )
         .into_response()
 }
@@ -857,6 +951,89 @@ mod tests {
         );
     }
 
+    // --- Registry v2 transport detection and classification ------------------
+
+    #[test]
+    fn service_relative_path_strips_the_service_prefix() {
+        let id = Uuid::from_u128(0xabc);
+        // The upstream-relative path is what remains after `/services/{id}`.
+        assert_eq!(
+            service_relative_path(&format!("/services/{id}/v2/"), id),
+            Some("/v2/")
+        );
+        assert_eq!(
+            service_relative_path(&format!("/services/{id}"), id),
+            Some("")
+        );
+        // A path under a different integration is not this service's.
+        assert_eq!(
+            service_relative_path(&format!("/services/{}/v2/", Uuid::new_v4()), id),
+            None
+        );
+    }
+
+    #[test]
+    fn registry_transport_op_classifies_pull_and_push_by_method() {
+        let id = Uuid::from_u128(0x1234);
+        let base = format!("/services/{id}");
+        let manifest = format!("{base}/v2/org/repo/manifests/latest");
+        let upload = format!("{base}/v2/org/repo/blobs/uploads/");
+
+        // Reads pull: the version ping, manifest/blob GET/HEAD, catalog/tag lists.
+        assert_eq!(
+            registry_transport_op(&Method::GET, &format!("{base}/v2/"), id),
+            Some(RegistryOp::Pull)
+        );
+        assert_eq!(
+            registry_transport_op(&Method::HEAD, &manifest, id),
+            Some(RegistryOp::Pull)
+        );
+        // The bare `/v2` (no trailing slash) is still the version ping.
+        assert_eq!(
+            registry_transport_op(&Method::GET, &format!("{base}/v2"), id),
+            Some(RegistryOp::Pull)
+        );
+
+        // Mutating methods push: blob upload (POST/PATCH/PUT), manifest put, delete.
+        for method in [Method::POST, Method::PATCH, Method::PUT, Method::DELETE] {
+            assert_eq!(
+                registry_transport_op(&method, &upload, id),
+                Some(RegistryOp::Push),
+                "{method} must classify as a push",
+            );
+        }
+    }
+
+    #[test]
+    fn registry_transport_op_ignores_non_v2_and_foreign_service_paths() {
+        let id = Uuid::from_u128(0x5678);
+        let base = format!("/services/{id}");
+        // A non-`/v2` path under the service is not a registry request.
+        assert_eq!(
+            registry_transport_op(&Method::GET, &format!("{base}/ui/tags"), id),
+            None
+        );
+        // `/v2` must be a path segment: `/v2x` is not the registry API.
+        assert_eq!(
+            registry_transport_op(&Method::GET, &format!("{base}/v2x/foo"), id),
+            None
+        );
+        // A `/v2/` path under a *different* integration is not this one's.
+        assert_eq!(
+            registry_transport_op(
+                &Method::GET,
+                &format!("/services/{}/v2/", Uuid::new_v4()),
+                id
+            ),
+            None
+        );
+        // An unusual method against `/v2/` is neither a pull nor a push.
+        assert_eq!(
+            registry_transport_op(&Method::OPTIONS, &format!("{base}/v2/"), id),
+            None
+        );
+    }
+
     // --- Basic-auth decode and token extraction ------------------------------
 
     fn basic_header(username: &str, password: &str) -> HeaderMap {
@@ -945,20 +1122,48 @@ mod tests {
     }
 
     #[test]
-    fn grant_permits_requires_the_exact_scope_for_the_op() {
+    fn grant_has_scope_requires_the_exact_git_scope_for_the_op() {
         let read_only = grant_with(vec![TokenScope::GitRead], None);
         let write_only = grant_with(vec![TokenScope::GitWrite], None);
         let both = grant_with(vec![TokenScope::GitRead, TokenScope::GitWrite], None);
 
         // A read scope allows a fetch but never a push.
-        assert!(grant_permits(&read_only, GitOp::Read));
-        assert!(!grant_permits(&read_only, GitOp::Write));
+        assert!(grant_has_scope(&read_only, git_scope(GitOp::Read)));
+        assert!(!grant_has_scope(&read_only, git_scope(GitOp::Write)));
         // A write scope allows a push; it does not imply read.
-        assert!(grant_permits(&write_only, GitOp::Write));
-        assert!(!grant_permits(&write_only, GitOp::Read));
+        assert!(grant_has_scope(&write_only, git_scope(GitOp::Write)));
+        assert!(!grant_has_scope(&write_only, git_scope(GitOp::Read)));
         // A full token does both.
-        assert!(grant_permits(&both, GitOp::Read));
-        assert!(grant_permits(&both, GitOp::Write));
+        assert!(grant_has_scope(&both, git_scope(GitOp::Read)));
+        assert!(grant_has_scope(&both, git_scope(GitOp::Write)));
+    }
+
+    #[test]
+    fn grant_has_scope_keeps_registry_pull_and_push_distinct() {
+        let pull_only = grant_with(vec![TokenScope::RegistryPull], None);
+        let push_only = grant_with(vec![TokenScope::RegistryPush], None);
+
+        // A pull token may pull, never push; a push token may push, never pull. A
+        // git scope satisfies neither registry op.
+        assert!(grant_has_scope(
+            &pull_only,
+            registry_scope(RegistryOp::Pull)
+        ));
+        assert!(!grant_has_scope(
+            &pull_only,
+            registry_scope(RegistryOp::Push)
+        ));
+        assert!(grant_has_scope(
+            &push_only,
+            registry_scope(RegistryOp::Push)
+        ));
+        assert!(!grant_has_scope(
+            &push_only,
+            registry_scope(RegistryOp::Pull)
+        ));
+        let git = grant_with(vec![TokenScope::GitWrite], None);
+        assert!(!grant_has_scope(&git, registry_scope(RegistryOp::Pull)));
+        assert!(!grant_has_scope(&git, registry_scope(RegistryOp::Push)));
     }
 
     #[test]
@@ -974,12 +1179,19 @@ mod tests {
     // --- 401 challenge vs 403 forbidden --------------------------------------
 
     #[test]
-    fn git_auth_challenge_is_a_401_with_a_basic_realm() {
-        let response = git_auth_challenge();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    fn basic_challenge_is_a_401_naming_each_transport_realm() {
+        // Git and the registry challenge under their own realm so the client prompt
+        // reads correctly (`docker login` shows the registry realm).
+        let git = basic_challenge(GIT_AUTH_REALM);
+        assert_eq!(git.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(
-            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            git.headers().get(header::WWW_AUTHENTICATE).unwrap(),
             "Basic realm=\"Elysium Git\""
+        );
+        let registry = basic_challenge(REGISTRY_AUTH_REALM);
+        assert_eq!(
+            registry.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "Basic realm=\"Elysium Registry\""
         );
     }
 
@@ -1108,6 +1320,31 @@ mod tests {
             "Basic realm=\"Elysium Git\""
         );
         // Never a redirect: git must re-prompt, not bounce to the SPA login.
+        assert!(response.headers().get(header::LOCATION).is_none());
+    }
+
+    #[tokio::test]
+    async fn registry_ping_without_a_credential_is_challenged_under_the_registry_realm() {
+        // `docker login` starts with an unauthenticated `GET /v2/`; it must get the 401
+        // Basic challenge under the registry realm (so docker sends credentials), never
+        // a redirect. Returns before any query, so the lazy pool is never touched.
+        let state = lazy_state();
+        let integration_id = Uuid::new_v4();
+        let uri = format!("/services/{integration_id}/v2/");
+        let mut parts = git_parts(&uri, None);
+        parts
+            .headers
+            .insert(header::ACCEPT, HeaderValue::from_static("text/html"));
+
+        let decision = authorize(&state, &parts, integration_id).await;
+        let ProxyAuth::Deny(response) = decision else {
+            panic!("a docker v2 request with no credential must be denied");
+        };
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "Basic realm=\"Elysium Registry\""
+        );
         assert!(response.headers().get(header::LOCATION).is_none());
     }
 
@@ -1541,6 +1778,162 @@ mod tests {
         let parts = git_parts(&uri, Some(&git_basic(&secret)));
         let decision = authorize(&state, &parts, target).await;
         let ProxyAuth::Deny(response) = decision else {
+            panic!("a token bound to another integration must be denied");
+        };
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    // --- DB-gated registry transport-token authorize -------------------------
+    //
+    // The `docker login`/`push`/`pull` half of M5: a docker v2 API request
+    // authenticates with an `ely_pat_` registry-scoped token and lands as the token
+    // owner, no registry login. Ignored by default; run in CI with
+    // `cargo test -- --ignored`.
+
+    /// Inserts an org-scoped managed registry integration (kind=3), returning its id.
+    async fn seed_registry_integration(pool: &PgPool, org_id: Uuid) -> Uuid {
+        // kind=3 (registry), mode=1 (managed), owner_scope=1 (org), visibility=1.
+        sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO integrations
+                 (org_id, kind, mode, owner_scope, owner_id, name, visibility, config)
+             VALUES ($1, 3, 1, 1, $1, 'registry', 1, '{}'::jsonb) RETURNING id",
+        )
+        .bind(org_id)
+        .fetch_one(pool)
+        .await
+        .expect("seed registry integration")
+    }
+
+    /// A registry request with the given method, URI, and optional Basic credential.
+    fn registry_parts(method: Method, uri: &str, authorization: Option<&str>) -> Parts {
+        use axum::body::Body;
+        use axum::http::Request;
+
+        let mut builder = Request::builder().method(method).uri(uri);
+        if let Some(authorization) = authorization {
+            builder = builder.header(header::AUTHORIZATION, authorization);
+        }
+        builder.body(Body::empty()).unwrap().into_parts().0
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn authenticated_registry_push_token_allows_with_identity_and_stamps_usage() {
+        let state = connect_test_state().await;
+        let (email_local, org_id, user_id) = seed_git_fixture(&state).await;
+        let integration_id = seed_registry_integration(&state.pool, org_id).await;
+        // A push-capable token: a blob-upload POST must be allowed.
+        let (token_id, secret) = insert_git_token(
+            &state.pool,
+            user_id,
+            &[TokenScope::RegistryPull, TokenScope::RegistryPush],
+            None,
+        )
+        .await;
+
+        let uri = format!("/services/{integration_id}/v2/org/app/blobs/uploads/");
+        let parts = registry_parts(Method::POST, &uri, Some(&git_basic(&secret)));
+        let decision = authorize(&state, &parts, integration_id).await;
+        let ProxyAuth::Allow { identity } = decision else {
+            panic!("a live registry.push token must be allowed to push");
+        };
+
+        // The upstream sees the token owner, not a registry login.
+        let value = |name: &'static str| {
+            identity
+                .get(name)
+                .expect("header present")
+                .to_str()
+                .expect("ascii header")
+                .to_string()
+        };
+        assert_eq!(value(HEADER_WEBAUTH_USER), email_local);
+        assert_eq!(
+            value(HEADER_ELYSIUM_EMAIL),
+            format!("{email_local}@example.test")
+        );
+
+        // Usage is stamped best-effort, out of band.
+        assert!(
+            last_used_stamped(&state.pool, token_id).await,
+            "last_used_at must be stamped after a token authenticates",
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn registry_pull_token_can_pull_but_not_push() {
+        let state = connect_test_state().await;
+        let (_email_local, org_id, user_id) = seed_git_fixture(&state).await;
+        let integration_id = seed_registry_integration(&state.pool, org_id).await;
+        // A pull-only token: it may GET manifests, never POST an upload.
+        let (_token_id, secret) =
+            insert_git_token(&state.pool, user_id, &[TokenScope::RegistryPull], None).await;
+
+        // A manifest GET (pull) is allowed.
+        let pull_uri = format!("/services/{integration_id}/v2/org/app/manifests/latest");
+        let pull = registry_parts(Method::GET, &pull_uri, Some(&git_basic(&secret)));
+        assert!(
+            authorize(&state, &pull, integration_id).await.is_allowed(),
+            "a registry.pull token must be allowed to pull",
+        );
+
+        // A blob-upload POST (push) is forbidden: pull never implies push.
+        let push_uri = format!("/services/{integration_id}/v2/org/app/blobs/uploads/");
+        let push = registry_parts(Method::POST, &push_uri, Some(&git_basic(&secret)));
+        let ProxyAuth::Deny(response) = authorize(&state, &push, integration_id).await else {
+            panic!("a pull-only token pushing must be denied");
+        };
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn revoked_registry_token_is_challenged_with_401() {
+        let state = connect_test_state().await;
+        let (_email_local, org_id, user_id) = seed_git_fixture(&state).await;
+        let integration_id = seed_registry_integration(&state.pool, org_id).await;
+        let (token_id, secret) =
+            insert_git_token(&state.pool, user_id, &[TokenScope::RegistryPull], None).await;
+
+        // Revocation deletes the row, so resolution fails closed at once.
+        sqlx::query("DELETE FROM access_tokens WHERE id = $1")
+            .bind(token_id)
+            .execute(&state.pool)
+            .await
+            .expect("revoke token");
+
+        let uri = format!("/services/{integration_id}/v2/");
+        let parts = registry_parts(Method::GET, &uri, Some(&git_basic(&secret)));
+        let ProxyAuth::Deny(response) = authorize(&state, &parts, integration_id).await else {
+            panic!("a revoked token must be denied");
+        };
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "Basic realm=\"Elysium Registry\""
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn registry_token_bound_to_another_integration_is_forbidden() {
+        let state = connect_test_state().await;
+        let (_email_local, org_id, user_id) = seed_git_fixture(&state).await;
+        let target = seed_registry_integration(&state.pool, org_id).await;
+        let other = seed_registry_integration(&state.pool, org_id).await;
+        // The token is bound to `other`, but the request targets `target`.
+        let (_token_id, secret) = insert_git_token(
+            &state.pool,
+            user_id,
+            &[TokenScope::RegistryPull],
+            Some(other),
+        )
+        .await;
+
+        let uri = format!("/services/{target}/v2/");
+        let parts = registry_parts(Method::GET, &uri, Some(&git_basic(&secret)));
+        let ProxyAuth::Deny(response) = authorize(&state, &parts, target).await else {
             panic!("a token bound to another integration must be denied");
         };
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
