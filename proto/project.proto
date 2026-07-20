@@ -52,3 +52,53 @@ message ProjectMember {
   elysium.common.v1.Uuid user_id = 2;
   ProjectRole role = 3;
 }
+
+// A project member enriched with the user's profile fields, for roster display.
+message ProjectMemberInfo {
+  elysium.common.v1.Uuid user_id = 1;
+  string email = 2;
+  string display_name = 3;
+  string avatar_url = 4;
+  ProjectRole role = 5;
+  elysium.common.v1.Timestamp joined_at = 6;
+}
+
+// Request to create a project under the caller's active org.
+//
+// The project is created in the caller's active org. The named owner (or the
+// creator when unset) becomes its OWNER.
+message CreateProjectRequest {
+  string name = 1;
+
+  // Optional URL-safe handle; derived from the name when empty.
+  string slug = 2;
+
+  // Optional user to own the new project; the creator owns it when unset.
+  elysium.common.v1.Uuid owner_user_id = 3;
+}
+
+// Request to update a project's mutable fields. An empty field is left unchanged.
+message UpdateProjectRequest {
+  string name = 1;
+  string slug = 2;
+}
+
+// The projects a caller can access within an org.
+message ListProjectsResponse {
+  repeated Project projects = 1;
+}
+
+// A project's member roster.
+message ListProjectMembersResponse {
+  repeated ProjectMemberInfo members = 1;
+}
+
+// Request to add a user to a project or change their existing role.
+message SetProjectMemberRequest {
+  ProjectRole role = 1;
+}
+
+// Request to attach a domain to a project. Domains are unique across the deployment.
+message AddProjectDomainRequest {
+  string domain = 1;
+}

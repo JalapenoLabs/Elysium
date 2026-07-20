@@ -21,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file project.proto.
  */
 export const file_project: GenFile = /*@__PURE__*/
-  fileDesc("Cg1wcm9qZWN0LnByb3RvEhJlbHlzaXVtLnByb2plY3QudjEitgEKB1Byb2plY3QSIwoCaWQYASABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkEicKBm9yZ19pZBgCIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSDAoEbmFtZRgDIAEoCRIMCgRzbHVnGAQgASgJEg8KB2RvbWFpbnMYBSADKAkSMAoKY3JlYXRlZF9hdBgGIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcCKVAQoNUHJvamVjdE1lbWJlchIrCgpwcm9qZWN0X2lkGAEgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBIoCgd1c2VyX2lkGAIgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBItCgRyb2xlGAMgASgOMh8uZWx5c2l1bS5wcm9qZWN0LnYxLlByb2plY3RSb2xlKnQKC1Byb2plY3RSb2xlEhwKGFBST0pFQ1RfUk9MRV9VTlNQRUNJRklFRBAAEhcKE1BST0pFQ1RfUk9MRV9NRU1CRVIQARIWChJQUk9KRUNUX1JPTEVfQURNSU4QAhIWChJQUk9KRUNUX1JPTEVfT1dORVIQA2IGcHJvdG8z", [file_common]);
+  fileDesc("Cg1wcm9qZWN0LnByb3RvEhJlbHlzaXVtLnByb2plY3QudjEitgEKB1Byb2plY3QSIwoCaWQYASABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkEicKBm9yZ19pZBgCIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSDAoEbmFtZRgDIAEoCRIMCgRzbHVnGAQgASgJEg8KB2RvbWFpbnMYBSADKAkSMAoKY3JlYXRlZF9hdBgGIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcCKVAQoNUHJvamVjdE1lbWJlchIrCgpwcm9qZWN0X2lkGAEgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBIoCgd1c2VyX2lkGAIgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBItCgRyb2xlGAMgASgOMh8uZWx5c2l1bS5wcm9qZWN0LnYxLlByb2plY3RSb2xlItYBChFQcm9qZWN0TWVtYmVySW5mbxIoCgd1c2VyX2lkGAEgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBINCgVlbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSEgoKYXZhdGFyX3VybBgEIAEoCRItCgRyb2xlGAUgASgOMh8uZWx5c2l1bS5wcm9qZWN0LnYxLlByb2plY3RSb2xlEi8KCWpvaW5lZF9hdBgGIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcCJiChRDcmVhdGVQcm9qZWN0UmVxdWVzdBIMCgRuYW1lGAEgASgJEgwKBHNsdWcYAiABKAkSLgoNb3duZXJfdXNlcl9pZBgDIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQiMgoUVXBkYXRlUHJvamVjdFJlcXVlc3QSDAoEbmFtZRgBIAEoCRIMCgRzbHVnGAIgASgJIkUKFExpc3RQcm9qZWN0c1Jlc3BvbnNlEi0KCHByb2plY3RzGAEgAygLMhsuZWx5c2l1bS5wcm9qZWN0LnYxLlByb2plY3QiVAoaTGlzdFByb2plY3RNZW1iZXJzUmVzcG9uc2USNgoHbWVtYmVycxgBIAMoCzIlLmVseXNpdW0ucHJvamVjdC52MS5Qcm9qZWN0TWVtYmVySW5mbyJIChdTZXRQcm9qZWN0TWVtYmVyUmVxdWVzdBItCgRyb2xlGAEgASgOMh8uZWx5c2l1bS5wcm9qZWN0LnYxLlByb2plY3RSb2xlIikKF0FkZFByb2plY3REb21haW5SZXF1ZXN0Eg4KBmRvbWFpbhgBIAEoCSp0CgtQcm9qZWN0Um9sZRIcChhQUk9KRUNUX1JPTEVfVU5TUEVDSUZJRUQQABIXChNQUk9KRUNUX1JPTEVfTUVNQkVSEAESFgoSUFJPSkVDVF9ST0xFX0FETUlOEAISFgoSUFJPSkVDVF9ST0xFX09XTkVSEANiBnByb3RvMw", [file_common]);
 
 /**
  * A sub-tenant workspace under an org: the real unit of work and isolation.
@@ -107,6 +107,186 @@ export type ProjectMember = Message<"elysium.project.v1.ProjectMember"> & {
  */
 export const ProjectMemberSchema: GenMessage<ProjectMember> = /*@__PURE__*/
   messageDesc(file_project, 1);
+
+/**
+ * A project member enriched with the user's profile fields, for roster display.
+ *
+ * @generated from message elysium.project.v1.ProjectMemberInfo
+ */
+export type ProjectMemberInfo = Message<"elysium.project.v1.ProjectMemberInfo"> & {
+  /**
+   * @generated from field: elysium.common.v1.Uuid user_id = 1;
+   */
+  userId?: Uuid | undefined;
+
+  /**
+   * @generated from field: string email = 2;
+   */
+  email: string;
+
+  /**
+   * @generated from field: string display_name = 3;
+   */
+  displayName: string;
+
+  /**
+   * @generated from field: string avatar_url = 4;
+   */
+  avatarUrl: string;
+
+  /**
+   * @generated from field: elysium.project.v1.ProjectRole role = 5;
+   */
+  role: ProjectRole;
+
+  /**
+   * @generated from field: elysium.common.v1.Timestamp joined_at = 6;
+   */
+  joinedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message elysium.project.v1.ProjectMemberInfo.
+ * Use `create(ProjectMemberInfoSchema)` to create a new message.
+ */
+export const ProjectMemberInfoSchema: GenMessage<ProjectMemberInfo> = /*@__PURE__*/
+  messageDesc(file_project, 2);
+
+/**
+ * Request to create a project under the caller's active org.
+ *
+ * The project is created in the caller's active org. The named owner (or the
+ * creator when unset) becomes its OWNER.
+ *
+ * @generated from message elysium.project.v1.CreateProjectRequest
+ */
+export type CreateProjectRequest = Message<"elysium.project.v1.CreateProjectRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * Optional URL-safe handle; derived from the name when empty.
+   *
+   * @generated from field: string slug = 2;
+   */
+  slug: string;
+
+  /**
+   * Optional user to own the new project; the creator owns it when unset.
+   *
+   * @generated from field: elysium.common.v1.Uuid owner_user_id = 3;
+   */
+  ownerUserId?: Uuid | undefined;
+};
+
+/**
+ * Describes the message elysium.project.v1.CreateProjectRequest.
+ * Use `create(CreateProjectRequestSchema)` to create a new message.
+ */
+export const CreateProjectRequestSchema: GenMessage<CreateProjectRequest> = /*@__PURE__*/
+  messageDesc(file_project, 3);
+
+/**
+ * Request to update a project's mutable fields. An empty field is left unchanged.
+ *
+ * @generated from message elysium.project.v1.UpdateProjectRequest
+ */
+export type UpdateProjectRequest = Message<"elysium.project.v1.UpdateProjectRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string slug = 2;
+   */
+  slug: string;
+};
+
+/**
+ * Describes the message elysium.project.v1.UpdateProjectRequest.
+ * Use `create(UpdateProjectRequestSchema)` to create a new message.
+ */
+export const UpdateProjectRequestSchema: GenMessage<UpdateProjectRequest> = /*@__PURE__*/
+  messageDesc(file_project, 4);
+
+/**
+ * The projects a caller can access within an org.
+ *
+ * @generated from message elysium.project.v1.ListProjectsResponse
+ */
+export type ListProjectsResponse = Message<"elysium.project.v1.ListProjectsResponse"> & {
+  /**
+   * @generated from field: repeated elysium.project.v1.Project projects = 1;
+   */
+  projects: Project[];
+};
+
+/**
+ * Describes the message elysium.project.v1.ListProjectsResponse.
+ * Use `create(ListProjectsResponseSchema)` to create a new message.
+ */
+export const ListProjectsResponseSchema: GenMessage<ListProjectsResponse> = /*@__PURE__*/
+  messageDesc(file_project, 5);
+
+/**
+ * A project's member roster.
+ *
+ * @generated from message elysium.project.v1.ListProjectMembersResponse
+ */
+export type ListProjectMembersResponse = Message<"elysium.project.v1.ListProjectMembersResponse"> & {
+  /**
+   * @generated from field: repeated elysium.project.v1.ProjectMemberInfo members = 1;
+   */
+  members: ProjectMemberInfo[];
+};
+
+/**
+ * Describes the message elysium.project.v1.ListProjectMembersResponse.
+ * Use `create(ListProjectMembersResponseSchema)` to create a new message.
+ */
+export const ListProjectMembersResponseSchema: GenMessage<ListProjectMembersResponse> = /*@__PURE__*/
+  messageDesc(file_project, 6);
+
+/**
+ * Request to add a user to a project or change their existing role.
+ *
+ * @generated from message elysium.project.v1.SetProjectMemberRequest
+ */
+export type SetProjectMemberRequest = Message<"elysium.project.v1.SetProjectMemberRequest"> & {
+  /**
+   * @generated from field: elysium.project.v1.ProjectRole role = 1;
+   */
+  role: ProjectRole;
+};
+
+/**
+ * Describes the message elysium.project.v1.SetProjectMemberRequest.
+ * Use `create(SetProjectMemberRequestSchema)` to create a new message.
+ */
+export const SetProjectMemberRequestSchema: GenMessage<SetProjectMemberRequest> = /*@__PURE__*/
+  messageDesc(file_project, 7);
+
+/**
+ * Request to attach a domain to a project. Domains are unique across the deployment.
+ *
+ * @generated from message elysium.project.v1.AddProjectDomainRequest
+ */
+export type AddProjectDomainRequest = Message<"elysium.project.v1.AddProjectDomainRequest"> & {
+  /**
+   * @generated from field: string domain = 1;
+   */
+  domain: string;
+};
+
+/**
+ * Describes the message elysium.project.v1.AddProjectDomainRequest.
+ * Use `create(AddProjectDomainRequestSchema)` to create a new message.
+ */
+export const AddProjectDomainRequestSchema: GenMessage<AddProjectDomainRequest> = /*@__PURE__*/
+  messageDesc(file_project, 8);
 
 /**
  * A user's role within a single project. Permissions derive from (user, project,

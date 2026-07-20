@@ -96,6 +96,38 @@ Four projects, four isolated mail containers, one shared API/DB/router.
 - `drives` and `integrations` gain a nullable `project_id` (with `owner_scope`), so
   resources attribute to a project.
 
+## Management API
+
+`backend/src/projects.rs` exposes the protobuf CRUD, membership, and domain surface
+under `/api/v1/projects` (wired in `backend/src/api.rs`). The collection is scoped to
+the caller's active org; item routes carry the project id.
+
+- `GET /projects` lists the projects the caller can reach in their active org: every
+  project for a full org member, only the explicitly-granted ones for a guest. The
+  set is filtered through `resolve_project_access`, never re-derived in SQL.
+- `POST /projects` creates a project (requires `manage_projects`). The named owner, or
+  the creator when unset, becomes its OWNER; the slug is derived from the name when
+  omitted.
+- `PATCH /projects/{id}` renames or re-slugs a project (a project owner/admin, or a
+  `manage_projects` holder). An empty field is left unchanged.
+- `DELETE /projects/{id}` deletes a project (requires `manage_projects`), refused with
+  `409` when it is the org's last project. The count-and-delete is one atomic
+  statement, so concurrent deletes can never race an org down to zero projects.
+- `GET /projects/{id}/members`, `PUT /projects/{id}/members/{userId}`,
+  `DELETE /projects/{id}/members/{userId}` manage the roster. A project owner/admin
+  mutates membership; to prevent escalation the actor may not grant a role above
+  their own or remove someone who outranks them. Viewing the roster needs project
+  membership.
+- `POST /projects/{id}/domains`, `DELETE /projects/{id}/domains/{domain}` attach and
+  detach domains (require `manage_projects`). A domain maps to exactly one project
+  across the deployment, so attaching one already owned is refused with `409`.
+
+The **`manage_projects`** capability is delegatable through the org grants system
+(`org_admin_grants`), exactly like `manage_teams`; owners and admins hold it
+implicitly. A project's own membership, by contrast, is managed by its owners and
+admins via `require_project_role`, so day-to-day project administration never needs
+an org-level grant.
+
 ## Configurability
 
 Per the admin.google.com principle: **plan for deep, granular, per-tier configuration with

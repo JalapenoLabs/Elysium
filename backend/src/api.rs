@@ -23,7 +23,7 @@ use crate::session::SessionUser;
 use crate::state::AppState;
 use crate::{
     accounts, audit, bootstrap, context, credentials, grants, invites, members, orgs, password,
-    policies, profile, recovery, security, sse, teams, webauthn,
+    policies, profile, projects, recovery, security, sse, teams, webauthn,
 };
 
 /// Builds the application router with shared state and middleware attached.
@@ -181,6 +181,27 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/teams/{team_id}/members/{user_id}",
             delete(teams::remove_member),
+        )
+        // Projects: the org -> project tenancy tier. Collection is scoped to the
+        // caller's active org; item routes carry the project id. Create, delete, and
+        // domains need `manage_projects`; membership is managed by project admins.
+        .route(
+            "/api/v1/projects",
+            get(projects::list).post(projects::create),
+        )
+        .route(
+            "/api/v1/projects/{id}",
+            patch(projects::update).delete(projects::delete),
+        )
+        .route("/api/v1/projects/{id}/members", get(projects::members))
+        .route(
+            "/api/v1/projects/{id}/members/{user_id}",
+            put(projects::set_member).delete(projects::remove_member),
+        )
+        .route("/api/v1/projects/{id}/domains", post(projects::add_domain))
+        .route(
+            "/api/v1/projects/{id}/domains/{domain}",
+            delete(projects::remove_domain),
         )
         // Session accounts: the profile + org switchers.
         .route("/api/v1/session/accounts", get(accounts::list))
