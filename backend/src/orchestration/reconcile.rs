@@ -37,7 +37,7 @@ use crate::orchestration::integrations::{
     ReconcileStatus,
 };
 use crate::orchestration::provisioner::{
-    PortProtocol, Provisioner, ServiceSpec, ServiceState, VolumeBind,
+    PortBind, PortProtocol, Provisioner, ServiceSpec, ServiceState, VolumeBind,
 };
 use crate::orchestration::routing::{Route, RouteTable, MANAGED_UPSTREAM_HOST};
 use crate::storage::{DriveConfig, DriveRow};
@@ -52,7 +52,13 @@ use crate::storage::{DriveConfig, DriveRow};
 /// their references are the intended coordinates and flow through the same seam.
 pub fn default_image(kind: IntegrationKind) -> &'static str {
     match kind {
-        IntegrationKind::Git => "codeberg.org/forgejo/forgejo:13.0.1",
+        // Pinned by tag *and* digest: the tag names the release, the digest makes
+        // the pull byte-exact and immune to a re-tag. Forgejo 13.0.1 multi-arch
+        // index digest, from codeberg.org/forgejo/-/packages/container/forgejo/13.0.1.
+        IntegrationKind::Git => {
+            "codeberg.org/forgejo/forgejo:13.0.1@sha256:\
+             b34718b23370d19265f9e13ff28651f3258408360b4a13811184e45feff49456"
+        }
         IntegrationKind::Mail => "stalwartlabs/stalwart:0.13.1",
         IntegrationKind::Registry => "registry:3.0.0",
         IntegrationKind::Perforce => "ghcr.io/jalapenolabs/astraval:0.1.0",
@@ -106,6 +112,101 @@ pub fn http_route_for(integration: &IntegrationRow, spec: &ServiceSpec) -> Optio
     ))
 }
 
+/// Whether a kind's milestone publishes its HTTP surface to a host port yet.
+///
+/// Publishing a surface port is what lights up a kind's proxy route (#29), and it
+/// is opt-in per per-service milestone: git (this milestone) publishes, so its web
+/// UI is reachable and its OAuth callback resolves; the registry's port lights up
+/// with M5, and mail/perforce/runner have no web surface. Kept distinct from
+/// [`http_surface_port`] so a kind can declare a surface before its milestone
+/// chooses to expose it.
+fn publishes_http_surface(kind: IntegrationKind) -> bool {
+    matches!(kind, IntegrationKind::Git)
+}
+
+/// Base of the host-port band managed HTTP surfaces publish on.
+///
+/// Chosen above the common well-known/service ports and below the Linux ephemeral
+/// range (`ip_local_port_range` defaults to 32768+), so a derived publish port
+/// never collides with the kernel's own outbound port allocation.
+const MANAGED_HOST_PORT_BASE: u16 = 20000;
+
+/// Width of the managed host-port band (ports 20000..=31999).
+const MANAGED_HOST_PORT_SPAN: u16 = 12000;
+
+/// The host port a managed integration publishes its HTTP surface on.
+///
+/// Derived from the integration id, so it is stable across restarts (a re-drive
+/// keeps the same published port and never churns the container) while spread
+/// across the band. Collisions are a birthday problem over the band width; at the
+/// scale of managed services one deployment host runs they are vanishingly
+/// unlikely, and a persisted per-integration allocation is the documented
+/// follow-up if density ever warrants it (#38).
+fn managed_host_port(integration_id: Uuid) -> u16 {
+    let folded = (integration_id.as_u128() % MANAGED_HOST_PORT_SPAN as u128) as u16;
+    MANAGED_HOST_PORT_BASE + folded
+}
+
+/// The deterministic OIDC client id a managed git integration registers under.
+///
+/// Derived from the integration id so a reconcile after restart finds and reuses
+/// the same client instead of registering a duplicate; also the `--key` templated
+/// into the Forgejo login source.
+pub fn git_oidc_client_id(integration_id: Uuid) -> String {
+    format!("forgejo-{integration_id}")
+}
+
+/// Whether a managed kind SSOs against Elysium's OIDC provider.
+///
+/// Only git today (Forgejo is registered as an OIDC client at provision time).
+/// The registry and future kinds join here as their milestones wire SSO.
+fn kind_uses_oidc(kind: IntegrationKind) -> bool {
+    matches!(kind, IntegrationKind::Git)
+}
+
+/// Ensures the OIDC client backing a git integration and returns its credentials.
+///
+/// Registers (or, on re-reconcile, recovers) the deterministic `forgejo-<id>`
+/// confidential first-party client whose single redirect URI is the Forgejo OAuth
+/// callback under the reverse-proxy sub-path. The login source Forgejo registers
+/// and the client Elysium stores therefore agree on both the id and the callback.
+///
+/// # Errors
+/// Propagates a database or crypto failure from
+/// [`crate::oidc::clients::ensure_integration_client`], or errors when the client
+/// was somehow registered without a secret.
+async fn ensure_oidc_client(
+    conn: &mut PgConnection,
+    crypto: &Crypto,
+    app_origin: &str,
+    integration: &IntegrationRow,
+) -> eyre::Result<config::OidcClientCreds> {
+    let client_id = git_oidc_client_id(integration.id);
+    let base = app_origin.trim_end_matches('/');
+    // Forgejo builds the callback as `<ROOT_URL>/user/oauth2/<source>/callback`;
+    // ROOT_URL is `<origin>/services/<id>/`, so the redirect URI is this exact path.
+    let redirect_uri = format!(
+        "{base}/services/{}/user/oauth2/{}/callback",
+        integration.id,
+        config::OIDC_SOURCE_NAME,
+    );
+    let created = crate::oidc::clients::ensure_integration_client(
+        conn,
+        crypto,
+        integration.id,
+        &client_id,
+        &[redirect_uri],
+    )
+    .await?;
+    let secret = created.client_secret.ok_or_else(|| {
+        eyre::eyre!("the integration OIDC client was registered without a secret")
+    })?;
+    Ok(config::OidcClientCreds {
+        client_id: created.client_id,
+        client_secret: ServiceSecret::new(secret),
+    })
+}
+
 /// The outcome of planning a managed integration's [`ServiceSpec`].
 #[derive(Debug)]
 pub(crate) enum SpecPlan {
@@ -138,15 +239,30 @@ pub(crate) fn build_spec(
     bindings: &[BindingRow],
     drives: &HashMap<Uuid, DriveRow>,
     secret: Option<&ServiceSecret>,
+    provisioning: &config::Provisioning<'_>,
 ) -> SpecPlan {
     let mut spec = ServiceSpec::new(service_name(integration), default_image(integration.kind));
 
-    // The per-kind template renders config_json plus the service secret into
-    // the env the kind's blessed image expects. Secrets enter as redacted
-    // EnvValues, so the spec stays safe to debug-format everywhere below.
-    match config::render_env(integration, secret) {
+    // The per-kind template renders config_json plus the service secret and the
+    // provisioning context (origin, OIDC client) into the env the kind's blessed
+    // image expects. Secrets enter as redacted EnvValues, so the spec stays safe
+    // to debug-format everywhere below.
+    match config::render_env(integration, secret, provisioning) {
         Ok(env) => spec.env = env,
         Err(error) => return SpecPlan::Broken(error.to_string()),
+    }
+
+    // Publish the kind's HTTP surface on its derived host port when its milestone
+    // exposes it, so the reconciler's route registration ([`http_route_for`]) finds
+    // the published port and the proxy can reach the container.
+    if publishes_http_surface(integration.kind) {
+        if let Some(container_port) = http_surface_port(integration.kind) {
+            spec.ports.push(PortBind {
+                host_port: managed_host_port(integration.id),
+                container_port,
+                protocol: PortProtocol::Tcp,
+            });
+        }
     }
 
     spec.labels
@@ -275,6 +391,7 @@ pub async fn reconcile_all(
     provisioner: &impl Provisioner,
     crypto: &Crypto,
     routes: &RouteTable,
+    app_origin: &str,
 ) -> sqlx::Result<()> {
     let rows = sqlx::query_as::<_, IntegrationRow>(
         "SELECT * FROM integrations WHERE mode = $1 ORDER BY created_at ASC",
@@ -285,7 +402,7 @@ pub async fn reconcile_all(
 
     tracing::info!(count = rows.len(), "reconciling managed integrations");
     for row in rows {
-        reconcile_row(conn, provisioner, crypto, routes, &row).await?;
+        reconcile_row(conn, provisioner, crypto, routes, app_origin, &row).await?;
     }
     Ok(())
 }
@@ -303,6 +420,7 @@ pub async fn reconcile_integration(
     provisioner: &impl Provisioner,
     crypto: &Crypto,
     routes: &RouteTable,
+    app_origin: &str,
     integration_id: Uuid,
 ) -> sqlx::Result<()> {
     let row = sqlx::query_as::<_, IntegrationRow>("SELECT * FROM integrations WHERE id = $1")
@@ -311,7 +429,7 @@ pub async fn reconcile_integration(
         .await?;
     match row {
         Some(row) if row.mode == IntegrationMode::Managed => {
-            reconcile_row(conn, provisioner, crypto, routes, &row).await
+            reconcile_row(conn, provisioner, crypto, routes, app_origin, &row).await
         }
         _ => Ok(()),
     }
@@ -329,6 +447,7 @@ async fn reconcile_row(
     provisioner: &impl Provisioner,
     crypto: &Crypto,
     routes: &RouteTable,
+    app_origin: &str,
     row: &IntegrationRow,
 ) -> sqlx::Result<()> {
     let service = service_name(row);
@@ -347,6 +466,25 @@ async fn reconcile_row(
         }
     };
 
+    // Ensure the OIDC client a kind that SSOs against Elysium (git today) logs its
+    // users in through, recovering its credentials for the service config. A
+    // registration failure parks the row FAILED rather than crashing the reconcile.
+    let oidc = if kind_uses_oidc(row.kind) {
+        match ensure_oidc_client(&mut *conn, crypto, app_origin, row).await {
+            Ok(creds) => Some(creds),
+            Err(error) => {
+                let detail = format!("failed to register the OIDC client: {error}");
+                return set_status(conn, row.id, ReconcileStatus::Failed, &detail).await;
+            }
+        }
+    } else {
+        None
+    };
+    let provisioning = config::Provisioning {
+        app_origin,
+        oidc: oidc.as_ref(),
+    };
+
     let bindings = crate::orchestration::integrations::bindings_for(&mut *conn, row.id).await?;
     let drive_ids: Vec<Uuid> = bindings.iter().map(|binding| binding.drive_id).collect();
     let drives: HashMap<Uuid, DriveRow> =
@@ -358,7 +496,7 @@ async fn reconcile_row(
             .map(|drive| (drive.id, drive))
             .collect();
 
-    let plan = build_spec(row, &bindings, &drives, secret.as_ref());
+    let plan = build_spec(row, &bindings, &drives, secret.as_ref(), &provisioning);
     // Derive the HTTP route from the planned spec before `converge` consumes it,
     // so the route can be registered or dropped based on the reconcile outcome.
     let http_route = match &plan {
@@ -483,7 +621,13 @@ mod tests {
         let bindings = vec![binding(&row, "repos", &fs, "")];
         let drives = HashMap::from([(fs.id, fs)]);
 
-        let SpecPlan::Ready(spec) = build_spec(&row, &bindings, &drives, None) else {
+        let SpecPlan::Ready(spec) = build_spec(
+            &row,
+            &bindings,
+            &drives,
+            None,
+            &config::Provisioning::default(),
+        ) else {
             panic!("a fully-bound git integration plans a ready spec");
         };
         // The kind's blessed pinned image, a deployment-unique name, and the
@@ -516,7 +660,13 @@ mod tests {
         let bindings = vec![binding(&row, "repos", &fs, "forges/main")];
         let drives = HashMap::from([(fs.id, fs)]);
 
-        let SpecPlan::Ready(spec) = build_spec(&row, &bindings, &drives, None) else {
+        let SpecPlan::Ready(spec) = build_spec(
+            &row,
+            &bindings,
+            &drives,
+            None,
+            &config::Provisioning::default(),
+        ) else {
             panic!("ready");
         };
         assert_eq!(spec.volumes[0].host_source, "/srv/data/forges/main");
@@ -525,7 +675,13 @@ mod tests {
     #[test]
     fn build_spec_waits_on_an_unbound_role() {
         let row = managed_row(IntegrationKind::Git);
-        let SpecPlan::Waiting(detail) = build_spec(&row, &[], &HashMap::new(), None) else {
+        let SpecPlan::Waiting(detail) = build_spec(
+            &row,
+            &[],
+            &HashMap::new(),
+            None,
+            &config::Provisioning::default(),
+        ) else {
             panic!("an unbound required role parks the plan as waiting");
         };
         assert!(detail.contains("repos"), "names the missing role: {detail}");
@@ -541,7 +697,13 @@ mod tests {
         let bindings = vec![binding(&row, "blobs", &s3, "")];
         let drives = HashMap::from([(s3.id, s3)]);
 
-        let SpecPlan::Ready(spec) = build_spec(&row, &bindings, &drives, None) else {
+        let SpecPlan::Ready(spec) = build_spec(
+            &row,
+            &bindings,
+            &drives,
+            None,
+            &config::Provisioning::default(),
+        ) else {
             panic!("ready");
         };
         assert!(spec.volumes.is_empty());
@@ -556,7 +718,13 @@ mod tests {
         let bindings = vec![binding(&row, "repos", &bad, "")];
         let drives = HashMap::from([(bad.id, bad)]);
 
-        let SpecPlan::Broken(detail) = build_spec(&row, &bindings, &drives, None) else {
+        let SpecPlan::Broken(detail) = build_spec(
+            &row,
+            &bindings,
+            &drives,
+            None,
+            &config::Provisioning::default(),
+        ) else {
             panic!("a corrupt Drive config breaks the plan");
         };
         assert!(detail.contains("repos"));
@@ -568,7 +736,13 @@ mod tests {
         let fs = drive(DriveKind::Fs, serde_json::json!({ "root": "/srv" }));
         let bindings = vec![binding(&row, "repos", &fs, "")];
         // The drives map does not contain the bound Drive.
-        let SpecPlan::Broken(detail) = build_spec(&row, &bindings, &HashMap::new(), None) else {
+        let SpecPlan::Broken(detail) = build_spec(
+            &row,
+            &bindings,
+            &HashMap::new(),
+            None,
+            &config::Provisioning::default(),
+        ) else {
             panic!("a vanished Drive breaks the plan");
         };
         assert!(detail.contains("no longer exists"));
@@ -673,6 +847,95 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_git_image_pins_both_a_tag_and_a_digest() {
+        // The digest makes the pull byte-exact; the reference must carry both.
+        let image = default_image(IntegrationKind::Git);
+        assert!(image.contains("codeberg.org/forgejo/forgejo:13.0.1"));
+        assert!(
+            image.contains("@sha256:"),
+            "the git image must pin a digest"
+        );
+        // The `\` line-continuation in the source must not have leaked whitespace
+        // into the reference.
+        assert!(!image.contains(' '), "no stray whitespace in the image ref");
+    }
+
+    // --- Surface publishing, host port, OIDC id -----------------------------
+
+    #[test]
+    fn git_spec_publishes_the_web_surface_and_registers_a_route() {
+        // A fully-bound git integration publishes container port 3000 on its
+        // derived host port, and that published surface yields a proxy route.
+        let row = managed_row(IntegrationKind::Git);
+        let SpecPlan::Ready(spec) = ready_plan(&row) else {
+            panic!("ready");
+        };
+        let published = spec
+            .ports
+            .iter()
+            .find(|port| port.container_port == 3000)
+            .expect("the Forgejo web port is published");
+        assert_eq!(published.host_port, managed_host_port(row.id));
+        assert!(matches!(published.protocol, PortProtocol::Tcp));
+
+        let route = http_route_for(&row, &spec).expect("a published surface routes");
+        assert_eq!(route.upstream_port, managed_host_port(row.id));
+
+        // The templated HTTP_PORT matches the routed container surface, so Forgejo
+        // listens where the proxy dials.
+        assert_eq!(
+            spec.env["FORGEJO__server__HTTP_PORT"].expose(),
+            http_surface_port(IntegrationKind::Git)
+                .expect("git has a surface")
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn only_a_surfaced_milestone_publishes_a_port() {
+        // Git's milestone publishes; the registry's port stays unpublished until M5,
+        // so its spec carries no port and gets no route yet.
+        let registry = managed_row(IntegrationKind::Registry);
+        let s3 = drive(DriveKind::S3, serde_json::json!({ "bucket": "blobs" }));
+        let bindings = vec![binding(&registry, "blobs", &s3, "")];
+        let drives = HashMap::from([(s3.id, s3)]);
+        let SpecPlan::Ready(spec) = build_spec(
+            &registry,
+            &bindings,
+            &drives,
+            None,
+            &config::Provisioning::default(),
+        ) else {
+            panic!("ready");
+        };
+        assert!(spec.ports.is_empty(), "the registry does not publish yet");
+        assert!(http_route_for(&registry, &spec).is_none());
+    }
+
+    #[test]
+    fn managed_host_port_is_deterministic_and_in_band() {
+        let id = Uuid::new_v4();
+        // Stable across calls (so a re-reconcile never churns the container).
+        assert_eq!(managed_host_port(id), managed_host_port(id));
+        // Always within the documented band, below the ephemeral range.
+        for _ in 0..1000 {
+            let port = managed_host_port(Uuid::new_v4());
+            assert!(
+                (MANAGED_HOST_PORT_BASE..MANAGED_HOST_PORT_BASE + MANAGED_HOST_PORT_SPAN)
+                    .contains(&port),
+                "{port} out of band"
+            );
+        }
+    }
+
+    #[test]
+    fn git_oidc_client_id_is_deterministic_and_prefixed() {
+        let id = Uuid::new_v4();
+        assert_eq!(git_oidc_client_id(id), format!("forgejo-{id}"));
+        assert_eq!(git_oidc_client_id(id), git_oidc_client_id(id));
+    }
+
     // --- HTTP route derivation ----------------------------------------------
 
     #[test]
@@ -752,7 +1015,13 @@ mod tests {
         let fs = drive(DriveKind::Fs, serde_json::json!({ "root": "/srv/data" }));
         let bindings = vec![binding(row, "repos", &fs, "")];
         let drives = HashMap::from([(fs.id, fs)]);
-        build_spec(row, &bindings, &drives, secret)
+        build_spec(
+            row,
+            &bindings,
+            &drives,
+            secret,
+            &config::Provisioning::default(),
+        )
     }
 
     #[tokio::test]
@@ -790,7 +1059,13 @@ mod tests {
     async fn converge_parks_a_waiting_plan_as_pending() {
         let provisioner = InMemoryProvisioner::new();
         let row = managed_row(IntegrationKind::Git);
-        let plan = build_spec(&row, &[], &HashMap::new(), None);
+        let plan = build_spec(
+            &row,
+            &[],
+            &HashMap::new(),
+            None,
+            &config::Provisioning::default(),
+        );
 
         let (status, detail) = converge(
             &provisioner,
@@ -881,7 +1156,13 @@ mod tests {
             &provisioner,
             &service_name(&row),
             DesiredState::Stopped,
-            build_spec(&row, &[], &HashMap::new(), None),
+            build_spec(
+                &row,
+                &[],
+                &HashMap::new(),
+                None,
+                &config::Provisioning::default(),
+            ),
         )
         .await;
         assert_eq!(status, ReconcileStatus::Stopped);
@@ -998,6 +1279,23 @@ mod tests {
         row
     }
 
+    /// Counts the confidential, first-party OIDC clients registered for `id`.
+    ///
+    /// Under the deterministic `forgejo-<id>` client id, so a duplicate would show
+    /// as a count above one.
+    async fn confidential_client_count(conn: &mut PgConnection, id: Uuid) -> i64 {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM oidc_clients
+              WHERE client_id = $1 AND client_secret IS NOT NULL
+                AND is_first_party AND integration_id = $2",
+        )
+        .bind(git_oidc_client_id(id))
+        .bind(id)
+        .fetch_one(conn)
+        .await
+        .expect("count oidc clients")
+    }
+
     async fn status_of(conn: &mut PgConnection, id: Uuid) -> (ReconcileStatus, String) {
         let (status, detail) = sqlx::query_as::<_, (i16, String)>(
             "SELECT status, status_detail FROM integrations WHERE id = $1",
@@ -1021,6 +1319,7 @@ mod tests {
         let crypto = test_crypto();
         let routes = RouteTable::new();
 
+        let app_origin = "https://elysium.test";
         let bound = seed_bound_git(&mut tx).await;
         assert_eq!(
             bound.status,
@@ -1029,7 +1328,7 @@ mod tests {
         );
 
         // First reconcile brings the bound integration to RUNNING and persists it.
-        reconcile_all(&mut tx, &provisioner, &crypto, &routes)
+        reconcile_all(&mut tx, &provisioner, &crypto, &routes, app_origin)
             .await
             .expect("reconcile");
         let (status, detail) = status_of(&mut tx, bound.id).await;
@@ -1049,15 +1348,36 @@ mod tests {
         .expect("read secret");
         assert!(sealed.is_some(), "the first reconcile mints a secret");
 
+        // A running git integration with a published web surface registers a route.
+        assert!(
+            routes.lookup(bound.id).is_some(),
+            "a running Forgejo publishes a proxy route"
+        );
+
+        // Git SSOs against Elysium: the reconcile registered exactly one OIDC client
+        // under the deterministic id, confidential and first-party.
+        assert_eq!(
+            confidential_client_count(&mut tx, bound.id).await,
+            1,
+            "one OIDC client is registered"
+        );
+
         // A second run (a simulated restart) re-converges without duplicating
         // the container: same generation, still RUNNING (the minted secret is
         // reused, so the spec, secret included, is unchanged).
-        reconcile_all(&mut tx, &provisioner, &crypto, &routes)
+        reconcile_all(&mut tx, &provisioner, &crypto, &routes, app_origin)
             .await
             .expect("re-reconcile");
         let (status, _) = status_of(&mut tx, bound.id).await;
         assert_eq!(status, ReconcileStatus::Running);
         assert_eq!(provisioner.generation(&service), Some(1));
+        // Idempotent: no duplicate OIDC client, and the route persists.
+        assert_eq!(
+            confidential_client_count(&mut tx, bound.id).await,
+            1,
+            "a re-reconcile reuses the OIDC client, never duplicating it"
+        );
+        assert!(routes.lookup(bound.id).is_some());
 
         // An unbound managed integration parks at PENDING, naming the gap.
         let unbound = sqlx::query_as::<_, IntegrationRow>(
@@ -1071,7 +1391,7 @@ mod tests {
         .fetch_one(&mut *tx)
         .await
         .expect("insert unbound integration");
-        reconcile_all(&mut tx, &provisioner, &crypto, &routes)
+        reconcile_all(&mut tx, &provisioner, &crypto, &routes, app_origin)
             .await
             .expect("reconcile");
         let (status, detail) = status_of(&mut tx, unbound.id).await;
@@ -1085,16 +1405,137 @@ mod tests {
             .execute(&mut *tx)
             .await
             .expect("set desired stopped");
-        reconcile_integration(&mut tx, &provisioner, &crypto, &routes, bound.id)
-            .await
-            .expect("reconcile one");
+        reconcile_integration(
+            &mut tx,
+            &provisioner,
+            &crypto,
+            &routes,
+            app_origin,
+            bound.id,
+        )
+        .await
+        .expect("reconcile one");
         let (status, _) = status_of(&mut tx, bound.id).await;
         assert_eq!(status, ReconcileStatus::Stopped);
         assert_eq!(
             provisioner.inspect(&service).await.expect("inspect"),
             ServiceState::Stopped
         );
+        // A stopped integration serves no HTTP: its route is dropped.
+        assert!(
+            routes.lookup(bound.id).is_none(),
+            "stopping a service unregisters its route"
+        );
 
         tx.rollback().await.expect("rollback transaction");
+    }
+
+    // --- Live Docker E2E (ignored, needs the real stack) --------------------
+    //
+    // This proves a managed Forgejo actually provisions and serves. It runs only
+    // with the real provisioner and a Docker engine, so `cargo test` skips it. To
+    // run it live, from `backend/`:
+    //
+    //   1. Switch on the real provisioner + scoped socket-proxy:
+    //        docker compose up -d           # brings up postgres + the docker-socket-proxy
+    //   2. Point the test at the proxy and a database:
+    //        export ELYSIUM_DOCKER_PROXY_URL=http://127.0.0.1:2375
+    //        export DATABASE_URL=postgres://…/elysia
+    //   3. Run the ignored suite from inside the backend container (where
+    //      host.docker.internal resolves to the host gateway):
+    //        docker exec elysium-backend cargo test -- --ignored provisions_a_managed_forgejo
+    //
+    // It provisions the pinned Forgejo image with the templated env (sub-path
+    // ROOT_URL, SQLite on the bound Drive, the OIDC login-source parameters), waits
+    // for the container to answer, and asserts its web UI serves. The end-to-end
+    // "Forgejo fetched Elysium discovery" check needs a reachable live Elysium
+    // origin; run the backend and open `/services/{id}/` to complete that manually.
+
+    use tempfile::TempDir;
+
+    use crate::orchestration::provisioner::ProvisionerHandle;
+
+    #[tokio::test]
+    #[ignore = "requires a Docker engine via ELYSIUM_DOCKER_PROXY_URL"]
+    async fn provisions_a_managed_forgejo_and_serves_its_ui() {
+        let Some(proxy_url) = std::env::var("ELYSIUM_DOCKER_PROXY_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            return;
+        };
+
+        // The Drive root doubles as the provisioner's one allowed bind-mount root,
+        // so the reserved `.elysium/git/repos` mount resolves inside it.
+        let root = TempDir::new().expect("tempdir");
+        let provisioner = ProvisionerHandle::docker(&proxy_url, vec![root.path().to_path_buf()])
+            .expect("connect docker backend");
+
+        // A synthetic bound git integration and the pinned Forgejo spec, with the
+        // OIDC login-source env templated (as the reconciler would inject it).
+        let mut row = managed_row(IntegrationKind::Git);
+        row.id = Uuid::new_v4();
+        let fs = drive(
+            DriveKind::Fs,
+            serde_json::json!({ "root": root.path().to_string_lossy() }),
+        );
+        let bindings = vec![binding(&row, "repos", &fs, "")];
+        let drives = HashMap::from([(fs.id, fs)]);
+        let oidc = config::OidcClientCreds {
+            client_id: git_oidc_client_id(row.id),
+            client_secret: ServiceSecret::new("ely_cs_live-e2e"),
+        };
+        let provisioning = config::Provisioning {
+            app_origin: "http://host.docker.internal:8080",
+            oidc: Some(&oidc),
+        };
+        let SpecPlan::Ready(spec) = build_spec(&row, &bindings, &drives, None, &provisioning)
+        else {
+            panic!("the bound git integration plans a ready spec");
+        };
+        let host_port = managed_host_port(row.id);
+
+        // Provision, assert the UI serves, and always clean the container up.
+        let outcome = drive_forgejo(&provisioner, &spec, host_port).await;
+        provisioner
+            .remove(&spec.name)
+            .await
+            .expect("cleanup remove");
+        outcome.expect("live Forgejo assertions");
+    }
+
+    /// Ensures the Forgejo container and polls its published web port for the UI.
+    async fn drive_forgejo(
+        provisioner: &ProvisionerHandle,
+        spec: &ServiceSpec,
+        host_port: u16,
+    ) -> Result<(), String> {
+        provisioner
+            .ensure(spec)
+            .await
+            .map_err(|error| format!("ensure forgejo: {error}"))?;
+
+        // Forgejo runs migrations and starts on first boot; poll the published port.
+        let client = reqwest::Client::new();
+        let url = format!("http://{MANAGED_UPSTREAM_HOST}:{host_port}/");
+        for attempt in 0..60 {
+            match client.get(&url).send().await {
+                Ok(response) => {
+                    let body = response.text().await.unwrap_or_default();
+                    // Forgejo's chrome carries its name; its presence proves the
+                    // templated env booted a real forge, not an install screen.
+                    if body.contains("Forgejo") || body.contains("Powered by Forgejo") {
+                        return Ok(());
+                    }
+                    if attempt == 59 {
+                        return Err(format!("forge served, but no Forgejo marker: {body}"));
+                    }
+                }
+                Err(_) if attempt < 59 => {}
+                Err(error) => return Err(format!("forge never became reachable: {error}")),
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        Err("forge never served its UI".to_string())
     }
 }

@@ -65,8 +65,52 @@ const MINTED_SECRET_BYTES: usize = 32;
 /// The env entries a per-kind renderer produces, in insertion order.
 type RenderedEntries = Vec<(String, EnvValue)>;
 
-/// A per-kind renderer: `config_json` in, kind-specific env entries out.
-type RenderFn = fn(&serde_json::Value) -> Result<RenderedEntries, TemplateError>;
+/// A per-kind renderer: the provisioning inputs in, kind-specific env entries out.
+type RenderFn = fn(&RenderInput<'_>) -> Result<RenderedEntries, TemplateError>;
+
+/// Everything a per-kind renderer may consume, beyond the stored `config_json`.
+///
+/// Most kinds only read [`RenderInput::config`]; the git renderer also needs the
+/// integration id (for its reverse-proxy sub-path), the deployment origin (its
+/// `ROOT_URL` base and the OIDC issuer), and, when provisioned, the OIDC client
+/// registered for it. Bundling these keeps [`render_env`] the single builder and
+/// leaves every renderer a pure function of its input, so templating stays
+/// database-free and unit-tested.
+pub(crate) struct RenderInput<'a> {
+    /// The integration's stored, non-secret `config_json`.
+    config: &'a serde_json::Value,
+    /// The integration being provisioned; renderers read its id and kind.
+    integration: &'a IntegrationRow,
+    /// The provisioning-time context the reconciler resolves (origin, OIDC client).
+    provisioning: &'a Provisioning<'a>,
+}
+
+/// Provisioning-time context the reconciler resolves before templating.
+///
+/// Separate from `config_json` because it is not stored on the integration: the
+/// origin comes from deployment config and the OIDC client is registered live at
+/// reconcile time. Safe to debug-format: the client secret it may carry is a
+/// redacting [`ServiceSecret`].
+#[derive(Debug, Default)]
+pub(crate) struct Provisioning<'a> {
+    /// The Elysium app origin: a kind's external `ROOT_URL` base and OIDC issuer.
+    pub app_origin: &'a str,
+    /// The OIDC client registered for this integration, when its kind SSOs against
+    /// Elysium (git today); `None` in the pure "no SSO wired yet" path.
+    pub oidc: Option<&'a OidcClientCreds>,
+}
+
+/// The OIDC client credentials injected into a managed service's config.
+///
+/// The client id is public; the secret is a redacting [`ServiceSecret`] so it can
+/// never leak through a debug-formatted spec or reconcile log.
+#[derive(Debug)]
+pub(crate) struct OidcClientCreds {
+    /// The registered client's public id (`forgejo-<integration_id>` for git).
+    pub client_id: String,
+    /// The registered client's confidential secret, redacted in debug output.
+    pub client_secret: ServiceSecret,
+}
 
 /// How one kind's stored config becomes the env its blessed image expects.
 ///
@@ -137,15 +181,22 @@ pub(crate) fn consumes_secret(kind: IntegrationKind) -> bool {
 pub(crate) fn render_env(
     integration: &IntegrationRow,
     secret: Option<&ServiceSecret>,
+    provisioning: &Provisioning<'_>,
 ) -> Result<BTreeMap<String, EnvValue>, TemplateError> {
     let template = kind_template(integration.kind);
+
+    let input = RenderInput {
+        config: &integration.config,
+        integration,
+        provisioning,
+    };
 
     let mut env = BTreeMap::new();
     env.insert(
         ENV_INTEGRATION_ID.to_string(),
         EnvValue::plain(integration.id.to_string()),
     );
-    for (name, value) in (template.render)(&integration.config)? {
+    for (name, value) in (template.render)(&input)? {
         env.insert(name, value);
     }
     if let (Some(name), Some(secret)) = (template.secret_env, secret) {
@@ -156,42 +207,173 @@ pub(crate) fn render_env(
 
 // --- Per-kind config shapes and renderers ------------------------------------
 
+/// The container port Forgejo's web (and git-over-HTTP) surface listens on.
+///
+/// Pinned into `FORGEJO__server__HTTP_PORT`. Must equal
+/// `reconcile::http_surface_port(Git)`, the port the reconciler publishes and the
+/// proxy routes to (#29); the `git_http_port_matches_the_routed_surface` test in
+/// `reconcile` guards the two against drift.
+const GIT_HTTP_PORT: u16 = 3000;
+
+/// The Forgejo login-source name Elysium's OIDC provider is registered under.
+///
+/// Lowercase and stable: Forgejo builds the OAuth callback path from it
+/// (`<ROOT_URL>/user/oauth2/<name>/callback`), so the registered redirect URI
+/// (built in [`crate::orchestration::reconcile`]) and the login source must agree
+/// on this exact value.
+pub(crate) const OIDC_SOURCE_NAME: &str = "elysium";
+
+/// The OAuth scopes Forgejo requests from Elysium's OIDC provider.
+///
+/// `openid` for authentication, `email`+`profile` so Forgejo can auto-provision a
+/// matching account (see [`OIDC_ENV_SCOPES`]). Elysium's provider advertises all
+/// three (`SUPPORTED_SCOPES`).
+const OIDC_SCOPES: &str = "openid email profile";
+
+/// Env var carrying the OIDC login-source name to the first-boot init.
+const OIDC_ENV_SOURCE_NAME: &str = "ELYSIUM_OIDC_SOURCE_NAME";
+/// Env var carrying the OIDC discovery URL to the first-boot init.
+const OIDC_ENV_DISCOVERY_URL: &str = "ELYSIUM_OIDC_DISCOVERY_URL";
+/// Env var carrying the OIDC client id to the first-boot init.
+const OIDC_ENV_CLIENT_ID: &str = "ELYSIUM_OIDC_CLIENT_ID";
+/// Env var carrying the OIDC client secret to the first-boot init (secret-tagged).
+const OIDC_ENV_CLIENT_SECRET: &str = "ELYSIUM_OIDC_CLIENT_SECRET";
+/// Env var carrying the OIDC scopes to the first-boot init.
+const OIDC_ENV_SCOPES: &str = "ELYSIUM_OIDC_SCOPES";
+
 /// Non-secret `config_json` of a managed git (Forgejo) integration.
 ///
 /// All fields optional: a fresh integration stores `{}` and still provisions.
-/// Unknown fields are ignored for forward compatibility; M4 (the git
-/// milestone) extends this shape as the Forgejo surface grows.
+/// Unknown fields are ignored for forward compatibility; the git milestone
+/// extends this shape as the Forgejo surface grows. `ROOT_URL` is derived from
+/// the deployment origin and the reverse-proxy sub-path, so it is not a stored
+/// field; only `domain` (a display/clone hostname hint) is admin-supplied.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct GitConfig {
-    /// Public domain the forge serves (`FORGEJO__server__DOMAIN`).
+    /// Public domain the forge serves (`FORGEJO__server__DOMAIN`), when the
+    /// operator fronts it with a dedicated hostname; optional.
     domain: String,
-    /// Full external URL of the forge (`FORGEJO__server__ROOT_URL`).
-    root_url: String,
 }
 
-/// Forgejo env: `FORGEJO__<section>__<KEY>` entries, per its container docs.
-fn render_git(config: &serde_json::Value) -> Result<RenderedEntries, TemplateError> {
-    let config: GitConfig = parse_config(IntegrationKind::Git, config)?;
-    // A managed instance is configured entirely by Elysium; locking the
-    // installer keeps the first boot from exposing an unauthenticated setup UI.
-    let mut env = vec![(
-        "FORGEJO__security__INSTALL_LOCK".to_string(),
-        EnvValue::plain("true"),
-    )];
+/// Renders a runnable managed-Forgejo env: `FORGEJO__<section>__<KEY>` plus the
+/// Elysium OIDC login-source parameters.
+///
+/// The forge is self-contained (repos + a SQLite DB on the one POSIX_FS `repos`
+/// Drive, so no separate Postgres container is provisioned) and served under the
+/// reverse-proxy sub-path `/services/<id>/` (#29), so `ROOT_URL` carries that
+/// sub-path and Forgejo generates correct asset, clone, and OAuth-callback URLs.
+/// SSO is the entry: self-service local registration is off, and when the
+/// reconciler has registered an OIDC client the login-source parameters are
+/// templated for the container's first-boot init to feed
+/// `forgejo admin auth add-oauth` (Forgejo has no app.ini path for a login
+/// source; see `docs/integrations.md`).
+fn render_git(input: &RenderInput<'_>) -> Result<RenderedEntries, TemplateError> {
+    let config: GitConfig = parse_config(IntegrationKind::Git, input.config)?;
+    let base = input.provisioning.app_origin.trim_end_matches('/');
+    let root_url = format!("{base}/services/{}/", input.integration.id);
+    // SQLite lives on the same POSIX_FS repos Drive as the git objects, under the
+    // role's container mount, so the whole forge state is one bound directory.
+    let repos = storage_role(IntegrationKind::Git, "repos").expect("git declares a repos role");
+    let sqlite_path = format!("{}/forgejo.db", repos.mount_path);
+
+    let mut env = vec![
+        // Configured entirely by Elysium; locking the installer keeps the first
+        // boot from exposing an unauthenticated setup UI.
+        (
+            "FORGEJO__security__INSTALL_LOCK".to_string(),
+            EnvValue::plain("true"),
+        ),
+        (
+            "FORGEJO__server__ROOT_URL".to_string(),
+            EnvValue::plain(root_url),
+        ),
+        // Plain HTTP behind the proxy; the operator terminates TLS in front of
+        // Elysium. The port must match the published/routed surface (#29).
+        (
+            "FORGEJO__server__PROTOCOL".to_string(),
+            EnvValue::plain("http"),
+        ),
+        (
+            "FORGEJO__server__HTTP_PORT".to_string(),
+            EnvValue::plain(GIT_HTTP_PORT.to_string()),
+        ),
+        (
+            "FORGEJO__database__DB_TYPE".to_string(),
+            EnvValue::plain("sqlite3"),
+        ),
+        (
+            "FORGEJO__database__PATH".to_string(),
+            EnvValue::plain(sqlite_path),
+        ),
+        // SSO is the only entry: no self-service local signup, no signup button.
+        (
+            "FORGEJO__service__DISABLE_REGISTRATION".to_string(),
+            EnvValue::plain("true"),
+        ),
+        (
+            "FORGEJO__service__SHOW_REGISTRATION_BUTTON".to_string(),
+            EnvValue::plain("false"),
+        ),
+    ];
     if !config.domain.trim().is_empty() {
         env.push((
             "FORGEJO__server__DOMAIN".to_string(),
             EnvValue::plain(config.domain.trim()),
         ));
     }
-    if !config.root_url.trim().is_empty() {
-        env.push((
-            "FORGEJO__server__ROOT_URL".to_string(),
-            EnvValue::plain(config.root_url.trim()),
-        ));
+
+    if let Some(oidc) = input.provisioning.oidc {
+        env.extend(oidc_env(base, oidc));
     }
     Ok(env)
+}
+
+/// The OIDC login-source env for a managed Forgejo behind Elysium's provider.
+///
+/// Two parts: the `oauth2_client` account behavior Forgejo honors from app.ini
+/// (auto-register + link a Forgejo account to the Elysium identity on first
+/// login), and the `ELYSIUM_OIDC_*` login-source parameters the container's
+/// first-boot init feeds to `forgejo admin auth add-oauth`. The client secret is
+/// secret-tagged so it never survives a debug rendering.
+fn oidc_env(base: &str, oidc: &OidcClientCreds) -> RenderedEntries {
+    vec![
+        // Auto-provision and link a Forgejo account from the Elysium login.
+        (
+            "FORGEJO__oauth2_client__ENABLE_AUTO_REGISTRATION".to_string(),
+            EnvValue::plain("true"),
+        ),
+        (
+            "FORGEJO__oauth2_client__ACCOUNT_LINKING".to_string(),
+            EnvValue::plain("auto"),
+        ),
+        (
+            "FORGEJO__oauth2_client__UPDATE_AVATAR".to_string(),
+            EnvValue::plain("true"),
+        ),
+        (
+            "FORGEJO__oauth2_client__USERNAME".to_string(),
+            EnvValue::plain("nickname"),
+        ),
+        // The login-source parameters the first-boot init registers against.
+        (
+            OIDC_ENV_SOURCE_NAME.to_string(),
+            EnvValue::plain(OIDC_SOURCE_NAME),
+        ),
+        (
+            OIDC_ENV_DISCOVERY_URL.to_string(),
+            EnvValue::plain(format!("{base}/.well-known/openid-configuration")),
+        ),
+        (
+            OIDC_ENV_CLIENT_ID.to_string(),
+            EnvValue::plain(oidc.client_id.as_str()),
+        ),
+        (OIDC_ENV_SCOPES.to_string(), EnvValue::plain(OIDC_SCOPES)),
+        (
+            OIDC_ENV_CLIENT_SECRET.to_string(),
+            EnvValue::secret(oidc.client_secret.expose()),
+        ),
+    ]
 }
 
 /// Placeholder: the mail image contract is not pinned yet.
@@ -200,16 +382,16 @@ fn render_git(config: &serde_json::Value) -> Result<RenderedEntries, TemplateErr
 /// enough that inventing env names now would just be churn; M6 pins the image
 /// and this renderer grows the real schema (hostname, domains, admin secret).
 /// Until then a managed mail integration carries only the base env.
-fn render_mail(config: &serde_json::Value) -> Result<RenderedEntries, TemplateError> {
+fn render_mail(input: &RenderInput<'_>) -> Result<RenderedEntries, TemplateError> {
     // Parsed (and rejected when malformed) even though no fields are consumed
     // yet, so a bad stored config surfaces now instead of on the M6 upgrade.
-    let _: EmptyConfig = parse_config(IntegrationKind::Mail, config)?;
+    let _: EmptyConfig = parse_config(IntegrationKind::Mail, input.config)?;
     Ok(Vec::new())
 }
 
 /// CNCF distribution env: `REGISTRY_<section>_<KEY>` overrides.
-fn render_registry(config: &serde_json::Value) -> Result<RenderedEntries, TemplateError> {
-    let _: EmptyConfig = parse_config(IntegrationKind::Registry, config)?;
+fn render_registry(input: &RenderInput<'_>) -> Result<RenderedEntries, TemplateError> {
+    let _: EmptyConfig = parse_config(IntegrationKind::Registry, input.config)?;
     // Pin the filesystem driver's root to the `blobs` role's mount point so the
     // image and the storage-role table can never drift apart. An S3-backed
     // `blobs` binding instead needs the `REGISTRY_STORAGE_S3_*` family wired
@@ -228,14 +410,14 @@ fn render_registry(config: &serde_json::Value) -> Result<RenderedEntries, Templa
 /// `ELYSIUM_SERVICE_TOKEN` is the intended control-plane handshake for
 /// JalapenoLabs images, flowing through the same seam as the pinned kinds; the
 /// Astraval milestone pins the full schema alongside the image itself.
-fn render_perforce(config: &serde_json::Value) -> Result<RenderedEntries, TemplateError> {
-    let _: EmptyConfig = parse_config(IntegrationKind::Perforce, config)?;
+fn render_perforce(input: &RenderInput<'_>) -> Result<RenderedEntries, TemplateError> {
+    let _: EmptyConfig = parse_config(IntegrationKind::Perforce, input.config)?;
     Ok(Vec::new())
 }
 
 /// Placeholder: the runner image is not published yet (see [`render_perforce`]).
-fn render_runner(config: &serde_json::Value) -> Result<RenderedEntries, TemplateError> {
-    let _: EmptyConfig = parse_config(IntegrationKind::Runner, config)?;
+fn render_runner(input: &RenderInput<'_>) -> Result<RenderedEntries, TemplateError> {
+    let _: EmptyConfig = parse_config(IntegrationKind::Runner, input.config)?;
     Ok(Vec::new())
 }
 
@@ -435,52 +617,108 @@ mod tests {
         ServiceSecret("s3cr3t-admin-token-0f9d2c81".to_string())
     }
 
+    /// Known OIDC client credentials tests can assert on (id visible, secret redacted).
+    fn known_oidc() -> OidcClientCreds {
+        OidcClientCreds {
+            client_id: "forgejo-11111111-2222-3333-4444-555555555555".to_string(),
+            client_secret: ServiceSecret("ely_cs_test-client-secret".to_string()),
+        }
+    }
+
     // --- render_env: the pinned kinds ----------------------------------------
 
     #[test]
-    fn git_template_renders_the_forgejo_env() {
+    fn git_template_renders_a_runnable_forgejo_env() {
         let row = managed_row(
             IntegrationKind::Git,
-            serde_json::json!({
-                "domain": "git.example.com",
-                "root_url": "https://git.example.com/",
-            }),
+            serde_json::json!({ "domain": "git.example.com" }),
         );
         let secret = known_secret();
-        let env = render_env(&row, Some(&secret)).expect("valid config renders");
+        let oidc = known_oidc();
+        let provisioning = Provisioning {
+            app_origin: "https://elysium.example.com",
+            oidc: Some(&oidc),
+        };
+        let env = render_env(&row, Some(&secret), &provisioning).expect("valid config renders");
 
         assert_eq!(env[ENV_INTEGRATION_ID].expose(), row.id.to_string());
         assert_eq!(env["FORGEJO__security__INSTALL_LOCK"].expose(), "true");
-        assert_eq!(env["FORGEJO__server__DOMAIN"].expose(), "git.example.com");
+        // ROOT_URL carries the reverse-proxy sub-path so generated URLs are correct.
         assert_eq!(
             env["FORGEJO__server__ROOT_URL"].expose(),
-            "https://git.example.com/"
+            format!("https://elysium.example.com/services/{}/", row.id)
         );
-        // The secret lands in Forgejo's signing-key slot, tagged secret.
+        assert_eq!(env["FORGEJO__server__PROTOCOL"].expose(), "http");
+        assert_eq!(env["FORGEJO__server__HTTP_PORT"].expose(), "3000");
+        assert_eq!(env["FORGEJO__server__DOMAIN"].expose(), "git.example.com");
+        // SQLite on the repos Drive mount; no separate Postgres container.
+        assert_eq!(env["FORGEJO__database__DB_TYPE"].expose(), "sqlite3");
+        assert_eq!(env["FORGEJO__database__PATH"].expose(), "/data/forgejo.db");
+        // SSO is the only entry: local registration is off.
+        assert_eq!(
+            env["FORGEJO__service__DISABLE_REGISTRATION"].expose(),
+            "true"
+        );
+
+        // The OIDC login source points at Elysium's discovery, carries the injected
+        // client id, and keeps the client secret redacted.
+        assert_eq!(env[OIDC_ENV_SOURCE_NAME].expose(), "elysium");
+        assert_eq!(
+            env[OIDC_ENV_DISCOVERY_URL].expose(),
+            "https://elysium.example.com/.well-known/openid-configuration"
+        );
+        assert_eq!(env[OIDC_ENV_CLIENT_ID].expose(), oidc.client_id);
+        assert_eq!(env[OIDC_ENV_SCOPES].expose(), "openid email profile");
+        let client_secret = &env[OIDC_ENV_CLIENT_SECRET];
+        assert_eq!(client_secret.expose(), oidc.client_secret.expose());
+        assert!(client_secret.is_secret());
+        assert_eq!(
+            env["FORGEJO__oauth2_client__ENABLE_AUTO_REGISTRATION"].expose(),
+            "true"
+        );
+        assert_eq!(
+            env["FORGEJO__oauth2_client__ACCOUNT_LINKING"].expose(),
+            "auto"
+        );
+
+        // The service secret still lands in Forgejo's signing-key slot, tagged secret.
         let key = &env["FORGEJO__security__SECRET_KEY"];
         assert_eq!(key.expose(), secret.expose());
         assert!(key.is_secret());
-        assert_eq!(env.len(), 5);
     }
 
     #[test]
-    fn git_template_omits_unset_optional_fields() {
-        // A fresh integration stores `{}`; only the always-on entries render.
+    fn git_template_omits_the_oidc_source_without_a_registered_client() {
+        // A fresh integration stores `{}`; with no OIDC client wired yet, the base
+        // Forgejo env still renders but the login-source env is absent. ROOT_URL is
+        // derived (not a stored field), so it is always present.
         let row = managed_row(IntegrationKind::Git, serde_json::json!({}));
-        let env = render_env(&row, Some(&known_secret())).expect("empty config renders");
+        let provisioning = Provisioning {
+            app_origin: "https://elysium.example.com/",
+            oidc: None,
+        };
+        let env =
+            render_env(&row, Some(&known_secret()), &provisioning).expect("empty config renders");
 
         assert!(env.contains_key(ENV_INTEGRATION_ID));
         assert_eq!(env["FORGEJO__security__INSTALL_LOCK"].expose(), "true");
         assert!(env.contains_key("FORGEJO__security__SECRET_KEY"));
+        // A trailing slash on the origin is normalized, not doubled.
+        assert_eq!(
+            env["FORGEJO__server__ROOT_URL"].expose(),
+            format!("https://elysium.example.com/services/{}/", row.id)
+        );
+        // No admin domain, no OIDC source.
         assert!(!env.contains_key("FORGEJO__server__DOMAIN"));
-        assert!(!env.contains_key("FORGEJO__server__ROOT_URL"));
+        assert!(!env.contains_key(OIDC_ENV_CLIENT_ID));
+        assert!(!env.contains_key("FORGEJO__oauth2_client__ACCOUNT_LINKING"));
     }
 
     #[test]
     fn registry_template_pins_the_blob_root_and_http_secret() {
         let row = managed_row(IntegrationKind::Registry, serde_json::json!({}));
         let secret = known_secret();
-        let env = render_env(&row, Some(&secret)).expect("renders");
+        let env = render_env(&row, Some(&secret), &Provisioning::default()).expect("renders");
 
         // The filesystem driver root equals the blobs role's declared mount,
         // so the storage-role table and the image agree by construction.
@@ -501,7 +739,7 @@ mod tests {
     fn mail_template_is_the_documented_placeholder() {
         // No pinned image contract yet (M6): base env only, no secret slot.
         let row = managed_row(IntegrationKind::Mail, serde_json::json!({}));
-        let env = render_env(&row, None).expect("renders");
+        let env = render_env(&row, None, &Provisioning::default()).expect("renders");
         assert_eq!(env.len(), 1);
         assert!(env.contains_key(ENV_INTEGRATION_ID));
         assert!(!consumes_secret(IntegrationKind::Mail));
@@ -512,7 +750,7 @@ mod tests {
         for kind in [IntegrationKind::Perforce, IntegrationKind::Runner] {
             let row = managed_row(kind, serde_json::json!({}));
             let secret = known_secret();
-            let env = render_env(&row, Some(&secret)).expect("renders");
+            let env = render_env(&row, Some(&secret), &Provisioning::default()).expect("renders");
 
             let token = &env["ELYSIUM_SERVICE_TOKEN"];
             assert_eq!(token.expose(), secret.expose());
@@ -526,7 +764,8 @@ mod tests {
         // `{}` is what a fresh integration stores; no kind may reject it.
         for kind in IntegrationKind::ALL {
             let row = managed_row(kind, serde_json::json!({}));
-            let env = render_env(&row, Some(&known_secret())).expect("renders");
+            let env =
+                render_env(&row, Some(&known_secret()), &Provisioning::default()).expect("renders");
             assert!(env.contains_key(ENV_INTEGRATION_ID), "{kind:?} base env");
         }
     }
@@ -538,7 +777,8 @@ mod tests {
         // A field of the wrong type fails the template with a message naming
         // the kind; the reconciler parks the row FAILED with it.
         let row = managed_row(IntegrationKind::Git, serde_json::json!({ "domain": 123 }));
-        let error = render_env(&row, None).expect_err("bad config rejected");
+        let error =
+            render_env(&row, None, &Provisioning::default()).expect_err("bad config rejected");
         let rendered = error.to_string();
         assert!(rendered.contains("git"), "names the kind: {rendered}");
         assert!(
@@ -566,11 +806,20 @@ mod tests {
             serde_json::json!({ "domain": "git.example.com" }),
         );
         let secret = known_secret();
-        let env = render_env(&row, Some(&secret)).expect("renders");
+        let oidc = known_oidc();
+        let provisioning = Provisioning {
+            app_origin: "https://elysium.example.com",
+            oidc: Some(&oidc),
+        };
+        let env = render_env(&row, Some(&secret), &provisioning).expect("renders");
 
         let rendered = format!("{env:?}");
+        // Neither the service secret nor the OIDC client secret leaks; keys and
+        // plain values stay visible.
         assert!(!rendered.contains(secret.expose()));
+        assert!(!rendered.contains(oidc.client_secret.expose()));
         assert!(rendered.contains("FORGEJO__security__SECRET_KEY"));
+        assert!(rendered.contains(OIDC_ENV_CLIENT_SECRET));
         assert!(rendered.contains("git.example.com"));
         assert!(rendered.contains("<redacted>"));
     }

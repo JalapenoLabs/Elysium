@@ -23,7 +23,7 @@ use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 use crate::authz::{self, Capability};
@@ -132,6 +132,104 @@ fn generate_client_secret() -> String {
     let mut entropy = [0u8; CLIENT_SECRET_ENTROPY_BYTES];
     OsRng.fill_bytes(&mut entropy);
     format!("{CLIENT_SECRET_PREFIX}{}", URL_SAFE_NO_PAD.encode(entropy))
+}
+
+/// The standard OIDC scope set a client requests when it names none.
+fn default_scopes() -> Vec<String> {
+    vec![
+        "openid".to_string(),
+        "profile".to_string(),
+        "email".to_string(),
+    ]
+}
+
+/// The standard grant-type set a client uses when it names none.
+fn default_grant_types() -> Vec<String> {
+    vec![
+        "authorization_code".to_string(),
+        "refresh_token".to_string(),
+    ]
+}
+
+/// Ensures the confidential first-party OIDC client backing a managed integration.
+///
+/// The provisioning path (#38) calls this on every reconcile of a managed service
+/// that SSOs against Elysium (git today). On first sight it registers the client
+/// under a caller-supplied deterministic `client_id` with a fresh sealed secret;
+/// on every later reconcile it recovers the stored secret so the same credentials
+/// are re-injected into the service config unchanged. Idempotent by construction:
+/// a re-drive of desired state never registers a duplicate client.
+///
+/// The client is confidential (the service authenticates with the secret) and
+/// first-party (the user already holds an Elysium session, so opening the service
+/// is pre-authenticated with no consent screen), with the standard
+/// `openid profile email` scopes and `authorization_code refresh_token` grants.
+/// The secret is returned so the caller can inject it; it is stored only sealed.
+///
+/// # Errors
+/// Returns an error when the database is unreachable, when a stored secret cannot
+/// be opened (wrong master key or tampering, or a non-UTF-8 blob), or when a
+/// client already exists under this id without a secret (a public client cannot
+/// front a managed service).
+pub async fn ensure_integration_client(
+    conn: &mut PgConnection,
+    crypto: &Crypto,
+    integration_id: Uuid,
+    client_id: &str,
+    redirect_uris: &[String],
+) -> eyre::Result<CreatedClient> {
+    // Recover an already-registered client's secret so its injected config stays
+    // stable across reconciles. `Option<Option<_>>`: the outer is row presence,
+    // the inner is the nullable `client_secret` column.
+    let existing = sqlx::query_scalar::<_, Option<Vec<u8>>>(
+        "SELECT client_secret FROM oidc_clients WHERE client_id = $1",
+    )
+    .bind(client_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    if let Some(stored_secret) = existing {
+        let Some(sealed) = stored_secret else {
+            return Err(eyre::eyre!(
+                "OIDC client {client_id:?} exists without a secret; a managed service requires \
+                 a confidential client"
+            ));
+        };
+        let opened = crypto
+            .open(&sealed, client_id.as_bytes())
+            .map_err(|error| eyre::eyre!("failed to open the OIDC client secret: {error}"))?;
+        let secret = String::from_utf8(opened.plaintext)
+            .map_err(|_| eyre::eyre!("the stored OIDC client secret is not valid UTF-8"))?;
+        return Ok(CreatedClient {
+            client_id: client_id.to_string(),
+            client_secret: Some(secret),
+        });
+    }
+
+    // First sight: mint, seal (bound to the client id), and register. Serialized
+    // per integration by the reconciler, so the get-then-insert needs no upsert.
+    let secret = generate_client_secret();
+    let sealed = crypto.seal(secret.as_bytes(), client_id.as_bytes());
+    sqlx::query(
+        "INSERT INTO oidc_clients
+            (client_id, client_secret, name, redirect_uris, scopes, grant_types,
+             integration_id, is_first_party)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)",
+    )
+    .bind(client_id)
+    .bind(&sealed)
+    .bind(format!("Managed service {integration_id}"))
+    .bind(redirect_uris)
+    .bind(default_scopes())
+    .bind(default_grant_types())
+    .bind(integration_id)
+    .execute(&mut *conn)
+    .await
+    .map_err(|error| eyre::eyre!("failed to register the integration OIDC client: {error}"))?;
+
+    Ok(CreatedClient {
+        client_id: client_id.to_string(),
+        client_secret: Some(secret),
+    })
 }
 
 /// Registers a client, sealing its secret when confidential.
@@ -291,11 +389,7 @@ pub async fn register(
     // reject anything the provider does not support so a client cannot be
     // registered to request a scope the token endpoint will never honor.
     let scopes = if body.scopes.is_empty() {
-        vec![
-            "openid".to_string(),
-            "profile".to_string(),
-            "email".to_string(),
-        ]
+        default_scopes()
     } else {
         body.scopes
     };
@@ -306,10 +400,7 @@ pub async fn register(
         return (StatusCode::BAD_REQUEST, format!("unsupported scope: {bad}")).into_response();
     }
     let grant_types = if body.grant_types.is_empty() {
-        vec![
-            "authorization_code".to_string(),
-            "refresh_token".to_string(),
-        ]
+        default_grant_types()
     } else {
         body.grant_types
     };
@@ -468,5 +559,119 @@ mod tests {
             CLIENT_SECRET_ENTROPY_BYTES
         );
         assert_ne!(generate_client_secret(), generate_client_secret());
+    }
+
+    #[test]
+    fn default_scope_and_grant_sets_are_provider_supported() {
+        // The defaults an integration client registers with must be a subset the
+        // token endpoint honors, or a managed service could never complete a flow.
+        for scope in default_scopes() {
+            assert!(SUPPORTED_SCOPES.contains(&scope.as_str()), "scope: {scope}");
+        }
+        for grant in default_grant_types() {
+            assert!(
+                SUPPORTED_GRANT_TYPES.contains(&grant.as_str()),
+                "grant: {grant}"
+            );
+        }
+    }
+
+    // --- ensure_integration_client against postgres (ignored by default) ------
+    //
+    // Run with `cargo test -- --ignored` and a DATABASE_URL; everything happens
+    // inside a rolled-back transaction, like the reconciler's own DB tests.
+
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn ensure_integration_client_is_idempotent() {
+        use sqlx::postgres::PgPoolOptions;
+
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for this test");
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&database_url)
+            .await
+            .expect("connect postgres");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("migrations apply cleanly");
+        let crypto = test_crypto();
+
+        let mut tx = pool.begin().await.expect("begin transaction");
+
+        // Seed an org and a managed git integration the client can reference.
+        let unique = Uuid::new_v4();
+        let org = sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO orgs (name, slug) VALUES ('OIDC Org', $1) RETURNING id",
+        )
+        .bind(format!("oidc-{unique}"))
+        .fetch_one(&mut *tx)
+        .await
+        .expect("insert org");
+        let integration_id = sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO integrations (org_id, kind, mode, owner_scope, owner_id, name)
+             VALUES ($1, 1, 1, 1, $1, 'Forge') RETURNING id",
+        )
+        .bind(org)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("insert integration");
+
+        let client_id = format!("forgejo-{integration_id}");
+        let redirect = vec![format!(
+            "https://elysium.test/services/{integration_id}/user/oauth2/elysium/callback"
+        )];
+
+        // First ensure registers the client and returns a secret.
+        let first =
+            ensure_integration_client(&mut tx, &crypto, integration_id, &client_id, &redirect)
+                .await
+                .expect("first ensure");
+        assert_eq!(first.client_id, client_id);
+        let first_secret = first
+            .client_secret
+            .expect("a confidential client has a secret");
+
+        // Exactly one client row exists, and it is a confidential first-party client
+        // bound to the integration with the right redirect URI. Loaded within the
+        // transaction, since the seed is not committed.
+        let stored = sqlx::query_as::<_, ClientRow>(
+            "SELECT client_id, client_secret, name, redirect_uris, scopes, grant_types, \
+             is_first_party FROM oidc_clients WHERE client_id = $1",
+        )
+        .bind(&client_id)
+        .fetch_all(&mut *tx)
+        .await
+        .expect("load client rows");
+        assert_eq!(stored.len(), 1, "exactly one client is registered");
+        let client = Client::from(stored.into_iter().next().expect("one row"));
+        assert!(client.is_confidential());
+        assert!(client.is_first_party);
+        assert!(client.allows_redirect(&redirect[0]));
+
+        // A second ensure recovers the same secret and registers no duplicate.
+        let second =
+            ensure_integration_client(&mut tx, &crypto, integration_id, &client_id, &redirect)
+                .await
+                .expect("second ensure");
+        assert_eq!(
+            second.client_secret.expect("secret recovered"),
+            first_secret,
+            "the second ensure must recover the stored secret, not mint a new one"
+        );
+        let count =
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM oidc_clients WHERE client_id = $1")
+                .bind(&client_id)
+                .fetch_one(&mut *tx)
+                .await
+                .expect("count clients");
+        assert_eq!(
+            count, 1,
+            "a re-reconcile must not register a duplicate client"
+        );
+
+        tx.rollback().await.expect("rollback transaction");
     }
 }

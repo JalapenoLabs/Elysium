@@ -135,6 +135,7 @@ async fn main() -> eyre::Result<()> {
             &state.provisioner,
             &state.crypto,
             &state.routes,
+            &state.app_origin,
         )
         .await
         .wrap_err("failed to reconcile managed integrations")?;

@@ -308,9 +308,53 @@ from the managed image where they exist, and where Elysium unifies them they bel
 **action-center** surfaces (one inbox, "all repos"), shared across every integration rather
 than rebuilt per service.
 
+## Managed git (Forgejo)
+
+The git kind provisions a managed Forgejo, pinned by tag **and** digest
+(`codeberg.org/forgejo/forgejo:13.0.1@sha256:…`). The reconciler renders its env through the
+per-kind config template (`backend/src/orchestration/config.rs`, `render_git`):
+
+- **Self-contained storage.** Repos and a **SQLite** database live together on the one
+  POSIX_FS `repos` Drive (`FORGEJO__database__DB_TYPE=sqlite3`, `PATH` under the bound mount),
+  so no separate Postgres container is provisioned. Postgres-backed Forgejo (a `db`-kind
+  binding) is a later option.
+- **Served under the proxy sub-path.** `FORGEJO__server__ROOT_URL = <app_origin>/services/{id}/`
+  with `PROTOCOL=http` and `HTTP_PORT=3000`, so every generated URL (assets, clone, OAuth
+  callback) is correct behind the single-origin routing proxy (#29). The container's web port
+  (3000) is published on a host port and the route auto-registers when the service runs.
+- **Locked down.** `INSTALL_LOCK=true` (no first-boot setup UI) and self-service local
+  registration off (`DISABLE_REGISTRATION=true`): SSO is the only entry.
+
+**SSO — Elysium is the OIDC provider.** At provision time the reconciler registers a
+confidential, first-party OIDC client per git integration under a deterministic id
+(`forgejo-{integration_id}`) whose single redirect URI is the Forgejo callback under the
+sub-path (`.../services/{id}/user/oauth2/elysium/callback`). Registration is idempotent
+(`oidc::clients::ensure_integration_client`): a re-reconcile recovers the sealed secret and
+re-injects the same credentials rather than registering a duplicate. The client id, secret,
+and Elysium's discovery URL (`<app_origin>/.well-known/openid-configuration`) are templated
+into the container env (`ELYSIUM_OIDC_*`, secret redacted) alongside Forgejo's
+`oauth2_client` account-linking behavior (auto-register + link by email on first login).
+
+**Login-source delivery is the remaining git-SSO piece.** Forgejo stores OAuth2 login
+sources in its database, not in `app.ini`/env, so the templated `ELYSIUM_OIDC_*` parameters
+are consumed by a first-boot init running `forgejo admin auth add-oauth`; delivering that
+idempotent init (a container command hook or one-shot init container) is tracked in the
+roadmap below.
+
+**Host-port allocation** is currently derived deterministically from the integration id over
+a fixed band (stable across restarts, no container churn); a persisted allocation that
+guarantees per-host uniqueness under density is a tracked follow-up.
+
 ## Roadmap
 
 Delivered as milestones (see the GitHub milestones): Storage & Drives → Service orchestration
 control plane → Elysium as identity provider → then per-service integrations (git, registry,
 mail, Astraval) → runners & workers → unified action-center surfaces. Each per-service
 milestone depends on the storage, orchestration, and identity foundations.
+
+Remaining on the git milestone (M4), each an individual issue: the Forgejo login-source
+first-boot init (deliver + idempotent `add-oauth`/`update-oauth`), git transport auth (HTTPS
+scoped tokens + SSH minted keys), linked GitHub/GitLab (OAuth + repos into the unified view),
+the repo resource model (repos as resources with org/team ownership and access), and the
+embedded git panel + federated "all repos" surface. On the orchestration milestone (M2): a
+persisted per-integration host-port allocation to replace the deterministic derivation.
