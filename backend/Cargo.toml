@@ -63,6 +63,14 @@ totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
 # server setup and TOTP secrets are sealed under ELYSIUM_SECRET_KEY (see
 # src/crypto.rs), so a database dump alone never exposes them.
 chacha20poly1305 = "0.10"
+# The Drive gateway: every Drive is one OpenDAL operator (see docs/storage.md,
+# src/storage/provider.rs). Only the v1 backends are enabled (FS, S3, SFTP); the
+# other ~90 services stay off. Default features carry `reqwest-rustls-tls`, so the
+# S3 transport rides rustls and no OpenSSL enters the tree (matches sqlx/reqwest).
+opendal = { version = "0.57", features = ["services-fs", "services-s3", "services-sftp"] }
+# Materializes a Drive's sealed SFTP private key to a 0600 keyfile whose lifetime the
+# operator holds, since OpenDAL's `openssh` SFTP transport authenticates from a path.
+tempfile = "3"
 
 [dev-dependencies]
 # Exercise routes in-process (tower::ServiceExt::oneshot) without a socket.

@@ -149,10 +149,14 @@ in-app and stored in the DB: the upload cap, Drive definitions, the default Driv
 
 Three layers, three different calls:
 
-1. **Credentials — always, app-level.** A Drive's provider secret (S3 keys, SFTP
-   password/PEM) is sealed with `crypto.rs` (XChaCha20-Poly1305 under `ELYSIUM_SECRET_KEY`),
-   the same pattern as TOTP secrets. Never returned to the client; the API exposes only
-   "credential set / not set."
+1. **Credentials — always, app-level.** A Drive's provider secret (S3 access/secret
+   keys, SFTP private key) is sealed with `crypto.rs` (XChaCha20-Poly1305 under
+   `ELYSIUM_SECRET_KEY`), the same pattern as TOTP secrets, bound to the Drive's
+   `project_id`. Opened, the blob is per-kind JSON: `{access_key_id, secret_access_key}`
+   for S3, `{kind: private_key, pem}` for SFTP. Never returned to the client; the API
+   exposes only "credential set / not set." SFTP is key-based only in v1: the OpenDAL
+   `openssh` backend authenticates from a private-key file, so password auth is not
+   offered.
 2. **In transit — inherent per provider.** TLS for S3/WebDAV, SSH for SFTP, on-box for FS.
 3. **File bodies — infrastructure, not app-level, in v1.** No app-level body encryption:
    it would break native provider use, presign, previews, and content search. Rely on disk

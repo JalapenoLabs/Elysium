@@ -7,18 +7,22 @@
 //! every Drive carries a `project_id` and access resolves through the
 //! org -> project -> team hierarchy.
 //!
-//! This module holds the persistence contract the operator layer (#20) and the HTTP
+//! This module holds the persistence contract the operator layer and the HTTP
 //! surface (#21) build on: the [`DriveRow`] record type, the [`DriveKind`],
 //! [`DriveVisibility`], and [`DrivePrincipal`] enums that mirror the
 //! `elysium.storage.v1` proto wire values, per-kind [`DriveConfig`] validation, and
 //! the [`seal_secret`]/[`open_secret`] helpers that seal a Drive's provider
 //! credential with the same [`crate::crypto`] scheme as TOTP secrets.
 //!
-//! Nothing here is referenced by the binary yet; #20 and #21 wire it into the
-//! operator and the API. The module-wide `dead_code` allowance keeps the schema and
-//! its helpers landed and unit-tested ahead of those consumers, without warning on a
-//! binary build that does not call them yet.
+//! The [`provider`] submodule turns a validated [`DriveConfig`] plus its opened
+//! secret into a live [`opendal::Operator`] and tests a connection before it is
+//! saved. Nothing here is referenced by the binary yet; #21 wires it into the API.
+//! The module-wide `dead_code` allowance keeps the schema and its helpers landed and
+//! unit-tested ahead of those consumers, without warning on a binary build that does
+//! not call them yet.
 #![allow(dead_code)]
+
+pub mod provider;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
