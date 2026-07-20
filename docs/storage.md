@@ -91,6 +91,11 @@ absolute: outsiders never have access, ever; visibility is only ever a choice *w
 
 Managing Drives (create/link, edit, set default, delete, set access) requires the
 `manage_storage` admin capability, reusing the existing `grants`/`policies`/`authz` machinery.
+`manage_storage` is a project-or-org admin action: it is granted to a **project owner or
+admin** on the Drive's project (org owners and admins bypass to project Owner through the
+org → project → team resolver), or to an ordinary org member holding a **delegated org-level
+`manage_storage` grant**. Guests and suspended members never qualify. Reads (`GET /drives`)
+are not capability-gated; they return the Drives the caller can access per the rules above.
 Access is Drive-level in v1; per-file permissions (Google-Drive-style sharing with stable
 file IDs, roles, share links, "shared with me") are a deferred future pillar and are noted
 where they touch this design.

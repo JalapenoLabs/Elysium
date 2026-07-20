@@ -235,10 +235,9 @@ pub async fn resolve_project_access(
 /// # Errors
 /// Returns an error if resolving the access fails.
 //
-// The threshold predicate for resource authz (storage, integrations, mail); those
-// consumers land in later issues, so in the binary target it is currently exercised
-// only by tests. `allow` (not `expect`) because the test build does use it.
-#[allow(dead_code)]
+// The threshold predicate for resource authz. The storage `manage_storage` gate
+// (`crate::storage::drives`) is its first binary consumer; integrations and mail
+// follow.
 pub async fn has_project_access(
     conn: &mut PgConnection,
     user_id: Uuid,

@@ -23,7 +23,7 @@ use crate::session::SessionUser;
 use crate::state::AppState;
 use crate::{
     accounts, audit, bootstrap, context, credentials, grants, invites, members, orgs, password,
-    policies, profile, projects, recovery, security, sse, teams, webauthn,
+    policies, profile, projects, recovery, security, sse, storage, teams, webauthn,
 };
 
 /// Builds the application router with shared state and middleware attached.
@@ -202,6 +202,26 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/projects/{id}/domains/{domain}",
             delete(projects::remove_domain),
+        )
+        // Storage: project-scoped Drive management. The collection is scoped by a
+        // `?project_id=` query; item routes carry the Drive id. Reads follow the
+        // access helper; every management verb needs `manage_storage`.
+        .route(
+            "/api/v1/drives",
+            get(storage::drives::list).post(storage::drives::create),
+        )
+        .route(
+            "/api/v1/drives/{id}",
+            patch(storage::drives::update).delete(storage::drives::delete),
+        )
+        .route("/api/v1/drives/{id}/test", post(storage::drives::test))
+        .route(
+            "/api/v1/drives/{id}/access",
+            put(storage::drives::set_access),
+        )
+        .route(
+            "/api/v1/drives/{id}/default",
+            post(storage::drives::set_default),
         )
         // Session accounts: the profile + org switchers.
         .route("/api/v1/session/accounts", get(accounts::list))

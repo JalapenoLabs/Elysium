@@ -161,6 +161,7 @@ pub enum Capability {
     ManageSecurity,
     ManageTeams,
     ManageProjects,
+    ManageStorage,
     ViewAudit,
 }
 
@@ -172,6 +173,7 @@ impl Capability {
             "manage_security" => Some(Self::ManageSecurity),
             "manage_teams" => Some(Self::ManageTeams),
             "manage_projects" => Some(Self::ManageProjects),
+            "manage_storage" => Some(Self::ManageStorage),
             "view_audit" => Some(Self::ViewAudit),
             _ => None,
         }
@@ -184,6 +186,7 @@ impl Capability {
             Self::ManageSecurity => "manage_security",
             Self::ManageTeams => "manage_teams",
             Self::ManageProjects => "manage_projects",
+            Self::ManageStorage => "manage_storage",
             Self::ViewAudit => "view_audit",
         }
     }
