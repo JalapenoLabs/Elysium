@@ -4,8 +4,8 @@
 // @generated from file security.proto (package elysium.security.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "./common_pb";
 import { file_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file security.proto.
  */
 export const file_security: GenFile = /*@__PURE__*/
-  fileDesc("Cg5zZWN1cml0eS5wcm90bxITZWx5c2l1bS5zZWN1cml0eS52MSJ9ChBTZWN1cml0eUFjdGl2aXR5Ei4KCHNlc3Npb25zGAEgAygLMhwuZWx5c2l1bS5zZWN1cml0eS52MS5TZXNzaW9uEjkKD3JlY2VudF9zaWduX2lucxgCIAMoCzIgLmVseXNpdW0uc2VjdXJpdHkudjEuU2lnbkluRXZlbnQimwIKB1Nlc3Npb24SCgoCaWQYASABKAkSEgoKdXNlcl9hZ2VudBgCIAEoCRIPCgJpcBgDIAEoCUgAiAEBEi8KCGxvY2F0aW9uGAQgASgLMh0uZWx5c2l1bS5zZWN1cml0eS52MS5Mb2NhdGlvbhIwCgpjcmVhdGVkX2F0GAUgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEjIKDGxhc3Rfc2Vlbl9hdBgGIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcBIwCgpleHBpcmVzX2F0GAcgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEg8KB2N1cnJlbnQYCCABKAhCBQoDX2lwIr0BCgtTaWduSW5FdmVudBIOCgZtZXRob2QYASABKAkSDwoHb3V0Y29tZRgCIAEoCRIPCgJpcBgDIAEoCUgAiAEBEi8KCGxvY2F0aW9uGAQgASgLMh0uZWx5c2l1bS5zZWN1cml0eS52MS5Mb2NhdGlvbhIwCgpjcmVhdGVkX2F0GAUgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEhIKCnVzZXJfYWdlbnQYBiABKAlCBQoDX2lwInQKCExvY2F0aW9uEhEKBGNpdHkYASABKAlIAIgBARIUCgdjb3VudHJ5GAIgASgJSAGIAQESGQoMY291bnRyeV9jb2RlGAMgASgJSAKIAQFCBwoFX2NpdHlCCgoIX2NvdW50cnlCDwoNX2NvdW50cnlfY29kZWIGcHJvdG8z", [file_common]);
+  fileDesc("Cg5zZWN1cml0eS5wcm90bxITZWx5c2l1bS5zZWN1cml0eS52MSJ9ChBTZWN1cml0eUFjdGl2aXR5Ei4KCHNlc3Npb25zGAEgAygLMhwuZWx5c2l1bS5zZWN1cml0eS52MS5TZXNzaW9uEjkKD3JlY2VudF9zaWduX2lucxgCIAMoCzIgLmVseXNpdW0uc2VjdXJpdHkudjEuU2lnbkluRXZlbnQimwIKB1Nlc3Npb24SCgoCaWQYASABKAkSEgoKdXNlcl9hZ2VudBgCIAEoCRIPCgJpcBgDIAEoCUgAiAEBEi8KCGxvY2F0aW9uGAQgASgLMh0uZWx5c2l1bS5zZWN1cml0eS52MS5Mb2NhdGlvbhIwCgpjcmVhdGVkX2F0GAUgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEjIKDGxhc3Rfc2Vlbl9hdBgGIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcBIwCgpleHBpcmVzX2F0GAcgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEg8KB2N1cnJlbnQYCCABKAhCBQoDX2lwIr0BCgtTaWduSW5FdmVudBIOCgZtZXRob2QYASABKAkSDwoHb3V0Y29tZRgCIAEoCRIPCgJpcBgDIAEoCUgAiAEBEi8KCGxvY2F0aW9uGAQgASgLMh0uZWx5c2l1bS5zZWN1cml0eS52MS5Mb2NhdGlvbhIwCgpjcmVhdGVkX2F0GAUgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEhIKCnVzZXJfYWdlbnQYBiABKAlCBQoDX2lwInQKCExvY2F0aW9uEhEKBGNpdHkYASABKAlIAIgBARIUCgdjb3VudHJ5GAIgASgJSAGIAQESGQoMY291bnRyeV9jb2RlGAMgASgJSAKIAQFCBwoFX2NpdHlCCgoIX2NvdW50cnlCDwoNX2NvdW50cnlfY29kZSLEAQoGU3NoS2V5EgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSEwoLZmluZ2VycHJpbnQYAyABKAkSEgoKcHVibGljX2tleRgEIAEoCRIRCglhbGdvcml0aG0YBSABKAkSMAoKY3JlYXRlZF9hdBgGIAEoCzIcLmVseXNpdW0uY29tbW9uLnYxLlRpbWVzdGFtcBIyCgxsYXN0X3VzZWRfYXQYByABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXAiNwoKU3NoS2V5TGlzdBIpCgRrZXlzGAEgAygLMhsuZWx5c2l1bS5zZWN1cml0eS52MS5Tc2hLZXkiOQoVUmVnaXN0ZXJTc2hLZXlSZXF1ZXN0EgwKBG5hbWUYASABKAkSEgoKcHVibGljX2tleRgCIAEoCSJOCg1Tc2hLZXlDcmVhdGVkEigKA2tleRgBIAEoCzIbLmVseXNpdW0uc2VjdXJpdHkudjEuU3NoS2V5EhMKC3ByaXZhdGVfa2V5GAIgASgJIogCCgtBY2Nlc3NUb2tlbhIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEi8KBnNjb3BlcxgDIAMoDjIfLmVseXNpdW0uc2VjdXJpdHkudjEuVG9rZW5TY29wZRIWCg5pbnRlZ3JhdGlvbl9pZBgEIAEoCRIwCgpleHBpcmVzX2F0GAUgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEjAKCmNyZWF0ZWRfYXQYBiABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXASMgoMbGFzdF91c2VkX2F0GAcgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wIkMKD0FjY2Vzc1Rva2VuTGlzdBIwCgZ0b2tlbnMYASADKAsyIC5lbHlzaXVtLnNlY3VyaXR5LnYxLkFjY2Vzc1Rva2VuIn4KEE1pbnRUb2tlblJlcXVlc3QSDAoEbmFtZRgBIAEoCRIvCgZzY29wZXMYAiADKA4yHy5lbHlzaXVtLnNlY3VyaXR5LnYxLlRva2VuU2NvcGUSFgoOaW50ZWdyYXRpb25faWQYAyABKAkSEwoLdHRsX3NlY29uZHMYBCABKAMiVAoRQWNjZXNzVG9rZW5NaW50ZWQSLwoFdG9rZW4YASABKAsyIC5lbHlzaXVtLnNlY3VyaXR5LnYxLkFjY2Vzc1Rva2VuEg4KBnNlY3JldBgCIAEoCSq3AQoKVG9rZW5TY29wZRIbChdUT0tFTl9TQ09QRV9VTlNQRUNJRklFRBAAEhgKFFRPS0VOX1NDT1BFX0dJVF9SRUFEEAESGQoVVE9LRU5fU0NPUEVfR0lUX1dSSVRFEAISHQoZVE9LRU5fU0NPUEVfUkVHSVNUUllfUFVMTBADEh0KGVRPS0VOX1NDT1BFX1JFR0lTVFJZX1BVU0gQBBIZChVUT0tFTl9TQ09QRV9NQUlMX1NFTkQQBWIGcHJvdG8z", [file_common]);
 
 /**
  * The signed-in account's security activity: its active sessions and its recent
@@ -192,4 +192,341 @@ export type Location = Message<"elysium.security.v1.Location"> & {
  */
 export const LocationSchema: GenMessage<Location> = /*@__PURE__*/
   messageDesc(file_security, 3);
+
+/**
+ * One SSH public key mapped to the account. Elysium resolves an inbound key to
+ * its owner from this registry (transport auth). The private half is either the
+ * user's own (never sent to us) or generated once by Elysium (see SshKeyCreated).
+ *
+ * @generated from message elysium.security.v1.SshKey
+ */
+export type SshKey = Message<"elysium.security.v1.SshKey"> & {
+  /**
+   * Opaque id, used to revoke this key.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * Human label, e.g. "work laptop".
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * SHA256 fingerprint, e.g. "SHA256:abc…", for display and matching.
+   *
+   * @generated from field: string fingerprint = 3;
+   */
+  fingerprint: string;
+
+  /**
+   * The OpenSSH public key line, e.g. "ssh-ed25519 AAAA… comment".
+   *
+   * @generated from field: string public_key = 4;
+   */
+  publicKey: string;
+
+  /**
+   * Key algorithm, e.g. "ssh-ed25519".
+   *
+   * @generated from field: string algorithm = 5;
+   */
+  algorithm: string;
+
+  /**
+   * @generated from field: elysium.common.v1.Timestamp created_at = 6;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * Last time this key authenticated a transport operation; absent if never.
+   *
+   * @generated from field: elysium.common.v1.Timestamp last_used_at = 7;
+   */
+  lastUsedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message elysium.security.v1.SshKey.
+ * Use `create(SshKeySchema)` to create a new message.
+ */
+export const SshKeySchema: GenMessage<SshKey> = /*@__PURE__*/
+  messageDesc(file_security, 4);
+
+/**
+ * The account's registered SSH keys, newest first.
+ *
+ * @generated from message elysium.security.v1.SshKeyList
+ */
+export type SshKeyList = Message<"elysium.security.v1.SshKeyList"> & {
+  /**
+   * @generated from field: repeated elysium.security.v1.SshKey keys = 1;
+   */
+  keys: SshKey[];
+};
+
+/**
+ * Describes the message elysium.security.v1.SshKeyList.
+ * Use `create(SshKeyListSchema)` to create a new message.
+ */
+export const SshKeyListSchema: GenMessage<SshKeyList> = /*@__PURE__*/
+  messageDesc(file_security, 5);
+
+/**
+ * Register an existing public key, or generate one server-side. An empty
+ * public_key asks Elysium to generate an ed25519 keypair and return the private
+ * half once.
+ *
+ * @generated from message elysium.security.v1.RegisterSshKeyRequest
+ */
+export type RegisterSshKeyRequest = Message<"elysium.security.v1.RegisterSshKeyRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * An OpenSSH public key line to register. Empty asks Elysium to generate the
+   * keypair itself.
+   *
+   * @generated from field: string public_key = 2;
+   */
+  publicKey: string;
+};
+
+/**
+ * Describes the message elysium.security.v1.RegisterSshKeyRequest.
+ * Use `create(RegisterSshKeyRequestSchema)` to create a new message.
+ */
+export const RegisterSshKeyRequestSchema: GenMessage<RegisterSshKeyRequest> = /*@__PURE__*/
+  messageDesc(file_security, 6);
+
+/**
+ * The created key. private_key is populated only on the generate path, carried
+ * once here and never retrievable again.
+ *
+ * @generated from message elysium.security.v1.SshKeyCreated
+ */
+export type SshKeyCreated = Message<"elysium.security.v1.SshKeyCreated"> & {
+  /**
+   * @generated from field: elysium.security.v1.SshKey key = 1;
+   */
+  key?: SshKey | undefined;
+
+  /**
+   * OpenSSH-format private key, present only when Elysium generated the pair.
+   * Shown once; never stored in retrievable form.
+   *
+   * @generated from field: string private_key = 2;
+   */
+  privateKey: string;
+};
+
+/**
+ * Describes the message elysium.security.v1.SshKeyCreated.
+ * Use `create(SshKeyCreatedSchema)` to create a new message.
+ */
+export const SshKeyCreatedSchema: GenMessage<SshKeyCreated> = /*@__PURE__*/
+  messageDesc(file_security, 7);
+
+/**
+ * One scoped access token: a bearer credential for HTTPS git, `docker login`,
+ * SMTP AUTH, or a service API. Only a hash is stored; the secret shows once.
+ *
+ * @generated from message elysium.security.v1.AccessToken
+ */
+export type AccessToken = Message<"elysium.security.v1.AccessToken"> & {
+  /**
+   * Opaque id, used to revoke this token.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * Human label, e.g. "ci runner".
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * The capabilities this token grants.
+   *
+   * @generated from field: repeated elysium.security.v1.TokenScope scopes = 3;
+   */
+  scopes: TokenScope[];
+
+  /**
+   * Optional bind to a single integration instance (its id as a string). Empty
+   * grants every instance of the scoped kinds within the account's access.
+   *
+   * @generated from field: string integration_id = 4;
+   */
+  integrationId: string;
+
+  /**
+   * Optional expiry; absent means the token never expires.
+   *
+   * @generated from field: elysium.common.v1.Timestamp expires_at = 5;
+   */
+  expiresAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: elysium.common.v1.Timestamp created_at = 6;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * Last time this token authenticated an operation; absent if never.
+   *
+   * @generated from field: elysium.common.v1.Timestamp last_used_at = 7;
+   */
+  lastUsedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message elysium.security.v1.AccessToken.
+ * Use `create(AccessTokenSchema)` to create a new message.
+ */
+export const AccessTokenSchema: GenMessage<AccessToken> = /*@__PURE__*/
+  messageDesc(file_security, 8);
+
+/**
+ * The account's active tokens, newest first.
+ *
+ * @generated from message elysium.security.v1.AccessTokenList
+ */
+export type AccessTokenList = Message<"elysium.security.v1.AccessTokenList"> & {
+  /**
+   * @generated from field: repeated elysium.security.v1.AccessToken tokens = 1;
+   */
+  tokens: AccessToken[];
+};
+
+/**
+ * Describes the message elysium.security.v1.AccessTokenList.
+ * Use `create(AccessTokenListSchema)` to create a new message.
+ */
+export const AccessTokenListSchema: GenMessage<AccessTokenList> = /*@__PURE__*/
+  messageDesc(file_security, 9);
+
+/**
+ * Mint a new scoped token.
+ *
+ * @generated from message elysium.security.v1.MintTokenRequest
+ */
+export type MintTokenRequest = Message<"elysium.security.v1.MintTokenRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: repeated elysium.security.v1.TokenScope scopes = 2;
+   */
+  scopes: TokenScope[];
+
+  /**
+   * Optional bind to one integration instance; empty grants all in access.
+   *
+   * @generated from field: string integration_id = 3;
+   */
+  integrationId: string;
+
+  /**
+   * Time to live in seconds; 0 means no expiry.
+   *
+   * @generated from field: int64 ttl_seconds = 4;
+   */
+  ttlSeconds: bigint;
+};
+
+/**
+ * Describes the message elysium.security.v1.MintTokenRequest.
+ * Use `create(MintTokenRequestSchema)` to create a new message.
+ */
+export const MintTokenRequestSchema: GenMessage<MintTokenRequest> = /*@__PURE__*/
+  messageDesc(file_security, 10);
+
+/**
+ * The minted token. secret is the plaintext bearer value, carried once here
+ * (format "ely_pat_<random>"); only its hash is persisted.
+ *
+ * @generated from message elysium.security.v1.AccessTokenMinted
+ */
+export type AccessTokenMinted = Message<"elysium.security.v1.AccessTokenMinted"> & {
+  /**
+   * @generated from field: elysium.security.v1.AccessToken token = 1;
+   */
+  token?: AccessToken | undefined;
+
+  /**
+   * @generated from field: string secret = 2;
+   */
+  secret: string;
+};
+
+/**
+ * Describes the message elysium.security.v1.AccessTokenMinted.
+ * Use `create(AccessTokenMintedSchema)` to create a new message.
+ */
+export const AccessTokenMintedSchema: GenMessage<AccessTokenMinted> = /*@__PURE__*/
+  messageDesc(file_security, 11);
+
+/**
+ * A capability a scoped token may carry; a token bundles a set of these.
+ *
+ * @generated from enum elysium.security.v1.TokenScope
+ */
+export enum TokenScope {
+  /**
+   * @generated from enum value: TOKEN_SCOPE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Clone/fetch from git repositories.
+   *
+   * @generated from enum value: TOKEN_SCOPE_GIT_READ = 1;
+   */
+  GIT_READ = 1,
+
+  /**
+   * Push to git repositories.
+   *
+   * @generated from enum value: TOKEN_SCOPE_GIT_WRITE = 2;
+   */
+  GIT_WRITE = 2,
+
+  /**
+   * Pull images from the container registry.
+   *
+   * @generated from enum value: TOKEN_SCOPE_REGISTRY_PULL = 3;
+   */
+  REGISTRY_PULL = 3,
+
+  /**
+   * Push images to the container registry.
+   *
+   * @generated from enum value: TOKEN_SCOPE_REGISTRY_PUSH = 4;
+   */
+  REGISTRY_PUSH = 4,
+
+  /**
+   * Send mail via SMTP AUTH.
+   *
+   * @generated from enum value: TOKEN_SCOPE_MAIL_SEND = 5;
+   */
+  MAIL_SEND = 5,
+}
+
+/**
+ * Describes the enum elysium.security.v1.TokenScope.
+ */
+export const TokenScopeSchema: GenEnum<TokenScope> = /*@__PURE__*/
+  enumDesc(file_security, 0);
 

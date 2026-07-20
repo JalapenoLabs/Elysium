@@ -65,3 +65,133 @@ message Location {
   optional string country = 2;
   optional string country_code = 3;
 }
+
+// ---------------------------------------------------------------------------
+// Transport credentials: the SSH keys and scoped access tokens the account uses
+// to authenticate git, `docker login`, and SMTP AUTH (see docs/integrations.md,
+// Identity/transport auth). They extend the Security Center. A generated
+// private key and a minted token are secrets: each is returned once at creation
+// and never retrievable again; storage keeps only the public half or a hash.
+// ---------------------------------------------------------------------------
+
+// One SSH public key mapped to the account. Elysium resolves an inbound key to
+// its owner from this registry (transport auth). The private half is either the
+// user's own (never sent to us) or generated once by Elysium (see SshKeyCreated).
+message SshKey {
+  // Opaque id, used to revoke this key.
+  string id = 1;
+
+  // Human label, e.g. "work laptop".
+  string name = 2;
+
+  // SHA256 fingerprint, e.g. "SHA256:abc…", for display and matching.
+  string fingerprint = 3;
+
+  // The OpenSSH public key line, e.g. "ssh-ed25519 AAAA… comment".
+  string public_key = 4;
+
+  // Key algorithm, e.g. "ssh-ed25519".
+  string algorithm = 5;
+
+  elysium.common.v1.Timestamp created_at = 6;
+
+  // Last time this key authenticated a transport operation; absent if never.
+  elysium.common.v1.Timestamp last_used_at = 7;
+}
+
+// The account's registered SSH keys, newest first.
+message SshKeyList {
+  repeated SshKey keys = 1;
+}
+
+// Register an existing public key, or generate one server-side. An empty
+// public_key asks Elysium to generate an ed25519 keypair and return the private
+// half once.
+message RegisterSshKeyRequest {
+  string name = 1;
+
+  // An OpenSSH public key line to register. Empty asks Elysium to generate the
+  // keypair itself.
+  string public_key = 2;
+}
+
+// The created key. private_key is populated only on the generate path, carried
+// once here and never retrievable again.
+message SshKeyCreated {
+  SshKey key = 1;
+
+  // OpenSSH-format private key, present only when Elysium generated the pair.
+  // Shown once; never stored in retrievable form.
+  string private_key = 2;
+}
+
+// A capability a scoped token may carry; a token bundles a set of these.
+enum TokenScope {
+  TOKEN_SCOPE_UNSPECIFIED = 0;
+
+  // Clone/fetch from git repositories.
+  TOKEN_SCOPE_GIT_READ = 1;
+
+  // Push to git repositories.
+  TOKEN_SCOPE_GIT_WRITE = 2;
+
+  // Pull images from the container registry.
+  TOKEN_SCOPE_REGISTRY_PULL = 3;
+
+  // Push images to the container registry.
+  TOKEN_SCOPE_REGISTRY_PUSH = 4;
+
+  // Send mail via SMTP AUTH.
+  TOKEN_SCOPE_MAIL_SEND = 5;
+}
+
+// One scoped access token: a bearer credential for HTTPS git, `docker login`,
+// SMTP AUTH, or a service API. Only a hash is stored; the secret shows once.
+message AccessToken {
+  // Opaque id, used to revoke this token.
+  string id = 1;
+
+  // Human label, e.g. "ci runner".
+  string name = 2;
+
+  // The capabilities this token grants.
+  repeated TokenScope scopes = 3;
+
+  // Optional bind to a single integration instance (its id as a string). Empty
+  // grants every instance of the scoped kinds within the account's access.
+  string integration_id = 4;
+
+  // Optional expiry; absent means the token never expires.
+  elysium.common.v1.Timestamp expires_at = 5;
+
+  elysium.common.v1.Timestamp created_at = 6;
+
+  // Last time this token authenticated an operation; absent if never.
+  elysium.common.v1.Timestamp last_used_at = 7;
+}
+
+// The account's active tokens, newest first.
+message AccessTokenList {
+  repeated AccessToken tokens = 1;
+}
+
+// Mint a new scoped token.
+message MintTokenRequest {
+  string name = 1;
+
+  repeated TokenScope scopes = 2;
+
+  // Optional bind to one integration instance; empty grants all in access.
+  string integration_id = 3;
+
+  // Time to live in seconds; 0 means no expiry.
+  int64 ttl_seconds = 4;
+}
+
+// The minted token. secret is the plaintext bearer value, carried once here
+// (format "ely_pat_<random>"); only its hash is persisted.
+message AccessTokenMinted {
+  AccessToken token = 1;
+
+  string secret = 2;
+}
