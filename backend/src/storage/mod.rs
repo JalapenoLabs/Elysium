@@ -62,6 +62,16 @@ pub struct UnknownDiscriminant {
     value: i16,
 }
 
+impl UnknownDiscriminant {
+    /// Records that `enum_name` rejected the stored `value`.
+    ///
+    /// Shared with the orchestration enums (`crate::orchestration::integrations`),
+    /// whose smallint columns follow the same decode-or-fail-loudly rule.
+    pub(crate) fn new(enum_name: &'static str, value: i16) -> Self {
+        Self { enum_name, value }
+    }
+}
+
 impl std::fmt::Display for UnknownDiscriminant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "unknown {} discriminant: {}", self.enum_name, self.value)

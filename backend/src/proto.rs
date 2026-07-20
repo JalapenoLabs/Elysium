@@ -45,6 +45,15 @@ pub mod storage {
     }
 }
 
+/// Orchestration domain: service integrations and the reconcile status contract.
+pub mod integration {
+    /// Version 1 of the integration contract.
+    #[allow(dead_code)]
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/elysium.integration.v1.rs"));
+    }
+}
+
 /// Health, greeting, and database-reachability responses.
 pub mod health {
     /// Version 1 of the health contract.

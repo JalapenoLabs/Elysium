@@ -14,6 +14,7 @@ const PROTO_FILES: &[&str] = &[
     "../proto/user.proto",
     "../proto/project.proto",
     "../proto/storage.proto",
+    "../proto/integration.proto",
     "../proto/health.proto",
     "../proto/auth.proto",
     "../proto/realtime.proto",

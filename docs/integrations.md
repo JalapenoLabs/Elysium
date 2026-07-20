@@ -77,6 +77,68 @@ The API never hardcodes Docker and never holds the raw Docker socket.
   image upgrade never loses them. This is a small controller/reconciler, not a static
   docker-compose.
 
+## Data model and management API
+
+The model lives in `backend/src/orchestration/integrations.rs` (tables:
+`integrations`, `integration_storage_bindings`, `integration_access`), the wire
+contract in `proto/integration.proto` (`elysium.integration.v1`), and the routes in
+`backend/src/api.rs` under `/api/v1/integrations` (protobuf, session-authenticated):
+
+- `GET /api/v1/integrations?project_id=`: the integrations the caller can access,
+  with live `status` + `status_detail`. With `project_id`, that project's set (project
+  access required); without it, everything reachable in the active org: org-shared,
+  reachable projects, and the caller's own personal links.
+- `POST /api/v1/integrations`: create. Managed and org-linked creation require
+  `manage_integrations` (project owners/admins qualify for their project's
+  integrations, exactly like `manage_storage`); personal-linked creation is open to
+  full members and routes through the per-kind policy hook (the `integration_policies`
+  toggles enforce it). A managed personal integration is refused.
+- `PATCH /api/v1/integrations/{id}`: name, visibility, non-secret `config_json`,
+  or credential. Kind, mode, scope, project, and org are immutable.
+- `DELETE /api/v1/integrations/{id}`: removes the container first (managed), then
+  the record.
+- `POST /api/v1/integrations/{id}/start` / `.../stop`: set the desired lifecycle
+  (managed only); the reconciler converges immediately and the response carries the
+  resulting status.
+- `PUT /api/v1/integrations/{id}/bindings`: replace the storage-role bindings,
+  **capability-gated**: the role must exist for the kind and the Drive must advertise
+  its required capability. A project-scoped integration binds only its own project's
+  Drives.
+
+Credentials are write-only: sealed (`crypto.rs`, bound to the integration id) and
+surfaced only as `credential_set`. `ReconcileStatus` is the live provisioning state
+the console renders: `PENDING` (recorded, or waiting on a storage-role binding, with
+the reason in `status_detail`) -> `PROVISIONING` -> `RUNNING`, `STOPPED` on an
+explicit stop, `FAILED` with the reason.
+
+### Storage roles per kind
+
+| Kind | Role | Requires | Container mount |
+|------|------|----------|-----------------|
+| git | `repos` | `POSIX_FS` | `/data` |
+| mail | `bodies` | `OBJECT_STORE` | `/var/mail` |
+| registry | `blobs` | `OBJECT_STORE` | `/var/lib/registry` |
+| perforce | `metadata` | `POSIX_FS` | `/astraval/metadata` |
+| perforce | `archive` | `OBJECT_STORE` | `/astraval/archive` |
+| runner | `workspace` | `POSIX_FS` | `/workspace` |
+
+FS-backed bindings mount the Drive root joined with the binding prefix (default: the
+reserved `.elysium/<kind>/<role>` area). Object-store roles on a non-FS Drive carry no
+host mount; their provider-native service settings are per-kind env wiring on the
+env/secrets seam.
+
+### The reconciler
+
+`backend/src/orchestration/reconcile.rs` converges every managed integration on boot
+and after every management-API change: it plans a `ServiceSpec` (the kind's pinned
+default image, bindings resolved to volumes, one container per integration named
+`elysium-<kind>-<id>`, so project-scoped services are isolated per project) and
+drives `Provisioner::ensure`/`start`/`stop`, persisting the resulting status.
+Idempotent throughout: a restart re-converges the same containers, never duplicates.
+The `Provisioner` behind `AppState` is currently the in-memory backend; the Docker
+backend swaps in behind the same handle. Roadmap: fan status changes out over SSE so
+the console updates live.
+
 ## Routing
 
 Elysium's reverse proxy routes inbound traffic to the right managed container:

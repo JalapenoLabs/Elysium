@@ -471,14 +471,80 @@ pub trait Provisioner: Send + Sync {
     fn logs(&self, name: &str) -> impl Future<Output = Result<String, ProvisionError>> + Send;
 }
 
-/// The in-memory fake provisioner for driving the seam in unit tests.
+/// A cloneable, non-generic handle over the deployment's configured backend.
 ///
-/// A `#[cfg(test)]` module rather than a `test-util` feature on purpose: this
-/// crate is a binary with no downstream consumers, and `cfg(test)` code is
-/// visible to every test in the crate (the reconciler's included) while never
-/// entering the production binary.
-#[cfg(test)]
-pub(crate) mod fake {
+/// [`crate::state::AppState`] cannot be generic over a `Provisioner`, and the
+/// trait's RPITIT futures rule out `dyn`, so this is the concrete dispatch enum
+/// the trait docs anticipate: it implements [`Provisioner`] by forwarding to the
+/// active backend, and consumers written as `&impl Provisioner` accept it
+/// unchanged. `Clone` follows the `Arc<Inner>` service pattern (M-SERVICES-CLONE).
+#[derive(Debug, Clone)]
+pub enum ProvisionerHandle {
+    /// The in-memory bookkeeping backend: full trait semantics, no real engine.
+    ///
+    /// The boot-time placeholder until the Docker backend lands; it converges
+    /// desired state coherently but launches no actual containers.
+    // TODO(#27): add a `Docker(DockerProvisioner)` variant (behind the scoped
+    // socket-proxy) and select the backend from deployment config in
+    // `AppState::new`, leaving this variant as the test double.
+    InMemory(std::sync::Arc<memory::InMemoryProvisioner>),
+}
+
+impl ProvisionerHandle {
+    /// Creates a handle over a fresh in-memory backend.
+    pub fn in_memory() -> Self {
+        Self::InMemory(std::sync::Arc::new(memory::InMemoryProvisioner::new()))
+    }
+}
+
+// Pure delegation: the handle adds dispatch, never behavior. `async fn` satisfies
+// the trait's `impl Future + Send` signatures since every backend future is Send.
+impl Provisioner for ProvisionerHandle {
+    async fn ensure(&self, spec: &ServiceSpec) -> Result<ServiceHandle, ProvisionError> {
+        match self {
+            Self::InMemory(backend) => backend.ensure(spec).await,
+        }
+    }
+
+    async fn start(&self, name: &str) -> Result<(), ProvisionError> {
+        match self {
+            Self::InMemory(backend) => backend.start(name).await,
+        }
+    }
+
+    async fn stop(&self, name: &str) -> Result<(), ProvisionError> {
+        match self {
+            Self::InMemory(backend) => backend.stop(name).await,
+        }
+    }
+
+    async fn remove(&self, name: &str) -> Result<(), ProvisionError> {
+        match self {
+            Self::InMemory(backend) => backend.remove(name).await,
+        }
+    }
+
+    async fn inspect(&self, name: &str) -> Result<ServiceState, ProvisionError> {
+        match self {
+            Self::InMemory(backend) => backend.inspect(name).await,
+        }
+    }
+
+    async fn logs(&self, name: &str) -> Result<String, ProvisionError> {
+        match self {
+            Self::InMemory(backend) => backend.logs(name).await,
+        }
+    }
+}
+
+/// The in-memory provisioner: full trait semantics over a map, no real engine.
+///
+/// It serves two duties. In unit tests it is the fake the seam and the
+/// reconciler are driven against. In the running binary it is the placeholder
+/// backend behind [`ProvisionerHandle`] until the Docker backend (#27) lands:
+/// desired state converges coherently, but no actual container runs. The
+/// test-only observation and control helpers stay behind `#[cfg(test)]`.
+pub mod memory {
     use std::collections::HashMap;
     use std::future::{ready, Future};
     use std::sync::Mutex;
@@ -503,13 +569,13 @@ pub(crate) mod fake {
     /// `remove` when absent, `Absent` from `inspect`) so tests against it
     /// exercise the same contract a real backend must honor.
     #[derive(Debug, Default)]
-    pub(crate) struct InMemoryProvisioner {
+    pub struct InMemoryProvisioner {
         services: Mutex<HashMap<String, FakeService>>,
     }
 
     impl InMemoryProvisioner {
-        /// Creates an empty fake with no services.
-        pub(crate) fn new() -> Self {
+        /// Creates an empty in-memory backend with no services.
+        pub fn new() -> Self {
             Self::default()
         }
 
@@ -518,6 +584,7 @@ pub(crate) mod fake {
         ///
         /// # Panics
         /// Panics when the service does not exist; that is a broken test.
+        #[cfg(test)]
         pub(crate) fn set_state(&self, name: &str, state: ServiceState) {
             let mut services = self
                 .services
@@ -530,6 +597,7 @@ pub(crate) mod fake {
         }
 
         /// Test observation: the service's replace count, `None` if absent.
+        #[cfg(test)]
         pub(crate) fn generation(&self, name: &str) -> Option<u64> {
             let services = self
                 .services
@@ -689,7 +757,7 @@ pub(crate) mod fake {
 
 #[cfg(test)]
 mod tests {
-    use super::fake::InMemoryProvisioner;
+    use super::memory::InMemoryProvisioner;
     use super::*;
 
     /// A minimal valid spec: pinned image, one env var, defaults elsewhere.

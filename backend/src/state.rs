@@ -10,6 +10,7 @@ use sqlx::PgPool;
 use crate::config::Deployment;
 use crate::crypto::Crypto;
 use crate::opaque::Suite;
+use crate::orchestration::provisioner::ProvisionerHandle;
 use crate::sse::SseRegistry;
 
 /// Maximum number of pooled Postgres connections.
@@ -71,6 +72,11 @@ pub struct AppState {
     /// the resolved root is persisted per Drive, so this is read only when a Drive is
     /// provisioned, never to serve a Drive already recorded in the database.
     pub data_dir: String,
+    /// The container-engine seam the reconciler and integration handlers drive.
+    ///
+    /// Currently the in-memory placeholder backend; the Docker backend (#27)
+    /// swaps in behind the same handle without touching any consumer.
+    pub provisioner: ProvisionerHandle,
 }
 
 impl AppState {
@@ -105,6 +111,10 @@ impl AppState {
             rabbitmq_url: read_optional("RABBITMQ_URL"),
             app_origin: deployment.app_origin,
             data_dir: crate::config::data_dir(),
+            // TODO(#27): select the Docker backend (behind the scoped
+            // socket-proxy) from deployment config; the in-memory backend keeps
+            // desired state coherent until then without running real containers.
+            provisioner: ProvisionerHandle::in_memory(),
         })
     }
 }

@@ -16,6 +16,7 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 use tower_http::trace::TraceLayer;
 
+use crate::orchestration::integrations;
 use crate::proto::auth::v1::MeResponse;
 use crate::proto::health::v1::{DatabaseHealthResponse, HelloResponse};
 use crate::protobuf::Protobuf;
@@ -239,6 +240,26 @@ pub fn router(state: AppState) -> Router {
             post(storage::files::create_folder),
         )
         .route("/api/v1/drives/{id}/move", post(storage::files::move_entry))
+        // Integrations: the service control plane. The collection lists what the
+        // caller can access (optionally filtered by `?project_id=`) with live
+        // reconcile status; managed/org-linked writes need `manage_integrations`
+        // (or project owner/admin), personal linking is open to members. Start,
+        // stop, and bindings apply to managed integrations and reconcile
+        // immediately; bindings are capability-gated against the bound Drives.
+        .route(
+            "/api/v1/integrations",
+            get(integrations::list).post(integrations::create),
+        )
+        .route(
+            "/api/v1/integrations/{id}",
+            patch(integrations::update).delete(integrations::delete),
+        )
+        .route("/api/v1/integrations/{id}/start", post(integrations::start))
+        .route("/api/v1/integrations/{id}/stop", post(integrations::stop))
+        .route(
+            "/api/v1/integrations/{id}/bindings",
+            put(integrations::set_bindings),
+        )
         // Storage search: live, federated, streaming, index-free. Fans out across the
         // caller's accessible Drives and streams length-delimited `SearchFrame`
         // messages per source; dropping the connection cancels the in-flight work.
@@ -371,6 +392,7 @@ mod tests {
 
     use crate::crypto::Crypto;
     use crate::opaque::Suite;
+    use crate::orchestration::provisioner::ProvisionerHandle;
     use crate::sse::SseRegistry;
 
     /// Builds an [`AppState`] with a lazy (never-connected) pool, a throwaway
@@ -395,6 +417,7 @@ mod tests {
             rabbitmq_url: None,
             app_origin: "http://localhost:5173".to_string(),
             data_dir: "/srv/elysium".to_string(),
+            provisioner: ProvisionerHandle::in_memory(),
         }
     }
 

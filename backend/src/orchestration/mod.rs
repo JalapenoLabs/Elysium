@@ -1,4 +1,4 @@
-//! Orchestration: the service control plane's provisioning seam.
+//! Orchestration: the service control plane.
 //!
 //! Elysium provisions and manages best-of-breed OSS containers (Forgejo, a mail
 //! server, a registry, Astraval) instead of re-implementing those services (see
@@ -9,15 +9,22 @@
 //! Kubernetes backend slot in behind the same seam without touching the
 //! integrations that call it.
 //!
-//! A managed service is described declaratively by a
-//! [`provisioner::ServiceSpec`], and every operation is idempotent so the
-//! desired-state reconciler (#28) can converge repeatedly without special-casing
-//! "already done".
+//! The layers, bottom up:
 //!
-//! Nothing here is referenced by the binary yet; #27 and #28 wire it in. The
-//! module-wide `dead_code` allowance keeps the seam landed and unit-tested ahead
-//! of those consumers, without warning on a binary build that does not call it
-//! yet.
+//! - [`provisioner`]: the declarative [`provisioner::ServiceSpec`] model, the
+//!   engine seam, and the in-memory backend standing in until #27.
+//! - [`integrations`]: the integration data model (kinds, modes, owner scopes,
+//!   capability-gated storage-role bindings) and the `/api/v1/integrations`
+//!   management surface.
+//! - [`reconcile`]: the desired-state reconciler converging managed rows to
+//!   containers on boot and after every change.
+//!
+//! The module-wide `dead_code` allowance covers the parts of the seam landed
+//! ahead of their consumers (`Provisioner::logs` and several error constructors
+//! await #27's Docker backend and the console's log surface) without warning on
+//! a binary build that does not call them yet.
 #![allow(dead_code)]
 
+pub mod integrations;
 pub mod provisioner;
+pub mod reconcile;

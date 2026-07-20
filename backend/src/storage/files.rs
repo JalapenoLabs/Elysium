@@ -854,6 +854,7 @@ mod tests {
             rabbitmq_url: None,
             app_origin: "http://localhost:5173".to_string(),
             data_dir: "/srv/elysium".to_string(),
+            provisioner: crate::orchestration::provisioner::ProvisionerHandle::in_memory(),
         }
     }
 

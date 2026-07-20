@@ -71,8 +71,10 @@ several roles of different capabilities (see `docs/integrations.md`):
 | User files (this gateway) | files | PLAIN_FILES | any |
 | Docker registry | blobs | OBJECT_STORE | Local FS, S3 |
 | Git server | repos | POSIX_FS | Local FS only |
+| Mail server | bodies | OBJECT_STORE | Local FS, S3 |
 | Astraval | metadata | POSIX_FS | Local FS only |
 | Astraval | archive | OBJECT_STORE | Local FS, S3 |
+| Runner | workspace | POSIX_FS | Local FS only |
 
 When binding a consumer role, the UI offers only Drives whose advertised capabilities
 satisfy the role. Consumer data lives under a reserved prefix (`.elysium/<consumer>/`) that

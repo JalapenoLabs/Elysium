@@ -111,6 +111,20 @@ async fn main() -> eyre::Result<()> {
         .await
         .wrap_err("failed to reconcile default Drives")?;
 
+    // Converge managed integrations to their desired state (docs/integrations.md):
+    // a reboot or image upgrade never loses a provisioned service. Idempotent, so
+    // re-running against an already-converged world is a no-op.
+    {
+        let mut conn = state
+            .pool
+            .acquire()
+            .await
+            .wrap_err("failed to acquire a connection for integration reconcile")?;
+        orchestration::reconcile::reconcile_all(&mut conn, &state.provisioner)
+            .await
+            .wrap_err("failed to reconcile managed integrations")?;
+    }
+
     let port = env::var("API_PORT")
         .ok()
         .and_then(|value| value.parse().ok())
