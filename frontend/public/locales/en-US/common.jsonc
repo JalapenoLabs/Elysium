@@ -82,6 +82,7 @@
     "audit": "Audit log",
     "projects": "Projects & domains",
     "storage": "Storage",
+    "integrations": "Integrations",
     "groups": {
       "general": "General",
       "projects": "Projects",
@@ -196,6 +197,32 @@
         "userRequired": "The SSH user is required.",
         "portInvalid": "The port must be between 1 and 65535."
       }
+    }
+  },
+  "integration": {
+    "kinds": {
+      "unspecified": "Service",
+      "git": "Git hosting",
+      "mail": "Mail server",
+      "registry": "Container registry",
+      "perforce": "Perforce (Astraval)",
+      "runner": "Agent runner"
+    },
+    "roles": {
+      "repos": "Repositories Drive",
+      "bodies": "Mail bodies Drive",
+      "blobs": "Registry blobs Drive",
+      "metadata": "Metadata Drive",
+      "archive": "Archive Drive",
+      "workspace": "Workspace Drive"
+    },
+    "status": {
+      "unspecified": "Unknown",
+      "pending": "Pending",
+      "provisioning": "Provisioning",
+      "running": "Running",
+      "stopped": "Stopped",
+      "failed": "Failed"
     }
   },
   "workspace": {

@@ -33,6 +33,7 @@ const groups = [
     items: [
       { to: UrlTree.organizationProjects, labelKey: 'orgSettings.projects' },
       { to: UrlTree.organizationStorage, labelKey: 'orgSettings.storage' },
+      { to: UrlTree.organizationIntegrations, labelKey: 'orgSettings.integrations' },
     ],
   },
   {

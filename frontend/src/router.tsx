@@ -21,6 +21,7 @@ import { OrgMembers } from './pages/Organization/OrgMembers'
 import { Teams } from './pages/Organization/Teams'
 import { Projects } from './pages/Organization/Projects'
 import { OrgStorage } from './pages/Organization/OrgStorage'
+import { Integrations } from './pages/Organization/Integrations'
 import { OrgRoles } from './pages/Organization/OrgRoles'
 import { OrgSecurity } from './pages/Organization/OrgSecurity'
 import { OrgAuditLog } from './pages/Organization/OrgAuditLog'
@@ -80,6 +81,7 @@ export const router = createBrowserRouter([
               { path: UrlTree.organizationGeneral, element: <OrgGeneral /> },
               { path: UrlTree.organizationProjects, element: <Projects /> },
               { path: UrlTree.organizationStorage, element: <OrgStorage /> },
+              { path: UrlTree.organizationIntegrations, element: <Integrations /> },
               { path: UrlTree.organizationMembers, element: <OrgMembers /> },
               { path: UrlTree.organizationTeams, element: <Teams /> },
               { path: UrlTree.organizationRoles, element: <OrgRoles /> },

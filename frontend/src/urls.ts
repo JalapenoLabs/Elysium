@@ -33,6 +33,7 @@ export const UrlTree = {
   organizationGeneral: '/organization/general',
   organizationProjects: '/organization/projects',
   organizationStorage: '/organization/storage',
+  organizationIntegrations: '/organization/integrations',
   organizationMembers: '/organization/members',
   organizationTeams: '/organization/teams',
   organizationRoles: '/organization/roles',
