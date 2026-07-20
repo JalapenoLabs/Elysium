@@ -131,6 +131,23 @@ In the GUI, this is totally possible. In a browser, it's no problem to limit the
 
 It should also be able to be used as a standalone in-browser app. We should use preload as little as possible, and put the minimal amount of things into electron.
 
+# Tenancy: org → project → team → individual
+
+Elysium has four tiers, fully designed in `docs/projects.md` (the source of truth):
+
+- **Org** is a thin umbrella: logo, membership, org-level teams/roles, cross-project
+  admin. A **full org member reaches every project**; guests are scoped to specific
+  projects/teams.
+- **Project** is the sub-tenant workspace (GCP-project / Jira-project analog) that **owns
+  its domain(s), Drives, integrations (mail/git/registry/Astraval), teams, and
+  membership**. Every org has ≥1 project (a default project is auto-created). Work resources
+  are **project-scoped** (`owner_scope` = org | project | personal).
+- **Teams** are org-level (inherited by all projects) or project-level (scoped).
+- **Runtime:** shared control plane (one Postgres/API/router/SMTP-router), **per-project
+  service containers** for isolation. One machine hosts many orgs, each many projects.
+- **Configurability principle:** plan for deep, granular, per-tier configuration with sane
+  defaults, in the spirit of admin.google.com.
+
 # Storage and service integrations
 
 Two foundational pillars, fully designed in `docs/storage.md` and
@@ -168,6 +185,16 @@ load-bearing shape.
   tokens** for git/registry/SMTP transport auth. For linked services Elysium is the OAuth
   *client*, silently refreshing the user's grant. The token-minting layer serves the AI
   exactly as it serves the user.
+
+- **Mail is a full per-project server, fully designed in `docs/mail.md`.** A Postfix +
+  Rspamd **MTA edge** receives/spam-filters/DKIM-signs and relays, while **Elysium owns the
+  canonical mailbox** (edge delivers inbound via LMTP; Elysium stores, indexes, threads,
+  surfaces into the action-center). One shared **SMTP router on port 25** routes inbound by
+  recipient domain to the owning project's edge container. Bodies live on an OBJECT_STORE
+  Drive (**capacity = your Drive, no artificial quota**), metadata in Postgres. Outbound
+  supports a first-class **smarthost relay**; Elysium generates + verifies MX/SPF/DKIM/DMARC
+  while reachability/DNS stay the operator's responsibility. Outbound unblocks passwordless
+  email sign-in.
 
 # Frontend tooling and shared Jalapeno Labs packages
 

@@ -7,6 +7,15 @@ persist onto. See `docs/integrations.md` for how services consume this layer.
 
 ## Core model
 
+- **Drives are project-scoped.** Work resources live in **projects**, not loose in the org
+  (`docs/projects.md`). A Drive carries a `project_id`; the auto-provisioned default Drive
+  lands in the org's default project. Access resolves through the org → project → team
+  hierarchy (org-admin bypass, then project/team membership).
+- **Capacity = your Drive; quotas are optional policy, not a platform ceiling.** Large-blob
+  surfaces (file content, mail bodies/attachments, registry layers, git LFS) are
+  Drive-backed, so capacity scales with the bound Drive (point it at a 2 TB bucket and
+  there is no artificial "almost full" ceiling). Transactional metadata stays in Postgres.
+  An admin *may* set soft quotas for fairness, but Elysium imposes no hard limit.
 - **A Drive is a linked storage location.** An organization owns many Drives. A Drive is
   one [OpenDAL](https://opendal.apache.org/) operator rooted verbatim where the org
   pointed it, plus Elysium metadata (name, kind, visibility, default flag, sealed

@@ -17,7 +17,10 @@ Each integration has:
 
 - a **kind** — `git`, `mail`, `registry`, `perforce` (Astraval), `runner`, ...
 - a **mode** — `managed` or `linked`
-- an **owner scope** — `org` or `personal` (team scope is a later addition)
+- an **owner scope** — `org`, `project`, or `personal`. Work resources default to
+  **project** scope (`docs/projects.md`); the mail server in particular is a **per-project**
+  managed integration bound to the project's domain(s). Each project's services run in their
+  own isolated containers on a shared control plane.
 - config, sealed secrets, and (for managed) storage-role bindings, routing, and SSO wiring.
 
 ### Managed vs linked
