@@ -239,6 +239,10 @@ pub fn router(state: AppState) -> Router {
             post(storage::files::create_folder),
         )
         .route("/api/v1/drives/{id}/move", post(storage::files::move_entry))
+        // Storage search: live, federated, streaming, index-free. Fans out across the
+        // caller's accessible Drives and streams length-delimited `SearchFrame`
+        // messages per source; dropping the connection cancels the in-flight work.
+        .route("/api/v1/search", post(storage::search::search))
         // Session accounts: the profile + org switchers.
         .route("/api/v1/session/accounts", get(accounts::list))
         .route("/api/v1/session/switch", post(accounts::switch))

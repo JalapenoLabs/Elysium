@@ -25,6 +25,7 @@
 pub mod drives;
 pub mod files;
 pub mod provider;
+pub mod search;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

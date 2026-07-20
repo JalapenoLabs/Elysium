@@ -22,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file storage.proto.
  */
 export const file_storage: GenFile = /*@__PURE__*/
-  fileDesc("Cg1zdG9yYWdlLnByb3RvEhJlbHlzaXVtLnN0b3JhZ2UudjEi3QIKC0RyaXZlQ29uZmlnEjAKAmZzGAEgASgLMiIuZWx5c2l1bS5zdG9yYWdlLnYxLkRyaXZlQ29uZmlnLkZzSAASMAoCczMYAiABKAsyIi5lbHlzaXVtLnN0b3JhZ2UudjEuRHJpdmVDb25maWcuUzNIABI0CgRzZnRwGAMgASgLMiQuZWx5c2l1bS5zdG9yYWdlLnYxLkRyaXZlQ29uZmlnLlNmdHBIABoSCgJGcxIMCgRyb290GAEgASgJGlMKAlMzEhAKCGVuZHBvaW50GAEgASgJEg4KBnJlZ2lvbhgCIAEoCRIOCgZidWNrZXQYAyABKAkSDgoGcHJlZml4GAQgASgJEgsKA3NzZRgFIAEoCBpDCgRTZnRwEgwKBGhvc3QYASABKAkSDAoEcG9ydBgCIAEoDRIMCgR1c2VyGAMgASgJEhEKCWJhc2VfcGF0aBgEIAEoCUIGCgRraW5kIvQDCgVEcml2ZRIjCgJpZBgBIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSKwoKcHJvamVjdF9pZBgCIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSJwoGb3JnX2lkGAMgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBIMCgRuYW1lGAQgASgJEisKBGtpbmQYBSABKA4yHS5lbHlzaXVtLnN0b3JhZ2UudjEuRHJpdmVLaW5kEjcKCnZpc2liaWxpdHkYBiABKA4yIy5lbHlzaXVtLnN0b3JhZ2UudjEuRHJpdmVWaXNpYmlsaXR5EhIKCmlzX2RlZmF1bHQYByABKAgSFgoOY3JlZGVudGlhbF9zZXQYCCABKAgSOwoMY2FwYWJpbGl0aWVzGAkgAygOMiUuZWx5c2l1bS5zdG9yYWdlLnYxLlN0b3JhZ2VDYXBhYmlsaXR5Ei8KBmNvbmZpZxgKIAEoCzIfLmVseXNpdW0uc3RvcmFnZS52MS5Ecml2ZUNvbmZpZxIwCgpjcmVhdGVkX2F0GAsgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEjAKCnVwZGF0ZWRfYXQYDCABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXAigwEKCUZpbGVFbnRyeRIMCgRuYW1lGAEgASgJEgwKBHBhdGgYAiABKAkSDgoGaXNfZGlyGAMgASgIEgwKBHNpemUYBCABKAQSLgoIbW9kaWZpZWQYBSABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXASDAoEbWltZRgGIAEoCSJZCgdMaXN0aW5nEhAKCGRyaXZlX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSLgoHZW50cmllcxgDIAMoCzIdLmVseXNpdW0uc3RvcmFnZS52MS5GaWxlRW50cnkilgIKC1NlYXJjaEZyYW1lEhAKCGRyaXZlX2lkGAEgASgJEhIKCmRyaXZlX25hbWUYAiABKAkSNgoGc3RhdHVzGAMgASgOMiYuZWx5c2l1bS5zdG9yYWdlLnYxLlNlYXJjaEZyYW1lLlN0YXR1cxIuCgdtYXRjaGVzGAQgAygLMh0uZWx5c2l1bS5zdG9yYWdlLnYxLkZpbGVFbnRyeRINCgVlcnJvchgFIAEoCSJqCgZTdGF0dXMSFgoSU1RBVFVTX1VOU1BFQ0lGSUVEEAASFAoQU1RBVFVTX1NFQVJDSElORxABEg8KC1NUQVRVU19ET05FEAISDwoLU1RBVFVTX1NMT1cQAxIQCgxTVEFUVVNfRVJST1IQBCLKAQoLRHJpdmVBY2Nlc3MSPAoJcHJpbmNpcGFsGAEgASgOMikuZWx5c2l1bS5zdG9yYWdlLnYxLkRyaXZlQWNjZXNzLlByaW5jaXBhbBItCgxwcmluY2lwYWxfaWQYAiABKAsyFy5lbHlzaXVtLmNvbW1vbi52MS5VdWlkIk4KCVByaW5jaXBhbBIZChVQUklOQ0lQQUxfVU5TUEVDSUZJRUQQABISCg5QUklOQ0lQQUxfVEVBTRABEhIKDlBSSU5DSVBBTF9VU0VSEAIi+gEKEkNyZWF0ZURyaXZlUmVxdWVzdBIrCgpwcm9qZWN0X2lkGAEgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBIMCgRuYW1lGAIgASgJEisKBGtpbmQYAyABKA4yHS5lbHlzaXVtLnN0b3JhZ2UudjEuRHJpdmVLaW5kEjcKCnZpc2liaWxpdHkYBCABKA4yIy5lbHlzaXVtLnN0b3JhZ2UudjEuRHJpdmVWaXNpYmlsaXR5Ei8KBmNvbmZpZxgFIAEoCzIfLmVseXNpdW0uc3RvcmFnZS52MS5Ecml2ZUNvbmZpZxISCgpjcmVkZW50aWFsGAYgASgJIqABChJVcGRhdGVEcml2ZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRI3Cgp2aXNpYmlsaXR5GAIgASgOMiMuZWx5c2l1bS5zdG9yYWdlLnYxLkRyaXZlVmlzaWJpbGl0eRIvCgZjb25maWcYAyABKAsyHy5lbHlzaXVtLnN0b3JhZ2UudjEuRHJpdmVDb25maWcSEgoKY3JlZGVudGlhbBgEIAEoCSJIChVTZXREcml2ZUFjY2Vzc1JlcXVlc3QSLwoGZ3JhbnRzGAEgAygLMh8uZWx5c2l1bS5zdG9yYWdlLnYxLkRyaXZlQWNjZXNzIicKC01vdmVSZXF1ZXN0EgwKBGZyb20YASABKAkSCgoCdG8YAiABKAkiPwoSTGlzdERyaXZlc1Jlc3BvbnNlEikKBmRyaXZlcxgBIAMoCzIZLmVseXNpdW0uc3RvcmFnZS52MS5Ecml2ZSpiCglEcml2ZUtpbmQSGgoWRFJJVkVfS0lORF9VTlNQRUNJRklFRBAAEhEKDURSSVZFX0tJTkRfRlMQARIRCg1EUklWRV9LSU5EX1MzEAISEwoPRFJJVkVfS0lORF9TRlRQEAMqcwoPRHJpdmVWaXNpYmlsaXR5EiAKHERSSVZFX1ZJU0lCSUxJVFlfVU5TUEVDSUZJRUQQABIdChlEUklWRV9WSVNJQklMSVRZX09SR19XSURFEAESHwobRFJJVkVfVklTSUJJTElUWV9SRVNUUklDVEVEEAIqoQEKEVN0b3JhZ2VDYXBhYmlsaXR5EiIKHlNUT1JBR0VfQ0FQQUJJTElUWV9VTlNQRUNJRklFRBAAEiIKHlNUT1JBR0VfQ0FQQUJJTElUWV9QTEFJTl9GSUxFUxABEiMKH1NUT1JBR0VfQ0FQQUJJTElUWV9PQkpFQ1RfU1RPUkUQAhIfChtTVE9SQUdFX0NBUEFCSUxJVFlfUE9TSVhfRlMQA2IGcHJvdG8z", [file_common]);
+  fileDesc("Cg1zdG9yYWdlLnByb3RvEhJlbHlzaXVtLnN0b3JhZ2UudjEi3QIKC0RyaXZlQ29uZmlnEjAKAmZzGAEgASgLMiIuZWx5c2l1bS5zdG9yYWdlLnYxLkRyaXZlQ29uZmlnLkZzSAASMAoCczMYAiABKAsyIi5lbHlzaXVtLnN0b3JhZ2UudjEuRHJpdmVDb25maWcuUzNIABI0CgRzZnRwGAMgASgLMiQuZWx5c2l1bS5zdG9yYWdlLnYxLkRyaXZlQ29uZmlnLlNmdHBIABoSCgJGcxIMCgRyb290GAEgASgJGlMKAlMzEhAKCGVuZHBvaW50GAEgASgJEg4KBnJlZ2lvbhgCIAEoCRIOCgZidWNrZXQYAyABKAkSDgoGcHJlZml4GAQgASgJEgsKA3NzZRgFIAEoCBpDCgRTZnRwEgwKBGhvc3QYASABKAkSDAoEcG9ydBgCIAEoDRIMCgR1c2VyGAMgASgJEhEKCWJhc2VfcGF0aBgEIAEoCUIGCgRraW5kIvQDCgVEcml2ZRIjCgJpZBgBIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSKwoKcHJvamVjdF9pZBgCIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSJwoGb3JnX2lkGAMgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZBIMCgRuYW1lGAQgASgJEisKBGtpbmQYBSABKA4yHS5lbHlzaXVtLnN0b3JhZ2UudjEuRHJpdmVLaW5kEjcKCnZpc2liaWxpdHkYBiABKA4yIy5lbHlzaXVtLnN0b3JhZ2UudjEuRHJpdmVWaXNpYmlsaXR5EhIKCmlzX2RlZmF1bHQYByABKAgSFgoOY3JlZGVudGlhbF9zZXQYCCABKAgSOwoMY2FwYWJpbGl0aWVzGAkgAygOMiUuZWx5c2l1bS5zdG9yYWdlLnYxLlN0b3JhZ2VDYXBhYmlsaXR5Ei8KBmNvbmZpZxgKIAEoCzIfLmVseXNpdW0uc3RvcmFnZS52MS5Ecml2ZUNvbmZpZxIwCgpjcmVhdGVkX2F0GAsgASgLMhwuZWx5c2l1bS5jb21tb24udjEuVGltZXN0YW1wEjAKCnVwZGF0ZWRfYXQYDCABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXAigwEKCUZpbGVFbnRyeRIMCgRuYW1lGAEgASgJEgwKBHBhdGgYAiABKAkSDgoGaXNfZGlyGAMgASgIEgwKBHNpemUYBCABKAQSLgoIbW9kaWZpZWQYBSABKAsyHC5lbHlzaXVtLmNvbW1vbi52MS5UaW1lc3RhbXASDAoEbWltZRgGIAEoCSJZCgdMaXN0aW5nEhAKCGRyaXZlX2lkGAEgASgJEgwKBHBhdGgYAiABKAkSLgoHZW50cmllcxgDIAMoCzIdLmVseXNpdW0uc3RvcmFnZS52MS5GaWxlRW50cnkilgIKC1NlYXJjaEZyYW1lEhAKCGRyaXZlX2lkGAEgASgJEhIKCmRyaXZlX25hbWUYAiABKAkSNgoGc3RhdHVzGAMgASgOMiYuZWx5c2l1bS5zdG9yYWdlLnYxLlNlYXJjaEZyYW1lLlN0YXR1cxIuCgdtYXRjaGVzGAQgAygLMh0uZWx5c2l1bS5zdG9yYWdlLnYxLkZpbGVFbnRyeRINCgVlcnJvchgFIAEoCSJqCgZTdGF0dXMSFgoSU1RBVFVTX1VOU1BFQ0lGSUVEEAASFAoQU1RBVFVTX1NFQVJDSElORxABEg8KC1NUQVRVU19ET05FEAISDwoLU1RBVFVTX1NMT1cQAxIQCgxTVEFUVVNfRVJST1IQBCJKCg1TZWFyY2hSZXF1ZXN0Eg0KBXF1ZXJ5GAEgASgJEioKCWRyaXZlX2lkcxgCIAMoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQiygEKC0RyaXZlQWNjZXNzEjwKCXByaW5jaXBhbBgBIAEoDjIpLmVseXNpdW0uc3RvcmFnZS52MS5Ecml2ZUFjY2Vzcy5QcmluY2lwYWwSLQoMcHJpbmNpcGFsX2lkGAIgASgLMhcuZWx5c2l1bS5jb21tb24udjEuVXVpZCJOCglQcmluY2lwYWwSGQoVUFJJTkNJUEFMX1VOU1BFQ0lGSUVEEAASEgoOUFJJTkNJUEFMX1RFQU0QARISCg5QUklOQ0lQQUxfVVNFUhACIvoBChJDcmVhdGVEcml2ZVJlcXVlc3QSKwoKcHJvamVjdF9pZBgBIAEoCzIXLmVseXNpdW0uY29tbW9uLnYxLlV1aWQSDAoEbmFtZRgCIAEoCRIrCgRraW5kGAMgASgOMh0uZWx5c2l1bS5zdG9yYWdlLnYxLkRyaXZlS2luZBI3Cgp2aXNpYmlsaXR5GAQgASgOMiMuZWx5c2l1bS5zdG9yYWdlLnYxLkRyaXZlVmlzaWJpbGl0eRIvCgZjb25maWcYBSABKAsyHy5lbHlzaXVtLnN0b3JhZ2UudjEuRHJpdmVDb25maWcSEgoKY3JlZGVudGlhbBgGIAEoCSKgAQoSVXBkYXRlRHJpdmVSZXF1ZXN0EgwKBG5hbWUYASABKAkSNwoKdmlzaWJpbGl0eRgCIAEoDjIjLmVseXNpdW0uc3RvcmFnZS52MS5Ecml2ZVZpc2liaWxpdHkSLwoGY29uZmlnGAMgASgLMh8uZWx5c2l1bS5zdG9yYWdlLnYxLkRyaXZlQ29uZmlnEhIKCmNyZWRlbnRpYWwYBCABKAkiSAoVU2V0RHJpdmVBY2Nlc3NSZXF1ZXN0Ei8KBmdyYW50cxgBIAMoCzIfLmVseXNpdW0uc3RvcmFnZS52MS5Ecml2ZUFjY2VzcyInCgtNb3ZlUmVxdWVzdBIMCgRmcm9tGAEgASgJEgoKAnRvGAIgASgJIj8KEkxpc3REcml2ZXNSZXNwb25zZRIpCgZkcml2ZXMYASADKAsyGS5lbHlzaXVtLnN0b3JhZ2UudjEuRHJpdmUqYgoJRHJpdmVLaW5kEhoKFkRSSVZFX0tJTkRfVU5TUEVDSUZJRUQQABIRCg1EUklWRV9LSU5EX0ZTEAESEQoNRFJJVkVfS0lORF9TMxACEhMKD0RSSVZFX0tJTkRfU0ZUUBADKnMKD0RyaXZlVmlzaWJpbGl0eRIgChxEUklWRV9WSVNJQklMSVRZX1VOU1BFQ0lGSUVEEAASHQoZRFJJVkVfVklTSUJJTElUWV9PUkdfV0lERRABEh8KG0RSSVZFX1ZJU0lCSUxJVFlfUkVTVFJJQ1RFRBACKqEBChFTdG9yYWdlQ2FwYWJpbGl0eRIiCh5TVE9SQUdFX0NBUEFCSUxJVFlfVU5TUEVDSUZJRUQQABIiCh5TVE9SQUdFX0NBUEFCSUxJVFlfUExBSU5fRklMRVMQARIjCh9TVE9SQUdFX0NBUEFCSUxJVFlfT0JKRUNUX1NUT1JFEAISHwobU1RPUkFHRV9DQVBBQklMSVRZX1BPU0lYX0ZTEANiBnByb3RvMw", [file_common]);
 
 /**
  * Non-secret connection settings for a Drive, one group per kind.
@@ -461,6 +461,40 @@ export const SearchFrame_StatusSchema: GenEnum<SearchFrame_Status> = /*@__PURE__
   enumDesc(file_storage, 4, 0);
 
 /**
+ * Request to search Drives, answered by a stream of SearchFrame messages.
+ *
+ * The response is a single chunked body of length-delimited SearchFrame messages:
+ * each frame is prefixed by its protobuf varint byte length, so the client frames the
+ * stream by reading a length then that many bytes, repeatedly. Frames arrive per
+ * source as it resolves; dropping the connection cancels the in-flight provider work.
+ *
+ * @generated from message elysium.storage.v1.SearchRequest
+ */
+export type SearchRequest = Message<"elysium.storage.v1.SearchRequest"> & {
+  /**
+   * Case-insensitive substring matched against each entry's provider-rooted path.
+   *
+   * @generated from field: string query = 1;
+   */
+  query: string;
+
+  /**
+   * Drives to search. When empty, every Drive the caller can access across their
+   * accessible projects in the active organization is searched.
+   *
+   * @generated from field: repeated elysium.common.v1.Uuid drive_ids = 2;
+   */
+  driveIds: Uuid[];
+};
+
+/**
+ * Describes the message elysium.storage.v1.SearchRequest.
+ * Use `create(SearchRequestSchema)` to create a new message.
+ */
+export const SearchRequestSchema: GenMessage<SearchRequest> = /*@__PURE__*/
+  messageDesc(file_storage, 5);
+
+/**
  * A single access grant on a restricted Drive: a team or a user.
  *
  * @generated from message elysium.storage.v1.DriveAccess
@@ -484,7 +518,7 @@ export type DriveAccess = Message<"elysium.storage.v1.DriveAccess"> & {
  * Use `create(DriveAccessSchema)` to create a new message.
  */
 export const DriveAccessSchema: GenMessage<DriveAccess> = /*@__PURE__*/
-  messageDesc(file_storage, 5);
+  messageDesc(file_storage, 6);
 
 /**
  * The kind of principal a grant targets.
@@ -516,7 +550,7 @@ export enum DriveAccess_Principal {
  * Describes the enum elysium.storage.v1.DriveAccess.Principal.
  */
 export const DriveAccess_PrincipalSchema: GenEnum<DriveAccess_Principal> = /*@__PURE__*/
-  enumDesc(file_storage, 5, 0);
+  enumDesc(file_storage, 6, 0);
 
 /**
  * Request to create a Drive under a project (admin, `manage_storage`).
@@ -570,7 +604,7 @@ export type CreateDriveRequest = Message<"elysium.storage.v1.CreateDriveRequest"
  * Use `create(CreateDriveRequestSchema)` to create a new message.
  */
 export const CreateDriveRequestSchema: GenMessage<CreateDriveRequest> = /*@__PURE__*/
-  messageDesc(file_storage, 6);
+  messageDesc(file_storage, 7);
 
 /**
  * Request to update a Drive's mutable fields (admin, `manage_storage`).
@@ -612,7 +646,7 @@ export type UpdateDriveRequest = Message<"elysium.storage.v1.UpdateDriveRequest"
  * Use `create(UpdateDriveRequestSchema)` to create a new message.
  */
 export const UpdateDriveRequestSchema: GenMessage<UpdateDriveRequest> = /*@__PURE__*/
-  messageDesc(file_storage, 7);
+  messageDesc(file_storage, 8);
 
 /**
  * Request to replace the access grants on a restricted Drive (admin, `manage_storage`).
@@ -633,7 +667,7 @@ export type SetDriveAccessRequest = Message<"elysium.storage.v1.SetDriveAccessRe
  * Use `create(SetDriveAccessRequestSchema)` to create a new message.
  */
 export const SetDriveAccessRequestSchema: GenMessage<SetDriveAccessRequest> = /*@__PURE__*/
-  messageDesc(file_storage, 8);
+  messageDesc(file_storage, 9);
 
 /**
  * Request to move or rename an entry within a Drive (streaming transfer proxy).
@@ -665,7 +699,7 @@ export type MoveRequest = Message<"elysium.storage.v1.MoveRequest"> & {
  * Use `create(MoveRequestSchema)` to create a new message.
  */
 export const MoveRequestSchema: GenMessage<MoveRequest> = /*@__PURE__*/
-  messageDesc(file_storage, 9);
+  messageDesc(file_storage, 10);
 
 /**
  * The Drives a caller can access within their active project scope.
@@ -684,7 +718,7 @@ export type ListDrivesResponse = Message<"elysium.storage.v1.ListDrivesResponse"
  * Use `create(ListDrivesResponseSchema)` to create a new message.
  */
 export const ListDrivesResponseSchema: GenMessage<ListDrivesResponse> = /*@__PURE__*/
-  messageDesc(file_storage, 10);
+  messageDesc(file_storage, 11);
 
 /**
  * The provider a Drive is backed by. Determines the OpenDAL service and which

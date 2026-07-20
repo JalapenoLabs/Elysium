@@ -202,6 +202,21 @@ message SearchFrame {
   string error = 5;
 }
 
+// Request to search Drives, answered by a stream of SearchFrame messages.
+//
+// The response is a single chunked body of length-delimited SearchFrame messages:
+// each frame is prefixed by its protobuf varint byte length, so the client frames the
+// stream by reading a length then that many bytes, repeatedly. Frames arrive per
+// source as it resolves; dropping the connection cancels the in-flight provider work.
+message SearchRequest {
+  // Case-insensitive substring matched against each entry's provider-rooted path.
+  string query = 1;
+
+  // Drives to search. When empty, every Drive the caller can access across their
+  // accessible projects in the active organization is searched.
+  repeated elysium.common.v1.Uuid drive_ids = 2;
+}
+
 // A single access grant on a restricted Drive: a team or a user.
 message DriveAccess {
   // The kind of principal a grant targets.

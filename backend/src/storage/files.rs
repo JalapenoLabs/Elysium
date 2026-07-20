@@ -55,7 +55,7 @@ use super::{open_secret, DriveRow, DEFAULT_MAX_UPLOAD_BYTES};
 ///
 /// Consumer data (avatars, org logos, git/registry/Astraval areas) lives under
 /// `.elysium/`; this API neither reads nor writes it (see `docs/storage.md`).
-const RESERVED_PREFIX: &str = ".elysium";
+pub(super) const RESERVED_PREFIX: &str = ".elysium";
 
 /// Fallback content type for a download whose provider reports no MIME.
 const OCTET_STREAM: &str = "application/octet-stream";
@@ -427,7 +427,10 @@ async fn list_dir(operator: &Operator, dir: &str) -> opendal::Result<Vec<FileEnt
 }
 
 /// Builds a protobuf [`FileEntry`] from an OpenDAL directory entry.
-fn file_entry(entry: &Entry) -> FileEntry {
+///
+/// Shared with the federated-search surface ([`crate::storage::search`]), which turns
+/// each matching walked entry into the same wire shape a listing uses.
+pub(super) fn file_entry(entry: &Entry) -> FileEntry {
     let metadata = entry.metadata();
     FileEntry {
         name: entry.name().trim_end_matches('/').to_string(),
@@ -504,7 +507,7 @@ fn normalize_path(raw: &str) -> Result<String, Response> {
 }
 
 /// Returns the first path segment, e.g. `".elysium"` for `".elysium/git/repo"`.
-fn top_segment(path: &str) -> &str {
+pub(super) fn top_segment(path: &str) -> &str {
     path.trim_start_matches('/').split('/').next().unwrap_or("")
 }
 
