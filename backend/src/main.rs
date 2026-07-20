@@ -27,6 +27,7 @@ mod grants;
 mod invites;
 mod login_events;
 mod members;
+mod oauth_client;
 mod oidc;
 mod opaque;
 mod orchestration;

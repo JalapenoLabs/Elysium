@@ -16,6 +16,7 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 use tower_http::trace::TraceLayer;
 
+use crate::oauth_client;
 use crate::oidc;
 use crate::orchestration::{integration_policies, integrations};
 use crate::proto::auth::v1::MeResponse;
@@ -322,6 +323,35 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/oidc/clients",
             get(oidc::clients::list).post(oidc::clients::register),
+        )
+        // OAuth client (linked services): the inverse of the OIDC provider. Members
+        // list configurable providers, connect their own external accounts (a full
+        // redirect to the provider's authorize URL), and disconnect them; the public
+        // callback is authenticated by a single-use `state`, not a session cookie.
+        // Admin provider-config (get/set app credentials) needs `manage_integrations`.
+        .route(
+            "/api/v1/oauth/providers",
+            get(oauth_client::endpoints::list_providers),
+        )
+        .route(
+            "/api/v1/oauth/providers/{provider}",
+            get(oauth_client::endpoints::get_provider).put(oauth_client::endpoints::set_provider),
+        )
+        .route(
+            "/api/v1/oauth/connect/{provider}",
+            post(oauth_client::endpoints::connect),
+        )
+        .route(
+            "/api/v1/oauth/callback/{provider}",
+            get(oauth_client::endpoints::callback),
+        )
+        .route(
+            "/api/v1/me/connected-accounts",
+            get(oauth_client::endpoints::list_connected_accounts),
+        )
+        .route(
+            "/api/v1/me/connected-accounts/{id}",
+            delete(oauth_client::endpoints::disconnect),
         )
         .layer(middleware::from_fn(security_headers))
         .layer(TraceLayer::new_for_http())
