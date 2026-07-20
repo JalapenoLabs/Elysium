@@ -261,6 +261,18 @@ message SetDriveAccessRequest {
   repeated DriveAccess grants = 1;
 }
 
+// Request to move or rename an entry within a Drive (streaming transfer proxy).
+//
+// Both paths are provider-rooted and URL-decoded; `from` is the existing entry and
+// `to` is its new location. Neither may touch the reserved `.elysium/` system prefix,
+// and neither may escape the Drive root with `..` segments.
+message MoveRequest {
+  // The existing entry's path within the Drive.
+  string from = 1;
+  // The new path within the Drive.
+  string to = 2;
+}
+
 // The Drives a caller can access within their active project scope.
 message ListDrivesResponse {
   repeated Drive drives = 1;

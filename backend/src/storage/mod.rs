@@ -23,6 +23,7 @@
 #![allow(dead_code)]
 
 pub mod drives;
+pub mod files;
 pub mod provider;
 
 use chrono::{DateTime, Utc};

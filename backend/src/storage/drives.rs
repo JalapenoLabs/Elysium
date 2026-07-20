@@ -643,7 +643,10 @@ async fn org_for_project(state: &AppState, project_id: Uuid) -> Result<Uuid, Res
 }
 
 /// Loads a Drive by id, or a ready `404`/`503` response.
-async fn load_drive(state: &AppState, drive_id: Uuid) -> Result<DriveRow, Response> {
+///
+/// Shared with the file-transfer surface ([`crate::storage::files`]), which loads the
+/// same row before gating access with [`can_access_drive`].
+pub(super) async fn load_drive(state: &AppState, drive_id: Uuid) -> Result<DriveRow, Response> {
     match sqlx::query_as::<_, DriveRow>("SELECT * FROM drives WHERE id = $1")
         .bind(drive_id)
         .fetch_optional(&state.pool)

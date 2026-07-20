@@ -223,6 +223,22 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/drives/{id}/default",
             post(storage::drives::set_default),
         )
+        // Storage transfer: streaming file operations within a Drive, access-checked
+        // via `can_access_drive`. The in-Drive path rides a URL-encoded `?path=`
+        // query; content streams both directions and never buffers a whole file.
+        .route(
+            "/api/v1/drives/{id}/files",
+            get(storage::files::list_files).delete(storage::files::delete_file),
+        )
+        .route(
+            "/api/v1/drives/{id}/content",
+            get(storage::files::download).put(storage::files::upload),
+        )
+        .route(
+            "/api/v1/drives/{id}/folders",
+            post(storage::files::create_folder),
+        )
+        .route("/api/v1/drives/{id}/move", post(storage::files::move_entry))
         // Session accounts: the profile + org switchers.
         .route("/api/v1/session/accounts", get(accounts::list))
         .route("/api/v1/session/switch", post(accounts::switch))
