@@ -6,9 +6,15 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react-swc'
 
 // The SPA, its API, and its auth routes are served from ONE origin: the dev
-// server proxies `/api` and `/auth` to the backend. This keeps the session cookie
-// first-party (no SameSite=None, no CORS) and mirrors the production reverse-proxy
-// topology. Inside Compose the backend is reachable as `backend:31416`.
+// server proxies `/api`, `/auth`, and the OIDC discovery docs to the backend.
+// This keeps the session cookie first-party (no SameSite=None, no CORS) and
+// mirrors the production reverse-proxy topology. Inside Compose the backend is
+// reachable as `backend:31416`.
+//
+// The OIDC issuer is the SPA origin (docs/integrations.md), so a client must be
+// able to fetch `/.well-known/openid-configuration` + `/.well-known/jwks.json`
+// at the site root; without this passthrough an OIDC client (Forgejo) can't
+// discover the provider. `/api/v1/oidc/*` is already covered by the `/api` rule.
 const proxyTarget = process.env.API_PROXY_TARGET || 'http://localhost:31416'
 
 // https://vite.dev/config/
@@ -31,6 +37,7 @@ export default defineConfig({
     proxy: {
       '/api': { target: proxyTarget, changeOrigin: true },
       '/auth': { target: proxyTarget, changeOrigin: true },
+      '/.well-known': { target: proxyTarget, changeOrigin: true },
     },
     watch: {
       // Bind-mounted volumes on Windows/Docker don't emit reliable inotify
