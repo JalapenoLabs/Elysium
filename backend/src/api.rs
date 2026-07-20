@@ -16,6 +16,7 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 use tower_http::trace::TraceLayer;
 
+use crate::oidc;
 use crate::orchestration::{integration_policies, integrations};
 use crate::proto::auth::v1::MeResponse;
 use crate::proto::health::v1::{DatabaseHealthResponse, HelloResponse};
@@ -36,6 +37,14 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(ping))
         .route("/ok", get(ok))
         .route("/health", get(health))
+        // OIDC discovery: the two public `.well-known` documents a client bootstraps
+        // and verifies against. Anonymous, same-origin (issuer = app_origin). The SPA
+        // dev server must proxy `/.well-known/*` to the backend (see docs/oidc.md).
+        .route(
+            "/.well-known/openid-configuration",
+            get(oidc::discovery::configuration),
+        )
+        .route("/.well-known/jwks.json", get(oidc::discovery::jwks))
         .route("/api/v1/hello", get(hello))
         // Public instance identity, for a client validating a server before login.
         .route("/api/v1/instance", get(bootstrap::instance))
@@ -303,6 +312,17 @@ pub fn router(state: AppState) -> Router {
             post(credentials::enroll_finish),
         )
         .route("/api/v1/auth/logout", post(webauthn::logout))
+        // OIDC provider: the interactive SSO surface every managed service logs in
+        // against (see docs/oidc.md, docs/integrations.md). `authorize` is
+        // session-bridged (silent SSO); `token` and `userinfo` are client- and
+        // bearer-authenticated. Admin client registration needs `manage_integrations`.
+        .route("/api/v1/oidc/authorize", get(oidc::endpoints::authorize))
+        .route("/api/v1/oidc/token", post(oidc::endpoints::token))
+        .route("/api/v1/oidc/userinfo", get(oidc::endpoints::userinfo))
+        .route(
+            "/api/v1/oidc/clients",
+            get(oidc::clients::list).post(oidc::clients::register),
+        )
         .layer(middleware::from_fn(security_headers))
         .layer(TraceLayer::new_for_http())
         .with_state(state)

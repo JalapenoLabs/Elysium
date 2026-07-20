@@ -167,11 +167,13 @@ async fn active_org_suspended(
 /// Whether the caller is in a `require_totp` org but has no confirmed TOTP.
 ///
 /// TOTP is one factor per profile, so any mandating org means the profile must
-/// have it; an unknown subject reads as not required.
+/// have it; an unknown subject reads as not required. Shared with the OIDC
+/// authorize endpoint, which must enforce the same 2FA policy before it issues a
+/// code (see [`crate::oidc`]).
 ///
 /// # Errors
 /// Returns an error if a query fails.
-async fn mandatory_totp_missing(state: &AppState, subject: &str) -> sqlx::Result<bool> {
+pub(crate) async fn mandatory_totp_missing(state: &AppState, subject: &str) -> sqlx::Result<bool> {
     let Some(user_id) = crate::users::id_for_subject(&state.pool, subject).await? else {
         return Ok(false);
     };

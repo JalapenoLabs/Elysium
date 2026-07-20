@@ -27,6 +27,7 @@ mod grants;
 mod invites;
 mod login_events;
 mod members;
+mod oidc;
 mod opaque;
 mod orchestration;
 mod orgs;
@@ -111,6 +112,13 @@ async fn main() -> eyre::Result<()> {
     storage::defaults::ensure_default_drives(&state.pool, &state.data_dir)
         .await
         .wrap_err("failed to reconcile default Drives")?;
+
+    // Ensure an OIDC signing key exists so the provider can sign tokens from the
+    // first request. Idempotent: it generates the initial RSA-2048 key only when
+    // none is active, exactly like the OPAQUE setup mints itself on first boot.
+    oidc::keys::ensure_active_key(&state.pool, &state.crypto)
+        .await
+        .wrap_err("failed to ensure an OIDC signing key")?;
 
     // Converge managed integrations to their desired state (docs/integrations.md):
     // a reboot or image upgrade never loses a provisioned service. Idempotent, so

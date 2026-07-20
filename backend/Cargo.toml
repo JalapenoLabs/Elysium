@@ -68,6 +68,13 @@ chacha20poly1305 = "0.10"
 # (ed25519-dalek), no OpenSSL, matching the rest of the tree. Only ed25519 is
 # enabled; rsa/ecdsa/dsa stay off so no extra crypto backends enter the build.
 ssh-key = { version = "0.6.7", default-features = false, features = ["ed25519", "std", "rand_core"] }
+# OIDC/OAuth2 provider (see src/oidc, docs/oidc.md). `jsonwebtoken` signs and
+# verifies the RS256 ID/access tokens with a `kid` header; it rides `ring`, no
+# OpenSSL (matches sqlx/reqwest/opendal). `rsa` generates the RSA-2048 signing
+# keypairs and exposes the modulus/exponent from which the JWK `n`/`e` are derived;
+# it is pure Rust (num-bigint-dig), no OpenSSL. Both pinned to exact versions.
+jsonwebtoken = "9.3.1"
+rsa = "0.9.8"
 # The Drive gateway: every Drive is one OpenDAL operator (see docs/storage.md,
 # src/storage/provider.rs). Only the v1 backends are enabled (FS, S3, SFTP); the
 # other ~90 services stay off. Default features carry `reqwest-rustls-tls`, so the
