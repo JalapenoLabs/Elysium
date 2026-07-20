@@ -24,7 +24,7 @@ use crate::session::SessionUser;
 use crate::state::AppState;
 use crate::{
     accounts, audit, bootstrap, context, credentials, grants, invites, members, orgs, password,
-    policies, profile, projects, recovery, security, sse, storage, teams, webauthn,
+    policies, profile, projects, recovery, security, sse, storage, teams, transport, webauthn,
 };
 
 /// Builds the application router with shared state and middleware attached.
@@ -73,6 +73,22 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/me/passkeys/{id}",
             patch(security::rename_passkey).delete(security::remove_passkey),
         )
+        // Transport credentials (Security Center): the SSH keys and scoped access
+        // tokens the account authenticates git, `docker login`, and SMTP AUTH with.
+        // Each secret (a generated private key, a minted token) is shown once.
+        .route(
+            "/api/v1/me/ssh-keys",
+            get(transport::list_ssh_keys).post(transport::register_ssh_key),
+        )
+        .route(
+            "/api/v1/me/ssh-keys/{id}",
+            delete(transport::delete_ssh_key),
+        )
+        .route(
+            "/api/v1/me/tokens",
+            get(transport::list_tokens).post(transport::mint_token),
+        )
+        .route("/api/v1/me/tokens/{id}", delete(transport::revoke_token))
         // Session revocation: sign one device out, or all others.
         .route(
             "/api/v1/me/sessions/revoke-others",

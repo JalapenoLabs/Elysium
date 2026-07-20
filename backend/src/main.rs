@@ -45,6 +45,7 @@ mod state;
 mod storage;
 mod teams;
 mod totp;
+mod transport;
 mod users;
 mod webauthn;
 

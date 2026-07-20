@@ -230,6 +230,27 @@ Two auth surfaces, two mechanisms:
    per-user SSH keys and scoped access tokens and provisions them into the managed service,
    so `git push` and `docker login` just work without a hand-made PAT.
 
+The transport-credential registry is built (`src/transport.rs`, migration `0027`). Each
+account manages its own credentials under the Security Center (`/api/v1/me/ssh-keys`,
+`/api/v1/me/tokens`):
+
+- **SSH keys** register a user's public key, or generate an ed25519 keypair whose private
+  half is returned once and never stored. Elysium keeps the public key and the
+  server-derived SHA256 fingerprint, and resolves an inbound key to its owner by that
+  fingerprint (`resolve_ssh_key_owner`).
+- **Scoped tokens** are `ely_pat_` bearer secrets (256 CSPRNG bits), shown once and stored
+  only as a SHA-256 hash. A token carries a `TokenScope` set (git read/write, registry
+  pull/push, mail send), an optional bind to one integration instance, and an optional
+  expiry. Verification hashes the presented secret and looks it up, honoring expiry
+  (`resolve_access_token`). A hash, not a recoverable seal: a bearer token is only ever
+  compared, so a database dump yields no usable token even with the master key.
+- **Revocation deletes the row**, so transport auth, which checks live state, fails at once.
+  Deleting an integration cascades to the tokens bound to it, so a token never outlives or
+  broadens past its service.
+
+Stamping `last_used_at` and enforcing a token's scopes at the SSH/HTTPS front ride the
+routing layer (#29) and the git vertical (#38).
+
 **Linked services invert the trust direction:** Elysium is the OAuth *client*, holding the
 user's grant to GitHub/Google/Microsoft, silently refreshing it. For an embedded web view of
 an external service, Elysium injects the session ("login script" fallback) only where no

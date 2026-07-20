@@ -63,6 +63,11 @@ totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
 # server setup and TOTP secrets are sealed under ELYSIUM_SECRET_KEY (see
 # src/crypto.rs), so a database dump alone never exposes them.
 chacha20poly1305 = "0.10"
+# Transport-credential SSH keys (see src/transport.rs): parse OpenSSH public keys,
+# generate ed25519 keypairs, and derive SHA256 fingerprints. Pure Rust
+# (ed25519-dalek), no OpenSSL, matching the rest of the tree. Only ed25519 is
+# enabled; rsa/ecdsa/dsa stay off so no extra crypto backends enter the build.
+ssh-key = { version = "0.6.7", default-features = false, features = ["ed25519", "std", "rand_core"] }
 # The Drive gateway: every Drive is one OpenDAL operator (see docs/storage.md,
 # src/storage/provider.rs). Only the v1 backends are enabled (FS, S3, SFTP); the
 # other ~90 services stay off. Default features carry `reqwest-rustls-tls`, so the
