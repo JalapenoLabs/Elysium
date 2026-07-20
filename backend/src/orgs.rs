@@ -24,7 +24,7 @@ use crate::proto::realtime::v1::event_envelope::Payload;
 use crate::proto::realtime::v1::OrgUpdated;
 use crate::session::{self, SessionUser};
 use crate::state::AppState;
-use crate::{events, users};
+use crate::{events, projects, users};
 
 /// Body of the create-org request.
 #[derive(Deserialize)]
@@ -275,6 +275,11 @@ async fn provision(
         .execute(&mut *tx)
         .await?;
     users::add_membership(&mut tx, user_id, org_id, "owner").await?;
+
+    // Every org has at least one project: seed the default and make the creator its
+    // owner. The M1 default Drive will attach here (see `crate::projects`).
+    projects::create_default(&mut tx, org_id, user_id).await?;
+
     tx.commit().await?;
     Ok(org_id)
 }

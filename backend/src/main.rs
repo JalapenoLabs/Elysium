@@ -32,6 +32,7 @@ mod orgs;
 mod password;
 mod policies;
 mod profile;
+mod projects;
 mod proto;
 mod protobuf;
 mod rate_limit;

@@ -26,7 +26,7 @@ use crate::enrollment::{self, Credential, FinishBody, PendingCredential};
 use crate::login_events::{self, ClientInfo};
 use crate::session::{self, SESSION_COOKIE};
 use crate::state::AppState;
-use crate::{cookies, recovery, users};
+use crate::{cookies, projects, recovery, users};
 
 /// Short-lived cookie carrying the in-flight bootstrap state between begin/finish.
 const BOOTSTRAP_COOKIE: &str = "elysium_bootstrap";
@@ -274,6 +274,11 @@ async fn claim(
     .await?;
 
     users::add_membership(&mut tx, pending.user_id, org_id, "owner").await?;
+
+    // Every org has at least one project: seed the default and make the root user
+    // its owner. The M1 default Drive will attach here (see `crate::projects`).
+    projects::create_default(&mut tx, org_id, pending.user_id).await?;
+
     enrollment::insert(&mut tx, crypto, pending.user_id, credential).await?;
     recovery::store(&mut tx, pending.user_id, recovery_codes).await?;
 

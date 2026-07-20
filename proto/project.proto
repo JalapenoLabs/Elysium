@@ -1,0 +1,54 @@
+// Copyright © 2026 Jalapeno Labs
+//
+// Tenancy domain: projects, the sub-tenant workspace tier between org and team.
+//
+// Elysium's tenancy has four tiers: Org -> Project -> Team -> Individual. Work
+// resources (Drives, integrations, teams, membership) live in projects; the org
+// is a thin umbrella. A project owns its domain(s), so a domain maps to exactly
+// one project. See docs/projects.md for the model these messages encode.
+
+syntax = "proto3";
+
+package elysium.project.v1;
+
+import "common.proto";
+
+// A sub-tenant workspace under an org: the real unit of work and isolation.
+//
+// Every org has at least one project (a default is auto-created on org creation).
+// A project owns its Drives, service integrations, teams, and membership, plus the
+// domain(s) it issues addresses under.
+message Project {
+  elysium.common.v1.Uuid id = 1;
+  elysium.common.v1.Uuid org_id = 2;
+  string name = 3;
+
+  // URL-safe unique handle within the organization, e.g. "yearloom".
+  string slug = 4;
+
+  // Domains this project owns, e.g. "navarrocity.com". A domain maps to exactly
+  // one project across the deployment (enforced by the database).
+  repeated string domains = 5;
+
+  elysium.common.v1.Timestamp created_at = 6;
+}
+
+// A user's role within a single project. Permissions derive from (user, project,
+// role). Projects have owners: an owner controls the project's resources,
+// integrations, domains, and membership.
+enum ProjectRole {
+  PROJECT_ROLE_UNSPECIFIED = 0;
+  PROJECT_ROLE_MEMBER = 1;
+  PROJECT_ROLE_ADMIN = 2;
+  PROJECT_ROLE_OWNER = 3;
+}
+
+// Membership edge linking a user to a project with a role.
+//
+// Full org members reach every project implicitly; this explicit edge carries a
+// per-project role and covers guests scoped to specific projects.
+message ProjectMember {
+  elysium.common.v1.Uuid project_id = 1;
+  elysium.common.v1.Uuid user_id = 2;
+  ProjectRole role = 3;
+}

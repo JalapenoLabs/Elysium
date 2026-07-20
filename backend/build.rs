@@ -12,6 +12,7 @@ use std::io::Result;
 const PROTO_FILES: &[&str] = &[
     "../proto/common.proto",
     "../proto/user.proto",
+    "../proto/project.proto",
     "../proto/health.proto",
     "../proto/auth.proto",
     "../proto/realtime.proto",

@@ -27,6 +27,15 @@ pub mod user {
     }
 }
 
+/// Tenancy domain: projects, the sub-tenant workspace tier under an org.
+pub mod project {
+    /// Version 1 of the project contract.
+    #[allow(dead_code)]
+    pub mod v1 {
+        include!(concat!(env!("OUT_DIR"), "/elysium.project.v1.rs"));
+    }
+}
+
 /// Health, greeting, and database-reachability responses.
 pub mod health {
     /// Version 1 of the health contract.
