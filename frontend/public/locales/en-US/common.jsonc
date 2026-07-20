@@ -199,6 +199,16 @@
       }
     }
   },
+  "token": {
+    "scopes": {
+      "unspecified": "Unknown",
+      "gitRead": "Git read",
+      "gitWrite": "Git write",
+      "registryPull": "Registry pull",
+      "registryPush": "Registry push",
+      "mailSend": "Send mail"
+    }
+  },
   "integration": {
     "kinds": {
       "unspecified": "Service",

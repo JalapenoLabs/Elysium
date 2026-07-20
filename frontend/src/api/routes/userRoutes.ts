@@ -1,7 +1,14 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { Language, ManualStatusKind, User } from '../../proto/generated/user_pb'
-import type { SecurityActivity } from '../../proto/generated/security_pb'
+import type {
+  AccessTokenList,
+  AccessTokenMinted,
+  SecurityActivity,
+  SshKeyCreated,
+  SshKeyList,
+  TokenScope,
+} from '../../proto/generated/security_pb'
 
 // Lib
 import { create } from '@bufbuild/protobuf'
@@ -17,7 +24,15 @@ import {
   UpdateProfileRequestSchema,
   UserSchema,
 } from '../../proto/generated/user_pb'
-import { SecurityActivitySchema } from '../../proto/generated/security_pb'
+import {
+  AccessTokenListSchema,
+  AccessTokenMintedSchema,
+  MintTokenRequestSchema,
+  RegisterSshKeyRequestSchema,
+  SecurityActivitySchema,
+  SshKeyCreatedSchema,
+  SshKeyListSchema,
+} from '../../proto/generated/security_pb'
 
 // Every profile response also lands in the `currentUser` slice (as its
 // serializable projection), so the chrome that renders the signed-in user stays
@@ -177,4 +192,59 @@ export async function setMyStatus(
     responseSchema: UserSchema,
   })
   return recordCurrentUser(user)
+}
+
+// Transport credential minting (#34, docs/integrations.md): per-user SSH keys
+// and scoped access tokens for git-over-SSH/HTTPS, `docker login`, and SMTP
+// AUTH. Private keys and token secrets are shown exactly once at creation and
+// never returned by the list reads.
+
+export function listSshKeys(): Promise<SshKeyList> {
+  return getProto('api/v1/me/ssh-keys', SshKeyListSchema)
+}
+
+// An empty `publicKey` asks Elysium to generate an ed25519 keypair; the
+// response then carries the private key once. A set `publicKey` registers the
+// user's own key (no private key in the response).
+export function registerSshKey(name: string, publicKey: string): Promise<SshKeyCreated> {
+  return sendProto('api/v1/me/ssh-keys', {
+    method: 'post',
+    requestSchema: RegisterSshKeyRequestSchema,
+    request: create(RegisterSshKeyRequestSchema, { name, publicKey }),
+    responseSchema: SshKeyCreatedSchema,
+  })
+}
+
+export function deleteSshKey(keyId: string): Promise<Response> {
+  return apiClient.delete(`api/v1/me/ssh-keys/${keyId}`)
+}
+
+export function listTokens(): Promise<AccessTokenList> {
+  return getProto('api/v1/me/tokens', AccessTokenListSchema)
+}
+
+// `integrationId` empty = every instance of the scoped kinds within the user's
+// access; set = one bound service. `ttlSeconds` 0 = no expiry. The response
+// carries the `ely_pat_` secret once.
+export function mintToken(fields: {
+  name: string
+  scopes: TokenScope[]
+  integrationId: string
+  ttlSeconds: number
+}): Promise<AccessTokenMinted> {
+  return sendProto('api/v1/me/tokens', {
+    method: 'post',
+    requestSchema: MintTokenRequestSchema,
+    request: create(MintTokenRequestSchema, {
+      name: fields.name,
+      scopes: fields.scopes,
+      integrationId: fields.integrationId,
+      ttlSeconds: BigInt(fields.ttlSeconds),
+    }),
+    responseSchema: AccessTokenMintedSchema,
+  })
+}
+
+export function deleteToken(tokenId: string): Promise<Response> {
+  return apiClient.delete(`api/v1/me/tokens/${tokenId}`)
 }

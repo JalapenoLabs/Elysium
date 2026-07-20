@@ -9,6 +9,8 @@ import { useTranslation } from 'react-i18next'
 // UI
 import { ProfileSection } from './sections/ProfileSection'
 import { CredentialsSection } from './sections/CredentialsSection'
+import { SshKeysSection } from './sections/SshKeysSection'
+import { TokensSection } from './sections/TokensSection'
 import { SessionsSection } from './sections/SessionsSection'
 import { AccountsSection } from './sections/AccountsSection'
 import { LoginHistorySection } from './sections/LoginHistorySection'
@@ -51,6 +53,8 @@ export function PersonalDetails() {
 
     <ProfileSection />
     <CredentialsSection />
+    <SshKeysSection />
+    <TokensSection />
     <SessionsSection sessions={activity?.sessions ?? []} onReload={loadActivity} />
     <AccountsSection />
     <LoginHistorySection events={activity?.recentSignIns ?? []} />
