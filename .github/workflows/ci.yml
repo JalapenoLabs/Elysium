@@ -179,9 +179,14 @@ jobs:
         # breaking `yarn install` with EACCES ("permission denied, mkdir @bufbuild").
         # Reclaim ownership for the runner user via a root container, keeping the
         # cache warm (no delete). No-op on a clean/first run.
+        #
+        # This step's CWD is already `frontend` (the job's working-directory default),
+        # so target `node_modules`/`.yarn` directly. The earlier `frontend/…` paths
+        # resolved to `frontend/frontend/…`, which does not exist, so the chown
+        # silently no-op'd and the root-owned files survived every run.
         run: |
           docker run --rm -v "$PWD:/w" -w /w alpine:3 \
-            sh -c 'chown -R '"$(id -u):$(id -g)"' frontend/node_modules frontend/.yarn 2>/dev/null || true'
+            sh -c 'chown -R '"$(id -u):$(id -g)"' node_modules .yarn 2>/dev/null || true'
 
       - name: Install dependencies
         run: yarn install --immutable
