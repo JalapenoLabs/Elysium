@@ -11,6 +11,7 @@ import { ProfileSection } from './sections/ProfileSection'
 import { CredentialsSection } from './sections/CredentialsSection'
 import { SshKeysSection } from './sections/SshKeysSection'
 import { TokensSection } from './sections/TokensSection'
+import { ConnectedAccountsSection } from './sections/ConnectedAccountsSection'
 import { SessionsSection } from './sections/SessionsSection'
 import { AccountsSection } from './sections/AccountsSection'
 import { LoginHistorySection } from './sections/LoginHistorySection'
@@ -55,6 +56,7 @@ export function PersonalDetails() {
     <CredentialsSection />
     <SshKeysSection />
     <TokensSection />
+    <ConnectedAccountsSection />
     <SessionsSection sessions={activity?.sessions ?? []} onReload={loadActivity} />
     <AccountsSection />
     <LoginHistorySection events={activity?.recentSignIns ?? []} />

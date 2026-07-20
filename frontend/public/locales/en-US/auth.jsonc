@@ -374,6 +374,22 @@
       "loadFailed": "We couldn't load projects. Please try again.",
       "updateFailed": "We couldn't update that project. Please try again."
     },
+    "connections": {
+      "title": "Connected accounts",
+      "body": "Link external accounts so Elysium can act on your behalf.",
+      "empty": "No connected accounts yet.",
+      "connect": "Connect {{provider}}",
+      "connectedWhen": "Connected {{when}}",
+      "connected": "Connected your {{provider}} account.",
+      "connectFailed": "We couldn't connect that account. Please try again.",
+      "needsReconnect": "Reconnect needed",
+      "reconnect": "Reconnect",
+      "disconnect": "Disconnect",
+      "disconnectTitle": "Disconnect account",
+      "disconnectBody": "Disconnect {{name}}? Elysium forgets the grant and can no longer act for it.",
+      "disconnectAction": "Disconnect",
+      "updateFailed": "We couldn't disconnect that account. Please try again."
+    },
     "sshKeys": {
       "title": "SSH keys",
       "body": "Keys that authenticate Git over SSH.",
