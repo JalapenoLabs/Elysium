@@ -127,24 +127,163 @@ fn publishes_http_surface(kind: IntegrationKind) -> bool {
 /// Base of the host-port band managed HTTP surfaces publish on.
 ///
 /// Chosen above the common well-known/service ports and below the Linux ephemeral
-/// range (`ip_local_port_range` defaults to 32768+), so a derived publish port
-/// never collides with the kernel's own outbound port allocation.
+/// range (`ip_local_port_range` defaults to 32768+), so an allocated publish port
+/// never collides with the kernel's own outbound port allocation. Kept in sync
+/// with the `host_port` CHECK in migration `0030`.
 const MANAGED_HOST_PORT_BASE: u16 = 20000;
 
 /// Width of the managed host-port band (ports 20000..=31999).
+///
+/// The band's inclusive upper bound is `MANAGED_HOST_PORT_BASE + MANAGED_HOST_PORT_SPAN - 1`.
+/// Kept in sync with the `host_port` CHECK in migration `0030`.
 const MANAGED_HOST_PORT_SPAN: u16 = 12000;
 
-/// The host port a managed integration publishes its HTTP surface on.
+/// How many times [`ensure_host_port`] retries a lost allocation race.
 ///
-/// Derived from the integration id, so it is stable across restarts (a re-drive
-/// keeps the same published port and never churns the container) while spread
-/// across the band. Collisions are a birthday problem over the band width; at the
-/// scale of managed services one deployment host runs they are vanishingly
-/// unlikely, and a persisted per-integration allocation is the documented
-/// follow-up if density ever warrants it (#38).
-fn managed_host_port(integration_id: Uuid) -> u16 {
-    let folded = (integration_id.as_u128() % MANAGED_HOST_PORT_SPAN as u128) as u16;
-    MANAGED_HOST_PORT_BASE + folded
+/// Each retry follows a partial-unique-index rejection: a concurrent reconcile
+/// claimed the same lowest-free port first, so we recompute against the now-larger
+/// taken set and take the next gap. The band is 12000 wide, so realistic
+/// contention resolves in one or two attempts; this bound only guards a
+/// pathological storm and never trips in practice.
+const HOST_PORT_ALLOCATION_ATTEMPTS: u32 = 16;
+
+/// Allocates, or returns the existing, published host port for an integration.
+///
+/// Returns the row's `host_port` unchanged when one is already set, so the port is
+/// stable across restarts and a re-reconcile never churns the container. Otherwise
+/// it claims the lowest free port in the managed band (starting at
+/// [`MANAGED_HOST_PORT_BASE`]) in one atomic statement and returns it. Deleting an
+/// integration frees its port automatically (the column travels with the row), so
+/// a later allocation reuses the lowest freed gap.
+///
+/// # Concurrency
+/// The claim is a single `UPDATE ... FROM (lowest-free SELECT) WHERE host_port IS
+/// NULL RETURNING`, holding no lock across the statement. Two reconciles racing for
+/// *different* integrations can compute the same lowest-free port; the partial
+/// UNIQUE index `integrations_host_port_key` admits exactly one, and the loser sees
+/// a unique violation and retries against the now-larger taken set, taking the next
+/// gap. Two reconciles racing for the *same* integration serialize on the
+/// `host_port IS NULL` guard: the first sets it, the second matches no row,
+/// re-reads, and returns the port the first stored. The read-committed snapshot the
+/// lowest-free subquery sees may miss an in-flight peer's uncommitted claim, which
+/// is exactly why the index, not the subquery, is the collision authority.
+///
+/// The retry relies on an **autocommit** connection: a unique violation aborts an
+/// enclosing transaction, which would poison the next attempt. The reconciler
+/// always drives this on a pooled connection (`main.rs` at boot,
+/// `reconcile_and_respond` after a management-API change), never inside an open
+/// transaction, so each attempt is its own implicit transaction.
+///
+/// # Errors
+/// Returns [`sqlx::Error::RowNotFound`] when the band is fully allocated, so the
+/// caller parks the integration `FAILED` rather than publishing a colliding port.
+/// Surfaces the last unique violation if the retry bound is exhausted under
+/// pathological contention, and propagates any genuine database error.
+pub(crate) async fn ensure_host_port(
+    conn: &mut PgConnection,
+    integration_id: Uuid,
+) -> sqlx::Result<u16> {
+    // The band is inclusive on both ends; generate_series matches that.
+    let band_end = MANAGED_HOST_PORT_BASE + MANAGED_HOST_PORT_SPAN - 1;
+    let mut last_conflict: Option<sqlx::Error> = None;
+
+    for _ in 0..HOST_PORT_ALLOCATION_ATTEMPTS {
+        // Stability and the fast path: an already-allocated port is returned as-is,
+        // never reallocated.
+        if let Some(existing) = current_host_port(&mut *conn, integration_id).await? {
+            return Ok(existing);
+        }
+
+        // Claim the lowest free port atomically. The `FROM (... LIMIT 1)` subquery
+        // yields no row when the band is full, so the UPDATE then matches nothing;
+        // the `host_port IS NULL` guard likewise makes a same-row double-claim a
+        // no-op. The inner `WHERE host_port IS NOT NULL` keeps NULLs out of the
+        // EXCEPT set (a NULL there would empty the whole candidate set).
+        let claimed = sqlx::query_scalar::<_, i32>(
+            "UPDATE integrations AS target
+                SET host_port = free.port, updated_at = now()
+               FROM (
+                   SELECT candidate AS port
+                     FROM (
+                         SELECT gs AS candidate
+                           FROM generate_series($2::int, $3::int) AS gs
+                         EXCEPT
+                         SELECT host_port
+                           FROM integrations
+                          WHERE host_port IS NOT NULL
+                     ) AS candidates
+                    ORDER BY candidate
+                    LIMIT 1
+               ) AS free
+              WHERE target.id = $1
+                AND target.host_port IS NULL
+            RETURNING target.host_port",
+        )
+        .bind(integration_id)
+        .bind(i32::from(MANAGED_HOST_PORT_BASE))
+        .bind(i32::from(band_end))
+        .fetch_optional(&mut *conn)
+        .await;
+
+        match claimed {
+            Ok(Some(port)) => return Ok(port_from_db(port)),
+            Ok(None) => {
+                // The UPDATE matched no row: either a concurrent reconcile just set
+                // our row (the fast path returns it on the next turn) or the band is
+                // full. A re-read that is still NULL means genuine exhaustion.
+                if current_host_port(&mut *conn, integration_id)
+                    .await?
+                    .is_none()
+                {
+                    return Err(sqlx::Error::RowNotFound);
+                }
+            }
+            Err(error) if is_unique_violation(&error) => {
+                // Another reconcile claimed our lowest-free pick first; retry, which
+                // now sees a larger taken set and takes the next gap.
+                last_conflict = Some(error);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    // Pathological contention only. Surface the last race so the caller parks
+    // FAILED and the next reconcile pass retries from a quiescent state.
+    Err(last_conflict.unwrap_or(sqlx::Error::RowNotFound))
+}
+
+/// Reads an integration's currently-allocated host port, `None` when unallocated.
+async fn current_host_port(
+    conn: &mut PgConnection,
+    integration_id: Uuid,
+) -> sqlx::Result<Option<u16>> {
+    let stored: Option<i32> =
+        sqlx::query_scalar::<_, Option<i32>>("SELECT host_port FROM integrations WHERE id = $1")
+            .bind(integration_id)
+            .fetch_optional(conn)
+            .await?
+            .flatten();
+    Ok(stored.map(port_from_db))
+}
+
+/// Narrows a stored `host_port` to a `u16`; the band CHECK guarantees it fits.
+///
+/// # Panics
+/// Panics if the column somehow holds a value outside the managed band, which the
+/// `host_port` CHECK in migration `0030` makes impossible for a well-formed row.
+fn port_from_db(value: i32) -> u16 {
+    u16::try_from(value)
+        .expect("the host_port CHECK constrains the column to the managed band [20000, 31999]")
+}
+
+/// Whether a sqlx error is a Postgres unique-constraint violation.
+///
+/// The signal a lost host-port allocation race raises against the partial UNIQUE
+/// index, mirroring the same helper in [`crate::transport`] and [`crate::projects`].
+fn is_unique_violation(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .is_some_and(sqlx::error::DatabaseError::is_unique_violation)
 }
 
 /// The deterministic OIDC client id a managed git integration registers under.
@@ -223,8 +362,9 @@ pub(crate) enum SpecPlan {
 /// Plans the [`ServiceSpec`] for a managed integration from its bindings.
 ///
 /// Pure: every input is loaded by the caller (the service secret through
-/// [`config::ensure_service_secret`]), so spec construction is unit-tested
-/// without a database. The env block comes from the per-kind template
+/// [`config::ensure_service_secret`], the published `host_port` through
+/// [`ensure_host_port`]), so spec construction is unit-tested without a database.
+/// The env block comes from the per-kind template
 /// ([`config::render_env`]); a config that does not fit the kind's shape parks
 /// the plan as [`SpecPlan::Broken`]. Volumes come from the FS-backed bindings:
 /// the Drive's root joined with the binding prefix (or the reserved
@@ -240,6 +380,7 @@ pub(crate) fn build_spec(
     drives: &HashMap<Uuid, DriveRow>,
     secret: Option<&ServiceSecret>,
     provisioning: &config::Provisioning<'_>,
+    host_port: Option<u16>,
 ) -> SpecPlan {
     let mut spec = ServiceSpec::new(service_name(integration), default_image(integration.kind));
 
@@ -252,13 +393,17 @@ pub(crate) fn build_spec(
         Err(error) => return SpecPlan::Broken(error.to_string()),
     }
 
-    // Publish the kind's HTTP surface on its derived host port when its milestone
+    // Publish the kind's HTTP surface on its allocated host port when its milestone
     // exposes it, so the reconciler's route registration ([`http_route_for`]) finds
-    // the published port and the proxy can reach the container.
+    // the published port and the proxy can reach the container. The port is resolved
+    // by the caller through [`ensure_host_port`] (persisted, unique per host); a
+    // publishing kind reconciled without one simply carries no port and no route.
     if publishes_http_surface(integration.kind) {
-        if let Some(container_port) = http_surface_port(integration.kind) {
+        if let (Some(container_port), Some(host_port)) =
+            (http_surface_port(integration.kind), host_port)
+        {
             spec.ports.push(PortBind {
-                host_port: managed_host_port(integration.id),
+                host_port,
                 container_port,
                 protocol: PortProtocol::Tcp,
             });
@@ -496,7 +641,30 @@ async fn reconcile_row(
             .map(|drive| (drive.id, drive))
             .collect();
 
-    let plan = build_spec(row, &bindings, &drives, secret.as_ref(), &provisioning);
+    // Allocate this integration's published host port (persisted, stable across
+    // restarts, unique per host) when its kind exposes an HTTP surface. A full band
+    // parks the row FAILED rather than publishing a colliding port; non-publishing
+    // kinds carry no port.
+    let host_port = if publishes_http_surface(row.kind) {
+        match ensure_host_port(&mut *conn, row.id).await {
+            Ok(port) => Some(port),
+            Err(error) => {
+                let detail = host_port_failure_detail(&error);
+                return set_status(conn, row.id, ReconcileStatus::Failed, &detail).await;
+            }
+        }
+    } else {
+        None
+    };
+
+    let plan = build_spec(
+        row,
+        &bindings,
+        &drives,
+        secret.as_ref(),
+        &provisioning,
+        host_port,
+    );
     // Derive the HTTP route from the planned spec before `converge` consumes it,
     // so the route can be registered or dropped based on the reconcile outcome.
     let http_route = match &plan {
@@ -521,6 +689,22 @@ async fn reconcile_row(
         "integration reconciled: {{service.name}} -> {{reconcile.status}}",
     );
     set_status(conn, row.id, status, &detail).await
+}
+
+/// Renders a host-port allocation failure into a console-facing status detail.
+///
+/// A full band ([`sqlx::Error::RowNotFound`] from [`ensure_host_port`]) names the
+/// band so an operator sees the deployment is out of publish ports; any other error
+/// is a database or contention failure the next reconcile pass retries.
+fn host_port_failure_detail(error: &sqlx::Error) -> String {
+    match error {
+        sqlx::Error::RowNotFound => format!(
+            "no free host port in the managed band [{}, {}]",
+            MANAGED_HOST_PORT_BASE,
+            MANAGED_HOST_PORT_BASE + MANAGED_HOST_PORT_SPAN - 1
+        ),
+        other => format!("could not allocate a host port: {other}"),
+    }
 }
 
 /// Persists a reconcile outcome onto the integration row.
@@ -553,6 +737,12 @@ mod tests {
     use crate::orchestration::provisioner::memory::InMemoryProvisioner;
     use crate::storage::{DriveKind, DriveVisibility};
     use chrono::Utc;
+
+    /// A fixed in-band host port for spec-planning tests that do not allocate.
+    ///
+    /// Allocation from the band is covered by the DB-gated [`ensure_host_port`]
+    /// tests; the pure spec tests only need a concrete published port.
+    const TEST_HOST_PORT: u16 = MANAGED_HOST_PORT_BASE;
 
     /// A managed integration row of `kind`, project-scoped, desired running.
     fn managed_row(kind: IntegrationKind) -> IntegrationRow {
@@ -627,6 +817,7 @@ mod tests {
             &drives,
             None,
             &config::Provisioning::default(),
+            Some(TEST_HOST_PORT),
         ) else {
             panic!("a fully-bound git integration plans a ready spec");
         };
@@ -666,6 +857,7 @@ mod tests {
             &drives,
             None,
             &config::Provisioning::default(),
+            Some(TEST_HOST_PORT),
         ) else {
             panic!("ready");
         };
@@ -681,6 +873,7 @@ mod tests {
             &HashMap::new(),
             None,
             &config::Provisioning::default(),
+            Some(TEST_HOST_PORT),
         ) else {
             panic!("an unbound required role parks the plan as waiting");
         };
@@ -703,6 +896,7 @@ mod tests {
             &drives,
             None,
             &config::Provisioning::default(),
+            Some(TEST_HOST_PORT),
         ) else {
             panic!("ready");
         };
@@ -724,6 +918,7 @@ mod tests {
             &drives,
             None,
             &config::Provisioning::default(),
+            Some(TEST_HOST_PORT),
         ) else {
             panic!("a corrupt Drive config breaks the plan");
         };
@@ -742,6 +937,7 @@ mod tests {
             &HashMap::new(),
             None,
             &config::Provisioning::default(),
+            Some(TEST_HOST_PORT),
         ) else {
             panic!("a vanished Drive breaks the plan");
         };
@@ -866,7 +1062,7 @@ mod tests {
     #[test]
     fn git_spec_publishes_the_web_surface_and_registers_a_route() {
         // A fully-bound git integration publishes container port 3000 on its
-        // derived host port, and that published surface yields a proxy route.
+        // allocated host port, and that published surface yields a proxy route.
         let row = managed_row(IntegrationKind::Git);
         let SpecPlan::Ready(spec) = ready_plan(&row) else {
             panic!("ready");
@@ -876,11 +1072,11 @@ mod tests {
             .iter()
             .find(|port| port.container_port == 3000)
             .expect("the Forgejo web port is published");
-        assert_eq!(published.host_port, managed_host_port(row.id));
+        assert_eq!(published.host_port, TEST_HOST_PORT);
         assert!(matches!(published.protocol, PortProtocol::Tcp));
 
         let route = http_route_for(&row, &spec).expect("a published surface routes");
-        assert_eq!(route.upstream_port, managed_host_port(row.id));
+        assert_eq!(route.upstream_port, TEST_HOST_PORT);
 
         // The templated HTTP_PORT matches the routed container surface, so Forgejo
         // listens where the proxy dials.
@@ -906,6 +1102,7 @@ mod tests {
             &drives,
             None,
             &config::Provisioning::default(),
+            Some(TEST_HOST_PORT),
         ) else {
             panic!("ready");
         };
@@ -914,19 +1111,38 @@ mod tests {
     }
 
     #[test]
-    fn managed_host_port_is_deterministic_and_in_band() {
-        let id = Uuid::new_v4();
-        // Stable across calls (so a re-reconcile never churns the container).
-        assert_eq!(managed_host_port(id), managed_host_port(id));
-        // Always within the documented band, below the ephemeral range.
-        for _ in 0..1000 {
-            let port = managed_host_port(Uuid::new_v4());
-            assert!(
-                (MANAGED_HOST_PORT_BASE..MANAGED_HOST_PORT_BASE + MANAGED_HOST_PORT_SPAN)
-                    .contains(&port),
-                "{port} out of band"
-            );
-        }
+    fn a_publishing_kind_without_an_allocated_port_carries_none() {
+        // build_spec only publishes when the caller resolved a host port; a git
+        // integration planned without one carries no port and no route (the
+        // reconciler always resolves one first, but the spec stays honest).
+        let row = managed_row(IntegrationKind::Git);
+        let fs = drive(DriveKind::Fs, serde_json::json!({ "root": "/srv/data" }));
+        let bindings = vec![binding(&row, "repos", &fs, "")];
+        let drives = HashMap::from([(fs.id, fs)]);
+        let SpecPlan::Ready(spec) = build_spec(
+            &row,
+            &bindings,
+            &drives,
+            None,
+            &config::Provisioning::default(),
+            None,
+        ) else {
+            panic!("ready");
+        };
+        assert!(spec.ports.is_empty(), "no port without an allocation");
+        assert!(http_route_for(&row, &spec).is_none());
+    }
+
+    #[test]
+    fn the_managed_band_sits_below_the_ephemeral_range() {
+        // The band the persisted allocation draws from, and the migration 0030
+        // CHECK, agree on [20000, 31999], entirely below the Linux ephemeral floor
+        // (32768) so a published port never fights the kernel's outbound allocation.
+        assert_eq!(MANAGED_HOST_PORT_BASE, 20000);
+        assert_eq!(MANAGED_HOST_PORT_SPAN, 12000);
+        let band_end = MANAGED_HOST_PORT_BASE + MANAGED_HOST_PORT_SPAN - 1;
+        assert_eq!(band_end, 31999);
+        assert!(band_end < 32768, "the band stays below the ephemeral range");
     }
 
     #[test]
@@ -1021,6 +1237,7 @@ mod tests {
             &drives,
             secret,
             &config::Provisioning::default(),
+            Some(TEST_HOST_PORT),
         )
     }
 
@@ -1065,6 +1282,7 @@ mod tests {
             &HashMap::new(),
             None,
             &config::Provisioning::default(),
+            Some(TEST_HOST_PORT),
         );
 
         let (status, detail) = converge(
@@ -1162,6 +1380,7 @@ mod tests {
                 &HashMap::new(),
                 None,
                 &config::Provisioning::default(),
+                None,
             ),
         )
         .await;
@@ -1430,6 +1649,223 @@ mod tests {
         tx.rollback().await.expect("rollback transaction");
     }
 
+    // --- Host-port allocation against postgres (ignored by default) ----------
+    //
+    // These prove the persisted allocation itself: uniqueness, in-band, stability,
+    // lowest-gap reuse (including free-on-delete), density, and the partial UNIQUE
+    // index and band CHECK migration 0030 adds. Everything runs inside a
+    // rolled-back transaction, and every assertion is relative (deltas off the
+    // first allocation), so a shared test database with pre-existing rows never
+    // makes them flaky.
+
+    /// The band's inclusive upper bound, for in-band assertions.
+    const BAND_END: u16 = MANAGED_HOST_PORT_BASE + MANAGED_HOST_PORT_SPAN - 1;
+
+    /// Inserts an org and returns its id.
+    async fn seed_org(conn: &mut PgConnection) -> Uuid {
+        let unique = Uuid::new_v4();
+        sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO orgs (name, slug) VALUES ('Port Org', $1) RETURNING id",
+        )
+        .bind(format!("port-{unique}"))
+        .fetch_one(conn)
+        .await
+        .expect("insert org")
+    }
+
+    /// Inserts a minimal org-scoped managed integration with `host_port` NULL.
+    ///
+    /// Allocation only touches the `host_port` column, so no bindings or config are
+    /// needed; the row simply has to exist.
+    async fn seed_bare_integration(conn: &mut PgConnection, org: Uuid) -> Uuid {
+        sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO integrations (org_id, kind, mode, owner_scope, owner_id, name)
+             VALUES ($1, $2, $3, $4, $1, 'Forge') RETURNING id",
+        )
+        .bind(org)
+        .bind(IntegrationKind::Git.as_db())
+        .bind(IntegrationMode::Managed.as_db())
+        .bind(OwnerScope::Org.as_db())
+        .fetch_one(conn)
+        .await
+        .expect("insert integration")
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn ensure_host_port_allocates_in_band_and_is_stable() {
+        let pool = connect_test_pool().await;
+        let mut tx = pool.begin().await.expect("begin transaction");
+        let org = seed_org(&mut tx).await;
+
+        let a = seed_bare_integration(&mut tx, org).await;
+        let port_a = ensure_host_port(&mut tx, a).await.expect("allocate a");
+        assert!(
+            (MANAGED_HOST_PORT_BASE..=BAND_END).contains(&port_a),
+            "{port_a} out of band"
+        );
+
+        // Re-calling for the same integration returns the same port: stable across
+        // restarts, never reallocated.
+        assert_eq!(
+            ensure_host_port(&mut tx, a).await.expect("re-read a"),
+            port_a,
+            "an allocated port is stable"
+        );
+
+        // A second integration gets a distinct, higher port (lowest-free after a).
+        let b = seed_bare_integration(&mut tx, org).await;
+        let port_b = ensure_host_port(&mut tx, b).await.expect("allocate b");
+        assert_ne!(port_a, port_b, "distinct integrations get distinct ports");
+        assert!(port_b > port_a, "the next allocation takes the next gap");
+
+        tx.rollback().await.expect("rollback");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn deleting_an_integration_frees_its_host_port() {
+        let pool = connect_test_pool().await;
+        let mut tx = pool.begin().await.expect("begin transaction");
+        let org = seed_org(&mut tx).await;
+
+        let a = seed_bare_integration(&mut tx, org).await;
+        let b = seed_bare_integration(&mut tx, org).await;
+        let port_a = ensure_host_port(&mut tx, a).await.expect("allocate a");
+        let port_b = ensure_host_port(&mut tx, b).await.expect("allocate b");
+        assert!(port_a < port_b);
+
+        // Deleting the row (the delete path is a plain cascade DELETE, no soft
+        // delete) frees its port: the column travels with the row.
+        sqlx::query("DELETE FROM integrations WHERE id = $1")
+            .bind(a)
+            .execute(&mut *tx)
+            .await
+            .expect("delete a");
+
+        // A fresh allocation reuses the freed port, now the lowest free again.
+        let c = seed_bare_integration(&mut tx, org).await;
+        let port_c = ensure_host_port(&mut tx, c).await.expect("allocate c");
+        assert_eq!(port_c, port_a, "the freed port is reused");
+
+        tx.rollback().await.expect("rollback");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn ensure_host_port_fills_the_lowest_gap() {
+        let pool = connect_test_pool().await;
+        let mut tx = pool.begin().await.expect("begin transaction");
+        let org = seed_org(&mut tx).await;
+
+        let a = seed_bare_integration(&mut tx, org).await;
+        let b = seed_bare_integration(&mut tx, org).await;
+        let c = seed_bare_integration(&mut tx, org).await;
+        let port_a = ensure_host_port(&mut tx, a).await.expect("a");
+        let port_b = ensure_host_port(&mut tx, b).await.expect("b");
+        let port_c = ensure_host_port(&mut tx, c).await.expect("c");
+        assert!(port_a < port_b && port_b < port_c);
+
+        // Free the middle port; the next allocation fills that gap, not the top.
+        sqlx::query("DELETE FROM integrations WHERE id = $1")
+            .bind(b)
+            .execute(&mut *tx)
+            .await
+            .expect("delete b");
+        let d = seed_bare_integration(&mut tx, org).await;
+        let port_d = ensure_host_port(&mut tx, d).await.expect("d");
+        assert_eq!(port_d, port_b, "the lowest gap is filled first");
+
+        tx.rollback().await.expect("rollback");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn host_ports_stay_unique_under_density() {
+        let pool = connect_test_pool().await;
+        let mut tx = pool.begin().await.expect("begin transaction");
+        let org = seed_org(&mut tx).await;
+
+        // Pack the band densely and assert every port is distinct and in-band: the
+        // collision the old hash derivation risked cannot happen here.
+        let mut ports = std::collections::BTreeSet::new();
+        for _ in 0..32 {
+            let id = seed_bare_integration(&mut tx, org).await;
+            let port = ensure_host_port(&mut tx, id).await.expect("allocate");
+            assert!(
+                (MANAGED_HOST_PORT_BASE..=BAND_END).contains(&port),
+                "{port} out of band"
+            );
+            assert!(ports.insert(port), "port {port} was handed out twice");
+        }
+        assert_eq!(ports.len(), 32, "every allocation is unique");
+
+        tx.rollback().await.expect("rollback");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn the_host_port_index_rejects_a_duplicate() {
+        let pool = connect_test_pool().await;
+        let mut tx = pool.begin().await.expect("begin transaction");
+        let org = seed_org(&mut tx).await;
+        let a = seed_bare_integration(&mut tx, org).await;
+        let b = seed_bare_integration(&mut tx, org).await;
+
+        // Force both onto one port: the partial UNIQUE index (migration 0030) makes
+        // the second write fail, which is the guarantee the retry loop leans on.
+        sqlx::query("UPDATE integrations SET host_port = $1 WHERE id = $2")
+            .bind(i32::from(BAND_END))
+            .bind(a)
+            .execute(&mut *tx)
+            .await
+            .expect("first claim");
+        let dup = sqlx::query("UPDATE integrations SET host_port = $1 WHERE id = $2")
+            .bind(i32::from(BAND_END))
+            .bind(b)
+            .execute(&mut *tx)
+            .await;
+        assert!(
+            is_unique_violation(&dup.expect_err("a duplicate host port must be rejected")),
+            "the partial unique index rejects the duplicate"
+        );
+
+        tx.rollback().await.expect("rollback");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a postgres reachable via DATABASE_URL"]
+    async fn the_host_port_check_rejects_out_of_band_values() {
+        let pool = connect_test_pool().await;
+        let mut tx = pool.begin().await.expect("begin transaction");
+        let org = seed_org(&mut tx).await;
+        let id = seed_bare_integration(&mut tx, org).await;
+
+        // The band CHECK (migration 0030) rejects a port under the base and one over
+        // the top, so no allocation or manual write can escape the band. Each write
+        // runs in its own savepoint: a CHECK violation aborts its subtransaction,
+        // which ROLLBACK TO SAVEPOINT recovers without poisoning the outer one.
+        use sqlx::Acquire;
+        for out_of_band in [
+            i32::from(MANAGED_HOST_PORT_BASE) - 1,
+            i32::from(BAND_END) + 1,
+        ] {
+            let mut savepoint = tx.begin().await.expect("open savepoint");
+            let result = sqlx::query("UPDATE integrations SET host_port = $1 WHERE id = $2")
+                .bind(out_of_band)
+                .bind(id)
+                .execute(&mut *savepoint)
+                .await;
+            assert!(
+                result.is_err(),
+                "the CHECK must reject the out-of-band port {out_of_band}"
+            );
+            savepoint.rollback().await.expect("rollback savepoint");
+        }
+
+        tx.rollback().await.expect("rollback");
+    }
+
     // --- Live Docker E2E (ignored, needs the real stack) --------------------
     //
     // This proves a managed Forgejo actually provisions and serves. It runs only
@@ -1489,11 +1925,19 @@ mod tests {
             app_origin: "http://host.docker.internal:8080",
             oidc: Some(&oidc),
         };
-        let SpecPlan::Ready(spec) = build_spec(&row, &bindings, &drives, None, &provisioning)
-        else {
+        // A fixed in-band port stands in for the persisted allocation this live
+        // path never touches a database to make.
+        let host_port = MANAGED_HOST_PORT_BASE + 4242;
+        let SpecPlan::Ready(spec) = build_spec(
+            &row,
+            &bindings,
+            &drives,
+            None,
+            &provisioning,
+            Some(host_port),
+        ) else {
             panic!("the bound git integration plans a ready spec");
         };
-        let host_port = managed_host_port(row.id);
 
         // Provision, assert the UI serves, and always clean the container up.
         let outcome = drive_forgejo(&provisioner, &spec, host_port).await;

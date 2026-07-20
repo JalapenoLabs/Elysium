@@ -376,9 +376,17 @@ are consumed by a first-boot init running `forgejo admin auth add-oauth`; delive
 idempotent init (a container command hook or one-shot init container) is tracked in the
 roadmap below.
 
-**Host-port allocation** is currently derived deterministically from the integration id over
-a fixed band (stable across restarts, no container churn); a persisted allocation that
-guarantees per-host uniqueness under density is a tracked follow-up.
+**Host-port allocation** is persisted per integration. On first provision the reconciler
+(`ensure_host_port`) claims the lowest free port in the band `[20000, 31999]` in one
+race-safe statement (`UPDATE ... FROM (generate_series EXCEPT taken-ports LIMIT 1) WHERE
+host_port IS NULL RETURNING`), stores it on `integrations.host_port`, and returns it
+unchanged on every later reconcile, so the port is stable across restarts (no container
+churn) and unique per deployment host. A partial UNIQUE index (`WHERE host_port IS NOT NULL`)
+is the collision authority: two reconciles racing for the same lowest-free port cannot both
+win, and the loser retries onto the next gap. Deleting an integration frees its port (the
+column travels with the cascade-deleted row), so a later allocation reuses the lowest freed
+gap. A CHECK pins the column to the band. This replaces the former hash-of-id derivation,
+whose birthday-problem collisions could fail the second container's publish.
 
 ## Roadmap
 
@@ -391,5 +399,4 @@ Remaining on the git milestone (M4), each an individual issue: the Forgejo login
 first-boot init (deliver + idempotent `add-oauth`/`update-oauth`), git transport auth over SSH
 (the SSH router, #30; the HTTPS scoped-token half is wired), linked GitHub/GitLab (OAuth +
 repos into the unified view), the repo resource model (repos as resources with org/team
-ownership and access), and the embedded git panel + federated "all repos" surface. On the orchestration milestone (M2): a
-persisted per-integration host-port allocation to replace the deterministic derivation.
+ownership and access), and the embedded git panel + federated "all repos" surface.
