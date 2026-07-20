@@ -978,6 +978,8 @@ dependencies = [
  "eyre",
  "futures-core",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "ipnetwork",
  "jsonwebtoken",
  "mimalloc",

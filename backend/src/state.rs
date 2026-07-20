@@ -11,6 +11,7 @@ use crate::config::Deployment;
 use crate::crypto::Crypto;
 use crate::opaque::Suite;
 use crate::orchestration::provisioner::ProvisionerHandle;
+use crate::orchestration::routing::RouteTable;
 use crate::sse::SseRegistry;
 
 /// Maximum number of pooled Postgres connections.
@@ -78,6 +79,12 @@ pub struct AppState {
     /// backend; either swaps in behind the same handle without touching any
     /// consumer (see [`crate::config::docker_proxy_url`]).
     pub provisioner: ProvisionerHandle,
+    /// Live HTTP routes to managed service containers, keyed by integration id.
+    ///
+    /// The reconciler registers and unregisters routes as integrations converge,
+    /// and the `/services/{id}/*` proxy reads them (see
+    /// [`crate::orchestration::routing`]). Shared, not copied, on clone.
+    pub routes: RouteTable,
 }
 
 impl AppState {
@@ -125,6 +132,7 @@ impl AppState {
             app_origin: deployment.app_origin,
             data_dir,
             provisioner,
+            routes: RouteTable::new(),
         })
     }
 }

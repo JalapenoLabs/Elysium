@@ -11,14 +11,14 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, patch, post, put};
+use axum::routing::{any, delete, get, patch, post, put};
 use axum::{Json, Router};
 use serde_json::{json, Value};
 use tower_http::trace::TraceLayer;
 
 use crate::oauth_client;
 use crate::oidc;
-use crate::orchestration::{integration_policies, integrations};
+use crate::orchestration::{integration_policies, integrations, routing};
 use crate::proto::auth::v1::MeResponse;
 use crate::proto::health::v1::{DatabaseHealthResponse, HelloResponse};
 use crate::protobuf::Protobuf;
@@ -287,6 +287,14 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/integrations/{id}/bindings",
             put(integrations::set_bindings),
         )
+        // Managed-service reverse proxy: reaches a managed container's web surface
+        // at a stable, single-origin URL so it can be embedded (see
+        // docs/integrations.md Routing). `/services/{id}` strips its prefix and
+        // forwards `/*path` to the integration's upstream, streaming bodies and
+        // tunnelling websocket upgrades. The route exists only while the
+        // integration does; the forward-auth check lands in M3-02.
+        .route("/services/{integration_id}", any(routing::proxy_root))
+        .route("/services/{integration_id}/{*path}", any(routing::proxy))
         // Integration policies (`manage_integrations`): the per-kind toggles
         // governing whether members may link personal integrations of a kind,
         // mirroring the org auth-policy control plane. Default off, per kind.
@@ -467,6 +475,7 @@ mod tests {
     use crate::crypto::Crypto;
     use crate::opaque::Suite;
     use crate::orchestration::provisioner::ProvisionerHandle;
+    use crate::orchestration::routing::RouteTable;
     use crate::sse::SseRegistry;
 
     /// Builds an [`AppState`] with a lazy (never-connected) pool, a throwaway
@@ -492,6 +501,7 @@ mod tests {
             app_origin: "http://localhost:5173".to_string(),
             data_dir: "/srv/elysium".to_string(),
             provisioner: ProvisionerHandle::in_memory(),
+            routes: RouteTable::new(),
         }
     }
 

@@ -205,10 +205,42 @@ its kind's blessed image expects. All per-kind knowledge lives in one lookup tab
 
 Elysium's reverse proxy routes inbound traffic to the right managed container:
 
-- **HTTP** by host/path, so a service's web UI is reachable and can be embedded.
-- **SSH / TCP** for `git@…` and similar. This is the harder case: an SSH front maps a
-  presented key to an Elysium user and routes to the correct backend container. Design this
-  explicitly; do not assume HTTP-only.
+- **HTTP** by path today, so a service's web UI is reachable and embeddable. An **embedded
+  hyper reverse proxy** lives in the API process (`src/orchestration/routing.rs`), not a
+  managed Traefik/Caddy container. The tradeoff, recorded deliberately: the proxy sits
+  in-process with the Elysium session, so forward-auth needs no external round-trip,
+  single-origin SPA embedding stays clean, and there is no extra container to provision. In
+  return we handle streaming and connection upgrades ourselves, on hyper (a maintained
+  library), never hand-rolled HTTP.
+  - **Addressing.** `ANY /services/{integration_id}/*path` on the backend strips the
+    `/services/{id}` prefix and forwards `/*path` (plus query) upstream. Host-based routing
+    (`git.example.com` → the git container) is a later addition on the same route table.
+  - **Reachability.** A managed container publishes its web port on the host; the backend
+    reaches it at `http://host.docker.internal:{published_port}`. Compose maps
+    `host.docker.internal` to the host gateway (`extra_hosts`) so this resolves on Linux too.
+    The future alternative is attaching the backend to the `elysium-managed` network and
+    routing by container name.
+  - **Route table.** A `RouteTable` (integration id → upstream host/port) lives on
+    `AppState`. The reconciler registers a route when it brings a managed integration with an
+    HTTP surface and a published port to *running*, and unregisters on stop, removal, or a
+    parked reconcile, so a route appears and disappears with its integration; the boot
+    reconcile rebuilds the whole table. A kind's HTTP surface is declared in
+    `reconcile::http_surface_port` (git → 3000, registry → 5000); the route binds to the host
+    port that publishes it, so a per-service milestone that publishes the port lights routing
+    up with no extra wiring.
+  - **Proxying.** Request and response bodies stream (never buffered whole); hop-by-hop
+    headers (`Connection`, `Keep-Alive`, `TE`, `Trailer`, `Transfer-Encoding`, `Upgrade`,
+    `Proxy-*`, and any header named in `Connection`) are stripped, `X-Forwarded-{For,Host,Proto}`
+    and the upstream `Host` are set, and a `101 Switching Protocols` is tunnelled both ways so
+    the websocket features of forge/registry UIs work.
+  - **Forward-auth seam.** Every request passes through one async choke point,
+    `routing::authorize_proxy(&state, &parts, integration_id) -> ProxyAuth`, before the
+    upstream connection opens. It returns `Allow` today (open pass-through); M3-02 fills it in
+    to require an Elysium session and assert identity to the upstream via trusted headers
+    (`X-Elysium-User`, `X-Elysium-Email`).
+- **SSH / TCP** for `git@…` and similar (roadmap, M2-05). This is the harder case: an SSH
+  front maps a presented key to an Elysium user and routes to the correct backend container.
+  Design this explicitly; do not assume HTTP-only.
 
 ## Identity: one login, zero re-prompt, for the user and Elysia
 

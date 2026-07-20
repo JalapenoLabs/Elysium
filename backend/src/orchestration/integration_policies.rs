@@ -270,6 +270,7 @@ mod tests {
             app_origin: "http://localhost:5173".to_string(),
             data_dir: "/srv/elysium".to_string(),
             provisioner: ProvisionerHandle::in_memory(),
+            routes: crate::orchestration::routing::RouteTable::new(),
         }
     }
 

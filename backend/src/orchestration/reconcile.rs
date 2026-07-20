@@ -36,7 +36,10 @@ use crate::orchestration::integrations::{
     storage_roles, BindingRow, DesiredState, IntegrationKind, IntegrationMode, IntegrationRow,
     ReconcileStatus,
 };
-use crate::orchestration::provisioner::{Provisioner, ServiceSpec, ServiceState, VolumeBind};
+use crate::orchestration::provisioner::{
+    PortProtocol, Provisioner, ServiceSpec, ServiceState, VolumeBind,
+};
+use crate::orchestration::routing::{Route, RouteTable, MANAGED_UPSTREAM_HOST};
 use crate::storage::{DriveConfig, DriveRow};
 
 /// The blessed default image for each managed kind, pinned per the repo rule.
@@ -64,6 +67,43 @@ pub fn default_image(kind: IntegrationKind) -> &'static str {
 /// after a restart re-converges the same container instead of duplicating it.
 pub fn service_name(integration: &IntegrationRow) -> String {
     format!("elysium-{}-{}", integration.kind.slug(), integration.id)
+}
+
+/// The container-side HTTP port a managed kind serves its embeddable web UI on.
+///
+/// `None` for kinds with no HTTP surface to embed in v1 (mail, perforce, runner);
+/// their reachability is transport auth (#29 SSH/TCP) or the action-center, not an
+/// iframe. The returned port is matched against the spec's published ports in
+/// [`http_route_for`] to find the host port the proxy dials; a kind that has a
+/// surface here but no matching published port simply gets no route yet (the
+/// per-service milestone that publishes the port lights routing up automatically).
+pub fn http_surface_port(kind: IntegrationKind) -> Option<u16> {
+    match kind {
+        // Forgejo's web UI (and its git-over-HTTP and websocket-backed live views).
+        IntegrationKind::Git => Some(3000),
+        // The registry's HTTP API and (with a UI image) its web console.
+        IntegrationKind::Registry => Some(5000),
+        IntegrationKind::Mail | IntegrationKind::Perforce | IntegrationKind::Runner => None,
+    }
+}
+
+/// Derives the HTTP [`Route`] for an integration, or `None` when it has no surface.
+///
+/// A route exists only when the kind advertises an HTTP surface
+/// ([`http_surface_port`]) *and* the planned spec publishes that container port to
+/// a host port: the proxy reaches the container through
+/// `host.docker.internal:{host_port}` (see [`crate::orchestration::routing`]). Pure
+/// over the integration and its spec, so it is unit-tested without a database.
+pub fn http_route_for(integration: &IntegrationRow, spec: &ServiceSpec) -> Option<Route> {
+    let container_port = http_surface_port(integration.kind)?;
+    let published = spec.ports.iter().find(|port| {
+        port.container_port == container_port && matches!(port.protocol, PortProtocol::Tcp)
+    })?;
+    Some(Route::new(
+        integration.id,
+        MANAGED_UPSTREAM_HOST,
+        published.host_port,
+    ))
 }
 
 /// The outcome of planning a managed integration's [`ServiceSpec`].
@@ -234,6 +274,7 @@ pub async fn reconcile_all(
     conn: &mut PgConnection,
     provisioner: &impl Provisioner,
     crypto: &Crypto,
+    routes: &RouteTable,
 ) -> sqlx::Result<()> {
     let rows = sqlx::query_as::<_, IntegrationRow>(
         "SELECT * FROM integrations WHERE mode = $1 ORDER BY created_at ASC",
@@ -244,7 +285,7 @@ pub async fn reconcile_all(
 
     tracing::info!(count = rows.len(), "reconciling managed integrations");
     for row in rows {
-        reconcile_row(conn, provisioner, crypto, &row).await?;
+        reconcile_row(conn, provisioner, crypto, routes, &row).await?;
     }
     Ok(())
 }
@@ -261,6 +302,7 @@ pub async fn reconcile_integration(
     conn: &mut PgConnection,
     provisioner: &impl Provisioner,
     crypto: &Crypto,
+    routes: &RouteTable,
     integration_id: Uuid,
 ) -> sqlx::Result<()> {
     let row = sqlx::query_as::<_, IntegrationRow>("SELECT * FROM integrations WHERE id = $1")
@@ -269,17 +311,24 @@ pub async fn reconcile_integration(
         .await?;
     match row {
         Some(row) if row.mode == IntegrationMode::Managed => {
-            reconcile_row(conn, provisioner, crypto, &row).await
+            reconcile_row(conn, provisioner, crypto, routes, &row).await
         }
         _ => Ok(()),
     }
 }
 
 /// The per-row body shared by [`reconcile_all`] and [`reconcile_integration`].
+///
+/// After converging the container, the row's HTTP route tracks the outcome: a
+/// running integration with an HTTP surface and a published port registers its
+/// route, and every other outcome (stopped, parked, failed, or a kind with no
+/// surface) unregisters it. Because the boot reconcile walks every managed row,
+/// this rebuilds the whole route table from integration state on startup.
 async fn reconcile_row(
     conn: &mut PgConnection,
     provisioner: &impl Provisioner,
     crypto: &Crypto,
+    routes: &RouteTable,
     row: &IntegrationRow,
 ) -> sqlx::Result<()> {
     let service = service_name(row);
@@ -310,7 +359,20 @@ async fn reconcile_row(
             .collect();
 
     let plan = build_spec(row, &bindings, &drives, secret.as_ref());
+    // Derive the HTTP route from the planned spec before `converge` consumes it,
+    // so the route can be registered or dropped based on the reconcile outcome.
+    let http_route = match &plan {
+        SpecPlan::Ready(spec) => http_route_for(row, spec),
+        SpecPlan::Waiting(_) | SpecPlan::Broken(_) => None,
+    };
     let (status, detail) = converge(provisioner, &service, row.desired, plan).await;
+
+    // A route lives exactly as long as the integration serves HTTP: register it
+    // once running with a published surface, and drop it on any other outcome.
+    match (status, http_route) {
+        (ReconcileStatus::Running, Some(route)) => routes.register(route),
+        _ => routes.unregister(row.id),
+    }
 
     tracing::info!(
         integration.id = %row.id,
@@ -611,6 +673,73 @@ mod tests {
         }
     }
 
+    // --- HTTP route derivation ----------------------------------------------
+
+    #[test]
+    fn http_surface_port_covers_every_kind() {
+        // The web-surfaced kinds carry a port; the transport-only kinds do not.
+        assert_eq!(http_surface_port(IntegrationKind::Git), Some(3000));
+        assert_eq!(http_surface_port(IntegrationKind::Registry), Some(5000));
+        assert_eq!(http_surface_port(IntegrationKind::Mail), None);
+        assert_eq!(http_surface_port(IntegrationKind::Perforce), None);
+        assert_eq!(http_surface_port(IntegrationKind::Runner), None);
+    }
+
+    #[test]
+    fn http_route_for_maps_a_published_surface_to_the_host_gateway() {
+        use crate::orchestration::provisioner::{PortBind, PortProtocol};
+
+        // A git integration whose spec publishes the Forgejo web port (3000) on a
+        // host port routes to host.docker.internal at that host port.
+        let row = managed_row(IntegrationKind::Git);
+        let mut spec = ServiceSpec::new(service_name(&row), default_image(IntegrationKind::Git));
+        spec.ports.push(PortBind {
+            host_port: 38080,
+            container_port: 3000,
+            protocol: PortProtocol::Tcp,
+        });
+
+        let route = http_route_for(&row, &spec).expect("a published surface yields a route");
+        assert_eq!(route.integration_id, row.id);
+        assert_eq!(route.upstream_host, MANAGED_UPSTREAM_HOST);
+        assert_eq!(route.upstream_port, 38080);
+    }
+
+    #[test]
+    fn http_route_for_needs_the_surface_port_published() {
+        use crate::orchestration::provisioner::{PortBind, PortProtocol};
+
+        // A git spec that publishes some other port, but not the web surface, has
+        // no HTTP route: routing lights up only once the surface port is published.
+        let row = managed_row(IntegrationKind::Git);
+        let mut spec = ServiceSpec::new(service_name(&row), default_image(IntegrationKind::Git));
+        spec.ports.push(PortBind {
+            host_port: 2222,
+            container_port: 22,
+            protocol: PortProtocol::Tcp,
+        });
+        assert!(http_route_for(&row, &spec).is_none());
+
+        // With no published ports at all (today's build_spec), still no route.
+        let bare = ServiceSpec::new(service_name(&row), default_image(IntegrationKind::Git));
+        assert!(http_route_for(&row, &bare).is_none());
+    }
+
+    #[test]
+    fn http_route_for_is_none_for_a_kind_without_a_surface() {
+        use crate::orchestration::provisioner::{PortBind, PortProtocol};
+
+        // Even if a mail spec published port 3000, mail advertises no HTTP surface.
+        let row = managed_row(IntegrationKind::Mail);
+        let mut spec = ServiceSpec::new(service_name(&row), default_image(IntegrationKind::Mail));
+        spec.ports.push(PortBind {
+            host_port: 3000,
+            container_port: 3000,
+            protocol: PortProtocol::Tcp,
+        });
+        assert!(http_route_for(&row, &spec).is_none());
+    }
+
     // --- Convergence against the fake provisioner ----------------------------
 
     /// Plans the ready spec for `row` bound to a valid FS drive.
@@ -890,6 +1019,7 @@ mod tests {
         let mut tx = pool.begin().await.expect("begin transaction");
         let provisioner = InMemoryProvisioner::new();
         let crypto = test_crypto();
+        let routes = RouteTable::new();
 
         let bound = seed_bound_git(&mut tx).await;
         assert_eq!(
@@ -899,7 +1029,7 @@ mod tests {
         );
 
         // First reconcile brings the bound integration to RUNNING and persists it.
-        reconcile_all(&mut tx, &provisioner, &crypto)
+        reconcile_all(&mut tx, &provisioner, &crypto, &routes)
             .await
             .expect("reconcile");
         let (status, detail) = status_of(&mut tx, bound.id).await;
@@ -922,7 +1052,7 @@ mod tests {
         // A second run (a simulated restart) re-converges without duplicating
         // the container: same generation, still RUNNING (the minted secret is
         // reused, so the spec, secret included, is unchanged).
-        reconcile_all(&mut tx, &provisioner, &crypto)
+        reconcile_all(&mut tx, &provisioner, &crypto, &routes)
             .await
             .expect("re-reconcile");
         let (status, _) = status_of(&mut tx, bound.id).await;
@@ -941,7 +1071,7 @@ mod tests {
         .fetch_one(&mut *tx)
         .await
         .expect("insert unbound integration");
-        reconcile_all(&mut tx, &provisioner, &crypto)
+        reconcile_all(&mut tx, &provisioner, &crypto, &routes)
             .await
             .expect("reconcile");
         let (status, detail) = status_of(&mut tx, unbound.id).await;
@@ -955,7 +1085,7 @@ mod tests {
             .execute(&mut *tx)
             .await
             .expect("set desired stopped");
-        reconcile_integration(&mut tx, &provisioner, &crypto, bound.id)
+        reconcile_integration(&mut tx, &provisioner, &crypto, &routes, bound.id)
             .await
             .expect("reconcile one");
         let (status, _) = status_of(&mut tx, bound.id).await;

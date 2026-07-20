@@ -1234,6 +1234,8 @@ pub async fn delete(
             tracing::error!(error = %error, "managed container removal failed");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
+        // The container is gone; drop its route so the proxy stops resolving it.
+        state.routes.unregister(row.id);
     }
 
     match sqlx::query("DELETE FROM integrations WHERE id = $1")
@@ -1522,9 +1524,14 @@ async fn reconcile_and_respond(
     conn: &mut PgConnection,
     integration_id: Uuid,
 ) -> Response {
-    if let Err(error) =
-        reconcile::reconcile_integration(conn, &state.provisioner, &state.crypto, integration_id)
-            .await
+    if let Err(error) = reconcile::reconcile_integration(
+        conn,
+        &state.provisioner,
+        &state.crypto,
+        &state.routes,
+        integration_id,
+    )
+    .await
     {
         tracing::error!(error = %error, "integration reconcile failed");
     }

@@ -130,9 +130,14 @@ async fn main() -> eyre::Result<()> {
             .acquire()
             .await
             .wrap_err("failed to acquire a connection for integration reconcile")?;
-        orchestration::reconcile::reconcile_all(&mut conn, &state.provisioner, &state.crypto)
-            .await
-            .wrap_err("failed to reconcile managed integrations")?;
+        orchestration::reconcile::reconcile_all(
+            &mut conn,
+            &state.provisioner,
+            &state.crypto,
+            &state.routes,
+        )
+        .await
+        .wrap_err("failed to reconcile managed integrations")?;
     }
 
     let port = env::var("API_PORT")

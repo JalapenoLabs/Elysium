@@ -26,7 +26,11 @@
 //!   integration's stored config and sealed secret into the env its blessed
 //!   image expects.
 //! - [`reconcile`]: the desired-state reconciler converging managed rows to
-//!   containers on boot and after every change.
+//!   containers on boot and after every change; it also registers and unregisters
+//!   HTTP routes as integrations come and go.
+//! - [`routing`]: the embedded HTTP reverse proxy that makes a managed service's
+//!   web surface reachable and embeddable at `/services/{id}` (streaming, with
+//!   websocket upgrades and a forward-auth seam for #33).
 //!
 //! The module-wide `dead_code` allowance covers the parts of the seam landed
 //! ahead of their consumers (`Provisioner::logs` awaits the console's log
@@ -39,3 +43,4 @@ pub mod integration_policies;
 pub mod integrations;
 pub mod provisioner;
 pub mod reconcile;
+pub mod routing;

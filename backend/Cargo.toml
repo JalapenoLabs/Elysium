@@ -92,6 +92,16 @@ tempfile = "3"
 # rides rustls, so even unused it keeps no OpenSSL in the tree (matches
 # sqlx/reqwest/opendal).
 bollard = { version = "0.21.0", default-features = false, features = ["http"] }
+# The embedded reverse proxy that routes to managed service containers (see
+# src/orchestration/routing.rs). axum already rides hyper 1.x; we take a direct
+# dependency on its low-level client so we drive the upstream connection ourselves
+# and can tunnel a websocket upgrade both ways. Only `client` + `http1` are
+# enabled (managed containers speak plain HTTP/1.1 over the in-cluster network),
+# so no TLS backend and no OpenSSL enter the tree (matches sqlx/reqwest/opendal).
+hyper = { version = "1", features = ["client", "http1"] }
+# `TokioIo` bridges a `tokio::net::TcpStream` (and hyper's upgraded stream) into
+# hyper's own I/O traits; the `tokio` feature is the only one the proxy needs.
+hyper-util = { version = "0.1", features = ["tokio"] }
 
 [dev-dependencies]
 # Exercise routes in-process (tower::ServiceExt::oneshot) without a socket.

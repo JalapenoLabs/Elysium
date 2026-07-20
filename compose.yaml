@@ -137,6 +137,15 @@ services:
       # never the raw socket. Set empty in .env to fall back to the in-memory
       # backend (no real containers).
       ELYSIUM_DOCKER_PROXY_URL: ${ELYSIUM_DOCKER_PROXY_URL-http://socket-proxy:2375}
+    # The embedded reverse proxy reaches a managed container through the host port
+    # that container publishes (see src/orchestration/routing.rs). Mapping
+    # host.docker.internal to the host gateway lets the backend resolve it on Linux
+    # too (Docker Desktop already provides it), so proxying to
+    # http://host.docker.internal:<published_port> works everywhere. The future
+    # alternative is attaching the backend to the elysium-managed network and
+    # routing by container name.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${API_PORT:-31416}:31416"
     volumes:
