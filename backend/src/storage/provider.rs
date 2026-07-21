@@ -26,8 +26,29 @@
 //! sqlx/reqwest stack so no OpenSSL enters the build. OpenDAL's SFTP backend
 //! authenticates through `openssh` from a private-key *file*, so [`operator`]
 //! materializes an [`SftpSecret::PrivateKey`] to a `0600` temp file whose lifetime the
-//! returned [`DriveOperator`] owns; password auth is not offered by that backend and
-//! is rejected with a clear error.
+//! returned [`DriveOperator`] owns.
+//!
+//! # SFTP password authentication is blocked (see `docs/storage.md`)
+//!
+//! Password auth for SFTP is **not implementable cleanly on the current stack**, so an
+//! [`SftpSecret::Password`] is rejected with a clear error rather than hacked in:
+//!
+//! - OpenDAL 0.57's `services-sftp` runs on the `openssh` crate, which drives the host
+//!   `ssh` client and authenticates only from a private-key file or an agent. Its
+//!   builder ([`opendal::services::Sftp`]) exposes `endpoint`/`user`/`root`/`key` but
+//!   **no `password` method** (verified against the crate), so there is no supported
+//!   way to pass a password through the operator.
+//! - No later OpenDAL minor adds it, because the limitation is the `openssh` transport,
+//!   not OpenDAL's surface.
+//! - The only alternatives both break a load-bearing invariant: a libssh2-based crate
+//!   (`ssh2`) links system OpenSSL, violating the no-OpenSSL rule; and bolting a
+//!   `russh`/`russh-sftp` (pure-Rust, rustls) client alongside OpenDAL would fork the
+//!   "every Drive is one OpenDAL operator" model into a parallel transport to maintain.
+//!
+//! **What would unblock it:** OpenDAL adding SFTP password auth upstream (an `openssh`
+//! capability or a new SFTP backend), or Elysium adopting a `russh`-backed
+//! implementation of OpenDAL's `Access` trait so password Drives stay one `Operator`
+//! without OpenSSL. Until then, key-based auth is the only SFTP credential in v1.
 
 use std::ops::Deref;
 
@@ -120,7 +141,8 @@ pub enum SftpSecret {
         /// The PEM text of the private key.
         pem: String,
     },
-    /// A password. The current OpenDAL SFTP backend cannot use this.
+    /// A password. Rejected in v1: OpenDAL's `openssh` SFTP backend has no password
+    /// path (see the module docs for why this is blocked and what would unblock it).
     Password {
         /// The account password.
         password: String,
