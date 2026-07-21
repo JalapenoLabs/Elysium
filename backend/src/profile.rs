@@ -257,7 +257,10 @@ fn to_user(row: ProfileRow, online: bool) -> User {
         given_name: row.given_name,
         family_name: row.family_name,
         display_name: row.display_name,
-        avatar_url: row.avatar_url,
+        // A Drive-backed avatar stores an internal `elysium://` reference; present it as
+        // the served path a client can render, passing an external URL through untouched
+        // (see `crate::storage::branding`).
+        avatar_url: crate::storage::branding::present_avatar_url(row.id, &row.avatar_url),
         bio: row.bio,
         presence: presence as i32,
         manual_status: manual_status as i32,

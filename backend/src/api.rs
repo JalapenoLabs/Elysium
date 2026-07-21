@@ -57,6 +57,17 @@ pub fn router(state: AppState) -> Router {
             get(profile::get_me).patch(profile::update_me),
         )
         .route("/api/v1/users/me/status", put(profile::set_status))
+        // Avatar blobs: upload stores the image on the active org's default Drive under
+        // the reserved `.elysium/avatars/` area; the per-user serve path streams it back
+        // (or redirects an external URL). See `crate::storage::branding`.
+        .route(
+            "/api/v1/users/me/avatar",
+            put(storage::branding::upload_avatar),
+        )
+        .route(
+            "/api/v1/users/{user_id}/avatar",
+            get(storage::branding::serve_avatar),
+        )
         // Security Center: credentials, plus one combined sessions + sign-ins read.
         .route("/api/v1/me/credentials", get(security::credentials))
         .route(
@@ -156,6 +167,13 @@ pub fn router(state: AppState) -> Router {
         // Orgs: create additional orgs, and edit name/logo (fans out org.updated).
         .route("/api/v1/orgs", post(orgs::create))
         .route("/api/v1/orgs/{id}", patch(orgs::update))
+        // Org logo blobs: admin upload stores the image on the org's default Drive under
+        // the reserved `.elysium/logos/` area; the serve path streams it back (or
+        // redirects an external URL). See `crate::storage::branding`.
+        .route(
+            "/api/v1/orgs/{id}/logo",
+            get(storage::branding::serve_logo).put(storage::branding::upload_logo),
+        )
         .route(
             "/api/v1/orgs/{id}/transfer-ownership",
             post(orgs::transfer_ownership),

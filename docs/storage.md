@@ -123,10 +123,35 @@ where they touch this design.
 - System files (avatars, org logos, and each consumer's reserved area) live under
   `.elysium/` inside the project's default Drive, hidden from the file browser (the public
   file API never lists or writes it).
-- Known gap: `avatar_url`/`logo_url` are still plain string columns; wiring uploads to write
-  under `.elysium/avatars/` and `.elysium/logos/` is a deferred follow-up. Changing the
-  default Drive also does not migrate the existing `.elysium/` system files; the deploying
-  org manages that for now.
+
+### Avatars and org logos are Drive-backed
+
+Avatars and org logos are stored on a Drive, not just held as opaque external URLs
+(`backend/src/storage/branding.rs`):
+
+- **Upload.** `PUT /api/v1/users/me/avatar` (any member, active org) and
+  `PUT /api/v1/orgs/{id}/logo` (org admin) stream an image into the reserved
+  `.elysium/avatars/{user_id}.{ext}` / `.elysium/logos/{org_id}.{ext}` area of the owning
+  org's **default Drive** (the default Drive of the org's canonical/oldest project). An
+  image content-type allow-list (PNG/JPEG/GIF/WebP; **no SVG**, to avoid inline-script
+  surface) and an 8 MiB per-image cap are enforced; the validated body is written whole,
+  so a rejected upload never leaves a partial blob.
+- **The reference.** The `users.avatar_url` / `orgs.logo_url` column keeps working and
+  holds one of two things, told apart by prefix: an **internal reference**
+  `elysium://<drive_id>/<key>` (written by an upload), or an **external URL**
+  (`http(s)://`, set by the plain profile/branding update). The reference embeds the
+  `drive_id`, so it self-locates: an existing avatar keeps resolving even after the
+  project changes its default Drive.
+- **Serving.** `GET /api/v1/users/{user_id}/avatar` and `GET /api/v1/orgs/{id}/logo`
+  stream the blob back through the storage layer with a content type derived from the
+  stored extension (an external URL redirects `302`; an empty value is `404`). The
+  canonical profile/org reads (`profile::to_user`, `orgs::update`) present an internal
+  reference as its served path so a client renders it directly; other list surfaces
+  currently expose the raw reference (a follow-up as the frontend adopts these paths).
+- **Caveat (unchanged):** changing the default Drive does not migrate existing
+  `.elysium/` system blobs. Because each reference embeds its `drive_id`, existing
+  avatars/logos keep resolving from the Drive they were written to; only new uploads land
+  on the new default.
 
 ## Search
 
@@ -147,16 +172,31 @@ millions of files, and creates "file no longer exists" staleness footguns.
 
 ## Transfer
 
-- **Proxy-through-backend, streaming, in v1.** The client always talks to Elysium; the
-  backend streams bytes to/from the OpenDAL operator. This is uniform across every provider
-  (the only thing that works for FS and SFTP at all) and keeps one client contract.
+- **Proxy-through-backend, streaming, is the universal fallback.** The client always talks
+  to Elysium; the backend streams bytes to/from the OpenDAL operator. This is uniform
+  across every provider (the only thing that works for FS and SFTP at all) and keeps one
+  client contract.
 - Never buffer a whole file in memory; stream both directions and use OpenDAL's multipart
   writer for large objects.
 - A configurable **per-file size cap** is a DB-backed org storage setting (default 5 GB),
   edited in the admin UI. Because we stream, the cap is a policy choice, not a memory limit.
-- Later, transparently: for providers that support presigned URLs (S3), a
-  `presign-if-available, else proxy` hybrid short-circuits the proxy for large transfers.
-  The proxy remains the universal fallback, so presign is a pure optimization.
+- **Presign-if-available (S3), else proxy.** The content routes take an additive opt-in
+  `?presign=1`. When the Drive's provider can sign direct URLs (**S3 only**;
+  `supports_presign`) and the transfer clears a size threshold (16 MiB; `should_presign`),
+  the backend answers with JSON `{ url, method, headers, expires_at }` (a 15-minute
+  presigned `GET`/`PUT`) so the bytes flow client↔provider directly. FS/SFTP, sub-threshold
+  transfers, or any presign failure fall straight back to the proxy, so presign is a pure
+  optimization with no contract change.
+- **Atomic replace.** A streamed replace never corrupts the prior object on a failed or
+  oversize upload (`stream_to_drive`), per provider:
+  - **FS** (`POSIX_FS`) stages to a `.part` temp key in the same directory and renames it
+    over the target on success; the FS writer truncates on open, so writing in place would
+    corrupt the prior file. A failed replace deletes the temp and leaves the original
+    byte-for-byte.
+  - **S3** writes directly: PutObject / multipart commit only on close, so an aborted
+    replace never touches the prior object (inherently staged).
+  - **SFTP** writes directly and has **no** atomic replace (the writer truncates on open);
+    a failed replace best-effort deletes the truncated partial. Documented limitation.
 
 ## Configuration philosophy
 
@@ -177,9 +217,15 @@ Three layers, three different calls:
    `ELYSIUM_SECRET_KEY`), the same pattern as TOTP secrets, bound to the Drive's
    `project_id`. Opened, the blob is per-kind JSON: `{access_key_id, secret_access_key}`
    for S3, `{kind: private_key, pem}` for SFTP. Never returned to the client; the API
-   exposes only "credential set / not set." SFTP is key-based only in v1: the OpenDAL
-   `openssh` backend authenticates from a private-key file, so password auth is not
-   offered.
+   exposes only "credential set / not set." **SFTP is key-based only**, and this is a
+   deliberate, investigated limitation, not an oversight: OpenDAL 0.57's `services-sftp`
+   runs on the `openssh` crate, whose builder exposes no `password` method (verified), so
+   there is no clean way to pass a password through the operator. The alternatives each
+   break an invariant, a libssh2 crate links system OpenSSL (violating no-OpenSSL), and a
+   `russh` client would fork the "one OpenDAL operator per Drive" model, so a password
+   credential is rejected with a clear error rather than hacked in. It unblocks if OpenDAL
+   gains SFTP password auth upstream, or Elysium adopts a `russh`-backed `Access`
+   implementation (pure-Rust, rustls, no OpenSSL). See `backend/src/storage/provider.rs`.
 2. **In transit — inherent per provider.** TLS for S3/WebDAV, SSH for SFTP, on-box for FS.
 3. **File bodies — infrastructure, not app-level, in v1.** No app-level body encryption:
    it would break native provider use, presign, previews, and content search. Rely on disk

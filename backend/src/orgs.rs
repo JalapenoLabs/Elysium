@@ -132,6 +132,11 @@ pub async fn update(
         }
     };
 
+    // A Drive-backed logo stores an internal `elysium://` reference; present it as the
+    // served path a client can render, passing an external URL through untouched (see
+    // `crate::storage::branding`).
+    let logo_url = crate::storage::branding::present_logo_url(org_id, &logo_url);
+
     events::publish_org(
         &state,
         org_id,
