@@ -25,17 +25,21 @@
 //! mid-flight is aborted and its partial object discarded. Because transfers stream,
 //! the cap is a policy choice, not a memory limit.
 
+use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, Request, State};
 use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
+use axum::Json;
 use futures_core::Stream;
+use opendal::raw::PresignedRequest;
 use opendal::{Entry, Operator};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
@@ -49,7 +53,7 @@ use crate::storage::drives;
 use crate::storage::provider::{self, DriveOperator};
 use crate::users;
 
-use super::{open_secret, DriveRow, DEFAULT_MAX_UPLOAD_BYTES};
+use super::{open_secret, DriveKind, DriveRow, DEFAULT_MAX_UPLOAD_BYTES};
 
 /// The reserved system-file prefix, hidden from this public gateway.
 ///
@@ -68,14 +72,40 @@ const OCTET_STREAM: &str = "application/octet-stream";
 /// holds a whole file.
 const UPLOAD_CHUNK_BYTES: usize = 8 * 1024 * 1024;
 
+/// How long a presigned URL stays valid (15 minutes).
+///
+/// Long enough for a client to run a single large direct transfer, short enough that a
+/// leaked URL is useless soon after. The provider clamps this to its own maximum.
+const PRESIGN_EXPIRY: Duration = Duration::from_secs(15 * 60);
+
+/// Transfer size at or above which a presign is worth the extra round trip (16 MiB).
+///
+/// Below this, proxying through the backend is already fast and avoids a second request
+/// plus a client-side redirect; presign is a large-transfer optimization, not a default.
+const PRESIGN_THRESHOLD_BYTES: u64 = 16 * 1024 * 1024;
+
 // --- Request shapes ---------------------------------------------------------
 
 /// The `?path=` query shared by the list, content, folder, and delete routes.
+///
+/// The content routes also read `?presign=1`: an opt-in asking for a direct
+/// provider URL instead of a proxied stream, honored only where the provider supports
+/// it (see [`supports_presign`]).
 #[derive(Deserialize)]
 pub struct PathQuery {
     /// The in-Drive path, URL-decoded by the query parser. Empty is the Drive root.
     #[serde(default)]
     path: String,
+    /// Opt-in for a presigned direct URL on the content routes (`presign=1`/`true`).
+    #[serde(default)]
+    presign: Option<String>,
+}
+
+impl PathQuery {
+    /// Whether the caller opted into a presigned direct transfer.
+    fn wants_presign(&self) -> bool {
+        matches!(self.presign.as_deref(), Some("1" | "true" | "yes"))
+    }
 }
 
 // --- Routes -----------------------------------------------------------------
@@ -148,6 +178,21 @@ pub async fn download(
         return StatusCode::NOT_FOUND.into_response();
     }
 
+    // Presign-if-available: for a provider that supports it (S3), hand a large download
+    // straight to the client so the bytes skip the backend. The proxy below is the
+    // universal fallback, so anything smaller or on FS/SFTP still streams through here.
+    if query.wants_presign()
+        && supports_presign(row.kind)
+        && should_presign(metadata.content_length())
+    {
+        match drive.presign_read(&path, PRESIGN_EXPIRY).await {
+            Ok(request) => return presign_response(request),
+            Err(error) => {
+                tracing::warn!(error = %error, "presign_read failed; falling back to proxy");
+            }
+        }
+    }
+
     let reader = match drive.reader(&path).await {
         Ok(reader) => reader,
         Err(error) => return opendal_response(&error),
@@ -206,7 +251,8 @@ pub async fn upload(
 
     // Reject an oversize upload up front when the client declares its length, so a
     // doomed transfer never touches the provider.
-    if let Some(declared) = declared_length(&request) {
+    let declared = declared_length(&request);
+    if let Some(declared) = declared {
         if declared > cap {
             return payload_too_large(cap);
         }
@@ -217,8 +263,23 @@ pub async fn upload(
         Err(response) => return response,
     };
 
+    // Presign-if-available: for a provider that supports it (S3), hand a large upload
+    // straight to the client so the bytes skip the backend. Only when the declared
+    // length clears the threshold and the cap; otherwise the proxy below streams it.
+    if query.wants_presign()
+        && supports_presign(row.kind)
+        && declared.is_some_and(|declared| should_presign(declared) && declared <= cap)
+    {
+        match drive.presign_write(&path, PRESIGN_EXPIRY).await {
+            Ok(request) => return presign_response(request),
+            Err(error) => {
+                tracing::warn!(error = %error, "presign_write failed; falling back to proxy");
+            }
+        }
+    }
+
     let body = request.into_body().into_data_stream();
-    match stream_to_drive(drive.operator(), &path, body, cap).await {
+    match stream_to_drive(drive.operator(), &path, body, cap, row.kind).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(UploadError::TooLarge) => payload_too_large(cap),
         Err(UploadError::Body(error)) => {
@@ -351,19 +412,81 @@ enum UploadError {
     Provider(opendal::Error),
 }
 
-/// Streams a body into a Drive object, enforcing a hard byte ceiling.
+/// Streams a body into a Drive object atomically, enforcing a hard byte ceiling.
 ///
-/// Writes each frame to the OpenDAL writer in order, tracking the running total; once
-/// it would exceed `cap` the writer is aborted (discarding the partial object) and
-/// [`UploadError::TooLarge`] is returned. Returns the number of bytes written.
+/// The replace is made atomic per provider (see `docs/storage.md`, Transfer):
 ///
-/// Each read and write is an await point, so this copy loop yields to the runtime on
-/// every chunk (rust.md M-YIELD-POINTS); no explicit yield is needed.
+/// - **FS** (`POSIX_FS`) writes to a temp key ([`temp_key`]) in the same directory and
+///   renames it over the target on success, so a failed or oversize replace leaves the
+///   prior object byte-for-byte intact (the FS writer truncates the target on open, so
+///   writing in place would corrupt it).
+/// - **S3** writes directly: its PutObject / multipart upload commits only on close, so
+///   an aborted replace never touches the prior object. No temp key is needed.
+/// - **SFTP** writes directly and has no atomic replace; a failed replace leaves the
+///   truncated partial, which is best-effort deleted. This limitation is documented.
+///
+/// Returns the number of bytes written.
+///
+/// # Errors
+/// Returns [`UploadError::TooLarge`] when the body exceeds `cap`, [`UploadError::Body`]
+/// when the client stream fails, and [`UploadError::Provider`] when a write or the
+/// atomic rename fails.
+async fn stream_to_drive<S, E>(
+    operator: &Operator,
+    path: &str,
+    body: S,
+    cap: u64,
+    kind: DriveKind,
+) -> Result<u64, UploadError>
+where
+    S: Stream<Item = Result<Bytes, E>> + Unpin,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    if needs_staged_replace(kind) {
+        // Stage to a temp key, then rename over the target so the prior object survives
+        // any failure. The temp shares the target's directory, so the rename is atomic.
+        let temp = temp_key(path);
+        let written = match write_stream(operator, &temp, body, cap).await {
+            Ok(written) => written,
+            Err(error) => {
+                let _ = operator.delete(&temp).await;
+                return Err(error);
+            }
+        };
+        if let Err(error) = operator.rename(&temp, path).await {
+            let _ = operator.delete(&temp).await;
+            return Err(UploadError::Provider(error));
+        }
+        Ok(written)
+    } else {
+        match write_stream(operator, path, body, cap).await {
+            Ok(written) => Ok(written),
+            Err(error) => {
+                // SFTP truncated the target on open and has no atomic replace, so remove
+                // the partial. S3 never touched the prior object, so leave it be.
+                if matches!(kind, DriveKind::Sftp) {
+                    let _ = operator.delete(path).await;
+                }
+                Err(error)
+            }
+        }
+    }
+}
+
+/// Copies a body into the OpenDAL writer at `path`, aborting past `cap`.
+///
+/// The low-level copy loop both [`stream_to_drive`] branches share: it writes each
+/// frame in order, tracking the running total, and aborts the writer (discarding any
+/// staged parts) once the body would exceed `cap`. It never deletes anything; the
+/// caller owns cleanup of the object at `path`.
+///
+/// Each read and write is an await point, so this loop yields to the runtime on every
+/// chunk (rust.md M-YIELD-POINTS); no explicit yield is needed.
 ///
 /// # Errors
 /// Returns [`UploadError::TooLarge`] when the body exceeds `cap`, [`UploadError::Body`]
 /// when the client stream fails, and [`UploadError::Provider`] when a write fails.
-async fn stream_to_drive<S, E>(
+async fn write_stream<S, E>(
     operator: &Operator,
     path: &str,
     mut body: S,
@@ -384,11 +507,7 @@ where
         let chunk = frame.map_err(|error| UploadError::Body(error.into()))?;
         written = written.saturating_add(chunk.len() as u64);
         if written > cap {
-            // Abort the writer, then best-effort delete: some backends (local FS)
-            // create the target on open and cannot abort it away, so a rejected upload
-            // must not leave a partial object behind.
             let _ = writer.abort().await;
-            let _ = operator.delete(path).await;
             return Err(UploadError::TooLarge);
         }
         writer.write(chunk).await.map_err(UploadError::Provider)?;
@@ -396,6 +515,23 @@ where
 
     writer.close().await.map_err(UploadError::Provider)?;
     Ok(written)
+}
+
+/// Whether a provider needs the temp-key + rename staging for an atomic replace.
+///
+/// Only local FS: its writer truncates the target on open, so an in-place replace that
+/// fails would corrupt the prior object. S3 and SFTP are handled directly (S3 commits
+/// only on close; SFTP has no atomic replace).
+fn needs_staged_replace(kind: DriveKind) -> bool {
+    matches!(kind, DriveKind::Fs)
+}
+
+/// Derives a staging key beside `path`, in the same directory for an atomic rename.
+///
+/// Appends a random component and a `.part` suffix, so the temp never collides with a
+/// real object and is obvious as transient if a crash ever strands one.
+fn temp_key(path: &str) -> String {
+    format!("{path}.{}.part", Uuid::new_v4().simple())
 }
 
 /// Lists a directory's direct children, hiding the reserved area and the self entry.
@@ -617,6 +753,68 @@ fn payload_too_large(cap: u64) -> Response {
         .into_response()
 }
 
+// --- Presign (the direct-transfer optimization) -----------------------------
+
+/// The JSON a presign returns: everything a client needs to transfer directly.
+///
+/// An additive capability on the content routes (`?presign=1`): instead of the raw byte
+/// stream, the client gets a short-lived provider URL it uses itself. `headers` are the
+/// exact headers the provider requires on the direct request (empty for a plain S3
+/// download); `expires_at` is RFC 3339 UTC.
+#[derive(Serialize)]
+struct PresignResponse {
+    /// The absolute provider URL to transfer against.
+    url: String,
+    /// The HTTP method to use (`GET` for a download, `PUT` for an upload).
+    method: String,
+    /// Headers the client must send verbatim on the direct request.
+    headers: BTreeMap<String, String>,
+    /// When the URL stops working, as an RFC 3339 UTC timestamp.
+    expires_at: String,
+}
+
+/// Whether a Drive's provider can hand out presigned URLs.
+///
+/// Only S3 in v1: FS and SFTP have no notion of a signed direct URL, so they always
+/// proxy through the backend. This is the capability check the content routes gate the
+/// presign path on before ever calling the provider.
+fn supports_presign(kind: DriveKind) -> bool {
+    matches!(kind, DriveKind::S3)
+}
+
+/// Whether a transfer of `size` bytes is large enough to be worth presigning.
+///
+/// Below [`PRESIGN_THRESHOLD_BYTES`] the proxy is already fast and avoids the extra
+/// round trip, so presign only kicks in for genuinely large transfers.
+fn should_presign(size: u64) -> bool {
+    size >= PRESIGN_THRESHOLD_BYTES
+}
+
+/// Renders a provider's presigned request as the [`PresignResponse`] JSON.
+fn presign_response(request: PresignedRequest) -> Response {
+    let headers = request
+        .header()
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_string(), value.to_string()))
+        })
+        .collect();
+    let expires_at = (chrono::Utc::now()
+        + chrono::Duration::from_std(PRESIGN_EXPIRY).unwrap_or_else(|_| chrono::Duration::zero()))
+    .to_rfc3339();
+
+    Json(PresignResponse {
+        url: request.uri().to_string(),
+        method: request.method().to_string(),
+        headers,
+        expires_at,
+    })
+    .into_response()
+}
+
 /// Maps an OpenDAL error onto a ready HTTP response.
 ///
 /// A missing entry is `404` and a denied one is `403`; any other provider failure is a
@@ -637,6 +835,9 @@ fn opendal_response(error: &opendal::Error) -> Response {
 mod tests {
     use super::*;
     use crate::storage::{DriveConfig, FsConfig};
+
+    /// The Drive kind the byte-level upload tests exercise (a local-FS operator).
+    const TEST_KIND: DriveKind = DriveKind::Fs;
 
     /// Builds a live FS operator rooted at `root` for the byte-level tests.
     fn fs_operator(root: &str) -> DriveOperator {
@@ -716,6 +917,7 @@ mod tests {
             "docs/hello.txt",
             chunked_body(&[b"hello ", b"streamed ", b"world"]),
             1_000,
+            TEST_KIND,
         )
         .await
         .expect("upload succeeds");
@@ -775,14 +977,26 @@ mod tests {
         let operator = operator.operator();
 
         // A body exactly at the cap is written whole.
-        let written = stream_to_drive(operator, "at-cap.bin", chunked_body(&[b"12345"]), 5)
-            .await
-            .expect("body at the cap succeeds");
+        let written = stream_to_drive(
+            operator,
+            "at-cap.bin",
+            chunked_body(&[b"12345"]),
+            5,
+            TEST_KIND,
+        )
+        .await
+        .expect("body at the cap succeeds");
         assert_eq!(written, 5);
 
         // A body one byte over the cap is rejected, and nothing is committed.
-        let result =
-            stream_to_drive(operator, "over-cap.bin", chunked_body(&[b"123", b"456"]), 5).await;
+        let result = stream_to_drive(
+            operator,
+            "over-cap.bin",
+            chunked_body(&[b"123", b"456"]),
+            5,
+            TEST_KIND,
+        )
+        .await;
         assert!(
             matches!(result, Err(UploadError::TooLarge)),
             "an oversize upload is refused",
@@ -791,6 +1005,83 @@ mod tests {
             !operator.exists("over-cap.bin").await.expect("exists check"),
             "a rejected upload leaves no object behind",
         );
+    }
+
+    // --- Atomic replace (#66): a failed replace leaves the prior object intact ----
+
+    #[tokio::test]
+    async fn an_oversize_fs_replace_preserves_the_prior_object() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let operator = fs_operator(dir.path().to_str().expect("utf-8 temp path"));
+        let operator = operator.operator();
+
+        // An existing object we will attempt to replace with an oversize body.
+        stream_to_drive(
+            operator,
+            "keep.bin",
+            chunked_body(&[b"original"]),
+            100,
+            TEST_KIND,
+        )
+        .await
+        .expect("seed the original");
+
+        // The replace exceeds the cap and must fail without truncating the original.
+        let result = stream_to_drive(
+            operator,
+            "keep.bin",
+            chunked_body(&[b"way-", b"too-", b"large"]),
+            5,
+            TEST_KIND,
+        )
+        .await;
+        assert!(
+            matches!(result, Err(UploadError::TooLarge)),
+            "the replace is refused"
+        );
+
+        // The prior bytes are still there, byte-for-byte: the FS temp+rename staging
+        // never touched the target until a full, in-cap body was ready.
+        assert_eq!(download_bytes(operator, "keep.bin").await, b"original");
+        // The staging temp left nothing behind in the directory.
+        let listing = list_dir(operator, "").await.expect("list root");
+        assert!(
+            listing.iter().all(|entry| !entry.name.ends_with(".part")),
+            "the staging temp key is cleaned up on a failed replace",
+        );
+    }
+
+    // --- Presign detection + response shape (#66) --------------------------------
+
+    #[test]
+    fn only_s3_supports_presign() {
+        assert!(supports_presign(DriveKind::S3));
+        assert!(!supports_presign(DriveKind::Fs));
+        assert!(!supports_presign(DriveKind::Sftp));
+    }
+
+    #[test]
+    fn presign_threshold_gates_on_size() {
+        assert!(!should_presign(0));
+        assert!(!should_presign(PRESIGN_THRESHOLD_BYTES - 1));
+        assert!(should_presign(PRESIGN_THRESHOLD_BYTES));
+        assert!(should_presign(PRESIGN_THRESHOLD_BYTES + 1));
+    }
+
+    #[test]
+    fn only_fs_stages_a_replace_and_temp_keys_sit_beside_the_target() {
+        assert!(needs_staged_replace(DriveKind::Fs));
+        assert!(!needs_staged_replace(DriveKind::S3));
+        assert!(!needs_staged_replace(DriveKind::Sftp));
+
+        // The temp key shares the target's directory (so the rename is atomic) and is
+        // an obvious `.part` transient, distinct from the target.
+        let temp = temp_key("docs/report.pdf");
+        assert!(temp.starts_with("docs/report.pdf."));
+        assert!(temp.ends_with(".part"));
+        assert_ne!(temp, "docs/report.pdf");
+        // A second derivation never collides with the first.
+        assert_ne!(temp_key("docs/report.pdf"), temp);
     }
 
     // --- Reserved area + self entry filtering -------------------------------
