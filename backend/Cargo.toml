@@ -1,0 +1,43 @@
+[package]
+name = "arsox"
+description = "The Arsox control plane: a web interface for running coding agents on satellites you own."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT"
+authors = ["Jalapeno Labs"]
+repository = "https://github.com/JalapenoLabs/arsox"
+publish = false
+
+[dependencies]
+# Anubis installs from git until the crate is published (Anubis #56), and is
+# pinned to an exact revision for the same reason every other version here is:
+# a floating branch changes the framework under us between two builds we
+# believed were identical. Bump it deliberately, in its own commit.
+#
+# This revision carries Anubis PR #66 and PR #67, without which Arsox cannot
+# build at all: #66 makes the repository fetchable by cargo, #67 makes the npm
+# package installable from git. `frontend/package.json` pins the same revision.
+# Move both to `develop` once the two land. See docs/anubis.md.
+anubis = { git = "https://github.com/JalapenoLabs/Anubis.git", rev = "8f81b4e0d2b9206d8ecc2163c740797322e2404a" }
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+# The libpq-linked "postgres" feature stays off; connections go through
+# diesel-async's pure-Rust tokio-postgres backend so builds need no native libs.
+diesel = { version = "2.3", features = ["postgres_backend", "chrono", "uuid", "serde_json"] }
+diesel-async = { version = "0.9", features = ["postgres", "deadpool", "async-connection-wrapper"] }
+diesel_migrations = "2.3"
+mimalloc = "0.1"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+serde_json = "1"
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true

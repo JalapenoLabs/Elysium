@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+# A second push to the same branch supersedes the first; nobody reads the
+# results of a run whose commit is already stale.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: [self-hosted, rocky9, earthly, docker]
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: arsox
+          POSTGRES_PASSWORD: arsox
+          POSTGRES_DB: arsox_test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U arsox"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://arsox:arsox@localhost:55432/arsox_test
+    steps:
+      - uses: actions/checkout@v4
+
+      # The toolchain version matches rust-toolchain.toml. Self-hosted runners
+      # keep the cargo registry and target dir warm, so no cache step is needed.
+      - uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      # The generated permissions module must match config/roles.yml. A stale
+      # one means the UI offers controls the backend rejects. The CLI installs
+      # from git at the revision the backend depends on, because the crate is
+      # not published yet (Anubis #56).
+      - name: Roles drift check
+        run: |
+          revision=$(sed -n 's/.*Anubis\.git", rev = "\([0-9a-f]*\)".*/\1/p' backend/Cargo.toml)
+          cargo install --git https://github.com/JalapenoLabs/Anubis --rev "$revision" anubis --locked
+          anubis roles generate-ts \
+            --file config/roles.yml \
+            --out frontend/src/roles.generated.ts
+          git diff --exit-code frontend/src/roles.generated.ts
+
+  frontend:
+    name: Frontend
+    runs-on: [self-hosted, rocky9, earthly, docker]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Pin Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.17.0 --activate
+
+      - name: Install
+        run: yarn install --immutable
+
+      - name: Typecheck
+        run: yarn typecheck
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Test
+        run: yarn test
+
+      - name: Build
+        run: yarn build
