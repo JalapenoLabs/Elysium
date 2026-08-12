@@ -222,17 +222,10 @@ or referenced in [docs/anubis.md](docs/anubis.md):
   from git via `#workspace=`, which is why `.yarnrc.yml` allowlists the repository (Anubis #56, and
   D1 of Anubis #57). Both are pinned to an exact revision here, never to a branch.
 
-Two of these were blocking enough that Arsox could not build at all, and both were light enough to
-fix rather than file, which is case (a) of the rule above in practice:
-
-- **Anubis PR #66**: the repository carried a `bullet_train/bullet_train` gitlink with no
-  `.gitmodules`, so `cargo` refused to fetch it. No cargo consumer could depend on Anubis.
-- **Anubis PR #67**: the frontend package declared `files: ["dist"]` and nothing built `dist` during
-  a git install, so `@jalapenolabs/anubis` installed as a lone `package.json`. Every stamped
-  application failed its first typecheck.
-
-Until both merge, `backend/Cargo.toml` and `frontend/package.json` pin the revision that carries
-them. Bumping to `develop` afterwards is a two-line change and belongs in its own commit.
+Two further gaps stopped Arsox building at all, and both were light enough to fix rather than file,
+which is case (a) of the rule above in practice. Anubis PR #66 made the repository fetchable by
+cargo and PR #67 made the npm package installable from git; both are merged, and the pinned revision
+is develop at the second of them. [docs/anubis.md](docs/anubis.md) has the detail.
 
 # What Arsox Satellites are
 

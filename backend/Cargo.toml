@@ -15,11 +15,12 @@ publish = false
 # a floating branch changes the framework under us between two builds we
 # believed were identical. Bump it deliberately, in its own commit.
 #
-# This revision carries Anubis PR #66 and PR #67, without which Arsox cannot
-# build at all: #66 makes the repository fetchable by cargo, #67 makes the npm
-# package installable from git. `frontend/package.json` pins the same revision.
-# Move both to `develop` once the two land. See docs/anubis.md.
-anubis = { git = "https://github.com/JalapenoLabs/Anubis.git", rev = "8f81b4e0d2b9206d8ecc2163c740797322e2404a" }
+# `frontend/package.json` pins the same revision, and the two must not drift.
+#
+# This one is develop at Anubis PR #67, which is the first revision Arsox can
+# build against at all: #66 made the repository fetchable by cargo and #67 made
+# the npm package installable from git. See docs/anubis.md.
+anubis = { git = "https://github.com/JalapenoLabs/Anubis.git", rev = "4f9ea2a344014cdc895ce5543e0cdd509eaceaba" }
 axum = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 # The libpq-linked "postgres" feature stays off; connections go through

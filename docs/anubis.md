@@ -57,14 +57,16 @@ scaffold against that file.
 
 ## Contributions made
 
-Two blockers were light enough to fix rather than file, which is case (a) of the rule:
+Two blockers were light enough to fix rather than file, which is case (a) of the rule. Both are
+merged, and the pinned revision above is `develop` at the second of them.
 
 | Pull request | What it fixes |
 |---|---|
 | [Anubis #66](https://github.com/JalapenoLabs/Anubis/pull/66) | A `bullet_train/bullet_train` gitlink with no `.gitmodules`, which made `cargo` refuse to fetch the repository. No cargo consumer could depend on Anubis at all |
 | [Anubis #67](https://github.com/JalapenoLabs/Anubis/pull/67) | `@jalapenolabs/anubis` installing from git as a lone `package.json`, because `files` is `["dist"]` and nothing built `dist`. Every stamped application failed its first typecheck |
 
-Until both land, the pinned revision above is the one that carries them.
+They are recorded here rather than dropped because they are the reference for how the Anubis-first
+rule gets applied: the gap was found here, fixed there, and consumed back through an exact pin.
 
 ## The blocked register
 
