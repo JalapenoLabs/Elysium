@@ -38,6 +38,9 @@ Everything in this list is the framework's, and reimplementing any of it here is
 - Ownership-chain guards: `TeamMember`, `OrganizationMember`, `CurrentUser`
 - Platform applications, bearer tokens, and the versioned `/api/v1` surface
 - Encryption at rest, via `anubis::auth::secret_box`
+- Durable background jobs, via `anubis::jobs`, whose enqueue joins the caller's transaction so a job
+  commits with the domain write that caused it. This is where satellite health reconciliation,
+  mirror repair, and usage rollups belong
 - The app shell, auth pages, and field component library in `@jalapenolabs/anubis`
 - Full-stack scaffolding, via the `anubis` CLI
 
@@ -78,7 +81,6 @@ current: it is how the framework learns what its first real consumer needs.
 | Realtime channel layer for cross-process fanout | Running more than one Arsox replica. Satellite events reach only the replica holding the socket | [#32](https://github.com/JalapenoLabs/Anubis/issues/32) |
 | SMTP mailer backend | Production sign-up, invitations, password reset. Mail only prints to the log today | [#50](https://github.com/JalapenoLabs/Anubis/issues/50) |
 | Backend serves the built SPA | Any single-origin production deployment. Emailed links 404 without it | [#49](https://github.com/JalapenoLabs/Anubis/issues/49) |
-| Background job queue | Satellite health reconciliation, mirror repair, usage rollups | [#27](https://github.com/JalapenoLabs/Anubis/issues/27) |
 | Graceful shutdown, request timeouts, request-id logging | Deploying without dropping in-flight turns | [#52](https://github.com/JalapenoLabs/Anubis/issues/52) |
 | Security headers and an explicit CORS posture | Production exposure | [#53](https://github.com/JalapenoLabs/Anubis/issues/53) |
 | Auth endpoint rate limiting | Production exposure | [#45](https://github.com/JalapenoLabs/Anubis/issues/45) |

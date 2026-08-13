@@ -123,7 +123,7 @@ dependencies = [
 [[package]]
 name = "anubis"
 version = "0.1.0"
-source = "git+https://github.com/JalapenoLabs/Anubis.git?rev=4f9ea2a344014cdc895ce5543e0cdd509eaceaba#4f9ea2a344014cdc895ce5543e0cdd509eaceaba"
+source = "git+https://github.com/JalapenoLabs/Anubis.git?rev=3bd0958f2dc5c831a57aed1451d0fe8d3f344037#3bd0958f2dc5c831a57aed1451d0fe8d3f344037"
 dependencies = [
  "aes-gcm",
  "argon2",

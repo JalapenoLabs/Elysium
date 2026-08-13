@@ -22,7 +22,7 @@
   "dependencies": {
     "@heroui/react": "^2.8.10",
     "@hookform/resolvers": "^5.7.1",
-    "@jalapenolabs/anubis": "https://github.com/JalapenoLabs/Anubis.git#commit=4f9ea2a344014cdc895ce5543e0cdd509eaceaba&workspace=@jalapenolabs/anubis",
+    "@jalapenolabs/anubis": "https://github.com/JalapenoLabs/Anubis.git#commit=3bd0958f2dc5c831a57aed1451d0fe8d3f344037&workspace=@jalapenolabs/anubis",
     "framer-motion": "^12.0.0",
     "i18next": "^24.2.0",
     "ky": "^2.0.2",

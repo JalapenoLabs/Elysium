@@ -2467,9 +2467,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@jalapenolabs/anubis@https://github.com/JalapenoLabs/Anubis.git#commit=4f9ea2a344014cdc895ce5543e0cdd509eaceaba&workspace=@jalapenolabs/anubis":
+"@jalapenolabs/anubis@https://github.com/JalapenoLabs/Anubis.git#commit=3bd0958f2dc5c831a57aed1451d0fe8d3f344037&workspace=@jalapenolabs/anubis":
   version: 0.1.0
-  resolution: "@jalapenolabs/anubis@https://github.com/JalapenoLabs/Anubis.git#workspace=%40jalapenolabs%2Fanubis&commit=4f9ea2a344014cdc895ce5543e0cdd509eaceaba"
+  resolution: "@jalapenolabs/anubis@https://github.com/JalapenoLabs/Anubis.git#workspace=%40jalapenolabs%2Fanubis&commit=3bd0958f2dc5c831a57aed1451d0fe8d3f344037"
   dependencies:
     ky: "npm:^2.0.2"
     swr: "npm:^2.5.0"
@@ -6556,7 +6556,7 @@ __metadata:
   dependencies:
     "@heroui/react": "npm:^2.8.10"
     "@hookform/resolvers": "npm:^5.7.1"
-    "@jalapenolabs/anubis": "https://github.com/JalapenoLabs/Anubis.git#commit=4f9ea2a344014cdc895ce5543e0cdd509eaceaba&workspace=@jalapenolabs/anubis"
+    "@jalapenolabs/anubis": "https://github.com/JalapenoLabs/Anubis.git#commit=3bd0958f2dc5c831a57aed1451d0fe8d3f344037&workspace=@jalapenolabs/anubis"
     "@jalapenolabs/cli": "https://github.com/jalapenolabs/cli.git"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@types/react": "npm:^18.3.0"

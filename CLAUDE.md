@@ -217,7 +217,6 @@ or referenced in [docs/anubis.md](docs/anubis.md):
   (Anubis #49).
 - **No production hardening.** No graceful shutdown, request timeouts, request-id logging, rate
   limiting, or security headers (Anubis #52, #53, #45).
-- **No background job queue** (Anubis #27).
 - **Neither package is published.** The crate installs from git and `@jalapenolabs/anubis` installs
   from git via `#workspace=`, which is why `.yarnrc.yml` allowlists the repository (Anubis #56, and
   D1 of Anubis #57). Both are pinned to an exact revision here, never to a branch.

@@ -17,10 +17,11 @@ publish = false
 #
 # `frontend/package.json` pins the same revision, and the two must not drift.
 #
-# This one is develop at Anubis PR #67, which is the first revision Arsox can
-# build against at all: #66 made the repository fetchable by cargo and #67 made
-# the npm package installable from git. See docs/anubis.md.
-anubis = { git = "https://github.com/JalapenoLabs/Anubis.git", rev = "4f9ea2a344014cdc895ce5543e0cdd509eaceaba" }
+# Anubis PR #67 is the earliest revision Arsox can build against at all: #66
+# made the repository fetchable by cargo and #67 made the npm package
+# installable from git. This one is develop two commits later, which is where
+# the background job queue lands. See docs/anubis.md.
+anubis = { git = "https://github.com/JalapenoLabs/Anubis.git", rev = "3bd0958f2dc5c831a57aed1451d0fe8d3f344037" }
 axum = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 # The libpq-linked "postgres" feature stays off; connections go through
