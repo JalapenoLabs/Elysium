@@ -1,0 +1,28 @@
+{
+  "name": "elysium",
+  "private": true,
+  "description": "Elysium: one self-hosted workspace for mail, chat, storage, source control, and agents.",
+  "license": "MIT",
+  "workspaces": [
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=20",
+    "yarn": ">=4"
+  },
+  "scripts": {
+    "dev": "yarn dev:env && docker compose --env-file .env -f compose.yaml up -d --wait && dotenv -- concurrently -n api,web -c blue,green \"cargo run -p elysium\" \"yarn workspace elysium-frontend dev\"",
+    "dev:env": "node -e \"const fs = require('fs'); fs.existsSync('.env') || fs.copyFileSync('.env.example', '.env')\"",
+    "build": "yarn workspaces foreach -A --topological run build",
+    "typecheck": "yarn workspaces foreach -A run typecheck",
+    "lint": "yarn workspaces foreach -A run lint",
+    "lint:fix": "yarn workspaces foreach -A run lint:fix",
+    "test": "yarn workspaces foreach -A run test",
+    "e2e": "yarn dev:env && docker compose --env-file .env -f compose.yaml up -d --wait && dotenv -v RATE_LIMIT_DISABLED=true -- concurrently --kill-others --success command-e2e -n api,web,e2e -c blue,green,magenta \"cargo run -p elysium\" \"yarn workspace elysium-frontend dev\" \"yarn workspace elysium-frontend test:e2e\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0",
+    "dotenv-cli": "^8.0.0"
+  },
+  "packageManager": "yarn@4.17.0"
+}

@@ -1,6 +1,0 @@
-# Never pull local build state into the Earthly build context; the Earthfile
-# copies exactly the files it needs and installs deps inside the build.
-node_modules
-dist
-out
-.yarn/*

@@ -1,9 +1,0 @@
-# actionlint configuration.
-# Declares the custom labels our self-hosted runners carry so the
-# runner-label check can validate runs-on entries instead of flagging them.
-self-hosted-runner:
-  labels:
-    - linux
-    - Linux
-    - earthly
-    - non-earthly

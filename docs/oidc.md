@@ -3,10 +3,11 @@
 Elysium is its own OpenID Connect provider. Every managed service (Forgejo, Harbor, ...)
 SSOs against Elysium as an OIDC client rather than against a bolted-on Keycloak, because
 Elysium already owns identity deeply (OPAQUE, passkeys, TOTP, orgs, sessions). This is the
-**interactive / web** half of "Identity: one login" (`docs/integrations.md`); transport auth
-(SSH keys, scoped tokens) is `docs/transport.md`.
+**interactive / web** half of "Identity: one login" ([integrations.md](integrations.md)); transport auth
+(SSH keys, scoped tokens) is [transport.md](transport.md).
 
-The implementation lives in `backend/src/oidc/` and its tables in migration `0028_oidc.sql`.
+Anubis owns identity, so this provider is built on the framework's users, sessions, and
+organizations rather than beside them.
 The identity source of truth is always Elysium's own tables; the provider is a thin,
 spec-compliant surface over them.
 

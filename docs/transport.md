@@ -1,64 +1,57 @@
-# Transport
+# Transport: two contracts, one boundary each
 
-Elysium's wire contract is **protobuf, everywhere**. Every service and client speaks the
-same generated types, so a timestamp, a coordinate, or a user is defined exactly once.
+Elysium speaks two wire contracts, and which one applies is decided by the boundary, never
+by taste.
 
-## Source of truth: `proto/`
+| Boundary | Contract | Owner |
+|---|---|---|
+| Browser to Elysium | REST at `/api/v1`, OpenAPI 3.1, a generated TypeScript client | Anubis |
+| Elysium to a satellite | Protobuf over HTTP plus a WebSocket | [arsox-satellites](https://github.com/JalapenoLabs/arsox-satellites) |
 
-A single root `proto/` tree is the only place messages are defined. Files are flat at the
-root, one per bounded domain, each with its own versioned package:
+## Why the browser boundary is REST
 
-| File | Package | Contents |
-|------|---------|----------|
-| `common.proto` | `elysium.common.v1` | Shared vocabulary: `Timestamp`, `Duration`, `GeoPoint`, `Coordinate`, `Money`, `Color`, `Uuid`, `PageRequest`/`PageResponse` |
-| `user.proto` | `elysium.user.v1` | Identity: `User`, `Org`, `Team`, `TeamMembership`, `UserStatus`, `TeamRole` |
-| `health.proto` | `elysium.health.v1` | Liveness, greeting, and database-reachability responses |
+Anubis generates its OpenAPI document from the Rust handlers with utoipa, renders it as
+typed ky route functions, and fails CI when the client drifts from the API. The application
+merges its own models into that document, so a scaffolded endpoint arrives already typed on
+both ends.
 
-The full standards (nanosecond UTC-canonical timestamps, WGS84 coordinates, naming, field
-numbering) live in `~/.claude/docs/proto.md`. New domains add a new `<domain>.proto` here.
+Putting protobuf on this boundary would mean giving up the generated client, the OpenAPI
+document, the drift gate, and every scaffolded route module, and rebuilding all four here.
+That is the divergence the Anubis-first rule exists to prevent, so the framework's contract
+wins. See [anubis.md](anubis.md).
 
-## Codegen
+The practical cost is real and worth naming: proto3 explicit presence is expressive in a way
+JSON is not, and an `Option<T>` that somebody flattens to `T` turns "not reported" into a
+value. Wire types keep `snake_case` field names, because those names are the contract, and a
+nullable column stays nullable all the way into the form control.
 
-Generation is deterministic and happens at build time, never at runtime.
+## Why the satellite boundary is protobuf
 
-- **Rust (backend)**: `prost` via `backend/build.rs`, compiling `../proto/*.proto` into
-  `OUT_DIR` on every `cargo build`. `backend/src/proto.rs` re-exports the generated modules
-  as `proto::common::v1`, `proto::user::v1`, `proto::health::v1`. `protoc` is a build
-  prerequisite (installed in the backend image; present on the host for local builds).
-- **TypeScript (frontend)**: `buf generate` with `protoc-gen-es`, driven by
-  `proto/buf.gen.yaml`, emitting `frontend/src/proto/generated/*_pb.ts`. Run with
-  `yarn generate:proto` from `frontend/`. The generated output is committed and CI fails if
-  it drifts from the `.proto` files.
+That contract is not Elysium's to choose. A satellite normalizes Claude CLI and Codex CLI
+events into one shape, and the shape is defined in `arsox-satellites/proto` and consumed
+through its published SDKs. Elysium is a client of that contract and never re-implements it.
+See [satellites.md](satellites.md).
 
-`buf lint` and `buf format` guard the contract. The flat layout intentionally relaxes the
-`PACKAGE_DIRECTORY_MATCH` and `DIRECTORY_SAME_PACKAGE` lint rules (see `proto/buf.yaml`);
-every other STANDARD rule stays on.
+Two properties of it matter to Elysium's own design:
 
-## HTTP encoding
+- **Every event carries a monotonic sequence and is persisted before it is sent**, so
+  reconnecting with `from_sequence` costs nothing and a restarted Elysium catches up.
+- **Money is never a float anywhere in the contract**, and it must not become one here. A
+  fraction of a cent accumulated in a float is how a ceiling drifts away from the invoice it
+  was meant to predict.
 
-Two kinds of endpoint, deliberately encoded differently:
+## Timestamps
 
-- **Infrastructure endpoints** are plain, the shapes load balancers, uptime monitors, and
-  `curl` expect: `GET /` returns `200` with the text `pong`, and `GET /health` returns `200`
-  with a small JSON health body. These are intentionally not part of the protobuf contract.
-- **Versioned API endpoints** (`/api/v1/*`) are sent as **binary protobuf** with
-  `Content-Type: application/x-protobuf`. On the backend, handlers return the reusable
-  `Protobuf<Message>` responder (`backend/src/protobuf.rs`), which encodes any `prost::Message`.
-  On the frontend, the `getProto(path, schema)` helper (`frontend/src/api/index.ts`) fetches
-  the raw bytes with Ky and decodes them against the generated schema via `@bufbuild/protobuf`'s
-  `fromBinary`.
+Every instant is stored and transmitted in UTC and rendered in the viewer's zone at the
+edge. Postgres holds `timestamptz`; the display timezone is a property of the user, not of
+the row. The satellite contract carries its own `Timestamp` and the SDK converts it, so the
+rule holds across both boundaries without either one having to know about the other.
 
-## Native helpers
+## Credential transport
 
-Generated messages are plain data. Ergonomic wrappers live alongside the generated code and
-provide idiomatic conversions. Today: `frontend/src/proto/helpers/timestamp.ts` wraps
-`Timestamp` with `fromDate`/`toDate`/`fromMoment`/`toMoment`/`format` over `moment-timezone`,
-honoring the UTC-canonical standard. New shared shapes (`GeoPoint`, `Money`, ...) get the
-same treatment as they are used.
-
-## Roadmap
-
-- Request bodies over protobuf (currently only responses are exercised).
-- Shared Rust `proto` crate once workers are introduced, so backend and workers depend on one
-  generated crate rather than each regenerating.
-- Evaluate the Connect protocol for streaming once real-time surfaces (chat, presence) land.
+Distinct from either wire format, and covered in
+[integrations.md](integrations.md): git over SSH and HTTPS, `docker login`, and SMTP AUTH
+present a credential rather than running an OIDC dance. Elysium mints per-user SSH keys and
+scoped access tokens and provisions them into the managed service, so `git push` and
+`docker login` work without a hand-made personal access token. The same minting layer serves
+Elysia exactly as it serves a person.

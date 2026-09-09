@@ -1,40 +1,92 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
-import { describe, expect, expectTypeOf, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 // Misc
-import { getInviteUrl, UrlTree } from './urls'
+import {
+  UrlTree,
+  getCreativeConceptUrl,
+  getOauthStartUrl,
+  getUrlWithDestination,
+  sanitizeDestination,
+} from './urls'
 
-describe('getInviteUrl', () => {
-  it('substitutes the token into the invite route', () => {
-    expect(getInviteUrl('abc123')).toBe('/invite/abc123')
+describe('sanitizeDestination', () => {
+  it('should keep a root-relative path', () => {
+    expect(sanitizeDestination('/members')).toBe('/members')
   })
 
-  it('leaves no :token placeholder behind', () => {
-    const inviteUrl = getInviteUrl('signed-token-value')
-
-    expect(inviteUrl).not.toContain(':token')
-    expect(inviteUrl).toContain('signed-token-value')
+  it('should keep the query and hash of the destination', () => {
+    expect(sanitizeDestination('/claim-invitation?token=abc123#welcome'))
+      .toBe('/claim-invitation?token=abc123#welcome')
   })
 
-  it('builds URLs that stay under the invite route prefix', () => {
-    const routePrefix = UrlTree.invite.replace(':token', '')
-
-    expect(getInviteUrl('a-b_c.d~e').startsWith(routePrefix)).toBe(true)
+  it('should return null when there is no destination', () => {
+    expect(sanitizeDestination(null)).toBeNull()
+    expect(sanitizeDestination(undefined)).toBeNull()
+    expect(sanitizeDestination('')).toBeNull()
   })
 
-  it('preserves URL-safe token characters exactly', () => {
-    // Signed tokens are URL-safe (base64url style); the factory must not mangle them.
-    const token = 'eyJhbGciOiJIUzI1NiJ9.payload-part_x'
-
-    expect(getInviteUrl(token)).toBe(`/invite/${token}`)
+  it('should reject absolute urls', () => {
+    expect(sanitizeDestination('https://evil.example/steal')).toBeNull()
+    expect(sanitizeDestination('javascript:alert(1)')).toBeNull()
   })
 
-  it('returns a string type', () => {
-    const inviteUrl = getInviteUrl('typed-token')
+  it('should reject protocol-relative urls', () => {
+    expect(sanitizeDestination('//evil.example')).toBeNull()
+    expect(sanitizeDestination('/\\evil.example')).toBeNull()
+  })
 
-    expectTypeOf(inviteUrl).toEqualTypeOf<string>()
-    inviteUrl satisfies string
+  it('should reject control characters browsers strip before resolving the url', () => {
+    expect(sanitizeDestination('/\t/evil.example')).toBeNull()
+    expect(sanitizeDestination('/members\n')).toBeNull()
+  })
+
+  it('should reject a path that does not start at the root', () => {
+    expect(sanitizeDestination('members')).toBeNull()
+    expect(sanitizeDestination(' /members')).toBeNull()
+  })
+})
+
+describe('getUrlWithDestination', () => {
+  it('should append the encoded destination', () => {
+    expect(getUrlWithDestination(UrlTree.signIn, '/claim-invitation?token=abc123'))
+      .toBe('/sign-in?next=%2Fclaim-invitation%3Ftoken%3Dabc123')
+  })
+
+  it('should return the bare url when there is no destination', () => {
+    expect(getUrlWithDestination(UrlTree.signUp, null)).toBe('/sign-up')
+  })
+
+  it('should drop a destination that leaves the app', () => {
+    expect(getUrlWithDestination(UrlTree.signIn, 'https://evil.example')).toBe('/sign-in')
+  })
+})
+
+describe('getOauthStartUrl', () => {
+  it('should point at the backend route for the provider', () => {
+    expect(getOauthStartUrl('google', null)).toBe('/auth/oauth/google/start')
+  })
+
+  it('should carry the encoded destination through the provider round trip', () => {
+    expect(getOauthStartUrl('google', '/creative-concepts?page=2'))
+      .toBe('/auth/oauth/google/start?next=%2Fcreative-concepts%3Fpage%3D2')
+  })
+
+  it('should drop a destination that leaves the app', () => {
+    expect(getOauthStartUrl('google', '//evil.example')).toBe('/auth/oauth/google/start')
+  })
+})
+
+// The link factory a model scaffold writes above the `url-factories` anchor.
+// Every generated page navigates through one, so the shape is worth pinning.
+describe('getCreativeConceptUrl', () => {
+  it('should fill the record id into the show route', () => {
+    expect(getCreativeConceptUrl('9f8b7c6d')).toBe('/creative-concepts/9f8b7c6d')
+  })
+
+  it('should leave the rest of the url tree alone', () => {
+    expect(UrlTree.creativeConcept).toBe('/creative-concepts/:creativeConceptId')
   })
 })

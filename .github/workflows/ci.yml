@@ -1,463 +1,213 @@
-# Copyright © 2026 Jalapeno Labs
+# Continuous integration for elysium, stamped by `anubis new`.
 #
-# Continuous integration for Elysium.
-#
-# Verifies every push to `main` (and every pull request targeting it). The jobs
-# run in parallel and are deliberately independent, so a failure in one does not
-# cancel the others: you get the full picture in a single run rather than a
-# fail-fast stop at the first red check. Within a job every check still runs even
-# after an earlier one fails (via `if: ${{ !cancelled() }}`, or continue-on-error
-# plus a final status report), then the job reports failed if any check failed.
-#
-# The test jobs run on the self-hosted Fedora runners tagged `non-earthly`, which
-# keep warm on-disk caches (cargo target/registry, yarn/node_modules, docker
-# layers) across runs. That is why there are no explicit cache actions and why the
-# checkouts that benefit use `clean: false` to preserve those build dirs. Package
-# installs use `dnf` (Fedora), not `apt-get`. The heavy Earthly desktop packaging
-# stays on the `earthly` runner.
-
+# It holds both ends to the same bar: the Rust workspace is formatted, linted,
+# and tested against a real Postgres, the frontend is typechecked, linted,
+# tested, and built, and the three generated files are regenerated and
+# compared, so a roles, billing, or API change that was never regenerated fails
+# here instead of in review. This file is yours; relax or extend it freely.
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
-  # Lets the desktop packaging job be triggered on demand from the Actions tab.
-  workflow_dispatch:
-
-# Newer commits on the same ref supersede in-flight runs; this cancels the stale
-# run, it does not shortcut the checks within a run.
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-
-# Tools like vitest, Earthly, and cargo detect no TTY in CI and drop color;
-# force it workflow-wide so logs stay readable.
-env:
-  FORCE_COLOR: "1"
-  CARGO_TERM_COLOR: always
 
 jobs:
-  # ----------------------------------------------------------------------------
-  # Proto contract: lint and formatting of the single-source-of-truth tree.
-  # ----------------------------------------------------------------------------
-  proto:
-    name: Proto
-    runs-on: [self-hosted, Linux, non-earthly]
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install buf
-        uses: bufbuild/buf-setup-action@v1
-        with:
-          github_token: ${{ github.token }}
-
-      - name: buf lint
-        if: ${{ !cancelled() }}
-        run: buf lint
-        working-directory: proto
-
-      - name: buf format check
-        if: ${{ !cancelled() }}
-        run: buf format --diff --exit-code
-        working-directory: proto
-
-  # ----------------------------------------------------------------------------
-  # Rust backend: formatting, lints, build (runs build.rs codegen), and tests.
-  # ----------------------------------------------------------------------------
-  backend:
-    name: Backend
-    runs-on: [self-hosted, Linux, non-earthly]
-    defaults:
-      run:
-        working-directory: backend
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
     services:
-      # Throwaway postgres for the migration integration tests. `ports: - 5432`
-      # publishes onto a runner-assigned free host port (never assume a fixed
-      # port is available), surfaced via the job.services context below.
       postgres:
-        image: postgres:17.5-alpine
+        image: postgres:17.6
         env:
-          POSTGRES_USER: elysia_ci
-          POSTGRES_PASSWORD: elysia-ci-throwaway
-          POSTGRES_DB: elysia_ci
+          POSTGRES_USER: elysium
+          POSTGRES_PASSWORD: YGDUT2SHXYTKWEQG
+          POSTGRES_DB: elysium_test
         ports:
+          # Ephemeral host port: concurrent runs can never collide on a fixed
+          # one. The step below reads the assigned port back.
           - 5432
         options: >-
-          --health-cmd "pg_isready -U elysia_ci -d elysia_ci"
+          --health-cmd "pg_isready -U elysium"
           --health-interval 5s
           --health-timeout 5s
-          --health-retries 20
+          --health-retries 10
     steps:
-      # clean: false preserves backend/target across runs on the self-hosted
-      # runner, so incremental cargo builds stay warm without a cache action.
-      - uses: actions/checkout@v7
-        with:
-          clean: false
+      - uses: actions/checkout@v4
 
-      # Build prerequisites, installed only if the runner lacks them (Fedora dnf):
-      # protoc for build.rs codegen, and OpenSSL headers for webauthn-rs.
-      - name: Ensure build prerequisites
-        run: |
-          command -v protoc >/dev/null 2>&1 || sudo dnf install -y protobuf-compiler
-          rpm -q openssl-devel >/dev/null 2>&1 || sudo dnf install -y openssl-devel pkgconf-pkg-config
-
-      # Pinned to the same Rust the backend image uses (rust:1.96), so CI and
-      # the container never drift.
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.96.0
+      # The toolchain version matches rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.96.0
         with:
           components: rustfmt, clippy
 
-      - name: cargo fmt
-        if: ${{ !cancelled() }}
-        run: cargo fmt --all --check
+      # GitHub-hosted runners start cold every run, so without a cache every
+      # push rebuilds the framework from source.
+      - uses: Swatinem/rust-cache@v2
 
-      - name: cargo clippy
-        if: ${{ !cancelled() }}
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Format
+        run: cargo fmt --all -- --check
 
-      - name: cargo build
-        if: ${{ !cancelled() }}
-        run: cargo build --locked
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: cargo test
-        if: ${{ !cancelled() }}
-        run: cargo test --locked
-
-      # The embedded-migrator integration tests (backend/tests/migrations.rs)
-      # are #[ignore] so a plain `cargo test` never needs a database; here they
-      # run explicitly against the throwaway service container above.
-      - name: cargo test (migrations, throwaway postgres)
-        if: ${{ !cancelled() }}
+      - name: Test
         env:
-          DATABASE_URL: postgres://elysia_ci:elysia-ci-throwaway@localhost:${{ job.services.postgres.ports['5432'] }}/elysia_ci
-        run: cargo test --locked -- --ignored
+          DATABASE_URL: postgres://elysium:YGDUT2SHXYTKWEQG@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/elysium_test
+        run: cargo test --workspace
 
-  # ----------------------------------------------------------------------------
-  # TypeScript frontend. Modeled on the Jalapeno Labs house pattern (see the
-  # Yearloom CI): every check runs even after an earlier one fails
-  # (continue-on-error), and a final status report decides the job's pass/fail
-  # so a single red check never masks the others.
-  #
-  # Node and Yarn are pinned to exact versions (never a floating "latest") so CI
-  # matches local development bit for bit.
-  # ----------------------------------------------------------------------------
+      # The drift checks below run the framework CLI, which is installed from
+      # the framework repository until the crate is published to crates.io.
+      # The crate is `anubis-framework`; the binary it installs is `anubis`.
+      #
+      # Pinned to the revision the manifests depend on, read out of
+      # backend/Cargo.toml rather than repeated here, so a bump moves one file
+      # and CI cannot generate against a different framework than it compiles
+      # against.
+      - name: Install the Anubis CLI
+        run: |
+          rev="$(sed -n 's/^anubis = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' backend/Cargo.toml)"
+          test -n "$rev" || { echo "no pinned Anubis revision in backend/Cargo.toml"; exit 1; }
+          cargo install anubis-framework \
+            --git https://github.com/JalapenoLabs/Anubis.git \
+            --rev "$rev" --locked
+
+      # The generated TypeScript permissions module must match roles.yml.
+      - name: Roles drift check
+        run: |
+          anubis roles generate-ts \
+            --file config/roles.yml \
+            --out frontend/src/roles.generated.ts
+          git diff --exit-code frontend/src/roles.generated.ts
+
+      # The generated TypeScript plan catalog must match billing.yml.
+      - name: Plans drift check
+        run: |
+          anubis billing generate-ts \
+            --file config/billing.yml \
+            --out frontend/src/plans.generated.ts
+          git diff --exit-code frontend/src/plans.generated.ts
+
+      # The generated TypeScript client must match the OpenAPI document this
+      # application merges, so the application binary exports it and the CLI
+      # renders that export.
+      - name: Client drift check
+        run: |
+          exported="$(mktemp)"
+          cargo run --quiet -p elysium -- openapi > "$exported"
+          anubis client generate-ts \
+            --from "$exported" \
+            --out frontend/src/api/v1.generated.ts
+          git diff --exit-code frontend/src/api/v1.generated.ts
+
   frontend:
     name: Frontend
-    runs-on: [self-hosted, Linux, non-earthly]
-    defaults:
-      run:
-        working-directory: frontend
+    runs-on: ubuntu-latest
     steps:
-      # clean: false preserves node_modules and .yarn/cache across runs, so
-      # `yarn install --immutable` stays warm without a cache action.
-      - uses: actions/checkout@v7
-        with:
-          clean: false
+      - uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 24.13.0
 
-      # Pin Yarn to the exact version in packageManager; do not rely on whatever
-      # Corepack would otherwise resolve.
-      - name: Enable Corepack and pin Yarn
+      - name: Pin Yarn
         run: |
           corepack enable
           corepack prepare yarn@4.17.0 --activate
-          yarn --version
 
-      - name: Reclaim workspace ownership (self-hosted runner hygiene)
-        # `clean: false` preserves node_modules/.yarn across runs so installs stay
-        # warm, but a root docker step elsewhere can leave root-owned files in them,
-        # breaking `yarn install` with EACCES ("permission denied, mkdir @bufbuild").
-        # Reclaim ownership for the runner user via a root container, keeping the
-        # cache warm (no delete). No-op on a clean/first run.
-        #
-        # This step's CWD is already `frontend` (the job's working-directory default),
-        # so target `node_modules`/`.yarn` directly. The earlier `frontend/…` paths
-        # resolved to `frontend/frontend/…`, which does not exist, so the chown
-        # silently no-op'd and the root-owned files survived every run.
-        run: |
-          docker run --rm -v "$PWD:/w" -w /w alpine:3 \
-            sh -c 'chown -R '"$(id -u):$(id -g)"' node_modules .yarn 2>/dev/null || true'
-
-      - name: Install dependencies
+      # Immutable installs need a committed yarn.lock: commit yours with the
+      # first commit, alongside Cargo.lock.
+      - name: Install
         run: yarn install --immutable
 
-      - name: Lint
-        id: lint
-        continue-on-error: true
-        run: yarn lint
-
       - name: Typecheck
-        id: typecheck
-        continue-on-error: true
         run: yarn typecheck
 
-      - name: Unit tests
-        id: unit-tests
-        continue-on-error: true
+      - name: Lint
+        run: yarn lint
+
+      - name: Test
         run: yarn test
 
-      # Regenerate from the proto tree and fail if the committed output drifted.
-      - name: Generated proto in sync
-        id: proto-sync
-        continue-on-error: true
-        run: |
-          yarn generate:proto
-          git diff --exit-code -- src/proto/generated
-
       - name: Build
-        id: build
-        continue-on-error: true
         run: yarn build
 
-      # Serves the built bundle on a kernel-assigned ephemeral port and loads it
-      # in headless chromium with the API stubbed; fails on any uncaught page
-      # error or console error. Proves the production bundle actually boots.
-      - name: Runtime load check
-        id: smoke
-        continue-on-error: true
-        run: |
-          # `--with-deps` shells out to apt-get, which the Fedora self-hosted
-          # runner does not have (it uses dnf); install just the browser binary
-          # and rely on the runner's system libraries being present.
-          yarn playwright install chromium
-          node scripts/runtime-smoke.mjs
-
-      # Production-dependency advisory scan; gates on shipped code at high+.
-      - name: Dependency audit
-        id: audit
-        continue-on-error: true
-        run: yarn npm audit --environment production --severity high
-
-      - name: Status report
-        if: ${{ always() }}
-        run: |
-          fail=0
-          report() {
-            if [ "$1" = "success" ]; then
-              printf '  %-24s \033[32m✓ PASS\033[0m\n' "$2"
-            else
-              printf '  %-24s \033[31m✗ FAIL\033[0m\n' "$2"; fail=1
-            fi
-          }
-          echo "==================== FRONTEND STATUS ===================="
-          report "${{ steps.lint.outcome }}"       "Lint"
-          report "${{ steps.typecheck.outcome }}"  "Typecheck"
-          report "${{ steps.unit-tests.outcome }}" "Unit tests"
-          report "${{ steps.proto-sync.outcome }}" "Generated proto in sync"
-          report "${{ steps.build.outcome }}"      "Build"
-          report "${{ steps.smoke.outcome }}"      "Runtime load check"
-          report "${{ steps.audit.outcome }}"      "Dependency audit"
-          echo "========================================================"
-          [ "$fail" = "0" ] || { echo "One or more frontend checks failed."; exit 1; }
-
-  # ----------------------------------------------------------------------------
-  # Integration smoke test: bring the real stack up and exercise the proto
-  # endpoints end to end. This is the check that catches Dockerfile and runtime
-  # regressions (e.g. a missing build.rs) that a plain `cargo build` cannot.
-  # ----------------------------------------------------------------------------
-  integration:
-    name: Integration
-    runs-on: [self-hosted, Linux, non-earthly]
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Prepare environment
-        run: cp .env.example .env
-
-      - name: Start the stack
-        run: |
-          # Clear any containers/volumes a crashed prior run left behind on the
-          # shared runner before bringing the stack up.
-          docker compose down -v --remove-orphans || true
-          docker compose up --build -d
-
-      - name: Wait for the backend and probe proto endpoints
-        run: |
-          ready=0
-          for _ in $(seq 1 60); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:31416/health || echo 000)
-            if [ "$code" = "200" ]; then ready=1; break; fi
-            sleep 5
-          done
-          if [ "$ready" != "1" ]; then
-            echo "backend did not become healthy"
-            docker compose logs backend --tail 50
-            exit 1
-          fi
-          # Root is a plain-text liveness ping.
-          pong=$(curl -s http://localhost:31416/)
-          echo "root body: $pong"
-          [ "$pong" = "pong" ] || { echo "expected 'pong'"; exit 1; }
-          # /ok is the plain-text liveness alias.
-          ok=$(curl -s http://localhost:31416/ok)
-          echo "/ok body: $ok"
-          [ "$ok" = "ok" ] || { echo "expected 'ok'"; exit 1; }
-          # /health is plain JSON for monitors, not protobuf.
-          health_type=$(curl -s -D - -o /dev/null http://localhost:31416/health \
-            | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2}')
-          echo "health content-type: $health_type"
-          case "$health_type" in
-            application/json*) ;;
-            *) echo "expected application/json"; exit 1 ;;
-          esac
-          # Redis and RabbitMQ are wired through Compose, so /health must report
-          # both as configured.
-          health_body=$(curl -s http://localhost:31416/health)
-          echo "health body: $health_body"
-          echo "$health_body" | grep -q '"redis":true' || { echo "expected redis configured"; exit 1; }
-          echo "$health_body" | grep -q '"rabbitmq":true' || { echo "expected rabbitmq configured"; exit 1; }
-          # The versioned API must answer as binary protobuf.
-          hello_type=$(curl -s -D - -o /dev/null http://localhost:31416/api/v1/hello \
-            | tr -d '\r' | awk -F': ' 'tolower($1)=="content-type"{print $2}')
-          echo "hello content-type: $hello_type"
-          case "$hello_type" in
-            application/x-protobuf*) ;;
-            *) echo "expected application/x-protobuf"; exit 1 ;;
-          esac
-          # db/health hits real Postgres and must report reachable (HTTP 200).
-          db_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:31416/api/v1/db/health || echo 000)
-          echo "db/health status: $db_code"
-          [ "$db_code" = "200" ] || { docker compose logs --tail 50; exit 1; }
-
-      - name: Tear down
-        if: ${{ always() }}
-        run: docker compose down -v --remove-orphans
-
-  # ----------------------------------------------------------------------------
-  # Migrations: apply every SQL migration to a throwaway Postgres, on a fresh
-  # database, in order, and fail loudly on any error. This catches broken SQL and
-  # migrations that only conflict at apply time (e.g. two PRs that both add a
-  # migration with the same version prefix, or a table created twice) before they
-  # reach a real database.
-  #
-  # The throwaway Postgres publishes a RANDOM host port (`-p 127.0.0.1:0:5432`) so
-  # it never collides with anything else on the shared self-hosted runner; the
-  # migrations are applied by psql inside the container, so the runner needs no
-  # Postgres client.
-  # ----------------------------------------------------------------------------
-  migrations:
-    name: Migrations
-    runs-on: [self-hosted, Linux, non-earthly]
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Migration version prefixes are unique
-        run: |
-          dupes=$(for f in backend/migrations/*.sql; do
-              basename "$f" | sed -E 's/^([0-9]+)_.*/\1/'
-            done | sort | uniq -d)
-          if [ -n "$dupes" ]; then
-            echo "::error::Duplicate migration version prefix(es): $dupes"
-            echo "Two migrations share a numeric prefix; renumber one of them."
-            exit 1
-          fi
-          echo "migration version prefixes are unique"
-
-      - name: Apply all migrations to a throwaway Postgres
-        run: |
-          set -euo pipefail
-          container="elysium-migrate-${{ github.run_id }}-${{ github.run_attempt }}"
-          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
-          docker rm -f "$container" >/dev/null 2>&1 || true
-
-          docker run -d --name "$container" -p 127.0.0.1:0:5432 \
-            -e POSTGRES_USER=migrator \
-            -e POSTGRES_PASSWORD=migrator \
-            -e POSTGRES_DB=elysium_migrate_test \
-            postgres:17.5-alpine >/dev/null
-
-          # The postgres:alpine entrypoint starts a TEMPORARY server for initdb,
-          # then shuts it down to start the real one. pg_isready (and even a single
-          # query) can pass against that temp server, and migrations then race its
-          # shutdown -> "FATAL: the database system is shutting down". Require several
-          # CONSECUTIVE real queries so we are provably past the initdb handoff.
-          echo "waiting for Postgres to stabilize past the initdb temp server..."
-          ready=0
-          for _ in $(seq 1 60); do
-            if docker exec "$container" psql -U migrator -d elysium_migrate_test -tAc 'SELECT 1' >/dev/null 2>&1; then
-              ready=$((ready + 1))
-              [ "$ready" -ge 3 ] && break
-            else
-              ready=0
-            fi
-            sleep 1
-          done
-          if [ "$ready" -lt 3 ]; then
-            echo "Postgres did not stabilize in time"; docker logs "$container" 2>&1 | tail -20; exit 1
-          fi
-
-          for file in backend/migrations/*.sql; do
-            echo "applying $(basename "$file")"
-            docker exec -i "$container" \
-              psql -U migrator -d elysium_migrate_test -v ON_ERROR_STOP=1 --single-transaction \
-              < "$file"
-          done
-          echo "all migrations applied cleanly to a fresh database"
-
-  # ----------------------------------------------------------------------------
-  # Workflow lint: static analysis for the workflow files themselves. Catches
-  # expression typos (which silently evaluate to empty strings at runtime),
-  # schema violations, and shellcheck findings in every run block, in seconds,
-  # before a mistake costs a full runner cycle. Custom runner labels are
-  # declared in .github/actionlint.yaml.
-  # ----------------------------------------------------------------------------
-  actionlint:
-    name: Workflow lint
+  # Browser-level proof that the screens work against the real stack: Postgres,
+  # the backend, and Vite, driven by Chromium. Three specs ship with the app,
+  # covering sign-up, the auth round trip, and a write that survives a reload.
+  e2e:
+    name: E2E
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: elysium
+          POSTGRES_PASSWORD: YGDUT2SHXYTKWEQG
+          POSTGRES_DB: elysium_e2e
+        ports:
+          # Ephemeral host port, for the same reason the Rust job uses one.
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -U elysium"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
-      - name: actionlint
-        run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/repo" --workdir /repo \
-            rhysd/actionlint:1.7.12 -color
+      - uses: dtolnay/rust-toolchain@1.96.0
 
-  # ----------------------------------------------------------------------------
-  # Desktop shell: package the Electron app with Earthly. One matrix job per
-  # installer target (deb, rpm, AppImage, Windows) so they run as independent,
-  # parallel checks. Only on pull requests and on-demand (workflow_dispatch),
-  # not on every push to main, since the packaging build is heavy. Artifacts are
-  # built but not uploaded yet.
-  #
-  # Runs on a self-hosted runner tagged `linux` and `earthly` (Docker available
-  # for Earthly's BuildKit); Earthly itself is installed at a pinned version by
-  # the workflow rather than relying on whatever is on the runner. Everything
-  # else runs inside pinned containers.
-  # ----------------------------------------------------------------------------
-  desktop:
-    name: Desktop (${{ matrix.target }})
-    if: ${{ github.event_name != 'push' }}
-    runs-on: [self-hosted, linux, earthly]
-    strategy:
-      # Report every target's result; one failing target must not cancel the
-      # others, matching the rest of this workflow.
-      fail-fast: false
-      matrix:
-        target: [deb, rpm, appimage, windows]
-    defaults:
-      run:
-        working-directory: desktop
-    steps:
-      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
 
-      # Pin the Earthly version instead of trusting the runner's build; matches
-      # the VERSION 0.8 pragma in the Earthfile.
-      - name: Set up Earthly
-        uses: earthly/actions-setup@v1
+      - uses: actions/setup-node@v4
         with:
-          version: "0.8.1"
+          node-version: 24.13.0
 
-      # Build this matrix leg's installer. Output lands in desktop/release/ on
-      # the runner; no upload step yet, per the current roadmap.
-      - name: Package ${{ matrix.target }}
-        run: earthly +${{ matrix.target }}
+      - name: Pin Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.17.0 --activate
+
+      - name: Install
+        run: yarn install --immutable
+
+      - name: Build the backend
+        run: cargo build -p elysium
+
+      # `--with-deps` installs the system libraries Chromium needs, which this
+      # runner image allows.
+      - name: Install Chromium
+        run: yarn workspace elysium-frontend exec playwright install --with-deps chromium
+
+      # The suite drives the same three processes `yarn dev` starts. Playwright
+      # waits for the stack itself (frontend/e2e/global-setup.ts), so this step
+      # starts the two servers, runs the specs, and stops them on the way out
+      # however the run ended.
+      - name: Run the suite
+        env:
+          DATABASE_URL: postgres://elysium:YGDUT2SHXYTKWEQG@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/elysium_e2e
+          APP_URL: http://localhost:5173
+          E2E_BASE_URL: http://localhost:5173
+          # The suite registers an account per spec, which is a rate a person
+          # never reaches and the auth limiter refuses. The limiter has its own
+          # Rust narrative; this job is about the screens.
+          RATE_LIMIT_DISABLED: "true"
+          RUST_LOG: warn
+        run: |
+          ./target/debug/elysium &
+          backend=$!
+          yarn workspace elysium-frontend dev &
+          web=$!
+          trap 'kill "$backend" "$web" 2>/dev/null || true' EXIT
+          yarn workspace elysium-frontend test:e2e
+
+      # The report carries the trace, the screenshot, and the DOM snapshot of
+      # every failed step, which is the difference between reading a failure
+      # and reproducing it.
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7

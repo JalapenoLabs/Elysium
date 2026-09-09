@@ -1,41 +1,40 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Provider } from 'react-redux'
-import { RouterProvider } from 'react-router'
+import { BrowserRouter } from 'react-router'
 
-// Redux
-import { store } from './store'
+// UI
+import { HeroUIProvider } from '@heroui/react'
+import { App } from './App'
 
 // Misc
-import { router } from './router'
-import { i18nReady } from './i18n'
+import { AnubisProvider, RealtimeClient, RealtimeProvider } from '@jalapenolabs/anubis'
+import { api } from './api'
+import './i18n'
+import './styles.css'
 
-import './index.css'
+// One connection for the whole application, opened lazily: nothing connects
+// until a component subscribes, so a signed-out page costs no socket. The
+// notification bell is the first subscriber the starter ships.
+const realtime = new RealtimeClient()
 
-const container = document.getElementById('root')
-if (!container) {
-  throw new Error('Root element #root was not found in index.html')
+const rootElement = document.getElementById('root')
+if (!rootElement) {
+  throw new Error('Root element #root is missing from index.html')
 }
-const root = createRoot(container)
 
-// Await the initial locale bundles (fetched at runtime from /public/locales) so
-// the first paint already has translations. The session itself resolves later:
-// it lives in an HttpOnly cookie the browser can't read, so RootLayout probes the
-// API and the route guards react to the result.
-//
-// StrictMode is intentionally off: its dev-only double-invocation of effects
-// double-fired our load-time fetches (session probe, page data, TOTP begin),
-// which was noise during development. Production was never affected.
-i18nReady
-  .catch((error) => {
-    console.debug('i18n failed to load initial locale; rendering with keys', error)
-  })
-  .finally(() => {
-    root.render(
-      <Provider store={store}>
-        <RouterProvider router={router} />
-      </Provider>,
-    )
-  })
+createRoot(rootElement).render(
+  <StrictMode>
+    <BrowserRouter>
+      <HeroUIProvider>
+        <AnubisProvider api={api}>
+          <RealtimeProvider client={realtime}>
+            <App />
+          </RealtimeProvider>
+        </AnubisProvider>
+      </HeroUIProvider>
+    </BrowserRouter>
+  </StrictMode>,
+)

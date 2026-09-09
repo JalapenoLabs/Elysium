@@ -2,7 +2,6 @@
 
 import { defineConfig, globalIgnores } from 'eslint/config'
 import cliBaseConfig from '@jalapenolabs/cli/eslint'
-import licenseHeader from 'eslint-plugin-license-header'
 
 export default defineConfig([
   {
@@ -10,18 +9,12 @@ export default defineConfig([
   },
   globalIgnores([
     '.yarn/**',
-    '**/vite-env.d.ts',
-    // Generated protobuf codegen output. Owned by `yarn generate:proto`; lint
-    // rules (license headers, formatting) don't apply to generated artifacts.
-    'src/proto/generated/**',
+    'dist/**',
+    'coverage/**',
+    '**/*.d.ts',
   ]),
   {
-    // Override the CLI's default header text to "Jalapeno Labs" (with a space).
-    // The plugin is named explicitly: a rule override cannot rely on the shared
-    // config's plugin registration surviving that config's internal merging.
-    plugins: {
-      'license-header': licenseHeader,
-    },
+    files: [ '**/*.{ts,tsx}' ],
     rules: {
       'license-header/header': [
         'error',
@@ -29,6 +22,22 @@ export default defineConfig([
           `// Copyright © ${new Date().getFullYear()} Jalapeno Labs`,
         ],
       ],
+    },
+  },
+  // Tooling configs (`export default defineConfig(...)`) legitimately rely on
+  // default exports, Tailwind's `@plugin` directive requires one from hero.ts,
+  // and Playwright loads its global setup by default export. The repo bans
+  // default exports everywhere else, so the exception is scoped tightly.
+  {
+    files: [
+      '*.config.ts',
+      'eslint.config.ts',
+      'src/hero.ts',
+      'e2e/global-setup.ts',
+    ],
+    rules: {
+      'import/no-default-export': 'off',
+      'no-restricted-exports': 'off',
     },
   },
 ])

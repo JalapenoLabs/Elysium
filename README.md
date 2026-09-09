@@ -1,139 +1,87 @@
 # Elysium
 
-A base template for a full-stack app, hot-reloaded end to end via Docker Compose:
+One self-hosted workspace instead of six subscriptions.
 
-- **database** - Postgres (pinned to `17.5-alpine`)
-- **backend** - Rust + [Axum](https://github.com/tokio-rs/axum) API on port `31416`, hot-reloaded with `watchexec`
-- **frontend** - [Vite](https://vite.dev) + React 19 SPA on port `5173`, hot-reloaded with Vite HMR
+Elysium is a business workspace you run on your own machine: mail, chat, storage, source
+control, tasking, automation, and an agentic AI, unified rather than stapled together. The AI
+inside it is **Elysia**. Open-sourcing it is the roadmap.
 
-## Stack
+## Why
 
-| Layer     | Choices |
-|-----------|---------|
-| Frontend  | React 19 (SWC), Redux Toolkit, React Router, HeroUI v2, Tailwind CSS v3, Ky, Vite |
-| Backend   | Rust, Axum, Tokio, SQLx, tracing, mimalloc |
-| Contract  | Protobuf (single `proto/` tree), prost (Rust) + buf/protoc-gen-es (TypeScript) |
-| Identity  | First-party auth: the API is the WebAuthn Relying Party (passkeys), Postgres is the system of record |
-| Database  | Postgres 17.5 |
-| Tooling   | Docker Compose, Yarn Berry (node-modules linker) |
+Google Workspace and Microsoft Teams are several products rented to you as one. The storage is
+a bolt-on, the admin console is bad, every tool models a team differently, and none of it runs
+on hardware you control.
 
-## Getting started
+- **Your machine, your keys, your network.** Expose it however you like; SSL and hosting are
+  yours, everything else is handled.
+- **Yours or theirs, or both at once.** Run the managed git server, or link the GitHub you
+  already use, or both, aggregated into one surface. Same for mail, storage, and the registry.
+- **Capacity is whatever disk you point it at.** Storage is a live gateway onto your
+  providers, not a mirror with a quota.
+- **We orchestrate, we do not re-implement.** Elysium provisions best-of-breed open-source
+  containers and owns the unification. A hand-rolled SMTP server is a security incident with
+  a roadmap.
+- **Things come to you.** Email and chat in one action center, items resolved rather than
+  read, and `ctrl+P` to anything: a person, a message, a file, a repository.
+- **AI-first, not AI-bolted-on.** The Elysia session is the primary screen, with the same
+  tools and the same credentials a person has.
+- **Real multi-tenancy.** Organizations, projects, teams, and roles, because a workspace is
+  not a single-player tool.
 
-1. Copy the environment file and adjust if you like:
+## Status
 
-   ```sh
-   cp .env.example .env
-   ```
+Early, and honest about it. The application is stamped from the
+[Anubis](https://github.com/JalapenoLabs/Anubis) framework and boots to a working
+authenticated, multi-tenant app with billing, webhooks, background jobs, realtime channels,
+notifications, and an audit log, all from the framework.
 
-2. Build and start everything:
+Elysium's own pillars are designed, not built. The domain model is blocked on a tenancy tier
+being added to the framework ([Anubis #93](https://github.com/JalapenoLabs/Anubis/issues/93)),
+because Elysium's resources belong to a **project** and Anubis has only organizations and
+teams. See [docs/anubis.md](docs/anubis.md) for the full register of what the framework still
+owes, and [docs/product.md](docs/product.md) for the build order.
 
-   ```sh
-   docker compose up --build
-   ```
+## The repositories
 
-   The first backend build is slow (it compiles the dev tooling and every
-   dependency once), then caches for fast subsequent runs.
+| Repository | Role |
+|---|---|
+| **elysium** (this one) | The workspace and its control plane |
+| [Anubis](https://github.com/JalapenoLabs/Anubis) | The Rust and React SaaS framework Elysium is built on |
+| [arsox-satellites](https://github.com/JalapenoLabs/arsox-satellites) | The agent execution plane: satellite images, the protobuf contract, the SDKs |
+| [uikit](https://github.com/JalapenoLabs/uikit) | Shared Jalapeno Labs React components, hooks, and utilities |
 
-3. Open the app:
-
-   - Frontend: http://localhost:5173
-   - API liveness: http://localhost:31416/ (returns `pong`)
-   - API health: http://localhost:31416/health (JSON)
-   - API greeting: http://localhost:31416/api/v1/hello
-   - API + DB check: http://localhost:31416/api/v1/db/health
-
-   Liveness (`/`) and health (`/health`) are plain text and JSON for monitors.
-   The versioned `/api/v1/*` responses are binary protobuf (`application/x-protobuf`),
-   decoded by the frontend from types generated out of the `proto/` tree.
-
-On the Home page, "Ping the API" calls the Rust backend with Ky and confirms it
-can reach Postgres.
-
-## Hot reload
-
-Both services reload on save:
-
-- **Frontend** - edit anything under `frontend/src`; Vite HMR updates the browser.
-- **Backend** - edit anything under `backend/src`; `watchexec` reruns `cargo run`.
-
-Polling is enabled for both watchers because Docker bind mounts from a Windows
-host do not deliver filesystem events reliably.
-
-## Project layout
-
-```
-.
-├── compose.yaml            # database + backend + frontend
-├── .env.example            # configuration defaults
-├── backend/                # Rust / Axum API
-│   ├── Dockerfile          # cargo-chef dep caching + watchexec hot reload
-│   ├── Cargo.toml
-│   └── src/
-│       ├── main.rs         # bootstrap: logging, pool, server
-│       ├── state.rs        # shared app state (Postgres pool)
-│       └── api.rs          # routes and handlers
-├── frontend/               # Vite + React SPA
-│   ├── Dockerfile
-│   ├── vite.config.ts      # dev server + polling for HMR
-│   ├── tailwind.config.js  # HeroUI plugin wired in
-│   └── src/
-│       ├── main.tsx        # entry: Redux + Router providers
-│       ├── router.tsx
-│       ├── api/            # Ky client + route modules
-│       ├── store/          # Redux Toolkit slices
-│       ├── components/     # layout, navbar
-│       └── pages/          # Home, About
-└── desktop/                # Electron shell (loads the dockerized app)
-    ├── Earthfile           # deb / rpm / appimage / windows / release
-    ├── electron-builder.yml
-    └── src/                # main + preload (TypeScript)
-```
-
-## Desktop shell
-
-Elysium also ships as an Electron desktop app. The shell is a thin native wrapper
-that loads the dockerized app rather than bundling it. Bring the stack up, then run
-the shell:
+## Development
 
 ```sh
-docker compose up            # the app the shell will load
-
-cd desktop
 yarn install
-yarn dev                     # tsc watch + Electron with auto-restart
+yarn dev
 ```
 
-Installers (Linux `.deb` / `.rpm` / `.AppImage`, Windows `.exe`) are built with
-Earthly: `cd desktop && earthly +release`. macOS is on the roadmap. See
-[`docs/desktop.md`](docs/desktop.md) for the full picture.
+`yarn dev` copies `.env.example` to `.env` on its first run, starts Postgres in Docker and
+waits for its healthcheck, then runs the backend and the Vite dev server. The app is at
+<http://localhost:5173>.
 
-## Common commands
+Checks:
 
 ```sh
-# Start in the background
-docker compose up --build -d
-
-# Tail logs
-docker compose logs -f backend
-docker compose logs -f frontend
-
-# Stop and remove containers
-docker compose down
-
-# Also drop volumes (database data, cargo cache, node_modules)
-docker compose down -v
+cargo fmt --all && cargo clippy --workspace --all-targets && cargo test --workspace
+yarn typecheck && yarn lint && yarn test
+yarn e2e
 ```
 
-Inside `frontend/` you can also run the usual checks:
+## Documentation
 
-```sh
-yarn typecheck
-yarn lint
-yarn build
-```
+`docs/` holds one document per decision category.
 
-## Notes
+- [Architecture](docs/architecture.md) and [the product](docs/product.md)
+- [Anubis](docs/anubis.md): how the framework is consumed, and the live blocked register
+- [Tenancy](docs/tenancy.md): organization, project, team, individual
+- [Storage](docs/storage.md) and [integrations](docs/integrations.md)
+- [Mail](docs/mail.md), [OIDC provider](docs/oidc.md), [OAuth client](docs/oauth-client.md), [transport](docs/transport.md)
+- [Satellites](docs/satellites.md): the agent execution plane
+- [Workspace](docs/workspace.md), [navigation](docs/navigation.md), [UX](docs/ux.md), [desktop](docs/desktop.md)
+- [Networking](docs/networking.md) and [CI](docs/ci.md)
 
-- CORS is permissive on the backend for local development. Lock it down before
-  deploying anywhere shared.
-- Secrets live in `.env`, which is git-ignored. Never commit real credentials.
+## License
+
+MIT. Elysium is a [Jalapeno Labs](https://github.com/JalapenoLabs) project.

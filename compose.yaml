@@ -1,220 +1,44 @@
-name: elysium
-
-# ---------------------------------------------------------------------------
-# Elysium base template
-#
-#   database  -> Postgres (pinned), the app's persistent state
-#   redis     -> cache / ephemeral state on port 31417
-#   rabbitmq  -> message broker on port 31418, management UI on 31419
-#   backend   -> Rust / Axum API on port 31416, hot-reloaded
-#   frontend  -> Vite + React SPA on port 5173, hot-reloaded
-#
-# Everything is driven by `.env` (see `.env.example`).
-# ---------------------------------------------------------------------------
-
+# The development datastores. Credentials and ports come from `.env`, which
+# `yarn dev` creates from `.env.example` on first run and passes here with
+# `--env-file`; the defaults below keep a bare `docker compose up` working
+# without one. Change a value in `.env` and both this file and the backend
+# follow it.
 services:
-  database:
-    container_name: elysium-database
-    # Pinned to a specific patch release rather than `latest` for reproducibility.
-    image: postgres:17.5-alpine
-    restart: unless-stopped
+  postgres:
+    container_name: elysium-postgres
+    image: postgres:17.6
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-elysium}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-YGDUT2SHXYTKWEQG}
+      POSTGRES_DB: ${POSTGRES_DB:-elysium_development}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Off the default port so a host Postgres never collides.
+      - "${POSTGRES_PORT:-54321}:5432"
     volumes:
-      - elysium-postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-elysium}"]
+      interval: 2s
       timeout: 5s
-      retries: 10
+      retries: 15
 
+  # Realtime fanout across several instances. Off unless asked for:
+  # `docker compose -f starter/compose.yaml --profile realtime up -d --wait`,
+  # then run the server with REDIS_URL=redis://localhost:63790. Development
+  # needs none of it, since realtime channels are served in process by
+  # default. See docs/realtime.md.
   redis:
     container_name: elysium-redis
-    # Pinned to a specific patch release rather than `latest` for reproducibility.
-    image: redis:7.4.1-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    image: redis:7.4.10-alpine
+    profiles: ["realtime"]
     ports:
-      - "${REDIS_PORT:-31417}:6379"
-    volumes:
-      - elysium-redis-data:/data
+      # Off the default port so a host Redis never collides.
+      - "${REDIS_PORT:-63790}:6379"
     healthcheck:
-      # `$$` defers expansion to the container so the password is read there.
-      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
-      interval: 5s
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
       timeout: 5s
-      retries: 10
-    environment:
-      # Referenced by the healthcheck above.
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-
-  rabbitmq:
-    container_name: elysium-rabbitmq
-    # Pinned to a specific patch release rather than `latest` for reproducibility.
-    image: rabbitmq:4.0.4-management-alpine
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-    ports:
-      - "${RABBITMQ_PORT:-31418}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-31419}:15672"
-    volumes:
-      - elysium-rabbitmq-data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
-
-  socket-proxy:
-    container_name: elysium-socket-proxy
-    # Scoped Docker Engine API gateway. The backend's orchestration provisioner
-    # talks to THIS, never the raw socket, so a backend compromise cannot own the
-    # host. Pinned to a released tag plus its multi-arch digest (never `latest`).
-    image: tecnativa/docker-socket-proxy:v0.4.2@sha256:1f3a6f303320723d199d2316a3e82b2e2685d86c275d5e3deeaf182573b47476
-    restart: unless-stopped
-    # The host socket is mounted read-only into the proxy ONLY. It is never
-    # exposed to the backend; the proxy is the only container that sees it.
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    environment:
-      # Whitelist only the Engine API groups the provisioner uses: containers
-      # (create/start/stop/remove/inspect/logs), networks, images, volumes, and
-      # the daemon info the client version-negotiates against.
-      CONTAINERS: 1
-      NETWORKS: 1
-      IMAGES: 1
-      VOLUMES: 1
-      INFO: 1
-      # Allow the write verbs (POST); the proxy is read-only by default.
-      POST: 1
-      # Everything dangerous stays denied. Stated explicitly for auditability:
-      # no container exec, no auth/secrets/configs, no swarm, no daemon control.
-      EXEC: 0
-      AUTH: 0
-      SECRETS: 0
-      CONFIGS: 0
-      SWARM: 0
-      SYSTEM: 0
-      PLUGINS: 0
-    # No published host port: reachable only inside the Compose network, at
-    # http://socket-proxy:2375, which is where the backend points.
-
-  backend:
-    container_name: elysium-backend
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@database:5432/${POSTGRES_DB}
-      # Wired through for the cache and broker; the backend reports their
-      # configured state via /health. Real client connections land with the
-      # features that need them (see the roadmap).
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
-      RUST_LOG: ${RUST_LOG:-info}
-      # Base deployment config. The backend derives its app origin and WebAuthn
-      # Relying Party from these (see backend/src/config.rs).
-      ELYSIUM_HOSTNAME: ${ELYSIUM_HOSTNAME:-localhost}
-      API_PORT: ${API_PORT:-31416}
-      FRONTEND_PORT: ${FRONTEND_PORT:-5173}
-      # Master key for secrets at rest (see backend/src/crypto.rs). Required: the
-      # backend refuses to start without it. Set it in .env (see .env.example).
-      ELYSIUM_SECRET_KEY: ${ELYSIUM_SECRET_KEY:?set ELYSIUM_SECRET_KEY in .env (see .env.example)}
-      # Base directory Elysium writes local files to. Auto-provisioned local-FS
-      # Drives root under it (see backend/src/storage/defaults.rs). Backed by the
-      # elysium-data volume below so files persist across restarts; mounting a
-      # writable volume here is the one storage deployment concern.
-      ELYSIUM_DATA_DIR: ${ELYSIUM_DATA_DIR:-/var/lib/elysium}
-      # Scoped Docker Engine API endpoint for the orchestration provisioner (see
-      # backend/src/orchestration/docker.rs). Points at the socket-proxy above,
-      # never the raw socket. Set empty in .env to fall back to the in-memory
-      # backend (no real containers).
-      ELYSIUM_DOCKER_PROXY_URL: ${ELYSIUM_DOCKER_PROXY_URL-http://socket-proxy:2375}
-    # The embedded reverse proxy reaches a managed container through the host port
-    # that container publishes (see src/orchestration/routing.rs). Mapping
-    # host.docker.internal to the host gateway lets the backend resolve it on Linux
-    # too (Docker Desktop already provides it), so proxying to
-    # http://host.docker.internal:<published_port> works everywhere. The future
-    # alternative is attaching the backend to the elysium-managed network and
-    # routing by container name.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    ports:
-      - "${API_PORT:-31416}:31416"
-    volumes:
-      # Mount only the sources needed for hot reload; never the host's target dir.
-      - ./backend/src:/app/src
-      - ./backend/Cargo.toml:/app/Cargo.toml
-      - ./backend/Cargo.lock:/app/Cargo.lock
-      # build.rs drives protobuf codegen; keep the host copy authoritative.
-      - ./backend/build.rs:/app/build.rs
-      # Migrations are embedded at compile time by sqlx::migrate!, so the dev
-      # container (which compiles at runtime) needs them present.
-      - ./backend/migrations:/app/migrations
-      # The shared proto tree lives at repo root; build.rs reads it as ../proto,
-      # which resolves to /proto from the /app workdir. Read-only: the backend
-      # only consumes the contract, never edits it.
-      - ./proto:/proto:ro
-      # Named volumes keep compiled artifacts and the crate registry warm across
-      # restarts, so incremental rebuilds stay fast.
-      - elysium-cargo-target:/app/target
-      - elysium-cargo-registry:/usr/local/cargo/registry
-      # Writable store for auto-provisioned local-FS Drives (ELYSIUM_DATA_DIR).
-      - elysium-data:/var/lib/elysium
-    depends_on:
-      database:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      socket-proxy:
-        # No healthcheck on the proxy image; start-order is enough since the
-        # client is lazy and reconcile tolerates a briefly-unreachable engine.
-        condition: service_started
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:31416/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      # Generous window: the very first compile inside the container is slow.
-      start_period: 300s
-
-  frontend:
-    container_name: elysium-frontend
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      # Same-origin: the dev server proxies `/api` and `/auth` to the backend, so
-      # the SPA uses its own origin and no VITE_API_BASE_URL is needed. This is the
-      # upstream the Vite proxy forwards to inside the Compose network.
-      API_PROXY_TARGET: http://backend:31416
-      # Windows/Docker bind mounts don't emit inotify events reliably, so Vite
-      # falls back to polling for file changes (wired up in vite.config.ts).
-      CHOKIDAR_USEPOLLING: "true"
-    ports:
-      - "${FRONTEND_PORT:-5173}:5173"
-    volumes:
-      # Mount the whole project for hot reload, but keep the container's own
-      # node_modules by shadowing the host folder with an anonymous volume.
-      - ./frontend:/app
-      - /app/node_modules
-    depends_on:
-      - backend
+      retries: 15
 
 volumes:
-  elysium-postgres-data:
-  elysium-redis-data:
-  elysium-rabbitmq-data:
-  elysium-cargo-target:
-  elysium-cargo-registry:
-  elysium-data:
+  postgres-data:

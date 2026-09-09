@@ -1,68 +1,68 @@
-# Continuous integration
+# CI
 
-Two workflows under `.github/workflows/`:
+`.github/workflows/ci.yml` is stamped by `anubis new` and runs on pushes to `main` and on
+every pull request. Three jobs, independent, in parallel.
 
-- **CI** (`ci.yml`): every push to `main`, every pull request targeting it, and
-  `workflow_dispatch`.
-- **Audit** (`audit.yml`): weekly (Mondays 09:00 UTC) and `workflow_dispatch`.
+- **Rust**: `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and
+  `cargo test --workspace` against a Postgres service container, then three drift checks.
+- **Frontend**: `yarn install --immutable`, then typecheck, lint, test, and build.
+- **E2E**: Playwright against the real stack, Postgres and the backend and Vite, driven by
+  Chromium.
 
-Dependabot (`.github/dependabot.yml`) opens weekly update PRs for npm
-(frontend and desktop), cargo, github-actions, and both Dockerfiles.
+Nothing here is allowed to be advisory. A warning that does not fail the build is a warning
+nobody reads.
 
-`FORCE_COLOR` and `CARGO_TERM_COLOR` are set workflow-wide so tool output
-keeps its colors in CI logs. A concurrency group per ref cancels superseded
-in-flight runs. Jobs are deliberately independent and nothing is fail-fast:
-one red check never masks the others.
+## The drift checks
 
-## CI jobs
+Three files are generated and compared, so a change that was never regenerated fails here
+rather than in review:
 
-| Job           | What it does                                                     |
-| ------------- | ---------------------------------------------------------------- |
-| `proto`       | buf lint + format check over the shared proto tree               |
-| `backend`     | fmt, clippy (`-D warnings`), build, tests, migration tests       |
-| `frontend`    | install, lint, typecheck, vitest, proto sync, build, runtime load check, prod audit |
-| `integration` | full Compose stack up; probes `/`, `/ok`, `/health` (redis + rabbitmq configured), protobuf endpoints, db health |
-| `migrations`  | applies every SQL file to a throwaway postgres via psql          |
-| `actionlint`  | lints the workflow files themselves (expressions, schema, shellcheck) |
-| `desktop`     | Earthly packaging matrix (deb, rpm, AppImage, Windows) on PRs    |
+| Generated file | From | Why it matters |
+|---|---|---|
+| `frontend/src/roles.generated.ts` | `config/roles.yml` | A stale permissions module means the UI offers controls the backend rejects |
+| `frontend/src/plans.generated.ts` | `config/billing.yml` | A stale plan catalog means the billing screen sells something that does not exist |
+| `frontend/src/api/v1.generated.ts` | the OpenAPI document the backend exports | A stale client means the SPA calls a shape the API no longer serves |
 
-Custom runner labels are declared in `.github/actionlint.yaml` so actionlint
-can validate `runs-on` entries.
+The client check runs the application binary's own `openapi` export rather than the
+framework's, because the application merges its models into the document and a version freezes
+with the application rather than with the framework release it was generated against.
 
-## Migration verification
+Never hand-edit a generated file.
 
-Two complementary layers:
+## The framework CLI in CI
 
-1. The `migrations` job applies each checked-in SQL file to a fresh throwaway
-   postgres with psql, catching broken SQL and version-prefix collisions.
-2. The `backend` job runs `cargo test -- --ignored`
-   (`backend/tests/migrations.rs`) against a postgres service container on a
-   runner-assigned ephemeral port: it exercises the *embedded* migrator the
-   running service actually uses (`sqlx::migrate!`), proves a second run is a
-   clean no-op (service restarts), and asserts the `_sqlx_migrations` ledger
-   matches the embedded set exactly.
+The drift checks need the `anubis` binary, which is not published to crates.io yet
+([Anubis #81](https://github.com/JalapenoLabs/Anubis/issues/81)), so CI installs it from git.
 
-## Frontend runtime load check
+**The revision is read out of `backend/Cargo.toml` rather than repeated in the workflow.**
+Two places holding the same revision is two places to forget, and the failure is quiet: CI
+would generate with one framework and compile against another, and the drift check would
+report a difference nobody introduced. Bumping the pin moves one file.
 
-After the build, `frontend/scripts/runtime-smoke.mjs` serves `dist/` on a
-kernel-assigned ephemeral port and loads it in headless chromium (playwright)
-with the API stubbed at the network layer (the session probe answers 401, the
-normal anonymous path). It waits for the sign-in view to actually paint and
-fails on any uncaught page error or console error, proving the production
-bundle boots.
+## Version pinning
 
-## Tests
+Every toolchain version is pinned and the pins must stay in sync across the places they
+appear:
 
-- Backend: unit tests live in `#[cfg(test)]` modules beside the code (route
-  responses via `tower::ServiceExt::oneshot`); postgres-backed integration
-  tests live in `backend/tests/` marked `#[ignore]` and run explicitly with
-  `cargo test -- --ignored`.
-- Frontend: vitest + happy-dom + testing-library, colocated as
-  `src/<name>.test.ts(x)`. Run with `yarn test` (or `yarn test:dev` to watch).
+| Tool | Version | Pinned in |
+|---|---|---|
+| Rust | 1.96.0 | `rust-toolchain.toml`, and the `dtolnay/rust-toolchain` tag in the workflow |
+| Node | 24.13.0 | the workflow's `setup-node` step |
+| Yarn | 4.17.0 | `packageManager` in `package.json`, and an explicit `corepack prepare` in the workflow |
+| Postgres | 17.6 | `compose.yaml` and the workflow's service containers |
+| Anubis | an exact git revision | `backend/Cargo.toml` and `frontend/package.json`, read from the first by the workflow |
 
-## Known wrinkle
+No floating tags anywhere, including `latest` variants of docker images. The Anubis pin is
+two files that must carry the same revision; see [anubis.md](anubis.md).
 
-`.mjs` files are excluded from `yarn lint` (`--ignore-pattern` in the lint
-scripts) because the shared `@jalapenolabs/cli` eslint config only registers
-its plugins for `ts/js/cjs/tsx/jsx` globs. The durable fix is adding `mjs` to
-the shared config's file globs in the CLI repo.
+## Monitoring
+
+After every push, watch the resulting run in the background and keep working. Only block on a
+run when the push is the end of the task. When working through several commits in a row, fold
+a failure into the next wave rather than stopping for each one.
+
+## Earthly
+
+Earthfiles remain welcome tooling, but `api.earthly.dev` is offline: the hosted Earthly
+service is sunsetted. Never rely on Earthly-hosted secrets or authentication. Connection
+errors to `api.earthly.dev` at the start of a run are benign.

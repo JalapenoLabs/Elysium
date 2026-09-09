@@ -2,8 +2,9 @@
 
 The design system every Elysium surface builds from. A new surface should never invent a
 token, a color, a state pattern, or a keyboard convention: it picks them up from here. The
-approved visual reference is the **/login Gate** (`docs/auth.md`, `docs/auth-art-briefs.md`);
-this document generalizes that language to the whole product.
+language generalizes to every surface, including the framework's own screens, which pick it
+up through the theme rather than being rewritten
+([Anubis #88](https://github.com/JalapenoLabs/Anubis/issues/88)).
 
 ## Cinematic direction
 
@@ -80,7 +81,7 @@ colors (online/away/offline) and org white-label accents are separate systems.
 - Forms and reading content bound their width (`max-w-2xl` in settings-style pages) so
   actions never drift far from inputs on wide monitors.
 - Chrome is minimal: the bottom taskbar is the only persistent chrome
-  (`docs/navigation.md`); vertical space belongs to the workspace.
+  ([navigation.md](navigation.md)); vertical space belongs to the workspace.
 
 ## Motion
 
@@ -101,7 +102,7 @@ Every data surface uses the same four patterns (`frontend/src/components/`):
 - **Loading** (`states/LoadingState`): centered spinner plus an optional quiet label.
   Reserved for genuinely blocking loads.
 - **Streaming** (`streaming/StreamingSources`): the default for fan-out work (federated
-  Drive search, multi-service sweeps, `docs/storage.md`). Each source reports its own
+  Drive search, multi-service sweeps, [storage.md](storage.md)). Each source reports its own
   `StatusKind`; fast sources light `done` instantly, slow ones stay `active`, a failed
   source turns `error` with a one-line detail while healthy results keep rendering.
   Results appear as they arrive; nothing waits for the slowest source.
@@ -121,7 +122,7 @@ Every data surface uses the same four patterns (`frontend/src/components/`):
 - **Hotkeys** use uikit `useHotkey`; chords that shadow browser defaults must
   `preventDefault`.
 - **Forms**: real `<form>` submit on Enter, first field focused on mount, submit disabled
-  until valid with a tooltip explaining why (see `docs/react.md` conventions).
+  until valid with a tooltip explaining why (see the global React engineering doc conventions).
 - Focus is always visible; anything mouse-reachable is keyboard-reachable.
 
 ## Shared component inventory
@@ -150,8 +151,7 @@ tables, modals, and chips inside the app theme.
 
 ## Roadmap
 
-- The rc-dock workspace shell and embedded-panel chrome build on this language (issue
-  M0-02); panels adopt the status grammar for their chrome status.
-- The uikit migration candidates in `docs/Techdebt.md` (gates, OhLookAtTheTime, a table
-  kit) move upstream once uikit is bootstrapped for theming.
+- The rc-dock workspace shell and embedded-panel chrome build on this language; panels adopt
+  the status grammar for their chrome status.
+- Shared primitives move upstream into uikit rather than being rebuilt here.
 - The palette grows result providers (people, files, messages) as those pillars land.

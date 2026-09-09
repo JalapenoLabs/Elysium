@@ -75,7 +75,7 @@ for the desktop package. The RUNTIME source of truth (what the preload
 implements) is this desktop `bridge.ts`. The frontend keeps a small self-contained
 type mirror at `frontend/src/connection/bridge.ts` (same electron-free shape, plus
 its own `Window` augmentation) rather than reaching into the desktop project from
-its `tsconfig.json` — a cross-package `include` proved fragile across
+its `tsconfig.json`. A cross-package `include` proved fragile across
 environments. Both are small and change rarely; keep them in sync. `window.elysium`
 is optional because it is absent in a plain browser.
 

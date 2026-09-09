@@ -1,275 +1,307 @@
+**Source-of-truth policy.** The USER is the primary source of truth. This `CLAUDE.md` is the
+SECOND source of truth. The codebase is **not** a source of truth (it can drift). Whenever a
+design decision is made or changed, update this file in the same change. Keep it routinely
+up to date.
+
+**Style:** No em dashes anywhere in user-facing text (docs, UI, commits, PRs).
+
 # Elysium
 
-I have a vision, for an application that is open-source, self hosted, and is an entire business workspace all in one.
+Elysium is a self-hosted business workspace: mail, chat, storage, source control, tasking,
+automation, and an agentic AI, in one deployment you run on your own machine. The AI inside it
+is **Elysia**. Open-sourcing it is the roadmap; see Git below for what is true today.
 
-I'm fed up with Google Workspace and Microsoft Teams. One-drive is a bolt on, Google Drive is annoying and expensive. Cloud stuff kinda sucks, management UI kinda sucks, separate tooling implementation all sucks, and I wish it could have been done way better. The fact that I
-can't self host also sucks.
+The frustration it answers is concrete. Google Workspace and Microsoft Teams are several
+products stapled together, OneDrive is a bolt-on, Drive is expensive and annoying, the
+management UI is bad in all of them, and none of it can be self-hosted. Elysium is the
+attempt to unify that surface rather than clone it.
 
-What I'm thinking:
-- Open source
-- Self hostable on a machine
-- SMTP server (a mail client)
-- Team chat (a slack-like client)
-- Storage service (a drive-like client with official S3 binding support) (can use local file storage or a cloud S3-like bucket)
-- Perforce protocol server implementation
-- Git protocol server implementation
-- Team management
-- Admin console
-- Automation
-- Tasking built in
-- A claude agentic workspace
+Four repositories make up the whole:
 
-ALL in ONE.
+| Repository | Role | Relationship |
+|---|---|---|
+| **elysium** (this repo) | The workspace and its control plane | Consumer of the other three |
+| [Anubis](https://github.com/JalapenoLabs/Anubis) | The SaaS framework Elysium is built on | Elysium is an application stamped by `anubis new` |
+| [arsox-satellites](https://github.com/JalapenoLabs/arsox-satellites) | The agent execution plane: satellite images, the protobuf contract, the SDKs | Elysium is an SDK consumer |
+| [uikit](https://github.com/JalapenoLabs/uikit) | Shared Jalapeno Labs React components, hooks, and utilities | Elysium consumes and contributes back |
 
-AND I want it to either host it's own everything (postgres, storage to local file hard drive, etc) AND optionally connect to existing solutions. For example, I should be able to connect Google Drive to it and now all of my Google Drive files can sync with it. I could either
-use Google Drive as the storage, or use my own. I could either use Slack for messaging or use my own. I could either use Github or roll my own. I could use Jira or roll my own tasking manager. I could link to Gmail and use that as the backbone, or roll my own.
+**Arsox keeps its name as the execution plane.** A satellite is an Arsox satellite; Elysium
+is what drives it.
 
-Here's the major thing though-- I do NOT want to just re-create these tools 1:1. They all have major flaws and frustrations. The whole point of this is to challenge the UX, challenge the system, unify, unite. NOT to re-create.
+# The three rules that govern everything
 
-This should be an AI-first tool. Capable of multi-tasking, working on multiple tasks/projects at once, reporting usage, saving memories, syncing project output, directly working with the git, perforce, and storage protocols on disk. AND Claude agentic workers should be deployable as containers onto remote machines as docker containers for computing purposes, like registered workers.
+## 1. The Anubis-first rule
 
-The workspace itself will be dramatically different than most.
-I want to challenge the UX, push UI to it's limits, really change and flip the model and paradym of how we've used these tools!!
+The single most important working rule in this repository. Not negotiable, not a suggestion:
 
-First off, the main screen on the UI will be a Claude session. It will have the Claude chat in it, and lots of tooling + information to report more about it.
-That being said, it WONT be a traditional message system. It will be talking to Claude Code but not just "my messages" and "your messages" it will be a full suite of a code session.
-Next, it will have dramatically a different background (futuristic, artistic, sci-fi) which describes what it's doing.
-Orange when active/running, red when errored, pink when it needs help or user input, and green when it's done.
-Then, it'll be on a icosahedron-like interface. The user can switch between Claude Code sessions as it rotates.
-There will be a voice integration, where the agent reports things as it goes and reports things out like to the user.
-There will be sound effects (agent completion, needs help, error, etc)
-There will be LOTS of settings- Both user and team and org wide.
-This is literally the first and primary view, and the most important. It will be dynamic, fluid, interesting to look at, with lots more to add onto it in the future.
+> If there is a feature or upgrade that is appropriate to have Anubis host, but Anubis
+> doesn't yet have the functionality for it, then it's required to either (a) build it out
+> on Anubis first (if it's light and easy to do) via PR or (b) create an issue or find an
+> existing issue on Anubis's github repository and consider your own task blocked until the
+> Anubis framework supports your needs.
 
-On the sidebar will be the primary user actionables. Things like git, perforce, drive, messages, etc.
+Ask the question before writing the workaround, not after. The test is ownership, not
+difficulty: **would every application built on Anubis want this?** If yes, it belongs to the
+framework.
 
-As I click them, by default it'll open a side-by-side layout where on the right is the primary Claude interface and on the left is the new panel of actionables that they opened.
-So I can open the drive on the left, and keep Claude on the right.
+**Belongs to Anubis:** authentication, sessions, MFA, passkeys, OAuth sign-in.
+Organizations, teams, memberships, invitations, roles, permission checks. The ownership-chain
+guards and tenancy scoping. Mail delivery, background jobs, realtime channels, notifications,
+the audit log, webhooks in both directions, billing. Generated API clients, OpenAPI,
+scaffolding, the field component library. Server hardening. Anything a second Anubis
+application would copy out of this repo verbatim.
 
-This layout should be DYNAMIC!! I should be able to pop it out, drag it, re-panel them, etc. We'll use rc-dock as the primary mechanism to do so.
+**Belongs to Elysium:** storage Drives and the federated file gateway. Service integrations
+and the provisioner that runs them. Elysium as an OIDC provider and as an OAuth client for
+linked services. Transport credentials (SSH keys, scoped tokens). Mail as a product, above
+the framework's transactional mailer. The docked workspace, the Elysia session surface, and
+the action center. Satellites, threads, turns, and everything about driving an agent harness.
 
-I should be able to deploy this on a computer I have at home, expose it to the internet (SSL and hosting are the user's responsibility-- Not ours), and anyone should who can access it (who is authorized) should be able to use it, and see/manage the files on the system, etc.
+If you cannot answer the ownership question confidently, ask the user. Do not resolve the
+ambiguity by writing the code here and promising to upstream it later, because that promise
+is never kept and the framework quietly stops being the framework.
 
-Users can belong to teams and users and teams have individual permissions.
-Examples of teams are admin teams, dev teams, qa teams, contractor teams, intern teams, etc.
+**Blocked is a real outcome.** When (b) applies, the task is blocked and saying so is the
+correct deliverable. Do not vendor framework code into Elysium, reach around the framework's
+API into its internals, or ship a "temporary" reimplementation of a framework concern. Do
+file or find the Anubis issue, link it from [docs/anubis.md](docs/anubis.md), finish every
+part of the task that is not blocked, and report exactly what was left undone and why.
 
-Identity is multi-org and multi-account. A profile is a deployment-global identity
-keyed by a globally-unique email and can belong to many organizations at once (one
-deployment can host several orgs, e.g. NavarroCity + JalapenoLabs + MooresLabAI). A
-person can hold several distinct profiles and be signed into more than one at the
-same time, swapping between them (a profile switcher) and between orgs (an org
-switcher), Google-Workspace style. Email is the primary source of auth truth.
-Eventually orgs will own email domains and be able to issue addresses under them
-(alex@navarrocity.com created by the NavarroCity org), which may use a different
-initial-authentication path; this rides on the planned SMTP integration and does not
-change email being the global profile key. See docs/identity.md for the built model.
+The live register of what Elysium is waiting on lives in [docs/anubis.md](docs/anubis.md).
+Keep it current. It is how the framework learns what its first real consumer needs.
 
-On the Claude level, I should be able to OAuth to multiple Claude subscriptions and then if my usage dries up one one of them with the subscription it'll auto-switch to the next one.
+## 2. Do not redraw what the framework draws
 
-# Challenging the system
+Anubis ships the app shell, every auth page, the settings screens, the organization and team
+management screens, billing, the developers console, and the audit log. **Those keep working
+as stamped.** Elysium adds surfaces beside them; it does not reimplement them.
 
-We will NOT re-inventing existing email and messaging UI-- But instead we'll be combining it and making it a totally different experience.
-Note: I'm always open to ideas, feel free to suggest ideas to me at any time.
+The seam is stated in [docs/workspace.md](docs/workspace.md): the stamped `AppShell` frames
+the framework's screens and every scaffolded model page, and the rc-dock workspace frames
+Elysium's own panels. Two frames, one router.
 
-Instead of having emails separate from a messaging system... Why not combine them?
-Imagine if Microsoft Teams would show you emails in the sidebar like it was a conversation? Then you could click on it, take actions, and manage it.
+## 3. Do not reinvent the wheel, orchestrate proven ones
 
-Also, most of the time, I perform an action (respond to someone, respond to an email, etc) and then I don't need to reference it again.
-It doesn't make sense to me, when I go into Slack and see a ton of empty pinned conversations and channels. It matters if I need to send, but not when I need to receive?
-Then Slack/Teams chimes, I open the tab, and have to scroll around to find it. We're also doing away with that.
+Elysium does not re-implement git, SMTP, a container registry, or Perforce. It **provisions
+and manages best-of-breed open-source containers** (Forgejo for git, Postfix and Rspamd for
+mail, a registry, Astraval for Perforce) and unifies them behind one identity, one storage
+fabric, one reverse proxy, and one UI. Orchestrate proven wheels; own the unification. See
+[docs/integrations.md](docs/integrations.md).
 
-When messages are received, we take the user to it. The UI is going to be very heavily focused on "we bring things TO you, the user" not "you the user are given everything and need to hunt things down."
-This includes that when Claude outputs a file onto drive for review, the user can follow it and see it in their workspace immediately. It's all about displaying relevant information in real time.
+# The vision
 
-The user isn't so much driving, the user is the passenger and Claude + automation is driving. The user as the passenger is given what they need to make quick and informed decisions, and can let the system operate.
+## Everything in one, and optionally connected to what you already use
 
-The system itself is autonomous, like it's own standalone developer / team member. It can manage files, perform actions, write docs, submit proposals, and more.
+Elysium hosts its own everything (Postgres, storage on local disk, mail, git) **and**
+optionally connects to what exists. Point storage at Google Drive and use it as the backing
+store, or use your own. Use Slack for messaging or use Elysium's. Use GitHub or run Forgejo.
+Use Jira or use the built-in tasking. Link Gmail or run the mail server.
 
-I even want a built in browser tab, so Claude can pull up a browser tab, scroll to things, take screenshots, highlight text, etc.
-If the user says "I want to order a pizza nearby" it shows a map on the left panel with x3 locations, the user picks A/B/C and then it'll run the Chrome website, show the user pricing info, and the user just sits back and watches it happen.
-If the user says "Research and show me my YouTube competitors" then Claude can make a spreadsheet onto the drive, do the research that it needs, and then open x3 main tabs of each competitor's YouTube channels inside the workspace.
+**We do not re-create these tools one for one.** They all have real flaws. The point is to
+challenge the UX, unify, and unite, not to clone.
 
-So I want to challenge the system! First, have a flagship "action items" style of messaging center.
-As a user, you no longer open up a chat channel tab (Teams/Slack/Discord), and you no longer open an email tab (Outlook/Gmail/etc), and you no longer open a drive tab (Onedrive/GoogleDrive), and you no longer open several git tabs and etc etc... Instead, everything is brought to you in your action center. You can navigate quickly, anywhere with ctrl+p (vs-code style) and look up people, contacts, emails, messages, github repos, etc. Lightning fast navigation, universal searchbar, the whole nine yards.
+## The interface is inverted: things come to you
 
-We can even leverage AI to auto-draft emails/messages (without the user even asking, it just presents options).
-I also think that Claude clients can retain memories and contexts, so when a project manager asks for an update about a feature the Claude agent can remember this as part of the draft. It can look at email threads and other history too!
+The user is the passenger. Elysia and automation are driving, and the interface exists to
+give the passenger what they need to make quick, informed decisions.
 
-There will constantly be a fine line between "when do we redirect the user automatically" vs "the user should redirect themselves because they're using it." For example, if I'm in the middle of reading something then I may not want to be auto redirected. I think we can have an auto-pause system and can auto-resume or "go to next action" that kicks things off again. As soon as I mark an email as resolved (note: I didn't say "read" I said resolved intentionally) or as soon as I respond to it, it can move me onto the next action automatically.
+You no longer open a chat tab, then an email tab, then a drive tab, then five git tabs.
+Everything is brought to you in one **action center**. Messages and emails live in the same
+stream, because the distinction is an implementation detail of the last thirty years, not a
+thing a person cares about. When a message arrives, the interface takes you to it. When
+Elysia writes a file to a Drive, you can follow it and see it immediately.
 
-As an organization, I no longer need all of these separate toolings and controls. It's all in one.
+The unit is **resolved**, not **read**. Resolving an item moves you to the next action.
+There is an auto-pause so you are never yanked out of something you are in the middle of.
 
-Errors (Claude errors and client errors and etc) should be in a universal location, like a "internal app notifications" center. That way, issues can be audited and fixed pretty quickly.
+Navigation is `ctrl+P`, VS Code style, across people, contacts, emails, messages, and
+repositories. Lightning fast, universal.
 
-Admins can have visibility into their user's claude accounts, conversations, usage, etc.
+## The Elysia session is the flagship screen
 
-We'll support all kinds of features:
-- User profile avatars
-- User bios and information
-- User status (online/offline/last-seen/ooo)
+Not a chat transcript. A full agent session surface:
 
-# Desired architecture
+- A **status-colored ambient field**: orange while running, red on error, pink when it needs
+  you, green when done. The background describes what is happening.
+- An **icosahedron session selector** the user rotates to switch between concurrent Elysia
+  sessions.
+- **Voice**, so the agent reports as it goes, and a **sound grammar** for completion, needing
+  help, and failure.
+- Deep tooling and reporting around the conversation: usage, cost, plans, questions,
+  incidents, artifacts.
 
-- Rust backend API
-- Rust deployable workers with their own API (these run in docker containers on separate machines)
-- Protobuf, everywhere (between frontend and API workers) (frontend - well typed, generated at build time NOT runtime)
-- Postgres (latest but a pinned version of the latest)
-- RabbitMQ + amqp between the workers and the API
-- Full typescript
-- React latest + HeroUI v2 + TailwindCSS + Vitest + Redux
-- Electron
-- Multi-window / Multi-tab
-- Worker containers will leverage `claude -p`
-- Organizations can provide oragnization-wide Claude subscriptions, or teams can bring their own or users can each bring their own.
-- Perforce integration will use JalapenoLab's Astraval technology built-in, so the user can leverage all of perforce's protocol with none of the cost
+## The workspace is dockable
 
-In production we'll deploy as an Electron GUI.
-The user should be able to open multiple windows and manage the rc-dock between them.
-This may involve syncing redux between windows, to share the state between them (I recommend using a shared web worker to do so).
-Maybe I want my action center as an RC dock panel on the left monitor, in it's own window, and I want the main interface on the primary monitor.
-In the GUI, this is totally possible. In a browser, it's no problem to limit the user to a single tab.
+rc-dock is the mechanism. Panels split, re-panel, float, maximize, and pop out to real
+windows. Open the drive on the left and keep Elysia on the right. In the Electron shell a
+person can put the action center on one monitor and the session on another. In a browser,
+one window is a fine limit.
 
-It should also be able to be used as a standalone in-browser app. We should use preload as little as possible, and put the minimal amount of things into electron.
+There is a built-in browser panel, so Elysia can open a page, scroll, screenshot, and
+highlight. "Order a pizza nearby" shows three locations on a map, you pick one, and you watch
+it happen.
 
-# Tenancy: org → project → team → individual
+## Faults are never silent
 
-Elysium has four tiers, fully designed in `docs/projects.md` (the source of truth):
+Every failure, agent and application alike, lands in one internal fault center with a stable
+code, so issues are audited and fixed rather than inferred from silence. This mirrors the
+satellite contract's incident rule: a code path that swallows a failure is a bug.
 
-- **Org** is a thin umbrella: logo, membership, org-level teams/roles, cross-project
-  admin. A **full org member reaches every project**; guests are scoped to specific
-  projects/teams.
-- **Project** is the sub-tenant workspace (GCP-project / Jira-project analog) that **owns
-  its domain(s), Drives, integrations (mail/git/registry/Astraval), teams, and
-  membership**. Every org has ≥1 project (a default project is auto-created). Work resources
-  are **project-scoped** (`owner_scope` = org | project | personal).
-- **Teams** are org-level (inherited by all projects) or project-level (scoped).
-- **Runtime:** shared control plane (one Postgres/API/router/SMTP-router), **per-project
-  service containers** for isolation. One machine hosts many orgs, each many projects.
-- **Configurability principle:** plan for deep, granular, per-tier configuration with sane
-  defaults, in the spirit of admin.google.com.
+# Tenancy: org, project, team, individual
+
+Four tiers, designed in [docs/tenancy.md](docs/tenancy.md), which is the source of truth.
+
+- **Organization** is a thin umbrella: logo, membership, org-level teams and roles,
+  cross-project administration, billing. A **full member reaches every project**; guests are
+  scoped to specific projects and teams.
+- **Project** is the sub-tenant workspace (the GCP-project and Jira-project analog) that
+  **owns its domains, Drives, integrations, teams, and membership**. Every organization has
+  at least one, auto-created.
+- **Teams** are org-level (inherited by every project) or project-level (scoped).
+- **Runtime**: a shared control plane (one Postgres, API, router, SMTP router) with
+  **per-project service containers** for isolation. One machine hosts many organizations,
+  each with many projects.
+
+**Anubis has only two tiers, so the project tier is blocked on
+[Anubis #93](https://github.com/JalapenoLabs/Anubis/issues/93).** Per the Anubis-first rule
+the tier is being built in the framework, and Elysium's domain model waits for it. Nothing
+here models a project in the meantime.
+
+**Configurability principle:** plan for deep, granular, per-tier configuration with sane
+defaults, in the spirit of admin.google.com.
 
 # Storage and service integrations
 
-Two foundational pillars, fully designed in `docs/storage.md` and
-`docs/integrations.md`. Those docs are the source of truth; the summary here is the
-load-bearing shape.
+Two foundational pillars, designed in [docs/storage.md](docs/storage.md) and
+[docs/integrations.md](docs/integrations.md), which are the sources of truth.
 
-- **Storage is a gateway, not a sync engine.** An org owns many **Drives** (local FS,
-  S3, SFTP in v1; WebDAV/OAuth clouds later), each an OpenDAL operator rooted where the
-  org points it. The provider is always the source of truth; nothing is mirrored. Search
-  is live, federated, streaming, and index-free. Transfer proxies through the backend
-  (presign-if-available later). Access is Drive-level (org-wide vs restricted, admin
-  bypass); per-file Google-Drive-style sharing is a deferred pillar.
+- **Storage is a gateway, not a sync engine.** A project owns many **Drives** (local
+  filesystem, S3, SFTP first; WebDAV and OAuth clouds later), each an OpenDAL operator rooted
+  where the project points it. The provider is always the source of truth; nothing is
+  mirrored. Search is live, federated, streaming, and index-free. **Capacity is your Drive**,
+  so there is no artificial ceiling.
+- **Providers advertise capabilities; consumers require them.** `PLAIN_FILES` from any
+  provider, `OBJECT_STORE` from filesystem and S3, `POSIX_FS` from local filesystem only. A
+  consumer binds each storage role to a capability-eligible Drive. This is why git and
+  Astraval metadata are local-filesystem-only, and why "git on OneDrive" is an enforced
+  impossibility rather than a documented warning.
+- **An integration is to services what a Drive is to files.** Many per project, each with a
+  `kind` (git, mail, registry, perforce, runner), a `mode` (managed or linked), and an owner
+  scope. Unified surfaces aggregate across instances: "all my repos" spans a managed Forgejo
+  plus a linked GitHub at once.
+- **Provisioning is behind a `Provisioner` abstraction**, Docker-first (Podman-friendly,
+  behind a scoped socket proxy, never the raw socket on the API), with Kubernetes as a later
+  opt-in backend. Requiring a cluster would gut the "runs on a home machine" premise. Managed
+  integrations are desired state in Postgres, reconciled on boot.
+- **One login, zero re-prompt, for the person and for Elysia.** Elysium extends the
+  framework's identity to be an **OIDC provider** so managed services SSO against it (plus
+  reverse-proxy forward-auth for zero flicker), and mints **SSH keys and scoped tokens** for
+  git, registry, and SMTP transport auth. For linked services Elysium is the OAuth *client*,
+  silently refreshing the grant. The token-minting layer serves the AI exactly as it serves
+  the user.
+- **Mail is a full per-project server**, designed in [docs/mail.md](docs/mail.md). A Postfix
+  and Rspamd **MTA edge** receives, filters, signs, and relays, while **Elysium owns the
+  canonical mailbox**. One shared SMTP router on port 25 routes inbound by recipient domain
+  to the owning project's edge. Bodies live on an `OBJECT_STORE` Drive, metadata in Postgres.
+  Elysium generates and verifies MX, SPF, DKIM, and DMARC; reachability and DNS stay the
+  operator's responsibility.
 
-- **Providers advertise capabilities; consumers require them.** `PLAIN_FILES` (any
-  provider), `OBJECT_STORE` (FS + S3), `POSIX_FS` (local FS only). A consumer binds each
-  storage role to a capability-eligible Drive. This is why git and Astraval-metadata
-  (POSIX_FS) are local-FS-only, and why "git on OneDrive" is an enforced impossibility.
+# Agents: satellites, threads, and turns
 
-- **Elysium is a control plane, not a re-implementation.** We do not rebuild git, SMTP, a
-  registry, or Perforce. Elysium **provisions and manages best-of-breed OSS containers**
-  (Forgejo for git, a mail server, a registry, Astraval) and unifies them. Provisioning is
-  behind a **`Provisioner` abstraction**, Docker-first (Podman-friendly, behind a scoped
-  socket-proxy, never the raw socket on the API), with Kubernetes as a later opt-in
-  backend. Managed integrations are desired state in Postgres, reconciled on boot.
+Designed in [docs/satellites.md](docs/satellites.md).
 
-- **An integration is to services what a Drive is to files.** Many per org, each a `kind`
-  (git/mail/registry/perforce/runner), a `mode` (managed | linked), and an `owner_scope`
-  (org | personal). Unified surfaces aggregate across instances ("all my repos", "all my
-  mail"). Provisioning is admin-only (`manage_integrations`); personal linking is gated by
-  per-kind admin policies.
+A **satellite** is a Docker container running on hardware you control that drives a Claude
+CLI or Codex CLI harness against a git workspace. Its reason to exist is one sentence: Claude
+and Codex emit different events with different shapes, and a satellite normalizes both into a
+single protobuf contract, so an application is written once and never rewritten when the
+harness, model, or provider changes.
 
-- **One login, zero re-prompt, for the user and Elysia.** Elysium is the single identity
-  authority, extended to be an **OIDC/OAuth2 provider** so managed services SSO against it
-  (plus reverse-proxy forward-auth for zero-flicker), and to **mint SSH keys + scoped
-  tokens** for git/registry/SMTP transport auth. For linked services Elysium is the OAuth
-  *client*, silently refreshing the user's grant. The token-minting layer serves the AI
-  exactly as it serves the user.
+- **The browser never talks to a satellite.** Every call is proxied by Elysium. Satellite
+  secrets stay server-side, and a satellite on a home network is not reachable from a browser
+  anyway.
+- **Elysium mirrors, the satellite owns.** A thread's authoritative state lives on its
+  satellite. Elysium persists a mirror so the UI can list, search, and audit without fanning
+  out, and so a destroyed thread leaves a record. On any disagreement the satellite wins.
+- **Budgets are required at thread creation**, with an explicit unlimited value if that is
+  genuinely intended. Never silently defaulted.
+- **Elysium stores and forwards permissions; it never enforces them.** Egress allowlists,
+  exec allowlists, branch protection, and secret redaction are enforced by satellite
+  infrastructure the agent cannot reach. A UI that implies Elysium is a second wall is lying
+  about the security model.
+- **Organizations can provide organization-wide agent subscriptions**, or teams bring their
+  own, or each person brings their own. Elysia OAuths to several subscriptions and fails over
+  when one dries up.
 
-- **Mail is a full per-project server, fully designed in `docs/mail.md`.** A Postfix +
-  Rspamd **MTA edge** receives/spam-filters/DKIM-signs and relays, while **Elysium owns the
-  canonical mailbox** (edge delivers inbound via LMTP; Elysium stores, indexes, threads,
-  surfaces into the action-center). One shared **SMTP router on port 25** routes inbound by
-  recipient domain to the owning project's edge container. Bodies live on an OBJECT_STORE
-  Drive (**capacity = your Drive, no artificial quota**), metadata in Postgres. Outbound
-  supports a first-class **smarthost relay**; Elysium generates + verifies MX/SPF/DKIM/DMARC
-  while reachability/DNS stay the operator's responsibility. Outbound unblocks passwordless
-  email sign-in.
+# Blessed architecture decisions
 
-# Frontend tooling and shared Jalapeno Labs packages
+Detail lives in [docs/](docs/).
 
-These are Jalapeno Labs house standards. They are installed straight from their
-public GitHub repos (not published to npm yet), so both must be allowlisted in
-`frontend/.yarnrc.yml` under `approvedGitRepositories`, with `enableScripts: true`.
+- **Framework**: Anubis, consumed from git until it publishes. Elysium was stamped by
+  `anubis new` and stays faithful to the stamp, so framework upgrades are version bumps
+  rather than merges.
+- **Backend**: one Cargo package, `backend/`, an Axum server composing Anubis routers with
+  Elysium's own. Application migrations are Elysium's, applied after the framework's.
+- **Frontend**: one npm workspace, `frontend/`, a React SPA on `@jalapenolabs/anubis`,
+  HeroUI, Tailwind, with rc-dock for the workspace.
+- **Two wire contracts, one per boundary** ([docs/transport.md](docs/transport.md)): REST
+  with OpenAPI and a generated TypeScript client between the browser and Elysium, which is
+  the framework's pipeline; protobuf between Elysium and a satellite, which is the Arsox
+  contract. Protobuf on the browser boundary would mean rebuilding the generated client, the
+  OpenAPI document, and the drift gate here, which is exactly the divergence rule 1 prevents.
+- **Secrets at rest are sealed**, never stored in the clear: satellite bearer secrets,
+  provider credentials, and repository credentials go through `anubis::auth::secret_box`.
+  They are returned to clients only as redacted display strings.
+- **Money is never a float**, anywhere, on any boundary. A fraction of a cent accumulated in
+  a float is how a ceiling drifts away from the invoice it was meant to predict.
+- **Versions are pinned everywhere.** Rust 1.96.0, Node 24.13.0, Yarn 4.17.0, Postgres 17.6.
+  No floating `latest` tags, ever. Both Anubis dependencies pin the same exact revision and
+  bumping them is a commit of its own.
 
-- **ESLint: `@jalapenolabs/cli`.** The frontend lint config is `eslint.config.ts`,
-  which extends `@jalapenolabs/cli/eslint` (the shared Google/Jalapeno TypeScript
-  style: no semicolons, single quotes, stroustrup braces, `object-curly-spacing`,
-  no default exports, license headers). We override the license header to
-  `// Copyright © <year> Jalapeno Labs` and ignore generated proto output. Run
-  `yarn lint` / `yarn lint:fix`. Do not hand-roll ESLint rules; changes to the
-  shared style belong in the CLI repo.
+# Frontend conventions
 
-- **Shared UI: `@jalapenolabs/uikit`.** The reusable React component library,
-  hooks, utilities, and brand tokens. Consumed straight from git, pinned to the
-  `develop` branch (`frontend/package.json`:
-  `"@jalapenolabs/uikit": "https://github.com/JalapenoLabs/uikit.git#develop"`),
-  the same way `@jalapenolabs/cli` is. It builds on install via its `prepare`
-  script and needs no HeroUI/Tailwind coupling (React 18+ peer only). **Prefer its
-  components, hooks, and utils over rebuilding primitives, and contribute sharable
-  UI back to `uikit` rather than duplicating it in Elysium.** It ships components
-  (Button, Accordion, Loader, Timer, DisabledTimerButton, LanguageSelector,
-  ThemeSelector, StatusChip, DragNDrop, LuminescentText, ...), hooks (`useHotkey`,
-  `usePagination`, `useScrollOnMount`, `useScrollPositionRestore`, ...), and utils
-  (`parseJsonSafe`, `reorderArray`, `formatBytes`, `fuzzyMatch`, `deepDiff`,
-  `clipText`, ...). Because these are git dependencies, the frontend Docker image
-  installs `git` + `ca-certificates` so a clean build can fetch them.
+Language conventions come from the global engineering docs and are not restated here. The
+ones this repository leans on hardest: named exports only, `type` over `interface`, grouped
+imports, ky plus SWR for data, react-hook-form plus zod for forms, i18next for every
+user-facing string, and English for every log line.
 
-# Version pinning
+**Shared UI: `@jalapenolabs/uikit`.** Prefer its components, hooks, and utilities over
+rebuilding primitives, and contribute sharable UI back to it rather than duplicating it here.
+It is consumed from git, so it must be allowlisted in `.yarnrc.yml`.
 
-Pin tool versions everywhere; never rely on a floating `latest` tag. Yarn is
-pinned to `4.17.0` (via `packageManager` and an explicit `corepack prepare` in
-CI). Node, Rust, and Postgres are all pinned to exact versions in CI and Docker
-so local, CI, and production never drift.
+# Style
 
-# Naming
-
-The application and deployable will be called Elysium.
-The AI within will be called/named Elysia.
-This is hosted, maintained and created by JalapenoLabs LLC
-
-# CI monitoring
-
-After every git push, monitor the resulting CI run in the background and keep working;
-only block on the run when the push is the end of your task.
-When working through multiple commits in a row, fold any CI failures into the next wave
-of commits instead of stopping to fix each one. Iterate until CI is green.
-
-# Unit testing
-
-Write unit tests for everything you write on both the frontend and the backend.
-The only exception is page-level JSX (page components); everything else gets tests.
-Feel free to use a sub-agent to write unit tests, to help preserve context.
-
-# Claude.md
-
-The USER is the source of truth, and this CLAUDE.md document is the second source of truth.
-The code is NOT the source of truth, as it could change/evolve, or introduce tech debt.
-You are to keep this doc up to date as the user makes decisions.
-If the code drifts from this doc, report it to the user.
+No em dashes anywhere in user-facing text (docs, UI, commits, PRs).
 
 # Documentation
 
-There should be a @docs/ directory in this repository.
-Inside of docs, maintain a .md document for each category of decisions made for the application.
-For example, docs/email.md would be a good place to keep up with and learn about existing email decisions.
-Keep it uniform, follow the docs and leverage the documentation in docs. Keep it up to date as you go! (critical)
+`docs/` holds one document per decision category. Keep it current as decisions are made; a
+decision that is not in `docs/` and not in this file did not happen.
 
-## History
+We document the **current implementation and future plans only**. We do not document history.
+Write "today the system does X" and "the roadmap is Y". Never write "we migrated from", "we
+used to", or "we implemented X but not Z".
 
-We do NOT document history, we document current implmentation and future plans only.
+# Testing
 
-Good examples:
-We can say "Today the system does X" or "the roadmap is to do X/Y/Z"  or "Z is remaining on the roadmap"
+Write unit tests for everything on both ends. The only exception is page-level JSX;
+everything else gets tests. Integration suites run against a real Postgres, and Playwright
+covers the flows end to end.
 
-but we do NOT include details such as "we migrated from __" or "we used to do __" or "we implemented X/Y but not Z on the roadmap"
+# Git
+
+**This repo is private today. Open-sourcing it is the roadmap, not the current state.** Write
+every commit message, issue, and document as though it were already public, because one day
+it is, but do not claim in user-facing text that it is public yet.
+
+`main` is the working branch, and stakeholders push to it directly. There is no `develop`.
+Everyone else opens a pull request into `main`.
+
+GitHub issues track individual pieces of work, grouped by milestones. Never create an issue
+as an epic; use a milestone for that.
+
+# CI
+
+After every push, monitor the resulting CI run in the background and keep working. Only block
+on the run when the push is the end of your task. When working through several commits in a
+row, fold any CI failure into the next wave of commits rather than stopping for each one.
+Iterate until it is green.

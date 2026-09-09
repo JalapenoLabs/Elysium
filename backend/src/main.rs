@@ -1,166 +1,259 @@
-//! Elysium backend: a minimal Axum API wired to Postgres.
+//! The elysium application server.
 //!
-//! The binary boots a Tokio runtime, initializes structured logging, lazily
-//! creates a Postgres connection pool, and serves the routes defined in
-//! [`api`]. It is intended as a starting point, not a finished service.
+//! The composition root: it reads configuration, migrates the database, and
+//! mounts the framework's routers alongside the application's own
+//! [`account_router`], with the built frontend behind them all. The
+//! application itself lives in the library beside this file, which is what
+//! lets the integration tests drive the real routers.
+//!
+//! Everything a production server needs around that router, the probes,
+//! request ids, request logging, timeouts, security headers, and a graceful
+//! shutdown, comes from the one call to [`anubis::server::serve`]. See
+//! `docs/server.md`.
 
-// mimalloc gives a meaningful, essentially free throughput win for services.
+use anubis::billing::PlanSet;
+use anubis::config::AppConfig;
+use anubis::roles::RoleSet;
+use anubis::{db, server, telemetry};
+use axum::Router;
+use elysium::{
+    APP_MIGRATIONS, BILLING_YML, ROLES_YML, account_router, api_v1_router, openapi, register_jobs,
+    webhooks_router,
+};
 use mimalloc::MiMalloc;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-mod accounts;
-mod api;
-mod audit;
-mod authz;
-mod bootstrap;
-mod config;
-mod context;
-mod cookies;
-mod credentials;
-mod crypto;
-mod enrollment;
-mod events;
-mod geoip;
-mod grants;
-mod invites;
-mod login_events;
-mod members;
-mod oauth_client;
-mod oidc;
-mod opaque;
-mod orchestration;
-mod orgs;
-mod password;
-mod policies;
-mod profile;
-mod projects;
-mod proto;
-mod protobuf;
-mod rate_limit;
-mod recovery;
-mod security;
-mod session;
-mod sse;
-mod state;
-mod storage;
-mod teams;
-mod totp;
-mod transport;
-mod users;
-mod webauthn;
-
-use std::env;
-use std::net::SocketAddr;
-use std::sync::Arc;
-
-use eyre::WrapErr;
-use tracing_subscriber::EnvFilter;
-
-use crate::state::AppState;
-
-/// Port the API listens on when `API_PORT` is unset.
+/// The one argument the binary answers instead of serving.
 ///
-/// Matches the value published by Compose. Digits of pi (31416) so the
-/// template does not collide with the usual 3000/8080 crowd during local dev.
-const DEFAULT_API_PORT: u16 = 31416;
+/// The merged OpenAPI document belongs to the application, so the application
+/// is what exports it: `anubis client generate-ts --from <file>` renders that
+/// export as the frontend's generated client, and CI fails on drift. Answering
+/// it here, before any configuration is read, keeps the export runnable
+/// without a database.
+const EXPORT_OPENAPI: &str = "openapi";
 
 #[tokio::main]
-async fn main() -> eyre::Result<()> {
-    // Respect `RUST_LOG` when present, otherwise default to a sensible level.
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,elysium_backend=debug"));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
-
-    // Load the secret-encryption key before touching the database, so a missing or
-    // malformed key fails fast rather than after migrations run. Secrets at rest
-    // (the OPAQUE setup, TOTP secrets) are sealed under it (see `crate::crypto`).
-    let crypto = crypto::Crypto::from_env().wrap_err("failed to load the secret-encryption key")?;
-
-    // Lazy pool: the process starts even if Postgres is briefly unavailable, and
-    // reports real connectivity on demand.
-    let pool = state::connect_pool()?;
-
-    // Bring the database schema up to date before serving. This is the one place
-    // startup genuinely needs Postgres; Compose gates the backend on a healthy
-    // database, and the container restarts if it is not yet reachable.
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .wrap_err("failed to run database migrations")?;
-    tracing::info!("database migrations applied");
-
-    // The OPAQUE server setup lives in a table the migrations just created, so it
-    // is loaded (or minted, on first boot) only now.
-    let opaque_setup = Arc::new(
-        opaque::load_or_create_setup(&pool, &crypto)
-            .await
-            .wrap_err("failed to initialize the OPAQUE server setup")?,
-    );
-
-    let mut state = AppState::new(pool, opaque_setup, crypto)
-        .wrap_err("failed to initialize application state")?;
-
-    // Attach the Redis cache handle now that we are in an async context. A failure is
-    // non-fatal: cache-backed features (IP geolocation) fall back to their uncached
-    // behavior rather than blocking startup.
-    state.redis = state::connect_redis(state.redis_url.as_deref()).await;
-
-    // Reconcile the "every project has a default Drive" invariant on boot. New projects
-    // provision their default Drive inline; this backfills the projects created before
-    // that wiring (migration 0022) so uploads and avatars work with zero admin config.
-    storage::defaults::ensure_default_drives(&state.pool, &state.data_dir)
-        .await
-        .wrap_err("failed to reconcile default Drives")?;
-
-    // Ensure an OIDC signing key exists so the provider can sign tokens from the
-    // first request. Idempotent: it generates the initial RSA-2048 key only when
-    // none is active, exactly like the OPAQUE setup mints itself on first boot.
-    oidc::keys::ensure_active_key(&state.pool, &state.crypto)
-        .await
-        .wrap_err("failed to ensure an OIDC signing key")?;
-
-    // Converge managed integrations to their desired state (docs/integrations.md):
-    // a reboot or image upgrade never loses a provisioned service. Idempotent, so
-    // re-running against an already-converged world is a no-op.
-    {
-        let mut conn = state
-            .pool
-            .acquire()
-            .await
-            .wrap_err("failed to acquire a connection for integration reconcile")?;
-        orchestration::reconcile::reconcile_all(
-            &mut conn,
-            &state.provisioner,
-            &state.crypto,
-            &state.routes,
-            &state.app_origin,
-        )
-        .await
-        .wrap_err("failed to reconcile managed integrations")?;
+async fn main() {
+    if std::env::args().nth(1).as_deref() == Some(EXPORT_OPENAPI) {
+        let document =
+            serde_json::to_string_pretty(&openapi()).expect("the OpenAPI document must serialize");
+        println!("{document}");
+        return;
     }
 
-    let port = env::var("API_PORT")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(DEFAULT_API_PORT);
-    let address = SocketAddr::from(([0, 0, 0, 0], port));
+    let config = AppConfig::from_env().expect("invalid environment configuration");
+    telemetry::init(&config).expect("failed to install the tracing subscriber");
 
-    let listener = tokio::net::TcpListener::bind(address)
+    // Validated at boot so a bad roles.yml edit can never reach traffic.
+    let roles = RoleSet::from_yaml(ROLES_YML).expect("config/roles.yml is invalid");
+    tracing::info!(
+        roles.count = roles.role_keys().count(),
+        "role definitions loaded: {{roles.count}} roles",
+    );
+
+    // Same discipline as roles: a bad billing.yml edit stops the boot rather
+    // than a customer's checkout.
+    let plans = PlanSet::from_yaml(BILLING_YML).expect("config/billing.yml is invalid");
+    tracing::info!(
+        billing.plan.count = plans.plans().len(),
+        billing.plan.free = plans.free().key(),
+        "subscription plans loaded: {{billing.plan.count}} plans, free plan \
+         {{billing.plan.free}}",
+    );
+
+    let database = config
+        .database
+        .as_ref()
+        .expect("DATABASE_URL is required (e.g. postgres://user:pass@localhost/app_development)");
+
+    // Framework tables first: the application's reference them.
+    db::run_pending_migrations(database.url())
         .await
-        .wrap_err_with(|| format!("failed to bind {address}"))?;
+        .expect("failed to run framework migrations");
+    db::run_app_migrations(database.url(), APP_MIGRATIONS)
+        .await
+        .expect("failed to run application migrations");
+    let pool = db::connect(database.url())
+        .await
+        .expect("failed to connect to the database");
 
-    tracing::info!(address = %address, "Elysium API listening");
+    // SMTP when SMTP_URL is set, otherwise the log mailer, which prints emails
+    // and their action links to the console.
+    let mailer = anubis::mail::Mailer::from_config(&config).expect("invalid mail configuration");
 
-    // ConnectInfo exposes the socket peer address to handlers; the login history
-    // uses it as the IP fallback when no proxy forwarded an address.
-    axum::serve(
-        listener,
-        api::router(state).into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await
-    .wrap_err("server error")?;
+    // Realtime channels: Redis pub/sub when REDIS_URL is set, in-process
+    // otherwise. Clone this into handlers and jobs that publish events.
+    let channels = anubis::realtime::Channels::from_config(&config)
+        .await
+        .expect("REDIS_URL must name a reachable Redis");
 
-    Ok(())
+    // One limiter for the whole application: the inbox budget a password reset
+    // charges is the one an invitation charges, because two limiters would be
+    // two budgets and one inbox would take both.
+    let rate_limit = anubis::rate_limit::RateLimiter::new(&config.rate_limit);
+
+    let app = Router::new()
+        // Public profile pictures at /users/{user_id}/avatar.
+        .merge(anubis::auth::avatar_router(pool.clone()))
+        // The realtime channel socket at /realtime.
+        .merge(anubis::realtime::router(pool.clone(), channels.clone()))
+        // The signed-in user's notification inbox at /account/notifications,
+        // beside the application's own account routes below.
+        .nest("/account", anubis::notifications::router(pool.clone()))
+        // The team's audit log, read-only, beside the records it is about.
+        .nest(
+            "/account",
+            anubis::audit::router(pool.clone(), roles.clone()),
+        )
+        .nest(
+            "/auth",
+            anubis::auth::router(pool.clone(), mailer.clone(), &config, &rate_limit),
+        )
+        // The plans reach tenancy because the `seats` limit is enforced where
+        // people join: an invitation past the plan's seats is refused, and a
+        // membership change tells Stripe the new count.
+        .nest(
+            "/tenancy",
+            anubis::tenancy::router(
+                pool.clone(),
+                mailer,
+                roles.clone(),
+                Some(plans.clone()),
+                &config,
+                &rate_limit,
+            ),
+        )
+        // The plan an organization is on, and the Stripe redirects that change
+        // it. Without STRIPE_SECRET_KEY the read still answers and the writes
+        // answer 503; see docs/billing.md.
+        .nest(
+            "/billing",
+            anubis::billing::router(pool.clone(), roles.clone(), plans.clone(), &config),
+        )
+        // Stripe's own events, at /webhooks/stripe-billing. Framework-mounted
+        // because the subscription lifecycle is the framework's, and named so
+        // that an application scaffolding its own Stripe receiver keeps
+        // /webhooks/stripe for itself.
+        .nest(
+            "/webhooks",
+            anubis::billing::webhook_router(pool.clone(), &config),
+        )
+        .nest(
+            "/developers",
+            anubis::api::management::router(pool.clone(), roles.clone()),
+        )
+        // Outgoing webhook subscriptions and their delivery log, beside the
+        // platform applications above.
+        .nest(
+            "/developers",
+            anubis::webhooks::router(pool.clone(), roles.clone(), &config),
+        )
+        // The application owns its v1 surface: the framework's endpoints, the
+        // application's own, and the merged document at /openapi.json and
+        // /docs, in one call.
+        .nest(
+            "/api/v1",
+            anubis::api::v1::router_with(pool.clone(), api_v1_router(&pool, &roles), openapi()),
+        )
+        .nest("/account", account_router(&pool, &roles))
+        // Incoming webhooks from third parties. Unauthenticated on purpose,
+        // and mounted outside /account so no guard ever asks a provider for a
+        // session it does not have.
+        .nest("/webhooks", webhooks_router(&pool))
+        // Application routes guard with TeamMember / OrganizationMember /
+        // CurrentUser through these extensions.
+        .layer(anubis::guard::layer(pool.clone(), roles));
+
+    let app = behind_the_spa(app, &config);
+
+    // Background jobs run in this process, in a worker built beside this one.
+    let worker = worker(&pool, plans, &config, channels);
+
+    let (stop_worker, worker_stops) = tokio::sync::oneshot::channel::<()>();
+    let working = tokio::spawn(worker.run(async move {
+        let _stopped = worker_stops.await;
+    }));
+
+    // The framework owns everything from here: the probes, the middleware, the
+    // accept loop, and draining in-flight requests on SIGTERM or ctrl-c.
+    server::serve(app, pool, &config)
+        .await
+        .expect("the server terminated unexpectedly");
+
+    // The worker keeps running until the server has drained, because a request
+    // still finishing may yet enqueue work. Then it drains its own in-flight
+    // jobs, so a deploy never kills a job mid-flight.
+    let _listening = stop_worker.send(());
+    working
+        .await
+        .expect("the job worker must shut down cleanly");
+}
+
+/// Puts the built frontend behind `app`, when this process is serving it.
+///
+/// In production the built frontend ships with the binary: every path the
+/// routers declined resolves to the SPA, so a cold load of a client route
+/// works. `/account` joins the framework's own prefixes (`/webhooks` among
+/// them) as a place where an unmatched path is a JSON 404 rather than
+/// index.html: a caller that asked for JSON deserves an error it can act on,
+/// not an HTML page and a `200`. Unset `SPA_DIR` leaves the browser to the Vite
+/// dev server, which is the development default.
+///
+/// # Panics
+/// Panics when `SPA_DIR` names something that is not a built frontend, which is
+/// a deployment mistake worth stopping the boot for.
+fn behind_the_spa(app: Router, config: &AppConfig) -> Router {
+    let Some(dir) = &config.spa_dir else {
+        return app;
+    };
+
+    let assets = anubis::spa::Assets::new(dir)
+        .expect("SPA_DIR must point at a built frontend (yarn build)")
+        .reserve("/account");
+    app.fallback_service(assets.into_service())
+}
+
+/// Builds the background job worker this process runs.
+///
+/// Registering a job is the whole of the wiring: it subscribes the worker to
+/// that job's queue and captures whatever the handler needs. Four jobs are the
+/// framework's own, outgoing webhook delivery, the notification ping, and the
+/// two halves of the Stripe subscription lifecycle; the application's are
+/// registered by `register_jobs`, which is where a scaffolded job lands.
+fn worker(
+    pool: &anubis::db::DbPool,
+    plans: PlanSet,
+    config: &AppConfig,
+    channels: anubis::realtime::Channels,
+) -> anubis::jobs::Worker {
+    let deliverer = anubis::webhooks::Deliverer::new(pool.clone(), config);
+    let reconciler = anubis::billing::Reconciler::new(pool.clone(), plans, config);
+    let seats = reconciler.clone();
+    // A notification commits with the write that caused it; this is what tells
+    // the recipient's browser to refetch once that commit has happened.
+    let pinger = anubis::notifications::Pinger::new(channels);
+
+    let worker = anubis::jobs::Worker::builder(pool.clone())
+        .register(move |job: anubis::webhooks::DeliverWebhook| {
+            let deliverer = deliverer.clone();
+            async move { deliverer.deliver(job).await }
+        })
+        .register(move |job: anubis::notifications::PingRecipient| {
+            let pinger = pinger.clone();
+            async move { pinger.ping(job).await }
+        })
+        // Stripe's events become subscription rows here, on their own queue.
+        .register(move |job: anubis::billing::ProcessStripeEvent| {
+            let reconciler = reconciler.clone();
+            async move { reconciler.process(job).await }
+        })
+        // And a membership change becomes the seat count Stripe bills for.
+        .register(move |job: anubis::billing::SyncSeats| {
+            let seats = seats.clone();
+            async move { seats.sync_seats(job).await }
+        });
+
+    register_jobs(pool, worker).build()
 }

@@ -1,0 +1,20 @@
+{
+  "tangibleThings": {
+    "title": "Tangible things",
+    "subtitle": "The child template: every tangible thing belongs to this creative concept.",
+    "noDescription": "No description",
+    "empty": "No tangible things yet. Add the first one below.",
+    "open": "Open",
+    "createTitle": "Add a tangible thing",
+    "createAction": "Create tangible thing",
+    "editTitle": "Edit {{name}}",
+    "deleteAction": "Delete tangible thing",
+    "notFound": "That tangible thing is not available.",
+    "fields": {
+      "name": "Name",
+      "nameHelp": "Name the tangible thing.",
+      "description": "Description",
+      "descriptionHelp": "Leave it blank to clear the description."
+    }
+  }
+}

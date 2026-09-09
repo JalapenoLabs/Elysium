@@ -3,12 +3,12 @@
 Elysium's storage layer is a **gateway**, not a sync engine and not a re-implementation
 of a filesystem. It presents one unified, keyboard-driven view over many storage
 locations, and it is the foundation the service integrations (git, registry, Astraval)
-persist onto. See `docs/integrations.md` for how services consume this layer.
+persist onto. See [integrations.md](integrations.md) for how services consume this layer.
 
 ## Core model
 
 - **Drives are project-scoped.** Work resources live in **projects**, not loose in the org
-  (`docs/projects.md`). A Drive carries a `project_id`; the auto-provisioned default Drive
+  ([tenancy.md](tenancy.md)). A Drive carries a `project_id`; the auto-provisioned default Drive
   lands in the org's default project. Access resolves through the org → project → team
   hierarchy (org-admin bypass, then project/team membership).
 - **Capacity = your Drive; quotas are optional policy, not a platform ceiling.** Large-blob
@@ -50,10 +50,10 @@ makes "you would never put git on OneDrive" an enforced rule rather than a guide
 
 Three capabilities cover everything in scope:
 
-- **`PLAIN_FILES`** — list/read/write/delete files at paths. Every provider has it.
-- **`OBJECT_STORE`** — content-addressed blob put/get/stat by key, strong read-after-write,
+- **`PLAIN_FILES`**: list/read/write/delete files at paths. Every provider has it.
+- **`OBJECT_STORE`**: content-addressed blob put/get/stat by key, strong read-after-write,
   multipart for large blobs. S3 and local FS have it; SFTP/WebDAV/OneDrive/GDrive do not.
-- **`POSIX_FS`** — a real local filesystem: locking, rename, mmap, atomic ref updates. Only
+- **`POSIX_FS`**: a real local filesystem: locking, rename, mmap, atomic ref updates. Only
   local FS. Git object stores and Astraval metadata physically require this.
 
 | Provider | PLAIN_FILES | OBJECT_STORE | POSIX_FS |
@@ -64,7 +64,7 @@ Three capabilities cover everything in scope:
 | WebDAV / OneDrive / GDrive *(later)* | ✓ | ✗ | ✗ |
 
 Consumers declare storage **roles**, each with a required capability; one consumer may need
-several roles of different capabilities (see `docs/integrations.md`):
+several roles of different capabilities (see [integrations.md](integrations.md)):
 
 | Consumer | Role | Requires | Eligible providers |
 |----------|------|----------|--------------------|
@@ -85,8 +85,8 @@ the file browser hides.
 A Drive is either **org-wide** or **restricted** (Slack-channel style). The org boundary is
 absolute: outsiders never have access, ever; visibility is only ever a choice *within* the org.
 
-- **Org-wide** (`visibility = ORG_WIDE`) — every member of the org can see and use it.
-- **Restricted** (`visibility = RESTRICTED`) — access granted to any mix of teams and
+- **Org-wide** (`visibility = ORG_WIDE`): every member of the org can see and use it.
+- **Restricted** (`visibility = RESTRICTED`): access granted to any mix of teams and
   individual users via `drive_access` rows.
 - **Admins and up always have access to every Drive**, enforced in the authz check, never
   stored.
@@ -127,7 +127,7 @@ where they touch this design.
 ### Avatars and org logos are Drive-backed
 
 Avatars and org logos are stored on a Drive, not just held as opaque external URLs
-(`backend/src/storage/branding.rs`):
+as follows:
 
 - **Upload.** `PUT /api/v1/users/me/avatar` (any member, active org) and
   `PUT /api/v1/orgs/{id}/logo` (org admin) stream an image into the reserved
@@ -212,7 +212,7 @@ configure the rest in the app" is the north star.
 
 Three layers, three different calls:
 
-1. **Credentials — always, app-level.** A Drive's provider secret (S3 access/secret
+1. **Credentials: always, app-level.** A Drive's provider secret (S3 access/secret
    keys, SFTP private key) is sealed with `crypto.rs` (XChaCha20-Poly1305 under
    `ELYSIUM_SECRET_KEY`), the same pattern as TOTP secrets, bound to the Drive's
    `project_id`. Opened, the blob is per-kind JSON: `{access_key_id, secret_access_key}`
@@ -225,9 +225,9 @@ Three layers, three different calls:
    `russh` client would fork the "one OpenDAL operator per Drive" model, so a password
    credential is rejected with a clear error rather than hacked in. It unblocks if OpenDAL
    gains SFTP password auth upstream, or Elysium adopts a `russh`-backed `Access`
-   implementation (pure-Rust, rustls, no OpenSSL). See `backend/src/storage/provider.rs`.
-2. **In transit — inherent per provider.** TLS for S3/WebDAV, SSH for SFTP, on-box for FS.
-3. **File bodies — infrastructure, not app-level, in v1.** No app-level body encryption:
+   implementation (pure-Rust, rustls, no OpenSSL).
+2. **In transit: inherent per provider.** TLS for S3/WebDAV, SSH for SFTP, on-box for FS.
+3. **File bodies: infrastructure, not app-level, for now.** No app-level body encryption:
    it would break native provider use, presign, previews, and content search. Rely on disk
    encryption (LUKS/BitLocker) for FS and provider SSE (SSE-S3/SSE-KMS, exposed as
    non-secret S3 config) for S3. A zero-knowledge "Encrypted Drive" (envelope encryption on

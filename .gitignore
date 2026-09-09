@@ -1,26 +1,26 @@
-# Environment
-.env
-
 # Rust
-/backend/target
+target/
 
-# Node / Yarn Berry (node-modules linker)
-node_modules
+# Node
+node_modules/
+dist/
+coverage/
+.vite/
+
+# Playwright (reports and traces from the end-to-end suite)
+playwright-report/
+test-results/
+
+# Yarn (zero-install artifacts are not committed)
 .yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/sdks
-!.yarn/versions
 .pnp.*
 
-# Vite
-dist
-*.local
+# Environment
+.env
+.env.local
 
-# Editor / OS
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-Thumbs.db
+# Claude Code local session state
+.claude/
+
+# Machine-local Claude Code MCP config
+.mcp.json

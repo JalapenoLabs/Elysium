@@ -1,119 +1,45 @@
 [package]
-name = "elysium-backend"
+name = "elysium"
+description = "The Elysium control plane: one self-hosted workspace for mail, chat, storage, source control, and agents."
 version = "0.1.0"
-edition = "2021"
-description = "Minimal Axum API for the Elysium base template, wired to Postgres."
+edition = "2024"
+rust-version = "1.96"
+license = "MIT"
+authors = ["Jalapeno Labs"]
+repository = "https://github.com/JalapenoLabs/elysium"
+publish = false
 
 [dependencies]
-axum = "0.8"
-axum-extra = { version = "0.10", features = ["cookie"] }
-tokio = { version = "1", features = ["full"] }
-tokio-stream = { version = "0.1", features = ["time", "sync"] }
-futures-core = "0.3"
-tower-http = { version = "0.6", features = ["trace"] }
+# Anubis publishes as `anubis-framework`, because the plain name is held on
+# crates.io by an unrelated crate. The `package` key renames it back, so every
+# `use anubis::` in this application reads the way the docs write it. Keep the
+# key when the source below becomes a published version:
+#   anubis = { package = "anubis-framework", version = "0.3.0" }
+#
+# Pinned to an exact revision rather than a branch, because a floating branch
+# changes the framework between two builds believed identical. `frontend/
+# package.json` pins the same revision and the two must not drift, so bumping
+# them is a commit of its own. See docs/anubis.md.
+anubis = { package = "anubis-framework", git = "https://github.com/JalapenoLabs/Anubis.git", rev = "89f1e97b1e8bfe04944fe1585b2c5d1b7558ec90" }
+axum = { version = "0.8", features = ["ws"] }
+chrono = { version = "0.4", features = ["serde"] }
+# The libpq-linked "postgres" feature stays off; connections go through
+# diesel-async's pure-Rust tokio-postgres backend so builds need no native libs.
+diesel = { version = "2.3", features = ["postgres_backend", "chrono", "uuid", "serde_json"] }
+diesel-async = { version = "0.9", features = ["postgres", "deadpool", "async-connection-wrapper"] }
+diesel_migrations = "2.3"
+mimalloc = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "ipnetwork", "chrono", "json"] }
-# Bridges client IPs into Postgres INET columns (sqlx's `ipnetwork` feature).
-ipnetwork = "0.20"
-# Decodes Postgres TIMESTAMPTZ and builds the proto Timestamp (UTC instants).
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-# Ships the IANA tz database, so a user's stored timezone name can be validated
-# against real zones on write rather than trusting the client (see docs/proto.md).
-chrono-tz = "0.10"
-# Session ids and user subjects (v4 is CSPRNG-backed).
-uuid = { version = "1", features = ["v4"] }
-# Encodes WebAuthn credential ids for storage/lookup.
-base64 = "0.22"
+tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-eyre = "0.6"
-mimalloc = "0.1"
-# Generated protobuf types (see build.rs) share this runtime.
-prost = "0.13"
-# The API is the WebAuthn Relying Party (see docs/auth-model.md); it runs the
-# passkey ceremony itself. The state-serialisation feature lets the in-flight
-# ceremony state ride a short-lived HttpOnly cookie between begin and finish
-# (stored carefully, per its "danger" name).
-webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
-# webauthn-rs's high-level API omits a resident-key toggle, so we reach into its
-# core proto types to request a discoverable credential (see enrollment.rs). Same
-# 0.5 line as webauthn-rs, so Cargo unifies them to one version.
-webauthn-rs-core = "0.5"
-# Redis is the deployment's cache layer (see docs/geoip.md); the connection manager
-# multiplexes one reconnecting connection across handlers. tokio-comp for the async
-# runtime, connection-manager for the reconnecting handle.
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
-# Outbound HTTP for best-effort IP geolocation. rustls (not native-tls) matches the
-# sqlx stack and keeps the build off system OpenSSL for this dependency.
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-# OPAQUE aPAKE (RFC 9807) password auth. The suite (ristretto255 + TripleDH-SHA512
-# + Argon2) matches @serenity-kit/opaque on the client, so both ends interop; the
-# suite types below (sha2, argon2) must therefore mirror that client's Cargo.
-opaque-ke = { version = "4", features = ["argon2"] }
-sha2 = "0.10"
-argon2 = "0.5"
-# CSPRNG for the OPAQUE server setup and per-login nonces (rand_core 0.6 API,
-# which opaque-ke expects).
-rand = "0.8"
-# TOTP second factor (RFC 6238): secret generation, otpauth:// provisioning URIs
-# (for the QR code), and code verification.
-totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
-# Authenticated encryption (XChaCha20-Poly1305) for secrets at rest: the OPAQUE
-# server setup and TOTP secrets are sealed under ELYSIUM_SECRET_KEY (see
-# src/crypto.rs), so a database dump alone never exposes them.
-chacha20poly1305 = "0.10"
-# Transport-credential SSH keys (see src/transport.rs): parse OpenSSH public keys,
-# generate ed25519 keypairs, and derive SHA256 fingerprints. Pure Rust
-# (ed25519-dalek), no OpenSSL, matching the rest of the tree. Only ed25519 is
-# enabled; rsa/ecdsa/dsa stay off so no extra crypto backends enter the build.
-ssh-key = { version = "0.6.7", default-features = false, features = ["ed25519", "std", "rand_core"] }
-# OIDC/OAuth2 provider (see src/oidc, docs/oidc.md). `jsonwebtoken` signs and
-# verifies the RS256 ID/access tokens with a `kid` header; it rides `ring`, no
-# OpenSSL (matches sqlx/reqwest/opendal). `rsa` generates the RSA-2048 signing
-# keypairs and exposes the modulus/exponent from which the JWK `n`/`e` are derived;
-# it is pure Rust (num-bigint-dig), no OpenSSL. Both pinned to exact versions.
-jsonwebtoken = "9.3.1"
-rsa = "0.9.8"
-# The Drive gateway: every Drive is one OpenDAL operator (see docs/storage.md,
-# src/storage/provider.rs). Only the v1 backends are enabled (FS, S3, SFTP); the
-# other ~90 services stay off. Default features carry `reqwest-rustls-tls`, so the
-# S3 transport rides rustls and no OpenSSL enters the tree (matches sqlx/reqwest).
-opendal = { version = "0.57", features = ["services-fs", "services-s3", "services-sftp"] }
-# Materializes a Drive's sealed SFTP private key to a 0600 keyfile whose lifetime the
-# operator holds, since OpenDAL's `openssh` SFTP transport authenticates from a path.
-tempfile = "3"
-# The Docker Engine API client for the container-provisioner backend (see
-# src/orchestration/docker.rs). Only the plain-`http` transport is enabled: the
-# backend never touches the host Docker socket, it talks to a scoped
-# socket-proxy over an internal Docker network, so no TLS, Unix-socket, or
-# named-pipe transport is needed. `default-features = false` drops the `pipe`
-# feature (local socket/named-pipe) we must never use; bollard's optional TLS
-# rides rustls, so even unused it keeps no OpenSSL in the tree (matches
-# sqlx/reqwest/opendal).
-bollard = { version = "0.21.0", default-features = false, features = ["http"] }
-# The embedded reverse proxy that routes to managed service containers (see
-# src/orchestration/routing.rs). axum already rides hyper 1.x; we take a direct
-# dependency on its low-level client so we drive the upstream connection ourselves
-# and can tunnel a websocket upgrade both ways. Only `client` + `http1` are
-# enabled (managed containers speak plain HTTP/1.1 over the in-cluster network),
-# so no TLS backend and no OpenSSL enter the tree (matches sqlx/reqwest/opendal).
-hyper = { version = "1", features = ["client", "http1"] }
-# `TokioIo` bridges a `tokio::net::TcpStream` (and hyper's upgraded stream) into
-# hyper's own I/O traits; the `tokio` feature is the only one the proxy needs.
-hyper-util = { version = "0.1", features = ["tokio"] }
+utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
-# Exercise routes in-process (tower::ServiceExt::oneshot) without a socket.
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 
-[build-dependencies]
-# Compiles the shared `../proto` tree into Rust at build time.
-prost-build = "0.13"
-
-# A slightly optimized debug profile keeps hot-reload rebuilds quick while
-# still producing usable backtraces during development.
-[profile.dev]
-opt-level = 0
-debug = 1
+[lints]
+workspace = true

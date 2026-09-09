@@ -1,62 +1,66 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Options } from 'ky'
-import type { Message } from '@bufbuild/protobuf'
-import type { GenMessage } from '@bufbuild/protobuf/codegenv2'
-
-// Core
+// Utility
 import ky from 'ky'
 
-// Lib
-import { fromBinary, toBinary } from '@bufbuild/protobuf'
-
 // Misc
-import { API_BASE_URL } from '../constants'
+import { createAnubisApi } from '@jalapenolabs/anubis'
 
-// Shared Ky instance. Route modules under `./routes` build on top of this.
-export const apiClient = ky.create({
-  // Ky 2.0 uses the web-standard `baseUrl`; relative inputs like 'api/v1/hello'
-  // resolve against it.
-  baseUrl: API_BASE_URL,
-  // The session is an HttpOnly cookie set by the API (BFF token-handler); the
-  // browser never holds a token. `credentials: 'include'` sends that cookie on
-  // every request so protected routes are authenticated automatically.
-  credentials: 'include',
-  // Local dev talks to a single API instance; skip retries so failures surface
-  // immediately instead of stalling the UI.
+// The vite dev server proxies the backend routes; in production the backend
+// serves the SPA, so same-origin works everywhere.
+export const api = createAnubisApi()
+
+/**
+ * The client for the application's own endpoints, mounted under `/account`.
+ *
+ * Sessions ride on the HttpOnly cookie the framework sets, so no token is
+ * handled here. Route functions live in `api/routes`, one module per model,
+ * and `anubis scaffold model` writes a new one per model it generates.
+ */
+export const appClient = ky.create({
+  prefix: '/account/',
+  // Application outcomes (403, 404, 400) are modeled responses, not retryable
+  // transport failures.
   retry: 0,
 })
 
-// Fetches a binary protobuf body and decodes it against its generated schema.
-//
-// This is the client half of the typed contract: the Rust API encodes a message,
-// this reads the raw bytes and hydrates the matching generated type. Options pass
-// straight through to Ky (e.g. `throwHttpErrors: false` to decode error bodies).
-export async function getProto<Shape extends Message>(
-  path: string,
-  schema: GenMessage<Shape>,
-  options?: Options,
-): Promise<Shape> {
-  const buffer = await apiClient.get(path, options).arrayBuffer()
-  return fromBinary(schema, new Uint8Array(buffer))
+/**
+ * The client for the Developers section, mounted under `/developers`.
+ *
+ * Platform application credentials and outgoing webhook subscriptions live
+ * here: team-scoped, admin-only, and driven by the same session cookie as the
+ * rest of the app. It is a second instance rather than a path off `appClient`
+ * because the prefix is a different framework-mounted surface, not one of the
+ * application's own models.
+ */
+export const developersClient = ky.create({
+  prefix: '/developers/',
+  retry: 0,
+})
+
+/** The pagination object every list endpoint returns beside its records. */
+export type Pagination = {
+  page: number
+  limit: number
+  total_items: number
+  total_pages: number
 }
 
-// The write half of the typed contract: encodes a request message to binary
-// protobuf, sends it, and decodes the response against its schema. Mutating
-// endpoints (`PATCH`/`PUT`/`POST` with protobuf bodies both ways) go through here.
-export async function sendProto<RequestShape extends Message, ResponseShape extends Message>(
-  path: string,
-  options: {
-    method: 'post' | 'put' | 'patch'
-    requestSchema: GenMessage<RequestShape>
-    request: RequestShape
-    responseSchema: GenMessage<ResponseShape>
-  },
-): Promise<ResponseShape> {
-  const buffer = await apiClient(path, {
-    method: options.method,
-    body: toBinary(options.requestSchema, options.request),
-    headers: { 'content-type': 'application/x-protobuf' },
-  }).arrayBuffer()
-  return fromBinary(options.responseSchema, new Uint8Array(buffer))
+/** The query every list endpoint accepts; see `docs/api.md`. */
+export type ListQuery = {
+  page?: number
+  limit?: number
+  /** A whitelisted field name, prefixed with `-` for descending. */
+  sort?: string
+}
+
+/** Drops absent entries so the request URL carries only what was asked for. */
+export function toSearchParams(query: Record<string, string | number | undefined>) {
+  const searchParams: Record<string, string> = {}
+  for (const [ key, value ] of Object.entries(query)) {
+    if (value !== undefined && value !== '') {
+      searchParams[key] = String(value)
+    }
+  }
+  return searchParams
 }

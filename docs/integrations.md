@@ -4,7 +4,7 @@ Elysium does not re-implement git, SMTP, a container registry, or Perforce. It i
 **control plane** that provisions and manages best-of-breed open-source services, wires each
 into the stack, and unifies them behind one identity, one storage fabric, one reverse proxy,
 and one UI. "Don't reinvent the wheel" is the strategy: orchestrate proven wheels, own the
-unification. Storage (`docs/storage.md`) is the foundation these services persist onto.
+unification. Storage ([storage.md](storage.md)) is the foundation these services persist onto.
 
 ## What an integration is
 
@@ -15,20 +15,20 @@ them, there can be many of each kind, and the unified surfaces aggregate *across
 
 Each integration has:
 
-- a **kind** — `git`, `mail`, `registry`, `perforce` (Astraval), `runner`, ...
-- a **mode** — `managed` or `linked`
-- an **owner scope** — `org`, `project`, or `personal`. Work resources default to
-  **project** scope (`docs/projects.md`); the mail server in particular is a **per-project**
+- a **kind**: `git`, `mail`, `registry`, `perforce` (Astraval), `runner`, ...
+- a **mode**: `managed` or `linked`
+- an **owner scope**: `org`, `project`, or `personal`. Work resources default to
+  **project** scope ([tenancy.md](tenancy.md)); the mail server in particular is a **per-project**
   managed integration bound to the project's domain(s). Each project's services run in their
   own isolated containers on a shared control plane.
 - config, sealed secrets, and (for managed) storage-role bindings, routing, and SSO wiring.
 
 ### Managed vs linked
 
-- **Managed** — Elysium provisions and owns the lifecycle of a container (Forgejo, a mail
+- **Managed**: Elysium provisions and owns the lifecycle of a container (Forgejo, a mail
   server, a registry, Astraval): storage-role volumes, routing, SSO config, upgrades. This
   is the self-hosted flagship.
-- **Linked** — Elysium holds credentials to an external endpoint (github.com, an existing
+- **Linked**: Elysium holds credentials to an external endpoint (github.com, an existing
   Gitea, an SMTP relay, Docker Hub) and surfaces its content into Elysium's UI. No
   container, no lifecycle; an OAuth/API integration. Cheap and immediately useful.
 
@@ -42,8 +42,8 @@ Integrations reuse the authz spine that governs Drives, extended one level:
 
 | Integration type | Owner scope | Who can create | Gate |
 |------------------|-------------|----------------|------|
-| **Managed** (runs a container) | org | **Admins only** (`manage_integrations`) | Never members — provisioning infrastructure is admin-only |
-| **Linked, org-level** (shared org Google Workspace, the org's GitHub org) | org | Admins | — |
+| **Managed** (runs a container) | org | **Admins only** (`manage_integrations`) | Never members; provisioning infrastructure is admin-only |
+| **Linked, org-level** (shared org Google Workspace, the org's GitHub org) | org | Admins | |
 | **Linked, personal** (my own Gmail, Outlook, GitHub) | personal | Members | **Only if an admin policy permits that kind** |
 
 The default rule: **provisioning is always admin infrastructure; *linking* is org-level
@@ -61,16 +61,14 @@ restricted visibility as Drives.
 
 The API never hardcodes Docker and never holds the raw Docker socket.
 
-- **`Provisioner` trait.** The control plane talks to a provisioner interface
-  (`backend/src/orchestration/provisioner.rs`): create / start / stop / remove / inspect /
-  logs a managed service, attach volumes (bound to capability-eligible Drives), wire network,
+- **`Provisioner` trait.** The control plane talks to a provisioner interface: create,
+  start, stop, remove, inspect, and log a managed service, attach volumes (bound to capability-eligible Drives), wire network,
   inject secrets. The `Provisioner` is deliberately backend-agnostic; no engine type ever
   appears in its signatures. A `ProvisionerHandle` enum dispatches to the active backend so
   `AppState` holds one cloneable handle and consumers stay generic.
-- **The Docker backend** (`backend/src/orchestration/docker.rs`, `DockerProvisioner`)
-  implements the trait against the Docker Engine API using `bollard` over plain HTTP. A
+- **The Docker backend** implements the trait against the Docker Engine API using `bollard` over plain HTTP. A
   **Kubernetes backend** (`kube-rs`, ServiceAccount RBAC) can slot in behind the same seam
-  without touching integrations. Kubernetes is an opt-in backend, never the required floor —
+  without touching integrations. Kubernetes is an opt-in backend, never the required floor:
   requiring a cluster would gut the "runs on a home machine" premise.
 - **The raw socket stays out of the main API.** The backend never mounts
   `/var/run/docker.sock`. It talks over an internal Docker network to a **scoped
@@ -101,11 +99,9 @@ The API never hardcodes Docker and never holds the raw Docker socket.
 
 ## Data model and management API
 
-The model lives in `backend/src/orchestration/integrations.rs` (tables:
-`integrations`, `integration_storage_bindings`, `integration_access`, plus
-`integration_policies` in `integration_policies.rs`), the wire contract in
-`proto/integration.proto` (`elysium.integration.v1`), and the routes in
-`backend/src/api.rs` under `/api/v1/integrations` (protobuf, session-authenticated):
+The tables are `integrations`, `integration_storage_bindings`, `integration_access`, and
+`integration_policies`. The routes hang under `/api/v1/integrations`, guarded by the
+framework's session and project guards:
 
 - `GET /api/v1/integrations?project_id=`: the integrations the caller can access,
   with live `status` + `status_detail`. With `project_id`, that project's set (project
@@ -159,8 +155,8 @@ env/secrets seam.
 
 ### The reconciler
 
-`backend/src/orchestration/reconcile.rs` converges every managed integration on boot
-and after every management-API change: it plans a `ServiceSpec` (the kind's pinned
+The reconciler converges every managed integration on boot and after every change through
+the management API: it plans a `ServiceSpec` (the kind's pinned
 default image, bindings resolved to volumes, the env block rendered by the per-kind
 config templates, one container per integration named `elysium-<kind>-<id>`, so
 project-scoped services are isolated per project) and drives
@@ -172,7 +168,7 @@ fan status changes out over SSE so the console updates live.
 
 ### Config templating and secret injection
 
-`backend/src/orchestration/config.rs` turns an integration's stored ingredients
+Config templating turns an integration's stored ingredients
 (non-secret `config_json`, storage-role bindings, one sealed secret) into the env
 its kind's blessed image expects. All per-kind knowledge lives in one lookup table
 (one template per kind); no other module matches on kind to shape a service's env.
@@ -257,7 +253,7 @@ Elysium's reverse proxy routes inbound traffic to the right managed container:
   - **Spoofing defense.** The proxy strips every trusted identity header from the inbound
     request *before* it reads the session or forwards anything, on every path, so a
     client-forged `X-WEBAUTH-USER` / `X-Elysium-*` can neither reach an upstream nor influence
-    the auth decision — only Elysium sets them. A managed Forgejo is configured for
+    the auth decision: only Elysium sets them. A managed Forgejo is configured for
     reverse-proxy auth (`config::render_git`): `ENABLE_REVERSE_PROXY_AUTHENTICATION`,
     `ENABLE_REVERSE_PROXY_AUTO_REGISTRATION` (header-driven JIT account creation),
     `ENABLE_REVERSE_PROXY_EMAIL` / `_FULL_NAME` with the email/full-name header names pointed at
@@ -279,19 +275,18 @@ rather than delegating to a bolted-on Keycloak.
 
 Two auth surfaces, two mechanisms:
 
-1. **Interactive / web login — Elysium is an OIDC/OAuth2 provider.** Managed services
+1. **Interactive web login, where Elysium is the OIDC provider.** Managed services
    (Forgejo, Harbor, ...) are OIDC clients of Elysium. Because the user already holds an
    Elysium session, opening a service tab is a pre-authenticated embedded view: no second
    login. For maximum seamlessness the reverse proxy also asserts identity via
    **forward-auth / trusted headers** (which Forgejo/Gitea/Harbor support), so there is not
    even a redirect flicker.
-2. **Programmatic / transport auth — Elysium mints credentials.** Git over SSH/HTTPS,
+2. **Programmatic transport auth, where Elysium mints credentials.** Git over SSH/HTTPS,
    `docker login`, and SMTP AUTH present a credential, not an OIDC dance. Elysium mints
    per-user SSH keys and scoped access tokens and provisions them into the managed service,
    so `git push` and `docker login` just work without a hand-made PAT.
 
-The transport-credential registry is built (`src/transport.rs`, migration `0027`). Each
-account manages its own credentials under the Security Center (`/api/v1/me/ssh-keys`,
+Each account manages its own credentials under the Security Center (`/api/v1/me/ssh-keys`,
 `/api/v1/me/tokens`):
 
 - **SSH keys** register a user's public key, or generate an ed25519 keypair whose private
@@ -364,7 +359,7 @@ than rebuilt per service.
 
 The git kind provisions a managed Forgejo, pinned by tag **and** digest
 (`codeberg.org/forgejo/forgejo:13.0.1@sha256:…`). The reconciler renders its env through the
-per-kind config template (`backend/src/orchestration/config.rs`, `render_git`):
+per-kind config template:
 
 - **Self-contained storage.** Repos and a **SQLite** database live together on the one
   POSIX_FS `repos` Drive (`FORGEJO__database__DB_TYPE=sqlite3`, `PATH` under the bound mount),
@@ -377,7 +372,7 @@ per-kind config template (`backend/src/orchestration/config.rs`, `render_git`):
 - **Locked down.** `INSTALL_LOCK=true` (no first-boot setup UI) and self-service local
   registration off (`DISABLE_REGISTRATION=true`): SSO is the only entry.
 
-**SSO — Elysium is the OIDC provider.** At provision time the reconciler registers a
+**SSO, with Elysium as the OIDC provider.** At provision time the reconciler registers a
 confidential, first-party OIDC client per git integration under a deterministic id
 (`forgejo-{integration_id}`) whose single redirect URI is the Forgejo callback under the
 sub-path (`.../services/{id}/user/oauth2/elysium/callback`). Registration is idempotent
@@ -411,8 +406,7 @@ The registry kind provisions a managed **CNCF `distribution`** (registry v3), pi
 **and** digest (`registry:3.0.0@sha256:…`). distribution is the choice over Zot or Harbor: it is
 the simplest, the reference implementation of the OCI registry API, and ships no bundled web UI
 to secure. Zot or Harbor become the choice when a web console or vulnerability scanning matters.
-The reconciler renders its env through the per-kind config template
-(`backend/src/orchestration/config.rs`, `render_registry`):
+The reconciler renders its env through the per-kind config template:
 
 - **Blobs on an OBJECT_STORE Drive.** The `blobs` role requires `OBJECT_STORE`, which only FS
   and S3 Drives advertise, so the capability gate makes binding blobs to SFTP/WebDAV an enforced

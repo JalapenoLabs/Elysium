@@ -1,49 +1,57 @@
 // Copyright © 2026 Jalapeno Labs
 
-import { fileURLToPath, URL } from 'node:url'
-
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react-swc'
+import tailwindcss from '@tailwindcss/vite'
 
-// The SPA, its API, and its auth routes are served from ONE origin: the dev
-// server proxies `/api`, `/auth`, and the OIDC discovery docs to the backend.
-// This keeps the session cookie first-party (no SameSite=None, no CORS) and
-// mirrors the production reverse-proxy topology. Inside Compose the backend is
-// reachable as `backend:31416`.
-//
-// The OIDC issuer is the SPA origin (docs/integrations.md), so a client must be
-// able to fetch `/.well-known/openid-configuration` + `/.well-known/jwks.json`
-// at the site root; without this passthrough an OIDC client (Forgejo) can't
-// discover the provider. `/api/v1/oidc/*` is already covered by the `/api` rule.
-const proxyTarget = process.env.API_PROXY_TARGET || 'http://localhost:31416'
-
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [ react() ],
-  test: {
-    environment: 'happy-dom',
-  },
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
-  },
+  plugins: [
+    react(),
+    tailwindcss(),
+  ],
   server: {
-    // Bind on all interfaces so the container's dev server is reachable
-    // from the host browser.
-    host: true,
-    port: 5173,
+    // `.env` names this origin in APP_URL, and the email links, OAuth redirect
+    // URIs, and Stripe returns are all built from it. Silently moving to the
+    // next free port would leave every one of them pointing at nothing, so a
+    // taken port is an error worth seeing.
     strictPort: true,
-    proxy: {
-      '/api': { target: proxyTarget, changeOrigin: true },
-      '/auth': { target: proxyTarget, changeOrigin: true },
-      '/.well-known': { target: proxyTarget, changeOrigin: true },
-    },
+    // Playwright writes its report and its failure artifacts into this
+    // package. Watching them means a screenshot taken mid-run reloads the page
+    // the run is driving, which is flake the application did not cause.
     watch: {
-      // Bind-mounted volumes on Windows/Docker don't emit reliable inotify
-      // events, so poll for changes to keep HMR working inside the container.
-      usePolling: true,
-      interval: 100,
+      ignored: [
+        '**/playwright-report/**',
+        '**/test-results/**',
+      ],
+    },
+    // Every path the backend claims in production. In production one binary
+    // serves both halves, so a path missing here works when deployed and
+    // 404s in development, which is the worst way to find out. The list is
+    // the backend's reserved prefixes plus its probes, and a test in the
+    // framework fails when the two drift apart.
+    proxy: {
+      // The versioned public API, and the OpenAPI document and docs page under
+      // it.
+      '/api': 'http://127.0.0.1:3000',
+      '/auth': 'http://127.0.0.1:3000',
+      '/tenancy': 'http://127.0.0.1:3000',
+      // The organization's plan, and the Stripe redirects that change it.
+      '/billing': 'http://127.0.0.1:3000',
+      '/account': 'http://127.0.0.1:3000',
+      // Platform applications and outgoing webhook subscriptions.
+      '/developers': 'http://127.0.0.1:3000',
+      // Incoming webhooks, so a provider's test delivery can be pointed at a
+      // tunnel to the dev server.
+      '/webhooks': 'http://127.0.0.1:3000',
+      // Avatars are served publicly, outside the authenticated prefixes.
+      '/users': 'http://127.0.0.1:3000',
+      '/healthz': 'http://127.0.0.1:3000',
+      '/readyz': 'http://127.0.0.1:3000',
+      // The realtime channel socket, which needs an explicit upgrade.
+      '/realtime': {
+        target: 'ws://127.0.0.1:3000',
+        ws: true,
+      },
     },
   },
 })
