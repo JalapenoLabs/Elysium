@@ -52,6 +52,9 @@ export function CreativeConceptPage() {
   }
 
   const record = creativeConcept.data?.creative_concept ?? null
+  // Read once: the form writes into this team, and a scaffolded child's
+  // association options are scoped to it.
+  const teamId = record?.team_id ?? ''
   const heldRoles = current?.team.roles ?? []
   const mayUpdate = can(heldRoles, 'update', CREATIVE_CONCEPT_MODEL)
   const mayDestroy = can(heldRoles, 'destroy', CREATIVE_CONCEPT_MODEL)
@@ -94,7 +97,12 @@ export function CreativeConceptPage() {
           : null
         }
       </div>
-      <dl className='level-left mt-4 items-start gap-8'>
+      {/* A grid rather than a row, because the list grows: `scaffold field`
+          adds an attribute above the anchor below, and a flex row would squash
+          them all together and then overflow. Each attribute gets a cell of
+          its own, wraps inside it, and folds to one column when the viewport
+          is narrow. */}
+      <dl className='mt-4 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3'>
         <div>
           <dt className='text-sm opacity-60'>{
               t('creativeConcepts.fields.description')
@@ -110,7 +118,7 @@ export function CreativeConceptPage() {
       ? <Card className='relaxed p-2'>
           <CardBody>
             <CreativeConceptForm
-              teamId={record.team_id}
+              teamId={teamId}
               editing={record}
               onDone={() => {
                 void creativeConcept.mutate()
@@ -120,7 +128,7 @@ export function CreativeConceptPage() {
         </Card>
       : null
     }
-    <TangibleThingsSection creativeConceptId={creativeConceptId} /> {/* 🐺 anubis:template-only */}
+    <TangibleThingsSection creativeConceptId={creativeConceptId} teamId={teamId} /> {/* 🐺 anubis:template-only */}
     {/* 🐺 anubis:children */}
   </AppShell>
 }

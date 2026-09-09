@@ -11,8 +11,17 @@ import { Spinner } from '@heroui/react'
 import { ClaimInvitationPage } from './pages/ClaimInvitationPage'
 import { CreativeConceptPage } from './pages/CreativeConceptPage'
 import { CreativeConceptsPage } from './pages/CreativeConceptsPage'
+import { TangibleThingPage } from './pages/TangibleThingPage'
+import { GranularDetailPage } from './pages/GranularDetailPage'
 import { DashboardPage } from './pages/DashboardPage'
-import { MembersPage } from './pages/MembersPage'
+import { BillingPage } from './pages/billing/BillingPage'
+import { DevelopersPage } from './pages/developers/DevelopersPage'
+import { AuditLogPage } from './pages/auditLog/AuditLogPage'
+import { OrganizationSettingsPage } from './pages/tenancy/OrganizationSettingsPage'
+import { TeamSettingsPage } from './pages/tenancy/TeamSettingsPage'
+import { ProfileSettingsPage } from './pages/settings/ProfileSettingsPage'
+import { SecuritySettingsPage } from './pages/settings/SecuritySettingsPage'
+import { ConfirmEmailChangePage } from './pages/auth/ConfirmEmailChangePage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
 import { ResetPasswordPage } from './pages/auth/ResetPasswordPage'
 import { SignInPage } from './pages/auth/SignInPage'
@@ -103,10 +112,42 @@ export function App() {
       }
     />
     <Route
-      path={UrlTree.members}
+      path={UrlTree.teamSettings}
       element={
         <Workspace>
-          <MembersPage />
+          <TeamSettingsPage />
+        </Workspace>
+      }
+    />
+    <Route
+      path={UrlTree.teamDevelopers}
+      element={
+        <Workspace>
+          <DevelopersPage />
+        </Workspace>
+      }
+    />
+    <Route
+      path={UrlTree.teamAuditLog}
+      element={
+        <Workspace>
+          <AuditLogPage />
+        </Workspace>
+      }
+    />
+    <Route
+      path={UrlTree.organizationSettings}
+      element={
+        <Workspace>
+          <OrganizationSettingsPage />
+        </Workspace>
+      }
+    />
+    <Route
+      path={UrlTree.organizationBilling}
+      element={
+        <Workspace>
+          <BillingPage />
         </Workspace>
       }
     />
@@ -126,7 +167,43 @@ export function App() {
         </Workspace>
       }
     />
+    <Route
+      path={UrlTree.tangibleThing}
+      element={
+        <Workspace>
+          <TangibleThingPage />
+        </Workspace>
+      }
+    />
+    <Route
+      path={UrlTree.granularDetail}
+      element={
+        <Workspace>
+          <GranularDetailPage />
+        </Workspace>
+      }
+    />
     {/* 🐺 anubis:routes */}
+    <Route
+      path={UrlTree.settings}
+      element={<Navigate to={UrlTree.settingsProfile} replace />}
+    />
+    <Route
+      path={UrlTree.settingsProfile}
+      element={
+        <Workspace>
+          <ProfileSettingsPage />
+        </Workspace>
+      }
+    />
+    <Route
+      path={UrlTree.settingsSecurity}
+      element={
+        <Workspace>
+          <SecuritySettingsPage />
+        </Workspace>
+      }
+    />
     <Route
       path={UrlTree.claimInvitation}
       element={
@@ -166,6 +243,10 @@ export function App() {
     <Route
       path={UrlTree.verifyEmail}
       element={<VerifyEmailPage />}
+    />
+    <Route
+      path={UrlTree.confirmEmailChange}
+      element={<ConfirmEmailChangePage />}
     />
     <Route
       path='*'

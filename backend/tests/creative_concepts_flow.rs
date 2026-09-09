@@ -3,9 +3,11 @@
 //! One narrative covers everything a team-owned scaffolded model owes its
 //! application: create, list with the locked pagination envelope, refuse
 //! another tenant's records with `404`, refuse an anonymous caller with `401`,
-//! refuse a read-only member's writes with `403`, update, and destroy. When
-//! `anubis scaffold model` transforms the living template, it transforms this
-//! narrative with it, so every generated model arrives with the same proof.
+//! refuse a read-only member's writes with `403`, update, and destroy, on the
+//! account routes and then on `/api/v1` with a platform application's bearer
+//! token. When `anubis scaffold model` transforms the living template, it
+//! transforms this narrative with it, so every generated model arrives with
+//! the same proof.
 //!
 //! Requires `DATABASE_URL`; without it the test logs a skip and passes. CI
 //! always provides one.
@@ -14,7 +16,9 @@ mod support;
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
-use support::{boot, bootstrapped_team, invite_and_claim, register, send};
+use support::{
+    boot, bootstrapped_team, invite_and_claim, platform_token, register, send, send_as_token,
+};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -212,9 +216,274 @@ async fn the_creative_concept_slice_serves_full_crud() {
     );
     // 🐺 anubis:test-updated
 
+    // 🐺 anubis:test-associations
+
     // Destroy, and the record is gone for good.
     let (status, _body) = send(&router, "DELETE", &member_path, None, Some(&owner_cookie)).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     let (status, _body) = send(&router, "GET", &member_path, None, Some(&owner_cookie)).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // ---------------------------------------------------------------------
+    // The same slice through `/api/v1`, where a platform application's bearer
+    // token is the whole identity and its team is the whole ownership chain.
+    // The columns are proven above: both surfaces share one serializer.
+    // ---------------------------------------------------------------------
+    let token = platform_token(&router, &owner_cookie, &team_id).await;
+    let api_collection = "/api/v1/creative-concepts";
+
+    // No token, and a forged one, are refused before any record is touched.
+    for bearer in [None, Some("forged-token")] {
+        let (status, _body) = send_as_token(&router, "GET", api_collection, None, bearer).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    let (status, body) = send_as_token(
+        &router,
+        "POST",
+        api_collection,
+        Some(&json!({ "name": "Foghorn" })),
+        Some(&token),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body}");
+    let api_id = body["creative_concept"]["id"]
+        .as_str()
+        .expect("the response carries the record")
+        .to_owned();
+    let api_member = format!("{api_collection}/{api_id}");
+
+    // The list envelope is the locked one, and it is scoped to the token's team.
+    let (status, body) = send_as_token(
+        &router,
+        "GET",
+        &format!("{api_collection}?limit=25&sort=name&name=Foghorn"),
+        None,
+        Some(&token),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    assert_eq!(body["pagination"]["total_items"], json!(1));
+    assert_eq!(body["creative_concepts"][0]["name"], json!("Foghorn"));
+
+    let (status, body) = send_as_token(
+        &router,
+        "PATCH",
+        &api_member,
+        Some(&json!({ "name": "Foghorn mark II" })),
+        Some(&token),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    assert_eq!(body["creative_concept"]["name"], json!("Foghorn mark II"));
+
+    // Another team's token is indistinguishable from a missing record.
+    let outsider_team = bootstrapped_team(&router, &outsider_cookie).await;
+    let outsider_token = platform_token(&router, &outsider_cookie, &outsider_team).await;
+    let (status, _body) =
+        send_as_token(&router, "GET", &api_member, None, Some(&outsider_token)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "leaked {api_member}");
+
+    let (status, _body) = send_as_token(&router, "DELETE", &api_member, None, Some(&token)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _body) = send_as_token(&router, "GET", &api_member, None, Some(&token)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// Every write publishes its event to the team's webhook endpoints.
+///
+/// The assertions stop at the delivery row, which is where the model's own
+/// responsibility ends: emitting inside the write's transaction, with the same
+/// serialized shape the endpoints answer with. Signing the request and posting
+/// it is the framework's job, driven by a worker no test binary runs, and
+/// `anubis/tests/webhooks_flow.rs` proves that half against a real listener.
+#[tokio::test]
+async fn writing_a_creative_concept_queues_a_webhook_delivery() {
+    let Some((router, _outbox)) = boot().await else {
+        eprintln!("skipping creative_concepts_flow webhook test: DATABASE_URL is not set");
+        return;
+    };
+
+    let run = Uuid::new_v4();
+    let owner_cookie = register(
+        &router,
+        &format!("creative-concept-hooks-{run}@example.com"),
+    )
+    .await;
+    let team_id = bootstrapped_team(&router, &owner_cookie).await;
+
+    // Subscribe to the model's whole lifecycle. The secret is shown once here
+    // and nowhere else, which is what makes signing verifiable at the receiver.
+    let (status, body) = send(
+        &router,
+        "POST",
+        &format!("/developers/teams/{team_id}/webhook-endpoints"),
+        Some(&json!({
+            "url": "https://receiver.example.com/anubis",
+            "description": "Creative concept lifecycle",
+            "event_types": [
+                "creative_concept.created",
+                "creative_concept.updated",
+                "creative_concept.destroyed",
+            ],
+        })),
+        Some(&owner_cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body}");
+    assert!(
+        body["secret"]
+            .as_str()
+            .is_some_and(|secret| secret.starts_with("whsec_")),
+        "the signing secret is returned exactly once: {body}",
+    );
+    let endpoint_id = body["webhook_endpoint"]["id"]
+        .as_str()
+        .expect("the response carries the endpoint")
+        .to_owned();
+    let deliveries_path =
+        format!("/developers/teams/{team_id}/webhook-endpoints/{endpoint_id}/deliveries");
+
+    let (status, body) = send(
+        &router,
+        "POST",
+        &format!("/account/teams/{team_id}/creative-concepts"),
+        Some(&json!({ "name": "Signal fire" })),
+        Some(&owner_cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body}");
+    let creative_concept_id = body["creative_concept"]["id"]
+        .as_str()
+        .expect("the response carries the record")
+        .to_owned();
+    let member_path = format!("/account/creative-concepts/{creative_concept_id}");
+
+    let (status, _body) = send(
+        &router,
+        "PATCH",
+        &member_path,
+        Some(&json!({ "name": "Signal fire mark II" })),
+        Some(&owner_cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _body) = send(&router, "DELETE", &member_path, None, Some(&owner_cookie)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Newest first, so the log reads backwards through the record's life.
+    let (status, body) = send(&router, "GET", &deliveries_path, None, Some(&owner_cookie)).await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    let deliveries = body["webhook_deliveries"]
+        .as_array()
+        .expect("the plural key carries the deliveries");
+    let events: Vec<&str> = deliveries
+        .iter()
+        .filter_map(|delivery| delivery["event_type"].as_str())
+        .collect();
+    assert_eq!(
+        events,
+        vec![
+            "creative_concept.destroyed",
+            "creative_concept.updated",
+            "creative_concept.created",
+        ],
+        "every write publishes its event: {body}",
+    );
+
+    // The payload is the record as the endpoints serialize it, not an id.
+    let created = deliveries.last().expect("the create is the oldest");
+    assert_eq!(created["status"], json!("pending"));
+    assert_eq!(created["attempts"], json!(0));
+    assert_eq!(created["payload"]["id"], json!(creative_concept_id));
+    assert_eq!(created["payload"]["name"], json!("Signal fire"));
+    assert_eq!(
+        deliveries[0]["payload"]["name"],
+        json!("Signal fire mark II"),
+        "the destroy carries the record as it last stood: {body}",
+    );
+}
+
+/// Every write records what it did in the team's audit log.
+///
+/// The recording rides the same shared functions the webhook emission does, and
+/// inside the same transaction, so no generated model carries a line of audit
+/// code. See `docs/audit.md`.
+#[tokio::test]
+async fn writing_a_creative_concept_records_an_audit_event() {
+    let Some((router, _outbox)) = boot().await else {
+        eprintln!("skipping creative_concepts_flow audit test: DATABASE_URL is not set");
+        return;
+    };
+
+    let run = Uuid::new_v4();
+    let owner_cookie = register(
+        &router,
+        &format!("creative-concept-audit-{run}@example.com"),
+    )
+    .await;
+    let team_id = bootstrapped_team(&router, &owner_cookie).await;
+
+    let (status, body) = send(
+        &router,
+        "POST",
+        &format!("/account/teams/{team_id}/creative-concepts"),
+        Some(&json!({ "name": "Cairn" })),
+        Some(&owner_cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "body: {body}");
+    let creative_concept_id = body["creative_concept"]["id"]
+        .as_str()
+        .expect("the response carries the record")
+        .to_owned();
+    let member_path = format!("/account/creative-concepts/{creative_concept_id}");
+
+    let (status, _body) = send(
+        &router,
+        "PATCH",
+        &member_path,
+        Some(&json!({ "name": "Cairn mark II" })),
+        Some(&owner_cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _body) = send(&router, "DELETE", &member_path, None, Some(&owner_cookie)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Newest first, filtered to this model so another narrative's rows in the
+    // shared database cannot answer for it.
+    let (status, body) = send(
+        &router,
+        "GET",
+        &format!("/account/teams/{team_id}/audit-events?subject_type=CreativeConcept"),
+        None,
+        Some(&owner_cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    let recorded = body["audit_events"]
+        .as_array()
+        .expect("the plural key carries the events");
+    let actions: Vec<&str> = recorded
+        .iter()
+        .filter_map(|event| event["action"].as_str())
+        .collect();
+    assert_eq!(
+        actions,
+        vec!["destroyed", "updated", "created"],
+        "every write records what it did: {body}",
+    );
+
+    // The label is how a reader recognizes the record, copied at the moment of
+    // the act rather than joined afterwards, which is why the destroy still
+    // names it.
+    assert_eq!(recorded[0]["subject_label"], json!("Cairn mark II"));
+    assert_eq!(recorded[0]["subject_id"], json!(creative_concept_id));
+    // The update's change set is the diff of the record's own columns.
+    assert_eq!(
+        recorded[1]["changes"]["name"],
+        json!({ "old": "Cairn", "new": "Cairn mark II" }),
+        "an update records what moved: {body}",
+    );
 }

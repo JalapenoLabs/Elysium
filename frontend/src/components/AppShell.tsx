@@ -5,8 +5,9 @@ import type { User } from '@jalapenolabs/anubis'
 import type { ReactNode } from 'react'
 
 // Core
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { useAnubisApi, useCurrentUser } from '@jalapenolabs/anubis'
 import { useTeamContext } from '../context/TeamProvider'
 
@@ -24,10 +25,19 @@ import {
   NavbarContent,
   NavbarItem,
 } from '@heroui/react'
+import { NotificationBell } from '@jalapenolabs/anubis'
 import { Breadcrumbs } from './Breadcrumbs'
+import { CreateOrganizationModal } from './tenancy/CreateOrganizationModal'
 
 // Misc
-import { UrlTree } from '../urls'
+import {
+  UrlTree,
+  getOrganizationBillingUrl,
+  getOrganizationSettingsUrl,
+  getTeamAuditLogUrl,
+  getTeamDevelopersUrl,
+  getTeamSettingsUrl,
+} from '../urls'
 
 type Props = {
   user: User
@@ -36,12 +46,75 @@ type Props = {
   children: ReactNode
 }
 
+/**
+ * The switcher's non-team entries.
+ *
+ * Every other key in the menu is a team id, so these are namespaced to keep the
+ * two apart: a key that is not one of these is a team to switch to.
+ */
+const TENANCY_ACTIONS = {
+  teamSettings: 'tenancy:team-settings',
+  teamAuditLog: 'tenancy:team-audit-log',
+  organizationSettings: 'tenancy:organization-settings',
+  organizationBilling: 'tenancy:organization-billing',
+  newOrganization: 'tenancy:new-organization',
+} as const
+
 /** Signed-in application frame: navbar, breadcrumbs, and the page content. */
 export function AppShell(props: Props) {
   const { t } = useTranslation()
   const api = useAnubisApi()
+  const navigate = useNavigate()
   const { refresh } = useCurrentUser()
   const { memberships, current, selectTeam } = useTeamContext()
+  const [ isCreatingOrganization, setIsCreatingOrganization ] = useState(false)
+
+  function onSwitcherAction(key: string | number) {
+    const action = String(key)
+
+    if (action === TENANCY_ACTIONS.newOrganization) {
+      setIsCreatingOrganization(true)
+      return
+    }
+
+    if (action === TENANCY_ACTIONS.teamSettings) {
+      if (!current) {
+        console.debug('team settings chosen with no team selected')
+        return
+      }
+      navigate(getTeamSettingsUrl(current.team.id))
+      return
+    }
+
+    if (action === TENANCY_ACTIONS.teamAuditLog) {
+      if (!current) {
+        console.debug('audit log chosen with no team selected')
+        return
+      }
+      navigate(getTeamAuditLogUrl(current.team.id))
+      return
+    }
+
+    if (action === TENANCY_ACTIONS.organizationSettings) {
+      if (!current) {
+        console.debug('organization settings chosen with no team selected')
+        return
+      }
+      navigate(getOrganizationSettingsUrl(current.organization.id))
+      return
+    }
+
+    if (action === TENANCY_ACTIONS.organizationBilling) {
+      if (!current) {
+        console.debug('billing chosen with no team selected')
+        return
+      }
+      navigate(getOrganizationBillingUrl(current.organization.id))
+      return
+    }
+
+    selectTeam(action)
+  }
 
   async function onSignOut() {
     try {
@@ -54,7 +127,11 @@ export function AppShell(props: Props) {
   }
 
   return <div className='min-h-screen'>
-    <Navbar isBordered maxWidth='xl'>
+    {/* `lg` is 1024px, which is `max-w-5xl` on the content below, and both
+        carry the same 24px of inner padding. The brand and the page heading
+        therefore share one left edge; a wider bar would hang the navigation
+        outside the column every page is written in. */}
+    <Navbar isBordered maxWidth='lg'>
       <NavbarBrand className='gap-4'>
         <Link to={UrlTree.root} className='text-lg font-bold'>{
             t('app.title')
@@ -73,10 +150,20 @@ export function AppShell(props: Props) {
             aria-label={t('team.switcher.ariaLabel')}
             selectionMode='single'
             selectedKeys={current ? [ current.team.id ] : []}
-            onAction={(key) => selectTeam(String(key))}
+            disabledKeys={
+              current
+                ? []
+                : [
+                    TENANCY_ACTIONS.teamSettings,
+                    TENANCY_ACTIONS.teamAuditLog,
+                    TENANCY_ACTIONS.organizationSettings,
+                    TENANCY_ACTIONS.organizationBilling,
+                  ]
+            }
+            onAction={onSwitcherAction}
           >
-            {
-              memberships.organizations.map((organization) => (
+            {[
+              ...memberships.organizations.map((organization) => (
                 <DropdownSection
                   key={organization.id}
                   title={organization.name}
@@ -90,8 +177,28 @@ export function AppShell(props: Props) {
                     ))
                   }
                 </DropdownSection>
-              ))
-            }
+              )),
+              <DropdownSection
+                key='tenancy-actions'
+                title={t('team.switcher.manage')}
+              >
+                <DropdownItem key={TENANCY_ACTIONS.teamSettings}>{
+                    t('team.settings.navLink')
+                  }</DropdownItem>
+                <DropdownItem key={TENANCY_ACTIONS.teamAuditLog}>{
+                    t('auditLog.navLink')
+                  }</DropdownItem>
+                <DropdownItem key={TENANCY_ACTIONS.organizationSettings}>{
+                    t('organization.settings.navLink')
+                  }</DropdownItem>
+                <DropdownItem key={TENANCY_ACTIONS.organizationBilling}>{
+                    t('billing.navLink')
+                  }</DropdownItem>
+                <DropdownItem key={TENANCY_ACTIONS.newOrganization}>{
+                    t('organization.create.action')
+                  }</DropdownItem>
+              </DropdownSection>,
+            ]}
           </DropdownMenu>
         </Dropdown>
       </NavbarBrand>
@@ -102,10 +209,38 @@ export function AppShell(props: Props) {
             }</Link>
         </NavbarItem>
         {/* 🐺 anubis:nav */}
+        { current
+          ? <NavbarItem>
+              <Link
+                to={getTeamDevelopersUrl(current.team.id)}
+                className='opacity-80 hover:opacity-100'
+              >{
+                  t('developers.navLink')
+                }</Link>
+            </NavbarItem>
+          : null
+        }
+        { current
+          ? <NavbarItem>
+              <Link
+                to={getTeamSettingsUrl(current.team.id)}
+                className='opacity-80 hover:opacity-100'
+              >{
+                  t('team.settings.navLink')
+                }</Link>
+            </NavbarItem>
+          : null
+        }
         <NavbarItem>
-          <Link to={UrlTree.members} className='opacity-80 hover:opacity-100'>{
-              t('team.members.navLink')
-            }</Link>
+          <NotificationBell
+            onNavigate={(href) => navigate(href)}
+            labels={{
+              bell: t('notifications.bell'),
+              heading: t('notifications.heading'),
+              empty: t('notifications.empty'),
+              markAllRead: t('notifications.markAllRead'),
+            }}
+          />
         </NavbarItem>
         <NavbarItem>
           <Dropdown placement='bottom-end'>
@@ -113,6 +248,12 @@ export function AppShell(props: Props) {
               <Avatar
                 as='button'
                 size='sm'
+                showFallback
+                // The trigger shows a picture or two initials, so it needs a
+                // name of its own: without one, the only control that reaches
+                // settings and sign-out is unaddressable to a screen reader.
+                aria-label={t('common.accountMenu')}
+                src={api.avatarUrl(props.user)}
                 name={props.user.email.slice(0, 2).toUpperCase()}
                 className='transition-transform'
               />
@@ -120,6 +261,12 @@ export function AppShell(props: Props) {
             <DropdownMenu aria-label={t('dashboard.greeting', { email: props.user.email })}>
               <DropdownItem key='signed-in-as' isReadOnly className='opacity-70'>{
                   t('dashboard.greeting', { email: props.user.email })
+                }</DropdownItem>
+              <DropdownItem
+                key='settings'
+                onPress={() => navigate(UrlTree.settingsProfile)}
+              >{
+                  t('settings.navLink')
                 }</DropdownItem>
               <DropdownItem key='sign-out' color='danger' onPress={onSignOut}>{
                   t('common.signOut')
@@ -138,5 +285,9 @@ export function AppShell(props: Props) {
       }
       {props.children}
     </main>
+    <CreateOrganizationModal
+      isOpen={isCreatingOrganization}
+      onClose={() => setIsCreatingOrganization(false)}
+    />
   </div>
 }

@@ -1,45 +1,48 @@
+# Continuous integration for elysium, stamped by `anubis new`.
+#
+# It holds both ends to the same bar: the Rust workspace is formatted, linted,
+# and tested against a real Postgres, the frontend is typechecked, linted,
+# tested, and built, and the three generated files are regenerated and
+# compared, so a roles, billing, or API change that was never regenerated fails
+# here instead of in review. This file is yours; relax or extend it freely.
 name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
-
-# A second push to the same branch supersedes the first; nobody reads the
-# results of a run whose commit is already stale.
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   rust:
     name: Rust
-    runs-on: [self-hosted, rocky9, earthly, docker]
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:17.6
         env:
-          POSTGRES_USER: arsox
-          POSTGRES_PASSWORD: arsox
-          POSTGRES_DB: arsox_test
+          POSTGRES_USER: elysium
+          POSTGRES_PASSWORD: YGDUT2SHXYTKWEQG
+          POSTGRES_DB: elysium_test
         ports:
-          - 55432:5432
+          # Ephemeral host port: concurrent runs can never collide on a fixed
+          # one. The step below reads the assigned port back.
+          - 5432
         options: >-
-          --health-cmd "pg_isready -U arsox"
+          --health-cmd "pg_isready -U elysium"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    env:
-      DATABASE_URL: postgres://arsox:arsox@localhost:55432/arsox_test
     steps:
       - uses: actions/checkout@v4
 
-      # The toolchain version matches rust-toolchain.toml. Self-hosted runners
-      # keep the cargo registry and target dir warm, so no cache step is needed.
+      # The toolchain version matches rust-toolchain.toml.
       - uses: dtolnay/rust-toolchain@1.96.0
         with:
           components: rustfmt, clippy
+
+      # GitHub-hosted runners start cold every run, so without a cache every
+      # push rebuilds the framework from source.
+      - uses: Swatinem/rust-cache@v2
 
       - name: Format
         run: cargo fmt --all -- --check
@@ -48,24 +51,47 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test
+        env:
+          DATABASE_URL: postgres://elysium:YGDUT2SHXYTKWEQG@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/elysium_test
         run: cargo test --workspace
 
-      # The generated permissions module must match config/roles.yml. A stale
-      # one means the UI offers controls the backend rejects. The CLI installs
-      # from git at the revision the backend depends on, because the crate is
-      # not published yet (Anubis #56).
+      # The drift checks below run the framework CLI, which is installed from
+      # the framework repository until the crate is published to crates.io.
+      # The crate is `anubis-framework`; the binary it installs is `anubis`.
+      - name: Install the Anubis CLI
+        run: cargo install anubis-framework --git https://github.com/JalapenoLabs/Anubis.git --locked
+
+      # The generated TypeScript permissions module must match roles.yml.
       - name: Roles drift check
         run: |
-          revision=$(sed -n 's/.*Anubis\.git", rev = "\([0-9a-f]*\)".*/\1/p' backend/Cargo.toml)
-          cargo install --git https://github.com/JalapenoLabs/Anubis --rev "$revision" anubis --locked
           anubis roles generate-ts \
             --file config/roles.yml \
             --out frontend/src/roles.generated.ts
           git diff --exit-code frontend/src/roles.generated.ts
 
+      # The generated TypeScript plan catalog must match billing.yml.
+      - name: Plans drift check
+        run: |
+          anubis billing generate-ts \
+            --file config/billing.yml \
+            --out frontend/src/plans.generated.ts
+          git diff --exit-code frontend/src/plans.generated.ts
+
+      # The generated TypeScript client must match the OpenAPI document this
+      # application merges, so the application binary exports it and the CLI
+      # renders that export.
+      - name: Client drift check
+        run: |
+          exported="$(mktemp)"
+          cargo run --quiet -p elysium -- openapi > "$exported"
+          anubis client generate-ts \
+            --from "$exported" \
+            --out frontend/src/api/v1.generated.ts
+          git diff --exit-code frontend/src/api/v1.generated.ts
+
   frontend:
     name: Frontend
-    runs-on: [self-hosted, rocky9, earthly, docker]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -78,6 +104,8 @@ jobs:
           corepack enable
           corepack prepare yarn@4.17.0 --activate
 
+      # Immutable installs need a committed yarn.lock: commit yours with the
+      # first commit, alongside Cargo.lock.
       - name: Install
         run: yarn install --immutable
 
@@ -92,3 +120,84 @@ jobs:
 
       - name: Build
         run: yarn build
+
+  # Browser-level proof that the screens work against the real stack: Postgres,
+  # the backend, and Vite, driven by Chromium. Three specs ship with the app,
+  # covering sign-up, the auth round trip, and a write that survives a reload.
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: elysium
+          POSTGRES_PASSWORD: YGDUT2SHXYTKWEQG
+          POSTGRES_DB: elysium_e2e
+        ports:
+          # Ephemeral host port, for the same reason the Rust job uses one.
+          - 5432
+        options: >-
+          --health-cmd "pg_isready -U elysium"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.96.0
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.0
+
+      - name: Pin Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@4.17.0 --activate
+
+      - name: Install
+        run: yarn install --immutable
+
+      - name: Build the backend
+        run: cargo build -p elysium
+
+      # `--with-deps` installs the system libraries Chromium needs, which this
+      # runner image allows.
+      - name: Install Chromium
+        run: yarn workspace elysium-frontend exec playwright install --with-deps chromium
+
+      # The suite drives the same three processes `yarn dev` starts. Playwright
+      # waits for the stack itself (frontend/e2e/global-setup.ts), so this step
+      # starts the two servers, runs the specs, and stops them on the way out
+      # however the run ended.
+      - name: Run the suite
+        env:
+          DATABASE_URL: postgres://elysium:YGDUT2SHXYTKWEQG@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/elysium_e2e
+          APP_URL: http://localhost:5173
+          E2E_BASE_URL: http://localhost:5173
+          # The suite registers an account per spec, which is a rate a person
+          # never reaches and the auth limiter refuses. The limiter has its own
+          # Rust narrative; this job is about the screens.
+          RATE_LIMIT_DISABLED: "true"
+          RUST_LOG: warn
+        run: |
+          ./target/debug/elysium &
+          backend=$!
+          yarn workspace elysium-frontend dev &
+          web=$!
+          trap 'kill "$backend" "$web" 2>/dev/null || true' EXIT
+          yarn workspace elysium-frontend test:e2e
+
+      # The report carries the trace, the screenshot, and the DOM snapshot of
+      # every failed step, which is the difference between reading a failure
+      # and reproducing it.
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7

@@ -1,4 +1,4 @@
-# The arsox workspace. The backend is a Cargo package; the frontend
+# The elysium workspace. The backend is a Cargo package; the frontend
 # is an npm workspace managed from package.json.
 
 [workspace]

@@ -1,28 +1,27 @@
 [package]
-name = "arsox"
-description = "The Arsox control plane: a web interface for running coding agents on satellites you own."
+name = "elysium"
+description = "The Elysium control plane: one self-hosted workspace for mail, chat, storage, source control, and agents."
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT"
 authors = ["Jalapeno Labs"]
-repository = "https://github.com/JalapenoLabs/arsox"
+repository = "https://github.com/JalapenoLabs/elysium"
 publish = false
 
 [dependencies]
-# Anubis installs from git until the crate is published (Anubis #56), and is
-# pinned to an exact revision for the same reason every other version here is:
-# a floating branch changes the framework under us between two builds we
-# believed were identical. Bump it deliberately, in its own commit.
+# Anubis publishes as `anubis-framework`, because the plain name is held on
+# crates.io by an unrelated crate. The `package` key renames it back, so every
+# `use anubis::` in this application reads the way the docs write it. Keep the
+# key when the source below becomes a published version:
+#   anubis = { package = "anubis-framework", version = "0.3.0" }
 #
-# `frontend/package.json` pins the same revision, and the two must not drift.
-#
-# Anubis PR #67 is the earliest revision Arsox can build against at all: #66
-# made the repository fetchable by cargo and #67 made the npm package
-# installable from git. This one is develop two commits later, which is where
-# the background job queue lands. See docs/anubis.md.
-anubis = { git = "https://github.com/JalapenoLabs/Anubis.git", rev = "3bd0958f2dc5c831a57aed1451d0fe8d3f344037" }
-axum = "0.8"
+# Pinned to an exact revision rather than a branch, because a floating branch
+# changes the framework between two builds believed identical. `frontend/
+# package.json` pins the same revision and the two must not drift, so bumping
+# them is a commit of its own. See docs/anubis.md.
+anubis = { package = "anubis-framework", git = "https://github.com/JalapenoLabs/Anubis.git", rev = "89f1e97b1e8bfe04944fe1585b2c5d1b7558ec90" }
+axum = { version = "0.8", features = ["ws"] }
 chrono = { version = "0.4", features = ["serde"] }
 # The libpq-linked "postgres" feature stays off; connections go through
 # diesel-async's pure-Rust tokio-postgres backend so builds need no native libs.
@@ -31,14 +30,15 @@ diesel-async = { version = "0.9", features = ["postgres", "deadpool", "async-con
 diesel_migrations = "2.3"
 mimalloc = "0.1"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
-serde_json = "1"
 tower = { version = "0.5", features = ["util"] }
 
 [lints]

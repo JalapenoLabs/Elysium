@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "Arsox",
+    "title": "Elysium",
     "frameworkVersion": "Framework version {{version}}"
   },
   "common": {
@@ -8,6 +8,7 @@
     "somethingWentWrong": "Something went wrong. Try again.",
     "email": "Email",
     "password": "Password",
+    "accountMenu": "Account menu",
     "signOut": "Sign out",
     "save": "Save",
     "cancel": "Cancel",
@@ -29,6 +30,7 @@
       "forgotPassword": "Forgot your password?"
     },
     "oauth": {
+      "continueWith": "Continue with {{provider}}",
       "errors": {
         "unavailable": "That sign-in provider is not available right now. Use your email and password.",
         "denied": "The sign-in was cancelled. Nothing has changed.",
@@ -67,31 +69,187 @@
       "resent": "Check your inbox for a fresh link.",
       "goToDashboard": "Go to the dashboard"
     },
+    "changeEmail": {
+      "title": "New email address",
+      "confirming": "Confirming your new address...",
+      "confirmed": "Done. Your account now signs in with {{email}}.",
+      "failed": "That link is invalid or has expired. Request a new one from your security settings.",
+      "goToDashboard": "Go to the dashboard"
+    },
+    "emailCode": {
+      "switchTo": "Email me a sign-in code instead",
+      "switchBack": "Use your password instead",
+      "requestBody": "We'll email you a code that signs you in. No password needed.",
+      "requestAction": "Send me a code",
+      "sent": "We sent a code to {{email}}. It expires in 10 minutes.",
+      "codeLabel": "Sign-in code",
+      "verifyAction": "Sign in",
+      "useAnotherAddress": "Use a different email address"
+    },
+    "mfa": {
+      "title": "One more step",
+      "subtitle": "This account is protected by two-factor authentication.",
+      "body": "Enter the code from your authenticator app.",
+      "codeLabel": "Authentication code",
+      "codeHelp": "Lost your phone? A recovery code works here too.",
+      "action": "Verify"
+    },
+    "passkey": {
+      "action": "Sign in with a passkey",
+      "failed": "That passkey sign-in did not complete. Try again, or use your password."
+    },
     "validation": {
       "emailInvalid": "Enter a valid email address.",
       "passwordTooShort": "Passwords must be at least {{count}} characters.",
       "fillAllFields": "Fill in every field to continue."
+    },
+    "rateLimited_one": "Too many attempts. Try again in {{count}}s",
+    "rateLimited_other": "Too many attempts. Try again in {{count}}s"
+  },
+  "settings": {
+    "navLink": "Settings",
+    "title": "Settings",
+    "subtitle": "Your account, and how you sign in to it.",
+    "profile": {
+      "tab": "Profile",
+      "detailsTitle": "Your details",
+      "firstName": "First name",
+      "lastName": "Last name",
+      "timeZone": "Time zone",
+      "timeZoneHelp": "Dates and times are shown in this zone.",
+      "locale": "Language",
+      "localeHelp": "The language this application speaks to you in.",
+      "saved": "Your profile is saved.",
+      "avatarTitle": "Profile picture",
+      "avatarHelp": "JPEG, PNG, WebP, or GIF, up to 5 MB. We crop it square and resize it to 512 pixels.",
+      "avatarChoose": "Choose an image",
+      "avatarSave": "Upload",
+      "avatarRemove": "Remove",
+      "avatarSelected": "Ready to upload: {{name}}",
+      "avatarTooLarge": "That image is larger than 5 MB. Choose a smaller one."
+    },
+    "security": {
+      "tab": "Security",
+      "password": {
+        "title": "Password",
+        "subtitle": "Changing your password signs out every other browser.",
+        "current": "Current password",
+        "new": "New password",
+        "action": "Change password",
+        "changed": "Your password is changed. Other sessions were signed out."
+      },
+      "email": {
+        "title": "Email address",
+        "current": "You sign in with {{email}}.",
+        "newAddress": "New email address",
+        "help": "We'll email a confirmation link there. Nothing changes until you open it.",
+        "action": "Send confirmation link",
+        "sent": "Check {{email}} for the confirmation link."
+      },
+      "twoFactor": {
+        "title": "Two-factor authentication",
+        "subtitle": "An authenticator app code, asked for every time you sign in with a password.",
+        "enabled": "On",
+        "disabled": "Off",
+        "enableAction": "Set up two-factor",
+        "disableAction": "Turn off",
+        "enrollTitle": "Set up two-factor authentication",
+        "enrollBody": "Scan this code with your authenticator app, then enter the code it shows.",
+        "qrAlt": "QR code for your authenticator app",
+        "manualEntry": "Can't scan? Enter this secret by hand:",
+        "codeLabel": "Code from your app",
+        "codeHelp": "Six digits, refreshed every 30 seconds.",
+        "confirmAction": "Turn on two-factor",
+        "recoveryTitle": "Save your recovery codes",
+        "recoveryBody": "Each code signs you in once if you lose your authenticator. This is the only time they are shown.",
+        "recoveryCopy": "Copy the codes",
+        "recoveryCopied": "Copied",
+        "recoveryDone": "I've saved them"
+      },
+      "passkeys": {
+        "title": "Passkeys",
+        "subtitle": "Sign in with your device or password manager, with no password to type.",
+        "name": "Name",
+        "added": "Added",
+        "lastUsed": "Last used",
+        "neverUsed": "Never",
+        "empty": "No passkeys yet.",
+        "nameLabel": "Name this passkey",
+        "nameHelp": "Something you'll recognize, such as the device it lives on.",
+        "addAction": "Add a passkey",
+        "ceremonyFailed": "That passkey was not registered. Try again.",
+        "unsupported": "This browser cannot create passkeys."
+      },
+      "sessions": {
+        "title": "Active sessions",
+        "subtitle": "Every browser currently signed in to this account.",
+        "signedIn": "Signed in",
+        "expires": "Expires",
+        "current": "This browser",
+        "revoke": "Sign out"
+      },
+      "danger": {
+        "title": "Delete this account",
+        "subtitle": "Your account, and everything only you own, is deleted immediately. This cannot be undone.",
+        "action": "Delete account",
+        "modalTitle": "Delete this account?",
+        "modalBody": "This deletes your account and everything only you own. It cannot be undone.",
+        "confirmLabel": "Type {{email}} to confirm",
+        "confirmAction": "Delete my account"
+      }
     }
+  },
+  "tenancy": {
+    "renameSaved": "The new name is saved.",
+    "typeToConfirm": "Type {{name}} to confirm"
   },
   "team": {
     "switcher": {
       "ariaLabel": "Switch team",
-      "noTeams": "No teams yet"
+      "noTeams": "No teams yet",
+      "manage": "Manage"
+    },
+    "settings": {
+      "navLink": "Team",
+      "title": "Team settings",
+      "subtitle": "Who works in {{team}}, and what they may do there.",
+      "notFound": "That team is not one of yours.",
+      "nameTitle": "Team name",
+      "nameSubtitle": "What this team is called everywhere in the application.",
+      "nameLabel": "Team name",
+      "leaveSubtitle": "Leaving gives up your access to everything in this team. The team keeps working without you, and an admin can invite you back.",
+      "leaveAction": "Leave team",
+      "leaveModalTitle": "Leave {{team}}?",
+      "leaveModalBody": "You lose access to this team's records right away.",
+      "dangerTitle": "Danger zone",
+      "dangerSubtitle": "Deleting the team deletes every record that belongs to it, immediately. This cannot be undone.",
+      "dangerAction": "Delete team",
+      "dangerModalTitle": "Delete {{team}}?",
+      "dangerModalBody": "This deletes the team and everything that belongs to it. It cannot be undone."
     },
     "members": {
-      "navLink": "Members",
-      "title": "Members of {{team}}",
-      "subtitle": "Everyone with access to this team.",
+      "title": "Members",
+      "subtitle": "Everyone with access to this team, and everyone still invited.",
       "email": "Email",
       "rolesHeader": "Roles",
       "status": "Status",
       "active": "Active",
       "pendingInvitation": "Invited",
+      "empty": "Nobody here yet.",
+      "you": "You",
+      "editRolesAction": "Edit roles",
+      "rolesModalTitle": "Roles for {{email}}",
+      "rolesModalBody": "Roles are replaced by what you choose here. A team always keeps at least one admin.",
+      "removeAction": "Remove",
+      "removeModalTitle": "Remove this member?",
+      "removeModalBody": "{{email}} loses access to this team right away. You can invite them back.",
+      "revokeAction": "Revoke",
+      "revokeModalTitle": "Revoke this invitation?",
+      "revokeModalBody": "The link sent to {{email}} stops working, and the place it holds is released.",
       "inviteTitle": "Invite a member",
       "role": "Role",
       "inviteAction": "Send invitation",
-      "inviteSent": "Invitation sent to {{email}}.",
-      "noTeamSelected": "Select a team to see its members."
+      "inviteSent": "Invitation sent to {{email}}."
     },
     "claim": {
       "title": "Join your team",
@@ -102,11 +260,168 @@
       "goToDashboard": "Go to the dashboard"
     }
   },
+  "organization": {
+    "create": {
+      "title": "New organization",
+      "subtitle": "An organization holds teams, people, and billing. It starts with one team, and you administer both.",
+      "nameLabel": "Organization name",
+      "action": "New organization"
+    },
+    "settings": {
+      "navLink": "Organization",
+      "title": "Organization settings",
+      "subtitle": "The teams, the people, and the name of {{organization}}.",
+      "notFound": "That organization is not one of yours.",
+      "nameTitle": "Organization name",
+      "nameSubtitle": "What this organization is called everywhere in the application.",
+      "nameLabel": "Organization name",
+      "rosterTitle": "People",
+      "rosterSubtitle": "Everyone with standing in this organization. People invited into a single team are listed on that team instead.",
+      "removeModalBody": "{{email}} loses their organization roles. Their team memberships are separate, and stay.",
+      "teamMemberOnly": "You work in a team here, and hold no standing in the organization itself. An organization admin can invite you into it.",
+      "teamsTitle": "Teams",
+      "teamsSubtitle": "The teams you belong to in this organization.",
+      "teamsEmpty": "You are not in any team of this organization yet.",
+      "teamName": "New team name",
+      "createTeamAction": "Create team",
+      "leaveSubtitle": "Leaving gives up your organization roles. The teams you belong to here are separate, and you keep them until you leave each one.",
+      "leaveAction": "Leave organization",
+      "leaveModalTitle": "Leave {{organization}}?",
+      "leaveModalBody": "You give up your standing in this organization. An admin can invite you back.",
+      "dangerTitle": "Danger zone",
+      "dangerSubtitle": "Deleting the organization deletes its teams and every record inside them, immediately. This cannot be undone.",
+      "dangerAction": "Delete organization",
+      "dangerModalTitle": "Delete {{organization}}?",
+      "dangerModalBody": "This deletes the organization, its teams, and everything that belongs to them. It cannot be undone.",
+      "inviteTitle": "Invite someone"
+    }
+  },
   "dashboard": {
     "greeting": "Signed in as {{email}}",
     "welcomeTitle": "Your application starts here",
     "welcomeBody": "This dashboard is the blank canvas. Scaffold your first model and it will show up in the navigation.",
     "unverifiedBanner": "Confirm your email address to secure your account. Check your inbox for the link.",
     "resendVerification": "Re-send verification email"
+  },
+  "notifications": {
+    "bell": "Notifications",
+    "heading": "Notifications",
+    "empty": "Nothing here yet.",
+    "markAllRead": "Mark all read"
+  },
+  "auditLog": {
+    "navLink": "Audit log",
+    "title": "Audit log",
+    "pageSubtitle": "Everything recorded in {{team}}, newest first.",
+    "subtitle": "Append-only. Every act the framework and this app performed on the team’s records, as it happened.",
+    "adminOnly": "Only a team admin can read the audit log.",
+    "actor": "Who",
+    "action": "Did what",
+    "subject": "To what",
+    "when": "When",
+    "changes": "Changes",
+    "system": "System",
+    "noChanges": "No fields changed",
+    "changedFields_one": "{{count}} field",
+    "changedFields_other": "{{count}} fields",
+    "empty": "Nothing has been recorded for this team yet."
+  },
+  "developers": {
+    "navLink": "Developers",
+    "title": "Developers",
+    "subtitle": "Integrations for {{team}}: where this team’s events are sent.",
+    "webhooks": {
+      "title": "Outgoing webhooks",
+      "subtitle": "Subscribe an HTTPS endpoint to event types and we will POST every matching event to it, signed with your endpoint’s secret.",
+      "url": "Endpoint",
+      "events": "Events",
+      "active": "Active",
+      "empty": "No endpoints yet. Subscribe one below.",
+      "viewDeliveries": "Deliveries",
+      "adminOnly": "Only a team admin can subscribe or remove endpoints.",
+      "urlLabel": "Endpoint URL",
+      "urlHelp": "Must be https outside development.",
+      "descriptionLabel": "Description",
+      "eventsLabel": "Event types",
+      "eventsHelp": "One per line, or separated by commas. Each is <model>.created, <model>.updated, or <model>.destroyed.",
+      "subscribeAction": "Subscribe endpoint",
+      "secret": {
+        "title": "Your signing secret",
+        "subtitle": "Copy it now. It is stored encrypted and never shown again; sign every request body with it to verify the delivery came from us.",
+        "copy": "Copy",
+        "copied": "Copied",
+        "acknowledge": "I have saved it"
+      },
+      "deliveries": {
+        "title": "Deliveries",
+        "event": "Event",
+        "status": "Status",
+        "attempts": "Attempts",
+        "response": "Response",
+        "lastError": "Last error",
+        "sentAt": "Queued",
+        "redeliver": "Redeliver",
+        "close": "Close",
+        "empty": "Nothing has been delivered to this endpoint yet.",
+        "statuses": {
+          "pending": "Pending",
+          "delivered": "Delivered",
+          "failed": "Failed",
+          "dead": "Given up"
+        }
+      }
+    }
+  },
+  "billing": {
+    "navLink": "Billing",
+    "title": "Billing",
+    "subtitle": "The plan {{organization}} is on, and what it includes.",
+    "cardTitle": "Billing",
+    "cardSubtitle": "The plan this organization is on, its seats, and the way to change it.",
+    "cardAction": "Manage billing",
+    "currentPlanTitle": "Current plan: {{plan}}",
+    "freeSubtitle": "Everything an organization gets without a subscription.",
+    "noSubscription": "No subscription",
+    "seatsLabel": "Seats",
+    "seatsOfLimit": "{{used}} of {{allowed}} in use",
+    "seatsUnlimited": "{{used}} in use",
+    "overSeats": "This organization is over the seats its plan includes. Upgrade, or remove someone.",
+    "renewsLabel": "Renews",
+    "accessEndsLabel": "Access ends",
+    "cancelAtPeriodEnd": "This subscription is set to end when the current period does. Restart it in the billing portal.",
+    "pastDueWarning": "A payment failed and is being retried. Update the card in the billing portal to keep access.",
+    "managePortal": "Manage billing",
+    "refresh": "Refresh from Stripe",
+    "plansTitle": "Plans",
+    "plansSubtitle": "Choose a plan to start a checkout. Changing an existing subscription happens in the billing portal.",
+    "plansReadOnly": "An organization admin, or anyone holding the billing role, can change the plan.",
+    "currentBadge": "Current plan",
+    "highlightedBadge": "Most popular",
+    "chooseAction": "Choose",
+    "freePrice": "Free",
+    "limitLine": "{{count}} {{limit}}",
+    "softLimitSuffix": "(soft limit)",
+    "per": {
+      "monthly": "per month",
+      "yearly": "per year"
+    },
+    "perSeat": {
+      "monthly": "per seat, per month",
+      "yearly": "per seat, per year"
+    },
+    "checkoutSuccess": "Thanks! Stripe is setting the subscription up. It appears here within a moment of the payment clearing.",
+    "checkoutCanceled": "Checkout was cancelled. Nothing has changed.",
+    "disabledTitle": "Billing is not configured",
+    "disabledBody": "This deployment has no Stripe key, so every organization is on the {{plan}} plan and nothing can be bought. Set STRIPE_SECRET_KEY to turn billing on.",
+    "statuses": {
+      "trialing": "Trial",
+      "active": "Active",
+      "past_due": "Payment failed",
+      "canceled": "Cancelled",
+      "unpaid": "Unpaid",
+      "paused": "Paused",
+      "incomplete": "Incomplete",
+      "incomplete_expired": "Expired"
+    }
   }
 }

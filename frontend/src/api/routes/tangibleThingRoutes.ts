@@ -48,6 +48,12 @@ type TangibleThingResponse = {
   tangible_thing: TangibleThing
 }
 
+export function getTangibleThing(tangibleThingId: string) {
+  return appClient
+    .get(`tangible-things/${tangibleThingId}`)
+    .json<TangibleThingResponse>()
+}
+
 type CreateTangibleThingRequest = {
   name: string
   description?: string
@@ -84,3 +90,5 @@ export function updateTangibleThing(
 export function deleteTangibleThing(tangibleThingId: string) {
   return appClient.delete(`tangible-things/${tangibleThingId}`)
 }
+
+// 🐺 anubis:route-functions

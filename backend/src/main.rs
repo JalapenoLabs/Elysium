@@ -1,23 +1,48 @@
-//! The arsox application server.
+//! The elysium application server.
 //!
 //! The composition root: it reads configuration, migrates the database, and
 //! mounts the framework's routers alongside the application's own
-//! [`account_router`]. The application itself lives in the library beside this
-//! file, which is what lets the integration tests drive the real routers.
+//! [`account_router`], with the built frontend behind them all. The
+//! application itself lives in the library beside this file, which is what
+//! lets the integration tests drive the real routers.
+//!
+//! Everything a production server needs around that router, the probes,
+//! request ids, request logging, timeouts, security headers, and a graceful
+//! shutdown, comes from the one call to [`anubis::server::serve`]. See
+//! `docs/server.md`.
 
+use anubis::billing::PlanSet;
 use anubis::config::AppConfig;
 use anubis::roles::RoleSet;
-use anubis::{db, telemetry};
-use arsox::{APP_MIGRATIONS, ROLES_YML, account_router};
+use anubis::{db, server, telemetry};
+use elysium::{
+    APP_MIGRATIONS, BILLING_YML, ROLES_YML, account_router, api_v1_router, openapi, register_jobs,
+    webhooks_router,
+};
 use axum::Router;
-use axum::routing::get;
 use mimalloc::MiMalloc;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+/// The one argument the binary answers instead of serving.
+///
+/// The merged OpenAPI document belongs to the application, so the application
+/// is what exports it: `anubis client generate-ts --from <file>` renders that
+/// export as the frontend's generated client, and CI fails on drift. Answering
+/// it here, before any configuration is read, keeps the export runnable
+/// without a database.
+const EXPORT_OPENAPI: &str = "openapi";
+
 #[tokio::main]
 async fn main() {
+    if std::env::args().nth(1).as_deref() == Some(EXPORT_OPENAPI) {
+        let document =
+            serde_json::to_string_pretty(&openapi()).expect("the OpenAPI document must serialize");
+        println!("{document}");
+        return;
+    }
+
     let config = AppConfig::from_env().expect("invalid environment configuration");
     telemetry::init(&config).expect("failed to install the tracing subscriber");
 
@@ -26,6 +51,16 @@ async fn main() {
     tracing::info!(
         roles.count = roles.role_keys().count(),
         "role definitions loaded: {{roles.count}} roles",
+    );
+
+    // Same discipline as roles: a bad billing.yml edit stops the boot rather
+    // than a customer's checkout.
+    let plans = PlanSet::from_yaml(BILLING_YML).expect("config/billing.yml is invalid");
+    tracing::info!(
+        billing.plan.count = plans.plans().len(),
+        billing.plan.free = plans.free().key(),
+        "subscription plans loaded: {{billing.plan.count}} plans, free plan \
+         {{billing.plan.free}}",
     );
 
     let database = config
@@ -44,49 +79,181 @@ async fn main() {
         .await
         .expect("failed to connect to the database");
 
-    // The log mailer prints emails (and their action links) to the console.
-    // Swap in a transport backend for production delivery.
-    let mailer = anubis::mail::Mailer::log();
+    // SMTP when SMTP_URL is set, otherwise the log mailer, which prints emails
+    // and their action links to the console.
+    let mailer = anubis::mail::Mailer::from_config(&config).expect("invalid mail configuration");
+
+    // Realtime channels: Redis pub/sub when REDIS_URL is set, in-process
+    // otherwise. Clone this into handlers and jobs that publish events.
+    let channels = anubis::realtime::Channels::from_config(&config)
+        .await
+        .expect("REDIS_URL must name a reachable Redis");
+
+    // One limiter for the whole application: the inbox budget a password reset
+    // charges is the one an invitation charges, because two limiters would be
+    // two budgets and one inbox would take both.
+    let rate_limit = anubis::rate_limit::RateLimiter::new(&config.rate_limit);
 
     let app = Router::new()
-        .route("/healthz", get(healthz))
         // Public profile pictures at /users/{user_id}/avatar.
         .merge(anubis::auth::avatar_router(pool.clone()))
+        // The realtime channel socket at /realtime.
+        .merge(anubis::realtime::router(pool.clone(), channels.clone()))
+        // The signed-in user's notification inbox at /account/notifications,
+        // beside the application's own account routes below.
+        .nest("/account", anubis::notifications::router(pool.clone()))
+        // The team's audit log, read-only, beside the records it is about.
         .nest(
-            "/auth",
-            anubis::auth::router(pool.clone(), mailer.clone(), &config),
+            "/account",
+            anubis::audit::router(pool.clone(), roles.clone()),
         )
         .nest(
+            "/auth",
+            anubis::auth::router(pool.clone(), mailer.clone(), &config, &rate_limit),
+        )
+        // The plans reach tenancy because the `seats` limit is enforced where
+        // people join: an invitation past the plan's seats is refused, and a
+        // membership change tells Stripe the new count.
+        .nest(
             "/tenancy",
-            anubis::tenancy::router(pool.clone(), mailer, roles.clone(), &config),
+            anubis::tenancy::router(
+                pool.clone(),
+                mailer,
+                roles.clone(),
+                Some(plans.clone()),
+                &config,
+                &rate_limit,
+            ),
+        )
+        // The plan an organization is on, and the Stripe redirects that change
+        // it. Without STRIPE_SECRET_KEY the read still answers and the writes
+        // answer 503; see docs/billing.md.
+        .nest(
+            "/billing",
+            anubis::billing::router(pool.clone(), roles.clone(), plans.clone(), &config),
+        )
+        // Stripe's own events, at /webhooks/stripe-billing. Framework-mounted
+        // because the subscription lifecycle is the framework's, and named so
+        // that an application scaffolding its own Stripe receiver keeps
+        // /webhooks/stripe for itself.
+        .nest(
+            "/webhooks",
+            anubis::billing::webhook_router(pool.clone(), &config),
         )
         .nest(
             "/developers",
             anubis::api::management::router(pool.clone(), roles.clone()),
         )
-        .nest("/api/v1", anubis::api::v1::router(pool.clone()))
+        // Outgoing webhook subscriptions and their delivery log, beside the
+        // platform applications above.
+        .nest(
+            "/developers",
+            anubis::webhooks::router(pool.clone(), roles.clone(), &config),
+        )
+        // The application owns its v1 surface: the framework's endpoints, the
+        // application's own, and the merged document at /openapi.json and
+        // /docs, in one call.
+        .nest(
+            "/api/v1",
+            anubis::api::v1::router_with(pool.clone(), api_v1_router(&pool, &roles), openapi()),
+        )
         .nest("/account", account_router(&pool, &roles))
+        // Incoming webhooks from third parties. Unauthenticated on purpose,
+        // and mounted outside /account so no guard ever asks a provider for a
+        // session it does not have.
+        .nest("/webhooks", webhooks_router(&pool))
         // Application routes guard with TeamMember / OrganizationMember /
         // CurrentUser through these extensions.
-        .layer(anubis::guard::layer(pool, roles));
+        .layer(anubis::guard::layer(pool.clone(), roles));
 
-    let address = config.server.socket_addr();
-    let listener = tokio::net::TcpListener::bind(address)
+    let app = behind_the_spa(app, &config);
+
+    // Background jobs run in this process, in a worker built beside this one.
+    let worker = worker(&pool, plans, &config, channels);
+
+    let (stop_worker, worker_stops) = tokio::sync::oneshot::channel::<()>();
+    let working = tokio::spawn(worker.run(async move {
+        let _stopped = worker_stops.await;
+    }));
+
+    // The framework owns everything from here: the probes, the middleware, the
+    // accept loop, and draining in-flight requests on SIGTERM or ctrl-c.
+    server::serve(app, pool, &config)
         .await
-        .expect("failed to bind the server address");
+        .expect("the server terminated unexpectedly");
 
-    tracing::info!(
-        server.address = %address,
-        app.environment = %config.environment,
-        framework.version = anubis::VERSION,
-        "server listening on {{server.address}}",
-    );
-
-    axum::serve(listener, app)
+    // The worker keeps running until the server has drained, because a request
+    // still finishing may yet enqueue work. Then it drains its own in-flight
+    // jobs, so a deploy never kills a job mid-flight.
+    let _listening = stop_worker.send(());
+    working
         .await
-        .expect("server terminated unexpectedly");
+        .expect("the job worker must shut down cleanly");
 }
 
-async fn healthz() -> &'static str {
-    "ok"
+/// Puts the built frontend behind `app`, when this process is serving it.
+///
+/// In production the built frontend ships with the binary: every path the
+/// routers declined resolves to the SPA, so a cold load of a client route
+/// works. `/account` joins the framework's own prefixes (`/webhooks` among
+/// them) as a place where an unmatched path is a JSON 404 rather than
+/// index.html: a caller that asked for JSON deserves an error it can act on,
+/// not an HTML page and a `200`. Unset `SPA_DIR` leaves the browser to the Vite
+/// dev server, which is the development default.
+///
+/// # Panics
+/// Panics when `SPA_DIR` names something that is not a built frontend, which is
+/// a deployment mistake worth stopping the boot for.
+fn behind_the_spa(app: Router, config: &AppConfig) -> Router {
+    let Some(dir) = &config.spa_dir else {
+        return app;
+    };
+
+    let assets = anubis::spa::Assets::new(dir)
+        .expect("SPA_DIR must point at a built frontend (yarn build)")
+        .reserve("/account");
+    app.fallback_service(assets.into_service())
+}
+
+/// Builds the background job worker this process runs.
+///
+/// Registering a job is the whole of the wiring: it subscribes the worker to
+/// that job's queue and captures whatever the handler needs. Four jobs are the
+/// framework's own, outgoing webhook delivery, the notification ping, and the
+/// two halves of the Stripe subscription lifecycle; the application's are
+/// registered by `register_jobs`, which is where a scaffolded job lands.
+fn worker(
+    pool: &anubis::db::DbPool,
+    plans: PlanSet,
+    config: &AppConfig,
+    channels: anubis::realtime::Channels,
+) -> anubis::jobs::Worker {
+    let deliverer = anubis::webhooks::Deliverer::new(pool.clone(), config);
+    let reconciler = anubis::billing::Reconciler::new(pool.clone(), plans, config);
+    let seats = reconciler.clone();
+    // A notification commits with the write that caused it; this is what tells
+    // the recipient's browser to refetch once that commit has happened.
+    let pinger = anubis::notifications::Pinger::new(channels);
+
+    let worker = anubis::jobs::Worker::builder(pool.clone())
+        .register(move |job: anubis::webhooks::DeliverWebhook| {
+            let deliverer = deliverer.clone();
+            async move { deliverer.deliver(job).await }
+        })
+        .register(move |job: anubis::notifications::PingRecipient| {
+            let pinger = pinger.clone();
+            async move { pinger.ping(job).await }
+        })
+        // Stripe's events become subscription rows here, on their own queue.
+        .register(move |job: anubis::billing::ProcessStripeEvent| {
+            let reconciler = reconciler.clone();
+            async move { reconciler.process(job).await }
+        })
+        // And a membership change becomes the seat count Stripe bills for.
+        .register(move |job: anubis::billing::SyncSeats| {
+            let seats = seats.clone();
+            async move { seats.sync_seats(job).await }
+        });
+
+    register_jobs(pool, worker).build()
 }

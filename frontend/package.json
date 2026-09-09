@@ -1,8 +1,8 @@
 {
-  "name": "arsox-frontend",
+  "name": "elysium-frontend",
   "private": true,
   "version": "0.1.0",
-  "description": "The arsox frontend.",
+  "description": "The Elysium frontend: the docked workspace and the Elysia agent surface.",
   "license": "MIT",
   "author": "Jalapeno Labs",
   "type": "module",
@@ -17,12 +17,13 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@heroui/react": "^2.8.10",
     "@hookform/resolvers": "^5.7.1",
-    "@jalapenolabs/anubis": "https://github.com/JalapenoLabs/Anubis.git#commit=3bd0958f2dc5c831a57aed1451d0fe8d3f344037&workspace=@jalapenolabs/anubis",
+    "@jalapenolabs/anubis": "https://github.com/JalapenoLabs/Anubis.git#commit=89f1e97b1e8bfe04944fe1585b2c5d1b7558ec90&workspace=@jalapenolabs/anubis",
     "framer-motion": "^12.0.0",
     "i18next": "^24.2.0",
     "ky": "^2.0.2",
@@ -36,11 +37,16 @@
   },
   "devDependencies": {
     "@jalapenolabs/cli": "https://github.com/jalapenolabs/cli.git",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react-swc": "^3.7.0",
     "eslint": "^9.0.0",
+    "happy-dom": "^20.11.6",
     "jiti": "^2.4.0",
     "rimraf": "^6.0.0",
     "tailwindcss": "^4.3.3",
