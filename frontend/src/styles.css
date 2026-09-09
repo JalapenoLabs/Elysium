@@ -2,13 +2,19 @@
 
 @plugin './hero.ts';
 /* Yarn workspaces hoist @heroui/theme to the repo root; standalone installs
-   keep it local. Tailwind skips whichever glob matches nothing. */
+   keep it local. Tailwind skips whichever glob matches nothing.
+
+   Both paths are relative to this file, which sits in `frontend/src`, so the
+   workspace is one level up and the repo root is two. Getting the hoisted one
+   wrong costs no error and no warning: Tailwind finds nothing to scan and
+   generates none of HeroUI's own utilities, so the application renders with
+   its own classes working and every framework component unstyled. */
 @source '../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
-@source '../../../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
+@source '../../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}';
 /* The field components ship as TypeScript source, so the same pair of globs
    points Tailwind at the framework package. */
 @source '../node_modules/@jalapenolabs/anubis/src/**/*.{ts,tsx}';
-@source '../../../node_modules/@jalapenolabs/anubis/src/**/*.{ts,tsx}';
+@source '../../node_modules/@jalapenolabs/anubis/src/**/*.{ts,tsx}';
 @custom-variant dark (&:is(.dark *));
 
 /* The layout helpers live in the components layer so that a Tailwind utility
