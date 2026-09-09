@@ -2673,7 +2673,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@jalapenolabs/cli@https://github.com/jalapenolabs/cli.git":
+"@jalapenolabs/cli@https://github.com/jalapenolabs/cli.git#commit=7372df994ace977ca9130160b47d1fb032f6f1a4":
   version: 0.0.1
   resolution: "@jalapenolabs/cli@https://github.com/jalapenolabs/cli.git#commit=7372df994ace977ca9130160b47d1fb032f6f1a4"
   dependencies:
@@ -7930,7 +7930,7 @@ __metadata:
     "@heroui/react": "npm:^2.8.10"
     "@hookform/resolvers": "npm:^5.7.1"
     "@jalapenolabs/anubis": "https://github.com/JalapenoLabs/Anubis.git#commit=89f1e97b1e8bfe04944fe1585b2c5d1b7558ec90&workspace=@jalapenolabs/anubis"
-    "@jalapenolabs/cli": "https://github.com/jalapenolabs/cli.git"
+    "@jalapenolabs/cli": "https://github.com/jalapenolabs/cli.git#commit=7372df994ace977ca9130160b47d1fb032f6f1a4"
     "@playwright/test": "npm:^1.62.1"
     "@tailwindcss/vite": "npm:^4.3.3"
     "@testing-library/dom": "npm:^10.4.0"
