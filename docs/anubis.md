@@ -94,6 +94,23 @@ Keep this current: it is how the framework learns what its first real consumer n
 [Anubis #57](https://github.com/JalapenoLabs/Anubis/issues/57) is the broader consumer gap
 register and is worth reading before adding a row here.
 
+## Contributed back
+
+Defects Elysium found in the framework and fixed there rather than working around here. This
+is case (a) of the Anubis-first rule in practice, and the record of it.
+
+| Change | What it fixes |
+|---|---|
+| [Anubis #99](https://github.com/JalapenoLabs/Anubis/pull/99) | A stamped application's Tailwind scanned neither HeroUI's theme nor the framework package, so none of HeroUI's utilities were generated and every framework component rendered unstyled. The template's glob is correct where it lives and wrong once `starter/` is dropped |
+| [Anubis #97](https://github.com/JalapenoLabs/Anubis/issues/97) | `anubis new` stamps a tree that fails `cargo fmt --check`, because import order is written for the template's own crate name |
+| [Anubis #98](https://github.com/JalapenoLabs/Anubis/issues/98) | A scaffolded section races its own initial fetch, so the E2E suite is flaky. Found while verifying #99 |
+| [jalapenolabs/cli #4](https://github.com/JalapenoLabs/cli/pull/4) | The shared ESLint package shipped a Yarn Classic lockfile and named no package manager, so Yarn 4 handed the pack's install to Yarn 1 and it failed nondeterministically on a clean runner. Every stamped application inherited it |
+
+Two of these are the same defect in different clothes: a template that is correct in its own
+position and wrong after transformation. #97 is import order, #99 is a relative path. Both
+are silent, and both reach every application the framework generates, which is the argument
+for the scaffold proof running against a stamped tree rather than only against `starter/`.
+
 ## What Elysium does not take
 
 **Protobuf on the browser boundary.** Elysium's original design put protobuf between the
