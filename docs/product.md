@@ -1,113 +1,110 @@
 # The product
 
-Arsox is a web interface for running coding agents. Claude Code on the web is the reference
-experience; this document is about where Arsox deliberately differs, and what that implies for the
-screens.
+Elysium is one self-hosted workspace instead of six subscriptions. This document is the
+product argument and the surfaces it implies. [CLAUDE.md](../CLAUDE.md) holds the vision;
+this is what it means for the screens.
 
 ## The thesis
 
-Claude Code on the web is excellent and constrained in ways that follow from it being a hosted
-product: the compute is someone else's, the harness is fixed, the agent works alone, and the trust
-boundary is a policy rather than a wall.
+Google Workspace and Microsoft Teams are several products stapled together and rented to you.
+The storage is a bolt-on, the management console is bad, every tool implements teams and
+permissions separately, and none of it runs on a machine you own.
 
-Arsox inverts each of those, and every one of them is a satellite capability rather than an Arsox
-invention. Arsox's job is to make them usable.
+Elysium inverts each of those, and the inversion is the product:
 
-| Constraint | What Arsox does instead |
+| Constraint | What Elysium does instead |
 |---|---|
-| Hosted compute | Satellites run on your machines, reach only what you allow, and bill against credentials you already hold |
-| One harness | Claude CLI or Codex CLI behind one normalized event stream, chosen per thread |
-| One agent | Opt into team mode: a commander plus peer agents, each with its own context window and git worktree |
-| Policy-based limits | Exec allowlists, an egress proxy, branch protection, secret redaction, and token and cost ceilings enforced by infrastructure the agent cannot reach |
-| Failures you infer from silence | Every failure recorded as an incident with a stable code, including the ones that recovered |
-| Single-player | Organizations, teams, roles, and invitations, from Anubis |
+| Someone else's compute | Runs on your machine; SSL and exposure are yours, everything else is handled |
+| Six products, six models of a team | One identity, one tenancy, one permission model, one UI |
+| Storage as a bolt-on | Storage is the substrate every other pillar persists onto |
+| Rented, per seat, forever | Open source, self-hosted, capacity is whatever disk you point it at |
+| Rebuilt tools you must migrate to | Run the managed service, or link the one you already use, or both at once |
+| Hunt for what happened while you were away | Everything is brought to you in one action center |
+| AI bolted onto a chat box | Elysia is the primary screen, and the tools are hers as much as yours |
 
-The last two are the ones users will not ask for and will not want to give up.
+The last two are the ones people will not ask for and will not want to give up.
 
 ## The surfaces
 
-None of this is built. It is the shape the satellite contract implies, written down so the build
-order is a decision rather than a drift.
+None of this is built. It is the shape the design implies, written down so the build order is
+a decision rather than a drift.
 
-### Satellites
+### The workspace
 
-List, register, and inspect. Registration takes an address and a secret, and confirms them by
-calling the satellite before saving anything, so a typo fails at the form rather than at the first
-job.
+The application root: a dockable rc-dock canvas with a bottom taskbar as its launcher. Panels
+split, float, maximize, and pop out to real windows. Open the drive on the left and keep
+Elysia on the right, or put the action center on a second monitor.
 
-A satellite's detail view answers the questions an operator actually has: is it reachable, what
-version and proto major does it serve, which harnesses does it offer and what does each support,
-how many threads is it running against its concurrency cap, and how much disk is left.
+The framework's own screens keep the stamped shell and are reached from the taskbar. Elysium
+does not redraw them. See [workspace.md](workspace.md) and
+[navigation.md](navigation.md).
 
-**`GET /v1/harness` is the interesting one.** A harness might have no plan mode or no sub-agents,
-and a UI that offers a control the harness cannot honor is worse than one that hides it. Capability
-reporting exists so the interface can ask up front instead of inferring from silence three turns in.
+### The Elysia session
 
-### Threads
+The flagship panel, and not a chat transcript. A status-colored ambient field (orange
+running, red errored, pink needs you, green done), an icosahedron selector to rotate between
+concurrent sessions, voice reporting, a sound grammar, and the full agent surface around the
+conversation: plans, questions, usage, cost, incidents, artifacts.
 
-The core of the product. A thread is a conversation with a workspace attached, and the list is per
-team, across every satellite that team owns.
+Its data comes from a satellite, and everything about that half is
+[satellites.md](satellites.md).
 
-Creating one is where the settings live: which satellite, which harness and model, which repositories
-and their setup and checker commands, the agents repo, issue prefetch, permissions, the idle TTL,
-and the budget. **The budget is required and never silently defaulted.** The contract makes unlimited
-an explicit case rather than a sentinel precisely so an unbounded spend is somebody's decision, and
-a form that defaults it away throws that guarantee out.
+### The action center
 
-### The live thread view
+The messaging inversion. Email and chat in one stream, because the split is an implementation
+detail of the last thirty years and not a thing a person cares about. Items are **resolved**,
+not read, and resolving one moves you to the next, with an auto-pause so you are never yanked
+out of something mid-sentence. `ctrl+P` navigates to anything: a person, a message, a file, a
+repository.
 
-Where the work is watched. The event stream renders agent messages, tool calls, team chat, direct
-messages between members, integration requests and their outcomes, checker results, and service
-logs, in sequence order.
+AI drafts replies without being asked, presented as options rather than sent. Elysia holds
+context across threads, so a status request gets a draft that knows what actually happened.
 
-Three things make it more than a log:
+### Drive
 
-- **Questions.** The commander asks between one and five at a time, each with up to five options.
-  The whole set is answered at once. Two people may be looking at the same thread, so the interface
-  has to handle losing the race: `QUESTION_SET_ALREADY_ANSWERED` means someone else answered, and
-  the right response is to show what they said, not to retry.
-- **Plans.** Same shape, same race, `PLAN_ALREADY_DECIDED`.
-- **Incidents.** Inline, at the point in the stream where they happened, colored by disposition.
-  `blocked` reads as the permission system working. `recovered` reads as a warning, because a
-  failover nobody sees is a bill nobody explains.
+One keyboard-driven view over many Drives, live rather than synced. Search is federated and
+streaming: results arrive from every provider as they come rather than after the slowest one.
+See [storage.md](storage.md).
 
-Team mode changes the view rather than the model: members are lanes, and the commander's view is
-the conversation between them rather than every tool call any of them made.
+### Services
 
-### Artifacts and files
+Git, mail, registry, and Perforce, each either a managed container Elysium provisions or an
+account you linked, aggregated into one surface. "All my repos" spans a managed Forgejo and a
+linked GitHub at once. Provisioning is admin-only; personal linking is gated by per-kind
+policy. See [integrations.md](integrations.md) and [mail.md](mail.md).
 
-Browse the workspace, download artifacts, upload files into a thread. Everything proxied, nothing
-mirrored: these are the satellite's and go stale the moment they are copied.
+### The fault center
 
-### Usage and incidents
-
-Per model, per thread, per team: total, input, and output tokens, and estimated cost. Money is never
-a float anywhere in the contract and must not become one here; a fraction of a cent accumulated in a
-float is how a ceiling drifts away from the invoice it was meant to predict.
-
-Incidents get their own queryable surface, filterable by code, disposition, thread, and time range,
-because "why did last night's run go wrong" is asked after the thread is gone.
+Every failure, agent and application alike, with a stable code, in one place. Not a debug
+panel: a first-class surface, because a control plane that hides failures is worse than one
+with none to show.
 
 ## Build order
 
-Each step is useful on its own, and each depends on the one above it.
+Each step is useful on its own. The tenancy tier gates most of them, which is why it is first
+and why it is being built in the framework.
 
-1. **Satellite registration.** Blocked on the Rust SDK, which does not exist yet. See
-   [satellites.md](satellites.md).
-2. **Thread creation and the turn queue.**
-3. **The live thread view**, which is the first thing that feels like the product.
-4. **Questions and plans**, which is the first thing that makes it usable unattended.
-5. **Artifacts, usage, and incidents.**
-6. **Team mode**, which is a view change over an event stream that already carries it.
+1. **The project tier**, in Anubis. Everything below owns resources, and a resource needs a
+   tenant to belong to. [Anubis #93](https://github.com/JalapenoLabs/Anubis/issues/93).
+2. **The dock shell**, with the framework's screens reachable from it. Unblocked, since a
+   frame owns no resources.
+3. **Satellites and the Elysia session**, through the live thread view. The first thing that
+   feels like the product, and the reason the workspace exists.
+4. **Drive**, the substrate every later pillar persists onto.
+5. **Integrations and the provisioner**, then git on top of them.
+6. **Mail**, which is the largest single pillar and needs Drive and the provisioner first.
+7. **The action center**, which needs mail and chat to have something to unify.
 
-Steps 3 and beyond need realtime fanout to more than one replica, which is blocked on Anubis #32.
-Single-replica is fine until it is not, and it will not be obvious when that changes, so it is worth
-watching rather than discovering.
+## What Elysium will not do
 
-## What Arsox will not do
-
-- **Enforce anything the satellite enforces.** Arsox stores and forwards permission settings. It
-  does not check them, and the interface must never imply it does. The wall is on the satellite; a
-  second wall drawn here would be scenery.
-- **Hide incidents.** Filtering happens after they are stored and shown, never before.
-- **Put a satellite secret in a browser.** Not in a form response, not in a debug panel, not once.
+- **Re-implement git, SMTP, a registry, or Perforce.** It provisions proven implementations
+  and owns the unification. A hand-rolled SMTP server is a security incident with a roadmap.
+- **Mirror files.** The provider is the source of truth. Sync is a later opt-in feature, never
+  the core engine.
+- **Enforce what a satellite enforces.** Elysium stores and forwards agent permissions. The
+  wall is on the satellite; a second wall drawn here would be scenery.
+- **Hide failures.** Filtering happens after they are stored and shown, never before.
+- **Put a credential in a browser.** Not a satellite secret, not a Drive credential, not a
+  Docker socket. Not in a form response, not in a debug panel, not once.
+- **Require a Kubernetes cluster.** Docker first, Kubernetes as a later opt-in backend.
+  Requiring a cluster would gut the "runs on a home machine" premise.

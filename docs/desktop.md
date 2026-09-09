@@ -1,0 +1,179 @@
+# Desktop shell
+
+Elysium ships as an **Electron** desktop application. The desktop shell is a thin
+native wrapper that hosts the Elysium web app; in production it will be the GUI
+users launch, capable of multiple windows and rc-dock layouts spread across
+monitors.
+
+## Principle: dockerize the app, the shell just launches it
+
+The shell does not rebuild the app. The Elysium stack (backend, Postgres, and the
+frontend) runs as the dockerized Compose stack, and the shell loads the frontend:
+
+- **Dev**: the shell loads the Vite dev server at `http://localhost:5173`.
+  Override with `ELYSIUM_APP_URL`.
+- **Production**: the built frontend SPA is served locally over a custom protocol
+  by [`electron-serve`](https://github.com/sindresorhus/electron-serve) from the
+  packaged `renderer/` directory, and talks to the dockerized backend over HTTP.
+
+The React frontend owns every on-screen state (loading, errors, empty). When a
+dev load fails because the stack is not up yet, the shell simply retries until it
+answers rather than rendering its own page.
+
+## Layout
+
+Everything desktop lives in `desktop/`:
+
+```
+desktop/
+├── Earthfile                    # deb / rpm / appimage / windows / release targets
+├── forge.config.ts              # Electron Forge: makers, ENV-selected targets
+├── package.json                 # pinned Electron + Forge toolchain (ESM)
+├── tsconfig.json                # compiles src/ -> dist/ as ESM
+└── src/
+    ├── main.ts                  # app lifecycle (whenReady, activate, quit)
+    ├── window.ts                # createWindow: window creation, app loading, shortcuts, IPC
+    ├── preload.mts              # minimal contextBridge surface (.mjs ESM preload)
+    ├── bridge.ts                # ElysiumBridge: the shared window.elysium contract
+    ├── ipc.ts                   # central map of IPC channel names
+    ├── constants.ts             # app URL, window sizing, paths, timings
+    ├── global.d.ts              # augments window.elysium (desktop package)
+    └── electron-localshortcut.d.ts  # ambient types for the untyped shortcut lib
+```
+
+The package is ESM (`"type": "module"`); the preload is a `.mts` so it compiles
+to a `.mjs` ESM preload, which Electron requires for ES-module preloads.
+
+There is deliberately no window singleton: multiple windows are expected, so the
+lifecycle is owned by `BrowserWindow.getAllWindows()`, not a module global.
+
+### Security
+
+`contextIsolation: true` and `nodeIntegration: false` are the primary renderer
+boundaries. `sandbox` is disabled so the preload can import the shared, typed
+`ipc.ts` / `bridge.ts` modules (a sandboxed preload cannot import local modules).
+The exposed `window.elysium` surface is intentionally tiny and grows one method
+at a time.
+
+### Keyboard shortcuts
+
+Registered per-window with `electron-localshortcut`, so they fire only while that
+window is focused: `Ctrl/Cmd+R` reloads, `Ctrl/Cmd+Shift+R` reloads ignoring the
+cache.
+
+### IPC and shared typing
+
+All channel names live in `src/ipc.ts` (`IpcChannel`), referenced by both the
+main process and the preload so a channel string is never duplicated as a
+literal. Today: `Relaunch` (quit and start a fresh instance via
+`app.relaunch()`). The window loads the app directly in `createWindow` (dev URL or
+packaged renderer); there is no retry path, the load is expected to succeed.
+
+`window.elysium`'s shape is defined in `src/bridge.ts` (`ElysiumBridge`, kept
+free of electron imports); `src/global.d.ts` augments the global `Window` with it
+for the desktop package. The RUNTIME source of truth (what the preload
+implements) is this desktop `bridge.ts`. The frontend keeps a small self-contained
+type mirror at `frontend/src/connection/bridge.ts` (same electron-free shape, plus
+its own `Window` augmentation) rather than reaching into the desktop project from
+its `tsconfig.json`. A cross-package `include` proved fragile across
+environments. Both are small and change rarely; keep them in sync. `window.elysium`
+is optional because it is absent in a plain browser.
+
+### Connection / instance picker (renderer)
+
+The desktop shell can connect to any self-hosted Elysium instance, so the
+renderer gates on a chosen connection before anything else. `RootLayout` calls
+`useConnectionGate` (`frontend/src/connection/`): in a plain browser
+`window.elysium` is undefined and the API is same-origin, so the gate is a no-op
+and the app resolves its session immediately; in the desktop shell it reads
+`connection.active()` and, when null, renders `pages/Connection/ConnectionScreen`
+instead of the app. That screen enters an address, `connection.test(url)` previews
+the instance identity (`GET /api/v1/instance`) without saving, and Connect runs
+`connection.add` + `connection.select` (the main process clears cookies and
+reloads the window at the chosen instance). Saved instances list for one-click
+switching and removal. The session is only resolved once a connection is
+established, so the client never probes an instance it hasn't picked.
+
+## Running in dev
+
+Bring up the app stack (so there is something to load), then run the shell:
+
+```sh
+# From the repo root: start the dockerized app.
+docker compose up
+
+# In desktop/: compile-on-save and launch Electron with auto-restart.
+cd desktop
+yarn install
+yarn dev
+```
+
+`yarn dev` runs the TypeScript compiler in watch mode alongside `electronmon`,
+which restarts the app when the compiled output changes. Point the shell
+elsewhere with `ELYSIUM_APP_URL=http://host:port yarn dev`.
+
+## Packaging (Electron Forge + Earthly)
+
+Packaging uses Electron Forge, driven by `forge.config.ts`. Which installer is
+built is chosen by the `ELYSIUM_MAKE_TARGET` env var, so a single `yarn make`
+command serves every target and CI can fan out one target per job.
+
+Earthly wraps this so builds are reproducible on any runner with Earthly, no
+local Node toolchain required. All targets build on the pinned
+`node:24.13.0-slim` image.
+
+| Target       | Maker                        | Output                          |
+|--------------|------------------------------|---------------------------------|
+| `+deb`       | `@electron-forge/maker-deb`  | Linux `.deb`                    |
+| `+rpm`       | `@electron-forge/maker-rpm`  | Linux `.rpm`                    |
+| `+appimage`  | `@reforged/maker-appimage`   | Linux `.AppImage`               |
+| `+windows`   | `@electron-forge/maker-squirrel` | Windows `.exe` (via Wine + Mono) |
+| `+release`   | all of the above             | everything, in parallel         |
+
+```sh
+cd desktop
+earthly +release          # everything
+earthly +deb              # just the Debian package
+```
+
+Installers are written to `desktop/out/make/`. Notes on the build environment:
+
+- **AppImage** sets `APPIMAGE_EXTRACT_AND_RUN=1` because containers have no FUSE,
+  and needs `squashfs-tools`.
+- **Windows** installs Wine (with the i386 architecture) and Mono so Forge's
+  Squirrel maker can run the Windows toolchain on Linux.
+- `ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set during install; Forge fetches the
+  matching Electron itself during packaging.
+
+The AppImage maker is the community `@reforged/maker-appimage`, since Forge ships
+no first-party AppImage maker.
+
+## CI
+
+The `Desktop` job in `.github/workflows/ci.yml` is a matrix over the four
+targets, each running `earthly +<target>` as an independent, parallel check
+(`fail-fast: false`). It runs on **pull requests** and **on-demand**
+(`workflow_dispatch`) only, not on every push to `main`, because the packaging
+build is heavy. Earthly is installed at a pinned version via
+`earthly/actions-setup`; the job targets a self-hosted runner tagged `linux` and
+`earthly` (Docker available for BuildKit). Artifacts are built but not uploaded
+anywhere yet.
+
+## Roadmap
+
+- **macOS**: `.dmg`/`.zip` targets, code signing, and notarization for a universal
+  (arm64 + x64) build. macOS installers cannot be produced on a Linux runner, so
+  this needs a macOS builder and is intentionally not wired yet. The lifecycle in
+  `main.ts` already follows macOS conventions (stay alive with no windows,
+  recreate on `activate`).
+- **Production renderer**: wire the frontend build to populate `renderer/` during
+  packaging so `electron-serve` has the SPA to serve.
+- **Multi-window + rc-dock**: multiple windows with shared Redux state (via a
+  shared web worker) and dockable, poppable panels across monitors.
+- **Native integration**: application menus, deep links, notifications, tray, and
+  auto-update.
+- **Branded icons**: per-platform icon sets (currently the default Electron icon).
+- **Shared workspace tooling**: a root `package.json` / unified `.yarnrc.yml` so
+  the frontend and desktop share one Yarn setup.
+- **Artifact publishing**: upload the installers once a distribution channel is
+  chosen.

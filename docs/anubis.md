@@ -1,105 +1,111 @@
 # Anubis
 
-Arsox is an [Anubis](https://github.com/JalapenoLabs/Anubis) application, stamped by `anubis new` and
-kept faithful to that stamp. This document covers how Arsox consumes the framework, and holds the
-live register of what Arsox is waiting on.
+Elysium is an [Anubis](https://github.com/JalapenoLabs/Anubis) application, stamped by
+`anubis new` and kept faithful to that stamp. This document covers how Elysium consumes the
+framework, and holds the live register of what Elysium is waiting on.
 
-The rule that governs all of it is the first section of [CLAUDE.md](../CLAUDE.md). In short: if a
-capability belongs to the framework, it gets built in the framework or filed against the framework,
-and the Arsox task is blocked until it lands. It never gets worked around here.
+The rule that governs all of it is the first section of [CLAUDE.md](../CLAUDE.md). In short:
+if a capability belongs to the framework, it gets built in the framework or filed against the
+framework, and the Elysium task is blocked until it lands. It never gets worked around here.
 
-## How Arsox consumes the framework
+## How Elysium consumes the framework
 
-Neither Anubis package is published yet, so both install from git and both are pinned to an exact
+Neither Anubis package is published yet, so both install from git and both pin an exact
 revision rather than a branch:
 
 | Consumer | Declaration | Pinned in |
 |---|---|---|
-| Backend | `anubis = { git = "...", rev = "..." }` | `backend/Cargo.toml` |
+| Backend | `anubis = { package = "anubis-framework", git = "...", rev = "..." }` | `backend/Cargo.toml` |
 | Frontend | `@jalapenolabs/anubis` at `#commit=...&workspace=@jalapenolabs/anubis` | `frontend/package.json` |
 
-`.yarnrc.yml` allowlists the Anubis and Jalapeno Labs CLI repositories, because Yarn Berry refuses
-git dependencies otherwise.
+The crate publishes as `anubis-framework`, because an unrelated crate holds the plain name on
+crates.io. Cargo's `package` key renames it back, so every `use anubis::` reads the way the
+framework's own docs write it.
 
-**Both pins are the same revision, and bumping them is its own commit.** A floating branch means the
-framework changes underneath two builds that were believed identical, which is the hardest class of
-bug to notice. When the crate publishes to crates.io (Anubis #56) and the package publishes to npm
-(D1 of Anubis #57), both become ordinary version ranges and this section gets simpler.
+`.yarnrc.yml` allowlists the Anubis and Jalapeno Labs repositories, because Yarn Berry
+refuses git dependencies otherwise.
 
-## What Arsox takes from the framework
+**Both pins are the same revision, and bumping them is its own commit.** A floating branch
+means the framework changes underneath two builds that were believed identical, which is the
+hardest class of bug to notice. When the crate publishes ([#81](https://github.com/JalapenoLabs/Anubis/issues/81))
+and stamped applications move to published versions ([#82](https://github.com/JalapenoLabs/Anubis/issues/82)),
+both become ordinary version ranges and this section gets simpler.
+
+## What Elysium takes from the framework
 
 Everything in this list is the framework's, and reimplementing any of it here is a bug:
 
 - Registration, sign-in, sessions, password reset, email verification, emailed sign-in codes
 - TOTP second factor and passkeys
+- OAuth and OIDC sign-in, where Anubis is the relying party
 - Organizations, teams, memberships, invitations
-- Roles and permissions, compiled from `config/roles.yml` into both a Rust authorization module and
-  `frontend/src/roles.generated.ts`
-- Ownership-chain guards: `TeamMember`, `OrganizationMember`, `CurrentUser`
-- Platform applications, bearer tokens, and the versioned `/api/v1` surface
+- Roles and permissions, compiled from `config/roles.yml` into both a Rust authorization
+  module and `frontend/src/roles.generated.ts`
+- Ownership-chain guards: `TeamMember`, `OrganizationMember`, `CurrentUser`, at three levels
+  of resource nesting
+- Platform applications, bearer tokens, and the versioned `/api/v1` surface, including
+  application models
 - Encryption at rest, via `anubis::auth::secret_box`
-- Durable background jobs, via `anubis::jobs`, whose enqueue joins the caller's transaction so a job
-  commits with the domain write that caused it. This is where satellite health reconciliation,
-  mirror repair, and usage rollups belong
-- The app shell, auth pages, and field component library in `@jalapenolabs/anubis`
+- Transactional email, with log, test, and SMTP backends and optional DKIM signing
+- Durable background jobs, whose enqueue joins the caller's transaction so a job commits with
+  the domain write that caused it
+- Realtime channels, in process by default and over Redis across instances
+- The notification inbox, the audit log, and webhooks in both directions
+- Billing, from `config/billing.yml` through Stripe Checkout to plan limits
+- Server hardening: probes, request ids, request logging, security headers, CORS,
+  compression, per-request timeouts, a bounded drain on `SIGTERM`, and auth rate limits
+- The app shell, auth pages, settings screens, tenancy management screens, and the field
+  component library in `@jalapenolabs/anubis`
 - Full-stack scaffolding, via the `anubis` CLI
 
 ## The living templates
 
 `backend/src/scaffolding/` and its frontend counterparts (`CreativeConceptsPage`,
-`TangibleThingForm`, `creativeConceptRoutes.ts`, and the rest) are **Anubis living templates**, not
-Arsox demo code.
+`TangibleThingForm`, `creativeConceptRoutes.ts`, and the rest) are **Anubis living
+templates**, not Elysium demo code.
 
-`anubis scaffold model` reads them out of this repository at runtime and transforms them into the
-model being generated. Delete them and the scaffolder stops working for this application. They are
-compiling, CI-tested code on purpose, so the templates can never rot.
+`anubis scaffold model` reads them out of this repository at runtime and transforms them into
+the model being generated. Delete them and the scaffolder stops working for this application.
+They are compiling, CI-tested code on purpose, so the templates can never rot.
 
-The same goes for magic anchor comments (`// 🐺 anubis:routes`, `{/* 🐺 anubis:nav */}`). They mark
-insertion points in files Arsox owns and edits freely. Removing one silently breaks every future
-scaffold against that file.
-
-## Contributions made
-
-Two blockers were light enough to fix rather than file, which is case (a) of the rule. Both are
-merged, and the pinned revision above is `develop` at the second of them.
-
-| Pull request | What it fixes |
-|---|---|
-| [Anubis #66](https://github.com/JalapenoLabs/Anubis/pull/66) | A `bullet_train/bullet_train` gitlink with no `.gitmodules`, which made `cargo` refuse to fetch the repository. No cargo consumer could depend on Anubis at all |
-| [Anubis #67](https://github.com/JalapenoLabs/Anubis/pull/67) | `@jalapenolabs/anubis` installing from git as a lone `package.json`, because `files` is `["dist"]` and nothing built `dist`. Every stamped application failed its first typecheck |
-
-They are recorded here rather than dropped because they are the reference for how the Anubis-first
-rule gets applied: the gap was found here, fixed there, and consumed back through an exact pin.
+The same goes for magic anchor comments (`// 🐺 anubis:routes`, `{/* 🐺 anubis:nav */}`). They
+mark insertion points in files Elysium owns and edits freely. Removing one silently breaks
+every future scaffold against that file.
 
 ## The blocked register
 
-Each row is a capability Arsox needs, owned by the framework, with the issue it waits on. Keep this
-current: it is how the framework learns what its first real consumer needs.
+Each row is a capability Elysium needs, owned by the framework, with the issue it waits on.
+Keep this current: it is how the framework learns what its first real consumer needs.
 
 | Needs | Blocks | Anubis issue |
 |---|---|---|
-| Realtime channel layer for cross-process fanout | Running more than one Arsox replica. Satellite events reach only the replica holding the socket | [#32](https://github.com/JalapenoLabs/Anubis/issues/32) |
-| SMTP mailer backend | Production sign-up, invitations, password reset. Mail only prints to the log today | [#50](https://github.com/JalapenoLabs/Anubis/issues/50) |
-| Backend serves the built SPA | Any single-origin production deployment. Emailed links 404 without it | [#49](https://github.com/JalapenoLabs/Anubis/issues/49) |
-| Graceful shutdown, request timeouts, request-id logging | Deploying without dropping in-flight turns | [#52](https://github.com/JalapenoLabs/Anubis/issues/52) |
-| Security headers and an explicit CORS posture | Production exposure | [#53](https://github.com/JalapenoLabs/Anubis/issues/53) |
-| Auth endpoint rate limiting | Production exposure | [#45](https://github.com/JalapenoLabs/Anubis/issues/45) |
-| Tenancy management endpoints (create and rename teams, change roles, remove members) | Team administration beyond invitations | [#51](https://github.com/JalapenoLabs/Anubis/issues/51) |
-| Application paths in the generated TypeScript client | Arsox route functions are hand-written rather than generated | [#58](https://github.com/JalapenoLabs/Anubis/issues/58), A3 of [#57](https://github.com/JalapenoLabs/Anubis/issues/57) |
-| Published crate and npm package | Ordinary version ranges instead of pinned revisions | [#56](https://github.com/JalapenoLabs/Anubis/issues/56), D1 of [#57](https://github.com/JalapenoLabs/Anubis/issues/57) |
-| `anubis new` stamps CI and environment-driven development config | Every stamped app rebuilds both by hand, as Arsox did | [#69](https://github.com/JalapenoLabs/Anubis/issues/69) |
+| A sub-tenant tier between Organization and Team | **Elysium's entire domain model.** A Project owns Drives, integrations, domains, and membership, and has no home in a two-tier framework | [#93](https://github.com/JalapenoLabs/Anubis/issues/93) |
+| Multi-profile sessions, with a switcher | Signing several accounts into one browser and switching without signing out. The taskbar's profile badge is a stub until it lands | [#94](https://github.com/JalapenoLabs/Anubis/issues/94) |
+| Per-organization authentication policy | An organization tightening allowed methods, mandating a second factor, or setting session lifetime for its own members | [#95](https://github.com/JalapenoLabs/Anubis/issues/95) |
+| Presence and person-set status | The roster, the action center, and every "who is around" surface | [#96](https://github.com/JalapenoLabs/Anubis/issues/96) |
+| Registration modes: open, invite-only, domain allowlist | Elysium is invite-only by design, and the framework registers openly | [#77](https://github.com/JalapenoLabs/Anubis/issues/77) |
+| First-administrator bootstrap for a fresh deployment | Claiming a freshly self-hosted instance as its root user | [#79](https://github.com/JalapenoLabs/Anubis/issues/79) |
+| Shared-organization mode for the signup bootstrap | A self-hosted deployment where everyone joins one organization rather than getting a personal one | [#78](https://github.com/JalapenoLabs/Anubis/issues/78) |
+| Account disable and forced password rotation | Offboarding a member without deleting their history | [#80](https://github.com/JalapenoLabs/Anubis/issues/80) |
+| Theme system: system, dark, and light, with consumer themes | The design language in [ux.md](ux.md) needs a theme engine to live in | [#88](https://github.com/JalapenoLabs/Anubis/issues/88) |
+| Mobile navigation for the app shell | The framework's screens on a phone | [#86](https://github.com/JalapenoLabs/Anubis/issues/86) |
+| Published crate and npm package | Ordinary version ranges instead of pinned revisions | [#81](https://github.com/JalapenoLabs/Anubis/issues/81), [#82](https://github.com/JalapenoLabs/Anubis/issues/82) |
 
-[Anubis #57](https://github.com/JalapenoLabs/Anubis/issues/57) is the broader consumer gap register
-and is worth reading before adding a row here; several of these appear there with more context.
+[Anubis #57](https://github.com/JalapenoLabs/Anubis/issues/57) is the broader consumer gap
+register and is worth reading before adding a row here.
 
-## What Arsox does not take
+## What Elysium does not take
 
-Anubis prescribes Redux Toolkit alongside the rest of its frontend stack. Arsox has no store yet
-because it has no cross-page state worth one; the satellite event stream is the first thing that
-will plausibly need it. Adding one is a decision to record here when it happens, not a default to
-adopt in advance.
+**Protobuf on the browser boundary.** Elysium's original design put protobuf between the
+frontend and the API. Anubis generates its OpenAPI document from the Rust handlers and
+renders a typed TypeScript client from it, drift-gated in CI, and every scaffolded model
+arrives already typed on both ends. Replacing that with protobuf would mean rebuilding the
+client, the document, and the gate here, which is the divergence the Anubis-first rule
+prevents. The framework's contract wins on that boundary; protobuf stays on the satellite
+boundary, where it is the Arsox contract rather than a choice. See
+[transport.md](transport.md).
 
-Arsox's own API route functions are hand-written under `frontend/src/api/routes/`, in the shape the
-scaffolder emits, because the generated client cannot yet carry application paths. That is the
-tracked gap above, not a house style, and those files should be deleted in favor of generated ones
-when it closes.
+**Redux Toolkit, for now.** Anubis prescribes it. Elysium has no store yet because it has no
+cross-page state worth one; the dock layout and the Elysia event stream are the first things
+that will plausibly need one. Adding it is a decision to record here when it happens, not a
+default to adopt in advance.

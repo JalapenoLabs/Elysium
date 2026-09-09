@@ -15,11 +15,11 @@ use anubis::billing::PlanSet;
 use anubis::config::AppConfig;
 use anubis::roles::RoleSet;
 use anubis::{db, server, telemetry};
+use axum::Router;
 use elysium::{
     APP_MIGRATIONS, BILLING_YML, ROLES_YML, account_router, api_v1_router, openapi, register_jobs,
     webhooks_router,
 };
-use axum::Router;
 use mimalloc::MiMalloc;
 
 #[global_allocator]

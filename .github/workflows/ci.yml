@@ -58,8 +58,18 @@ jobs:
       # The drift checks below run the framework CLI, which is installed from
       # the framework repository until the crate is published to crates.io.
       # The crate is `anubis-framework`; the binary it installs is `anubis`.
+      #
+      # Pinned to the revision the manifests depend on, read out of
+      # backend/Cargo.toml rather than repeated here, so a bump moves one file
+      # and CI cannot generate against a different framework than it compiles
+      # against.
       - name: Install the Anubis CLI
-        run: cargo install anubis-framework --git https://github.com/JalapenoLabs/Anubis.git --locked
+        run: |
+          rev="$(sed -n 's/^anubis = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' backend/Cargo.toml)"
+          test -n "$rev" || { echo "no pinned Anubis revision in backend/Cargo.toml"; exit 1; }
+          cargo install anubis-framework \
+            --git https://github.com/JalapenoLabs/Anubis.git \
+            --rev "$rev" --locked
 
       # The generated TypeScript permissions module must match roles.yml.
       - name: Roles drift check

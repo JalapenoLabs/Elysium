@@ -1,148 +1,104 @@
 # Architecture
 
-Arsox is the control plane for a fleet of agent satellites. It holds identity, tenancy, and history;
-it holds no agents and runs no models. Everything that actually executes runs on a satellite the
-user owns.
+Elysium is a control plane. It holds identity, tenancy, policy, and history; it runs almost
+nothing itself. Files live at their provider, services run in containers Elysium provisions,
+and agents run on satellites the user owns.
 
-## The three planes
+That is the through-line of every decision here: **own the unification, orchestrate the
+wheels.**
+
+## The planes
 
 ```
-   browser                 Arsox                        satellite
-  ─────────               ───────                      ───────────
-  React SPA  ──HTTP/JSON──▶ Axum backend ──HTTP/proto──▶  satellite API
-      ▲                        │    ▲                         │
-      └───── event stream ─────┘    └───── WebSocket/proto ────┘
-                                            (events)
+   browser                Elysium                     what actually runs
+  ─────────              ─────────                   ────────────────────
+  React SPA ──REST/JSON──▶ Axum backend ──Docker API──▶ managed containers
+      ▲                       │    ▲                     (Forgejo, mail, registry)
+      │                       │    │
+      │                       ├────┼──────OpenDAL──────▶ Drives
+      │                       │    │                     (local FS, S3, SFTP)
+      │                       │    │
+      │                       └────┼───HTTP + proto────▶ Arsox satellites
+      │                            │
+      └────── realtime ────────────┘◀──WebSocket/proto──┘
 ```
 
-- **The browser** talks only to Arsox. It never holds a satellite address and never holds a
-  satellite secret.
-- **Arsox** is an Anubis application: Postgres for the system of record, cookie sessions,
-  organizations and teams, roles compiled from `config/roles.yml`. It is also a satellite SDK
-  consumer, and it proxies every satellite call.
-- **A satellite** owns the work: the workspace, the git checkouts, the harness processes, the LLM
-  proxy, the permission enforcement, and the authoritative thread state.
+- **The browser** talks only to Elysium. It never holds a satellite address, a satellite
+  secret, a Drive credential, or a Docker socket.
+- **Elysium** is an Anubis application: Postgres as the system of record, cookie sessions,
+  organizations and teams, roles compiled from `config/roles.yml`, realtime channels, a
+  durable job queue. On top of that it is a storage gateway, a service provisioner, an OIDC
+  provider, and a satellite SDK consumer.
+- **Everything else** owns its own work: a Drive's provider owns the bytes, a managed
+  container owns its service, a satellite owns its threads.
 
-## Why the browser never talks to a satellite directly
+## Elysium mirrors, the source owns
+
+The same rule applies to all three of Elysium's downstreams, and it is the most important
+architectural decision in the repository.
+
+- **Files are never mirrored.** A Drive is a live window onto its provider. Browsing calls
+  the provider in real time. Deleting in Elysium deletes at the provider. The provider is
+  always the source of truth. Search is live and federated rather than index-backed, because
+  an index is a mirror and a mirror goes stale. See [storage.md](storage.md).
+- **Managed services are desired state, reconciled.** Postgres holds what should be running;
+  the reconciler converges containers onto it on boot and after every change through the
+  management API. Idempotent throughout: a restart re-converges the same containers and never
+  duplicates. See [integrations.md](integrations.md).
+- **Agent threads are mirrored, and the satellite wins.** A thread's authoritative state
+  lives on its satellite. Elysium persists a mirror so it can answer cross-satellite
+  questions, survive a thread's idle expiry, and audit who did what. On any disagreement the
+  mirror is rebuilt by replaying from `from_sequence`, never edited into agreement. See
+  [satellites.md](satellites.md).
+
+The pattern is the same each time: **derived state is always rebuildable, and never
+authoritative.**
+
+## Why the browser never reaches past Elysium
 
 Three reasons, in order of how much they matter:
 
-1. **The secret.** `ARSOX_SECRET` is a bearer token with full command authority over a satellite:
-   destroy threads, read every thread's artifacts, rewrite permissions. Anything holding it can do
-   all of that. A browser cannot hold it.
-2. **Reachability.** Satellites live on home networks and behind corporate firewalls. Most of them
-   have no inbound route from a random browser, which is the same reason the satellite polls GitHub
-   rather than receiving webhooks.
-3. **Tenancy.** Authorization is Arsox's, expressed once in `roles.yml` and enforced by Anubis
-   extractors. A direct browser-to-satellite path would put a second, weaker authorization model in
-   front of the same data.
+1. **Credentials.** A satellite bearer token has full command authority over that satellite.
+   A Drive credential can read every file in an organization. The Docker socket is root on the
+   host. None of these can be in a browser, and there is no version of "just for admins" that
+   makes it acceptable.
+2. **Reachability.** Satellites and managed containers live on private networks. Most have no
+   inbound route from a random browser.
+3. **Authorization.** It is Elysium's, expressed once in `config/roles.yml` and in the project
+   resolver, enforced by the framework's guards. A direct browser-to-anything path would put a
+   second, weaker authorization model in front of the same data.
 
-The cost is that Arsox is on the hot path for every event, which is a real cost and the right trade.
+The cost is that Elysium is on the hot path for every byte and every event. That is a real
+cost and the right trade. Presigned URLs relieve it for large transfers where the provider
+supports them, which is an optimization inside the boundary rather than a hole in it.
 
-## Arsox mirrors, the satellite owns
+## The trust boundary is infrastructure, never instructions
 
-A thread's authoritative state lives on its satellite. Arsox persists a mirror: thread records,
-turn records, the event stream, incidents, and usage rollups, all indexed by team.
+Elysium stores and forwards agent permissions. It does not enforce them, and the interface
+must never imply it does. Enforcement lives on the satellite, in an egress proxy, an exec
+broker, a root-owned pre-push hook, and filesystem scoping the agent cannot reach.
 
-The mirror exists for three things the satellite cannot provide:
+The same principle shapes the storage capability model. A consumer requires a capability, a
+provider advertises one, and binding git to an SFTP Drive is an enforced impossibility rather
+than a documented warning. A rule the system can check beats a rule written in a document.
 
-- **Cross-satellite views.** "Everything my team ran this week" cannot be answered by asking one
-  satellite, and answering it by fanning out to twelve of them is a query that fails whenever one is
-  offline.
-- **Survival.** Satellite threads expire on an idle TTL and take their workspace with them.
-  Incidents and statistics outlive the thread on the satellite, but the conversation does not. Arsox
-  keeps the record.
-- **Authorization and audit.** Who started which turn, who answered which question, who approved
-  which plan, and who raised a budget. That is Arsox's question and only Arsox can answer it.
+## Composition
 
-**On any disagreement, the satellite wins.** The mirror is derived state and is rebuilt by replaying
-from `from_sequence`, never by editing it into agreement.
+- **`backend/`** is one Cargo package: an Axum server composing the framework's routers with
+  Elysium's own. Application migrations are Elysium's, applied after the framework's, because
+  application tables reference framework tables.
+- **`frontend/`** is one npm workspace: a React SPA on `@jalapenolabs/anubis` and HeroUI, with
+  rc-dock for the workspace. Two frames share one router, per
+  [workspace.md](workspace.md).
+- **`config/`** holds `roles.yml` and `billing.yml`, each compiled into both ends and drift-
+  gated in CI.
+- **Deployment** is one binary serving the API and the built SPA, from the framework's
+  three-stage image.
 
-## Realtime
+## Where the tenancy sits
 
-Events flow satellite to Arsox over the satellite's unidirectional WebSocket, in protobuf, and
-Arsox re-emits them to subscribed browsers.
-
-Every event carries a `sequence` that is monotonic per thread and is persisted by the satellite
-before it is sent, so a dropped connection is repaired by reconnecting with `?from_sequence=<n>`
-rather than by losing events. Arsox records the highest sequence it has mirrored per thread, which
-makes reconnection exact.
-
-**This is single-process today.** Fanning an event out to browsers connected to a different replica
-needs a pub/sub layer, and Anubis has no realtime channel layer yet (Anubis #32). Running more than
-one Arsox replica will drop events for clients that are not on the replica holding the satellite
-socket. Do not scale out until that lands.
-
-## Data ownership
-
-Every Arsox resource chains its ownership back to an Anubis `Team`:
-
-```
-Organization ─< Team ─< Satellite ─< Thread ─< Turn
-                              │         └──< Event, Incident
-                              └──< usage rollups
-```
-
-Handlers take `anubis::guard::TeamMember`, which resolves the route's `{team_id}` against the
-caller's membership before the body runs and answers 404 for non-members, byte-identical to a
-nonexistent id. Tenant isolation is enforced by walking that chain, never by trusting an id the
-client sent.
-
-## Secrets
-
-Satellite bearer tokens, LLM credentials, and repository credentials are sealed at rest with
-`anubis::auth::secret_box` under `ANUBIS_SECRET_KEY`, and are never returned to a client in the
-clear. Responses carry a redacted display string, which is the same discipline the satellite
-contract applies to its own `common.v1.Secret`: `value` goes up, `display` comes back.
-
-Development boots without `ANUBIS_SECRET_KEY` by falling back to a fixed, public key, and says so at
-startup. Production refuses to start without a real one. Rotating the key makes everything already
-sealed under it unreadable, so it is generated once per environment and kept.
-
-## Backend layout
-
-`backend/` is one Cargo package. `main.rs` is the composition root and does nothing but wire; the
-application lives in `lib.rs` beside it, which is what lets integration tests drive the real
-routers.
-
-Router mounts, in the order they are composed:
-
-| Mount | Owner | Serves |
-|---|---|---|
-| `/healthz` | Arsox | Liveness |
-| `/users/{user_id}/avatar` | Anubis | Public profile pictures |
-| `/auth` | Anubis | Registration, sessions, MFA, passkeys, email flows |
-| `/tenancy` | Anubis | Organizations, teams, memberships, invitations |
-| `/developers` | Anubis | Platform applications and bearer tokens |
-| `/api/v1` | Anubis | The versioned public API and its OpenAPI document |
-| `/account` | Arsox | Arsox's own resources |
-
-Migrations run in two passes at boot, framework first: application tables reference `teams` and rely
-on the shared `set_updated_at()` trigger, so the order is a dependency, not a preference.
-
-## Frontend layout
-
-`frontend/` is one npm workspace: a React SPA on Vite and SWC.
-
-- Routing goes through the central `UrlTree` in `src/urls.ts`. Never write a path literal into a
-  component.
-- Data fetching is ky plus SWR. Route functions live one file per resource under `src/api/routes/`
-  and are the source of truth for their request and response types.
-- Forms are react-hook-form with zod resolvers.
-- Every user-facing string is an i18next key. Logs stay English and untranslated.
-- Permission-driven affordances read `roles.generated.ts`, which is generated from `config/roles.yml`
-  and never hand-edited.
-
-The vite dev server proxies `/auth`, `/tenancy`, and `/healthz` to the backend, so the SPA and the
-API are same-origin in development. In production they are same-origin because the backend serves
-the built assets, except that Anubis does not do that yet (Anubis #49), so a production deployment
-currently needs its own static host.
-
-## Deployment
-
-The intended shape is one static Rust binary serving the API and the built SPA, plus PostgreSQL.
-Versions are pinned everywhere: Rust 1.96.0, Node 24.13.0, Yarn 4.17.0, Postgres 17.6.
-
-Several things a production deployment needs are missing from the framework rather than from Arsox:
-SPA serving (#49), an SMTP mailer (#50), graceful shutdown and request timeouts (#52), security
-headers (#53), and auth rate limiting (#45). See [anubis.md](anubis.md).
+Every resource chains its ownership to a tenant, and the framework's guards walk that chain
+rather than trusting a client-supplied id. Elysium's chain runs organization to project to
+team, and **the project tier does not exist in the framework yet**, which blocks Elysium's
+domain model. See [tenancy.md](tenancy.md) and
+[Anubis #93](https://github.com/JalapenoLabs/Anubis/issues/93).
