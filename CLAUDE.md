@@ -7,9 +7,9 @@ up to date.
 
 # Elysium
 
-Elysium is an open-source, self-hosted business workspace: mail, chat, storage, source
-control, tasking, automation, and an agentic AI, in one deployment you run on your own
-machine. The AI inside it is **Elysia**.
+Elysium is a self-hosted business workspace: mail, chat, storage, source control, tasking,
+automation, and an agentic AI, in one deployment you run on your own machine. The AI inside it
+is **Elysia**. Open-sourcing it is the roadmap; see Git below for what is true today.
 
 The frustration it answers is concrete. Google Workspace and Microsoft Teams are several
 products stapled together, OneDrive is a bolt-on, Drive is expensive and annoying, the
@@ -289,7 +289,9 @@ covers the flows end to end.
 
 # Git
 
-This repo is open-source and public.
+**This repo is private today. Open-sourcing it is the roadmap, not the current state.** Write
+every commit message, issue, and document as though it were already public, because one day
+it is, but do not claim in user-facing text that it is public yet.
 
 `main` is the working branch, and stakeholders push to it directly. There is no `develop`.
 Everyone else opens a pull request into `main`.

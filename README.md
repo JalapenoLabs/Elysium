@@ -2,9 +2,9 @@
 
 One self-hosted workspace instead of six subscriptions.
 
-Elysium is an open-source business workspace you run on your own machine: mail, chat,
-storage, source control, tasking, automation, and an agentic AI, unified rather than stapled
-together. The AI inside it is **Elysia**.
+Elysium is a business workspace you run on your own machine: mail, chat, storage, source
+control, tasking, automation, and an agentic AI, unified rather than stapled together. The AI
+inside it is **Elysia**. Open-sourcing it is the roadmap.
 
 ## Why
 
@@ -19,8 +19,8 @@ on hardware you control.
 - **Capacity is whatever disk you point it at.** Storage is a live gateway onto your
   providers, not a mirror with a quota.
 - **We orchestrate, we do not re-implement.** Elysium provisions best-of-breed open-source
-  containers (Forgejo, Postfix and Rspamd, a registry, Astraval) and owns the unification. A
-  hand-rolled SMTP server is a security incident with a roadmap.
+  containers and owns the unification. A hand-rolled SMTP server is a security incident with
+  a roadmap.
 - **Things come to you.** Email and chat in one action center, items resolved rather than
   read, and `ctrl+P` to anything: a person, a message, a file, a repository.
 - **AI-first, not AI-bolted-on.** The Elysia session is the primary screen, with the same
