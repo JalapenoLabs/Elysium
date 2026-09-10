@@ -79,7 +79,7 @@ Keep this current: it is how the framework learns what its first real consumer n
 
 | Needs | Blocks | Anubis issue |
 |---|---|---|
-| A sub-tenant tier between Organization and Team | **Elysium's entire domain model.** A Project owns Drives, integrations, domains, and membership, and has no home in a two-tier framework | [#93](https://github.com/JalapenoLabs/Anubis/issues/93) |
+| The sub-tenant tier's scaffolder templates and management screens | Generating a model owned by a Project, and the screens that create one and manage its roster. The backend foundation has landed; these are the rest of [#93](https://github.com/JalapenoLabs/Anubis/issues/93) | [#93](https://github.com/JalapenoLabs/Anubis/issues/93) |
 | Multi-profile sessions, with a switcher | Signing several accounts into one browser and switching without signing out. The taskbar's profile badge is a stub until it lands | [#94](https://github.com/JalapenoLabs/Anubis/issues/94) |
 | Per-organization authentication policy | An organization tightening allowed methods, mandating a second factor, or setting session lifetime for its own members | [#95](https://github.com/JalapenoLabs/Anubis/issues/95) |
 | Presence and person-set status | The roster, the action center, and every "who is around" surface | [#96](https://github.com/JalapenoLabs/Anubis/issues/96) |
@@ -102,14 +102,22 @@ is case (a) of the Anubis-first rule in practice, and the record of it.
 | Change | What it fixes |
 |---|---|
 | [Anubis #99](https://github.com/JalapenoLabs/Anubis/pull/99) | A stamped application's Tailwind scanned neither HeroUI's theme nor the framework package, so none of HeroUI's utilities were generated and every framework component rendered unstyled. The template's glob is correct where it lives and wrong once `starter/` is dropped |
-| [Anubis #97](https://github.com/JalapenoLabs/Anubis/issues/97) | `anubis new` stamps a tree that fails `cargo fmt --check`, because import order is written for the template's own crate name |
-| [Anubis #98](https://github.com/JalapenoLabs/Anubis/issues/98) | A scaffolded section races its own initial fetch, so the E2E suite is flaky. Found while verifying #99 |
+| [Anubis #100](https://github.com/JalapenoLabs/Anubis/pull/100) | `anubis new` stamped a tree that fails `cargo fmt --check`, because import order is written for the template's own crate name. It now formats what it stamps, as `scaffold` already did ([#97](https://github.com/JalapenoLabs/Anubis/issues/97)) |
+| [Anubis #103](https://github.com/JalapenoLabs/Anubis/pull/103) | `.env.example` named `localhost`, which resolves to `::1` first while Docker publishes IPv4 only, so every pool connection paid a full TCP connect timeout. It presents as a flaky frontend rather than an error. The same change split Playwright's `install-deps` from `install`, which is why E2E now runs on the self-hosted fleet at all ([#85](https://github.com/JalapenoLabs/Anubis/issues/85)) |
+| [Anubis #104](https://github.com/JalapenoLabs/Anubis/pull/104) | The rate-limit test spent exactly its quota and assumed nothing replenished, which is false once the burst outlasts one emission interval. It failed on three unrelated branches ([#102](https://github.com/JalapenoLabs/Anubis/issues/102)) |
+| [Anubis #101](https://github.com/JalapenoLabs/Anubis/pull/101) | The sub-tenant tier's backend foundation: the migration, the model, one access resolver, the `SubTenantMember` guard, and role scoping. Additive, so an ownership chain ending in `Team` is untouched |
 | [jalapenolabs/cli #4](https://github.com/JalapenoLabs/cli/pull/4) | The shared ESLint package shipped a Yarn Classic lockfile and named no package manager, so Yarn 4 handed the pack's install to Yarn 1 and it failed nondeterministically on a clean runner. Every stamped application inherited it |
 
 Two of these are the same defect in different clothes: a template that is correct in its own
-position and wrong after transformation. #97 is import order, #99 is a relative path. Both
+position and wrong after transformation. #100 is import order, #99 is a relative path. Both
 are silent, and both reach every application the framework generates, which is the argument
 for the scaffold proof running against a stamped tree rather than only against `starter/`.
+
+Three others share a different shape: a test or a default that holds on a fast, idle,
+IPv4-only machine and breaks anywhere else. None of them were caught by CI, because the job
+that would have caught them could not run: Playwright's browser never installed on the
+self-hosted runners, so the end-to-end suite had never once executed there. A gate that
+cannot run is worse than no gate, because everyone believes it is watching.
 
 ## What Elysium does not take
 
