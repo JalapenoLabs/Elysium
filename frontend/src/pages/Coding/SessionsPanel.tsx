@@ -7,9 +7,10 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
+import { shallowEqual } from 'react-redux'
 import { selectAllCodingSessions, selectCodingSessionsStatus } from '../../store/codingSessionsSlice'
 import { useAppSelector } from '../../store/hooks'
-import { selectSatelliteEntities, selectSatellitesStatus } from '../../store/satellitesSlice'
+import { selectSatelliteNamesById, selectSatellitesStatus } from '../../store/satellitesSlice'
 
 // User interface
 import { Button, Chip, Link, Spinner } from '@heroui/react'
@@ -53,7 +54,8 @@ export function SessionsPanel() {
 
   const sessions = useAppSelector(selectAllCodingSessions)
   const sessionsStatus = useAppSelector(selectCodingSessionsStatus)
-  const satellites = useAppSelector(selectSatelliteEntities)
+  // Satellite status polls must not rebuild the columns, which would reset the table's sorting.
+  const satelliteNames = useAppSelector(selectSatelliteNamesById, shallowEqual)
   const satellitesStatus = useAppSelector(selectSatellitesStatus)
 
   const managedColumns = useMemo(() => {
@@ -64,7 +66,7 @@ export function SessionsPanel() {
     })
 
     function satelliteName(session: CodingSession) {
-      return satellites[session.satelliteId]?.name ?? ''
+      return satelliteNames[session.satelliteId] ?? ''
     }
     function stateLabel(session: CodingSession) {
       return t(threadStateLabelKeys[session.thread?.state ?? 'unknown'])
@@ -133,7 +135,7 @@ export function SessionsPanel() {
         }
       },
     })
-  }, [ t, i18n.language, satellites, actions ])
+  }, [ t, i18n.language, satelliteNames, actions ])
 
   if (sessionsStatus === 'idle' || sessionsStatus === 'loading') {
     return <div className='grid h-full place-items-center'>
@@ -148,7 +150,7 @@ export function SessionsPanel() {
   }
 
   if (!sessions.length) {
-    const hasSatellites = satellitesStatus === 'loaded' && Object.keys(satellites).length > 0
+    const hasSatellites = satellitesStatus === 'loaded' && Object.keys(satelliteNames).length > 0
 
     return <div className='grid h-full place-items-center p-6'>
       <div className='max-w-sm text-center'>

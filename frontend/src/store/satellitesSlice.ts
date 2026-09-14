@@ -6,7 +6,7 @@ import type { LoadStatus } from './loadStatus'
 import type { RootState } from './index'
 
 // Core
-import { createAsyncThunk, createEntityAdapter, createSlice } from '@reduxjs/toolkit'
+import { createAsyncThunk, createEntityAdapter, createSelector, createSlice } from '@reduxjs/toolkit'
 
 // Misc
 import { listSatellites } from '../api/routes/satelliteRoutes'
@@ -66,6 +66,20 @@ export const {
   selectById: selectSatelliteById,
   selectEntities: selectSatelliteEntities,
 } = satellitesAdapter.getSelectors((state: RootState) => state.satellites)
+
+// Names only, for views that label rows by satellite. Status reports replace the
+// entities on every poll that finds a change; pair this with shallowEqual so those
+// views do not rebuild when no name changed.
+export const selectSatelliteNamesById = createSelector(
+  [ selectSatelliteEntities ],
+  (entities) => {
+    const namesById: Record<string, string> = {}
+    for (const satellite of Object.values(entities)) {
+      namesById[satellite.id] = satellite.name
+    }
+    return namesById
+  },
+)
 
 export function selectSatellitesStatus(state: RootState) {
   return state.satellites.status
