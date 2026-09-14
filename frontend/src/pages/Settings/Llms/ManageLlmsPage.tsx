@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 
 // Redux
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
-import { llmUpserted, selectAllLlms, selectLlmsStatus } from '../../../store/llmsSlice'
+import { llmUpserted, selectAllLlms } from '../../../store/llmsSlice'
 
 // User interface
 import { Breadcrumbs, Button, Spinner, toast, useOverlayState } from '@heroui/react'
@@ -19,13 +19,14 @@ import { LlmTable } from './LlmTable'
 
 // Misc
 import { updateLlm } from '../../../api/routes/llmRoutes'
+import { useLlmsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 
 export function ManageLlmsPage() {
   const { t } = useTranslation([ 'llms', 'settings', 'common' ])
   const dispatch = useAppDispatch()
   const llms = useAppSelector(selectAllLlms)
-  const status = useAppSelector(selectLlmsStatus)
+  const status = useLlmsLoader()
 
   const formState = useOverlayState()
   const deleteState = useOverlayState()
@@ -81,7 +82,7 @@ export function ManageLlmsPage() {
         </Button>
       </div>
 
-      {(status === 'idle' || status === 'loading') && <div className='grid place-items-center py-16'>
+      {status === 'loading' && <div className='grid place-items-center py-16'>
         <Spinner />
       </div>}
 

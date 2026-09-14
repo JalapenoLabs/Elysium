@@ -2,18 +2,16 @@
 
 import type { ServerEvent, ServerEventType } from './serverEvents'
 
+// Core
+import { mutate } from 'swr'
+
 // Redux
 import { store } from '../store'
-import { codingSessionDeleted, codingSessionUpserted, fetchCodingSessions } from '../store/codingSessionsSlice'
-import { fetchLlms, llmDeleted, llmUpserted } from '../store/llmsSlice'
+import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
+import { llmDeleted, llmUpserted } from '../store/llmsSlice'
 import { eventStreamLost, eventStreamOpened } from '../store/realtimeSlice'
-import {
-  fetchSatellites,
-  satelliteDeleted,
-  satelliteStatusReported,
-  satelliteUpserted,
-} from '../store/satellitesSlice'
-import { fetchSessionEvents, sessionEventReceived } from '../store/sessionEventsSlice'
+import { satelliteDeleted, satelliteStatusReported, satelliteUpserted } from '../store/satellitesSlice'
+import { sessionEventReceived } from '../store/sessionEventsSlice'
 
 // Misc
 import { EVENT_STREAM_PATH, EVENT_STREAM_RETRY_INITIAL_MS, EVENT_STREAM_RETRY_MAX_MS } from '../constants'
@@ -26,15 +24,12 @@ type Handlers = {
   [Type in ServerEventType]: (event: Extract<ServerEvent, { type: Type }>) => void
 }
 
-// Loads everything a page can show. Runs on every (re)connection, because events sent
-// while disconnected are gone for good.
+// Refetches everything on screen: every SWR key a mounted component holds, whose
+// loaders put the responses in Redux (`src/hooks/useServerData.ts`). Runs on every
+// (re)connection, because events sent while disconnected are gone for good. Data no
+// component shows is refetched when one mounts.
 function reloadEverything() {
-  store.dispatch(fetchLlms())
-  store.dispatch(fetchSatellites())
-  store.dispatch(fetchCodingSessions())
-  for (const sessionId of Object.keys(store.getState().sessionEvents.bySessionId)) {
-    store.dispatch(fetchSessionEvents(sessionId))
-  }
+  void mutate(() => true)
 }
 
 const handlers: Handlers = {
@@ -48,11 +43,8 @@ const handlers: Handlers = {
   'session.upserted': (event) => store.dispatch(codingSessionUpserted(event.data)),
   'session.deleted': (event) => store.dispatch(codingSessionDeleted(event.data.id)),
   'session.event': (event) => store.dispatch(sessionEventReceived(event.data)),
-  'session.resync': (event) => {
-    if (store.getState().sessionEvents.bySessionId[event.data.id]) {
-      store.dispatch(fetchSessionEvents(event.data.id))
-    }
-  },
+  // Revalidates only if a conversation panel holds this session's history key.
+  'session.resync': (event) => void mutate(`v1/coding-sessions/${event.data.id}/events`),
 }
 
 function dispatchServerEvent(data: string) {

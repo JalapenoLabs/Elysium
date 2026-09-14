@@ -35,6 +35,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 // Misc
 import { getSatelliteErrorMessage } from '../../api/errors'
 import { createCodingSession, startTurn } from '../../api/routes/codingSessionRoutes'
+import { useSatellitesLoader } from '../../hooks/useServerData'
 import { useCodingActions } from './codingActionsContext'
 import { createSessionFormSchema, SESSION_TITLE_MAX_CHARACTERS } from './createSessionFormSchema'
 
@@ -46,6 +47,7 @@ export function CreateSessionModal(props: Props) {
   const { t } = useTranslation([ 'coding', 'common' ])
   const dispatch = useAppDispatch()
   const codingActions = useCodingActions()
+  useSatellitesLoader()
   const satellites = useAppSelector(selectAllSatellites)
 
   const activeSatellites = useMemo(

@@ -127,7 +127,7 @@ export function deleteCodingSession(sessionId: string) {
     .delete(`v1/coding-sessions/${sessionId}`)
 }
 
-type ListSessionEventsResponse = {
+export type ListSessionEventsResponse = {
   events: SessionEvent[]
   // True when older events were left out; only the latest few thousand are returned.
   truncated: boolean

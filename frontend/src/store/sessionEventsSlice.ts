@@ -1,24 +1,23 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { PayloadAction } from '@reduxjs/toolkit'
-import type { SessionEvent } from '../api/routes/codingSessionRoutes'
-import type { LoadStatus } from './loadStatus'
+import type { ListSessionEventsResponse, SessionEvent } from '../api/routes/codingSessionRoutes'
 import type { RootState } from './index'
 
 // Core
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
+import { createSlice } from '@reduxjs/toolkit'
 
 // Redux
 import { codingSessionDeleted } from './codingSessionsSlice'
 
 // Misc
-import { listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { SESSION_EVENTS_LIMIT } from '../constants'
 
 // A conversation's events, kept only for sessions someone has opened. Live events for
 // other sessions are dropped: nothing shows them, and history is fetched on opening.
 export type SessionTimeline = {
-  status: LoadStatus
+  // History has been merged in at least once, so the events are complete up to live.
+  isHistoryLoaded: boolean
   // Sorted by sequence, without duplicates.
   events: SessionEvent[]
   // Older events exist on the satellite but were not loaded.
@@ -33,18 +32,25 @@ const initialState: SessionEventsState = {
   bySessionId: {},
 }
 
-export const fetchSessionEvents = createAsyncThunk(
-  'sessionEvents/fetch',
-  async (sessionId: string) => {
-    const response = await listSessionEvents(sessionId)
-    return response
-  },
-)
-
 export const sessionEventsSlice = createSlice({
   name: 'sessionEvents',
   initialState,
   reducers: {
+    // A conversation panel opened. Live events that arrive while its history loads are
+    // kept and merged with that history.
+    sessionTimelineOpened(state, action: PayloadAction<string>) {
+      state.bySessionId[action.payload] ??= { isHistoryLoaded: false, events: [], truncated: false }
+    },
+    sessionHistoryLoaded(state, action: PayloadAction<{ sessionId: string, history: ListSessionEventsResponse }>) {
+      const timeline = state.bySessionId[action.payload.sessionId]
+      if (!timeline) {
+        console.debug('History arrived for a released timeline', { sessionId: action.payload.sessionId })
+        return
+      }
+      mergeEvents(timeline, action.payload.history.events)
+      timeline.truncated ||= action.payload.history.truncated
+      timeline.isHistoryLoaded = true
+    },
     sessionEventReceived(state, action: PayloadAction<SessionEvent>) {
       const timeline = state.bySessionId[action.payload.sessionId]
       if (!timeline) {
@@ -59,35 +65,6 @@ export const sessionEventsSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchSessionEvents.pending, (state, action) => {
-        const sessionId = action.meta.arg
-        const timeline = state.bySessionId[sessionId]
-        if (!timeline) {
-          // Live events that arrive while history loads are kept and merged with it.
-          state.bySessionId[sessionId] = { status: 'loading', events: [], truncated: false }
-          return
-        }
-        if (timeline.status !== 'loaded') {
-          timeline.status = 'loading'
-        }
-      })
-      .addCase(fetchSessionEvents.fulfilled, (state, action) => {
-        const timeline = state.bySessionId[action.meta.arg]
-        if (!timeline) {
-          console.debug('History arrived for a released timeline', { sessionId: action.meta.arg })
-          return
-        }
-        mergeEvents(timeline, action.payload.events)
-        timeline.truncated = action.payload.truncated
-        timeline.status = 'loaded'
-      })
-      .addCase(fetchSessionEvents.rejected, (state, action) => {
-        console.debug('Loading session history failed', { error: action.error, sessionId: action.meta.arg })
-        const timeline = state.bySessionId[action.meta.arg]
-        if (timeline && timeline.status !== 'loaded') {
-          timeline.status = 'failed'
-        }
-      })
       .addCase(codingSessionDeleted, (state, action) => {
         delete state.bySessionId[action.payload]
       })
@@ -140,7 +117,12 @@ function mergeEvents(timeline: SessionTimeline, incoming: SessionEvent[]) {
   }
 }
 
-export const { sessionEventReceived, sessionTimelineReleased } = sessionEventsSlice.actions
+export const {
+  sessionTimelineOpened,
+  sessionHistoryLoaded,
+  sessionEventReceived,
+  sessionTimelineReleased,
+} = sessionEventsSlice.actions
 
 export function selectSessionTimeline(state: RootState, sessionId: string) {
   return state.sessionEvents.bySessionId[sessionId]

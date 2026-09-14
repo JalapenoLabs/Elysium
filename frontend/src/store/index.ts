@@ -11,9 +11,10 @@ import { satellitesSlice } from './satellitesSlice'
 import { sessionEventsSlice } from './sessionEventsSlice'
 import { themeSlice } from './themeSlice'
 
-// The one store for all global state. Server data enters it two ways: thunks that
-// fetch a collection, and the event stream (`src/realtime/eventStream.ts`), which
-// applies every change the API announces.
+// The one store for all global state, and the source of truth components render. Server
+// data enters it two ways: SWR loaders that fetch it once (`src/hooks/useServerData.ts`),
+// and the event stream (`src/realtime/eventStream.ts`), which applies every change the
+// API announces.
 export const listenerMiddleware = createListenerMiddleware()
 
 export const store = configureStore({

@@ -83,10 +83,11 @@ events. It gives up after 10 seconds with a 502. Clients merge history with live
 
 - **Sessions** is the overview: every session, its satellite, live thread state, and last activity, in uikit's
   `SmartTable`. A title opens that session's conversation.
-- **Conversation** is one session. It fetches history when it opens and drops its events from Redux when it
-  closes. Prompts and agent messages render as chat bubbles; tool calls, thinking, and turn results as compact
-  lines with details folded away. Event types without a renderer show their wire name. Enter sends the composer's
-  prompt; Shift+Enter adds a line. A thread that has ended shows no composer.
+- **Conversation** is one session. It loads history through SWR when it opens and drops its events from Redux when
+  it closes; a reopened panel shows SWR's buffered history while the fresh copy loads. Prompts and agent messages
+  render as chat bubbles; tool calls, thinking, and turn results as compact lines with details folded away. Event
+  types without a renderer show their wire name. Enter sends the composer's prompt; Shift+Enter adds a line. A
+  thread that has ended shows no composer.
 
 The first conversation opens beside Sessions; later ones open as tabs in its group. Panels can be dragged, split,
 and floated. The layout is saved per browser under `elysium.coding.layout.v1`; Reset layout clears it. A restored

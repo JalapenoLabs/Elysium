@@ -139,12 +139,26 @@ Selectors return existing references; never build objects or strings inside one.
 | `realtime`       | Event stream connection: `connecting`, `open`, or `reconnecting`        |
 | `theme`          | Theme preference and what it resolves to                                |
 
-Server collections use entity adapters and a `status` of `idle`, `loading`, `loaded`, or `failed`. Once `loaded`,
-a refetch never drops a list back to a spinner.
+Server collections use entity adapters. Redux is the source of truth components render from.
 
-Data enters the store two ways. Fetch thunks (`fetchLlms`, `fetchSatellites`, `fetchCodingSessions`,
-`fetchSessionEvents`) load collections, and the event stream dispatches every change the API announces. Pages
-do not fetch on mount: the stream's `hello` loads everything on connect and again on every reconnect.
+### Server data: SWR, then Redux, then the event stream
+
+1. **SWR loads it once.** A component that shows server data calls a loader from `src/hooks/useServerData.ts`
+   (`useLlmsLoader`, `useSatellitesLoader`, `useCodingSessionsLoader`, `useSessionHistoryLoader`). SWR fetches
+   the key once, deduplicates every component asking for it, and buffers the response so a remounted page
+   renders at once while it revalidates.
+2. **Redux holds it.** The loader puts the response in Redux (`llmsLoaded`, `sessionHistoryLoaded`, ...).
+   Loaders return only `loading`, `loaded`, or `failed`; components select the data itself from Redux. Once
+   `loaded`, a refetch never drops a view back to a spinner.
+3. **The event stream keeps it current.** Every change the API announces is dispatched into Redux. On `hello` and
+   `resync` the stream revalidates every mounted SWR key, closing the gap from while it was disconnected.
+
+Collection loaders dispatch from inside the fetcher, so only a fresh network response replaces a collection;
+SWR's buffered copy predates the stream's updates and must not roll Redux back. History merges by sequence
+instead of replacing, so its loader applies the buffered copy too.
+
+SWR's own focus and reconnect revalidation is off (`src/main.tsx`), because the event stream covers both. SWR is
+also the tool for one-off reads that no global view shares, such as data a form needs to open.
 
 After a write, dispatch the response (for example `llmUpserted(response.llm)`) so this tab updates without waiting
 for the event. The event that follows is idempotent.

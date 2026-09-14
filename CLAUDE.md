@@ -47,8 +47,10 @@ Everything else follows these rules:
   (`bg-surface`, `text-link`, `bg-sidebar`), never hardcoded colors in components.
 - HeroUI v3 on Tailwind CSS v4, modeled on Stripe's dashboard layout. v3's compound API differs from v2, so check
   `docs/frontend.md` or HeroUI's v3 docs rather than relying on v2 habits.
-- Redux Toolkit holds all global state: server data, the event stream connection, and the theme. Server data
-  enters through fetch thunks and the event stream. Component-local state stays in components.
+- Redux Toolkit holds all global state: server data, the event stream connection, and the theme. Component-local
+  state stays in components.
+- Server data flows SWR, then Redux, then the event stream: an SWR loader fetches it once and buffers it, Redux is
+  the source of truth components render, and the event stream keeps Redux current. See `docs/frontend.md`.
 - Every user-facing string goes through i18next. `en-US` is the only locale today.
 - Reach for `@jalapenolabs/uikit` first when it covers the need, such as `SmartTable` for data tables. Use HeroUI
   for everything the kit does not provide.

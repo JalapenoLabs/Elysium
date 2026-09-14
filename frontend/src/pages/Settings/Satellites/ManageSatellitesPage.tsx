@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 
 // Redux
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
-import { satelliteUpserted, selectAllSatellites, selectSatellitesStatus } from '../../../store/satellitesSlice'
+import { satelliteUpserted, selectAllSatellites } from '../../../store/satellitesSlice'
 
 // User interface
 import { Breadcrumbs, Button, Spinner, toast, useOverlayState } from '@heroui/react'
@@ -20,13 +20,14 @@ import { SatelliteTable } from './SatelliteTable'
 // Misc
 import { getSatelliteErrorMessage } from '../../../api/errors'
 import { testSatellite, updateSatellite } from '../../../api/routes/satelliteRoutes'
+import { useSatellitesLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 
 export function ManageSatellitesPage() {
   const { t } = useTranslation([ 'satellites', 'settings', 'common' ])
   const dispatch = useAppDispatch()
   const satellites = useAppSelector(selectAllSatellites)
-  const status = useAppSelector(selectSatellitesStatus)
+  const status = useSatellitesLoader()
 
   const formState = useOverlayState()
   const deleteState = useOverlayState()
@@ -103,7 +104,7 @@ export function ManageSatellitesPage() {
         </Button>
       </div>
 
-      {(status === 'idle' || status === 'loading') && <div className='grid place-items-center py-16'>
+      {status === 'loading' && <div className='grid place-items-center py-16'>
         <Spinner />
       </div>}
 

@@ -1,0 +1,105 @@
+// Copyright © 2026 Jalapeno Labs
+
+// Core
+import { useEffect } from 'react'
+import useSWR from 'swr'
+
+// Redux
+import { codingSessionsLoaded } from '../store/codingSessionsSlice'
+import { useAppDispatch } from '../store/hooks'
+import { llmsLoaded } from '../store/llmsSlice'
+import { satellitesLoaded } from '../store/satellitesSlice'
+import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
+
+// Misc
+import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
+import { listLlms } from '../api/routes/llmRoutes'
+import { listSatellites } from '../api/routes/satelliteRoutes'
+
+// How server data reaches a component:
+//
+// 1. A component that shows server data calls one of these hooks. SWR fetches it once,
+//    deduplicating every component that asks at the same time, and buffers the response.
+// 2. The response lands in Redux, the source of truth components render from.
+// 3. The event stream (`src/realtime/eventStream.ts`) keeps Redux current from then on,
+//    and revalidates these keys whenever it reconnects.
+//
+// The hooks return only where the load stands. Components select the data from Redux.
+
+type LoadStatus = 'loading' | 'loaded' | 'failed'
+
+// `loaded` holds through revalidation and failed refetches: data already on screen
+// stays there rather than flashing back to a spinner or an error.
+function toLoadStatus(hasData: boolean, error: unknown): LoadStatus {
+  if (hasData) {
+    return 'loaded'
+  }
+  if (error) {
+    return 'failed'
+  }
+  return 'loading'
+}
+
+// Collections dispatch from inside the fetcher, so only a response fresh off the network
+// replaces Redux. SWR's buffered copy is older than the event stream's updates, and a
+// component mounting on it must not roll Redux back.
+
+export function useLlmsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/llms', async () => {
+    const response = await listLlms()
+    dispatch(llmsLoaded(response.llms))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useSatellitesLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/satellites', async () => {
+    const response = await listSatellites()
+    dispatch(satellitesLoaded(response.satellites))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useCodingSessionsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/coding-sessions', async () => {
+    const response = await listCodingSessions()
+    dispatch(codingSessionsLoaded(response.sessions))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Holds a session's timeline in Redux while the calling component is mounted. History
+// merges by sequence rather than replacing, so SWR's buffered copy is safe to apply and
+// a reopened conversation shows it at once while the fresh copy loads.
+export function useSessionHistoryLoader(sessionId: string) {
+  const dispatch = useAppDispatch()
+
+  useEffect(() => {
+    dispatch(sessionTimelineOpened(sessionId))
+    return () => {
+      dispatch(sessionTimelineReleased(sessionId))
+    }
+  }, [ dispatch, sessionId ])
+
+  const { data, error, mutate } = useSWR(
+    `v1/coding-sessions/${sessionId}/events`,
+    () => listSessionEvents(sessionId),
+  )
+
+  useEffect(() => {
+    if (data) {
+      dispatch(sessionHistoryLoaded({ sessionId, history: data }))
+    }
+  }, [ dispatch, sessionId, data ])
+
+  return {
+    error,
+    retry: () => mutate(),
+  }
+}

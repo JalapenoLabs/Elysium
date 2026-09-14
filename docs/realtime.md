@@ -52,7 +52,8 @@ from the next process.
 `frontend/src/realtime/eventStream.ts` opens the one `EventSource` at startup, outside React, and dispatches each
 envelope into Redux through a lookup table typed against `ServerEvent` (`src/realtime/serverEvents.ts`).
 
-- `hello` and `resync` dispatch every collection fetch, plus a history fetch for each open conversation.
+- `hello` and `resync` revalidate every SWR key a mounted component holds; the loaders put the responses in
+  Redux. Data no component shows is fetched when one mounts. `session.resync` revalidates that session's history.
 - Browsers retry a dropped stream by themselves, but give up after an HTTP error response such as a 502 while the
   API restarts. The module then reopens the stream, backing off from 1 to 30 seconds.
 - `realtimeSlice` tracks the connection. The topbar dot is green when connected and amber while reconnecting.

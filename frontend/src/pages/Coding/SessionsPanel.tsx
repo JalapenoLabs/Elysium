@@ -8,9 +8,9 @@ import { useTranslation } from 'react-i18next'
 
 // Redux
 import { shallowEqual } from 'react-redux'
-import { selectAllCodingSessions, selectCodingSessionsStatus } from '../../store/codingSessionsSlice'
+import { selectAllCodingSessions } from '../../store/codingSessionsSlice'
 import { useAppSelector } from '../../store/hooks'
-import { selectSatelliteNamesById, selectSatellitesStatus } from '../../store/satellitesSlice'
+import { selectSatelliteNamesById } from '../../store/satellitesSlice'
 
 // User interface
 import { Button, Chip, Link, Spinner } from '@heroui/react'
@@ -19,6 +19,7 @@ import { LuPlus } from 'react-icons/lu'
 import { SessionRowActions } from './SessionRowActions'
 
 // Misc
+import { useCodingSessionsLoader, useSatellitesLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { UrlTree } from '../../urls'
 import { useCodingActions } from './codingActionsContext'
@@ -53,10 +54,10 @@ export function SessionsPanel() {
   const [ search, setSearch ] = useState('')
 
   const sessions = useAppSelector(selectAllCodingSessions)
-  const sessionsStatus = useAppSelector(selectCodingSessionsStatus)
+  const sessionsStatus = useCodingSessionsLoader()
   // Satellite status polls must not rebuild the columns, which would reset the table's sorting.
   const satelliteNames = useAppSelector(selectSatelliteNamesById, shallowEqual)
-  const satellitesStatus = useAppSelector(selectSatellitesStatus)
+  const satellitesStatus = useSatellitesLoader()
 
   const managedColumns = useMemo(() => {
     // Timestamps arrive as UTC; this is where they become the viewer's local time.
@@ -137,7 +138,7 @@ export function SessionsPanel() {
     })
   }, [ t, i18n.language, satelliteNames, actions ])
 
-  if (sessionsStatus === 'idle' || sessionsStatus === 'loading') {
+  if (sessionsStatus === 'loading') {
     return <div className='grid h-full place-items-center'>
       <Spinner />
     </div>

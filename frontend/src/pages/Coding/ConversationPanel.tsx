@@ -8,14 +8,10 @@ import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
-import { selectCodingSessionById, selectCodingSessionsStatus } from '../../store/codingSessionsSlice'
-import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { selectCodingSessionById } from '../../store/codingSessionsSlice'
+import { useAppSelector } from '../../store/hooks'
 import { selectSatelliteById } from '../../store/satellitesSlice'
-import {
-  fetchSessionEvents,
-  selectSessionTimeline,
-  sessionTimelineReleased,
-} from '../../store/sessionEventsSlice'
+import { selectSessionTimeline } from '../../store/sessionEventsSlice'
 
 // User interface
 import { Button, Chip, Spinner } from '@heroui/react'
@@ -23,6 +19,7 @@ import { ConversationTimeline } from './ConversationTimeline'
 import { PromptComposer } from './PromptComposer'
 
 // Misc
+import { useCodingSessionsLoader, useSatellitesLoader, useSessionHistoryLoader } from '../../hooks/useServerData'
 import { CLOSED_THREAD_STATES, threadStateChipColors, threadStateLabelKeys } from './sessionPresentation'
 
 // One session's conversation: its history from the satellite, live events from the
@@ -30,21 +27,16 @@ import { CLOSED_THREAD_STATES, threadStateChipColors, threadStateLabelKeys } fro
 // while this panel is open.
 export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelParams>) {
   const { t } = useTranslation([ 'coding', 'common' ])
-  const dispatch = useAppDispatch()
   const sessionId = props.params.sessionId
 
   const session = useAppSelector((state) => selectCodingSessionById(state, sessionId))
-  const sessionsStatus = useAppSelector(selectCodingSessionsStatus)
+  const sessionsStatus = useCodingSessionsLoader()
+  useSatellitesLoader()
   const satelliteId = session?.satelliteId ?? ''
   const satellite = useAppSelector((state) => selectSatelliteById(state, satelliteId))
   const timeline = useAppSelector((state) => selectSessionTimeline(state, sessionId))
 
-  useEffect(() => {
-    dispatch(fetchSessionEvents(sessionId))
-    return () => {
-      dispatch(sessionTimelineReleased(sessionId))
-    }
-  }, [ dispatch, sessionId ])
+  const history = useSessionHistoryLoader(sessionId)
 
   const title = session?.title
   useEffect(() => {
@@ -66,7 +58,8 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
 
   const state = session.thread?.state ?? 'unknown'
   const isClosed = CLOSED_THREAD_STATES.includes(state)
-  const isLoading = !timeline || timeline.status === 'idle' || timeline.status === 'loading'
+  const hasHistory = Boolean(timeline?.isHistoryLoaded)
+  const isLoading = !hasHistory && !history.error
 
   return <div className='flex h-full flex-col'>
     <div className='level shrink-0 border-b border-separator px-4 py-2'>
@@ -91,18 +84,18 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
         </div>
       </div>}
 
-      {timeline?.status === 'failed' && <div className='grid h-full place-items-center p-6'>
+      {!hasHistory && Boolean(history.error) && <div className='grid h-full place-items-center p-6'>
         <div className='text-center'>
           <p className='compact text-sm text-danger'>{
             t('conversation.loadError')
           }</p>
-          <Button size='sm' variant='outline' onPress={() => dispatch(fetchSessionEvents(sessionId))}>
+          <Button size='sm' variant='outline' onPress={history.retry}>
             <span>{t('common:actions.retry')}</span>
           </Button>
         </div>
       </div>}
 
-      {timeline?.status === 'loaded' && <ConversationTimeline
+      {hasHistory && timeline && <ConversationTimeline
         timeline={timeline}
       />}
     </div>

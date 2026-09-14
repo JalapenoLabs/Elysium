@@ -2,28 +2,20 @@
 
 import type { PayloadAction } from '@reduxjs/toolkit'
 import type { Satellite, SatelliteStatus } from '../api/routes/satelliteRoutes'
-import type { LoadStatus } from './loadStatus'
 import type { RootState } from './index'
 
 // Core
-import { createAsyncThunk, createEntityAdapter, createSelector, createSlice } from '@reduxjs/toolkit'
-
-// Misc
-import { listSatellites } from '../api/routes/satelliteRoutes'
+import { createEntityAdapter, createSelector, createSlice } from '@reduxjs/toolkit'
 
 const satellitesAdapter = createEntityAdapter<Satellite>({
   sortComparer: (first, second) => first.name.localeCompare(second.name),
 })
 
-export const fetchSatellites = createAsyncThunk('satellites/fetch', async () => {
-  const response = await listSatellites()
-  return response.satellites
-})
-
 export const satellitesSlice = createSlice({
   name: 'satellites',
-  initialState: satellitesAdapter.getInitialState({ status: 'idle' as LoadStatus }),
+  initialState: satellitesAdapter.getInitialState(),
   reducers: {
+    satellitesLoaded: satellitesAdapter.setAll,
     // A saved satellite arrives without a status: the API restarts its watcher, and
     // `satelliteStatusReported` follows once the first poll lands.
     satelliteUpserted: satellitesAdapter.upsertOne,
@@ -39,27 +31,14 @@ export const satellitesSlice = createSlice({
       satellite.status = action.payload
     },
   },
-  extraReducers: (builder) => {
-    builder
-      .addCase(fetchSatellites.pending, (state) => {
-        if (state.status !== 'loaded') {
-          state.status = 'loading'
-        }
-      })
-      .addCase(fetchSatellites.fulfilled, (state, action) => {
-        satellitesAdapter.setAll(state, action.payload)
-        state.status = 'loaded'
-      })
-      .addCase(fetchSatellites.rejected, (state, action) => {
-        console.debug('Loading satellites failed', { error: action.error })
-        if (state.status !== 'loaded') {
-          state.status = 'failed'
-        }
-      })
-  },
 })
 
-export const { satelliteUpserted, satelliteDeleted, satelliteStatusReported } = satellitesSlice.actions
+export const {
+  satellitesLoaded,
+  satelliteUpserted,
+  satelliteDeleted,
+  satelliteStatusReported,
+} = satellitesSlice.actions
 
 export const {
   selectAll: selectAllSatellites,
@@ -80,7 +59,3 @@ export const selectSatelliteNamesById = createSelector(
     return namesById
   },
 )
-
-export function selectSatellitesStatus(state: RootState) {
-  return state.satellites.status
-}
