@@ -1,0 +1,38 @@
+{
+  "actions": {
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "save": "Save",
+    "moreActions": "More actions"
+  },
+  "search": {
+    "placeholder": "Search",
+    "label": "Search Elysium"
+  },
+  "errors": {
+    "unexpected": "Something went wrong. Please try again."
+  },
+  "brand": {
+    "name": "Elysium"
+  },
+  "table": {
+    "searchPlaceholder": "Search...",
+    "clearSearch": "Clear search",
+    "results_one": "{{count}} result",
+    "results_other": "{{count}} results",
+    "columns": "Columns",
+    "sort": "Sort",
+    "sortAscending": "Sorted ascending",
+    "sortDescending": "Sorted descending",
+    "move": "Move",
+    "select": "Select row",
+    "selectAll": "Select all rows",
+    "actions": "Actions",
+    "searchNoResults": "No results match your search.",
+    "rowsPerPage": "Rows per page",
+    "pagination": "Pagination",
+    "previousPage": "Previous page",
+    "nextPage": "Next page"
+  }
+}

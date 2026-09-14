@@ -1,0 +1,13 @@
+# Secrets
+.env
+
+# Build output
+api/target/
+frontend/dist/
+frontend/node_modules/
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store

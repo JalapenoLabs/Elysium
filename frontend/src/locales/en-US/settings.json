@@ -1,0 +1,30 @@
+{
+  "title": "Settings",
+  "sections": {
+    "personal": "Personal settings",
+    "workspace": "Workspace settings"
+  },
+  "items": {
+    "personalDetails": {
+      "title": "Personal details",
+      "description": "Appearance and preferences for how Elysium looks on this device."
+    },
+    "llms": {
+      "title": "Manage LLMs",
+      "description": "Connect language model providers, set their priority, and manage credentials."
+    }
+  },
+  "personalDetails": {
+    "title": "Personal details",
+    "appearance": {
+      "heading": "Appearance",
+      "description": "Choose how Elysium looks. System follows your device's light or dark setting. Saved on this browser.",
+      "label": "Theme",
+      "options": {
+        "light": "Light",
+        "dark": "Dark",
+        "system": "System"
+      }
+    }
+  }
+}

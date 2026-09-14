@@ -1,0 +1,9 @@
+{
+  "primary": {
+    "label": "Primary navigation",
+    "home": "Home"
+  },
+  "topbar": {
+    "settings": "Settings"
+  }
+}

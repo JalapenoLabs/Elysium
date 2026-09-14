@@ -1,0 +1,207 @@
+# Frontend
+
+Vite 8, React 19, and TypeScript in `frontend/`, managed with Yarn 4.17.0 (`packageManager` pinned). The UI uses
+HeroUI v3 on Tailwind CSS v4 and is modeled on Stripe's dashboard.
+
+## Stack
+
+| Concern         | Choice                                                         |
+|-----------------|----------------------------------------------------------------|
+| Components      | HeroUI v3 (`@heroui/react`, built on React Aria Components)    |
+| Org components  | `@jalapenolabs/uikit` (tables via `SmartTable`)                |
+| Linting         | `@jalapenolabs/cli/eslint`, the org-wide ESLint 9 ruleset      |
+| Styling         | Tailwind CSS v4 via `@tailwindcss/vite`                        |
+| Routing         | React Router 8, data router (`createBrowserRouter`)            |
+| Data fetching   | SWR over the Ky client                                         |
+| Forms           | react-hook-form with Zod schemas                               |
+| Dates           | `@internationalized/date` for input, `Intl` for display        |
+| Icons           | `react-icons/lu` (Lucide)                                      |
+| Translations    | i18next with react-i18next                                     |
+
+## Layout
+
+`src/layout/AppShell.tsx` is the root route's element and renders on every page:
+
+- `Sidebar` sits on the left: the brand, then the primary navigation from `src/layout/navigation.ts`. Add
+  top-level areas to that list, not to the component.
+- `Topbar` spans the content column. It has a search field and, on the right, the settings gear. Pressing `/`
+  outside a text field focuses search. Search itself does nothing yet.
+- The routed page renders in the scrollable `main` area through `<Outlet />`.
+
+`AppShell` also mounts HeroUI's `RouterProvider`, wired to React Router's `navigate` and `useHref`. That makes any
+HeroUI `Link` `href` a client-side navigation. It also mounts the toast region.
+
+## Routes
+
+Paths live in `UrlTree` in `src/urls.ts`, and the route table lives in `src/router.tsx`. Unknown paths redirect to
+the home page.
+
+| Path                          | Page                     | Notes                                                    |
+|-------------------------------|--------------------------|----------------------------------------------------------|
+| `/`                           | `HomePage`               | Placeholder                                              |
+| `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
+| `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
+| `/settings/llms`              | `ManageLlmsPage`         | List, add, edit, activate or deactivate, and delete LLMs |
+
+The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s.
+New settings pages add an entry to a section and a route under `/settings`.
+
+## Pages and components
+
+Each exported component has its own file. Pages live under `src/pages/<Area>/`. Pure helpers, lookup tables, and
+schemas sit in non-component files beside the page, such as `llmPresentation.ts` and `llmFormSchema.ts`, so React
+Fast Refresh keeps working.
+
+Manage LLMs is split into these files:
+
+- `ManageLlmsPage` owns data loading and which dialog is open.
+- `LlmTable` renders the credentials with uikit's `SmartTable`: search, result count, sorting, and column
+  controls. Column widths and order persist in localStorage.
+- `LlmRowActions` is the per-row menu to edit, activate or deactivate, and delete.
+- `LlmFormModal` handles both create and edit. It remounts on every opening, so it always starts from the selected
+  credential.
+- `DeleteLlmDialog` confirms and performs a delete.
+
+## Jalapeno Labs packages
+
+Both org packages install from GitHub, pinned to a commit in `package.json`. uikit is not on the npm registry. Yarn
+only fetches git dependencies from approved repositories, so `.yarnrc.yml` approves
+`https://github.com/JalapenoLabs/*`. The frontend image installs `git` for the same reason. To upgrade, change the
+`#commit=` hash and run `yarn install`.
+
+### `@jalapenolabs/uikit`
+
+A React component kit. It styles itself with one scoped stylesheet (`jala-table-*` classes) themed through CSS
+variables, so it does not depend on Tailwind or HeroUI. `src/index.css` points the table's variables at the
+HeroUI theme so accents match.
+
+- **`SmartTable`** takes `managedColumns` built with `createManagedColumns`. Each column needs a label, a search
+  value (what the user sees, not raw data), and a `cell` renderer.
+- **Labels.** Pass `useSmartTableLabels()` as `labels`. The kit ships English strings, and that hook supplies ours
+  from i18next.
+- **Row actions.** Render them as a regular column, as `LlmTable` does. The kit's built-in actions tray appears
+  only on hover, above the row.
+- **Empty lists.** The kit has no empty-state slot, so render the empty message instead of the table.
+
+### `@jalapenolabs/cli/eslint`
+
+`eslint.config.ts` extends the shared config. It adds two local blocks:
+
+- **License header.** Headers must read `// Copyright © <year> Jalapeno Labs`. The shared config spells it
+  `JalapenoLabs`.
+- **React rules.** The shared config at commit `e3f02f8` intends to apply `react/recommended` and
+  `react-hooks/recommended` to TSX, but drops them. It passes `fixupConfigRules`' array result along as if it
+  were a single config. The local block restores those rules, using the same plugin versions, until the shared
+  package is fixed.
+
+`yarn lint` fails on any warning, and `yarn lint:fix` applies autofixes.
+
+## Data
+
+`src/api/index.ts` exports one Ky instance with `prefix: '/api'`. Requests are origin-relative because nginx
+serves the frontend and API from the same host. Each resource has a file in `src/api/routes/` with one function per
+endpoint and request and response types that mirror the Rust structs.
+
+Reads go through SWR hooks in `src/hooks/`, such as `useLlms`. After a write, call `mutate` with the hook's cache
+key so every view refreshes.
+
+## Forms
+
+- react-hook-form with a Zod schema. Schemas are built with `t` so validation messages arrive translated.
+- Read field values with `useWatch`, not `form.watch`. The React Compiler lint rejects `watch`.
+- HeroUI v3 field `onChange` handlers receive the value, not a DOM event.
+- Server conflicts map back to fields. For example, a `409` on create or edit sets an error on `name`.
+- Secret tokens are write-only. The edit form leaves the field blank and sends a token only when one is typed.
+
+## Overlays
+
+A modal or alert dialog opened from code, not from a trigger child, skips the `Modal` or `AlertDialog` root. It
+passes `isOpen` and `onOpenChange` to `Modal.Backdrop` or `AlertDialog.Backdrop`, fed by `useOverlayState`. The
+root is a trigger wrapper, and rendering it without a pressable child makes React Aria warn.
+
+## Theming
+
+`src/index.css` imports Tailwind, then `@heroui/styles`, in that order. The file also defines the shared layout
+classes `relaxed`, `compact`, `level`, `level-left`, `level-right`, and `container`. Muted text uses opacity, not
+gray colors, so the theme controls the base color.
+
+### Light, dark, and system
+
+Users choose Light, Dark, or System under Settings, Personal details. The choice is saved per browser in
+localStorage under `elysium.theme`, and defaults to System.
+
+- `src/theme/themePreference.ts` owns the preference. It reads and saves it, resolves System against
+  `prefers-color-scheme`, and applies the result to `<html>` as the `light` or `dark` class plus `data-theme` and
+  `color-scheme`. It re-applies when the OS theme changes while System is chosen, and when another tab changes
+  the setting.
+- `useThemePreference()` exposes the preference to React through `useSyncExternalStore`.
+- An inline script in `index.html` applies the saved theme before the CSS loads, so dark mode never flashes
+  light on load. It duplicates the resolve-and-apply logic in a few lines; keep the two in sync.
+- The theme cards use HeroUI's `RadioGroup` with the preview artwork uikit exports. uikit's own `ThemeSelector`
+  hardcodes its green brand color for the selected card.
+
+### Palette: Matter
+
+The app's colors come from the Matter VS Code theme (`tobiastimm.matter`). `src/theme/matter.css` sets HeroUI's
+base variables for each theme. HeroUI derives the hover, soft, and secondary shades from them.
+
+- **Dark** follows Matter's workbench colors: page `#14191f`, sidebar and panels `#0c0e13`, overlays `#21252b`,
+  text `#e6e6e6`, muted `#7a9bc2`, and accent `#267fb5`. Inputs are `#0c0e13` with a `#343d64` border, as in
+  Matter. Status colors are Matter's terminal green `#95cc5e`, yellow `#ccb85e`, and red `#ff7583`.
+- **Light** has no Matter original. It carries the same blue accent and slate hues onto white, with the status
+  colors deepened for contrast.
+- **Adjustments for legibility.** Link text uses a brighter blue in dark mode and a darker one in light mode,
+  because `#267fb5` alone falls short of body-text contrast. Borders sit a step lighter than Matter's own, which
+  vanish against the page.
+
+Style text links with `text-link`, not `text-accent`. The accent is for fills, focus rings, and selection.
+
+`--sidebar` (`bg-sidebar`) is Elysium's own token for app chrome, registered with Tailwind through `@theme inline`.
+
+The same file points uikit's `--jala-table-*` variables at the palette, including the dark table colors.
+
+## Translations
+
+Every user-facing string goes through i18next. `src/i18n.ts` bundles the locale files and initializes before the
+first render.
+
+- `en-US` is the source locale and the only one shipped today.
+- Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `home`, `settings`, `llms`.
+- `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
+- Enum values such as LLM types and statuses are translated through lookup tables typed with
+  `satisfies Record<..., ParseKeys<'llms'>>`.
+- Logs and `console.debug` messages stay in English.
+
+## Time
+
+The server sends and expects UTC ISO 8601 timestamps.
+
+- Display: format with `Intl.DateTimeFormat` in the viewer's locale and time zone, as `LlmTable` does.
+- Input: `DateField` holds a `ZonedDateTime` in the viewer's zone, created with `parseAbsoluteToLocal`. It is
+  submitted with `toAbsoluteString()`, which yields a UTC instant.
+
+## Dev server
+
+`yarn dev` binds on all interfaces on port 5173. Two environment variables adapt it:
+
+| Variable                | Set by  | Effect                                                         |
+|-------------------------|---------|----------------------------------------------------------------|
+| `VITE_HMR_CLIENT_PORT`  | compose | HMR websocket connects through nginx's published port          |
+| `VITE_API_PROXY_TARGET` | you     | Where `/api` goes outside compose (default `localhost:8080`)   |
+
+Inside compose, nginx handles `/api` before Vite sees it. For a host dev server against the running stack, use
+`VITE_API_PROXY_TARGET=http://localhost:4000 yarn dev`.
+
+The compose frontend image installs `node_modules` at build time. After changing dependencies, run
+`docker compose up -d --build frontend`.
+
+## Checks
+
+`yarn typecheck` and `yarn lint` must both pass.
+
+## Roadmap
+
+- Additional locales, once the product adopts them.
+- Search results behind the topbar field.
+- Contact and account fields on the Personal details page once user accounts exist, with the theme preference
+  moving to the user profile.

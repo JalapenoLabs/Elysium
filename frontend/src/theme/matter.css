@@ -1,0 +1,121 @@
+/* Copyright © 2026 Jalapeno Labs */
+
+/* Elysium's palette, based on the Matter VS Code theme (tobiastimm.matter).
+   Dark mode follows Matter's workbench colors; Matter ships no light variant, so
+   light mode carries the same blue and slate hues onto white surfaces.
+
+   HeroUI derives hover, soft, and secondary shades from these base variables, so
+   only base colors are set here. `--sidebar` is Elysium's own token for the app
+   chrome, mirroring Matter's darker side bar. */
+
+@theme inline {
+  --color-sidebar: var(--sidebar);
+}
+
+[data-theme='light'] {
+  --background: #ffffff;
+  --foreground: #14191f;
+  --sidebar: #f5f7fa;
+
+  --surface: #ffffff;
+  --surface-secondary: #f3f6f9;
+  --surface-tertiary: #e9eef3;
+  --overlay: #ffffff;
+
+  --muted: #516a88;
+  --default: #eef2f6;
+  --default-foreground: #14191f;
+  --segment: #ffffff;
+
+  /* Matter's primary blue. Text links use a darker step to stay readable on white. */
+  --accent: #267fb5;
+  --accent-foreground: #effbff;
+  --focus: #267fb5;
+  --link: #1f6a98;
+
+  --field-background: #ffffff;
+  --field-foreground: #14191f;
+  --field-placeholder: #7a8ca3;
+
+  /* Matter's green, yellow, and red, deepened for contrast on white. */
+  --success: #5e9a2e;
+  --success-foreground: #ffffff;
+  --warning: #a88f22;
+  --warning-foreground: #ffffff;
+  --danger: #e04a5c;
+  --danger-foreground: #ffffff;
+
+  --border: #dfe4ea;
+  --separator: #e8ecf0;
+}
+
+[data-theme='dark'] {
+  /* editor.background, editor.foreground, sideBar.background */
+  --background: #14191f;
+  --foreground: #e6e6e6;
+  --sidebar: #0c0e13;
+
+  /* Panels sit darker than the page, as Matter's side bar does against the editor. */
+  --surface: #0c0e13;
+  --surface-secondary: #1a2028;
+  --surface-tertiary: #21252b;
+  /* editorWidget.background */
+  --overlay: #21252b;
+  --backdrop: rgba(12, 14, 19, 0.7);
+
+  --muted: #7a9bc2;
+  /* badge.background */
+  --default: #282c34;
+  --default-foreground: #e6e6e6;
+  --segment: #282c34;
+
+  /* focusBorder, button.background, textLink.foreground */
+  --accent: #267fb5;
+  --accent-foreground: #effbff;
+  --focus: #267fb5;
+  /* Matter's bright blue: #267fb5 is too dim for body-size link text on #14191f. */
+  --link: #4cbbff;
+
+  /* input.background, input.border */
+  --field-background: #0c0e13;
+  --field-foreground: #e6e6e6;
+  --field-placeholder: #516a88;
+  --field-border: #343d64;
+  --field-border-width: 1px;
+
+  /* terminal green, yellow, and red from the Matter setup */
+  --success: #95cc5e;
+  --success-foreground: #0c0e13;
+  --warning: #ccb85e;
+  --warning-foreground: #0c0e13;
+  --danger: #ff7583;
+  --danger-foreground: #0c0e13;
+
+  /* Matter's own borders (#14171f) vanish against the page, so these sit a step lighter. */
+  --border: #232a36;
+  --separator: #1c222b;
+}
+
+/* @jalapenolabs/uikit tables theme through their own variables. The kit injects its
+   stylesheet after this one, so the `html` prefix is what lets these win. */
+html .jala-table-root,
+html .jala-table-toolbar {
+  --jala-table-accent: var(--accent);
+  --jala-table-panel-bg: var(--overlay);
+}
+
+html[data-theme='dark'] .jala-table-root,
+html[data-theme='dark'] .jala-table-toolbar {
+  --jala-table-text: #c0c5cd;
+  --jala-table-text-strong: #e6e6e6;
+  --jala-table-text-muted: #7a9bc2;
+  --jala-table-border: #1c222b;
+  --jala-table-header-border: #232a36;
+  --jala-table-surface: #14191f;
+  --jala-table-panel-border: #343d64;
+  --jala-table-item-bg: #0c0e13;
+  --jala-table-row-hover-bg: #1a2028;
+  --jala-table-row-active-bg: #21252b;
+  --jala-table-control-bg: #0c0e13;
+  --jala-table-control-text: #e6e6e6;
+}

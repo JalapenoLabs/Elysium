@@ -1,0 +1,43 @@
+/* Copyright © 2026 Jalapeno Labs */
+
+/* Order matters: HeroUI's styles build on Tailwind's theme. */
+@import "tailwindcss";
+@import "@heroui/styles";
+
+@import "./theme/matter.css";
+
+:root {
+  --radius: 0.5rem;
+}
+
+/* Layout helpers shared across pages. Spacing classes go on each item that needs a
+   gap below it, never on the wrapper around a group. */
+@layer components {
+  .relaxed:not(:last-child) {
+    margin-bottom: 1.5rem;
+  }
+
+  .compact:not(:last-child) {
+    margin-bottom: 0.75rem;
+  }
+
+  .level {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .level-left,
+  .level-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .container {
+    width: 100%;
+    margin-inline: auto;
+    max-width: 72rem;
+  }
+}

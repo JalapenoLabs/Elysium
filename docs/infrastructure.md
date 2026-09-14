@@ -1,0 +1,60 @@
+# Infrastructure
+
+`compose.yml` runs the whole stack. Non-secret configuration, such as `CORS_ALLOWED_ORIGINS`, is written inline.
+`.env` supplies the bootstrap credentials: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `REDIS_PASSWORD`,
+and `ELYSIUM_ENCRYPTION_KEY`. It may also supply `RUST_LOG`. Compose refuses to start when a required value is
+missing, and `.env.example` is the template.
+
+`WEB_PORT` may be set to move nginx off the default port 4000.
+
+Postgres applies its credentials only when the data volume is first created. After changing them, recreate the
+volume with `docker compose down --volumes`, which destroys the data.
+
+| Service    | Image / build              | Container name     | Notes                                   |
+|------------|----------------------------|--------------------|-----------------------------------------|
+| `nginx`    | `nginx:1.30.4-alpine`      | `elysium-nginx`    | Only published port: `127.0.0.1:4000`   |
+| `frontend` | `frontend/Dockerfile`      | `elysium-frontend` | Vite dev server, source bind-mounted    |
+| `migrate`  | `api/Dockerfile`           | `elysium-migrate`  | One-shot `migrate run`, then exits      |
+| `api`      | `api/Dockerfile`           | none               | Scales; reachable only through nginx    |
+| `postgres` | `postgres:18.6-alpine3.23` | `elysium-postgres` | Volume `postgres-data`, `timezone=UTC`  |
+| `redis`    | `redis:8.10.1-alpine`      | `elysium-redis`    | Password required, AOF on, `redis-data` |
+
+## Routing
+
+nginx proxies `/api/` to `api:8080` unchanged and everything else to `frontend:5173`, including the HMR websocket
+upgrade. The frontend's HMR client is told nginx's published port through `VITE_HMR_CLIENT_PORT`.
+
+## Startup order
+
+`migrate` waits for `postgres` health. `api` waits for `migrate` to exit successfully and for `redis` health.
+`nginx` waits for `api` health. The API also retries its own connections, so a store restart mid-run does not
+require restarting the API.
+
+`migrate` and `api` share the `elysium-api` image, which has the migrations compiled in.
+
+## API image
+
+Built from the repository root so `.git` can be copied into the builder for `/api/version`. `api/migrations` is
+copied in as well, because the binary embeds the SQL. `cargo-chef` caches compiled dependencies in their own
+layer. Source and `.git` are copied afterwards, so a commit only rebuilds the crate itself. The runtime image is
+`debian:trixie-slim` with `ca-certificates` and `curl` for the healthcheck, running as a non-root user.
+
+## Frontend image
+
+`node:22.23.2-trixie-slim` with Yarn 4.17.0 activated through corepack. Dependencies install into the image.
+Compose bind-mounts `src/`, `public/`, `index.html`, and `vite.config.ts`, so edits hot-reload without rebuilding.
+A dependency change needs `docker compose up --build frontend`.
+
+## Time
+
+Postgres runs with `timezone=UTC`, and every server container sets `TZ=UTC`.
+
+## Persistence
+
+Postgres 18 images place the cluster under `/var/lib/postgresql/<major>/docker`, so the named volume mounts
+`/var/lib/postgresql`, not the older `.../data` path.
+
+## Roadmap
+
+- Production frontend image: static `vite build` output served by nginx directly.
+- CI pipeline building both images and running clippy, typecheck, lint, and `api/scripts/verify-migrations.sh`.

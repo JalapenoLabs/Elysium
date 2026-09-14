@@ -1,0 +1,10 @@
+# Diesel CLI configuration. `diesel print-schema` regenerates src/database/schema.rs
+# from the migrated database; scripts/verify-migrations.sh fails if it drifts.
+
+[print_schema]
+file = "src/database/schema.rs"
+custom_type_derives = ["diesel::query_builder::QueryId"]
+import_types = ["diesel::sql_types::*"]
+
+[migrations_directory]
+dir = "migrations"

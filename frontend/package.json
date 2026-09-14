@@ -1,0 +1,53 @@
+{
+  "name": "elysium-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "@heroui/react": "^3.2.5",
+    "@heroui/styles": "^3.2.5",
+    "@hookform/resolvers": "^5.9.1",
+    "@internationalized/date": "^3.12.4",
+    "@jalapenolabs/uikit": "https://github.com/JalapenoLabs/uikit.git#commit=b98c8deeecf84cd954ad5bb58a4d719680f9b6f6",
+    "@react-aria/i18n": "^3.13.1",
+    "@react-aria/ssr": "^3.10.1",
+    "@react-aria/utils": "^3.34.1",
+    "@tanstack/react-table": "^8.21.3",
+    "i18next": "^26.4.2",
+    "ky": "^2.1.0",
+    "react": "^19.2.8",
+    "react-aria": "^3.52.1",
+    "react-aria-components": "^1.21.1",
+    "react-dom": "^19.2.8",
+    "react-hook-form": "^7.88.0",
+    "react-i18next": "^17.0.14",
+    "react-icons": "^5.7.0",
+    "react-router": "^8.3.1",
+    "swr": "^2.5.1",
+    "zod": "^4.6.4"
+  },
+  "devDependencies": {
+    "@jalapenolabs/cli": "https://github.com/JalapenoLabs/cli.git#commit=e3f02f8f98034ebe59c9b084aa23fb4a8d613b6e",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "eslint": "^9",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "jiti": "^2.7.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  },
+  "packageManager": "yarn@4.17.0"
+}

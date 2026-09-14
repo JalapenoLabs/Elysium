@@ -1,0 +1,121 @@
+# API
+
+Rust binary in `api/`, built on axum and tokio. Every route is mounted under `/api` because nginx forwards that
+prefix unchanged. Health and build routes sit at the top level. Resource routes are versioned under `/api/v1`.
+
+## Routes
+
+| Method | Path                | Response                                   |
+|--------|---------------------|--------------------------------------------|
+| GET    | `/api/ok`           | `200` text `ok`                            |
+| GET    | `/api/ping`         | `200` text `pong`                          |
+| GET    | `/api/version`      | `200` JSON, see below                      |
+| GET    | `/api/v1/llms`      | `200` `{ llms: Llm[] }`, in priority order |
+| POST   | `/api/v1/llms`      | `201` `{ llm }`                            |
+| GET    | `/api/v1/llms/{id}` | `200` `{ llm }`                            |
+| PATCH  | `/api/v1/llms/{id}` | `200` `{ llm }`                            |
+| DELETE | `/api/v1/llms/{id}` | `204`                                      |
+
+Each route lives in its own file under `api/src/routes/`, and the directory mirrors the URL.
+
+### `/api/version`
+
+Returns the crate name and version, build profile, `rustc` version, build timestamp, and git metadata. The git
+metadata is the current branch, `HEAD`, and the last 20 commits, each with hash, short hash, author, ISO 8601
+date, and subject. `api/build.rs` captures all of it at compile time. A build with no git history reports an empty
+history rather than failing.
+
+### `/api/v1/llms`
+
+An `Llm` has `id`, `name`, `description`, `type`, `priority`, `isActive`, `expiresAt`, `createdAt`, and
+`updatedAt`. The secret token is never returned.
+
+`type` is one of `chatgpt-oauth`, `chatgpt-api-token`, `claude-api-token`, or `claude-code-oauth`.
+
+`POST` requires `name`, `type`, and `secretToken`. It accepts optional `description` (default empty), `priority`
+(default 0, lower is tried first), `isActive` (default true), and `expiresAt`.
+
+`PATCH` accepts any subset of the same fields. Omitted fields are unchanged. `expiresAt: null` clears the expiry.
+A new `secretToken` is re-sealed. An empty body is rejected.
+
+Timestamps sent to the API must include an offset. Responses are always UTC with a `Z` suffix.
+
+### Errors
+
+Every error is JSON with a `message`.
+
+| Status | Cause                                                                                 |
+|--------|---------------------------------------------------------------------------------------|
+| `400`  | Malformed JSON, unknown field, unknown enum value, bad UUID, blank or oversized token |
+| `404`  | No row with that id                                                                   |
+| `409`  | Unique constraint, such as a duplicate LLM name                                       |
+| `422`  | Field validation failed; `fields` lists each failure                                  |
+| `500`  | Internal fault; details are logged, never returned                                    |
+
+## Commands
+
+With no subcommand the binary serves HTTP.
+
+| Command                               | Purpose                                   |
+|---------------------------------------|-------------------------------------------|
+| `elysium-api serve`                   | Serve HTTP (the default)                  |
+| `elysium-api migrate <action>`        | Manage migrations, see `docs/database.md` |
+| `elysium-api generate-encryption-key` | Print a new `ELYSIUM_ENCRYPTION_KEY`      |
+
+## Startup and shutdown
+
+On start, the server loads an environment file if one is present, installs tracing, and parses `Config` from the
+environment. It then validates the encryption key, connects to Postgres, refuses to continue if any migration is
+pending, connects to Redis, binds, and serves. Both store connections retry with exponential backoff, 8 attempts
+over roughly a minute, and prove themselves with `SELECT 1` and `PING`.
+
+On `SIGTERM` or `SIGINT`, the listener stops accepting and in-flight requests drain. Then the Postgres pool closes
+and the Redis connection drops. Compose allows 30 seconds for this before `SIGKILL`.
+
+## Configuration
+
+| Variable                   | Default          | Purpose                                    |
+|----------------------------|------------------|--------------------------------------------|
+| `DATABASE_URL`             | required         | Postgres connection string                 |
+| `REDIS_URL`                | required         | Redis connection string                    |
+| `ELYSIUM_ENCRYPTION_KEY`   | required         | Base64 32-byte key sealing stored secrets  |
+| `HOST` / `PORT`            | `0.0.0.0` / 8080 | Bind address                               |
+| `DATABASE_MAX_CONNECTIONS` | 10               | Pool ceiling                               |
+| `CORS_ALLOWED_ORIGINS`     | empty            | Comma-separated origins; empty allows none |
+| `REQUEST_TIMEOUT_SECONDS`  | 30               | Handler deadline, answers `408`            |
+| `MAX_REQUEST_BODY_BYTES`   | 1048576          | Body cap, answers `413`                    |
+| `RUST_LOG`                 | `info,...`       | tracing filter                             |
+| `LOG_FORMAT`               | compact          | `json` for one JSON object per line        |
+
+Connection strings and the key are held as `SecretString`, so they never appear in debug output.
+
+Rate limits are deliberately not configurable. The limit is 10 requests per second per client IP, with a burst
+of 30. Both are constants in `src/middleware/rate_limit.rs`.
+
+## Code layout
+
+| Path                     | Holds                                            |
+|--------------------------|--------------------------------------------------|
+| `src/server.rs`          | Startup, middleware stack, shutdown              |
+| `src/routes/`            | One file per route                               |
+| `src/models/`            | Diesel records and the queries for each table    |
+| `src/database/`          | Pool type, migration runner, generated schema    |
+| `src/crypto.rs`          | Secret sealing                                   |
+| `src/errors.rs`          | `ApiError` and its mapping to HTTP responses     |
+| `src/state.rs`           | `AppState`: pool, Redis, cipher, version         |
+
+## Logging
+
+Logs are structured `tracing` events with dotted names such as `connection.open.success` and
+`migration.change.success`, using OpenTelemetry attribute names. Every request gets an `x-request-id`, either
+client-supplied or a generated UUID. The id is echoed on the response and attached to the request span.
+
+## Testing
+
+`cargo test` runs the hermetic unit tests: encryption, request parsing, and validation.
+`api/scripts/verify-migrations.sh` also runs the database-backed tests against a disposable Postgres.
+
+## Roadmap
+
+- Authentication. The LLM routes can write credentials, so nginx publishes on loopback only until auth exists.
+- TLS to Postgres for deployments where the database is not on a private network.

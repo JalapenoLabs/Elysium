@@ -1,0 +1,6 @@
+# The API image builds from the repository root (it needs .git); keep host build
+# output and the frontend's dependency tree out of the context.
+**/node_modules
+**/target
+**/dist
+.env

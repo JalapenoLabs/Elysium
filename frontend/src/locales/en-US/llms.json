@@ -1,0 +1,68 @@
+{
+  "title": "Manage LLMs",
+  "credentials": {
+    "heading": "Credentials",
+    "description": "Elysium tries active credentials in priority order, lowest number first. Tokens are encrypted and never shown again after saving.",
+    "add": "Add LLM"
+  },
+  "table": {
+    "label": "LLM credentials",
+    "name": "Name",
+    "type": "Type",
+    "priority": "Priority",
+    "status": "Status",
+    "expires": "Expires",
+    "never": "Never",
+    "empty": "No LLMs yet. Add one to get started.",
+    "loadError": "LLMs could not be loaded."
+  },
+  "status": {
+    "active": "Active",
+    "inactive": "Inactive",
+    "expired": "Expired"
+  },
+  "types": {
+    "chatgpt-oauth": "ChatGPT (OAuth)",
+    "chatgpt-api-token": "ChatGPT (API token)",
+    "claude-api-token": "Claude (API token)",
+    "claude-code-oauth": "Claude Code (OAuth)"
+  },
+  "actions": {
+    "activate": "Activate",
+    "deactivate": "Deactivate"
+  },
+  "form": {
+    "createTitle": "Add LLM",
+    "editTitle": "Edit {{name}}",
+    "name": "Name",
+    "description": "Description",
+    "type": "Type",
+    "typePlaceholder": "Choose a provider",
+    "secretToken": "Secret token",
+    "secretTokenKeep": "Leave blank to keep the current token.",
+    "priority": "Priority",
+    "priorityHint": "Lower numbers are tried first.",
+    "isActive": "Active",
+    "expiresAt": "Expires",
+    "expiresAtHint": "Optional. Shown in your local time zone.",
+    "clearExpiry": "Clear expiry",
+    "errors": {
+      "nameRequired": "Enter a name.",
+      "nameTooLong": "Use 120 characters or fewer.",
+      "nameTaken": "Another LLM already uses this name.",
+      "descriptionTooLong": "Use 2,000 characters or fewer.",
+      "typeRequired": "Choose a provider.",
+      "secretTokenRequired": "Enter the secret token.",
+      "secretTokenTooLong": "Tokens can be at most 16 KB."
+    }
+  },
+  "delete": {
+    "title": "Delete {{name}}?",
+    "body": "The credential and its encrypted token are removed permanently. This cannot be undone."
+  },
+  "toasts": {
+    "created": "{{name}} added",
+    "updated": "{{name}} updated",
+    "deleted": "{{name}} deleted"
+  }
+}
