@@ -5,7 +5,10 @@ import type { Llm } from '../../../api/routes/llmRoutes'
 // Core
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { mutate } from 'swr'
+
+// Redux
+import { useAppDispatch, useAppSelector } from '../../../store/hooks'
+import { llmUpserted, selectAllLlms, selectLlmsStatus } from '../../../store/llmsSlice'
 
 // User interface
 import { Breadcrumbs, Button, Spinner, toast, useOverlayState } from '@heroui/react'
@@ -16,12 +19,13 @@ import { LlmTable } from './LlmTable'
 
 // Misc
 import { updateLlm } from '../../../api/routes/llmRoutes'
-import { LLMS_CACHE_KEY, useLlms } from '../../../hooks/useLlms'
 import { UrlTree } from '../../../urls'
 
 export function ManageLlmsPage() {
   const { t } = useTranslation([ 'llms', 'settings', 'common' ])
-  const llms = useLlms()
+  const dispatch = useAppDispatch()
+  const llms = useAppSelector(selectAllLlms)
+  const status = useAppSelector(selectLlmsStatus)
 
   const formState = useOverlayState()
   const deleteState = useOverlayState()
@@ -37,8 +41,8 @@ export function ManageLlmsPage() {
 
   async function toggleActive(llm: Llm) {
     try {
-      await updateLlm(llm.id, { isActive: !llm.isActive })
-      await mutate(LLMS_CACHE_KEY)
+      const response = await updateLlm(llm.id, { isActive: !llm.isActive })
+      dispatch(llmUpserted(response.llm))
       toast.success(t('toasts.updated', { name: llm.name }))
     }
     catch (error) {
@@ -77,16 +81,16 @@ export function ManageLlmsPage() {
         </Button>
       </div>
 
-      {llms.isLoading && <div className='grid place-items-center py-16'>
+      {(status === 'idle' || status === 'loading') && <div className='grid place-items-center py-16'>
         <Spinner />
       </div>}
 
-      {llms.error && <p className='py-10 text-center text-sm text-danger'>{
+      {status === 'failed' && <p className='py-10 text-center text-sm text-danger'>{
         t('table.loadError')
       }</p>}
 
-      {llms.data && <LlmTable
-        llms={llms.data.llms}
+      {status === 'loaded' && <LlmTable
+        llms={llms}
         onEdit={(llm) => openForm(llm)}
         onToggleActive={toggleActive}
         onDelete={(llm) => {

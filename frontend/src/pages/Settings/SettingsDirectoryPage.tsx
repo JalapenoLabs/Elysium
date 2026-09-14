@@ -4,7 +4,7 @@
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { LuBot, LuUser } from 'react-icons/lu'
+import { LuBot, LuSatellite, LuUser } from 'react-icons/lu'
 import { SettingsDirectoryItem } from './SettingsDirectoryItem'
 
 // Misc
@@ -39,6 +39,12 @@ export function SettingsDirectoryPage() {
           title={t('items.llms.title')}
           description={t('items.llms.description')}
           href={UrlTree.settingsLlms}
+        />
+        <SettingsDirectoryItem
+          icon={LuSatellite}
+          title={t('items.satellites.title')}
+          description={t('items.satellites.description')}
+          href={UrlTree.settingsSatellites}
         />
       </div>
     </section>

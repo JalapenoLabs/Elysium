@@ -5,7 +5,7 @@
 
 mod ok;
 mod ping;
-mod v1;
+pub mod v1;
 mod version;
 
 use axum::Router;

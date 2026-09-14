@@ -8,7 +8,10 @@ import type { LlmFormValues } from './llmFormSchema'
 import { useMemo } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-import { mutate } from 'swr'
+
+// Redux
+import { useAppDispatch } from '../../../store/hooks'
+import { llmUpserted } from '../../../store/llmsSlice'
 
 // User interface
 import {
@@ -36,7 +39,6 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { createLlm, updateLlm } from '../../../api/routes/llmRoutes'
-import { LLMS_CACHE_KEY } from '../../../hooks/useLlms'
 import { createLlmFormSchema } from './llmFormSchema'
 import { LLM_TYPES, llmTypeLabelKeys } from './llmPresentation'
 
@@ -48,6 +50,7 @@ type Props = {
 
 export function LlmFormModal(props: Props) {
   const { t } = useTranslation([ 'llms', 'common' ])
+  const dispatch = useAppDispatch()
   const mode = props.llm
     ? 'edit'
     : 'create'
@@ -89,15 +92,16 @@ export function LlmFormModal(props: Props) {
         const secretToken = values.secretToken.trim()
           ? values.secretToken
           : undefined
-        await updateLlm(props.llm.id, { ...payload, secretToken })
+        const response = await updateLlm(props.llm.id, { ...payload, secretToken })
+        dispatch(llmUpserted(response.llm))
         toast.success(t('toasts.updated', { name: values.name }))
       }
       else {
-        await createLlm({ ...payload, secretToken: values.secretToken })
+        const response = await createLlm({ ...payload, secretToken: values.secretToken })
+        dispatch(llmUpserted(response.llm))
         toast.success(t('toasts.created', { name: values.name }))
       }
 
-      await mutate(LLMS_CACHE_KEY)
       props.state.close()
     }
     catch (error) {

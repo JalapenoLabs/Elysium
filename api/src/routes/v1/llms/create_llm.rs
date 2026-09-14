@@ -15,6 +15,7 @@ use validator::Validate;
 use super::{LlmResponse, SecretToken, validate_not_blank};
 use crate::errors::ApiError;
 use crate::models::llm::{self, LlmType, NewLlm};
+use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize, Validate)]
@@ -64,6 +65,9 @@ pub async fn handle(
         .context("no database connection available")?;
     let llm = llm::create(&mut connection, &state.cipher, &new_llm).await?;
 
+    state
+        .events
+        .publish(&ServerEvent::LlmUpserted(LlmResponse::from(llm.clone())));
     Ok((
         StatusCode::CREATED,
         Json(json!({ "llm": LlmResponse::from(llm) })),

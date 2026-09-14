@@ -1,0 +1,63 @@
+{
+  "title": "Manage satellites",
+  "fleet": {
+    "heading": "Satellites",
+    "description": "Satellites are Arsox workers that run coding sessions. Elysium checks each active one every few seconds. Secrets are encrypted and never shown again after saving.",
+    "add": "Add satellite"
+  },
+  "table": {
+    "label": "Satellites",
+    "name": "Name",
+    "url": "URL",
+    "status": "Status",
+    "version": "Version",
+    "threads": "Running threads",
+    "threadsValue": "{{running}} of {{max}}",
+    "unknown": "—",
+    "empty": "No satellites yet. Add one to start coding sessions.",
+    "loadError": "Satellites could not be loaded."
+  },
+  "status": {
+    "online": "Online",
+    "offline": "Unreachable",
+    "checking": "Checking",
+    "inactive": "Inactive"
+  },
+  "actions": {
+    "activate": "Activate",
+    "deactivate": "Deactivate",
+    "test": "Test connection"
+  },
+  "form": {
+    "createTitle": "Add satellite",
+    "editTitle": "Edit {{name}}",
+    "name": "Name",
+    "description": "Description",
+    "url": "URL",
+    "urlHint": "Where the API reaches the satellite, such as http://arsox:8080.",
+    "secret": "Secret",
+    "secretHint": "The satellite's ARSOX_SECRET.",
+    "secretKeep": "Leave blank to keep the current secret.",
+    "isActive": "Active",
+    "errors": {
+      "nameRequired": "Enter a name.",
+      "nameTooLong": "Use 120 characters or fewer.",
+      "nameTaken": "Another satellite already uses this name.",
+      "descriptionTooLong": "Use 2,000 characters or fewer.",
+      "urlInvalid": "Enter a URL starting with http:// or https://.",
+      "secretRequired": "Enter the satellite's secret.",
+      "secretTooLong": "Secrets can be at most 1 KB."
+    }
+  },
+  "delete": {
+    "title": "Delete {{name}}?",
+    "body": "Elysium forgets this satellite and every coding session recorded on it. Threads already running on the satellite are not stopped; they end on their own when idle."
+  },
+  "toasts": {
+    "created": "{{name}} added",
+    "updated": "{{name}} updated",
+    "deleted": "{{name}} deleted",
+    "testPassed": "{{name}} is reachable: Arsox {{version}}, {{running}} of {{max}} threads running",
+    "testFailed": "{{name}} could not be reached"
+  }
+}

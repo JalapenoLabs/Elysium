@@ -47,8 +47,8 @@ Guarantees:
 3. `cargo test -- --include-ignored` runs the database-backed tests.
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
-redo, concurrent migrators, the pending-migration refusal, and every LLM query. Plain `cargo test` skips them
-because they need `TEST_DATABASE_URL`.
+redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, and coding session query.
+Plain `cargo test` skips them because they need `TEST_DATABASE_URL`.
 
 ## Conventions
 
@@ -79,3 +79,31 @@ because they need `TEST_DATABASE_URL`.
 
 The partial index `llms_active_priority_idx` on `(priority, created_at) WHERE is_active` serves the lookup for
 active credentials in priority order.
+
+### `satellites`
+
+| Column             | Type          | Notes                                                  |
+|--------------------|---------------|--------------------------------------------------------|
+| `id`               | `UUID`        | UUIDv7, primary key                                    |
+| `name`             | `TEXT`        | 1 to 120 characters, unique                            |
+| `description`      | `TEXT`        | Up to 2000 characters, defaults to empty               |
+| `url`              | `TEXT`        | Starts with `http://` or `https://`, up to 2048 chars  |
+| `secret_encrypted` | `BYTEA`       | Sealed bearer secret, see `docs/secrets.md`            |
+| `is_active`        | `BOOLEAN`     | Defaults to true; inactive satellites are not watched  |
+| `created_at`       | `TIMESTAMPTZ` | Set on insert                                          |
+| `updated_at`       | `TIMESTAMPTZ` | Maintained by trigger                                  |
+
+### `coding_sessions`
+
+A pointer to an Arsox thread. The thread's state and history live on the satellite; see `docs/coding.md`.
+
+| Column         | Type          | Notes                                                                 |
+|----------------|---------------|-----------------------------------------------------------------------|
+| `id`           | `UUID`        | UUIDv7 from the API, also the thread's create idempotency key         |
+| `satellite_id` | `UUID`        | References `satellites`; deleting the satellite deletes its sessions  |
+| `thread_id`    | `TEXT`        | The satellite's thread id; unique per satellite                       |
+| `title`        | `TEXT`        | 1 to 200 characters                                                   |
+| `created_at`   | `TIMESTAMPTZ` | Set on insert                                                         |
+| `updated_at`   | `TIMESTAMPTZ` | Maintained by trigger                                                 |
+
+`coding_sessions_created_at_idx` serves the newest-first overview.

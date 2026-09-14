@@ -2,20 +2,31 @@
 
 ## Trust boundary
 
-nginx publishes on `127.0.0.1` only. The API has no authentication yet and its LLM routes write credentials, so
-nothing outside this machine may reach it.
+nginx publishes on `127.0.0.1` only. The API has no authentication yet, its LLM and satellite routes write
+credentials, and its coding routes drive agents on satellites, so nothing outside this machine may reach it.
 
 The API itself has no published port. Everything reaches it through nginx, which is the
 only component that can set `X-Real-IP` and `X-Forwarded-For`. The rate limiter and
 the logs trust those headers for that reason alone. Publishing the API port directly
 would let a client forge them.
 
+## Satellites
+
+- The API connects to whatever URL a satellite is registered with. That is intended, since satellites are
+  operator infrastructure, and it is one more reason the API stays on loopback until it has authentication.
+- Satellite secrets never leave the API. Browsers talk only to the API, which holds the one client per satellite.
+- Satellite errors shown to clients (`502` messages, `satellite.status` errors) come from the satellite's contract
+  errors and transport failures, which never contain the secret.
+- The event stream carries agent output, including tool input and output previews. It is served on the same
+  origin as everything else and shares the API's trust boundary.
+
 ## Rate limiting
 
 Token bucket per client IP (`tower_governor`): 30 requests may be spent at once, refilling at 10 per second. Both
 are constants in `api/src/middleware/rate_limit.rs`, not configuration, so every deployment enforces the same
-limit. Exceeding it answers `429` with a JSON body, `Retry-After`, and `x-ratelimit-*` headers. Buckets for idle
-clients are swept every minute so the key map stays bounded.
+limit. The event stream counts as one request per connection. Exceeding the limit answers `429` with a JSON body,
+`Retry-After`, and `x-ratelimit-*` headers. Buckets for idle clients are swept every minute so the key map stays
+bounded.
 
 ## Response headers
 
@@ -46,7 +57,8 @@ API share one origin through nginx, so browsers never need a cross-origin grant.
 
 ## Request hygiene
 
-- 30 second handler timeout (`408`).
+- 30 second handler timeout (`408`). It bounds producing the response, so the event stream, once open, is not
+  cut off.
 - 1 MiB body cap in both nginx and the API (`413`).
 - Panics in a handler become `500` instead of dropping the connection.
 - The API container runs as an unprivileged user.

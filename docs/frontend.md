@@ -12,7 +12,10 @@ HeroUI v3 on Tailwind CSS v4 and is modeled on Stripe's dashboard.
 | Linting         | `@jalapenolabs/cli/eslint`, the org-wide ESLint 9 ruleset      |
 | Styling         | Tailwind CSS v4 via `@tailwindcss/vite`                        |
 | Routing         | React Router 8, data router (`createBrowserRouter`)            |
-| Data fetching   | SWR over the Ky client                                         |
+| State           | Redux Toolkit with react-redux                                 |
+| Live updates    | One `EventSource` on `/api/v1/events`, see `docs/realtime.md`  |
+| HTTP            | Ky                                                             |
+| Docking layout  | Dockview (`dockview-react`) on the Coding page                 |
 | Forms           | react-hook-form with Zod schemas                               |
 | Dates           | `@internationalized/date` for input, `Intl` for display        |
 | Icons           | `react-icons/lu` (Lucide)                                      |
@@ -24,9 +27,12 @@ HeroUI v3 on Tailwind CSS v4 and is modeled on Stripe's dashboard.
 
 - `Sidebar` sits on the left: the brand, then the primary navigation from `src/layout/navigation.ts`. Add
   top-level areas to that list, not to the component.
-- `Topbar` spans the content column. It has a search field and, on the right, the settings gear. Pressing `/`
-  outside a text field focuses search. Search itself does nothing yet.
-- The routed page renders in the scrollable `main` area through `<Outlet />`.
+- `Topbar` spans the content column. It has a search field and, on the right, the live updates dot and the
+  settings gear. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
+  green while the event stream is connected and amber while it reconnects.
+- The routed page renders in `main` through `<Outlet />`. By default `main` is a padded, scrolling column. A route
+  whose `handle` is `{ layout: 'workspace' }` (typed as `RouteLayoutHandle` in `src/router.tsx`) gets the whole
+  content area and manages its own scrolling instead; the Coding page does.
 
 `AppShell` also mounts HeroUI's `RouterProvider`, wired to React Router's `navigate` and `useHref`. That makes any
 HeroUI `Link` `href` a client-side navigation. It also mounts the toast region.
@@ -39,9 +45,11 @@ the home page.
 | Path                          | Page                     | Notes                                                    |
 |-------------------------------|--------------------------|----------------------------------------------------------|
 | `/`                           | `HomePage`               | Placeholder                                              |
+| `/coding`                     | `CodingPage`             | Dockview workspace of coding sessions, see below         |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
 | `/settings/llms`              | `ManageLlmsPage`         | List, add, edit, activate or deactivate, and delete LLMs |
+| `/settings/satellites`        | `ManageSatellitesPage`   | Register satellites, see their status, test connections  |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s.
 New settings pages add an entry to a section and a route under `/settings`.
@@ -61,6 +69,21 @@ Manage LLMs is split into these files:
 - `LlmFormModal` handles both create and edit. It remounts on every opening, so it always starts from the selected
   credential.
 - `DeleteLlmDialog` confirms and performs a delete.
+
+Manage satellites follows the same split under `src/pages/Settings/Satellites/`. Its table shows each satellite's
+live status (online, unreachable with the reason on hover, checking, or inactive), version, and thread load, and
+its row menu adds Test connection.
+
+### Coding
+
+`src/pages/Coding/` is a Dockview workspace with a Sessions overview panel and one conversation panel per open
+session. `docs/coding.md` describes the panels, the conversation rendering, and layout persistence. Two details
+matter when changing it:
+
+- Dockview renders panels through portals, so panels share the page's React tree (Redux, i18n, router) but not its
+  props. Page actions reach them through `CodingActionsContext`.
+- `DockviewReact` needs a sized parent. The page is a flex column whose Dockview wrapper is `min-h-0 flex-1`,
+  inside a workspace-layout `main`.
 
 ## Jalapeno Labs packages
 
@@ -102,8 +125,35 @@ HeroUI theme so accents match.
 serves the frontend and API from the same host. Each resource has a file in `src/api/routes/` with one function per
 endpoint and request and response types that mirror the Rust structs.
 
-Reads go through SWR hooks in `src/hooks/`, such as `useLlms`. After a write, call `mutate` with the hook's cache
-key so every view refreshes.
+### Redux
+
+`src/store/index.ts` holds the one store. Use `useAppSelector` and `useAppDispatch` from `src/store/hooks.ts`.
+Selectors return existing references; never build objects or strings inside one.
+
+| Slice            | Holds                                                                   |
+|------------------|-------------------------------------------------------------------------|
+| `llms`           | LLM credentials, sorted by priority                                     |
+| `satellites`     | Satellites with their latest status                                     |
+| `codingSessions` | Coding sessions with their thread state, newest first                   |
+| `sessionEvents`  | Events for conversations that are open, merged by sequence              |
+| `realtime`       | Event stream connection: `connecting`, `open`, or `reconnecting`        |
+| `theme`          | Theme preference and what it resolves to                                |
+
+Server collections use entity adapters and a `status` of `idle`, `loading`, `loaded`, or `failed`. Once `loaded`,
+a refetch never drops a list back to a spinner.
+
+Data enters the store two ways. Fetch thunks (`fetchLlms`, `fetchSatellites`, `fetchCodingSessions`,
+`fetchSessionEvents`) load collections, and the event stream dispatches every change the API announces. Pages
+do not fetch on mount: the stream's `hello` loads everything on connect and again on every reconnect.
+
+After a write, dispatch the response (for example `llmUpserted(response.llm)`) so this tab updates without waiting
+for the event. The event that follows is idempotent.
+
+`sessionEvents` keeps a conversation's events only while its panel is open, capped at 5000. Live events for other
+sessions are dropped.
+
+Satellite failures answer `502` with the satellite's message. `getSatelliteErrorMessage` in `src/api/errors.ts`
+extracts it for toasts.
 
 ## Forms
 
@@ -130,11 +180,13 @@ gray colors, so the theme controls the base color.
 Users choose Light, Dark, or System under Settings, Personal details. The choice is saved per browser in
 localStorage under `elysium.theme`, and defaults to System.
 
-- `src/theme/themePreference.ts` owns the preference. It reads and saves it, resolves System against
-  `prefers-color-scheme`, and applies the result to `<html>` as the `light` or `dark` class plus `data-theme` and
-  `color-scheme`. It re-applies when the OS theme changes while System is chosen, and when another tab changes
-  the setting.
-- `useThemePreference()` exposes the preference to React through `useSyncExternalStore`.
+- The `theme` slice holds the preference and its resolved theme. `themeChanged(preference)` resolves System
+  against `prefers-color-scheme` while preparing the action, so the reducer stays pure.
+- `src/theme/themePreference.ts` has the storage and DOM halves: read and save the stored value, resolve, and apply
+  the result to `<html>` as the `light` or `dark` class plus `data-theme` and `color-scheme`.
+- `src/theme/startThemeSync.ts` connects them at startup. A listener saves and applies every `themeChanged`. The OS
+  color scheme and other tabs' storage events dispatch `themeChanged` again.
+- `useThemePreference()` reads the preference from Redux and dispatches changes.
 - An inline script in `index.html` applies the saved theme before the CSS loads, so dark mode never flashes
   light on load. It duplicates the resolve-and-apply logic in a few lines; keep the two in sync.
 - The theme cards use HeroUI's `RadioGroup` with the preview artwork uikit exports. uikit's own `ThemeSelector`
@@ -160,13 +212,17 @@ Style text links with `text-link`, not `text-accent`. The accent is for fills, f
 
 The same file points uikit's `--jala-table-*` variables at the palette, including the dark table colors.
 
+`src/theme/dockview.css` defines `dockview-theme-elysium`, which points Dockview's `--dv-*` variables at the same
+tokens.
+
 ## Translations
 
 Every user-facing string goes through i18next. `src/i18n.ts` bundles the locale files and initializes before the
 first render.
 
 - `en-US` is the source locale and the only one shipped today.
-- Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `home`, `settings`, `llms`.
+- Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `home`, `settings`, `llms`,
+  `satellites`, `coding`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.
@@ -202,6 +258,7 @@ The compose frontend image installs `node_modules` at build time. After changing
 ## Roadmap
 
 - Additional locales, once the product adopts them.
+- A unit test setup (Vitest) for pure logic such as the timeline merge in `sessionEventsSlice`.
 - Search results behind the topbar field.
 - Contact and account fields on the Personal details page once user accounts exist, with the theme preference
   moving to the user profile.

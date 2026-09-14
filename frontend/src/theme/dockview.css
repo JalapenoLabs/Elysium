@@ -1,0 +1,65 @@
+/* Copyright © 2026 Jalapeno Labs */
+
+/* Dockview's theme for the Coding page. Every color is a Matter token from
+   matter.css, so one class serves light and dark mode. The structural values follow
+   Dockview's own GitHub theme: flat tabs, no gaps, hairline separators. */
+
+.dockview-theme-elysium {
+  --dv-tabs-and-actions-container-font-size: 13px;
+  --dv-tabs-and-actions-container-height: 36px;
+  --dv-overlay-z-index: 999;
+  --dv-tab-font-size: inherit;
+  --dv-border-radius: 0px;
+  --dv-tab-margin: 0;
+  --dv-sash-color: transparent;
+  --dv-active-sash-transition-duration: 0.1s;
+  --dv-active-sash-transition-delay: 0.5s;
+  --dv-spacing-padding: 0px;
+  --dv-tab-border-radius: 0px;
+  --dv-sash-border-radius: 0px;
+  --dv-dropdown-border-radius: var(--radius);
+  --dv-tab-close-icon-size: inherit;
+  --dv-floating-group-border: none;
+  --dv-drag-over-border: none;
+  --dv-floating-group-dragging-opacity: 0.5;
+  --dv-floating-titlebar-height: 22px;
+  --dv-floating-titlebar-background-color: var(--dv-tabs-and-actions-container-background-color);
+  --dv-floating-titlebar-border-bottom: var(--dv-floating-border);
+  --dv-floating-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  --dv-floating-border: 1px solid var(--border);
+  --dv-tab-group-chip-padding: 4px 8px;
+  --dv-tab-group-chip-border-radius: 6px;
+  --dv-tab-group-chip-font-size: 11px;
+  --dv-tab-group-line-height: 2px;
+  --dv-tab-group-line-opacity: 0.6;
+  --dv-tab-group-color-grey: var(--muted);
+  --dv-tab-group-color-blue: var(--accent);
+  --dv-tab-group-color-red: var(--danger);
+  --dv-tab-group-color-yellow: var(--warning);
+  --dv-tab-group-color-green: var(--success);
+  --dv-tab-group-color-pink: var(--danger);
+  --dv-tab-group-color-purple: var(--accent);
+  --dv-tab-group-color-cyan: var(--link);
+  --dv-tab-group-color-orange: var(--warning);
+
+  --dv-group-view-background-color: var(--background);
+  --dv-tabs-and-actions-container-background-color: var(--sidebar);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--background);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--sidebar);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--background);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--sidebar);
+  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--muted);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted);
+  --dv-tab-divider-color: var(--separator);
+  --dv-separator-border: var(--border);
+  --dv-paneview-active-outline-color: var(--accent);
+  --dv-active-sash-color: var(--accent);
+  --dv-drag-over-background-color: color-mix(in srgb, var(--accent) 15%, transparent);
+  --dv-drag-over-border-color: transparent;
+  --dv-edge-dock-indicator-color: var(--accent);
+  --dv-tabs-container-scrollbar-color: var(--muted);
+  --dv-scrollbar-background-color: color-mix(in srgb, var(--muted) 40%, transparent);
+  --dv-icon-hover-background-color: var(--default);
+}

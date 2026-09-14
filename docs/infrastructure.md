@@ -15,14 +15,20 @@ volume with `docker compose down --volumes`, which destroys the data.
 | `nginx`    | `nginx:1.30.4-alpine`      | `elysium-nginx`    | Only published port: `127.0.0.1:4000`   |
 | `frontend` | `frontend/Dockerfile`      | `elysium-frontend` | Vite dev server, source bind-mounted    |
 | `migrate`  | `api/Dockerfile`           | `elysium-migrate`  | One-shot `migrate run`, then exits      |
-| `api`      | `api/Dockerfile`           | none               | Scales; reachable only through nginx    |
+| `api`      | `api/Dockerfile`           | none               | One replica; reachable only via nginx   |
 | `postgres` | `postgres:18.6-alpine3.23` | `elysium-postgres` | Volume `postgres-data`, `timezone=UTC`  |
 | `redis`    | `redis:8.10.1-alpine`      | `elysium-redis`    | Password required, AOF on, `redis-data` |
 
 ## Routing
 
 nginx proxies `/api/` to `api:8080` unchanged and everything else to `frontend:5173`, including the HMR websocket
-upgrade. The frontend's HMR client is told nginx's published port through `VITE_HMR_CLIENT_PORT`.
+upgrade. `/api/v1/events` has its own location with buffering off and a one-hour read timeout, so server-sent
+events arrive immediately and idle streams stay open.
+
+The frontend's HMR client is told nginx's published port through `VITE_HMR_CLIENT_PORT`.
+
+The API has no container name so it could scale, but it must run as one replica today: its event bus is
+in-process (see `docs/realtime.md`).
 
 ## Startup order
 
@@ -38,6 +44,9 @@ Built from the repository root so `.git` can be copied into the builder for `/ap
 copied in as well, because the binary embeds the SQL. `cargo-chef` caches compiled dependencies in their own
 layer. Source and `.git` are copied afterwards, so a commit only rebuilds the crate itself. The runtime image is
 `debian:trixie-slim` with `ca-certificates` and `curl` for the healthcheck, running as a non-root user.
+
+The `arsox-sdk` dependency comes from git, so the build stages install `git` and copy `api/.cargo/config.toml`,
+which makes Cargo fetch through the git CLI.
 
 ## Frontend image
 
@@ -57,4 +66,5 @@ Postgres 18 images place the cluster under `/var/lib/postgresql/<major>/docker`,
 ## Roadmap
 
 - Production frontend image: static `vite build` output served by nginx directly.
+- Redis pub/sub for the event bus, so the API can run more than one replica.
 - CI pipeline building both images and running clippy, typecheck, lint, and `api/scripts/verify-migrations.sh`.

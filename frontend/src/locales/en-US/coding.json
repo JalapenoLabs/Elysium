@@ -1,0 +1,110 @@
+{
+  "title": "Coding",
+  "newSession": "New session",
+  "layout": {
+    "reset": "Reset layout"
+  },
+  "panels": {
+    "sessions": "Sessions"
+  },
+  "sessions": {
+    "label": "Coding sessions",
+    "title": "Title",
+    "satellite": "Satellite",
+    "state": "State",
+    "lastActivity": "Last activity",
+    "never": "No activity yet",
+    "empty": "No coding sessions yet. Start one to put an agent to work.",
+    "noSatellites": "Add a satellite in settings before starting a session.",
+    "openSatelliteSettings": "Manage satellites",
+    "loadError": "Coding sessions could not be loaded.",
+    "open": "Open"
+  },
+  "threadStates": {
+    "unknown": "Unknown",
+    "provisioning": "Provisioning",
+    "idle": "Idle",
+    "running": "Running",
+    "awaiting-input": "Needs input",
+    "watching": "Watching",
+    "paused": "Paused",
+    "expired": "Expired",
+    "destroyed": "Destroyed"
+  },
+  "turnStates": {
+    "unknown": "Finished",
+    "queued": "Queued",
+    "running": "Running",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "interrupted": "Interrupted",
+    "watching": "Watching"
+  },
+  "create": {
+    "title": "New coding session",
+    "satellite": "Satellite",
+    "satellitePlaceholder": "Choose a satellite",
+    "sessionTitle": "Title",
+    "sessionTitleHint": "Defaults to the first line of the prompt.",
+    "repositoryUrl": "Repository",
+    "repositoryUrlHint": "Optional. The satellite clones it into the session's workspace.",
+    "baseBranch": "Base branch",
+    "prompt": "First prompt",
+    "promptHint": "Optional. Sent as soon as the session starts.",
+    "untitled": "Untitled session",
+    "errors": {
+      "satelliteRequired": "Choose a satellite.",
+      "titleTooLong": "Use 200 characters or fewer.",
+      "repositoryUrlInvalid": "Enter a repository URL such as https://github.com/org/repo.git.",
+      "baseBranchTooLong": "Use 255 characters or fewer."
+    }
+  },
+  "rename": {
+    "title": "Rename session",
+    "label": "Title",
+    "errors": {
+      "titleTooLong": "Use 200 characters or fewer."
+    }
+  },
+  "delete": {
+    "title": "Delete {{title}}?",
+    "body": "The session's thread is destroyed on its satellite, along with its workspace. This cannot be undone."
+  },
+  "conversation": {
+    "missing": "This session no longer exists.",
+    "loading": "Loading conversation…",
+    "loadError": "The conversation could not be loaded from its satellite.",
+    "truncated": "Older events are not shown.",
+    "empty": "No messages yet. Send a prompt to start.",
+    "you": "You",
+    "agent": "Agent",
+    "thinking": "Thinking",
+    "toolRunning": "Running {{tool}}",
+    "toolSucceeded": "{{tool}} finished in {{duration}}",
+    "toolSucceededUntimed": "{{tool}} finished",
+    "toolFailed": "{{tool}} failed",
+    "unnamedTool": "Tool",
+    "turnFinished": "Turn {{status}}",
+    "plan": "Proposed plan",
+    "question": "The agent is asking",
+    "budgetWarning": "This session has used {{percent}}% of its budget.",
+    "incident": "Incident: {{message}}",
+    "otherEvent": "{{type}}",
+    "thread": "Thread {{threadId}}",
+    "composer": {
+      "label": "Prompt",
+      "placeholder": "Tell the agent what to do next",
+      "hint": "Enter to send, Shift+Enter for a new line",
+      "send": "Send",
+      "closed": "This session's thread has ended, so it can no longer take prompts."
+    }
+  },
+  "toasts": {
+    "created": "{{title}} started",
+    "renamed": "Session renamed",
+    "deleted": "{{title}} deleted",
+    "promptFailed": "The prompt could not be sent"
+  },
+  "watermark": "Open a session from the Sessions panel."
+}

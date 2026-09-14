@@ -1,8 +1,11 @@
 {
   "actions": {
     "cancel": "Cancel",
+    "create": "Create",
     "delete": "Delete",
     "edit": "Edit",
+    "rename": "Rename",
+    "retry": "Retry",
     "save": "Save",
     "moreActions": "More actions"
   },

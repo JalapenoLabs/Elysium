@@ -3,8 +3,10 @@
 //! The HTTP server: startup, middleware stack, and graceful shutdown.
 //!
 //! Startup order: configuration, encryption key, schema check, store connections
-//! (with retry), router, listener. Shutdown order is the reverse: stop accepting,
-//! drain in-flight requests, close the Postgres pool, drop the Redis connection.
+//! (with retry), fleet watchers, router, listener. Shutdown order is the reverse: a
+//! signal cancels the shutdown token, which ends every event stream and fleet
+//! watcher; the server stops accepting and drains in-flight requests; the watchers
+//! are awaited; then the Postgres pool closes and the Redis connection drops.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -14,6 +16,7 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::http::StatusCode;
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::timeout::TimeoutLayer;
@@ -22,6 +25,8 @@ use tracing::{Level, event};
 use crate::config::Config;
 use crate::crypto::Cipher;
 use crate::database::migrations;
+use crate::fleet::Fleet;
+use crate::realtime::EventBus;
 use crate::state::AppState;
 use crate::version::VersionInfo;
 use crate::{connections, middleware, routes, shutdown};
@@ -55,11 +60,24 @@ pub async fn serve() -> Result<()> {
     migrations::ensure_up_to_date(config.database_url.clone()).await?;
     let redis = connections::connect_redis(&config.redis_url).await?;
 
+    let shutdown = CancellationToken::new();
+    let events = EventBus::new();
+    let fleet = Fleet::new(
+        database.clone(),
+        Arc::clone(&cipher),
+        events.clone(),
+        shutdown.clone(),
+    );
+    fleet.start().await?;
+
     let state = AppState {
         database: database.clone(),
         redis: redis.clone(),
         cipher,
         version,
+        events,
+        fleet: fleet.clone(),
+        shutdown: shutdown.clone(),
     };
     let rate_limiter = middleware::rate_limit::build();
     let app = build_router(&config, rate_limiter.layer).with_state(state);
@@ -78,9 +96,17 @@ pub async fn serve() -> Result<()> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown::signal())
+    .with_graceful_shutdown(async move {
+        shutdown::signal().await;
+        // Event streams never finish on their own; ending them here is what lets the
+        // drain below complete instead of waiting for Docker's kill timeout.
+        shutdown.cancel();
+    })
     .await
     .context("http server failed")?;
+
+    fleet.shutdown().await;
+    event!(name: "fleet.shutdown.complete", Level::INFO, "fleet watchers stopped");
 
     // serve() returning means every in-flight request has finished and the router,
     // with its copies of the handles, is gone. Closing the pool drops its idle

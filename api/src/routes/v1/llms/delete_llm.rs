@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::errors::ApiError;
 use crate::models::llm;
+use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
 pub async fn handle(
@@ -24,6 +25,7 @@ pub async fn handle(
         .context("no database connection available")?;
 
     llm::delete(&mut connection, id).await?;
+    state.events.publish(&ServerEvent::LlmDeleted { id });
 
     Ok(StatusCode::NO_CONTENT)
 }

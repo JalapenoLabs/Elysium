@@ -3,15 +3,23 @@
 // Core
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { Provider } from 'react-redux'
 import { RouterProvider } from 'react-router/dom'
+
+// Redux
+import { store } from './store'
 
 // Misc
 import './i18n'
 import './index.css'
+import { startEventStream } from './realtime/eventStream'
 import { router } from './router'
-import { initializeTheme } from './theme/themePreference'
+import { startThemeSync } from './theme/startThemeSync'
 
-initializeTheme()
+// Both run once, outside React, so StrictMode's double effects never open a second
+// event stream or register listeners twice.
+startThemeSync()
+startEventStream()
 
 const rootElement = document.getElementById('root')
 if (!rootElement) {
@@ -20,6 +28,8 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <Provider store={store}>
+      <RouterProvider router={router} />
+    </Provider>
   </StrictMode>,
 )

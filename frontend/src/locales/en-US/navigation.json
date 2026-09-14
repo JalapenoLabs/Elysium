@@ -1,9 +1,15 @@
 {
   "primary": {
     "label": "Primary navigation",
-    "home": "Home"
+    "home": "Home",
+    "coding": "Coding"
   },
   "topbar": {
-    "settings": "Settings"
+    "settings": "Settings",
+    "liveUpdates": {
+      "connecting": "Connecting to live updates…",
+      "open": "Live updates on",
+      "reconnecting": "Live updates interrupted. Reconnecting…"
+    }
   }
 }

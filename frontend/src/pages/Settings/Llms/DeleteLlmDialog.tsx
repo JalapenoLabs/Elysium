@@ -6,14 +6,16 @@ import type { Llm } from '../../../api/routes/llmRoutes'
 // Core
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { mutate } from 'swr'
+
+// Redux
+import { useAppDispatch } from '../../../store/hooks'
+import { llmDeleted } from '../../../store/llmsSlice'
 
 // User interface
 import { AlertDialog, Button, toast } from '@heroui/react'
 
 // Misc
 import { deleteLlm } from '../../../api/routes/llmRoutes'
-import { LLMS_CACHE_KEY } from '../../../hooks/useLlms'
 
 type Props = {
   state: UseOverlayStateReturn
@@ -22,6 +24,7 @@ type Props = {
 
 export function DeleteLlmDialog(props: Props) {
   const { t } = useTranslation([ 'llms', 'common' ])
+  const dispatch = useAppDispatch()
   const [ isDeleting, setIsDeleting ] = useState(false)
 
   async function onConfirm() {
@@ -33,7 +36,7 @@ export function DeleteLlmDialog(props: Props) {
     setIsDeleting(true)
     try {
       await deleteLlm(props.llm.id)
-      await mutate(LLMS_CACHE_KEY)
+      dispatch(llmDeleted(props.llm.id))
       toast.success(t('toasts.deleted', { name: props.llm.name }))
       props.state.close()
     }

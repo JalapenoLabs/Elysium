@@ -1,20 +1,25 @@
 // Copyright © 2026 Jalapeno Labs
 
-// Core
-import { useSyncExternalStore } from 'react'
+import type { ThemePreference } from '@jalapenolabs/uikit'
 
-// Misc
-import {
-  getThemePreference,
-  setThemePreference,
-  subscribeToThemePreference,
-} from '../theme/themePreference'
+// Core
+import { useCallback } from 'react'
+
+// Redux
+import { useAppDispatch, useAppSelector } from '../store/hooks'
+import { selectThemePreference, themeChanged } from '../store/themeSlice'
 
 export function useThemePreference() {
-  const preference = useSyncExternalStore(subscribeToThemePreference, getThemePreference)
+  const dispatch = useAppDispatch()
+  const preference = useAppSelector(selectThemePreference)
+
+  const setPreference = useCallback(
+    (next: ThemePreference) => dispatch(themeChanged(next)),
+    [ dispatch ],
+  )
 
   return {
     preference,
-    setPreference: setThemePreference,
+    setPreference,
   } as const
 }

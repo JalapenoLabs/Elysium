@@ -1,0 +1,4 @@
+# Cargo's built-in libgit2 cannot fetch a pinned revision of the arsox-sdk git dependency;
+# the git CLI can. The API image installs git in its build stages for the same reason.
+[net]
+git-fetch-with-cli = true

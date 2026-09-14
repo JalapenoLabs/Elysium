@@ -8,6 +8,7 @@ import { useMatch } from 'react-router'
 // User interface
 import { buttonVariants, Kbd, Link, SearchField, Tooltip } from '@heroui/react'
 import { LuSettings } from 'react-icons/lu'
+import { LiveUpdatesIndicator } from './LiveUpdatesIndicator'
 
 // Misc
 import { UrlTree } from '../urls'
@@ -56,7 +57,8 @@ export function Topbar() {
         </Kbd>
       </SearchField.Group>
     </SearchField>
-    <div className='level-right'>
+    <div className='level-right gap-3'>
+      <LiveUpdatesIndicator />
       <Tooltip delay={300}>
         {/* A link styled as a button: it navigates, so it must be an anchor. */}
         <Link

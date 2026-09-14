@@ -1,0 +1,231 @@
+// Copyright © 2026 Jalapeno Labs
+
+//! `POST /api/v1/coding-sessions`: open a thread on a satellite and record it.
+//!
+//! The session id is generated first and sent as the satellite's idempotency key, so
+//! the thread and the row share an identity. If recording the row fails, the thread
+//! is destroyed rather than left running with nothing pointing at it.
+
+use std::collections::BTreeMap;
+
+use anyhow::Context;
+use arsox_sdk::proto::settings::v1::Repo;
+use axum::Json;
+use axum::extract::State;
+use axum::extract::rejection::JsonRejection;
+use axum::http::StatusCode;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use tracing::{Level, event};
+use uuid::Uuid;
+use validator::{Validate, ValidationError};
+
+use super::{CodingSessionResponse, thread_settings, validate_not_blank};
+use crate::errors::ApiError;
+use crate::fleet::views::ThreadStatus;
+use crate::fleet::{MANAGED_METADATA_KEY, SESSION_METADATA_KEY};
+use crate::models::coding_session::{self, NewCodingSession};
+use crate::models::satellite;
+use crate::realtime::ServerEvent;
+use crate::state::AppState;
+
+#[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RequestBody {
+    satellite_id: Uuid,
+    #[validate(length(min = 1, max = 200), custom(function = "validate_not_blank"))]
+    title: String,
+    /// Git URL the satellite clones into the thread's workspace.
+    #[validate(length(max = 2048), custom(function = "validate_repository_url"))]
+    repository_url: Option<String>,
+    #[validate(length(min = 1, max = 255), custom(function = "validate_not_blank"))]
+    base_branch: Option<String>,
+}
+
+pub async fn handle(
+    State(state): State<AppState>,
+    body: Result<Json<RequestBody>, JsonRejection>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    let Json(body) = body?;
+    body.validate()?;
+
+    let repository = body.repository_url.as_deref().map(|url| Repo {
+        name: repository_directory(url)
+            .expect("validation guarantees a directory name")
+            .to_owned(),
+        url: url.to_owned(),
+        base_branch: body.base_branch.clone(),
+        ..Repo::default()
+    });
+
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let satellite = satellite::find(&mut connection, body.satellite_id).await?;
+    drop(connection);
+
+    let client = state.fleet.client(satellite.id).await?;
+    let session_id = Uuid::now_v7();
+    let metadata = BTreeMap::from([
+        (MANAGED_METADATA_KEY.to_owned(), "true".to_owned()),
+        (SESSION_METADATA_KEY.to_owned(), session_id.to_string()),
+    ]);
+    let created = client
+        .threads()
+        .create_with(
+            thread_settings(repository),
+            Some(session_id.to_string()),
+            metadata,
+        )
+        .await?;
+
+    let new_session = NewCodingSession {
+        id: session_id,
+        satellite_id: satellite.id,
+        thread_id: created.thread.thread_id.clone(),
+        title: body.title,
+    };
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let session = match coding_session::create(&mut connection, &new_session).await {
+        Ok(session) => session,
+        Err(database_error) => {
+            if let Err(destroy_error) = created.handle.destroy().await {
+                event!(
+                    name: "coding_session.create.orphaned_thread",
+                    Level::ERROR,
+                    satellite.id = %satellite.id,
+                    thread.id = %created.thread.thread_id,
+                    error.message = %destroy_error,
+                    "could not record the session or destroy its thread; the thread expires on its idle TTL",
+                );
+            }
+            return Err(database_error.into());
+        }
+    };
+
+    let thread = ThreadStatus::from(&created.thread);
+    state.fleet.watch_session(session.clone());
+    state
+        .events
+        .publish(&ServerEvent::SessionUpserted(CodingSessionResponse::new(
+            session.clone(),
+            Some(thread.clone()),
+        )));
+
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "session": CodingSessionResponse::new(session, Some(thread)) })),
+    ))
+}
+
+/// The directory a repository is cloned into: the URL's last path segment without
+/// `.git`. The satellite refuses names that could escape the workspace, so only
+/// plain names are accepted.
+fn repository_directory(url: &str) -> Option<&str> {
+    let last_segment = url.trim_end_matches('/').rsplit(['/', ':']).next()?;
+    let name = last_segment.strip_suffix(".git").unwrap_or(last_segment);
+
+    let is_plain = name
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'));
+    if name.is_empty() || name.starts_with('.') || !is_plain {
+        return None;
+    }
+    Some(name)
+}
+
+fn validate_repository_url(url: &str) -> Result<(), ValidationError> {
+    let has_git_scheme = ["https://", "http://", "ssh://", "git@"]
+        .iter()
+        .any(|scheme| url.starts_with(scheme));
+    if !has_git_scheme {
+        return Err(ValidationError::new("scheme")
+            .with_message("must be an https, http, ssh, or git@ repository URL".into()));
+    }
+    if repository_directory(url).is_none() {
+        return Err(ValidationError::new("name")
+            .with_message("must end in a repository name such as org/repo.git".into()));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repository_directories_come_from_the_last_path_segment() {
+        assert_eq!(
+            repository_directory("https://github.com/JalapenoLabs/Elysium.git"),
+            Some("Elysium")
+        );
+        assert_eq!(
+            repository_directory("git@github.com:JalapenoLabs/uikit.git"),
+            Some("uikit")
+        );
+        assert_eq!(
+            repository_directory("https://github.com/org/repo/"),
+            Some("repo")
+        );
+        assert_eq!(repository_directory("https://github.com/org/.."), None);
+        assert_eq!(
+            repository_directory("https://example.com/"),
+            Some("example.com")
+        );
+        assert_eq!(repository_directory("https://example.com/a b"), None);
+    }
+
+    #[test]
+    fn bodies_validate_titles_and_repository_urls() {
+        let valid: RequestBody = serde_json::from_value(json!({
+            "satelliteId": Uuid::nil(),
+            "title": "Fix the login bug",
+            "repositoryUrl": "https://github.com/JalapenoLabs/Elysium.git",
+            "baseBranch": "main",
+        }))
+        .expect("parses");
+        valid.validate().expect("valid body");
+
+        let blank_title: RequestBody =
+            serde_json::from_value(json!({ "satelliteId": Uuid::nil(), "title": "  " }))
+                .expect("parses");
+        assert!(
+            blank_title
+                .validate()
+                .expect_err("blank title")
+                .field_errors()
+                .contains_key("title")
+        );
+
+        let bad_repository: RequestBody = serde_json::from_value(json!({
+            "satelliteId": Uuid::nil(),
+            "title": "A",
+            "repositoryUrl": "file:///etc/passwd",
+        }))
+        .expect("parses");
+        assert!(
+            bad_repository
+                .validate()
+                .expect_err("file URLs are refused")
+                .field_errors()
+                .contains_key("repository_url")
+        );
+    }
+
+    #[test]
+    fn new_threads_declare_the_ceilings_the_satellite_requires() {
+        let settings = thread_settings(None);
+        assert!(settings.idle_ttl.is_some());
+        let budget = settings.budget.expect("budget is set");
+        assert!(budget.max_tokens_per_turn.is_some());
+        assert!(budget.max_cost_per_thread.is_some());
+        assert!(budget.max_wall_clock_per_turn.is_some());
+        assert!(settings.repos.is_empty());
+    }
+}

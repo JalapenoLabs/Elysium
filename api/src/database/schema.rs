@@ -8,6 +8,19 @@ pub mod sql_types {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    coding_sessions (id) {
+        id -> Uuid,
+        satellite_id -> Uuid,
+        thread_id -> Text,
+        title -> Text,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::LlmType;
 
     llms (id) {
@@ -24,3 +37,22 @@ diesel::table! {
         updated_at -> Timestamptz,
     }
 }
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    satellites (id) {
+        id -> Uuid,
+        name -> Text,
+        description -> Text,
+        url -> Text,
+        secret_encrypted -> Bytea,
+        is_active -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::joinable!(coding_sessions -> satellites (satellite_id));
+
+diesel::allow_tables_to_appear_in_same_query!(coding_sessions, llms, satellites,);

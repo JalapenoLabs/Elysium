@@ -20,6 +20,19 @@ Everything else follows these rules:
 - Policy values that must not vary per deployment, such as rate limits, are constants in the code, not
   configuration.
 
+## Satellites are reached only through the API
+
+- Arsox satellites run coding sessions. The frontend never contacts one: satellites speak protobuf and hold a
+  bearer secret that must not reach a browser. The API is their only client, through `arsox-sdk`.
+- Satellite secrets are application secrets, sealed in Postgres like LLM tokens.
+- Thread policy (idle TTL, budget ceilings) is code constants, not configuration. See `docs/coding.md`.
+
+## One event stream keeps the frontend current
+
+- Every page holds one server-sent event stream, `GET /api/v1/events`. Any write or watcher that changes what a
+  client shows publishes to it. Components never poll. See `docs/realtime.md`.
+- The event bus is in-process, so the API runs as a single replica until the bus moves to Redis pub/sub.
+
 ## Time is UTC on the server
 
 - Every timestamp the server stores, computes, logs, or returns is UTC.
@@ -34,6 +47,8 @@ Everything else follows these rules:
   (`bg-surface`, `text-link`, `bg-sidebar`), never hardcoded colors in components.
 - HeroUI v3 on Tailwind CSS v4, modeled on Stripe's dashboard layout. v3's compound API differs from v2, so check
   `docs/frontend.md` or HeroUI's v3 docs rather than relying on v2 habits.
+- Redux Toolkit holds all global state: server data, the event stream connection, and the theme. Server data
+  enters through fetch thunks and the event stream. Component-local state stays in components.
 - Every user-facing string goes through i18next. `en-US` is the only locale today.
 - Reach for `@jalapenolabs/uikit` first when it covers the need, such as `SmartTable` for data tables. Use HeroUI
   for everything the kit does not provide.

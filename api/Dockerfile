@@ -11,12 +11,15 @@ WORKDIR /workspace/api
 # Compute the dependency recipe from the manifest alone so the expensive cook
 # layer below is reused until Cargo.toml or Cargo.lock changes.
 FROM chef AS planner
+COPY api/.cargo ./.cargo
 COPY api/Cargo.toml api/Cargo.lock api/build.rs api/rust-toolchain.toml ./
 COPY api/src ./src
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 COPY --from=planner /workspace/api/recipe.json recipe.json
+# git-fetch-with-cli, for the arsox-sdk git dependency.
+COPY api/.cargo ./.cargo
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY api/Cargo.toml api/Cargo.lock api/build.rs api/rust-toolchain.toml ./
 # embed_migrations! compiles the SQL into the binary, so migrations ship with the code.

@@ -262,16 +262,29 @@ mod tests {
             .await
             .expect("redo ends fully migrated");
 
+        let migrations =
+            diesel::migration::MigrationSource::<diesel::pg::Pg>::migrations(&MIGRATIONS)
+                .expect("embedded migrations load");
+        let newest = migrations
+            .last()
+            .expect("at least one migration exists")
+            .name()
+            .to_string();
+
         execute(url.clone(), MigrationCommand::Revert { count: 1 })
             .await
             .expect("revert one");
-        assert_eq!(llm_objects(&url).await, 0);
+        assert_eq!(
+            llm_objects(&url).await,
+            2,
+            "reverting one migration leaves the earlier ones applied"
+        );
         let error = ensure_up_to_date(url.clone())
             .await
             .expect_err("a reverted migration is pending");
         assert!(
-            error.to_string().contains("create_llms"),
-            "names the pending migration: {error}"
+            error.to_string().contains(&newest),
+            "names the pending migration {newest}: {error}"
         );
     }
 

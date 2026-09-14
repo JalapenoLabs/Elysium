@@ -15,6 +15,7 @@ use validator::Validate;
 use super::{LlmResponse, SecretToken, validate_not_blank};
 use crate::errors::ApiError;
 use crate::models::llm::{self, LlmChanges, LlmType};
+use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
 /// Absent fields stay as they are. `expiresAt: null` clears the expiry, which is
@@ -71,6 +72,9 @@ pub async fn handle(
         .context("no database connection available")?;
     let llm = llm::update(&mut connection, &state.cipher, id, &changes).await?;
 
+    state
+        .events
+        .publish(&ServerEvent::LlmUpserted(LlmResponse::from(llm.clone())));
     Ok(Json(json!({ "llm": LlmResponse::from(llm) })))
 }
 

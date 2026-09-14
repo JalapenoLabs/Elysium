@@ -4,7 +4,7 @@ import type { ParseKeys } from 'i18next'
 import type { IconType } from 'react-icons'
 
 // User interface
-import { LuHouse } from 'react-icons/lu'
+import { LuCodeXml, LuHouse } from 'react-icons/lu'
 
 // Misc
 import { UrlTree } from '../urls'
@@ -24,5 +24,11 @@ export const primaryNavigation: NavigationItem[] = [
     href: UrlTree.root,
     icon: LuHouse,
     end: true,
+  },
+  {
+    labelKey: 'primary.coding',
+    href: UrlTree.coding,
+    icon: LuCodeXml,
+    end: false,
   },
 ]

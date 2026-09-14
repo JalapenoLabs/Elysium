@@ -5,9 +5,12 @@
 use std::sync::Arc;
 
 use redis::aio::ConnectionManager;
+use tokio_util::sync::CancellationToken;
 
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::fleet::Fleet;
+use crate::realtime::EventBus;
 use crate::version::VersionInfo;
 
 /// Everything a request handler can reach. Cloning is cheap: each field is a handle.
@@ -21,4 +24,9 @@ pub struct AppState {
     pub redis: ConnectionManager,
     pub cipher: Arc<Cipher>,
     pub version: Arc<VersionInfo>,
+    /// Publishes to every open `GET /api/v1/events` stream.
+    pub events: EventBus,
+    pub fleet: Fleet,
+    /// Cancelled when shutdown begins; long-lived responses end on it.
+    pub shutdown: CancellationToken,
 }

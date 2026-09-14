@@ -25,6 +25,10 @@ pub enum ApiError {
     NotFound,
     #[error("{0}")]
     Conflict(&'static str),
+    /// A satellite refused the request or could not be reached. The message is the
+    /// satellite's own error, which names a contract code and never carries a secret.
+    #[error("{0}")]
+    BadGateway(String),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -53,6 +57,12 @@ impl From<DieselError> for ApiError {
     }
 }
 
+impl From<arsox_sdk::client::Error> for ApiError {
+    fn from(error: arsox_sdk::client::Error) -> Self {
+        Self::BadGateway(error.to_string())
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, body) = match self {
@@ -66,6 +76,15 @@ impl IntoResponse for ApiError {
                 json!({ "message": "resource not found" }),
             ),
             Self::Conflict(message) => (StatusCode::CONFLICT, json!({ "message": message })),
+            Self::BadGateway(message) => {
+                event!(
+                    name: "http.upstream.failure",
+                    Level::WARN,
+                    error.message = %message,
+                    "a satellite call failed",
+                );
+                (StatusCode::BAD_GATEWAY, json!({ "message": message }))
+            }
             Self::Internal(error) => {
                 event!(
                     name: "http.handler.failure",

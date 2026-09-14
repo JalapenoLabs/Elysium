@@ -5,10 +5,12 @@ import i18next from 'i18next'
 import { initReactI18next } from 'react-i18next'
 
 // Misc
+import coding from './locales/en-US/coding.json'
 import common from './locales/en-US/common.json'
 import home from './locales/en-US/home.json'
 import llms from './locales/en-US/llms.json'
 import navigation from './locales/en-US/navigation.json'
+import satellites from './locales/en-US/satellites.json'
 import settings from './locales/en-US/settings.json'
 
 export const DEFAULT_LOCALE = 'en-US'
@@ -18,10 +20,12 @@ export const DEFAULT_NAMESPACE = 'common'
 // the first render synchronous; other locales can load on demand once adopted.
 export const resources = {
   [DEFAULT_LOCALE]: {
+    coding,
     common,
     home,
     llms,
     navigation,
+    satellites,
     settings,
   },
 } as const

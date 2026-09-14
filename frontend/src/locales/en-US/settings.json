@@ -12,6 +12,10 @@
     "llms": {
       "title": "Manage LLMs",
       "description": "Connect language model providers, set their priority, and manage credentials."
+    },
+    "satellites": {
+      "title": "Manage satellites",
+      "description": "Register the Arsox satellites that run coding sessions, and check that Elysium can reach them."
     }
   },
   "personalDetails": {

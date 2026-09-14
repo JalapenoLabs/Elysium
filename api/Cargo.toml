@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 anyhow = "1.0.104"
+arsox-sdk = { git = "https://github.com/JalapenoLabs/arsox-satellites", rev = "30954772f4e36f90064807c27946838eecde2d49" }
 axum = "0.8.9"
 base64 = "0.23.1"
 chacha20poly1305 = { version = "0.11.0", features = ["zeroize"] }
@@ -20,9 +21,11 @@ diesel-async = { version = "0.9.2", features = ["postgres", "deadpool", "async-c
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 diesel_migrations = { version = "2.3.2", default-features = false, features = ["postgres"] }
 dotenvy = "0.15.7"
+futures-util = "0.3.34"
 getrandom = "0.4.3"
 governor = "0.10.4"
 mimalloc = "0.1.52"
+prost-types = "0.14.4"
 redis = { version = "1.7.0", default-features = false, features = ["tokio-comp", "connection-manager"] }
 secrecy = { version = "0.10.3", features = ["serde"] }
 serde = { version = "1.0.229", features = ["derive", "rc"] }
@@ -30,6 +33,7 @@ serde_json = "1.0.151"
 serde_with = { version = "3.23.0", default-features = false, features = ["macros"] }
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+tokio-util = { version = "0.7.18", features = ["rt"] }
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["catch-panic", "cors", "request-id", "set-header", "timeout", "trace"] }
 tower_governor = { version = "0.8.0", default-features = false, features = ["axum", "tracing"] }

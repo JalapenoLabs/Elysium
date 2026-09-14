@@ -4,7 +4,9 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 
+@import "dockview-react/dist/styles/dockview.css";
 @import "./theme/matter.css";
+@import "./theme/dockview.css";
 
 :root {
   --radius: 0.5rem;
