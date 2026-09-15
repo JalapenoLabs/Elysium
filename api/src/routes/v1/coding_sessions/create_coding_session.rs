@@ -25,13 +25,14 @@ use crate::errors::ApiError;
 use crate::fleet::views::ThreadStatus;
 use crate::fleet::{MANAGED_METADATA_KEY, SESSION_METADATA_KEY};
 use crate::models::coding_session::{self, NewCodingSession};
-use crate::models::satellite;
+use crate::models::{project, satellite};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RequestBody {
+    project_id: Uuid,
     satellite_id: Uuid,
     #[validate(length(min = 1, max = 200), custom(function = "validate_not_blank"))]
     title: String,
@@ -63,6 +64,9 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
+    // Both parents are looked up before a thread exists: an unknown id answers 404
+    // here instead of opening a thread the insert would then refuse.
+    let project = project::find(&mut connection, body.project_id).await?;
     let satellite = satellite::find(&mut connection, body.satellite_id).await?;
     drop(connection);
 
@@ -83,6 +87,7 @@ pub async fn handle(
 
     let new_session = NewCodingSession {
         id: session_id,
+        project_id: project.id,
         satellite_id: satellite.id,
         thread_id: created.thread.thread_id.clone(),
         title: body.title,
@@ -184,6 +189,7 @@ mod tests {
     #[test]
     fn bodies_validate_titles_and_repository_urls() {
         let valid: RequestBody = serde_json::from_value(json!({
+            "projectId": Uuid::nil(),
             "satelliteId": Uuid::nil(),
             "title": "Fix the login bug",
             "repositoryUrl": "https://github.com/JalapenoLabs/Elysium.git",
@@ -192,9 +198,10 @@ mod tests {
         .expect("parses");
         valid.validate().expect("valid body");
 
-        let blank_title: RequestBody =
-            serde_json::from_value(json!({ "satelliteId": Uuid::nil(), "title": "  " }))
-                .expect("parses");
+        let blank_title: RequestBody = serde_json::from_value(
+            json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "  " }),
+        )
+        .expect("parses");
         assert!(
             blank_title
                 .validate()
@@ -204,6 +211,7 @@ mod tests {
         );
 
         let bad_repository: RequestBody = serde_json::from_value(json!({
+            "projectId": Uuid::nil(),
             "satelliteId": Uuid::nil(),
             "title": "A",
             "repositoryUrl": "file:///etc/passwd",

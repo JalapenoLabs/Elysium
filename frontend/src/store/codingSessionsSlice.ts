@@ -5,7 +5,7 @@ import type { CodingSession } from '../api/routes/codingSessionRoutes'
 import type { RootState } from './index'
 
 // Core
-import { createEntityAdapter, createSlice } from '@reduxjs/toolkit'
+import { createEntityAdapter, createSelector, createSlice } from '@reduxjs/toolkit'
 
 // Redux
 import { satelliteDeleted } from './satellitesSlice'
@@ -46,3 +46,16 @@ export const {
   selectAll: selectAllCodingSessions,
   selectById: selectCodingSessionById,
 } = codingSessionsAdapter.getSelectors((state: RootState) => state.codingSessions)
+
+// How many sessions each project holds; projects without one are absent. Pair with
+// shallowEqual, since thread state changes replace the session entities constantly.
+export const selectSessionCountsByProjectId = createSelector(
+  [ selectAllCodingSessions ],
+  (sessions) => {
+    const countsByProjectId: Record<string, number> = {}
+    for (const session of sessions) {
+      countsByProjectId[session.projectId] = (countsByProjectId[session.projectId] ?? 0) + 1
+    }
+    return countsByProjectId
+  },
+)

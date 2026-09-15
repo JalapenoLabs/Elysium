@@ -10,6 +10,7 @@ import common from './locales/en-US/common.json'
 import home from './locales/en-US/home.json'
 import llms from './locales/en-US/llms.json'
 import navigation from './locales/en-US/navigation.json'
+import projects from './locales/en-US/projects.json'
 import satellites from './locales/en-US/satellites.json'
 import settings from './locales/en-US/settings.json'
 
@@ -25,6 +26,7 @@ export const resources = {
     home,
     llms,
     navigation,
+    projects,
     satellites,
     settings,
   },

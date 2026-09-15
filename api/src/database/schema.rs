@@ -16,6 +16,7 @@ diesel::table! {
         title -> Text,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        project_id -> Uuid,
     }
 }
 
@@ -41,6 +42,18 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    projects (id) {
+        id -> Uuid,
+        name -> Text,
+        description -> Text,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     satellites (id) {
         id -> Uuid,
         name -> Text,
@@ -53,6 +66,7 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
 
-diesel::allow_tables_to_appear_in_same_query!(coding_sessions, llms, satellites,);
+diesel::allow_tables_to_appear_in_same_query!(coding_sessions, llms, projects, satellites,);

@@ -22,6 +22,7 @@ pub struct CodingSession {
     pub title: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub project_id: Uuid,
 }
 
 /// Fields for a new session. The id is chosen by the caller because it doubles as the
@@ -30,6 +31,7 @@ pub struct CodingSession {
 #[diesel(table_name = coding_sessions)]
 pub struct NewCodingSession {
     pub id: Uuid,
+    pub project_id: Uuid,
     pub satellite_id: Uuid,
     pub thread_id: String,
     pub title: String,
@@ -78,7 +80,7 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<C
 ///
 /// # Errors
 /// Propagates database errors, including a foreign key violation for an unknown
-/// satellite and a unique violation for a thread that is already recorded.
+/// project or satellite and a unique violation for a thread that is already recorded.
 pub async fn create(
     connection: &mut AsyncPgConnection,
     new_session: &NewCodingSession,
@@ -126,6 +128,7 @@ mod tests {
 
     use super::*;
     use crate::errors::ApiError;
+    use crate::models::project::{self, NewProject};
     use crate::models::satellite::{self, NewSatellite};
     use crate::test_support::{cipher, migrated_database};
 
@@ -143,9 +146,21 @@ mod tests {
             .id
     }
 
-    fn new_session(satellite_id: Uuid, thread_id: &str) -> NewCodingSession {
+    async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
+        let new_project = NewProject {
+            name: name.to_owned(),
+            description: String::new(),
+        };
+        project::create(connection, &new_project)
+            .await
+            .expect("insert project")
+            .id
+    }
+
+    fn new_session(project_id: Uuid, satellite_id: Uuid, thread_id: &str) -> NewCodingSession {
         NewCodingSession {
             id: Uuid::now_v7(),
+            project_id,
             satellite_id,
             thread_id: thread_id.to_owned(),
             title: format!("Session on {thread_id}"),
@@ -156,14 +171,15 @@ mod tests {
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
     async fn sessions_list_newest_first_and_filter_by_satellite() {
         let (_url, mut connection) = migrated_database().await;
+        let project = project_named(&mut connection, "Elysium").await;
         let orbit = satellite_named(&mut connection, "orbit").await;
         let lagrange = satellite_named(&mut connection, "lagrange").await;
 
-        let older = create(&mut connection, &new_session(orbit, "thread-a"))
+        let older = create(&mut connection, &new_session(project, orbit, "thread-a"))
             .await
             .expect("insert");
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-        let newer = create(&mut connection, &new_session(lagrange, "thread-b"))
+        let newer = create(&mut connection, &new_session(project, lagrange, "thread-b"))
             .await
             .expect("insert");
 
@@ -184,29 +200,40 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn a_thread_is_recorded_once_and_unknown_satellites_are_refused() {
+    async fn a_thread_is_recorded_once_and_unknown_parents_are_refused() {
         let (_url, mut connection) = migrated_database().await;
+        let project = project_named(&mut connection, "Elysium").await;
         let orbit = satellite_named(&mut connection, "orbit").await;
 
-        create(&mut connection, &new_session(orbit, "thread-a"))
+        create(&mut connection, &new_session(project, orbit, "thread-a"))
             .await
             .expect("insert");
-        let duplicate = create(&mut connection, &new_session(orbit, "thread-a"))
+        let duplicate = create(&mut connection, &new_session(project, orbit, "thread-a"))
             .await
             .unwrap_err();
         assert!(matches!(ApiError::from(duplicate), ApiError::Conflict(_)));
 
-        create(&mut connection, &new_session(Uuid::now_v7(), "thread-b"))
-            .await
-            .expect_err("the foreign key refuses a satellite that does not exist");
+        create(
+            &mut connection,
+            &new_session(project, Uuid::now_v7(), "thread-b"),
+        )
+        .await
+        .expect_err("the foreign key refuses a satellite that does not exist");
+        create(
+            &mut connection,
+            &new_session(Uuid::now_v7(), orbit, "thread-c"),
+        )
+        .await
+        .expect_err("the foreign key refuses a project that does not exist");
     }
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
     async fn deleting_a_satellite_forgets_its_sessions() {
         let (_url, mut connection) = migrated_database().await;
+        let project = project_named(&mut connection, "Elysium").await;
         let orbit = satellite_named(&mut connection, "orbit").await;
-        let session = create(&mut connection, &new_session(orbit, "thread-a"))
+        let session = create(&mut connection, &new_session(project, orbit, "thread-a"))
             .await
             .expect("insert");
 
@@ -222,5 +249,32 @@ mod tests {
             ApiError::from(find(&mut connection, session.id).await.unwrap_err()),
             ApiError::NotFound
         ));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_project_with_sessions_cannot_be_deleted() {
+        let (_url, mut connection) = migrated_database().await;
+        let project = project_named(&mut connection, "Elysium").await;
+        let orbit = satellite_named(&mut connection, "orbit").await;
+        let session = create(&mut connection, &new_session(project, orbit, "thread-a"))
+            .await
+            .expect("insert");
+
+        let refused = project::delete(&mut connection, project).await.unwrap_err();
+        assert!(matches!(
+            refused,
+            diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+                _
+            )
+        ));
+
+        delete(&mut connection, session.id)
+            .await
+            .expect("delete session");
+        project::delete(&mut connection, project)
+            .await
+            .expect("an empty project deletes");
     }
 }

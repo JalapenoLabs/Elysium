@@ -10,11 +10,14 @@
   "sessions": {
     "label": "Coding sessions",
     "title": "Title",
+    "project": "Project",
     "satellite": "Satellite",
     "state": "State",
     "lastActivity": "Last activity",
     "never": "No activity yet",
     "empty": "No coding sessions yet. Start one to put an agent to work.",
+    "noProjects": "Create a project before starting a session. Every session belongs to one.",
+    "openProjects": "Go to projects",
     "noSatellites": "Add a satellite in settings before starting a session.",
     "openSatelliteSettings": "Manage satellites",
     "loadError": "Coding sessions could not be loaded.",
@@ -43,6 +46,8 @@
   },
   "create": {
     "title": "New coding session",
+    "project": "Project",
+    "projectPlaceholder": "Choose a project",
     "satellite": "Satellite",
     "satellitePlaceholder": "Choose a satellite",
     "sessionTitle": "Title",
@@ -54,6 +59,7 @@
     "promptHint": "Optional. Sent as soon as the session starts.",
     "untitled": "Untitled session",
     "errors": {
+      "projectRequired": "Choose a project.",
       "satelliteRequired": "Choose a satellite.",
       "titleTooLong": "Use 200 characters or fewer.",
       "repositoryUrlInvalid": "Enter a repository URL such as https://github.com/org/repo.git.",

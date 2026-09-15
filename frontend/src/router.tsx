@@ -7,6 +7,7 @@ import { createBrowserRouter, Navigate } from 'react-router'
 import { AppShell } from './layout/AppShell'
 import { CodingPage } from './pages/Coding/CodingPage'
 import { HomePage } from './pages/Home/HomePage'
+import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
 import { PersonalDetailsPage } from './pages/Settings/PersonalDetails/PersonalDetailsPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
@@ -30,6 +31,10 @@ export const router = createBrowserRouter([
       {
         index: true,
         element: <HomePage />,
+      },
+      {
+        path: UrlTree.projects,
+        element: <ProjectsPage />,
       },
       {
         path: UrlTree.coding,

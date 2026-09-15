@@ -2,6 +2,7 @@
   "primary": {
     "label": "Primary navigation",
     "home": "Home",
+    "projects": "Projects",
     "coding": "Coding"
   },
   "topbar": {

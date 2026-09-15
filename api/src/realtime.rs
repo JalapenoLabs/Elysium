@@ -27,6 +27,7 @@ use uuid::Uuid;
 use crate::fleet::views::{SatelliteStatus, SessionEvent};
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
 use crate::routes::v1::llms::LlmResponse;
+use crate::routes::v1::projects::ProjectResponse;
 use crate::routes::v1::satellites::SatelliteResponse;
 
 /// How many serialized events a slow client may fall behind before it is told to
@@ -48,6 +49,10 @@ pub enum ServerEvent {
     LlmUpserted(LlmResponse),
     #[serde(rename = "llm.deleted")]
     LlmDeleted { id: Uuid },
+    #[serde(rename = "project.upserted")]
+    ProjectUpserted(ProjectResponse),
+    #[serde(rename = "project.deleted")]
+    ProjectDeleted { id: Uuid },
     #[serde(rename = "satellite.upserted")]
     SatelliteUpserted(SatelliteResponse),
     /// Also removes every session recorded against the satellite.

@@ -17,6 +17,8 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `resync`             | none                     | This client fell behind and missed events                  |
 | `llm.upserted`       | `Llm`                    | An LLM credential was created or changed                   |
 | `llm.deleted`        | `{ id }`                 | An LLM credential was deleted                              |
+| `project.upserted`   | `Project`                | A project was created or changed                           |
+| `project.deleted`    | `{ id }`                 | A project was deleted                                      |
 | `satellite.upserted` | `Satellite`              | A satellite was created or changed (status arrives later)  |
 | `satellite.deleted`  | `{ id }`                 | A satellite and its sessions were deleted                  |
 | `satellite.status`   | `SatelliteStatus`        | A poll found different reachability, version, or load      |

@@ -1,0 +1,37 @@
+{
+  "title": "Projects",
+  "description": "Projects group coding sessions. Every session belongs to one project.",
+  "add": "New project",
+  "table": {
+    "label": "Projects",
+    "name": "Name",
+    "sessions": "Coding sessions",
+    "updated": "Last updated",
+    "empty": "No projects yet. Create one to start coding sessions in it.",
+    "loadError": "Projects could not be loaded."
+  },
+  "form": {
+    "createTitle": "New project",
+    "editTitle": "Edit {{name}}",
+    "name": "Name",
+    "description": "Description",
+    "errors": {
+      "nameRequired": "Enter a name.",
+      "nameTooLong": "Use 120 characters or fewer.",
+      "nameTaken": "Another project already uses this name.",
+      "descriptionTooLong": "Use 2,000 characters or fewer."
+    }
+  },
+  "delete": {
+    "title": "Delete {{name}}?",
+    "body": "The project is removed permanently.",
+    "hasSessions_one": "{{name}} still has {{count}} coding session. Delete it before deleting the project.",
+    "hasSessions_other": "{{name}} still has {{count}} coding sessions. Delete them before deleting the project."
+  },
+  "toasts": {
+    "created": "{{name}} created",
+    "updated": "{{name}} updated",
+    "deleted": "{{name}} deleted",
+    "stillHasSessions": "{{name}} still has coding sessions"
+  }
+}

@@ -2,6 +2,7 @@
 
 import type { CodingSession, SessionEvent } from '../api/routes/codingSessionRoutes'
 import type { Llm } from '../api/routes/llmRoutes'
+import type { Project } from '../api/routes/projectRoutes'
 import type { Satellite, SatelliteStatus } from '../api/routes/satelliteRoutes'
 
 // Everything the API's event stream can send. Mirrors `ServerEvent` in
@@ -13,6 +14,8 @@ export type ServerEvent =
   | { type: 'resync' }
   | { type: 'llm.upserted', data: Llm }
   | { type: 'llm.deleted', data: { id: string } }
+  | { type: 'project.upserted', data: Project }
+  | { type: 'project.deleted', data: { id: string } }
   | { type: 'satellite.upserted', data: Satellite }
   // Also removes the satellite's sessions.
   | { type: 'satellite.deleted', data: { id: string } }

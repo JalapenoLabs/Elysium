@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 import { shallowEqual } from 'react-redux'
 import { selectAllCodingSessions } from '../../store/codingSessionsSlice'
 import { useAppSelector } from '../../store/hooks'
+import { selectProjectNamesById } from '../../store/projectsSlice'
 import { selectSatelliteNamesById } from '../../store/satellitesSlice'
 
 // User interface
@@ -19,17 +20,18 @@ import { LuPlus } from 'react-icons/lu'
 import { SessionRowActions } from './SessionRowActions'
 
 // Misc
-import { useCodingSessionsLoader, useSatellitesLoader } from '../../hooks/useServerData'
+import { useCodingSessionsLoader, useProjectsLoader, useSatellitesLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { UrlTree } from '../../urls'
 import { useCodingActions } from './codingActionsContext'
 import { threadStateChipColors, threadStateLabelKeys } from './sessionPresentation'
 
-const SESSION_COLUMN_KEYS = [ 'title', 'satellite', 'state', 'lastActivity', 'rowActions' ] as const
+const SESSION_COLUMN_KEYS = [ 'title', 'project', 'satellite', 'state', 'lastActivity', 'rowActions' ] as const
 type SessionColumnKey = typeof SESSION_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
   title: 'sessions.title',
+  project: 'sessions.project',
   satellite: 'sessions.satellite',
   state: 'sessions.state',
   lastActivity: 'sessions.lastActivity',
@@ -39,6 +41,7 @@ const columnLabelKeys = {
 // Starting widths in pixels, sized for the panel's default half of the workspace.
 const columnSizes = {
   title: 220,
+  project: 150,
   satellite: 150,
   state: 120,
   lastActivity: 170,
@@ -56,6 +59,8 @@ export function SessionsPanel() {
   const sessions = useAppSelector(selectAllCodingSessions)
   const sessionsStatus = useCodingSessionsLoader()
   // Satellite status polls must not rebuild the columns, which would reset the table's sorting.
+  const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
+  const projectsStatus = useProjectsLoader()
   const satelliteNames = useAppSelector(selectSatelliteNamesById, shallowEqual)
   const satellitesStatus = useSatellitesLoader()
 
@@ -66,6 +71,9 @@ export function SessionsPanel() {
       timeStyle: 'short',
     })
 
+    function projectName(session: CodingSession) {
+      return projectNames[session.projectId] ?? ''
+    }
     function satelliteName(session: CodingSession) {
       return satelliteNames[session.satelliteId] ?? ''
     }
@@ -87,6 +95,7 @@ export function SessionsPanel() {
       >{
         session.title
       }</Link>,
+      project: projectName,
       satellite: satelliteName,
       state: (session: CodingSession) => {
         const state = session.thread?.state ?? 'unknown'
@@ -102,6 +111,7 @@ export function SessionsPanel() {
 
     const searchValue = {
       title: (session: CodingSession) => session.title,
+      project: projectName,
       satellite: satelliteName,
       state: stateLabel,
       lastActivity: lastActivityText,
@@ -136,7 +146,7 @@ export function SessionsPanel() {
         }
       },
     })
-  }, [ t, i18n.language, satelliteNames, actions ])
+  }, [ t, i18n.language, projectNames, satelliteNames, actions ])
 
   if (sessionsStatus === 'loading') {
     return <div className='grid h-full place-items-center'>
@@ -151,23 +161,13 @@ export function SessionsPanel() {
   }
 
   if (!sessions.length) {
-    const hasSatellites = satellitesStatus === 'loaded' && Object.keys(satelliteNames).length > 0
-
     return <div className='grid h-full place-items-center p-6'>
       <div className='max-w-sm text-center'>
-        <p className='relaxed text-sm opacity-70'>{
-          hasSatellites
-            ? t('sessions.empty')
-            : t('sessions.noSatellites')
-        }</p>
-        {hasSatellites
-          ? <Button size='sm' onPress={actions.createSession}>
-            <LuPlus className='size-4' aria-hidden />
-            <span>{t('newSession')}</span>
-          </Button>
-          : <Link href={UrlTree.settingsSatellites} className='text-sm text-link'>{
-            t('sessions.openSatelliteSettings')
-          }</Link>}
+        <SessionsEmptyState
+          hasProjects={projectsStatus === 'loaded' && Object.keys(projectNames).length > 0}
+          hasSatellites={satellitesStatus === 'loaded' && Object.keys(satelliteNames).length > 0}
+          onCreateSession={actions.createSession}
+        />
       </div>
     </div>
   }
@@ -191,4 +191,37 @@ export function SessionsPanel() {
       stickyHeader={false}
     />
   </div>
+}
+
+type SessionsEmptyStateProps = {
+  hasProjects: boolean
+  hasSatellites: boolean
+  onCreateSession: () => void
+}
+
+// A session needs a project and a satellite; point at whichever is missing first.
+function SessionsEmptyState(props: SessionsEmptyStateProps) {
+  const { t } = useTranslation('coding')
+
+  if (!props.hasProjects) {
+    return <>
+      <p className='relaxed text-sm opacity-70'>{t('sessions.noProjects')}</p>
+      <Link href={UrlTree.projects} className='text-sm text-link'>{t('sessions.openProjects')}</Link>
+    </>
+  }
+
+  if (!props.hasSatellites) {
+    return <>
+      <p className='relaxed text-sm opacity-70'>{t('sessions.noSatellites')}</p>
+      <Link href={UrlTree.settingsSatellites} className='text-sm text-link'>{t('sessions.openSatelliteSettings')}</Link>
+    </>
+  }
+
+  return <>
+    <p className='relaxed text-sm opacity-70'>{t('sessions.empty')}</p>
+    <Button size='sm' onPress={props.onCreateSession}>
+      <LuPlus className='size-4' aria-hidden />
+      <span>{t('newSession')}</span>
+    </Button>
+  </>
 }

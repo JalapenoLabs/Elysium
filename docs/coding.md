@@ -9,6 +9,7 @@ on the Coding page.
 
 | Elysium          | Arsox   | Meaning                                                                   |
 |------------------|---------|---------------------------------------------------------------------------|
+| Project          | —       | What sessions are grouped under, stored in `projects`                     |
 | Satellite        | —       | A satellite's URL and bearer secret, stored in `satellites`               |
 | Coding session   | Thread  | An agent conversation with its own workspace; Elysium stores a pointer    |
 | Prompt           | Turn    | One request to the agent. Turns queue behind the one running              |
@@ -48,6 +49,13 @@ satellite changes or stops answering. Two kinds of watcher run under it.
 Polling stands in for the satellite's control stream, which the Rust SDK does not expose yet. Watchers start at
 boot for every active satellite, restart when a satellite is saved, and stop when it is deactivated or deleted.
 
+## Projects
+
+Every coding session belongs to one project, chosen when the session is created. Projects have a unique name and
+a description, and are managed on the Projects page in the sidebar. A project cannot be deleted while any
+session belongs to it: each session owns a running thread, which is destroyed deliberately by deleting the
+session. Deleting a satellite still forgets its sessions, whatever project they belong to.
+
 ## Sessions
 
 Creating a session generates its id first and sends it as the satellite's idempotency key, so a retried create
@@ -81,8 +89,8 @@ events. It gives up after 10 seconds with a 502. Clients merge history with live
 
 `frontend/src/pages/Coding/` holds the page. It is a Dockview workspace (`dockview-react`) with two panel types:
 
-- **Sessions** is the overview: every session, its satellite, live thread state, and last activity, in uikit's
-  `SmartTable`. A title opens that session's conversation.
+- **Sessions** is the overview: every session, its project and satellite, live thread state, and last activity,
+  in uikit's `SmartTable`. A title opens that session's conversation.
 - **Conversation** is one session. It loads history through SWR when it opens and drops its events from Redux when
   it closes; a reopened panel shows SWR's buffered history while the fresh copy loads. Prompts and agent messages
   render as chat bubbles; tool calls, thinking, and turn results as compact lines with details folded away. Event

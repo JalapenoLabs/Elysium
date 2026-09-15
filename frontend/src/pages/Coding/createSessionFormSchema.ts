@@ -18,6 +18,9 @@ const REPOSITORY_URL_PATTERN = /^(https?:\/\/|ssh:\/\/|git@)\S+\/[\w.-]+?(\.git)
 // Built per render with `t` so validation messages are already translated.
 export function createSessionFormSchema(t: TFunction<'coding'>) {
   return z.object({
+    projectId: z
+      .string()
+      .min(1, { error: t('create.errors.projectRequired') }),
     satelliteId: z
       .string()
       .min(1, { error: t('create.errors.satelliteRequired') }),

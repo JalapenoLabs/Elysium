@@ -59,6 +59,7 @@ const TURN_WALL_CLOCK_CEILING_SECONDS: i64 = 60 * 60;
 #[serde(rename_all = "camelCase")]
 pub struct CodingSessionResponse {
     id: Uuid,
+    project_id: Uuid,
     satellite_id: Uuid,
     thread_id: String,
     title: String,
@@ -72,6 +73,7 @@ impl CodingSessionResponse {
     pub fn new(session: CodingSession, thread: Option<ThreadStatus>) -> Self {
         Self {
             id: session.id,
+            project_id: session.project_id,
             satellite_id: session.satellite_id,
             thread_id: session.thread_id,
             title: session.title,

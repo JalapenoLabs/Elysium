@@ -80,6 +80,18 @@ Plain `cargo test` skips them because they need `TEST_DATABASE_URL`.
 The partial index `llms_active_priority_idx` on `(priority, created_at) WHERE is_active` serves the lookup for
 active credentials in priority order.
 
+### `projects`
+
+What coding sessions are grouped under.
+
+| Column        | Type          | Notes                                    |
+|---------------|---------------|------------------------------------------|
+| `id`          | `UUID`        | UUIDv7, primary key                      |
+| `name`        | `TEXT`        | 1 to 120 characters, unique              |
+| `description` | `TEXT`        | Up to 2000 characters, defaults to empty |
+| `created_at`  | `TIMESTAMPTZ` | Set on insert                            |
+| `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                    |
+
 ### `satellites`
 
 | Column             | Type          | Notes                                                  |
@@ -100,10 +112,16 @@ A pointer to an Arsox thread. The thread's state and history live on the satelli
 | Column         | Type          | Notes                                                                 |
 |----------------|---------------|-----------------------------------------------------------------------|
 | `id`           | `UUID`        | UUIDv7 from the API, also the thread's create idempotency key         |
+| `project_id`   | `UUID`        | References `projects`; a project with sessions cannot be deleted      |
 | `satellite_id` | `UUID`        | References `satellites`; deleting the satellite deletes its sessions  |
 | `thread_id`    | `TEXT`        | The satellite's thread id; unique per satellite                       |
 | `title`        | `TEXT`        | 1 to 200 characters                                                   |
 | `created_at`   | `TIMESTAMPTZ` | Set on insert                                                         |
 | `updated_at`   | `TIMESTAMPTZ` | Maintained by trigger                                                 |
 
-`coding_sessions_created_at_idx` serves the newest-first overview.
+`coding_sessions_created_at_idx` serves the newest-first overview, and `coding_sessions_project_id_idx` the
+project lookups, including the delete check.
+
+The `project_id` foreign key is `ON DELETE NO ACTION` rather than `RESTRICT`. Both refuse the delete, but only
+`NO ACTION` reports SQLSTATE `23503`, which Diesel surfaces as a foreign key violation; `RESTRICT` reports
+`23001`, which Diesel does not classify.

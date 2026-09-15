@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next'
 // Redux
 import { codingSessionUpserted } from '../../store/codingSessionsSlice'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { selectAllProjects } from '../../store/projectsSlice'
 import { selectAllSatellites } from '../../store/satellitesSlice'
 
 // User interface
@@ -35,7 +36,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 // Misc
 import { getSatelliteErrorMessage } from '../../api/errors'
 import { createCodingSession, startTurn } from '../../api/routes/codingSessionRoutes'
-import { useSatellitesLoader } from '../../hooks/useServerData'
+import { useProjectsLoader, useSatellitesLoader } from '../../hooks/useServerData'
 import { useCodingActions } from './codingActionsContext'
 import { createSessionFormSchema, SESSION_TITLE_MAX_CHARACTERS } from './createSessionFormSchema'
 
@@ -47,7 +48,9 @@ export function CreateSessionModal(props: Props) {
   const { t } = useTranslation([ 'coding', 'common' ])
   const dispatch = useAppDispatch()
   const codingActions = useCodingActions()
+  useProjectsLoader()
   useSatellitesLoader()
+  const projects = useAppSelector(selectAllProjects)
   const satellites = useAppSelector(selectAllSatellites)
 
   const activeSatellites = useMemo(
@@ -63,7 +66,10 @@ export function CreateSessionModal(props: Props) {
   const form = useForm<CreateSessionFormValues>({
     resolver,
     defaultValues: {
-      // One satellite is the common case; preselect it.
+      // A lone project or satellite is the only possible choice; preselect it.
+      projectId: projects.length === 1
+        ? projects[0].id
+        : '',
       satelliteId: activeSatellites.length === 1
         ? activeSatellites[0].id
         : '',
@@ -81,6 +87,7 @@ export function CreateSessionModal(props: Props) {
 
     try {
       const { session } = await createCodingSession({
+        projectId: values.projectId,
         satelliteId: values.satelliteId,
         title,
         repositoryUrl: values.repositoryUrl || undefined,
@@ -106,9 +113,9 @@ export function CreateSessionModal(props: Props) {
 
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
-  const [ satelliteId, title, repositoryUrl, baseBranch, prompt ] = useWatch({
+  const [ projectId, satelliteId, title, repositoryUrl, baseBranch, prompt ] = useWatch({
     control: form.control,
-    name: [ 'satelliteId', 'title', 'repositoryUrl', 'baseBranch', 'prompt' ],
+    name: [ 'projectId', 'satelliteId', 'title', 'repositoryUrl', 'baseBranch', 'prompt' ],
   })
 
   // Controlled overlays skip the Modal root: it is a trigger wrapper, and without a
@@ -124,6 +131,38 @@ export function CreateSessionModal(props: Props) {
         </Modal.Header>
         <Form onSubmit={onSubmit} validationBehavior='aria'>
           <Modal.Body className='mt-2 flex flex-col gap-4'>
+            {/* Project */}
+            <Select
+              isRequired
+              isInvalid={Boolean(errors.projectId)}
+              placeholder={t('create.projectPlaceholder')}
+              value={projectId || null}
+              onChange={(key) => form.setValue(
+                'projectId',
+                String(key ?? ''),
+                { shouldDirty: true, shouldValidate: true },
+              )}
+            >
+              <Label>{t('create.project')}</Label>
+              <Select.Trigger>
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>{
+                  projects.map((project) => <ListBox.Item
+                    key={project.id}
+                    id={project.id}
+                    textValue={project.name}
+                  >
+                    {project.name}
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>)
+                }</ListBox>
+              </Select.Popover>
+              <FieldError>{errors.projectId?.message}</FieldError>
+            </Select>
+
             {/* Satellite */}
             <Select
               isRequired
@@ -211,7 +250,7 @@ export function CreateSessionModal(props: Props) {
             </Button>
             <Button
               type='submit'
-              isDisabled={!satelliteId}
+              isDisabled={!projectId || !satelliteId}
               isPending={form.formState.isSubmitting}
             >
               <span>{t('common:actions.create')}</span>

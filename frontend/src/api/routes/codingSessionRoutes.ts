@@ -28,6 +28,7 @@ export type ThreadStatus = {
 
 export type CodingSession = {
   id: string
+  projectId: string
   satelliteId: string
   threadId: string
   title: string
@@ -96,6 +97,7 @@ export function listCodingSessions() {
 }
 
 type CreateCodingSessionRequest = {
+  projectId: string
   satelliteId: string
   title: string
   repositoryUrl?: string

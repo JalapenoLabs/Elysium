@@ -45,6 +45,7 @@ the home page.
 | Path                          | Page                     | Notes                                                    |
 |-------------------------------|--------------------------|----------------------------------------------------------|
 | `/`                           | `HomePage`               | Placeholder                                              |
+| `/projects`                   | `ProjectsPage`           | List, create, edit, and delete projects                  |
 | `/coding`                     | `CodingPage`             | Dockview workspace of coding sessions, see below         |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
@@ -133,6 +134,7 @@ Selectors return existing references; never build objects or strings inside one.
 | Slice            | Holds                                                                   |
 |------------------|-------------------------------------------------------------------------|
 | `llms`           | LLM credentials, sorted by priority                                     |
+| `projects`       | Projects, sorted by name                                                |
 | `satellites`     | Satellites with their latest status                                     |
 | `codingSessions` | Coding sessions with their thread state, newest first                   |
 | `sessionEvents`  | Events for conversations that are open, merged by sequence              |
@@ -144,9 +146,9 @@ Server collections use entity adapters. Redux is the source of truth components 
 ### Server data: SWR, then Redux, then the event stream
 
 1. **SWR loads it once.** A component that shows server data calls a loader from `src/hooks/useServerData.ts`
-   (`useLlmsLoader`, `useSatellitesLoader`, `useCodingSessionsLoader`, `useSessionHistoryLoader`). SWR fetches
-   the key once, deduplicates every component asking for it, and buffers the response so a remounted page
-   renders at once while it revalidates.
+   (`useLlmsLoader`, `useProjectsLoader`, `useSatellitesLoader`, `useCodingSessionsLoader`,
+   `useSessionHistoryLoader`). SWR fetches the key once, deduplicates every component asking for it, and buffers the
+   response so a remounted page renders at once while it revalidates.
 2. **Redux holds it.** The loader puts the response in Redux (`llmsLoaded`, `sessionHistoryLoaded`, ...).
    Loaders return only `loading`, `loaded`, or `failed`; components select the data itself from Redux. Once
    `loaded`, a refetch never drops a view back to a spinner.
@@ -236,7 +238,7 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `home`, `settings`, `llms`,
-  `satellites`, `coding`.
+  `satellites`, `projects`, `coding`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.

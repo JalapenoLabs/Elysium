@@ -16,6 +16,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
 | PATCH  | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
 | DELETE | `/api/v1/llms/{id}`                   | `204`                                               |
+| GET    | `/api/v1/projects`                    | `200` `{ projects: Project[] }`, by name            |
+| POST   | `/api/v1/projects`                    | `201` `{ project }`                                 |
+| PATCH  | `/api/v1/projects/{id}`               | `200` `{ project }`                                 |
+| DELETE | `/api/v1/projects/{id}`               | `204`; `409` while sessions belong to it            |
 | GET    | `/api/v1/satellites`                  | `200` `{ satellites: Satellite[] }`, by name        |
 | POST   | `/api/v1/satellites`                  | `201` `{ satellite }`                               |
 | GET    | `/api/v1/satellites/{id}`             | `200` `{ satellite }`                               |
@@ -53,6 +57,12 @@ A new `secretToken` is re-sealed. An empty body is rejected.
 
 Timestamps sent to the API must include an offset. Responses are always UTC with a `Z` suffix.
 
+### `/api/v1/projects`
+
+A `Project` has `id`, `name`, `description`, `createdAt`, and `updatedAt`. `POST` requires `name` (1 to 120
+characters, unique) and accepts `description` (up to 2000, default empty). `PATCH` accepts either; an empty body
+is rejected. `DELETE` answers `409` while any coding session belongs to the project.
+
 ### `/api/v1/satellites`
 
 A `Satellite` has `id`, `name`, `description`, `url`, `isActive`, `createdAt`, `updatedAt`, and `status`. The
@@ -67,14 +77,14 @@ satellite's error.
 
 ### `/api/v1/coding-sessions`
 
-A `CodingSession` has `id`, `satelliteId`, `threadId`, `title`, `createdAt`, `updatedAt`, and `thread`: the thread
-as of the latest poll, or null until the first poll sees it. `thread` holds `state`, `queueDepth`,
-`currentTurnId`, `latestSequence`, `lastActivityAt`, and `expiresAt`. `state` is one of `unknown`,
+A `CodingSession` has `id`, `projectId`, `satelliteId`, `threadId`, `title`, `createdAt`, `updatedAt`, and
+`thread`: the thread as of the latest poll, or null until the first poll sees it. `thread` holds `state`,
+`queueDepth`, `currentTurnId`, `latestSequence`, `lastActivityAt`, and `expiresAt`. `state` is one of `unknown`,
 `provisioning`, `idle`, `running`, `awaiting-input`, `watching`, `paused`, `expired`, or `destroyed`.
 
-`POST` requires `satelliteId` and `title` (1 to 200 characters), and accepts `repositoryUrl` and `baseBranch`.
-The satellite must be active (`409` otherwise). `turns` requires `prompt` (1 to 100,000 characters) and answers
-`{ turnId, status, prompt, queuedAt }`; the turn's progress arrives on the event stream.
+`POST` requires `projectId`, `satelliteId`, and `title` (1 to 200 characters), and accepts `repositoryUrl` and
+`baseBranch`. The satellite must be active (`409` otherwise). `turns` requires `prompt` (1 to 100,000 characters)
+and answers `{ turnId, status, prompt, queuedAt }`; the turn's progress arrives on the event stream.
 
 A `SessionEvent` has `sessionId`, `sequence`, `turnId`, `occurredAt`, `type` (the satellite's wire name, such as
 `agent.message`), `memberId`, and `payload`. `payload` is null for event types the API does not render; otherwise
@@ -90,7 +100,7 @@ Every error is JSON with a `message`.
 |--------|---------------------------------------------------------------------------------------|
 | `400`  | Malformed JSON, unknown field, unknown enum value, bad UUID, blank or oversized token |
 | `404`  | No row with that id                                                                   |
-| `409`  | Unique constraint, such as a duplicate LLM name                                       |
+| `409`  | Unique constraint, such as a duplicate LLM name, or a project that still has sessions |
 | `422`  | Field validation failed; `fields` lists each failure                                  |
 | `502`  | A satellite refused or could not be reached; `message` is the satellite's error       |
 | `500`  | Internal fault; details are logged, never returned                                    |
