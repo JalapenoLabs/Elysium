@@ -1,9 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { OnChangeFn, SortingState } from '@tanstack/react-table'
 import type { Project } from '../../api/routes/projectRoutes'
+import type { ProjectSort } from './projectListing'
 
 // Core
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
@@ -12,9 +14,13 @@ import { ProjectRowActions } from './ProjectRowActions'
 
 // Misc
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
+import { DEFAULT_PROJECT_SORT, PROJECT_SORT_KEYS } from './projectListing'
 
 type Props = {
+  // Already searched and sorted by the page's toolbar.
   projects: Project[]
+  sort: ProjectSort
+  onSortChange: (sort: ProjectSort) => void
   sessionCounts: Record<string, number>
   onEdit: (project: Project) => void
   onDelete: (project: Project) => void
@@ -38,10 +44,25 @@ const columnSizes = {
   rowActions: 64,
 } as const satisfies Record<ProjectColumnKey, number>
 
+// The grid view. Its column headers sort through the same state as the toolbar.
 export function ProjectTable(props: Props) {
   const { t, i18n } = useTranslation([ 'projects', 'common' ])
   const labels = useSmartTableLabels()
-  const [ search, setSearch ] = useState('')
+
+  const sorting: SortingState = [{ id: props.sort.key, desc: props.sort.descending }]
+  const onSortingChange: OnChangeFn<SortingState> = (updater) => {
+    const next = typeof updater === 'function'
+      ? updater(sorting)
+      : updater
+    const [ column ] = next
+    // Clearing a header's sort returns to the default rather than an unsorted list.
+    const sortKey = PROJECT_SORT_KEYS.find((key) => key === column?.id)
+    if (!column || !sortKey) {
+      props.onSortChange(DEFAULT_PROJECT_SORT)
+      return
+    }
+    props.onSortChange({ key: sortKey, descending: column.desc })
+  }
 
   const managedColumns = useMemo(() => {
     // Timestamps arrive as UTC; this is where they become the viewer's local time.
@@ -112,12 +133,6 @@ export function ProjectTable(props: Props) {
     })
   }, [ t, i18n.language, props.sessionCounts, props.onEdit, props.onDelete ])
 
-  if (!props.projects.length) {
-    return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
-      t('table.empty')
-    }</p>
-  }
-
   return <SmartTable
     ids={{
       tableElementId: 'projects-table',
@@ -128,10 +143,11 @@ export function ProjectTable(props: Props) {
     managedColumns={managedColumns}
     getRowId={(project) => project.id}
     labels={labels}
-    search={{
-      value: search,
-      onChange: setSearch,
-    }}
+    search={{ show: false }}
+    // The page's toolbar searches, counts, and sorts for both views.
+    toolbar={{ show: false }}
+    sorting={sorting}
+    onSortingChange={onSortingChange}
     enableSorting
     stickyHeader={false}
   />

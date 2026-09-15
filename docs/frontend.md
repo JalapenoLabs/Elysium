@@ -45,7 +45,7 @@ the home page.
 | Path                          | Page                     | Notes                                                    |
 |-------------------------------|--------------------------|----------------------------------------------------------|
 | `/`                           | `HomePage`               | Placeholder                                              |
-| `/projects`                   | `ProjectsPage`           | List, create, edit, and delete projects                  |
+| `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/coding`                     | `CodingPage`             | Dockview workspace of coding sessions, see below         |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
@@ -125,6 +125,15 @@ HeroUI theme so accents match.
 `src/api/index.ts` exports one Ky instance with `prefix: '/api'`. Requests are origin-relative because nginx
 serves the frontend and API from the same host. Each resource has a file in `src/api/routes/` with one function per
 endpoint and request and response types that mirror the Rust structs.
+
+### Projects page
+
+`src/pages/Projects/ProjectsPage.tsx` lists projects in a grid view (uikit's `SmartTable`) or a tiles view (HeroUI
+cards). One toolbar drives both: search matches name and description, and sort is by name, session count, or last
+update, in either direction. `projectListing.ts` does the filtering and sorting once, so switching views keeps
+the same results in the same order. The table's own search and toolbar are hidden, and its column headers sort
+through the same state as the toolbar. The chosen view is remembered per browser under
+`elysium.projects.view.v1`; search and sort reset on each visit.
 
 ### Redux
 

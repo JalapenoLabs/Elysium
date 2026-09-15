@@ -8,7 +8,8 @@
     "sessions": "Coding sessions",
     "updated": "Last updated",
     "empty": "No projects yet. Create one to start coding sessions in it.",
-    "loadError": "Projects could not be loaded."
+    "loadError": "Projects could not be loaded.",
+    "noMatches": "No projects match your search."
   },
   "form": {
     "createTitle": "New project",
@@ -33,5 +34,27 @@
     "updated": "{{name}} updated",
     "deleted": "{{name}} deleted",
     "stillHasSessions": "{{name}} still has coding sessions"
+  },
+  "toolbar": {
+    "search": "Search projects",
+    "sortBy": "Sort by",
+    "ascending": "Ascending",
+    "descending": "Descending",
+    "view": "View",
+    "grid": "Grid",
+    "tiles": "Tiles",
+    "results_one": "{{count}} project",
+    "results_other": "{{count}} projects"
+  },
+  "sort": {
+    "name": "Name",
+    "sessions": "Coding sessions",
+    "updated": "Last updated"
+  },
+  "tile": {
+    "sessions_one": "{{count}} coding session",
+    "sessions_other": "{{count}} coding sessions",
+    "updated": "Updated {{date}}",
+    "noDescription": "No description"
   }
 }
