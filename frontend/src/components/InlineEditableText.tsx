@@ -24,14 +24,17 @@ type Props = {
 }
 
 const DISPLAY_CLASS_NAME = [
-  '-mx-1 block w-full cursor-text rounded-md px-1 text-left transition-colors hover:bg-surface-secondary',
+  '-mx-1 inline-block max-w-full cursor-text rounded-md px-1 text-left',
+  'transition-colors hover:bg-surface-secondary',
   'focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none',
 ].join(' ')
 
 const EDITOR_CLASS_NAME = '-mx-1 w-full rounded-md bg-transparent px-1 ring-2 ring-focus outline-none'
 
-// Text that becomes its own editor when clicked. Enter (or Ctrl+Enter when multi-line)
-// and clicking away save; Escape cancels. An empty value is refused when required.
+// Text that becomes its own editor when clicked. The text is only as wide as it is, so the
+// hover highlight hugs it; the editor takes the full width to leave room for typing.
+// Enter (or Ctrl+Enter when multi-line) and clicking away save; Escape cancels. An empty
+// value is refused when required.
 export function InlineEditableText(props: Props) {
   const [ isEditing, setIsEditing ] = useState(false)
   const [ draft, setDraft ] = useState(props.value)
