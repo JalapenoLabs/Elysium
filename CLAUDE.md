@@ -50,8 +50,8 @@ Everything else follows these rules:
 ## Storage
 
 - Storage locations are where Elysium saves files, one row per location with a provider kind, used by the projects
-  linked to it or by every project (`*`). Bunny Storage is the only provider today; S3-compatible buckets and local
-  storage are planned. See `docs/storage.md`.
+  linked to it or by every project (`*`). Providers are Bunny Storage and S3 buckets on AWS or Google Cloud, with
+  every endpoint fixed in code; local storage is planned. See `docs/storage.md`.
 - Access keys are application secrets, sealed in Postgres. Routes never match on the provider; `api/src/storage/`
   does.
 

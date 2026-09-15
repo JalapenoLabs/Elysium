@@ -163,7 +163,7 @@ External locations Elysium saves files to; see `docs/storage.md`.
 |------------------------|-------------------------|--------------------------------------------------------------|
 | `id`                   | `UUID`                  | UUIDv7, primary key                                          |
 | `name`                 | `TEXT`                  | 1 to 120 characters, unique                                  |
-| `kind`                 | `storage_location_kind` | The provider: `bunny`                                        |
+| `kind`                 | `storage_location_kind` | The provider: `bunny` or `s3`                                |
 | `bunny_zone`           | `TEXT`                  | Set exactly for `bunny`; letters, digits, hyphens, up to 64  |
 | `bunny_region`         | `bunny_storage_region`  | Set exactly for `bunny`                                      |
 | `path_prefix`          | `TEXT`                  | Up to 1024 characters, no leading, trailing, or double slash |
@@ -172,6 +172,13 @@ External locations Elysium saves files to; see `docs/storage.md`.
 | `created_at`           | `TIMESTAMPTZ`           | Set on insert                                                |
 | `updated_at`           | `TIMESTAMPTZ`           | Maintained by trigger                                        |
 | `all_projects`         | `BOOLEAN`               | Every project saves files here; defaults to false            |
+| `s3_service`           | `s3_service`            | Set exactly for `s3`: `aws` or `google_cloud`                |
+| `s3_bucket`            | `TEXT`                  | Set exactly for `s3`                                         |
+| `s3_region`            | `TEXT`                  | Set exactly for `aws`                                        |
+| `s3_access_key_id`     | `TEXT`                  | Set exactly for `s3`; letters and digits, up to 256          |
+
+Constraints compare `kind` as text, because the migration adding `s3` can share a transaction with the one that uses
+it, and Postgres refuses a new enum value as a literal in the transaction that added it.
 
 ### `storage_location_projects`
 

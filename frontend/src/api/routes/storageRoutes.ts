@@ -6,8 +6,13 @@ import type { ProjectScope } from './projectRoutes'
 import { apiClient } from '../index'
 
 // Mirrors `StorageLocationKind` in api/src/models/storage_location.rs.
-export const STORAGE_PROVIDER_KINDS = [ 'bunny' ] as const
+export const STORAGE_PROVIDER_KINDS = [ 'bunny', 's3' ] as const
 export type StorageProviderKind = typeof STORAGE_PROVIDER_KINDS[number]
+
+// Mirrors `S3Service` in api/src/models/storage_location.rs: the services Elysium reaches
+// over the S3 API, each at an endpoint fixed in the API.
+export const S3_SERVICES = [ 'aws', 'google-cloud' ] as const
+export type S3Service = typeof S3_SERVICES[number]
 
 // Mirrors `BunnyStorageRegion` in api/src/models/storage_location.rs.
 export const BUNNY_STORAGE_REGIONS = [
@@ -23,14 +28,26 @@ export const BUNNY_STORAGE_REGIONS = [
 ] as const
 export type BunnyStorageRegion = typeof BUNNY_STORAGE_REGIONS[number]
 
-// Mirrors `StorageProvider` in api/src/models/storage_location.rs: where a location's
-// files go, with the settings only that provider has.
-export type StorageProvider = {
-  kind: StorageProviderKind
+export type BunnyStorageProvider = {
+  kind: 'bunny'
   // The storage zone's name.
   zone: string
   region: BunnyStorageRegion
 }
+
+export type S3StorageProvider = {
+  kind: 's3'
+  service: S3Service
+  bucket: string
+  // The bucket's region, such as us-east-1, for aws; null for google-cloud.
+  region: string | null
+  // Names the key; the secret half is the location's access key.
+  accessKeyId: string
+}
+
+// Mirrors `StorageProvider` in api/src/models/storage_location.rs: where a location's
+// files go, with the settings only that provider has.
+export type StorageProvider = BunnyStorageProvider | S3StorageProvider
 
 // The API never returns the access key.
 export type StorageLocation = {
@@ -103,8 +120,10 @@ export function deleteStorageLocation(locationId: string) {
 
 type TestStorageLocationResponse = {
   result: {
-    // Files and directories directly inside the location's directory.
+    // Files and directories directly inside the location's directory, up to one page.
     entries: number
+    // The directory holds more than `entries`.
+    hasMore: boolean
   }
 }
 

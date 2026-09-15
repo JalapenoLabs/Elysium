@@ -136,17 +136,22 @@ satellite's error.
 
 A `StorageLocation` has `id`, `name`, `provider`, `pathPrefix`, `storageLimitBytes`, `projects`, `createdAt`, and
 `updatedAt`. `projects` is `"*"` for every project, or an array of project ids.
-The access key is never returned. `provider` is `{ kind: "bunny", zone, region }`, with `region` one of `frankfurt`,
-`london`, `new-york`, `los-angeles`, `singapore`, `stockholm`, `sao-paulo`, `johannesburg`, or `sydney`.
+The access key is never returned. `provider` is one of:
+
+- `{ kind: "bunny", zone, region }`, with `region` one of `frankfurt`, `london`, `new-york`, `los-angeles`,
+  `singapore`, `stockholm`, `sao-paulo`, `johannesburg`, or `sydney`.
+- `{ kind: "s3", service, bucket, region, accessKeyId }`, with `service` either `aws` (`region` required, such as
+  `us-east-1`) or `google-cloud` (`region` null).
 
 `POST` requires `name` (1 to 120 characters, unique), `provider`, and `accessKey`, and accepts `pathPrefix` (default
 the root; surrounding slashes are dropped), `storageLimitBytes` (1 to 2^53 - 1; absent or `null` for no limit), and
 `projects` (default none). An unknown project id answers `400`.
 `PATCH` accepts any subset; `provider` replaces all of the provider's settings, `projects` replaces the projects,
-`storageLimitBytes: null` removes the limit, and a new `accessKey` is re-sealed.
+`storageLimitBytes: null` removes the limit, and a new `accessKey` is re-sealed. A `provider` with another Bunny zone,
+S3 service, or access key id answers `400` unless it comes with its `accessKey`.
 
-`test` answers `{ entries }`, the number of files and directories directly inside the location's directory, or `502`
-with the provider's error. See `docs/storage.md`.
+`test` answers `{ entries, hasMore }`: the files and directories directly inside the location's directory, up to one
+page, and whether it holds more. It answers `502` with the provider's error. See `docs/storage.md`.
 
 ### `/api/v1/coding-sessions`
 

@@ -34,7 +34,10 @@ export function ManageStoragePage() {
   async function runConnectionTest(location: StorageLocation) {
     try {
       const { result } = await testStorageLocation(location.id)
-      toast.success(t('toasts.testPassed', { name: location.name, count: result.entries }))
+      const key = result.hasMore
+        ? 'toasts.testPassedMore'
+        : 'toasts.testPassed'
+      toast.success(t(key, { name: location.name, count: result.entries }))
     }
     catch (error) {
       const message = getUpstreamErrorMessage(error)

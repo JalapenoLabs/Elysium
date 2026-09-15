@@ -18,6 +18,10 @@ pub mod sql_types {
     pub struct ProjectCoverFit;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "s3_service"))]
+    pub struct S3Service;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "storage_location_kind"))]
     pub struct StorageLocationKind;
 }
@@ -144,6 +148,7 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::StorageLocationKind;
     use super::sql_types::BunnyStorageRegion;
+    use super::sql_types::S3Service;
 
     storage_locations (id) {
         id -> Uuid,
@@ -157,6 +162,10 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         all_projects -> Bool,
+        s3_service -> Nullable<S3Service>,
+        s3_bucket -> Nullable<Text>,
+        s3_region -> Nullable<Text>,
+        s3_access_key_id -> Nullable<Text>,
     }
 }
 

@@ -22,8 +22,9 @@ import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import {
   bunnyRegionLabelKeys,
   formatStorageBytes,
+  getStorageOption,
   getStoragePath,
-  storageProviderLabelKeys,
+  storageOptionLabelKeys,
 } from './storagePresentation'
 
 type Props = {
@@ -63,6 +64,14 @@ export function StorageLocationTable(props: Props) {
   const projectNamesById = useAppSelector(selectProjectNamesById, shallowEqual)
 
   const managedColumns = useMemo(() => {
+    // A Bunny zone's region by name, an AWS bucket's by code; Google Cloud needs none.
+    function regionText(location: StorageLocation) {
+      if (location.provider.kind === 'bunny') {
+        return t(bunnyRegionLabelKeys[location.provider.region])
+      }
+      return location.provider.region ?? ''
+    }
+
     // Deleted projects leave no name behind, so they are skipped.
     function projectsText(location: StorageLocation) {
       if (location.projects === ALL_PROJECTS) {
@@ -80,8 +89,8 @@ export function StorageLocationTable(props: Props) {
     const renderCell = {
       name: (location: StorageLocation) => <span className='font-medium'>{location.name}</span>,
       provider: (location: StorageLocation) => <div>
-        <div>{t(storageProviderLabelKeys[location.provider.kind])}</div>
-        <div className='text-xs opacity-70'>{t(bunnyRegionLabelKeys[location.provider.region])}</div>
+        <div>{t(storageOptionLabelKeys[getStorageOption(location.provider)])}</div>
+        {regionText(location) && <div className='text-xs opacity-70'>{regionText(location)}</div>}
       </div>,
       location: (location: StorageLocation) => <code className='text-xs'>{getStoragePath(location)}</code>,
       projects: (location: StorageLocation) => <span className='line-clamp-2'>{projectsText(location)}</span>,
@@ -100,8 +109,8 @@ export function StorageLocationTable(props: Props) {
     const searchValue = {
       name: (location: StorageLocation) => location.name,
       provider: (location: StorageLocation) => [
-        t(storageProviderLabelKeys[location.provider.kind]),
-        t(bunnyRegionLabelKeys[location.provider.region]),
+        t(storageOptionLabelKeys[getStorageOption(location.provider)]),
+        regionText(location),
       ].join(' '),
       location: getStoragePath,
       projects: projectsText,

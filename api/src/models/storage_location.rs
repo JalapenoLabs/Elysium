@@ -3,7 +3,7 @@
 //! External locations Elysium saves files to.
 //!
 //! Each location has a provider, which decides where files go and how Elysium signs in:
-//! today a Bunny Storage zone. The access key never exists in Postgres as plaintext. It
+//! a Bunny Storage zone, or an S3 bucket on AWS or Google Cloud. The access key never exists in Postgres as plaintext. It
 //! is sealed here, bound to the row's id, before the insert or update leaves the process.
 //! Callers hand in a [`SecretString`] and only ever get one back from
 //! [`StorageLocation::access_key`].
@@ -29,6 +29,19 @@ use crate::models::project::ProjectScope;
 #[serde(rename_all = "kebab-case")]
 pub enum StorageLocationKind {
     Bunny,
+    S3,
+}
+
+/// A service Elysium reaches over the S3 API. Each has a fixed endpoint in code, so no
+/// request can point Elysium at an arbitrary host.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, diesel_derive_enum::DbEnum, Serialize, Deserialize,
+)]
+#[ExistingTypePath = "crate::database::schema::sql_types::S3Service"]
+#[serde(rename_all = "kebab-case")]
+pub enum S3Service {
+    Aws,
+    GoogleCloud,
 }
 
 /// A Bunny Storage region. A zone lives in one, and answers only on that region's endpoint.
@@ -63,6 +76,44 @@ pub enum StorageProvider {
         zone: String,
         region: BunnyStorageRegion,
     },
+    S3 {
+        service: S3Service,
+        bucket: String,
+        /// The bucket's region, such as `us-east-1`, for `aws`; `None` for `google-cloud`.
+        region: Option<String>,
+        /// Names the key; the secret half is the location's access key.
+        access_key_id: String,
+    },
+}
+
+impl StorageProvider {
+    /// Whether a location moving from `stored` to these settings may keep its access key.
+    ///
+    /// Bunny passwords belong to one zone, and an S3 secret to one access key id on one
+    /// service, so changing either needs the matching secret too.
+    pub fn keeps_access_key_of(&self, stored: &Self) -> bool {
+        match (self, stored) {
+            (
+                Self::Bunny { zone, .. },
+                Self::Bunny {
+                    zone: stored_zone, ..
+                },
+            ) => zone == stored_zone,
+            (
+                Self::S3 {
+                    service,
+                    access_key_id,
+                    ..
+                },
+                Self::S3 {
+                    service: stored_service,
+                    access_key_id: stored_access_key_id,
+                    ..
+                },
+            ) => service == stored_service && access_key_id == stored_access_key_id,
+            _ => false,
+        }
+    }
 }
 
 /// A stored location. `access_key_encrypted` is an envelope from [`Cipher::seal`].
@@ -84,6 +135,10 @@ pub struct StorageLocation {
     /// Every project saves files here. Otherwise only the projects linked in
     /// `storage_location_projects` do.
     pub all_projects: bool,
+    pub s3_service: Option<S3Service>,
+    pub s3_bucket: Option<String>,
+    pub s3_region: Option<String>,
+    pub s3_access_key_id: Option<String>,
 }
 
 /// Fields for a new location, with the access key still in plaintext.
@@ -133,9 +188,8 @@ impl StorageLocationChanges {
 struct StorageLocationRow<'a> {
     id: Uuid,
     name: &'a str,
-    kind: StorageLocationKind,
-    bunny_zone: Option<&'a str>,
-    bunny_region: Option<BunnyStorageRegion>,
+    #[diesel(embed)]
+    provider: ProviderColumns,
     path_prefix: &'a str,
     storage_limit_bytes: Option<i64>,
     access_key_encrypted: Vec<u8>,
@@ -147,9 +201,6 @@ struct StorageLocationRow<'a> {
 #[diesel(table_name = storage_locations)]
 struct StorageLocationChangeset<'a> {
     name: Option<&'a str>,
-    kind: Option<StorageLocationKind>,
-    bunny_zone: Option<&'a str>,
-    bunny_region: Option<BunnyStorageRegion>,
     path_prefix: Option<&'a str>,
     #[expect(
         clippy::option_option,
@@ -168,20 +219,45 @@ struct ProjectLinkRow {
     project_id: Uuid,
 }
 
-/// The provider's columns: its kind, then Bunny's zone and region.
-const fn provider_columns(
-    provider: &StorageProvider,
-) -> (
-    StorageLocationKind,
-    Option<&str>,
-    Option<BunnyStorageRegion>,
-) {
+/// Every provider's columns. Writing them for one provider clears the others', so a
+/// location that changes provider keeps no settings from the old one.
+#[derive(Insertable, AsChangeset)]
+#[diesel(table_name = storage_locations, treat_none_as_null = true)]
+struct ProviderColumns {
+    kind: StorageLocationKind,
+    bunny_zone: Option<String>,
+    bunny_region: Option<BunnyStorageRegion>,
+    s3_service: Option<S3Service>,
+    s3_bucket: Option<String>,
+    s3_region: Option<String>,
+    s3_access_key_id: Option<String>,
+}
+
+fn provider_columns(provider: &StorageProvider) -> ProviderColumns {
     match provider {
-        StorageProvider::Bunny { zone, region } => (
-            StorageLocationKind::Bunny,
-            Some(zone.as_str()),
-            Some(*region),
-        ),
+        StorageProvider::Bunny { zone, region } => ProviderColumns {
+            kind: StorageLocationKind::Bunny,
+            bunny_zone: Some(zone.clone()),
+            bunny_region: Some(*region),
+            s3_service: None,
+            s3_bucket: None,
+            s3_region: None,
+            s3_access_key_id: None,
+        },
+        StorageProvider::S3 {
+            service,
+            bucket,
+            region,
+            access_key_id,
+        } => ProviderColumns {
+            kind: StorageLocationKind::S3,
+            bunny_zone: None,
+            bunny_region: None,
+            s3_service: Some(*service),
+            s3_bucket: Some(bucket.clone()),
+            s3_region: region.clone(),
+            s3_access_key_id: Some(access_key_id.clone()),
+        },
     }
 }
 
@@ -229,7 +305,8 @@ impl StorageLocation {
     ///
     /// # Panics
     /// Panics if the provider's columns are missing, which the
-    /// `storage_locations_bunny_fields` constraint rules out.
+    /// `storage_locations_bunny_fields` and `storage_locations_s3_fields` constraints rule
+    /// out.
     pub fn provider(&self) -> StorageProvider {
         match self.kind {
             StorageLocationKind::Bunny => StorageProvider::Bunny {
@@ -240,6 +317,20 @@ impl StorageLocation {
                 region: self
                     .bunny_region
                     .expect("storage_locations_bunny_fields requires a region"),
+            },
+            StorageLocationKind::S3 => StorageProvider::S3 {
+                service: self
+                    .s3_service
+                    .expect("storage_locations_s3_fields requires a service"),
+                bucket: self
+                    .s3_bucket
+                    .clone()
+                    .expect("storage_locations_s3_fields requires a bucket"),
+                region: self.s3_region.clone(),
+                access_key_id: self
+                    .s3_access_key_id
+                    .clone()
+                    .expect("storage_locations_s3_fields requires an access key id"),
             },
         }
     }
@@ -350,13 +441,10 @@ pub async fn create(
     new_location: &NewStorageLocation,
 ) -> QueryResult<StorageLocation> {
     let id = Uuid::now_v7();
-    let (kind, bunny_zone, bunny_region) = provider_columns(&new_location.provider);
     let row = StorageLocationRow {
         id,
         name: &new_location.name,
-        kind,
-        bunny_zone,
-        bunny_region,
+        provider: provider_columns(&new_location.provider),
         path_prefix: &new_location.path_prefix,
         storage_limit_bytes: new_location.storage_limit_bytes,
         access_key_encrypted: cipher.seal(
@@ -393,15 +481,8 @@ pub async fn update(
     id: Uuid,
     changes: &StorageLocationChanges,
 ) -> QueryResult<StorageLocation> {
-    let (kind, bunny_zone, bunny_region) = match changes.provider.as_ref().map(provider_columns) {
-        Some((kind, bunny_zone, bunny_region)) => (Some(kind), bunny_zone, bunny_region),
-        None => (None, None, None),
-    };
     let changeset = StorageLocationChangeset {
         name: changes.name.as_deref(),
-        kind,
-        bunny_zone,
-        bunny_region,
         path_prefix: changes.path_prefix.as_deref(),
         storage_limit_bytes: changes.storage_limit_bytes,
         access_key_encrypted: changes.access_key.as_ref().map(|access_key| {
@@ -419,7 +500,7 @@ pub async fn update(
     connection
         .transaction(async move |connection| {
             let location = diesel::update(storage_locations::table.find(id))
-                .set(changeset)
+                .set((changeset, changes.provider.as_ref().map(provider_columns)))
                 .returning(StorageLocation::as_returning())
                 .get_result(connection)
                 .await?;
@@ -547,6 +628,83 @@ mod tests {
             1,
             "the refused insert rolled back"
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_location_moved_to_s3_keeps_no_bunny_settings_and_back() {
+        let (_url, mut connection) = migrated_database().await;
+        let cipher = cipher();
+        let location = create(&mut connection, &cipher, &new_location("moving"))
+            .await
+            .expect("insert");
+
+        let aws = StorageProvider::S3 {
+            service: S3Service::Aws,
+            bucket: "elysium-files".to_owned(),
+            region: Some("eu-west-2".to_owned()),
+            access_key_id: "AKIAEXAMPLE".to_owned(),
+        };
+        let to_s3 = StorageLocationChanges {
+            provider: Some(aws.clone()),
+            access_key: Some(SecretString::from("aws-secret")),
+            ..StorageLocationChanges::default()
+        };
+        let moved = update(&mut connection, &cipher, location.id, &to_s3)
+            .await
+            .expect("update");
+        assert_eq!(moved.provider(), aws);
+        assert_eq!((moved.bunny_zone, moved.bunny_region), (None, None));
+
+        let google = StorageProvider::S3 {
+            service: S3Service::GoogleCloud,
+            bucket: "elysium_files".to_owned(),
+            region: None,
+            access_key_id: "GOOG1EXAMPLE".to_owned(),
+        };
+        let to_google = StorageLocationChanges {
+            provider: Some(google.clone()),
+            ..StorageLocationChanges::default()
+        };
+        let regionless = update(&mut connection, &cipher, location.id, &to_google)
+            .await
+            .expect("update");
+        assert_eq!(regionless.provider(), google);
+        assert_eq!(regionless.s3_region, None, "the AWS region is cleared");
+
+        let mut regionless_aws = new_location("regionless");
+        regionless_aws.provider = StorageProvider::S3 {
+            service: S3Service::Aws,
+            bucket: "elysium-files".to_owned(),
+            region: None,
+            access_key_id: "AKIAEXAMPLE".to_owned(),
+        };
+        create(&mut connection, &cipher, &regionless_aws)
+            .await
+            .expect_err("storage_locations_s3_region requires a region on AWS");
+    }
+
+    #[test]
+    fn access_keys_carry_over_only_within_one_zone_or_access_key_id() {
+        let bunny = |zone: &str| StorageProvider::Bunny {
+            zone: zone.to_owned(),
+            region: BunnyStorageRegion::London,
+        };
+        let s3 = |service, key: &str| StorageProvider::S3 {
+            service,
+            bucket: "elysium-files".to_owned(),
+            region: None,
+            access_key_id: key.to_owned(),
+        };
+
+        assert!(bunny("files").keeps_access_key_of(&bunny("files")));
+        assert!(!bunny("other").keeps_access_key_of(&bunny("files")));
+        assert!(s3(S3Service::Aws, "AKIA1").keeps_access_key_of(&s3(S3Service::Aws, "AKIA1")));
+        assert!(!s3(S3Service::Aws, "AKIA2").keeps_access_key_of(&s3(S3Service::Aws, "AKIA1")));
+        assert!(
+            !s3(S3Service::GoogleCloud, "AKIA1").keeps_access_key_of(&s3(S3Service::Aws, "AKIA1"))
+        );
+        assert!(!bunny("files").keeps_access_key_of(&s3(S3Service::Aws, "AKIA1")));
     }
 
     #[tokio::test]

@@ -1,7 +1,51 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ParseKeys } from 'i18next'
-import type { BunnyStorageRegion, StorageLocation, StorageProviderKind } from '../../../api/routes/storageRoutes'
+import type {
+  BunnyStorageRegion,
+  StorageLocation,
+  StorageProvider,
+} from '../../../api/routes/storageRoutes'
+
+// What the Provider picker offers. The API has two kinds, Bunny and S3; S3 is offered
+// once per service, since each service is set up in its own console.
+export const STORAGE_OPTIONS = [ 'bunny', 'aws', 'google-cloud' ] as const
+export type StorageOption = typeof STORAGE_OPTIONS[number]
+
+export function getStorageOption(provider: StorageProvider): StorageOption {
+  if (provider.kind === 'bunny') {
+    return 'bunny'
+  }
+  return provider.service
+}
+
+export const storageOptionLabelKeys = {
+  'bunny': 'providers.bunny',
+  'aws': 'providers.aws',
+  'google-cloud': 'providers.google-cloud',
+} as const satisfies Record<StorageOption, ParseKeys<'storage'>>
+
+// Each option's words for the secret and, for S3, the key id it pairs with.
+export const accessKeyLabelKeys = {
+  'bunny': { secret: 'form.secret.bunny', secretHint: 'form.secretHint.bunny', keyId: null, keyIdHint: null },
+  'aws': {
+    secret: 'form.secret.aws',
+    secretHint: 'form.secretHint.aws',
+    keyId: 'form.keyId.aws',
+    keyIdHint: 'form.keyIdHint.aws',
+  },
+  'google-cloud': {
+    secret: 'form.secret.google-cloud',
+    secretHint: 'form.secretHint.google-cloud',
+    keyId: 'form.keyId.google-cloud',
+    keyIdHint: 'form.keyIdHint.google-cloud',
+  },
+} as const satisfies Record<StorageOption, {
+  secret: ParseKeys<'storage'>
+  secretHint: ParseKeys<'storage'>
+  keyId: ParseKeys<'storage'> | null
+  keyIdHint: ParseKeys<'storage'> | null
+}>
 
 // One setup step. The text is translated; URLs are not.
 export type StorageSetupStep = {
@@ -9,20 +53,32 @@ export type StorageSetupStep = {
   link?: string
 }
 
-// Where each provider keeps the settings the form asks for, in the provider's own words.
-export const storageSetupStepsByKind = {
-  bunny: [
+// Where each option keeps the settings the form asks for, in the provider's own words.
+export const storageSetupStepsByOption = {
+  'bunny': [
     { textKey: 'setup.bunny.open', link: 'https://dash.bunny.net/storage' },
     { textKey: 'setup.bunny.zone' },
     { textKey: 'setup.bunny.access' },
     { textKey: 'setup.bunny.region' },
     { textKey: 'setup.bunny.password' },
   ],
-} as const satisfies Record<StorageProviderKind, readonly StorageSetupStep[]>
-
-export const storageProviderLabelKeys = {
-  bunny: 'providers.bunny',
-} as const satisfies Record<StorageProviderKind, ParseKeys<'storage'>>
+  'aws': [
+    { textKey: 'setup.aws.bucket', link: 'https://console.aws.amazon.com/s3/buckets' },
+    { textKey: 'setup.aws.region' },
+    { textKey: 'setup.aws.user', link: 'https://console.aws.amazon.com/iam/home#/users' },
+    { textKey: 'setup.aws.policy' },
+    { textKey: 'setup.aws.key' },
+  ],
+  'google-cloud': [
+    { textKey: 'setup.google-cloud.bucket', link: 'https://console.cloud.google.com/storage/browser' },
+    { textKey: 'setup.google-cloud.role' },
+    {
+      textKey: 'setup.google-cloud.interoperability',
+      link: 'https://console.cloud.google.com/storage/settings;tab=interoperability',
+    },
+    { textKey: 'setup.google-cloud.key' },
+  ],
+} as const satisfies Record<StorageOption, readonly StorageSetupStep[]>
 
 export const bunnyRegionLabelKeys = {
   'frankfurt': 'regions.frankfurt',
@@ -60,7 +116,10 @@ export function formatStorageBytes(bytes: number, locale: string) {
 
 // Where in the provider the location's files go, such as "elysium-files/uploads".
 export function getStoragePath(location: StorageLocation) {
-  return [ location.provider.zone, location.pathPrefix ]
+  const root = location.provider.kind === 'bunny'
+    ? location.provider.zone
+    : location.provider.bucket
+  return [ root, location.pathPrefix ]
     .filter(Boolean)
     .join('/')
 }

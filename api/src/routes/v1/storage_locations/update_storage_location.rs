@@ -76,6 +76,17 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
+
+    // A stored secret opens one zone or one access key id, so settings that need another
+    // secret must bring it.
+    if let (Some(provider), None) = (&changes.provider, &changes.access_key) {
+        let stored = storage_location::find(&mut connection, id).await?;
+        if !provider.keeps_access_key_of(&stored.provider()) {
+            return Err(ApiError::BadRequest(
+                "a new zone, service, or access key id needs its own access key".to_owned(),
+            ));
+        }
+    }
     let location = storage_location::update(&mut connection, &state.cipher, id, &changes)
         .await
         .map_err(refuse_unknown_projects)?;

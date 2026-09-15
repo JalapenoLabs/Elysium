@@ -21,7 +21,7 @@ use validator::ValidationError;
 
 use crate::errors::ApiError;
 use crate::models::project::ProjectScope;
-use crate::models::storage_location::{StorageLocation, StorageProvider};
+use crate::models::storage_location::{S3Service, StorageLocation, StorageProvider};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -114,7 +114,70 @@ fn validate_provider(provider: &StorageProvider) -> Result<(), ValidationError> 
             Err(ValidationError::new("zone")
                 .with_message("the zone name must be 1 to 64 letters, digits, or hyphens".into()))
         }
+        StorageProvider::S3 {
+            service,
+            bucket,
+            region,
+            access_key_id,
+        } => {
+            validate_bucket(bucket)?;
+            match (service, region) {
+                (S3Service::Aws, Some(region)) => validate_region(region)?,
+                (S3Service::Aws, None) => {
+                    return Err(ValidationError::new("region")
+                        .with_message("an Amazon S3 bucket needs its region".into()));
+                }
+                (S3Service::GoogleCloud, None) => {}
+                (S3Service::GoogleCloud, Some(_)) => {
+                    return Err(ValidationError::new("region")
+                        .with_message("Google Cloud Storage buckets take no region".into()));
+                }
+            }
+            let is_key_id = (1..=256).contains(&access_key_id.len())
+                && access_key_id
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric());
+            if is_key_id {
+                return Ok(());
+            }
+            Err(ValidationError::new("access_key_id")
+                .with_message("the access key id must be 1 to 256 letters or digits".into()))
+        }
     }
+}
+
+/// Bucket names both AWS and Google Cloud accept: 3 to 222 lowercase letters, digits,
+/// dots, hyphens, or underscores, starting and ending with a letter or digit. Each service
+/// narrows this further and answers for itself when a name breaks its own rules.
+fn validate_bucket(bucket: &str) -> Result<(), ValidationError> {
+    let bytes = bucket.as_bytes();
+    let is_edge = |byte: &u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    let is_bucket = (3..=222).contains(&bytes.len())
+        && bytes.first().is_some_and(is_edge)
+        && bytes.last().is_some_and(is_edge)
+        && bytes
+            .iter()
+            .all(|byte| is_edge(byte) || matches!(byte, b'.' | b'-' | b'_'));
+    if is_bucket {
+        return Ok(());
+    }
+    Err(ValidationError::new("bucket").with_message(
+        "the bucket name must be 3 to 222 lowercase letters, digits, dots, hyphens, or underscores"
+            .into(),
+    ))
+}
+
+/// An AWS region code, such as `us-east-1`. It becomes part of the endpoint's host name.
+fn validate_region(region: &str) -> Result<(), ValidationError> {
+    let is_region = (1..=64).contains(&region.len())
+        && region
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+    if is_region {
+        return Ok(());
+    }
+    Err(ValidationError::new("region")
+        .with_message("the region must be an AWS region code, such as us-east-1".into()))
 }
 
 /// A directory inside the location. Surrounding slashes are ignored, since handlers
@@ -191,6 +254,61 @@ mod tests {
             );
         }
         assert!(validate_path_prefix(&"x".repeat(1025)).is_err());
+    }
+
+    #[test]
+    fn s3_buckets_need_a_valid_name_key_id_and_a_region_only_on_aws() {
+        let provider =
+            |service, bucket: &str, region: Option<&str>, key: &str| StorageProvider::S3 {
+                service,
+                bucket: bucket.to_owned(),
+                region: region.map(str::to_owned),
+                access_key_id: key.to_owned(),
+            };
+
+        validate_provider(&provider(
+            S3Service::Aws,
+            "elysium-files",
+            Some("us-east-1"),
+            "AKIAEXAMPLE",
+        ))
+        .expect("an AWS bucket");
+        validate_provider(&provider(
+            S3Service::GoogleCloud,
+            "elysium_files",
+            None,
+            "GOOG1EXAMPLE",
+        ))
+        .expect("a Google Cloud bucket");
+
+        for refused in [
+            provider(S3Service::Aws, "elysium-files", None, "AKIAEXAMPLE"),
+            provider(
+                S3Service::GoogleCloud,
+                "elysium-files",
+                Some("us"),
+                "GOOG1EXAMPLE",
+            ),
+            provider(S3Service::Aws, "Elysium", Some("us-east-1"), "AKIAEXAMPLE"),
+            provider(S3Service::Aws, "-files", Some("us-east-1"), "AKIAEXAMPLE"),
+            provider(
+                S3Service::Aws,
+                "elysium-files",
+                Some("evil.com/"),
+                "AKIAEXAMPLE",
+            ),
+            provider(
+                S3Service::Aws,
+                "elysium-files",
+                Some("us-east-1"),
+                "not a key",
+            ),
+        ] {
+            assert!(
+                validate_provider(&refused).is_err(),
+                "{refused:?} is refused"
+            );
+        }
     }
 
     #[test]

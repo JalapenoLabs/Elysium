@@ -8,7 +8,9 @@
     "backToList": "Back to Storage"
   },
   "providers": {
-    "bunny": "Bunny Storage"
+    "bunny": "Bunny Storage",
+    "aws": "Amazon S3",
+    "google-cloud": "Google Cloud Storage"
   },
   "regions": {
     "frankfurt": "Frankfurt, DE",
@@ -47,17 +49,36 @@
     "zoneHint": "The zone's name, as shown at the top of its page in Bunny's dashboard.",
     "region": "Region",
     "regionHint": "Shown under Storage Zone Region Endpoint in Bunny's dashboard.",
+    "bucket": "Bucket",
+    "bucketHint": "The bucket's name, exactly as the console shows it.",
+    "awsRegionHint": "The bucket's AWS Region code, such as us-east-1.",
     "pathPrefix": "Directory",
-    "pathPrefixHint": "Optional. Elysium saves files under this directory in the zone; leave blank for the zone's root.",
+    "pathPrefixHint": "Optional. Elysium saves files under this directory; leave blank for the root.",
     "projects": "Projects",
     "projectsHint": "The projects that save files here. * picks every project, including ones added later.",
     "noLimit": "No limit",
     "noLimitHint": "Elysium stores as much here as the provider allows.",
     "storageLimit": "Storage limit",
     "storageLimitHint": "The most Elysium stores here, in gigabytes.",
-    "accessKey": "Password",
-    "accessKeyHint": "The zone's Password from Access in Bunny's dashboard. Not the Read-only password, since Elysium writes files.",
-    "accessKeyKeep": "Leave blank to keep the current password.",
+    "keyId": {
+      "aws": "Access key ID",
+      "google-cloud": "Access key"
+    },
+    "keyIdHint": {
+      "aws": "From the IAM user's Security credentials, such as AKIAIOSFODNN7EXAMPLE.",
+      "google-cloud": "An HMAC key's Access key, from Cloud Storage Settings, Interoperability."
+    },
+    "secret": {
+      "bunny": "Password",
+      "aws": "Secret access key",
+      "google-cloud": "Secret"
+    },
+    "secretHint": {
+      "bunny": "The zone's Password from Access in Bunny's dashboard. Not the Read-only password, since Elysium writes files.",
+      "aws": "Shown once, when the access key is created.",
+      "google-cloud": "The HMAC key's Secret, shown once when the key is created."
+    },
+    "accessKeyKeep": "Leave blank to keep the current secret.",
     "errors": {
       "nameRequired": "Enter a name.",
       "nameTooLong": "Use 120 characters or fewer.",
@@ -67,8 +88,11 @@
       "pathPrefixTooLong": "Use 1,024 characters or fewer.",
       "storageLimitInvalid": "Enter a limit greater than zero.",
       "storageLimitTooLarge": "Enter a smaller limit.",
-      "accessKeyRequired": "Enter the zone's password.",
-      "accessKeyTooLong": "Passwords can be at most 1 KB."
+      "accessKeyRequired": "Enter the secret for these settings.",
+      "accessKeyTooLong": "Secrets can be at most 1 KB.",
+      "bucketInvalid": "Use 3 to 222 lowercase letters, digits, dots, hyphens, or underscores, starting and ending with a letter or digit.",
+      "awsRegionInvalid": "Enter an AWS Region code, such as us-east-1.",
+      "accessKeyIdInvalid": "Use only letters and digits."
     }
   },
   "delete": {
@@ -81,10 +105,12 @@
     "deleted": "{{name}} deleted",
     "testPassed_one": "{{name}} is reachable: {{count}} item in its directory",
     "testPassed_other": "{{name}} is reachable: {{count}} items in its directory",
+    "testPassedMore_one": "{{name}} is reachable: more than {{count}} item in its directory",
+    "testPassedMore_other": "{{name}} is reachable: more than {{count}} items in its directory",
     "testFailed": "{{name}} could not be reached"
   },
   "setup": {
-    "title": "Find the zone's details",
+    "title": "Connect the storage",
     "description": "Check off each step as you go.",
     "bunny": {
       "open": "Open Storage in the bunny.net dashboard, then open the zone to use, or add one.",
@@ -92,6 +118,19 @@
       "access": "Open Access, on the API / HTTP tab.",
       "region": "Choose the region shown under Storage Zone Region Endpoint, such as London, UK.",
       "password": "Under Access Key, reveal and copy Password into Password. Not the Read-only password: Elysium writes files."
+    },
+    "aws": {
+      "bucket": "Open Buckets in the Amazon S3 console, then create a bucket or pick one. Copy its name into Bucket.",
+      "region": "Copy the bucket's AWS Region code, such as us-east-1, into Region.",
+      "user": "Open Users in IAM and create a user for Elysium.",
+      "policy": "Give the user a policy allowing s3:ListBucket on the bucket, and s3:GetObject, s3:PutObject, and s3:DeleteObject on its objects.",
+      "key": "Under the user's Security credentials, create an access key for an application running outside AWS. Copy the Access key into Access key ID and the Secret access key into Secret access key."
+    },
+    "google-cloud": {
+      "bucket": "Open Buckets in Cloud Storage, then create a bucket or pick one. Copy its name into Bucket.",
+      "role": "Grant the service account Elysium will use the Storage Object Admin role on the bucket.",
+      "interoperability": "Open Settings in Cloud Storage, on the Interoperability tab.",
+      "key": "Under Access keys for service accounts, create a key for that account. Copy its Access key and Secret into the matching fields."
     }
   }
 }

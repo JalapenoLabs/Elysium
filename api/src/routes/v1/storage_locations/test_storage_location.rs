@@ -30,7 +30,7 @@ pub async fn handle(
     let access_key = location
         .access_key(&state.cipher)
         .context("the stored access key cannot be decrypted")?;
-    let entries = state.storage.check(&location, &access_key).await?;
+    let listing = state.storage.check(&location, &access_key).await?;
 
-    Ok(Json(json!({ "result": { "entries": entries } })))
+    Ok(Json(json!({ "result": listing })))
 }

@@ -7,11 +7,11 @@ checked.
 ## Locations
 
 A location has a name, a provider with that provider's own settings, an optional directory, an optional storage
-limit, the projects that save files to it, and an access key (Bunny calls it the zone's password).
+limit, the projects that save files to it, and an access key: Bunny's zone password, or an S3 secret.
 
 | Field               | Meaning                                                                                  |
 |---------------------|------------------------------------------------------------------------------------------|
-| `provider`          | Where files go: `{ kind, ...settings }`. Only `bunny` exists today                       |
+| `provider`          | Where files go: `{ kind, ...settings }`, with `kind` either `bunny` or `s3`               |
 | `pathPrefix`        | The directory Elysium writes under, stored without surrounding slashes; empty is the root |
 | `storageLimitBytes` | Elysium's own cap on what it stores there; `null` for no limit                           |
 | `projects`          | `"*"` for every project, including ones added later, or a list of project ids          |
@@ -64,16 +64,53 @@ Each region has its own endpoint (`api/src/storage/bunny.rs`), and a zone answer
 Bunny answers `401` for a wrong password and for a zone that does not exist in the chosen region alike, so the API
 reports both as one error that names both causes.
 
+### S3: Amazon S3 and Google Cloud Storage
+
+| Setting       | Meaning                                                                                 |
+|---------------|-----------------------------------------------------------------------------------------|
+| `service`     | `aws` or `google-cloud`                                                                 |
+| `bucket`      | 3 to 222 lowercase letters, digits, dots, hyphens, or underscores                       |
+| `region`      | The bucket's AWS Region code, such as `us-east-1`, for `aws`; `null` for `google-cloud` |
+| `accessKeyId` | The key's id; the secret half is the location's access key                              |
+
+`api/src/storage/s3.rs` presigns S3 requests (Signature Version 4, through `rusty-s3`) and sends them with Elysium's
+shared HTTP client. Endpoints are fixed per service, so no location can point the API at another host:
+
+| Service        | Endpoint                            | Signing region | URL style                                   |
+|----------------|-------------------------------------|----------------|---------------------------------------------|
+| `aws`          | `https://s3.<region>.amazonaws.com` | The region     | Virtual-hosted; path-style for dotted names |
+| `google-cloud` | `https://storage.googleapis.com`    | `auto`         | Path-style                                  |
+
+Dotted bucket names break TLS on virtual-hosted hosts, which is why they switch to path-style.
+
+- **AWS** takes an IAM user's access key. The user needs `s3:ListBucket` on the bucket, and `s3:GetObject`,
+  `s3:PutObject`, and `s3:DeleteObject` on its objects.
+- **Google Cloud** takes an HMAC key (Cloud Storage Settings, Interoperability) for a service account with Storage
+  Object Admin on the bucket.
+
+A wrong key id or secret (`InvalidAccessKeyId`, `SignatureDoesNotMatch`, or Google Cloud's `InvalidSecurity`) is
+reported as a refused access key. Any other error, such as `NoSuchBucket` or `AccessDenied`, is reported with the
+service's own message and code.
+
+### Keeping the secret when settings change
+
+A Bunny password opens one zone, and an S3 secret belongs to one access key id on one service. Changing the zone, the
+service, or the access key id therefore needs the new secret in the same request, and the API answers `400` without
+it (`StorageProvider::keeps_access_key_of`). Changing only a Bunny region, an S3 bucket, or an AWS region keeps the
+stored secret. The form mirrors this: the secret field turns required as soon as the settings need a new one.
+
 ## Testing a location
 
 `POST /api/v1/storage-locations/{id}/test` lists the location's directory with its saved settings and reports how
-many entries sit directly inside. A directory that does not exist yet counts as empty, whether Bunny answers `404` or
-an empty listing: Bunny creates directories as files are written into them. A refusal answers `502` with the
-provider's message.
+many entries sit directly inside, and whether there are more. A directory that does not exist yet counts as empty:
+Bunny answers `404` or an empty listing, and S3 an empty listing, since directories are only key prefixes. Bunny lists
+a whole directory at once; S3 lists up to 1,000 keys, and `hasMore` says the directory holds more. A refusal answers
+`502` with the provider's message.
 
 ## Roadmap
 
 - Writing files: uploads choose a location, and Elysium refuses a write that would take its usage past a limit it has.
   Usage is counted from Elysium's own writes, since a zone's total size is only reachable with the account API key.
-- S3-compatible buckets (AWS S3, Google Cloud Storage) as a second kind, with endpoint, bucket, and region settings.
+- More S3-compatible services, such as Cloudflare R2 or MinIO, as further `service` values, each with its endpoint
+  fixed in code or, for self-hosted ones, validated against the operator's allowed hosts.
 - Local and network storage as a third kind.

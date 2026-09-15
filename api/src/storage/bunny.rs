@@ -94,7 +94,9 @@ impl Bunny {
 
         let status = response.status();
         if status == StatusCode::UNAUTHORIZED {
-            return Err(StorageError::Unauthorized);
+            return Err(StorageError::Unauthorized(
+                "Bunny Storage refused the password; check it, and that the zone is in the chosen region",
+            ));
         }
         // An unknown zone or wrong region is a 401, so a 404 past sign-in can only mean the
         // directory has not been written to yet.

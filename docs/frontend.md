@@ -39,8 +39,8 @@ HeroUI `Link` `href` a client-side navigation. It also mounts the toast region.
 
 ## Routes
 
-Paths live in `UrlTree` in `src/urls.ts`, and the route table lives in `src/router.tsx`. `/` and unknown paths redirect to
-Action items, the first page in the sidebar; there is no home page.
+Paths live in `UrlTree` in `src/urls.ts`, and the route table lives in `src/router.tsx`. `/` and unknown paths
+redirect to Action items, the first page in the sidebar; there is no home page.
 
 | Path                          | Page                     | Notes                                                    |
 |-------------------------------|--------------------------|----------------------------------------------------------|
@@ -106,14 +106,20 @@ Manage satellites follows the same split under `src/pages/Settings/Satellites/`.
 live status (online, unreachable with the reason on hover, checking, or inactive), version, and thread load, and
 its row menu adds Test connection.
 
-Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone and
-directory, projects, limit) whose row menu edits, tests, or deletes one; delete confirms through `useConfirm`. Adding
-and editing are their own pages, sharing `StorageLocationEditorLayout` and `StorageLocationForm`: provider, zone,
-region, directory, projects (`ProjectScopePicker`, see `docs/storage.md`), a limit in gigabytes (a `NumberField`
-formatted in the viewer's locale and converted to bytes on save, beside a No limit switch), and the zone's password,
-which is kept when left blank while editing. A `StorageSetupChecklist` beside the form walks through where Bunny's
-dashboard shows each setting. It and `LlmSetupChecklist` both render `src/components/SetupChecklist.tsx`. Provider and
-region labels come from lookup tables in `storagePresentation.ts`.
+Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone or
+bucket with directory, projects, limit) whose row menu edits, tests, or deletes one; delete confirms through
+`useConfirm`. Adding and editing are their own pages: `StorageLocationEditorLayout` holds the breadcrumbs and title,
+and `StorageLocationForm` lays out the form beside a `StorageSetupChecklist` for the chosen provider.
+
+The Provider picker offers three options (`STORAGE_OPTIONS`): Bunny Storage, Amazon S3, and Google Cloud Storage. The
+last two are the API's `s3` kind with a `service`, split in the picker because each is set up in its own console. The
+form keeps every option's fields and shows the chosen one's: zone and region for Bunny; bucket, AWS region, and access
+key ID for S3. `toStorageProvider` builds the API's provider from them through a lookup per option. The secret's label
+follows the provider's own word (Password, Secret access key, Secret), and it stays optional while editing until the
+settings need a new one. Directory, projects (`ProjectScopePicker`, see `docs/storage.md`), and a limit in gigabytes
+(a `NumberField` in the viewer's locale, beside a No limit switch) are shared. Labels, secret wording, and setup steps
+are lookup tables in `storagePresentation.ts`. `StorageSetupChecklist` and `LlmSetupChecklist` both render
+`src/components/SetupChecklist.tsx`.
 
 Email under `src/pages/Settings/Email/` has two sections.
 

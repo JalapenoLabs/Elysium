@@ -23,7 +23,7 @@
     },
     "storage": {
       "title": "Storage",
-      "description": "Choose where Elysium saves files, such as a Bunny Storage zone, and cap how much it stores there."
+      "description": "Choose where Elysium saves files: Bunny Storage, Amazon S3, or Google Cloud Storage."
     }
   },
   "personalDetails": {

@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { StorageProviderKind } from '../../../api/routes/storageRoutes'
+import type { StorageOption } from './storagePresentation'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -9,20 +9,20 @@ import { useTranslation } from 'react-i18next'
 import { SetupChecklist } from '../../../components/SetupChecklist'
 
 // Misc
-import { storageSetupStepsByKind } from './storagePresentation'
+import { storageSetupStepsByOption } from './storagePresentation'
 
 type Props = {
-  kind: StorageProviderKind
+  option: StorageOption
 }
 
-// Steps for finding a provider's settings and password, in the provider's own words.
+// Steps for finding a provider's settings and secret, in the provider's own words.
 export function StorageSetupChecklist(props: Props) {
   const { t } = useTranslation('storage')
 
   return <SetupChecklist
     title={t('setup.title')}
     description={t('setup.description')}
-    steps={storageSetupStepsByKind[props.kind].map((step) => ({
+    steps={storageSetupStepsByOption[props.option].map((step) => ({
       ...step,
       id: step.textKey,
       text: t(step.textKey),
