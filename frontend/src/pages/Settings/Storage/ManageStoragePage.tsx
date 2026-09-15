@@ -3,17 +3,16 @@
 import type { StorageLocation } from '../../../api/routes/storageRoutes'
 
 // Core
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router'
 
 // Redux
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { selectAllStorageLocations, storageLocationDeleted } from '../../../store/storageLocationsSlice'
 
 // User interface
-import { Breadcrumbs, Button, Spinner, toast, useOverlayState } from '@heroui/react'
+import { Breadcrumbs, Button, Spinner, toast } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
-import { StorageLocationFormModal } from './StorageLocationFormModal'
 import { StorageLocationTable } from './StorageLocationTable'
 
 // Misc
@@ -21,7 +20,7 @@ import { getUpstreamErrorMessage } from '../../../api/errors'
 import { deleteStorageLocation, testStorageLocation } from '../../../api/routes/storageRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useStorageLocationsLoader } from '../../../hooks/useServerData'
-import { UrlTree } from '../../../urls'
+import { getStorageLocationEditUrl, UrlTree } from '../../../urls'
 
 // `/settings/storage`: the external locations Elysium saves files to.
 export function ManageStoragePage() {
@@ -30,17 +29,7 @@ export function ManageStoragePage() {
   const confirm = useConfirm()
   const locations = useAppSelector(selectAllStorageLocations)
   const status = useStorageLocationsLoader()
-
-  const formState = useOverlayState()
-  const [ selectedLocation, setSelectedLocation ] = useState<StorageLocation | null>(null)
-  // Remounting the form per opening resets it to the chosen location's values.
-  const [ formSession, setFormSession ] = useState(0)
-
-  function openForm(location: StorageLocation | null) {
-    setSelectedLocation(location)
-    setFormSession((session) => session + 1)
-    formState.open()
-  }
+  const navigate = useNavigate()
 
   async function runConnectionTest(location: StorageLocation) {
     try {
@@ -104,7 +93,7 @@ export function ManageStoragePage() {
           size='sm'
           variant='outline'
           className='shrink-0'
-          onPress={() => openForm(null)}
+          onPress={() => navigate(UrlTree.settingsStorageNew)}
         >
           <LuPlus className='size-4' aria-hidden />
           <span>{t('locations.add')}</span>
@@ -121,16 +110,10 @@ export function ManageStoragePage() {
 
       {status === 'loaded' && <StorageLocationTable
         locations={locations}
-        onEdit={(location) => openForm(location)}
+        onEdit={(location) => navigate(getStorageLocationEditUrl(location.id))}
         onTest={runConnectionTest}
         onDelete={confirmDelete}
       />}
     </section>
-
-    <StorageLocationFormModal
-      key={formSession}
-      state={formState}
-      location={selectedLocation}
-    />
   </div>
 }

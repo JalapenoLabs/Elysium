@@ -59,6 +59,8 @@ the home page.
 | `/settings/satellites`        | `ManageSatellitesPage`   | Register satellites, see their status, test connections  |
 | `/settings/email`             | `ManageEmailPage`        | Mail server and domains, and every kind of mailbox       |
 | `/settings/storage`           | `ManageStoragePage`      | Storage locations Elysium saves files to                 |
+| `/settings/storage/new`       | `AddStorageLocationPage` | Add a storage location                                   |
+| `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s.
 New settings pages add an entry to a section and a route under `/settings`.
@@ -106,10 +108,10 @@ live status (online, unreachable with the reason on hover, checking, or inactive
 its row menu adds Test connection.
 
 Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone and
-directory, limit) whose row menu edits, tests, or deletes one; delete confirms through `useConfirm`.
-`StorageLocationFormModal` adds and edits: provider, zone, region, directory, a limit in gigabytes (a `NumberField`
-formatted in the viewer's locale and converted to bytes on save, beside a No limit switch), and the access key,
-which is kept when left blank while editing. Provider and region labels come from lookup tables in `storagePresentation.ts`.
+directory, limit) whose row menu edits, tests, or deletes one; delete confirms through `useConfirm`. Adding and
+editing are their own pages, sharing `StorageLocationEditorLayout` and `StorageLocationForm`: provider, zone, region,
+directory, a limit in gigabytes (a `NumberField` formatted in the viewer's locale and converted to bytes on save,
+beside a No limit switch), and the access key, which is kept when left blank while editing. Provider and region labels come from lookup tables in `storagePresentation.ts`.
 
 Email under `src/pages/Settings/Email/` has two sections.
 

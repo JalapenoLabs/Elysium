@@ -31,4 +31,5 @@ export const {
 
 export const {
   selectAll: selectAllStorageLocations,
+  selectById: selectStorageLocationById,
 } = storageLocationsAdapter.getSelectors((state: RootState) => state.storageLocations)

@@ -20,6 +20,8 @@ export const UrlTree = {
   settingsSatellites: '/settings/satellites',
   settingsEmail: '/settings/email',
   settingsStorage: '/settings/storage',
+  settingsStorageNew: '/settings/storage/new',
+  settingsStorageEdit: '/settings/storage/:locationId/edit',
 } as const
 export type UrlValue = typeof UrlTree[keyof typeof UrlTree]
 
@@ -30,6 +32,10 @@ export const UNKNOWN_ROUTE_REDIRECT_TO: UrlValue = UrlTree.root
 
 export function getProjectViewUrl(projectId: string) {
   return UrlTree.projectView.replace(':projectId', projectId)
+}
+
+export function getStorageLocationEditUrl(locationId: string) {
+  return UrlTree.settingsStorageEdit.replace(':locationId', locationId)
 }
 
 // The Coding page opens this session's conversation, then drops the parameter.

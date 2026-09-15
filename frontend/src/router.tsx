@@ -19,6 +19,8 @@ import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
 import { ManageSatellitesPage } from './pages/Settings/Satellites/ManageSatellitesPage'
+import { AddStorageLocationPage } from './pages/Settings/Storage/AddStorageLocationPage'
+import { EditStorageLocationPage } from './pages/Settings/Storage/EditStorageLocationPage'
 import { ManageStoragePage } from './pages/Settings/Storage/ManageStoragePage'
 
 // Misc
@@ -98,6 +100,14 @@ export const router = createBrowserRouter([
       {
         path: UrlTree.settingsStorage,
         element: <ManageStoragePage />,
+      },
+      {
+        path: UrlTree.settingsStorageNew,
+        element: <AddStorageLocationPage />,
+      },
+      {
+        path: UrlTree.settingsStorageEdit,
+        element: <EditStorageLocationPage />,
       },
       {
         path: '*',

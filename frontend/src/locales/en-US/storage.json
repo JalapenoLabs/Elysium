@@ -5,6 +5,10 @@
     "description": "Places Elysium saves files to, each with an optional limit on how much Elysium stores there. Access keys are encrypted and never shown again after saving.",
     "add": "Add location"
   },
+  "page": {
+    "notFound": "This storage location does not exist. It may have been deleted.",
+    "backToList": "Back to Storage"
+  },
   "providers": {
     "bunny": "Bunny Storage"
   },
