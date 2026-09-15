@@ -110,7 +110,8 @@ Email under `src/pages/Settings/Email/` has two sections.
 (first domain, and a hostname that follows it as `mail.<domain>` until edited); while it is created it shows the
 current step from `mailServer.updated` events; once ready it lists domains in `MailDomainTable`, with
 `AddMailDomainModal`, a remove confirmation (which only explains while the domain has mailboxes), and
-`MailDomainDnsModal`, which checks the domain's records through SWR each time it opens and lists them with copy buttons (`DnsRecordRow`).
+`MailDomainDnsModal`, which checks the domain's records through SWR each time it opens and lists them with copy
+buttons (`DnsRecordRow`).
 
 The mailboxes section shows `MailAccountTable`. `MailboxSourceActions` offers Connect Gmail, Connect Outlook, and
 Create mailbox, disabling each with the reason: no broker (from `GET /api/v1/mail/capabilities`, read through SWR),
@@ -164,7 +165,8 @@ control of how the small image looks.
 New project opens `/projects/new` (`CreateProjectPage`); editing opens `EditProjectModal` on the project page. Both
 render `ProjectForm`, with the cover beside the other fields. `ProjectCoverField` checks the type and the 1 MB limit
 before accepting a file and previews it in the same frame. The form saves the project first and then uploads or
-removes the cover, since a new project has no id before it is saved; a failed cover leaves the saved project in place and says so. Cover URLs come from
+removes the cover, since a new project has no id before it is saved; a failed cover leaves the saved project in place
+and says so. Cover URLs come from
 `getProjectCoverUrl`, which adds `coverUpdatedAt` so a new cover is never served from cache.
 
 ## Jalapeno Labs packages
