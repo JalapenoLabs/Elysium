@@ -75,20 +75,11 @@ export function ManageStoragePage() {
       <Breadcrumbs.Item href={UrlTree.settings}>{t('settings:title')}</Breadcrumbs.Item>
       <Breadcrumbs.Item>{t('title')}</Breadcrumbs.Item>
     </Breadcrumbs>
-    <h1 className='relaxed text-3xl font-bold'>{
-      t('title')
-    }</h1>
-
     <section>
-      <div className='level compact items-start'>
-        <div>
-          <h2 className='text-xl font-semibold'>{
-            t('locations.heading')
-          }</h2>
-          <p className='mt-1 max-w-2xl text-sm opacity-70'>{
-            t('locations.description')
-          }</p>
-        </div>
+      <div className='level relaxed items-center'>
+        <h1 className='text-3xl font-bold'>{
+          t('title')
+        }</h1>
         <Button
           size='sm'
           variant='outline'

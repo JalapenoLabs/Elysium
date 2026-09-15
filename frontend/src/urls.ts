@@ -26,7 +26,8 @@ export const UrlTree = {
 export type UrlValue = typeof UrlTree[keyof typeof UrlTree]
 
 // Settings
-export const UNKNOWN_ROUTE_REDIRECT_TO: UrlValue = UrlTree.root
+// The first page in the sidebar; the app has no home page.
+export const UNKNOWN_ROUTE_REDIRECT_TO: UrlValue = UrlTree.actionItems
 
 // Link factories
 

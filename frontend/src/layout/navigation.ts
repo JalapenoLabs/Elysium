@@ -4,7 +4,7 @@ import type { ParseKeys } from 'i18next'
 import type { IconType } from 'react-icons'
 
 // User interface
-import { LuCodeXml, LuFolderKanban, LuHouse, LuListTodo, LuSparkles } from 'react-icons/lu'
+import { LuCodeXml, LuFolderKanban, LuListTodo, LuSparkles } from 'react-icons/lu'
 
 // Misc
 import { UrlTree } from '../urls'
@@ -13,7 +13,7 @@ export type NavigationItem = {
   labelKey: ParseKeys<'navigation'>
   href: string
   icon: IconType
-  // Exact matching keeps Home from highlighting on every nested route.
+  // True matches the path exactly, so an entry does not highlight on its nested routes.
   end: boolean
 }
 
@@ -30,12 +30,6 @@ export const primaryNavigation: NavigationItem[] = [
     href: UrlTree.studio,
     icon: LuSparkles,
     end: false,
-  },
-  {
-    labelKey: 'primary.home',
-    href: UrlTree.root,
-    icon: LuHouse,
-    end: true,
   },
   {
     labelKey: 'primary.projects',

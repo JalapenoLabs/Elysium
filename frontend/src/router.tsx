@@ -7,7 +7,6 @@ import { createBrowserRouter, Navigate } from 'react-router'
 import { AppShell } from './layout/AppShell'
 import { ActionItemsPage } from './pages/ActionItems/ActionItemsPage'
 import { CodingPage } from './pages/Coding/CodingPage'
-import { HomePage } from './pages/Home/HomePage'
 import { CreateProjectPage } from './pages/Projects/CreateProjectPage'
 import { ProjectPage } from './pages/Projects/ProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
@@ -42,7 +41,7 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <HomePage />,
+        element: <Navigate to={UNKNOWN_ROUTE_REDIRECT_TO} replace />,
       },
       {
         path: UrlTree.actionItems,

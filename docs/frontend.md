@@ -39,14 +39,13 @@ HeroUI `Link` `href` a client-side navigation. It also mounts the toast region.
 
 ## Routes
 
-Paths live in `UrlTree` in `src/urls.ts`, and the route table lives in `src/router.tsx`. Unknown paths redirect to
-the home page.
+Paths live in `UrlTree` in `src/urls.ts`, and the route table lives in `src/router.tsx`. `/` and unknown paths redirect to
+Action items, the first page in the sidebar; there is no home page.
 
 | Path                          | Page                     | Notes                                                    |
 |-------------------------------|--------------------------|----------------------------------------------------------|
 | `/action-items`               | `ActionItemsPage`        | Placeholder; first in the sidebar                        |
 | `/studio`                     | `StudioPage`             | Placeholder                                              |
-| `/`                           | `HomePage`               | Placeholder                                              |
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
 | `/projects/:projectId`        | `ProjectPage`            | One project, edited in place, with its sessions          |
@@ -352,7 +351,7 @@ Every user-facing string goes through i18next. `src/i18n.ts` bundles the locale 
 first render.
 
 - `en-US` is the source locale and the only one shipped today.
-- Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `home`, `settings`, `llms`,
+- Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
   `satellites`, `email`, `storage`, `projects`, `coding`, `studio`, `actionItems`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with

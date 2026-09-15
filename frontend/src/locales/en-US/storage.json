@@ -1,8 +1,6 @@
 {
   "title": "Storage",
   "locations": {
-    "heading": "Storage locations",
-    "description": "Places Elysium saves files to, each with an optional limit on how much Elysium stores there. Passwords are encrypted and never shown again after saving.",
     "add": "Add location"
   },
   "page": {
