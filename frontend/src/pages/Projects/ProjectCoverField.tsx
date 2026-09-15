@@ -10,39 +10,29 @@ import { LuImagePlus, LuTrash2 } from 'react-icons/lu'
 import { ProjectCover } from './ProjectCover'
 
 // Misc
-import { PROJECT_COVER_ACCEPTED_TYPES, PROJECT_COVER_MAX_BYTES } from '../../constants'
-
-// What the form will do with the cover when it saves.
-export type CoverChange =
-  | { kind: 'keep' }
-  | { kind: 'replace', file: File }
-  | { kind: 'remove' }
+import { PROJECT_COVER_ACCEPTED_TYPES } from '../../constants'
+import { getCoverFileErrorKey } from './projectCover'
 
 type Props = {
-  // The saved cover's URL, or null when the project has none or does not exist yet.
-  savedUrl: string | null
   name: string
-  change: CoverChange
-  onChange: (change: CoverChange) => void
+  // The chosen cover, or null for none.
+  file: File | null
+  onChange: (file: File | null) => void
 }
 
-// Picks a cover and previews it in the same frame tiles use. Nothing uploads here: the
-// form sends the change after the project itself is saved, since a new project has no id
-// to attach a cover to until then.
+// Picks a new project's cover and previews it in the same frame tiles use. Nothing uploads
+// here: the form uploads it after the project is saved, since a new project has no id to
+// attach a cover to until then.
 export function ProjectCoverField(props: Props) {
   const { t } = useTranslation('projects')
   const inputRef = useRef<HTMLInputElement>(null)
   const [ error, setError ] = useState<string | null>(null)
   const [ previewUrl, setPreviewUrl ] = useState<string | null>(null)
 
-  const pendingFile = props.change.kind === 'replace'
-    ? props.change.file
-    : null
-
   // An object URL holds the file in memory until it is revoked.
   useEffect(() => {
-    const url = pendingFile
-      ? URL.createObjectURL(pendingFile)
+    const url = props.file
+      ? URL.createObjectURL(props.file)
       : null
     setPreviewUrl(url)
     return () => {
@@ -50,36 +40,30 @@ export function ProjectCoverField(props: Props) {
         URL.revokeObjectURL(url)
       }
     }
-  }, [ pendingFile ])
+  }, [ props.file ])
 
   function onFileChosen(file: File | undefined) {
     if (!file) {
       console.debug('ProjectCoverField: the file picker closed without a file')
       return
     }
-    if (!PROJECT_COVER_ACCEPTED_TYPES.includes(file.type)) {
-      setError(t('form.errors.coverUnsupported'))
-      return
-    }
-    if (file.size > PROJECT_COVER_MAX_BYTES) {
-      setError(t('form.errors.coverTooLarge'))
+    const errorKey = getCoverFileErrorKey(file)
+    if (errorKey) {
+      setError(t(errorKey))
       return
     }
     setError(null)
-    props.onChange({ kind: 'replace', file })
+    props.onChange(file)
   }
 
-  const shownUrl = props.change.kind === 'remove'
-    ? null
-    : previewUrl ?? props.savedUrl
-  const hasCover = Boolean(shownUrl)
+  const hasCover = Boolean(previewUrl)
 
   return <div className='flex flex-col gap-2'>
     <Label>{t('form.cover')}</Label>
     <ProjectCover
-      src={shownUrl}
+      src={previewUrl}
       name={props.name || '?'}
-      className='w-full rounded-2xl'
+      className='aspect-video w-full rounded-2xl'
     />
     <input
       ref={inputRef}
@@ -106,9 +90,7 @@ export function ProjectCoverField(props: Props) {
         variant='ghost'
         onPress={() => {
           setError(null)
-          props.onChange(props.savedUrl
-            ? { kind: 'remove' }
-            : { kind: 'keep' })
+          props.onChange(null)
         }}
       >
         <LuTrash2 className='size-4' aria-hidden />

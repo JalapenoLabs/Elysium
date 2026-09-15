@@ -1,7 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { Project } from '../../api/routes/projectRoutes'
-import type { CoverChange } from './ProjectCoverField'
 import type { ProjectFormValues } from './projectFormSchema'
 
 // Core
@@ -22,27 +21,20 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { HTTPError } from 'ky'
 
 // Misc
-import {
-  createProject,
-  deleteProjectCover,
-  getProjectCoverUrl,
-  updateProject,
-  uploadProjectCover,
-} from '../../api/routes/projectRoutes'
+import { createProject, uploadProjectCover } from '../../api/routes/projectRoutes'
 import { createProjectFormSchema } from './projectFormSchema'
 
 type Props = {
-  // The project being edited, or null to create one.
-  project: Project | null
   onSaved: (project: Project) => void
   onCancel: () => void
 }
 
-// Name, description, and cover, for both the new project page and the edit dialog.
+// Name, description, and cover for a new project. An existing project is edited in place
+// on its own page.
 export function ProjectForm(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
   const dispatch = useAppDispatch()
-  const [ coverChange, setCoverChange ] = useState<CoverChange>({ kind: 'keep' })
+  const [ coverFile, setCoverFile ] = useState<File | null>(null)
 
   const resolver = useMemo(
     () => zodResolver(createProjectFormSchema(t)),
@@ -52,21 +44,19 @@ export function ProjectForm(props: Props) {
   const form = useForm<ProjectFormValues>({
     resolver,
     defaultValues: {
-      name: props.project?.name ?? '',
-      description: props.project?.description ?? '',
+      name: '',
+      description: '',
     },
   })
 
   // The project is saved first, then its cover: a new project has no id until saved.
   // A cover that fails leaves the saved project in place and says so.
-  async function applyCoverChange(project: Project) {
-    if (coverChange.kind === 'keep') {
+  async function uploadCover(project: Project) {
+    if (!coverFile) {
       return project
     }
     try {
-      const response = coverChange.kind === 'replace'
-        ? await uploadProjectCover(project.id, coverChange.file)
-        : await deleteProjectCover(project.id)
+      const response = await uploadProjectCover(project.id, coverFile)
       dispatch(projectUpserted(response.project))
       return response.project
     }
@@ -79,17 +69,11 @@ export function ProjectForm(props: Props) {
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
-      const response = props.project
-        ? await updateProject(props.project.id, values)
-        : await createProject(values)
+      const response = await createProject(values)
       dispatch(projectUpserted(response.project))
-      const saved = await applyCoverChange(response.project)
+      const saved = await uploadCover(response.project)
 
-      toast.success(
-        props.project
-          ? t('toasts.updated', { name: values.name })
-          : t('toasts.created', { name: values.name }),
-      )
+      toast.success(t('toasts.created', { name: values.name }))
       props.onSaved(saved)
     }
     catch (error) {
@@ -141,12 +125,9 @@ export function ProjectForm(props: Props) {
 
       {/* Cover image */}
       <ProjectCoverField
-        savedUrl={props.project
-          ? getProjectCoverUrl(props.project)
-          : null}
         name={name}
-        change={coverChange}
-        onChange={setCoverChange}
+        file={coverFile}
+        onChange={setCoverFile}
       />
     </div>
 
@@ -158,11 +139,7 @@ export function ProjectForm(props: Props) {
         type='submit'
         isPending={form.formState.isSubmitting}
       >
-        <span>{
-          props.project
-            ? t('common:actions.save')
-            : t('form.create')
-        }</span>
+        <span>{t('form.create')}</span>
       </Button>
     </div>
   </Form>

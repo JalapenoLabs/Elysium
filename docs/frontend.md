@@ -49,7 +49,7 @@ the home page.
 | `/`                           | `HomePage`               | Placeholder                                              |
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
-| `/projects/:projectId`        | `ProjectPage`            | One project: its sessions, edit, and delete              |
+| `/projects/:projectId`        | `ProjectPage`            | One project, edited in place, with its sessions          |
 | `/coding`                     | `CodingPage`             | Dockview workspace; `?session=<id>` opens that session    |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
@@ -147,10 +147,16 @@ through the same state as the toolbar. The chosen view is remembered per browser
 (uikit's row highlight, which never shows as highlighted) or a tile, itself a link, goes to `/projects/:projectId`.
 The cover thumbnail opts out of the row click with `data-no-row-highlight`, so previewing it does not navigate.
 
-`ProjectPage` shows the project's name on the left, its cover as an `ImagePreview` thumbnail when it has one, and an
-Actions menu on the right (`ProjectActions`): Edit opens `EditProjectModal`, and Delete confirms through
-`useConfirm`, only explaining while sessions remain. Below, `ProjectSessionsTable` lists the project's coding
-sessions; a row or title opens the session on the Coding page.
+`ProjectPage` edits the project in place. `ProjectBanner` runs the cover across the top: double-clicking it, or its
+Change cover button (shown on hover or focus), picks an image and uploads it at once; without a cover it is a single
+Add a cover image button. The name and description are `InlineEditableText`, saved as soon as they are changed. The
+Actions menu on the right (`ProjectActions`) holds what cannot be done in place: Remove cover, and Delete, which
+confirms through `useConfirm` and only explains while sessions remain. Below, `ProjectSessionsTable` lists the
+project's coding sessions; a row or title opens the session on the Coding page.
+
+`src/components/InlineEditableText.tsx` shows text that becomes its own editor when clicked, in the same typography.
+Enter saves a single line, Ctrl or Cmd with Enter a multi-line one, and clicking away saves too; Escape cancels. Its
+`onSave` receives the trimmed value only when it changed, and throwing keeps the editor open on what was typed.
 
 Each tile opens with `ProjectCover`, a 16:9 frame. The cover is contained, never cropped or stretched: a square logo
 sits centered at full height, a wide banner centered at full width, and a blurred, enlarged copy of the same image
@@ -162,12 +168,11 @@ same frame as a thumbnail, wrapped in `ImagePreview`.
 it has focus, opens it fullscreen over a blurred backdrop. It wraps whatever thumbnail it is given, so the caller keeps
 control of how the small image looks.
 
-New project opens `/projects/new` (`CreateProjectPage`); editing opens `EditProjectModal` on the project page. Both
-render `ProjectForm`, with the cover beside the other fields. `ProjectCoverField` checks the type and the 1 MB limit
-before accepting a file and previews it in the same frame. The form saves the project first and then uploads or
-removes the cover, since a new project has no id before it is saved; a failed cover leaves the saved project in place
-and says so. Cover URLs come from `getProjectCoverUrl`, which adds `coverUpdatedAt` so a new cover is never served
-from cache.
+New project opens `/projects/new` (`CreateProjectPage`), which renders `ProjectForm` with the cover beside the other
+fields. `ProjectCoverField` checks the type and the 1 MB limit before accepting a file (`projectCover.ts`, shared
+with the banner) and previews it in the same frame. The form saves the project first and then uploads the cover,
+since a new project has no id before it is saved; a failed cover leaves the saved project in place and says so. Cover
+URLs come from `getProjectCoverUrl`, which adds `coverUpdatedAt` so a new cover is never served from cache.
 
 ## Jalapeno Labs packages
 

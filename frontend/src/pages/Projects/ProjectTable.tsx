@@ -80,7 +80,7 @@ export function ProjectTable(props: Props) {
     const renderCell = {
       cover: (project: Project) => {
         const coverUrl = getProjectCoverUrl(project)
-        const thumbnail = <ProjectCover src={coverUrl} name={project.name} className='w-14 rounded-md' />
+        const thumbnail = <ProjectCover src={coverUrl} name={project.name} className='aspect-video w-14 rounded-md' />
         if (!coverUrl) {
           return thumbnail
         }

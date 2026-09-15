@@ -45,7 +45,10 @@
     "updated": "{{name}} updated",
     "deleted": "{{name}} deleted",
     "stillHasSessions": "{{name}} still has coding sessions",
-    "coverFailed": "{{name}} was saved, but its cover image was not"
+    "coverFailed": "{{name}} was saved, but its cover image was not",
+    "coverUpdated": "Cover updated",
+    "coverRemoved": "Cover removed",
+    "coverUploadFailed": "The cover could not be uploaded"
   },
   "toolbar": {
     "search": "Search projects",
@@ -75,6 +78,14 @@
     "notFound": "This project does not exist, or was deleted.",
     "backToProjects": "Back to projects",
     "sessionsHeading": "Coding sessions",
-    "sessionsEmpty": "No coding sessions in this project yet. Start one from Coding."
+    "sessionsEmpty": "No coding sessions in this project yet. Start one from Coding.",
+    "renameLabel": "Click to rename",
+    "describeLabel": "Click to edit the description",
+    "addDescription": "Add a description",
+    "changeCover": "Change cover",
+    "addCover": "Add a cover image",
+    "coverHint": "Double-click the cover to replace it",
+    "removeCover": "Remove cover",
+    "uploadingCover": "Uploading cover…"
   }
 }

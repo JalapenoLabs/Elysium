@@ -8,17 +8,17 @@ type Props = {
   src: string | null
   // The project's name, for the image's description and the placeholder's initial.
   name: string
-  // Width and corner rounding, which differ between a tile and a table thumbnail.
+  // Size, shape, and corner rounding: a 16:9 tile or thumbnail, or a wide page banner.
   className: string
 }
 
-// A 16:9 banner. The image is contained, never cropped or stretched: a square logo sits
+// A cover frame, usually 16:9. The image is contained, never cropped or stretched: a square logo sits
 // centered at full height. A blurred, enlarged copy of the same image fills the space it
 // leaves, so the frame reads as one picture rather than a logo on a bar. The placeholder's
 // initial and the blur are sized against the frame's width, so a thumbnail looks like a small tile.
 export function ProjectCover(props: Props) {
   const { t } = useTranslation('projects')
-  const frameClassName = `@container relative aspect-video overflow-hidden bg-surface-secondary ${props.className}`
+  const frameClassName = `@container relative overflow-hidden bg-surface-secondary ${props.className}`
 
   if (!props.src) {
     return <div className={`${frameClassName} grid place-items-center`} aria-hidden>

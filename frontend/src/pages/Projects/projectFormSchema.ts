@@ -6,8 +6,8 @@ import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
 // Mirrors the API's limits so most mistakes are caught before a round trip.
-const NAME_MAX_CHARACTERS = 120
-const DESCRIPTION_MAX_CHARACTERS = 2000
+export const NAME_MAX_CHARACTERS = 120
+export const DESCRIPTION_MAX_CHARACTERS = 2000
 
 // Built per render with `t` so validation messages are already translated.
 export function createProjectFormSchema(t: TFunction<'projects'>) {

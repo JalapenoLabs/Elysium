@@ -1,40 +1,42 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 
 // Redux
 import { selectAllCodingSessions } from '../../store/codingSessionsSlice'
-import { useAppSelector } from '../../store/hooks'
-import { selectProjectById } from '../../store/projectsSlice'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { projectUpserted, selectProjectById } from '../../store/projectsSlice'
 
 // User interface
-import { Breadcrumbs, Link, Spinner, useOverlayState } from '@heroui/react'
-import { ImagePreview } from '../../components/ImagePreview'
-import { EditProjectModal } from './EditProjectModal'
+import { Breadcrumbs, Link, Spinner, toast } from '@heroui/react'
+import { InlineEditableText } from '../../components/InlineEditableText'
 import { ProjectActions } from './ProjectActions'
-import { ProjectCover } from './ProjectCover'
+import { ProjectBanner } from './ProjectBanner'
 import { ProjectSessionsTable } from './ProjectSessionsTable'
 
+// Utility
+import { HTTPError } from 'ky'
+
 // Misc
-import { getProjectCoverUrl } from '../../api/routes/projectRoutes'
+import { updateProject } from '../../api/routes/projectRoutes'
 import { useCodingSessionsLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { UrlTree } from '../../urls'
+import { DESCRIPTION_MAX_CHARACTERS, NAME_MAX_CHARACTERS } from './projectFormSchema'
 
-// `/projects/:projectId`: one project, its coding sessions, and what can be done to it.
+// `/projects/:projectId`: one project, edited in place. The cover sits across the top,
+// the name and description are edited where they are shown, and the Actions menu holds
+// what cannot be: removing the cover and deleting the project.
 export function ProjectPage() {
-  const { t } = useTranslation('projects')
+  const { t } = useTranslation([ 'projects', 'common' ])
+  const dispatch = useAppDispatch()
   const { projectId = '' } = useParams()
   const projectsStatus = useProjectsLoader()
   const sessionsStatus = useCodingSessionsLoader()
   const project = useAppSelector((state) => selectProjectById(state, projectId))
   const allSessions = useAppSelector(selectAllCodingSessions)
-
-  const editState = useOverlayState()
-  // Remounting the form per opening resets it to the project's current values.
-  const [ formSession, setFormSession ] = useState(0)
 
   const sessions = useMemo(
     () => allSessions.filter((session) => session.projectId === projectId),
@@ -54,7 +56,27 @@ export function ProjectPage() {
     }</div>
   }
 
-  const coverUrl = getProjectCoverUrl(project)
+  // Throws on failure, so the field stays open on what was typed.
+  async function saveField(changes: { name: string } | { description: string }) {
+    if (!project) {
+      console.debug('ProjectPage saved a field with no project loaded')
+      return
+    }
+    try {
+      const response = await updateProject(project.id, changes)
+      dispatch(projectUpserted(response.project))
+    }
+    catch (error) {
+      if (error instanceof HTTPError && error.response.status === 409) {
+        toast.danger(t('form.errors.nameTaken'))
+      }
+      else {
+        console.debug('ProjectPage failed to save the project', { error, projectId: project.id })
+        toast.danger(t('common:errors.unexpected'))
+      }
+      throw error
+    }
+  }
 
   return <div className='container'>
     <Breadcrumbs className='compact'>
@@ -62,30 +84,34 @@ export function ProjectPage() {
       <Breadcrumbs.Item>{project.name}</Breadcrumbs.Item>
     </Breadcrumbs>
 
+    <ProjectBanner project={project} />
+
     <div className='level relaxed items-start gap-4'>
-      <div className='flex min-w-0 items-center gap-4'>
-        {coverUrl && <ImagePreview
-          src={coverUrl}
-          alt={t('tile.coverAlt', { name: project.name })}
-          className='shrink-0 rounded-lg'
-        >
-          <ProjectCover src={coverUrl} name={project.name} className='w-28 rounded-lg' />
-        </ImagePreview>}
-        <div className='min-w-0'>
-          <h1 className='truncate text-3xl font-bold'>{project.name}</h1>
-          {project.description && <p className='mt-1 max-w-2xl text-sm whitespace-pre-line opacity-70'>{
-            project.description
-          }</p>}
+      <div className='min-w-0 flex-1'>
+        <InlineEditableText
+          value={project.name}
+          label={t('page.renameLabel')}
+          isRequired
+          maxLength={NAME_MAX_CHARACTERS}
+          className='text-3xl font-bold'
+          onSave={(name) => saveField({ name })}
+        />
+        <div className='mt-1 max-w-3xl'>
+          <InlineEditableText
+            value={project.description}
+            label={t('page.describeLabel')}
+            placeholder={t('page.addDescription')}
+            isMultiline
+            maxLength={DESCRIPTION_MAX_CHARACTERS}
+            className='text-sm whitespace-pre-line opacity-80'
+            onSave={(description) => saveField({ description })}
+          />
         </div>
       </div>
       <div className='shrink-0'>
         <ProjectActions
           project={project}
           sessionCount={sessions.length}
-          onEdit={() => {
-            setFormSession((session) => session + 1)
-            editState.open()
-          }}
         />
       </div>
     </div>
@@ -98,11 +124,5 @@ export function ProjectPage() {
         </div>
         : <ProjectSessionsTable sessions={sessions} />}
     </section>
-
-    <EditProjectModal
-      key={formSession}
-      state={editState}
-      project={project}
-    />
   </div>
 }

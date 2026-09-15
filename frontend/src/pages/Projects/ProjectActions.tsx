@@ -9,17 +9,17 @@ import { useNavigate } from 'react-router'
 
 // Redux
 import { useAppDispatch } from '../../store/hooks'
-import { projectDeleted } from '../../store/projectsSlice'
+import { projectDeleted, projectUpserted } from '../../store/projectsSlice'
 
 // User interface
 import { Button, Dropdown, Label, toast } from '@heroui/react'
-import { LuChevronDown, LuPencil, LuTrash2 } from 'react-icons/lu'
+import { LuChevronDown, LuImageOff, LuTrash2 } from 'react-icons/lu'
 
 // Utility
 import { HTTPError } from 'ky'
 
 // Misc
-import { deleteProject } from '../../api/routes/projectRoutes'
+import { deleteProject, deleteProjectCover } from '../../api/routes/projectRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
 import { UrlTree } from '../../urls'
 
@@ -27,10 +27,10 @@ type Props = {
   project: Project
   // Sessions this browser knows belong to the project. The API has the final say.
   sessionCount: number
-  onEdit: () => void
 }
 
-// The project page's "Actions" menu: edit, or delete after confirming.
+// The project page's "Actions" menu: what the page cannot do in place. The name,
+// description, and a new cover are edited where they are shown.
 export function ProjectActions(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
   const dispatch = useAppDispatch()
@@ -74,8 +74,20 @@ export function ProjectActions(props: Props) {
     })
   }
 
+  async function removeCover() {
+    try {
+      const response = await deleteProjectCover(props.project.id)
+      dispatch(projectUpserted(response.project))
+      toast.success(t('toasts.coverRemoved'))
+    }
+    catch (error) {
+      console.debug('ProjectActions failed to remove the cover', { error, projectId: props.project.id })
+      toast.danger(t('common:errors.unexpected'))
+    }
+  }
+
   const actions: Record<string, () => void> = {
-    edit: props.onEdit,
+    removeCover: () => void removeCover(),
     delete: confirmDelete,
   }
 
@@ -85,10 +97,16 @@ export function ProjectActions(props: Props) {
       <LuChevronDown className='size-4' aria-hidden />
     </Button>
     <Dropdown.Popover placement='bottom end'>
-      <Dropdown.Menu onAction={(key: Key) => actions[String(key)]?.()}>
-        <Dropdown.Item id='edit' textValue={t('common:actions.edit')}>
-          <LuPencil className='size-4' aria-hidden />
-          <Label>{t('common:actions.edit')}</Label>
+      <Dropdown.Menu
+        aria-label={t('page.actions')}
+        disabledKeys={props.project.coverUpdatedAt
+          ? []
+          : [ 'removeCover' ]}
+        onAction={(key: Key) => actions[String(key)]?.()}
+      >
+        <Dropdown.Item id='removeCover' textValue={t('page.removeCover')}>
+          <LuImageOff className='size-4' aria-hidden />
+          <Label>{t('page.removeCover')}</Label>
         </Dropdown.Item>
         <Dropdown.Item id='delete' textValue={t('common:actions.delete')} variant='danger'>
           <LuTrash2 className='size-4' aria-hidden />

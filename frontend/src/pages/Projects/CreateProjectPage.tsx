@@ -30,7 +30,6 @@ export function CreateProjectPage() {
 
     <Card className='max-w-4xl p-6'>
       <ProjectForm
-        project={null}
         onSaved={() => navigate(UrlTree.projects)}
         onCancel={() => navigate(UrlTree.projects)}
       />

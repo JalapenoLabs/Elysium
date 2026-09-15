@@ -40,7 +40,7 @@ export function ProjectTiles(props: Props) {
           <ProjectCover
             src={getProjectCoverUrl(project)}
             name={project.name}
-            className='w-full rounded-2xl'
+            className='aspect-video w-full rounded-2xl'
           />
           <Card.Header>
             <Card.Title className='min-w-0 truncate'>{project.name}</Card.Title>
