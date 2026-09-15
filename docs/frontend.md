@@ -86,6 +86,15 @@ matter when changing it:
 - `DockviewReact` needs a sized parent. The page is a flex column whose Dockview wrapper is `min-h-0 flex-1`,
   inside a workspace-layout `main`.
 
+### Projects page
+
+`src/pages/Projects/ProjectsPage.tsx` lists projects in a grid view (uikit's `SmartTable`) or a tiles view (HeroUI
+cards). One toolbar drives both: search matches name and description, and sort is by name, session count, or last
+update, in either direction. `projectListing.ts` does the filtering and sorting once, so switching views keeps
+the same results in the same order. The table's own search and toolbar are hidden, and its column headers sort
+through the same state as the toolbar. The chosen view is remembered per browser under
+`elysium.projects.view.v1`; search and sort reset on each visit.
+
 ## Jalapeno Labs packages
 
 Both org packages install from GitHub, pinned to a commit in `package.json`. uikit is not on the npm registry. Yarn
@@ -125,15 +134,6 @@ HeroUI theme so accents match.
 `src/api/index.ts` exports one Ky instance with `prefix: '/api'`. Requests are origin-relative because nginx
 serves the frontend and API from the same host. Each resource has a file in `src/api/routes/` with one function per
 endpoint and request and response types that mirror the Rust structs.
-
-### Projects page
-
-`src/pages/Projects/ProjectsPage.tsx` lists projects in a grid view (uikit's `SmartTable`) or a tiles view (HeroUI
-cards). One toolbar drives both: search matches name and description, and sort is by name, session count, or last
-update, in either direction. `projectListing.ts` does the filtering and sorting once, so switching views keeps
-the same results in the same order. The table's own search and toolbar are hidden, and its column headers sort
-through the same state as the toolbar. The chosen view is remembered per browser under
-`elysium.projects.view.v1`; search and sort reset on each visit.
 
 ### Redux
 
