@@ -59,8 +59,9 @@ reports both as one error that names both causes.
 ## Testing a location
 
 `POST /api/v1/storage-locations/{id}/test` lists the location's directory with its saved settings and reports how
-many entries sit directly inside. A directory that does not exist yet lists as empty: Bunny creates directories as
-files are written into them. A refusal answers `502` with the provider's message.
+many entries sit directly inside. A directory that does not exist yet counts as empty, whether Bunny answers `404` or
+an empty listing: Bunny creates directories as files are written into them. A refusal answers `502` with the
+provider's message.
 
 ## Roadmap
 

@@ -68,8 +68,8 @@ impl Bunny {
 
     /// Counts the entries, files and directories, directly inside `directory` of `zone`.
     ///
-    /// A directory that does not exist lists as empty; Bunny creates directories as files
-    /// are written into them.
+    /// A directory that does not exist yet counts as empty, whether Bunny answers `404` or
+    /// an empty listing: Bunny creates directories as files are written into them.
     ///
     /// # Errors
     /// Returns [`StorageError::Unauthorized`] when Bunny refuses the password, or the zone
@@ -95,6 +95,11 @@ impl Bunny {
         let status = response.status();
         if status == StatusCode::UNAUTHORIZED {
             return Err(StorageError::Unauthorized);
+        }
+        // An unknown zone or wrong region is a 401, so a 404 past sign-in can only mean the
+        // directory has not been written to yet.
+        if status == StatusCode::NOT_FOUND {
+            return Ok(0);
         }
         if !status.is_success() {
             let message = response
