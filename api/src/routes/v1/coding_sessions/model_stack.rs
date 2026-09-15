@@ -12,9 +12,12 @@
 //! appear in the same stack: the highest priority usable credential decides the family,
 //! and the rest of that family follows it.
 
+use arsox_sdk::proto::common::v1::Duration;
 use arsox_sdk::proto::common::v1::Secret;
 use arsox_sdk::proto::harness::v1::Harness;
-use arsox_sdk::proto::settings::v1::{LlmAuth, ModelEndpoint, OAuthCredential, llm_auth};
+use arsox_sdk::proto::settings::v1::{
+    LlmAuth, ModelEndpoint, OAuthCredential, RetryPolicy, llm_auth,
+};
 use chrono::{DateTime, Utc};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -27,6 +30,23 @@ use crate::models::llm::{Llm, LlmType};
 /// rather than a routing decision.
 const CLAUDE_MODEL: &str = "claude-opus-5";
 const CODEX_MODEL: &str = "gpt-5-codex";
+
+/// How hard one credential is tried before the next one is.
+///
+/// The satellite's default is ten attempts spanning about six minutes, which is the
+/// right shape for a rate limit that clears on its own. This stack exists for the other
+/// case: a credential whose quota or credits are spent answers the same way for hours,
+/// and every wait is time the credential behind it would have served. Three attempts
+/// keep a momentary burst from costing a failover, and anything longer rolls over.
+///
+/// A provider that rejects the credential outright, or refuses with any status outside
+/// the retry set, is never retried and rolls over at once.
+const ENDPOINT_ATTEMPTS: u32 = 3;
+const ENDPOINT_INITIAL_BACKOFF_SECONDS: i64 = 5;
+
+/// Also the ceiling a provider's `Retry-After` is clamped to, so a header asking for
+/// hours cannot hold the turn on a credential that is spent.
+const ENDPOINT_MAX_BACKOFF_SECONDS: i64 = 15;
 
 /// `OpenAI` endpoints are declared as an origin: the proxy forwards the path the harness
 /// asked for, so a versioned prefix here would arrive as `/v1/v1/responses`. Anthropic's
@@ -127,10 +147,7 @@ pub fn build(credentials: &[(Llm, SecretString)], now: DateTime<Utc>) -> Option<
             model: credential_family.model().to_owned(),
             base_url: credential_family.base_url(),
             auth: Some(auth),
-            // The satellite's defaults: ten attempts, waiting out 429 and 529, then
-            // failing over. Elysium has nothing better to say about another provider's
-            // rate limits.
-            retry: None,
+            retry: Some(rollover_policy()),
         });
     }
 
@@ -191,6 +208,26 @@ fn codex_credential(stored: &str) -> Option<llm_auth::Credential> {
         // The file records when it was last refreshed, not when the token expires.
         expires_at: None,
     }))
+}
+
+/// When to stop waiting on one credential and try the next.
+///
+/// `retry_on_status` is left empty, which keeps the satellite's own set: 429, the rate
+/// and usage limit, and 529, Anthropic's overload. Both are the provider saying "not
+/// now"; everything else it says is a reason to move on immediately.
+fn rollover_policy() -> RetryPolicy {
+    RetryPolicy {
+        max_attempts: Some(ENDPOINT_ATTEMPTS),
+        initial_backoff: Some(Duration {
+            seconds: ENDPOINT_INITIAL_BACKOFF_SECONDS,
+            nanos: 0,
+        }),
+        max_backoff: Some(Duration {
+            seconds: ENDPOINT_MAX_BACKOFF_SECONDS,
+            nanos: 0,
+        }),
+        retry_on_status: Vec::new(),
+    }
 }
 
 fn secret(value: &str) -> Secret {
@@ -266,6 +303,33 @@ mod tests {
         assert_eq!(
             tokens_of(&stack.endpoints[1]),
             Some(llm_auth::Credential::ApiKey(secret("sk-ant-api03-second")))
+        );
+    }
+
+    #[test]
+    fn a_spent_credential_rolls_over_rather_than_waiting_out_its_quota() {
+        let credentials = vec![credential(
+            "Primary",
+            LlmType::ClaudeCodeOauth,
+            "sk-ant-oat01",
+        )];
+
+        let stack = build(&credentials, Utc::now()).expect("a usable credential");
+
+        let retry = stack.endpoints[0].retry.clone().expect("a declared policy");
+        assert_eq!(
+            retry.max_attempts,
+            Some(ENDPOINT_ATTEMPTS),
+            "the satellite's ten attempts would wait out a quota that lasts hours"
+        );
+        assert_eq!(
+            retry.max_backoff.map(|backoff| backoff.seconds),
+            Some(ENDPOINT_MAX_BACKOFF_SECONDS),
+            "a provider's Retry-After is clamped to this"
+        );
+        assert!(
+            retry.retry_on_status.is_empty(),
+            "an empty set keeps the satellite's 429 and 529"
         );
     }
 

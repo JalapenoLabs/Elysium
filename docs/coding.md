@@ -77,9 +77,30 @@ the URL's last segment.
 ## Model credentials
 
 A thread is opened with Elysium's stored LLM credentials as its model endpoints, in priority order. The satellite
-tries the first and moves to the next when it will not answer: a rate-limited credential is waited out and then
-failed over, and a rejected one is never retried. The list is failover, never a pool, so later entries are only
-reached when the ones above them are spent.
+tries the first and moves to the next when it will not answer. The list is failover, never a pool, so later entries
+are only reached when the ones above them are spent.
+
+### Rolling over a spent credential
+
+The point of the stack is a credential that runs out, not one that is briefly busy. A subscription whose quota is
+spent keeps refusing for hours, and every second spent waiting on it is a second the credential behind it would
+have served. So Elysium declares a shorter retry policy than the satellite's own default of ten attempts over
+about six minutes:
+
+| Setting            | Value | Why                                                                        |
+|--------------------|-------|----------------------------------------------------------------------------|
+| Attempts           | 3     | Enough that a momentary burst limit does not cost a failover               |
+| First wait         | 5s    | The satellite's own first wait                                             |
+| Longest wait       | 15s   | Also the ceiling a provider's `Retry-After` is clamped to                  |
+
+Only 429, the rate and usage limit, and 529, Anthropic's overload, are waited on at all. Every other refusal rolls
+over at once, including a rejected credential (401 or 403) and an unreachable host, because a credential that is
+wrong is wrong on the tenth attempt too.
+
+Nothing about a rollover is silent. A request a later credential answers records a `recovered` incident naming
+every credential given up on, so a stack quietly running on its fallback is visible. When the list runs out the
+turn ends with `LLM_ALL_ENDPOINTS_EXHAUSTED`; the thread and its workspace survive, so a turn submitted after
+adding a credential resumes from there.
 
 One list carries one request shape, because failover relays the harness's request body unchanged. The highest
 priority usable credential therefore decides the thread's harness and family: `claude-api-token` and
