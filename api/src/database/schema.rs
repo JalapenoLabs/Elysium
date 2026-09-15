@@ -142,7 +142,7 @@ diesel::table! {
         bunny_zone -> Nullable<Text>,
         bunny_region -> Nullable<BunnyStorageRegion>,
         path_prefix -> Text,
-        storage_limit_bytes -> Int8,
+        storage_limit_bytes -> Nullable<Int8>,
         access_key_encrypted -> Bytea,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,

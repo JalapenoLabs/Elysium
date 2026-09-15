@@ -2,7 +2,7 @@
   "title": "Storage",
   "locations": {
     "heading": "Storage locations",
-    "description": "Places Elysium saves files to. Each has a limit on how much Elysium stores there. Access keys are encrypted and never shown again after saving.",
+    "description": "Places Elysium saves files to, each with an optional limit on how much Elysium stores there. Access keys are encrypted and never shown again after saving.",
     "add": "Add location"
   },
   "providers": {
@@ -26,6 +26,7 @@
     "location": "Location",
     "limit": "Limit",
     "root": "Root",
+    "noLimit": "No limit",
     "empty": "No storage locations yet. Add one to choose where Elysium saves files.",
     "loadError": "Storage locations could not be loaded."
   },
@@ -43,6 +44,8 @@
     "regionHint": "Where the zone's main storage lives.",
     "pathPrefix": "Directory",
     "pathPrefixHint": "Optional. Elysium saves files under this directory in the zone; leave blank for the zone's root.",
+    "noLimit": "No limit",
+    "noLimitHint": "Elysium stores as much here as the provider allows.",
     "storageLimit": "Storage limit",
     "storageLimitHint": "The most Elysium stores here, in gigabytes.",
     "accessKey": "Access key",

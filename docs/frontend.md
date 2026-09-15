@@ -108,8 +108,8 @@ its row menu adds Test connection.
 Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone and
 directory, limit) whose row menu edits, tests, or deletes one; delete confirms through `useConfirm`.
 `StorageLocationFormModal` adds and edits: provider, zone, region, directory, a limit in gigabytes (a `NumberField`
-formatted in the viewer's locale and converted to bytes on save), and the access key, which is kept when left blank
-while editing. Provider and region labels come from lookup tables in `storagePresentation.ts`.
+formatted in the viewer's locale and converted to bytes on save, beside a No limit switch), and the access key,
+which is kept when left blank while editing. Provider and region labels come from lookup tables in `storagePresentation.ts`.
 
 Email under `src/pages/Settings/Email/` has two sections.
 

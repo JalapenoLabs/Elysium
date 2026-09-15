@@ -20,7 +20,9 @@ use crate::models::storage_location::{self, StorageLocationChanges, StorageProvi
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
-/// Absent fields stay as they are. A provider replaces all of its settings together.
+/// Absent fields stay as they are. A provider replaces all of its settings together, and
+/// `storageLimitBytes: null` removes the limit, which is why that field distinguishes
+/// "absent" from "null".
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RequestBody {
@@ -30,8 +32,13 @@ pub struct RequestBody {
     provider: Option<StorageProvider>,
     #[validate(custom(function = "validate_path_prefix"))]
     path_prefix: Option<String>,
+    #[serde(default, with = "::serde_with::rust::double_option")]
     #[validate(range(min = 1, max = STORAGE_LIMIT_MAX_BYTES))]
-    storage_limit_bytes: Option<i64>,
+    #[expect(
+        clippy::option_option,
+        reason = "absent, null, and a limit are three distinct requests"
+    )]
+    storage_limit_bytes: Option<Option<i64>>,
     access_key: Option<StorageAccessKey>,
 }
 
@@ -80,6 +87,26 @@ pub async fn handle(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_limit_distinguishes_absent_from_null() {
+        let absent: RequestBody =
+            serde_json::from_value(json!({ "name": "Media" })).expect("parses");
+        assert_eq!(absent.storage_limit_bytes, None);
+
+        let cleared: RequestBody =
+            serde_json::from_value(json!({ "storageLimitBytes": null })).expect("parses");
+        assert_eq!(cleared.storage_limit_bytes, Some(None));
+
+        let zero: RequestBody =
+            serde_json::from_value(json!({ "storageLimitBytes": 0 })).expect("parses");
+        assert!(
+            zero.validate()
+                .expect_err("a zero limit is invalid")
+                .field_errors()
+                .contains_key("storage_limit_bytes")
+        );
+    }
 
     #[test]
     fn present_fields_are_validated_and_absent_ones_are_not() {

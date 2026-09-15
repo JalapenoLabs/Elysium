@@ -37,8 +37,8 @@ export type StorageLocation = {
   provider: StorageProvider
   // The directory Elysium writes under, without surrounding slashes; empty for the root.
   pathPrefix: string
-  // Elysium's own cap on what it stores here.
-  storageLimitBytes: number
+  // Elysium's own cap on what it stores here; null for no limit.
+  storageLimitBytes: number | null
   createdAt: string
   updatedAt: string
 }
@@ -57,7 +57,8 @@ type CreateStorageLocationRequest = {
   name: string
   provider: StorageProvider
   pathPrefix?: string
-  storageLimitBytes: number
+  // Null for no limit.
+  storageLimitBytes: number | null
   accessKey: string
 }
 
@@ -76,7 +77,8 @@ type UpdateStorageLocationRequest = {
   name?: string
   provider?: StorageProvider
   pathPrefix?: string
-  storageLimitBytes?: number
+  // Null removes the limit.
+  storageLimitBytes?: number | null
   accessKey?: string
 }
 

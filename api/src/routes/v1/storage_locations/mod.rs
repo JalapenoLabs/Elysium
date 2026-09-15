@@ -55,7 +55,8 @@ pub struct StorageLocationResponse {
     name: String,
     provider: StorageProvider,
     path_prefix: String,
-    storage_limit_bytes: i64,
+    /// `None` for no limit.
+    storage_limit_bytes: Option<i64>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }

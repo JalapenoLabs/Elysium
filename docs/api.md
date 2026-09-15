@@ -138,9 +138,10 @@ A `StorageLocation` has `id`, `name`, `provider`, `pathPrefix`, `storageLimitByt
 The access key is never returned. `provider` is `{ kind: "bunny", zone, region }`, with `region` one of `frankfurt`,
 `london`, `new-york`, `los-angeles`, `singapore`, `stockholm`, `sao-paulo`, `johannesburg`, or `sydney`.
 
-`POST` requires `name` (1 to 120 characters, unique), `provider`, `storageLimitBytes` (1 to 2^53 - 1), and
-`accessKey`, and accepts `pathPrefix` (default the root; surrounding slashes are dropped). `PATCH` accepts any subset;
-`provider` replaces all of the provider's settings, and a new `accessKey` is re-sealed.
+`POST` requires `name` (1 to 120 characters, unique), `provider`, and `accessKey`, and accepts `pathPrefix` (default
+the root; surrounding slashes are dropped) and `storageLimitBytes` (1 to 2^53 - 1; absent or `null` for no limit).
+`PATCH` accepts any subset; `provider` replaces all of the provider's settings, `storageLimitBytes: null` removes the
+limit, and a new `accessKey` is re-sealed.
 
 `test` answers `{ entries }`, the number of files and directories directly inside the location's directory, or `502`
 with the provider's error. See `docs/storage.md`.

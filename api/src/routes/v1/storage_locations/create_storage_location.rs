@@ -30,8 +30,10 @@ pub struct RequestBody {
     #[serde(default)]
     #[validate(custom(function = "validate_path_prefix"))]
     path_prefix: String,
+    /// Absent or null for no limit.
+    #[serde(default)]
     #[validate(range(min = 1, max = STORAGE_LIMIT_MAX_BYTES))]
-    storage_limit_bytes: i64,
+    storage_limit_bytes: Option<i64>,
     access_key: StorageAccessKey,
 }
 
@@ -91,6 +93,7 @@ mod tests {
 
         body.validate().expect("valid");
         assert_eq!(body.path_prefix, "");
+        assert_eq!(body.storage_limit_bytes, Some(50_000_000_000));
         assert!(matches!(body.provider, StorageProvider::Bunny { .. }));
     }
 
@@ -108,6 +111,23 @@ mod tests {
                     .contains_key("storage_limit_bytes"),
                 "{limit} is refused"
             );
+        }
+    }
+
+    #[test]
+    fn an_absent_or_null_limit_means_no_limit() {
+        let mut absent = bunny_body();
+        absent
+            .as_object_mut()
+            .expect("an object")
+            .remove("storageLimitBytes");
+        let mut null = bunny_body();
+        null["storageLimitBytes"] = Value::Null;
+
+        for body in [absent, null] {
+            let body = parse(body).expect("parses");
+            body.validate().expect("valid");
+            assert_eq!(body.storage_limit_bytes, None);
         }
     }
 

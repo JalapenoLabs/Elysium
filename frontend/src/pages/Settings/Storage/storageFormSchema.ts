@@ -47,16 +47,9 @@ export function createStorageFormSchema(t: TFunction<'storage'>, mode: StorageFo
           && !/[\\\p{Cc}]/u.test(segment)),
         { error: t('form.errors.pathPrefixInvalid') },
       ),
-    storageLimitGigabytes: z
-      .number({ error: t('form.errors.storageLimitInvalid') })
-      .refine(
-        (value) => Math.round(value * BYTES_PER_GIGABYTE) >= 1,
-        { error: t('form.errors.storageLimitInvalid') },
-      )
-      .refine(
-        (value) => Math.round(value * BYTES_PER_GIGABYTE) <= Number.MAX_SAFE_INTEGER,
-        { error: t('form.errors.storageLimitTooLarge') },
-      ),
+    isUnlimited: z.boolean(),
+    // NaN while the field is empty. Checked below, and only when a limit applies.
+    storageLimitGigabytes: z.number().or(z.nan()),
     accessKey: z
       .string()
       .refine(
@@ -68,6 +61,27 @@ export function createStorageFormSchema(t: TFunction<'storage'>, mode: StorageFo
         (value) => mode === 'edit' || value.trim().length > 0,
         { error: t('form.errors.accessKeyRequired') },
       ),
+  }).superRefine((values, context) => {
+    if (values.isUnlimited) {
+      return
+    }
+
+    const bytes = Math.round(values.storageLimitGigabytes * BYTES_PER_GIGABYTE)
+    if (!Number.isFinite(bytes) || bytes < 1) {
+      context.addIssue({
+        code: 'custom',
+        path: [ 'storageLimitGigabytes' ],
+        message: t('form.errors.storageLimitInvalid'),
+      })
+      return
+    }
+    if (bytes > Number.MAX_SAFE_INTEGER) {
+      context.addIssue({
+        code: 'custom',
+        path: [ 'storageLimitGigabytes' ],
+        message: t('form.errors.storageLimitTooLarge'),
+      })
+    }
   })
 }
 

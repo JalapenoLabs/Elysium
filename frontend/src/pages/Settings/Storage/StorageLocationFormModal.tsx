@@ -25,6 +25,7 @@ import {
   Modal,
   NumberField,
   Select,
+  Switch,
   TextField,
   toast,
 } from '@heroui/react'
@@ -70,8 +71,11 @@ export function StorageLocationFormModal(props: Props) {
       zone: props.location?.provider.zone ?? '',
       region: props.location?.provider.region ?? 'frankfurt',
       pathPrefix: props.location?.pathPrefix ?? '',
-      // A new location starts without a limit, so one is chosen rather than accepted.
-      storageLimitGigabytes: props.location
+      isUnlimited: props.location
+        ? props.location.storageLimitBytes === null
+        : false,
+      // A new location starts with the field empty, so a limit is chosen rather than accepted.
+      storageLimitGigabytes: props.location?.storageLimitBytes
         ? props.location.storageLimitBytes / BYTES_PER_GIGABYTE
         : Number.NaN,
       accessKey: '',
@@ -87,7 +91,9 @@ export function StorageLocationFormModal(props: Props) {
         region: values.region,
       },
       pathPrefix: values.pathPrefix,
-      storageLimitBytes: Math.round(values.storageLimitGigabytes * BYTES_PER_GIGABYTE),
+      storageLimitBytes: values.isUnlimited
+        ? null
+        : Math.round(values.storageLimitGigabytes * BYTES_PER_GIGABYTE),
     }
 
     try {
@@ -121,9 +127,9 @@ export function StorageLocationFormModal(props: Props) {
 
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
-  const [ name, kind, zone, region, pathPrefix, storageLimitGigabytes, accessKey ] = useWatch({
+  const [ name, kind, zone, region, pathPrefix, isUnlimited, storageLimitGigabytes, accessKey ] = useWatch({
     control: form.control,
-    name: [ 'name', 'kind', 'zone', 'region', 'pathPrefix', 'storageLimitGigabytes', 'accessKey' ],
+    name: [ 'name', 'kind', 'zone', 'region', 'pathPrefix', 'isUnlimited', 'storageLimitGigabytes', 'accessKey' ],
   })
 
   // Controlled overlays skip the Modal root: it is a trigger wrapper, and without a
@@ -248,29 +254,53 @@ export function StorageLocationFormModal(props: Props) {
               <FieldError>{errors.pathPrefix?.message}</FieldError>
             </TextField>
 
-            {/* Storage limit */}
-            <NumberField
-              isRequired
-              isInvalid={Boolean(errors.storageLimitGigabytes)}
-              minValue={0}
-              step={1}
-              formatOptions={{ style: 'unit', unit: 'gigabyte', maximumFractionDigits: 3 }}
-              value={storageLimitGigabytes}
-              onChange={(value) => form.setValue(
-                'storageLimitGigabytes',
-                value,
-                { shouldDirty: true, shouldValidate: true },
-              )}
-            >
-              <Label>{t('form.storageLimit')}</Label>
-              <NumberField.Group>
-                <NumberField.DecrementButton />
-                <NumberField.Input />
-                <NumberField.IncrementButton />
-              </NumberField.Group>
-              <Description>{t('form.storageLimitHint')}</Description>
-              <FieldError>{errors.storageLimitGigabytes?.message}</FieldError>
-            </NumberField>
+            {/* Storage limit, or none */}
+            <div className='flex items-start gap-4'>
+              <NumberField
+                className='min-w-0 flex-1'
+                isRequired={!isUnlimited}
+                isDisabled={isUnlimited}
+                isInvalid={!isUnlimited && Boolean(errors.storageLimitGigabytes)}
+                minValue={0}
+                step={1}
+                formatOptions={{ style: 'unit', unit: 'gigabyte', maximumFractionDigits: 3 }}
+                value={storageLimitGigabytes}
+                onChange={(value) => form.setValue(
+                  'storageLimitGigabytes',
+                  value,
+                  { shouldDirty: true, shouldValidate: true },
+                )}
+              >
+                <Label>{t('form.storageLimit')}</Label>
+                <NumberField.Group>
+                  <NumberField.DecrementButton />
+                  <NumberField.Input />
+                  <NumberField.IncrementButton />
+                </NumberField.Group>
+                <Description>{
+                  isUnlimited
+                    ? t('form.noLimitHint')
+                    : t('form.storageLimitHint')
+                }</Description>
+                <FieldError>{errors.storageLimitGigabytes?.message}</FieldError>
+              </NumberField>
+              <Switch
+                className='mt-8 shrink-0'
+                isSelected={isUnlimited}
+                onChange={(isSelected) => form.setValue(
+                  'isUnlimited',
+                  isSelected,
+                  { shouldDirty: true, shouldValidate: true },
+                )}
+              >
+                <Switch.Control>
+                  <Switch.Thumb />
+                </Switch.Control>
+                <Switch.Content>
+                  <Label>{t('form.noLimit')}</Label>
+                </Switch.Content>
+              </Switch>
+            </div>
 
             {/* Access key */}
             <TextField

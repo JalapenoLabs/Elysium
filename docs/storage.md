@@ -6,21 +6,22 @@ checked.
 
 ## Locations
 
-A location has a name, a provider with that provider's own settings, an optional directory, a storage limit, and an
-access key.
+A location has a name, a provider with that provider's own settings, an optional directory, an optional storage
+limit, and an access key.
 
 | Field               | Meaning                                                                                  |
 |---------------------|------------------------------------------------------------------------------------------|
 | `provider`          | Where files go: `{ kind, ...settings }`. Only `bunny` exists today                       |
 | `pathPrefix`        | The directory Elysium writes under, stored without surrounding slashes; empty is the root |
-| `storageLimitBytes` | Elysium's own cap on what it stores there, whatever the provider allows                  |
+| `storageLimitBytes` | Elysium's own cap on what it stores there; `null` for no limit                           |
 | access key          | Sealed in `storage_locations.access_key_encrypted`; write-only over HTTP                 |
 
 Directories must be plain names separated by single slashes: no `.` or `..` segments, backslashes, or control
 characters. The API checks this, and each segment is percent-encoded when a URL is built from it.
 
 Limits are entered and shown in decimal units (1 GB is 10^9 bytes), as storage providers bill them. The largest limit
-is 2^53 - 1 bytes, the largest integer a browser holds exactly.
+is 2^53 - 1 bytes, the largest integer a browser holds exactly. A location with no limit takes as much as the
+provider allows.
 
 ## Providers
 
@@ -65,7 +66,7 @@ provider's message.
 
 ## Roadmap
 
-- Writing files: uploads choose a location, and Elysium refuses a write that would take its usage past the limit.
+- Writing files: uploads choose a location, and Elysium refuses a write that would take its usage past a limit it has.
   Usage is counted from Elysium's own writes, since a zone's total size is only reachable with the account API key.
 - S3-compatible buckets (AWS S3, Google Cloud Storage) as a second kind, with endpoint, bucket, and region settings.
 - Local and network storage as a third kind.

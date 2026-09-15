@@ -59,7 +59,9 @@ export function StorageLocationTable(props: Props) {
         <div className='text-xs opacity-70'>{t(bunnyRegionLabelKeys[location.provider.region])}</div>
       </div>,
       location: (location: StorageLocation) => <code className='text-xs'>{getStoragePath(location)}</code>,
-      limit: (location: StorageLocation) => formatStorageBytes(location.storageLimitBytes, i18n.language),
+      limit: (location: StorageLocation) => location.storageLimitBytes === null
+        ? t('table.noLimit')
+        : formatStorageBytes(location.storageLimitBytes, i18n.language),
       rowActions: (location: StorageLocation) => <StorageLocationRowActions
         location={location}
         onEdit={props.onEdit}
@@ -76,7 +78,9 @@ export function StorageLocationTable(props: Props) {
         t(bunnyRegionLabelKeys[location.provider.region]),
       ].join(' '),
       location: getStoragePath,
-      limit: (location: StorageLocation) => formatStorageBytes(location.storageLimitBytes, i18n.language),
+      limit: (location: StorageLocation) => location.storageLimitBytes === null
+        ? t('table.noLimit')
+        : formatStorageBytes(location.storageLimitBytes, i18n.language),
       rowActions: null,
     } satisfies Record<StorageColumnKey, ((location: StorageLocation) => string) | null>
 
@@ -99,12 +103,12 @@ export function StorageLocationTable(props: Props) {
           }
         }
 
-        // The limit sorts by size, not by its formatted text.
+        // The limit sorts by size, not by its formatted text, with no limit as the largest.
         if (columnKey === 'limit') {
           return {
             id: columnId,
             header: columnLabel,
-            accessorFn: (location) => location.storageLimitBytes,
+            accessorFn: (location) => location.storageLimitBytes ?? Number.POSITIVE_INFINITY,
             size: columnSizes[columnKey],
             cell: ({ row }) => renderCell[columnKey](row.original),
           }

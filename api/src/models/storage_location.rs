@@ -73,7 +73,8 @@ pub struct StorageLocation {
     pub bunny_region: Option<BunnyStorageRegion>,
     /// The directory Elysium writes under, without leading or trailing slashes.
     pub path_prefix: String,
-    pub storage_limit_bytes: i64,
+    /// Elysium's cap on what it stores here; `None` for no limit.
+    pub storage_limit_bytes: Option<i64>,
     pub access_key_encrypted: Vec<u8>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -85,7 +86,8 @@ pub struct NewStorageLocation {
     pub name: String,
     pub provider: StorageProvider,
     pub path_prefix: String,
-    pub storage_limit_bytes: i64,
+    /// `None` for no limit.
+    pub storage_limit_bytes: Option<i64>,
     pub access_key: SecretString,
 }
 
@@ -96,7 +98,11 @@ pub struct StorageLocationChanges {
     pub name: Option<String>,
     pub provider: Option<StorageProvider>,
     pub path_prefix: Option<String>,
-    pub storage_limit_bytes: Option<i64>,
+    #[expect(
+        clippy::option_option,
+        reason = "absent, no limit, and a limit are three distinct requests"
+    )]
+    pub storage_limit_bytes: Option<Option<i64>>,
     pub access_key: Option<SecretString>,
 }
 
@@ -121,7 +127,7 @@ struct StorageLocationRow<'a> {
     bunny_zone: Option<&'a str>,
     bunny_region: Option<BunnyStorageRegion>,
     path_prefix: &'a str,
-    storage_limit_bytes: i64,
+    storage_limit_bytes: Option<i64>,
     access_key_encrypted: Vec<u8>,
 }
 
@@ -134,7 +140,11 @@ struct StorageLocationChangeset<'a> {
     bunny_zone: Option<&'a str>,
     bunny_region: Option<BunnyStorageRegion>,
     path_prefix: Option<&'a str>,
-    storage_limit_bytes: Option<i64>,
+    #[expect(
+        clippy::option_option,
+        reason = "Diesel's changeset encoding: outer None skips, Some(None) writes NULL"
+    )]
+    storage_limit_bytes: Option<Option<i64>>,
     access_key_encrypted: Option<Vec<u8>>,
 }
 
@@ -318,7 +328,7 @@ mod tests {
                 region: BunnyStorageRegion::NewYork,
             },
             path_prefix: "uploads/2026".to_owned(),
-            storage_limit_bytes: 50_000_000_000,
+            storage_limit_bytes: Some(50_000_000_000),
             access_key: SecretString::from(format!("zone-password-{name}")),
         }
     }
@@ -424,7 +434,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn the_database_refuses_malformed_prefixes_and_limits() {
+    async fn prefixes_are_checked_and_limits_are_positive_or_absent() {
         let (_url, mut connection) = migrated_database().await;
         let cipher = cipher();
 
@@ -435,9 +445,31 @@ mod tests {
             .expect_err("storage_locations_path_prefix_shape rejects surrounding slashes");
 
         let mut unlimited = new_location("unlimited");
-        unlimited.storage_limit_bytes = 0;
-        create(&mut connection, &cipher, &unlimited)
+        unlimited.storage_limit_bytes = None;
+        let created = create(&mut connection, &cipher, &unlimited)
+            .await
+            .expect("a location may have no limit");
+        assert_eq!(created.storage_limit_bytes, None);
+
+        let mut empty = new_location("empty");
+        empty.storage_limit_bytes = Some(0);
+        create(&mut connection, &cipher, &empty)
             .await
             .expect_err("storage_locations_storage_limit_positive rejects a zero limit");
+
+        let lift = StorageLocationChanges {
+            storage_limit_bytes: Some(None),
+            ..StorageLocationChanges::default()
+        };
+        let original = create(&mut connection, &cipher, &new_location("lifted"))
+            .await
+            .expect("insert");
+        let lifted = update(&mut connection, &cipher, original.id, &lift)
+            .await
+            .expect("update");
+        assert_eq!(
+            lifted.storage_limit_bytes, None,
+            "Some(None) removes the limit"
+        );
     }
 }

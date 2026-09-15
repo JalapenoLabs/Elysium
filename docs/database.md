@@ -167,7 +167,7 @@ External locations Elysium saves files to; see `docs/storage.md`.
 | `bunny_zone`           | `TEXT`                  | Set exactly for `bunny`; letters, digits, hyphens, up to 64  |
 | `bunny_region`         | `bunny_storage_region`  | Set exactly for `bunny`                                      |
 | `path_prefix`          | `TEXT`                  | Up to 1024 characters, no leading, trailing, or double slash |
-| `storage_limit_bytes`  | `BIGINT`                | Greater than zero                                            |
+| `storage_limit_bytes`  | `BIGINT`                | Greater than zero; NULL for no limit                         |
 | `access_key_encrypted` | `BYTEA`                 | Sealed access key, see `docs/secrets.md`                     |
 | `created_at`           | `TIMESTAMPTZ`           | Set on insert                                                |
 | `updated_at`           | `TIMESTAMPTZ`           | Maintained by trigger                                        |
