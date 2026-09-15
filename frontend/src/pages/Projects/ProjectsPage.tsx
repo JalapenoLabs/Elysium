@@ -35,17 +35,20 @@ export function ProjectsPage() {
   // Remounting the form per opening resets it to the chosen project's values.
   const [ formSession, setFormSession ] = useState(0)
 
-  // Stable so the table's columns are not rebuilt on every render.
+  // Stable so the table's columns are not rebuilt on every render. The overlay state
+  // object is new each render, but its `open` callbacks are memoized.
+  const openFormOverlay = formState.open
   const openForm = useCallback((project: Project | null) => {
     setSelectedProject(project)
     setFormSession((session) => session + 1)
-    formState.open()
-  }, [ formState ])
+    openFormOverlay()
+  }, [ openFormOverlay ])
 
+  const openDeleteOverlay = deleteState.open
   const openDelete = useCallback((project: Project) => {
     setSelectedProject(project)
-    deleteState.open()
-  }, [ deleteState ])
+    openDeleteOverlay()
+  }, [ openDeleteOverlay ])
 
   return <div className='container'>
     <div className='level relaxed items-start'>
