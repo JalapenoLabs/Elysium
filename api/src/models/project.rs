@@ -9,10 +9,59 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
 use crate::database::schema::projects;
+
+/// Which projects something applies to: every project, including ones added later, or
+/// only the listed ones.
+///
+/// Serialized as `"*"` for every project, or an array of project ids. Ids arrive sorted
+/// and without duplicates, so each one can be stored once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProjectScope {
+    All,
+    Only(Vec<Uuid>),
+}
+
+/// The wildcard that stands for every project.
+const ALL_PROJECTS: &str = "*";
+
+impl Serialize for ProjectScope {
+    fn serialize<Target: Serializer>(
+        &self,
+        serializer: Target,
+    ) -> Result<Target::Ok, Target::Error> {
+        match self {
+            Self::All => serializer.serialize_str(ALL_PROJECTS),
+            Self::Only(ids) => ids.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ProjectScope {
+    fn deserialize<Source: Deserializer<'de>>(deserializer: Source) -> Result<Self, Source::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            Ids(Vec<Uuid>),
+            Text(String),
+        }
+
+        match Wire::deserialize(deserializer) {
+            Ok(Wire::Ids(mut ids)) => {
+                ids.sort_unstable();
+                ids.dedup();
+                Ok(Self::Only(ids))
+            }
+            Ok(Wire::Text(text)) if text == ALL_PROJECTS => Ok(Self::All),
+            _ => Err(serde::de::Error::custom(
+                "projects must be \"*\" or a list of project ids",
+            )),
+        }
+    }
+}
 
 /// How a cover sits in its frame.
 #[derive(
@@ -191,6 +240,28 @@ mod tests {
     use super::*;
     use crate::errors::ApiError;
     use crate::test_support::migrated_database;
+
+    #[test]
+    fn project_scopes_are_a_wildcard_or_sorted_unique_ids() {
+        let first = Uuid::now_v7();
+        let second = Uuid::now_v7();
+
+        let all: ProjectScope = serde_json::from_value(serde_json::json!("*")).expect("parses");
+        assert_eq!(all, ProjectScope::All);
+        assert_eq!(serde_json::to_value(&all).expect("serializes"), "*");
+
+        let only: ProjectScope =
+            serde_json::from_value(serde_json::json!([second, first, second])).expect("parses");
+        assert_eq!(only, ProjectScope::Only(vec![first, second]));
+
+        for refused in [
+            serde_json::json!("all"),
+            serde_json::json!(["not-a-uuid"]),
+            serde_json::json!(4),
+        ] {
+            serde_json::from_value::<ProjectScope>(refused).expect_err("refused");
+        }
+    }
 
     fn new_project(name: &str) -> NewProject {
         NewProject {

@@ -171,6 +171,18 @@ External locations Elysium saves files to; see `docs/storage.md`.
 | `access_key_encrypted` | `BYTEA`                 | Sealed access key, see `docs/secrets.md`                     |
 | `created_at`           | `TIMESTAMPTZ`           | Set on insert                                                |
 | `updated_at`           | `TIMESTAMPTZ`           | Maintained by trigger                                        |
+| `all_projects`         | `BOOLEAN`               | Every project saves files here; defaults to false            |
+
+### `storage_location_projects`
+
+The projects that save files to a location without `all_projects`. The primary key is `(storage_location_id,
+project_id)`, and an index on `project_id` finds a project's locations.
+
+| Column                | Type          | Notes                                                        |
+|-----------------------|---------------|--------------------------------------------------------------|
+| `storage_location_id` | `UUID`        | References `storage_locations`; deleted with the location    |
+| `project_id`          | `UUID`        | References `projects`; deleted with the project              |
+| `created_at`          | `TIMESTAMPTZ` | Set on insert                                                |
 
 ### `coding_sessions`
 

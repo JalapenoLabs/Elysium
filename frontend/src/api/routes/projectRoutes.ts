@@ -4,6 +4,11 @@
 import { API_BASE_PATH, PROJECT_COVER_UPLOAD_TIMEOUT_MS } from '../../constants'
 import { apiClient } from '../index'
 
+// Mirrors `ProjectScope` in api/src/models/project.rs: every project, including ones
+// added later, or only the listed project ids.
+export const ALL_PROJECTS = '*'
+export type ProjectScope = typeof ALL_PROJECTS | string[]
+
 // Mirrors `ProjectCoverFit` in api/src/models/project.rs. `fit` shows the whole image over a
 // blurred copy of itself; `fill` covers the frame and crops what does not fit.
 export type ProjectCoverFit = 'fit' | 'fill'

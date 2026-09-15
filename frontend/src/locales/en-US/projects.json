@@ -90,5 +90,11 @@
     "coverFit": "Cover fit",
     "fit": "Fit",
     "fill": "Fill"
+  },
+  "scope": {
+    "all": "All projects",
+    "placeholder": "Choose projects",
+    "search": "Search projects",
+    "empty": "No projects match."
   }
 }

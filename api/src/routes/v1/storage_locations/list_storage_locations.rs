@@ -22,7 +22,7 @@ pub async fn handle(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
     let locations: Vec<StorageLocationResponse> = storage_location::list(&mut connection)
         .await?
         .into_iter()
-        .map(StorageLocationResponse::new)
+        .map(|(location, projects)| StorageLocationResponse::new(location, projects))
         .collect();
 
     Ok(Json(json!({ "locations": locations })))

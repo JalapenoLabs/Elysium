@@ -39,6 +39,7 @@ import {
   STORAGE_PROVIDER_KINDS,
   updateStorageLocation,
 } from '../../../api/routes/storageRoutes'
+import { ProjectScopePicker } from '../../../components/ProjectScopePicker'
 import { BYTES_PER_GIGABYTE } from '../../../constants'
 import { createStorageFormSchema } from './storageFormSchema'
 import { bunnyRegionLabelKeys, storageProviderLabelKeys } from './storagePresentation'
@@ -72,6 +73,7 @@ export function StorageLocationForm(props: Props) {
       zone: props.location?.provider.zone ?? '',
       region: props.location?.provider.region ?? 'frankfurt',
       pathPrefix: props.location?.pathPrefix ?? '',
+      projects: props.location?.projects ?? [],
       isUnlimited: props.location
         ? props.location.storageLimitBytes === null
         : false,
@@ -92,6 +94,7 @@ export function StorageLocationForm(props: Props) {
         region: values.region,
       },
       pathPrefix: values.pathPrefix,
+      projects: values.projects,
       storageLimitBytes: values.isUnlimited
         ? null
         : Math.round(values.storageLimitGigabytes * BYTES_PER_GIGABYTE),
@@ -128,9 +131,19 @@ export function StorageLocationForm(props: Props) {
 
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
-  const [ name, kind, zone, region, pathPrefix, isUnlimited, storageLimitGigabytes, accessKey ] = useWatch({
+  const [ name, kind, zone, region, pathPrefix, projects, isUnlimited, storageLimitGigabytes, accessKey ] = useWatch({
     control: form.control,
-    name: [ 'name', 'kind', 'zone', 'region', 'pathPrefix', 'isUnlimited', 'storageLimitGigabytes', 'accessKey' ],
+    name: [
+      'name',
+      'kind',
+      'zone',
+      'region',
+      'pathPrefix',
+      'projects',
+      'isUnlimited',
+      'storageLimitGigabytes',
+      'accessKey',
+    ],
   })
 
   return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
@@ -240,6 +253,14 @@ export function StorageLocationForm(props: Props) {
       <Description>{t('form.pathPrefixHint')}</Description>
       <FieldError>{errors.pathPrefix?.message}</FieldError>
     </TextField>
+
+    {/* Projects */}
+    <ProjectScopePicker
+      label={t('form.projects')}
+      description={t('form.projectsHint')}
+      value={projects}
+      onChange={(value) => form.setValue('projects', value, { shouldDirty: true })}
+    />
 
     {/* Storage limit, or none */}
     <div className='flex items-start gap-4'>

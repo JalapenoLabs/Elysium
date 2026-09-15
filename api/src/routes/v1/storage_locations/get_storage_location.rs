@@ -26,8 +26,9 @@ pub async fn handle(
         .context("no database connection available")?;
 
     let location = storage_location::find(&mut connection, id).await?;
+    let projects = storage_location::projects_of(&mut connection, &location).await?;
 
     Ok(Json(
-        json!({ "location": StorageLocationResponse::new(location) }),
+        json!({ "location": StorageLocationResponse::new(location, projects) }),
     ))
 }

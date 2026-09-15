@@ -134,14 +134,16 @@ satellite's error.
 
 ### `/api/v1/storage-locations`
 
-A `StorageLocation` has `id`, `name`, `provider`, `pathPrefix`, `storageLimitBytes`, `createdAt`, and `updatedAt`.
+A `StorageLocation` has `id`, `name`, `provider`, `pathPrefix`, `storageLimitBytes`, `projects`, `createdAt`, and
+`updatedAt`. `projects` is `"*"` for every project, or an array of project ids.
 The access key is never returned. `provider` is `{ kind: "bunny", zone, region }`, with `region` one of `frankfurt`,
 `london`, `new-york`, `los-angeles`, `singapore`, `stockholm`, `sao-paulo`, `johannesburg`, or `sydney`.
 
 `POST` requires `name` (1 to 120 characters, unique), `provider`, and `accessKey`, and accepts `pathPrefix` (default
-the root; surrounding slashes are dropped) and `storageLimitBytes` (1 to 2^53 - 1; absent or `null` for no limit).
-`PATCH` accepts any subset; `provider` replaces all of the provider's settings, `storageLimitBytes: null` removes the
-limit, and a new `accessKey` is re-sealed.
+the root; surrounding slashes are dropped), `storageLimitBytes` (1 to 2^53 - 1; absent or `null` for no limit), and
+`projects` (default none). An unknown project id answers `400`.
+`PATCH` accepts any subset; `provider` replaces all of the provider's settings, `projects` replaces the projects,
+`storageLimitBytes: null` removes the limit, and a new `accessKey` is re-sealed.
 
 `test` answers `{ entries }`, the number of files and directories directly inside the location's directory, or `502`
 with the provider's error. See `docs/storage.md`.

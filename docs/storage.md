@@ -7,14 +7,20 @@ checked.
 ## Locations
 
 A location has a name, a provider with that provider's own settings, an optional directory, an optional storage
-limit, and an access key (Bunny calls it the zone's password).
+limit, the projects that save files to it, and an access key (Bunny calls it the zone's password).
 
 | Field               | Meaning                                                                                  |
 |---------------------|------------------------------------------------------------------------------------------|
 | `provider`          | Where files go: `{ kind, ...settings }`. Only `bunny` exists today                       |
 | `pathPrefix`        | The directory Elysium writes under, stored without surrounding slashes; empty is the root |
 | `storageLimitBytes` | Elysium's own cap on what it stores there; `null` for no limit                           |
+| `projects`          | `"*"` for every project, including ones added later, or a list of project ids          |
 | access key          | Sealed in `storage_locations.access_key_encrypted`; write-only over HTTP                 |
+
+A location's projects are stored as `storage_locations.all_projects` for `*`, or as rows in
+`storage_location_projects`. Choosing `*` removes any links, and deleting a project removes its links. In the form,
+`ProjectScopePicker` (`src/components/`) is HeroUI's `Autocomplete` in multiple selection with the picks as tags;
+picking `*` replaces the projects picked one by one, and picking a project replaces `*`.
 
 Directories must be plain names separated by single slashes: no `.` or `..` segments, backslashes, or control
 characters. The API checks this, and each segment is percent-encoded when a URL is built from it.

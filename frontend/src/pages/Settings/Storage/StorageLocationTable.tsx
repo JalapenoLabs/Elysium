@@ -5,12 +5,19 @@ import type { StorageLocation } from '../../../api/routes/storageRoutes'
 // Core
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { shallowEqual } from 'react-redux'
+
+// Redux
+import { useAppSelector } from '../../../store/hooks'
+import { selectProjectNamesById } from '../../../store/projectsSlice'
 
 // User interface
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { StorageLocationRowActions } from './StorageLocationRowActions'
 
 // Misc
+import { ALL_PROJECTS } from '../../../api/routes/projectRoutes'
+import { useProjectsLoader } from '../../../hooks/useServerData'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import {
   bunnyRegionLabelKeys,
@@ -26,23 +33,25 @@ type Props = {
   onDelete: (location: StorageLocation) => void
 }
 
-const STORAGE_COLUMN_KEYS = [ 'name', 'provider', 'location', 'limit', 'rowActions' ] as const
+const STORAGE_COLUMN_KEYS = [ 'name', 'provider', 'location', 'projects', 'limit', 'rowActions' ] as const
 type StorageColumnKey = typeof STORAGE_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
   name: 'table.name',
   provider: 'table.provider',
   location: 'table.location',
+  projects: 'table.projects',
   limit: 'table.limit',
   rowActions: 'common:actions.moreActions',
 } as const satisfies Record<StorageColumnKey, string>
 
 // Starting widths in pixels, summing to less than the settings content column.
 const columnSizes = {
-  name: 240,
-  provider: 220,
-  location: 300,
-  limit: 140,
+  name: 200,
+  provider: 180,
+  location: 240,
+  projects: 220,
+  limit: 120,
   rowActions: 64,
 } as const satisfies Record<StorageColumnKey, number>
 
@@ -50,8 +59,24 @@ export function StorageLocationTable(props: Props) {
   const { t, i18n } = useTranslation([ 'storage', 'common' ])
   const labels = useSmartTableLabels()
   const [ search, setSearch ] = useState('')
+  useProjectsLoader()
+  const projectNamesById = useAppSelector(selectProjectNamesById, shallowEqual)
 
   const managedColumns = useMemo(() => {
+    // Deleted projects leave no name behind, so they are skipped.
+    function projectsText(location: StorageLocation) {
+      if (location.projects === ALL_PROJECTS) {
+        return t('table.allProjects')
+      }
+      const names = location.projects
+        .map((projectId) => projectNamesById[projectId])
+        .filter(Boolean)
+      if (!names.length) {
+        return t('table.noProjects')
+      }
+      return names.join(', ')
+    }
+
     const renderCell = {
       name: (location: StorageLocation) => <span className='font-medium'>{location.name}</span>,
       provider: (location: StorageLocation) => <div>
@@ -59,6 +84,7 @@ export function StorageLocationTable(props: Props) {
         <div className='text-xs opacity-70'>{t(bunnyRegionLabelKeys[location.provider.region])}</div>
       </div>,
       location: (location: StorageLocation) => <code className='text-xs'>{getStoragePath(location)}</code>,
+      projects: (location: StorageLocation) => <span className='line-clamp-2'>{projectsText(location)}</span>,
       limit: (location: StorageLocation) => location.storageLimitBytes === null
         ? t('table.noLimit')
         : formatStorageBytes(location.storageLimitBytes, i18n.language),
@@ -78,6 +104,7 @@ export function StorageLocationTable(props: Props) {
         t(bunnyRegionLabelKeys[location.provider.region]),
       ].join(' '),
       location: getStoragePath,
+      projects: projectsText,
       limit: (location: StorageLocation) => location.storageLimitBytes === null
         ? t('table.noLimit')
         : formatStorageBytes(location.storageLimitBytes, i18n.language),
@@ -123,7 +150,7 @@ export function StorageLocationTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, props.onEdit, props.onTest, props.onDelete ])
+  }, [ t, i18n.language, projectNamesById, props.onEdit, props.onTest, props.onDelete ])
 
   if (!props.locations.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

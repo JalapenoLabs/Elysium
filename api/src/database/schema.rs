@@ -132,6 +132,16 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    storage_location_projects (storage_location_id, project_id) {
+        storage_location_id -> Uuid,
+        project_id -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::StorageLocationKind;
     use super::sql_types::BunnyStorageRegion;
 
@@ -146,12 +156,15 @@ diesel::table! {
         access_key_encrypted -> Bytea,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        all_projects -> Bool,
     }
 }
 
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
 diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
+diesel::joinable!(storage_location_projects -> projects (project_id));
+diesel::joinable!(storage_location_projects -> storage_locations (storage_location_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     coding_sessions,
@@ -161,5 +174,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_servers,
     projects,
     satellites,
+    storage_location_projects,
     storage_locations,
 );

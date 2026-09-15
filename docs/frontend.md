@@ -108,12 +108,13 @@ live status (online, unreachable with the reason on hover, checking, or inactive
 its row menu adds Test connection.
 
 Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone and
-directory, limit) whose row menu edits, tests, or deletes one; delete confirms through `useConfirm`. Adding and
-editing are their own pages, sharing `StorageLocationEditorLayout` and `StorageLocationForm`: provider, zone, region,
-directory, a limit in gigabytes (a `NumberField` formatted in the viewer's locale and converted to bytes on save,
-beside a No limit switch), and the zone's password, which is kept when left blank while editing. A
-`StorageSetupChecklist` beside the form walks through where Bunny's dashboard shows each setting. It and
-`LlmSetupChecklist` both render `src/components/SetupChecklist.tsx`. Provider and region labels come from lookup tables in `storagePresentation.ts`.
+directory, projects, limit) whose row menu edits, tests, or deletes one; delete confirms through `useConfirm`. Adding
+and editing are their own pages, sharing `StorageLocationEditorLayout` and `StorageLocationForm`: provider, zone,
+region, directory, projects (`ProjectScopePicker`, see `docs/storage.md`), a limit in gigabytes (a `NumberField`
+formatted in the viewer's locale and converted to bytes on save, beside a No limit switch), and the zone's password,
+which is kept when left blank while editing. A `StorageSetupChecklist` beside the form walks through where Bunny's
+dashboard shows each setting. It and `LlmSetupChecklist` both render `src/components/SetupChecklist.tsx`. Provider and
+region labels come from lookup tables in `storagePresentation.ts`.
 
 Email under `src/pages/Settings/Email/` has two sections.
 

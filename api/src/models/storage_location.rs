@@ -8,15 +8,18 @@
 //! Callers hand in a [`SecretString`] and only ever get one back from
 //! [`StorageLocation::access_key`].
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::crypto::{Cipher, OpenError};
-use crate::database::schema::storage_locations;
+use crate::database::schema::{storage_location_projects, storage_locations};
+use crate::models::project::ProjectScope;
 
 /// Which provider holds a location's files.
 #[derive(
@@ -78,6 +81,9 @@ pub struct StorageLocation {
     pub access_key_encrypted: Vec<u8>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Every project saves files here. Otherwise only the projects linked in
+    /// `storage_location_projects` do.
+    pub all_projects: bool,
 }
 
 /// Fields for a new location, with the access key still in plaintext.
@@ -89,6 +95,7 @@ pub struct NewStorageLocation {
     /// `None` for no limit.
     pub storage_limit_bytes: Option<i64>,
     pub access_key: SecretString,
+    pub projects: ProjectScope,
 }
 
 /// A partial update. `None` leaves a column untouched; a provider replaces all of its
@@ -104,6 +111,8 @@ pub struct StorageLocationChanges {
     )]
     pub storage_limit_bytes: Option<Option<i64>>,
     pub access_key: Option<SecretString>,
+    /// Replaces the projects that save files here.
+    pub projects: Option<ProjectScope>,
 }
 
 impl StorageLocationChanges {
@@ -114,6 +123,7 @@ impl StorageLocationChanges {
             && self.path_prefix.is_none()
             && self.storage_limit_bytes.is_none()
             && self.access_key.is_none()
+            && self.projects.is_none()
     }
 }
 
@@ -129,6 +139,7 @@ struct StorageLocationRow<'a> {
     path_prefix: &'a str,
     storage_limit_bytes: Option<i64>,
     access_key_encrypted: Vec<u8>,
+    all_projects: bool,
 }
 
 /// Row-shaped update, holding the already sealed access key if one was supplied.
@@ -146,6 +157,15 @@ struct StorageLocationChangeset<'a> {
     )]
     storage_limit_bytes: Option<Option<i64>>,
     access_key_encrypted: Option<Vec<u8>>,
+    all_projects: Option<bool>,
+}
+
+/// One link between a location and a project that saves files to it.
+#[derive(Insertable)]
+#[diesel(table_name = storage_location_projects)]
+struct ProjectLinkRow {
+    storage_location_id: Uuid,
+    project_id: Uuid,
 }
 
 /// The provider's columns: its kind, then Bunny's zone and region.
@@ -163,6 +183,37 @@ const fn provider_columns(
             Some(*region),
         ),
     }
+}
+
+/// Replaces the location's project links with `projects`. Every project needs no links:
+/// the location's `all_projects` column says so instead.
+async fn replace_project_links(
+    connection: &mut AsyncPgConnection,
+    location_id: Uuid,
+    projects: &ProjectScope,
+) -> QueryResult<()> {
+    diesel::delete(
+        storage_location_projects::table
+            .filter(storage_location_projects::storage_location_id.eq(location_id)),
+    )
+    .execute(connection)
+    .await?;
+
+    let ProjectScope::Only(project_ids) = projects else {
+        return Ok(());
+    };
+    let links: Vec<ProjectLinkRow> = project_ids
+        .iter()
+        .map(|&project_id| ProjectLinkRow {
+            storage_location_id: location_id,
+            project_id,
+        })
+        .collect();
+    diesel::insert_into(storage_location_projects::table)
+        .values(links)
+        .execute(connection)
+        .await?;
+    Ok(())
 }
 
 /// Associated data binding a sealed access key to its row, so a ciphertext copied into
@@ -206,16 +257,73 @@ impl StorageLocation {
     }
 }
 
-/// Every location, alphabetically.
+/// Every location alphabetically, each with the projects that save files to it.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn list(connection: &mut AsyncPgConnection) -> QueryResult<Vec<StorageLocation>> {
-    storage_locations::table
+pub async fn list(
+    connection: &mut AsyncPgConnection,
+) -> QueryResult<Vec<(StorageLocation, ProjectScope)>> {
+    let locations: Vec<StorageLocation> = storage_locations::table
         .order(storage_locations::name.asc())
         .select(StorageLocation::as_select())
         .load(connection)
-        .await
+        .await?;
+    let links: Vec<(Uuid, Uuid)> = storage_location_projects::table
+        .select((
+            storage_location_projects::storage_location_id,
+            storage_location_projects::project_id,
+        ))
+        .order((
+            storage_location_projects::storage_location_id,
+            storage_location_projects::project_id,
+        ))
+        .load(connection)
+        .await?;
+
+    let mut project_ids_by_location: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for (location_id, project_id) in links {
+        project_ids_by_location
+            .entry(location_id)
+            .or_default()
+            .push(project_id);
+    }
+
+    Ok(locations
+        .into_iter()
+        .map(|location| {
+            let projects = if location.all_projects {
+                ProjectScope::All
+            } else {
+                ProjectScope::Only(
+                    project_ids_by_location
+                        .remove(&location.id)
+                        .unwrap_or_default(),
+                )
+            };
+            (location, projects)
+        })
+        .collect())
+}
+
+/// The projects that save files to `location`.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn projects_of(
+    connection: &mut AsyncPgConnection,
+    location: &StorageLocation,
+) -> QueryResult<ProjectScope> {
+    if location.all_projects {
+        return Ok(ProjectScope::All);
+    }
+    let project_ids = storage_location_projects::table
+        .filter(storage_location_projects::storage_location_id.eq(location.id))
+        .select(storage_location_projects::project_id)
+        .order(storage_location_projects::project_id)
+        .load(connection)
+        .await?;
+    Ok(ProjectScope::Only(project_ids))
 }
 
 /// One location by id.
@@ -230,10 +338,12 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<S
         .await
 }
 
-/// Seals the access key and inserts the location with a new `UUIDv7` id.
+/// Seals the access key and inserts the location with a new `UUIDv7` id, linked to its
+/// projects.
 ///
 /// # Errors
-/// Propagates database errors, including a unique violation on `name`.
+/// Propagates database errors, including a unique violation on `name` and a foreign key
+/// violation for a project that does not exist.
 pub async fn create(
     connection: &mut AsyncPgConnection,
     cipher: &Cipher,
@@ -253,21 +363,30 @@ pub async fn create(
             new_location.access_key.expose_secret().as_bytes(),
             &access_key_context(id),
         ),
+        all_projects: new_location.projects == ProjectScope::All,
     };
 
-    diesel::insert_into(storage_locations::table)
-        .values(row)
-        .returning(StorageLocation::as_returning())
-        .get_result(connection)
+    connection
+        .transaction(async move |connection| {
+            let location = diesel::insert_into(storage_locations::table)
+                .values(row)
+                .returning(StorageLocation::as_returning())
+                .get_result(connection)
+                .await?;
+            replace_project_links(connection, id, &new_location.projects).await?;
+            Ok(location)
+        })
         .await
 }
 
-/// Applies `changes`, re-sealing the access key under this row's id if one is given.
+/// Applies `changes`, re-sealing the access key under this row's id if one is given and
+/// replacing the project links if projects are.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown id,
 /// [`diesel::result::Error::QueryBuilderError`] when `changes` is empty, and any
-/// other database error, including a unique violation on `name`.
+/// other database error, including a unique violation on `name` and a foreign key
+/// violation for a project that does not exist.
 pub async fn update(
     connection: &mut AsyncPgConnection,
     cipher: &Cipher,
@@ -291,12 +410,24 @@ pub async fn update(
                 &access_key_context(id),
             )
         }),
+        all_projects: changes
+            .projects
+            .as_ref()
+            .map(|projects| *projects == ProjectScope::All),
     };
 
-    diesel::update(storage_locations::table.find(id))
-        .set(changeset)
-        .returning(StorageLocation::as_returning())
-        .get_result(connection)
+    connection
+        .transaction(async move |connection| {
+            let location = diesel::update(storage_locations::table.find(id))
+                .set(changeset)
+                .returning(StorageLocation::as_returning())
+                .get_result(connection)
+                .await?;
+            if let Some(projects) = &changes.projects {
+                replace_project_links(connection, id, projects).await?;
+            }
+            Ok(location)
+        })
         .await
 }
 
@@ -330,7 +461,92 @@ mod tests {
             path_prefix: "uploads/2026".to_owned(),
             storage_limit_bytes: Some(50_000_000_000),
             access_key: SecretString::from(format!("zone-password-{name}")),
+            projects: ProjectScope::Only(Vec::new()),
         }
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn projects_are_linked_replaced_widened_and_forgotten_with_the_project() {
+        use crate::models::project::{self, NewProject};
+
+        let (_url, mut connection) = migrated_database().await;
+        let cipher = cipher();
+        let mut project_ids = Vec::new();
+        for name in ["alpha", "beta"] {
+            let created = project::create(
+                &mut connection,
+                &NewProject {
+                    name: name.to_owned(),
+                    description: String::new(),
+                },
+            )
+            .await
+            .expect("project");
+            project_ids.push(created.id);
+        }
+        project_ids.sort_unstable();
+
+        let mut linked = new_location("linked");
+        linked.projects = ProjectScope::Only(project_ids.clone());
+        let location = create(&mut connection, &cipher, &linked)
+            .await
+            .expect("insert");
+        assert_eq!(
+            projects_of(&mut connection, &location)
+                .await
+                .expect("links"),
+            ProjectScope::Only(project_ids.clone())
+        );
+
+        let widen = StorageLocationChanges {
+            projects: Some(ProjectScope::All),
+            ..StorageLocationChanges::default()
+        };
+        let widened = update(&mut connection, &cipher, location.id, &widen)
+            .await
+            .expect("update");
+        assert!(widened.all_projects);
+        let listed = list(&mut connection).await.expect("list");
+        assert_eq!(listed[0].1, ProjectScope::All);
+
+        let narrow = StorageLocationChanges {
+            projects: Some(ProjectScope::Only(vec![project_ids[0]])),
+            ..StorageLocationChanges::default()
+        };
+        let narrowed = update(&mut connection, &cipher, location.id, &narrow)
+            .await
+            .expect("update");
+        assert!(!narrowed.all_projects);
+
+        project::delete(&mut connection, project_ids[0])
+            .await
+            .expect("a project with storage links can be deleted");
+        assert_eq!(
+            projects_of(&mut connection, &narrowed)
+                .await
+                .expect("links"),
+            ProjectScope::Only(Vec::new()),
+            "deleting a project removes its links"
+        );
+
+        let mut unknown = new_location("unknown");
+        unknown.projects = ProjectScope::Only(vec![Uuid::now_v7()]);
+        let error = create(&mut connection, &cipher, &unknown)
+            .await
+            .expect_err("an unknown project is refused");
+        assert!(matches!(
+            error,
+            diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::ForeignKeyViolation,
+                _
+            )
+        ));
+        assert_eq!(
+            list(&mut connection).await.expect("list").len(),
+            1,
+            "the refused insert rolled back"
+        );
     }
 
     #[tokio::test]

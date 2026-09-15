@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ProjectScope } from './projectRoutes'
+
 // Misc
 import { apiClient } from '../index'
 
@@ -39,6 +41,8 @@ export type StorageLocation = {
   pathPrefix: string
   // Elysium's own cap on what it stores here; null for no limit.
   storageLimitBytes: number | null
+  // The projects that save files here.
+  projects: ProjectScope
   createdAt: string
   updatedAt: string
 }
@@ -60,6 +64,8 @@ type CreateStorageLocationRequest = {
   // Null for no limit.
   storageLimitBytes: number | null
   accessKey: string
+  // Absent links no projects yet.
+  projects?: ProjectScope
 }
 
 type StorageLocationResponse = {
@@ -80,6 +86,8 @@ type UpdateStorageLocationRequest = {
   // Null removes the limit.
   storageLimitBytes?: number | null
   accessKey?: string
+  // Replaces the projects that save files here.
+  projects?: ProjectScope
 }
 
 export function updateStorageLocation(locationId: string, body: UpdateStorageLocationRequest) {

@@ -6,6 +6,7 @@ import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
 // Misc
+import { ALL_PROJECTS } from '../../../api/routes/projectRoutes'
 import { BUNNY_STORAGE_REGIONS, STORAGE_PROVIDER_KINDS } from '../../../api/routes/storageRoutes'
 import { BYTES_PER_GIGABYTE } from '../../../constants'
 
@@ -47,6 +48,7 @@ export function createStorageFormSchema(t: TFunction<'storage'>, mode: StorageFo
           && !/[\\\p{Cc}]/u.test(segment)),
         { error: t('form.errors.pathPrefixInvalid') },
       ),
+    projects: z.union([ z.literal(ALL_PROJECTS), z.array(z.string()) ]),
     isUnlimited: z.boolean(),
     // NaN while the field is empty. Checked below, and only when a limit applies.
     storageLimitGigabytes: z.number().or(z.nan()),

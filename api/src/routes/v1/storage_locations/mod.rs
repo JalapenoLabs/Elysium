@@ -13,11 +13,14 @@ mod update_storage_location;
 use axum::Router;
 use axum::routing::{get, post};
 use chrono::{DateTime, Utc};
+use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 use validator::ValidationError;
 
+use crate::errors::ApiError;
+use crate::models::project::ProjectScope;
 use crate::models::storage_location::{StorageLocation, StorageProvider};
 use crate::state::AppState;
 
@@ -57,21 +60,34 @@ pub struct StorageLocationResponse {
     path_prefix: String,
     /// `None` for no limit.
     storage_limit_bytes: Option<i64>,
+    /// `"*"` for every project, or the ids of the projects that save files here.
+    projects: ProjectScope,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
 
 impl StorageLocationResponse {
-    pub fn new(location: StorageLocation) -> Self {
+    pub fn new(location: StorageLocation, projects: ProjectScope) -> Self {
         Self {
             id: location.id,
             provider: location.provider(),
             name: location.name,
             path_prefix: location.path_prefix,
             storage_limit_bytes: location.storage_limit_bytes,
+            projects,
             created_at: location.created_at,
             updated_at: location.updated_at,
         }
+    }
+}
+
+/// A write that links a project that does not exist is the client's mistake.
+fn refuse_unknown_projects(error: DieselError) -> ApiError {
+    match error {
+        DieselError::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _) => {
+            ApiError::BadRequest("projects lists a project that does not exist".to_owned())
+        }
+        other => other.into(),
     }
 }
 

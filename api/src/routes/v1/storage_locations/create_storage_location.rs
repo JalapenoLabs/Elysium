@@ -12,10 +12,11 @@ use serde_json::{Value, json};
 use validator::Validate;
 
 use super::{
-    STORAGE_LIMIT_MAX_BYTES, StorageAccessKey, StorageLocationResponse, validate_not_blank,
-    validate_path_prefix, validate_provider,
+    STORAGE_LIMIT_MAX_BYTES, StorageAccessKey, StorageLocationResponse, refuse_unknown_projects,
+    validate_not_blank, validate_path_prefix, validate_provider,
 };
 use crate::errors::ApiError;
+use crate::models::project::ProjectScope;
 use crate::models::storage_location::{self, NewStorageLocation, StorageProvider};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
@@ -35,6 +36,13 @@ pub struct RequestBody {
     #[validate(range(min = 1, max = STORAGE_LIMIT_MAX_BYTES))]
     storage_limit_bytes: Option<i64>,
     access_key: StorageAccessKey,
+    /// `"*"` for every project, or project ids; absent links none yet.
+    #[serde(default = "no_projects")]
+    projects: ProjectScope,
+}
+
+const fn no_projects() -> ProjectScope {
+    ProjectScope::Only(Vec::new())
 }
 
 pub async fn handle(
@@ -50,6 +58,7 @@ pub async fn handle(
         path_prefix: body.path_prefix.trim_matches('/').to_owned(),
         storage_limit_bytes: body.storage_limit_bytes,
         access_key: body.access_key.0,
+        projects: body.projects,
     };
 
     let mut connection = state
@@ -57,16 +66,18 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let location = storage_location::create(&mut connection, &state.cipher, &new_location).await?;
+    let location = storage_location::create(&mut connection, &state.cipher, &new_location)
+        .await
+        .map_err(refuse_unknown_projects)?;
     drop(connection);
 
     state.events.publish(&ServerEvent::StorageLocationUpserted(
-        StorageLocationResponse::new(location.clone()),
+        StorageLocationResponse::new(location.clone(), new_location.projects.clone()),
     ));
 
     Ok((
         StatusCode::CREATED,
-        Json(json!({ "location": StorageLocationResponse::new(location) })),
+        Json(json!({ "location": StorageLocationResponse::new(location, new_location.projects) })),
     ))
 }
 

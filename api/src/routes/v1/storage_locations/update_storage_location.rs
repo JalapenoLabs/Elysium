@@ -12,10 +12,11 @@ use uuid::Uuid;
 use validator::Validate;
 
 use super::{
-    STORAGE_LIMIT_MAX_BYTES, StorageAccessKey, StorageLocationResponse, validate_not_blank,
-    validate_path_prefix, validate_provider,
+    STORAGE_LIMIT_MAX_BYTES, StorageAccessKey, StorageLocationResponse, refuse_unknown_projects,
+    validate_not_blank, validate_path_prefix, validate_provider,
 };
 use crate::errors::ApiError;
+use crate::models::project::ProjectScope;
 use crate::models::storage_location::{self, StorageLocationChanges, StorageProvider};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
@@ -40,6 +41,8 @@ pub struct RequestBody {
     )]
     storage_limit_bytes: Option<Option<i64>>,
     access_key: Option<StorageAccessKey>,
+    /// Replaces the projects: `"*"` for every project, or project ids.
+    projects: Option<ProjectScope>,
 }
 
 pub async fn handle(
@@ -59,6 +62,7 @@ pub async fn handle(
             .map(|prefix| prefix.trim_matches('/').to_owned()),
         storage_limit_bytes: body.storage_limit_bytes,
         access_key: body.access_key.map(|access_key| access_key.0),
+        projects: body.projects,
     };
 
     if changes.is_empty() {
@@ -72,15 +76,18 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let location = storage_location::update(&mut connection, &state.cipher, id, &changes).await?;
+    let location = storage_location::update(&mut connection, &state.cipher, id, &changes)
+        .await
+        .map_err(refuse_unknown_projects)?;
+    let projects = storage_location::projects_of(&mut connection, &location).await?;
     drop(connection);
 
     state.events.publish(&ServerEvent::StorageLocationUpserted(
-        StorageLocationResponse::new(location.clone()),
+        StorageLocationResponse::new(location.clone(), projects.clone()),
     ));
 
     Ok(Json(
-        json!({ "location": StorageLocationResponse::new(location) }),
+        json!({ "location": StorageLocationResponse::new(location, projects) }),
     ))
 }
 
