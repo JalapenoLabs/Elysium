@@ -20,7 +20,7 @@
     "name": "Name",
     "description": "Description",
     "cover": "Cover image",
-    "coverHint": "PNG, JPEG, WebP, or GIF, up to 1 MB. Shown as a 16:9 banner: other shapes are centered, never cropped or stretched.",
+    "coverHint": "PNG, JPEG, WebP, or GIF, up to 10 MB. Shown as a 16:9 banner: other shapes are centered, never cropped or stretched.",
     "chooseCover": "Choose image",
     "replaceCover": "Replace",
     "removeCover": "Remove",
@@ -29,7 +29,7 @@
       "nameTooLong": "Use 120 characters or fewer.",
       "nameTaken": "Another project already uses this name.",
       "descriptionTooLong": "Use 2,000 characters or fewer.",
-      "coverTooLarge": "The image is larger than 1 MB.",
+      "coverTooLarge": "The image is larger than 10 MB.",
       "coverUnsupported": "Choose a PNG, JPEG, WebP, or GIF image."
     }
   },

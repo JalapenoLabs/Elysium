@@ -105,13 +105,13 @@ A `Project` has `id`, `name`, `description`, `createdAt`, `updatedAt`, and `cove
 `POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000, default empty). `PATCH`
 accepts either; an empty body is rejected. `DELETE` answers `409` while any coding session belongs to the project.
 
-`PUT /{id}/cover` takes the image file as the raw body: PNG, JPEG, WebP, or GIF (first frame), up to 1,000,000
-bytes. The format is read from the bytes, not the content type. Decoding refuses images over 8192 pixels on a side
-or 256 MiB of pixels. The image is scaled down to fit 1600 by 900 when larger, keeping its shape, and stored as lossy
-WebP at quality 82, keeping transparency and dropping metadata (`api/src/images.rs`). Anything refused answers
-`400`; a body over the API's 1 MiB limit answers `413`. `GET /{id}/cover` serves it with
-`Cache-Control: private, max-age=31536000, immutable`: clients add `coverUpdatedAt` to the URL, so each cover
-version has its own. Cover changes publish `project.upserted`.
+`PUT /{id}/cover` takes the image file as the raw body: PNG, JPEG, WebP, or GIF (first frame), up to 10,000,000
+bytes; this route alone raises the API's 1 MiB body limit, and nginx's, to allow it. The format is read from the bytes,
+not the content type. Decoding refuses images over 8192 pixels on a side or 256 MiB of pixels. The image is scaled down
+to fit 2400 by 1350 when larger, keeping its shape, and stored as lossy WebP at quality 80, keeping transparency and
+dropping metadata (`api/src/images.rs`). Anything refused answers `400`; a larger body answers `413`.
+`GET /{id}/cover` serves it with `Cache-Control: private, max-age=31536000, immutable`: clients add `coverUpdatedAt` to
+the URL, so each cover version has its own. Cover changes publish `project.upserted`.
 
 ### `/api/v1/satellites`
 

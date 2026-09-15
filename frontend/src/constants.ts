@@ -31,8 +31,11 @@ export const CODING_LAYOUT_STORAGE_KEY = 'elysium.coding.layout.v1'
 
 // Project cover uploads: the API refuses anything larger, and reads the format from the
 // bytes. These let the form refuse early and the file picker offer only images.
-export const PROJECT_COVER_MAX_BYTES = 1_000_000
+export const PROJECT_COVER_MAX_BYTES = 10_000_000
 export const PROJECT_COVER_ACCEPTED_TYPES = [ 'image/png', 'image/jpeg', 'image/webp', 'image/gif' ]
+
+// Sending 10 MB and compressing it can outlast the default request timeout on a slow link.
+export const PROJECT_COVER_UPLOAD_TIMEOUT_MS = 60_000
 
 // How long the pointer rests on an ImagePreview before the larger image appears. Long
 // enough that sweeping across a table of thumbnails opens nothing.

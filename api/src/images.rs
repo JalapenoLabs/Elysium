@@ -12,8 +12,9 @@ use std::io::Cursor;
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageFormat, ImageReader, Limits};
 
-/// The largest upload accepted, in bytes. Matches the limit the settings page shows.
-pub const MAX_UPLOAD_BYTES: usize = 1_000_000;
+/// The largest upload accepted, in bytes: room for a photo straight off a phone or camera.
+/// Matches the limit the project form shows. Only the compressed result is stored.
+pub const MAX_UPLOAD_BYTES: usize = 10_000_000;
 
 /// Decoding refuses images wider or taller than this, whatever their file size.
 const MAX_DECODED_DIMENSION: u32 = 8192;
@@ -22,15 +23,15 @@ const MAX_DECODED_DIMENSION: u32 = 8192;
 /// 256 MiB; this is that bound.
 const MAX_DECODE_ALLOCATION: u64 = 256 * 1024 * 1024;
 
-/// Covers are shown in a 16:9 frame at most a few hundred pixels wide. Anything larger is
-/// scaled down to fit inside this box, which still covers a full-width banner on a
-/// high-density screen. Smaller images are never scaled up.
-const COVER_MAX_WIDTH: u32 = 1600;
-const COVER_MAX_HEIGHT: u32 = 900;
+/// Covers fill a tile a few hundred pixels wide and a project page banner about 1100 CSS
+/// pixels wide. Anything larger is scaled down to fit inside this box, which keeps a
+/// full-width banner sharp on a high-density screen. Smaller images are never scaled up.
+const COVER_MAX_WIDTH: u32 = 2400;
+const COVER_MAX_HEIGHT: u32 = 1350;
 
 /// Lossy WebP quality, 0 to 100. Visually clean for photos and logos at a fraction of
-/// PNG's size.
-const COVER_QUALITY: f32 = 82.0;
+/// PNG's size: a 2400 by 1350 photo compresses to a few hundred kilobytes.
+const COVER_QUALITY: f32 = 80.0;
 
 /// Formats browsers commonly produce and the `image` build here decodes.
 const ACCEPTED_FORMATS: [ImageFormat; 4] = [
@@ -140,9 +141,9 @@ mod tests {
 
     #[test]
     fn a_large_banner_is_scaled_to_fit_and_keeps_its_shape() {
-        let banner = RgbaImage::from_pixel(3200, 900, Rgba([30, 120, 200, 255]));
+        let banner = RgbaImage::from_pixel(4800, 1350, Rgba([30, 120, 200, 255]));
         let cover = decode_webp(&compress_cover(&png(&banner)).expect("compresses"));
-        assert_eq!(cover.dimensions(), (1600, 450));
+        assert_eq!(cover.dimensions(), (2400, 675));
     }
 
     #[test]

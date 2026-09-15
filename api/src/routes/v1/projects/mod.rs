@@ -11,12 +11,14 @@ mod update_project;
 mod upload_cover;
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, patch};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 use validator::ValidationError;
 
+use crate::images::MAX_UPLOAD_BYTES;
 use crate::models::project::Project;
 use crate::state::AppState;
 
@@ -31,7 +33,10 @@ pub fn router() -> Router<AppState> {
             "/{id}/cover",
             get(get_cover::handle)
                 .put(upload_cover::handle)
-                .delete(delete_cover::handle),
+                .delete(delete_cover::handle)
+                // Uploads outgrow the API-wide body limit; the image module refuses anything
+                // over its own limit before decoding.
+                .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
         )
 }
 

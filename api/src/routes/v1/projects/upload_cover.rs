@@ -2,10 +2,9 @@
 
 //! `PUT /api/v1/projects/{id}/cover`: replace a project's cover image.
 //!
-//! See [`crate::images::MAX_UPLOAD_BYTES`].
-//!
-//! The body is the image file itself, up to [`MAX_UPLOAD_BYTES`] (the API's 1 MiB body limit
-//! sits just above it); its content type is ignored, since the format is read from the bytes. The image is compressed before it is
+//! The body is the image file itself, up to [`crate::images::MAX_UPLOAD_BYTES`]; this route
+//! alone raises the API's body limit to allow it. Its content type is ignored, since the
+//! format is read from the bytes. The image is compressed before it is
 //! stored, see [`crate::images`].
 
 use anyhow::Context;

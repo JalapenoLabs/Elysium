@@ -26,8 +26,8 @@ import { useCodingSessionsLoader, useProjectsLoader } from '../../hooks/useServe
 import { UrlTree } from '../../urls'
 import { DESCRIPTION_MAX_CHARACTERS, NAME_MAX_CHARACTERS } from './projectFormSchema'
 
-// `/projects/:projectId`: one project, edited in place. The cover sits across the top,
-// the name and description are edited where they are shown, and the Actions menu holds
+// `/projects/:projectId`: one project, edited in place. The name and description come
+// first and are edited where they are shown, the cover runs across the page below them, and the Actions menu holds
 // what cannot be: removing the cover and deleting the project.
 export function ProjectPage() {
   const { t } = useTranslation([ 'projects', 'common' ])
@@ -84,8 +84,6 @@ export function ProjectPage() {
       <Breadcrumbs.Item>{project.name}</Breadcrumbs.Item>
     </Breadcrumbs>
 
-    <ProjectBanner project={project} />
-
     <div className='level relaxed items-start gap-4'>
       <div className='min-w-0 flex-1'>
         <InlineEditableText
@@ -115,6 +113,8 @@ export function ProjectPage() {
         />
       </div>
     </div>
+
+    <ProjectBanner project={project} />
 
     <section>
       <h2 className='compact text-xl font-semibold'>{t('page.sessionsHeading')}</h2>

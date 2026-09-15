@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Misc
-import { API_BASE_PATH } from '../../constants'
+import { API_BASE_PATH, PROJECT_COVER_UPLOAD_TIMEOUT_MS } from '../../constants'
 import { apiClient } from '../index'
 
 // Mirrors `ProjectResponse` in api/src/routes/v1/projects/mod.rs.
@@ -61,10 +61,10 @@ type ProjectCoverResponse = {
 }
 
 // Sends the file itself as the body. The API compresses it and answers 400 for anything
-// that is not a PNG, JPEG, WebP, or GIF image under 1 MB.
+// that is not a PNG, JPEG, WebP, or GIF image under 10 MB.
 export function uploadProjectCover(projectId: string, file: File) {
   return apiClient
-    .put(`v1/projects/${projectId}/cover`, { body: file })
+    .put(`v1/projects/${projectId}/cover`, { body: file, timeout: PROJECT_COVER_UPLOAD_TIMEOUT_MS })
     .json<ProjectCoverResponse>()
 }
 
