@@ -3,7 +3,7 @@ name = "elysium-api"
 version = "0.1.0"
 edition = "2024"
 description = "Elysium HTTP API"
-license = "UNLICENSED"
+license = "Apache-2.0"
 repository = "https://github.com/JalapenoLabs/Elysium"
 publish = false
 

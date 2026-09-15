@@ -21,3 +21,7 @@ The stack answers on `http://localhost:4000`:
 | `/api/v1/llms` | LLM credentials, tokens stored encrypted |
 
 Design notes live in [`docs/`](docs/). Project rules live in [`CLAUDE.md`](CLAUDE.md).
+
+## License
+
+Elysium is licensed under the [Apache License 2.0](LICENSE).
