@@ -6,9 +6,6 @@ import type { TFunction } from 'i18next'
 import { ZonedDateTime } from '@internationalized/date'
 import { z } from 'zod'
 
-// Misc
-import { LLM_TYPES } from './llmPresentation'
-
 // Mirrors the API's limits so most mistakes are caught before a round trip.
 const NAME_MAX_CHARACTERS = 120
 const DESCRIPTION_MAX_CHARACTERS = 2000
@@ -39,7 +36,6 @@ export function createLlmFormSchema(t: TFunction<'llms'>, mode: LlmFormMode) {
     description: z
       .string()
       .max(DESCRIPTION_MAX_CHARACTERS, { error: t('form.errors.descriptionTooLong') }),
-    type: z.enum(LLM_TYPES, { error: t('form.errors.typeRequired') }),
     secretToken,
     priority: z.number().int(),
     isActive: z.boolean(),

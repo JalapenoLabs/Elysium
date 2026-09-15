@@ -50,7 +50,9 @@ the home page.
 | `/coding`                     | `CodingPage`             | Dockview workspace of coding sessions, see below         |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
-| `/settings/llms`              | `ManageLlmsPage`         | List, add, edit, activate or deactivate, and delete LLMs |
+| `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
+| `/settings/llms/add-<type>`   | `AddLlmPage`             | One per provider, see below                              |
+| `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
 | `/settings/satellites`        | `ManageSatellitesPage`   | Register satellites, see their status, test connections  |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s.
@@ -64,12 +66,18 @@ Fast Refresh keeps working.
 
 Manage LLMs is split into these files:
 
-- `ManageLlmsPage` owns data loading and which dialog is open.
+- `ManageLlmsPage` owns data loading and the delete dialog. Its Add LLM menu lists the provider types.
 - `LlmTable` renders the credentials with uikit's `SmartTable`: search, result count, sorting, and column
   controls. Column widths and order persist in localStorage.
 - `LlmRowActions` is the per-row menu to edit, activate or deactivate, and delete.
-- `LlmFormModal` handles both create and edit. It remounts on every opening, so it always starts from the selected
-  credential.
+- `AddLlmPage` and `EditLlmPage` are full pages, not modals. Each provider type has its own add page:
+  `add-claude-api-key`, `add-claude-code-oauth`, `add-openai-api-key`, and `add-codex-oauth` (`chatgpt-oauth`),
+  mapped in `llmProviders.ts`.
+- `LlmEditorLayout` puts `LlmForm` on the left and `LlmSetupChecklist` on the right: the steps for getting that
+  type's token as checkboxes, with commands and links. Commands, paths, and URLs are data in `llmProviders.ts`
+  and never translated. Checked steps are not saved.
+- `LlmForm` handles create and edit. The token field has a reveal toggle. Expiry uses HeroUI's `DatePicker`
+  (typed segments plus a calendar), with One year from now setting it exactly 365 days (in milliseconds) ahead.
 - `DeleteLlmDialog` confirms and performs a delete.
 
 Manage satellites follows the same split under `src/pages/Settings/Satellites/`. Its table shows each satellite's
@@ -259,7 +267,7 @@ first render.
 The server sends and expects UTC ISO 8601 timestamps.
 
 - Display: format with `Intl.DateTimeFormat` in the viewer's locale and time zone, as `LlmTable` does.
-- Input: `DateField` holds a `ZonedDateTime` in the viewer's zone, created with `parseAbsoluteToLocal`. It is
+- Input: `DatePicker` holds a `ZonedDateTime` in the viewer's zone, created with `parseAbsoluteToLocal`. It is
   submitted with `toAbsoluteString()`, which yields a UTC instant.
 
 ## Dev server

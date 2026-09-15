@@ -9,6 +9,11 @@ export const UrlTree = {
   settings: '/settings',
   settingsPersonalDetails: '/settings/personal-details',
   settingsLlms: '/settings/llms',
+  settingsLlmsAddCodexOauth: '/settings/llms/add-codex-oauth',
+  settingsLlmsAddClaudeCodeOauth: '/settings/llms/add-claude-code-oauth',
+  settingsLlmsAddClaudeApiKey: '/settings/llms/add-claude-api-key',
+  settingsLlmsAddOpenaiApiKey: '/settings/llms/add-openai-api-key',
+  settingsLlmsEdit: '/settings/llms/:llmId/edit',
   settingsSatellites: '/settings/satellites',
 } as const
 export type UrlValue = typeof UrlTree[keyof typeof UrlTree]

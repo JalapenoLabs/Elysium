@@ -1,9 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { Key } from '@heroui/react'
 import type { Llm } from '../../../api/routes/llmRoutes'
 
 // Core
 import { useState } from 'react'
+import { generatePath, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -11,16 +13,17 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { llmUpserted, selectAllLlms } from '../../../store/llmsSlice'
 
 // User interface
-import { Breadcrumbs, Button, Spinner, toast, useOverlayState } from '@heroui/react'
-import { LuPlus } from 'react-icons/lu'
+import { Breadcrumbs, Button, Dropdown, Label, Spinner, toast, useOverlayState } from '@heroui/react'
+import { LuChevronDown, LuPlus } from 'react-icons/lu'
 import { DeleteLlmDialog } from './DeleteLlmDialog'
-import { LlmFormModal } from './LlmFormModal'
 import { LlmTable } from './LlmTable'
 
 // Misc
 import { updateLlm } from '../../../api/routes/llmRoutes'
 import { useLlmsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
+import { LLM_TYPES, llmTypeLabelKeys } from './llmPresentation'
+import { addLlmUrlByType } from './llmProviders'
 
 export function ManageLlmsPage() {
   const { t } = useTranslation([ 'llms', 'settings', 'common' ])
@@ -28,16 +31,12 @@ export function ManageLlmsPage() {
   const llms = useAppSelector(selectAllLlms)
   const status = useLlmsLoader()
 
-  const formState = useOverlayState()
+  const navigate = useNavigate()
   const deleteState = useOverlayState()
   const [ selectedLlm, setSelectedLlm ] = useState<Llm | null>(null)
-  // Remounting the form per opening resets it to the chosen credential's values.
-  const [ formSession, setFormSession ] = useState(0)
 
-  function openForm(llm: Llm | null) {
-    setSelectedLlm(llm)
-    setFormSession((session) => session + 1)
-    formState.open()
+  function openEditor(llm: Llm) {
+    navigate(generatePath(UrlTree.settingsLlmsEdit, { llmId: llm.id }))
   }
 
   async function toggleActive(llm: Llm) {
@@ -71,15 +70,27 @@ export function ManageLlmsPage() {
             t('credentials.description')
           }</p>
         </div>
-        <Button
-          size='sm'
-          variant='outline'
-          className='shrink-0'
-          onPress={() => openForm(null)}
-        >
-          <LuPlus className='size-4' aria-hidden />
-          <span>{t('credentials.add')}</span>
-        </Button>
+        <Dropdown>
+          <Button
+            size='sm'
+            variant='outline'
+            className='shrink-0'
+          >
+            <LuPlus className='size-4' aria-hidden />
+            <span>{t('credentials.add')}</span>
+            <LuChevronDown className='size-4' aria-hidden />
+          </Button>
+          <Dropdown.Popover placement='bottom end'>
+            <Dropdown.Menu
+              aria-label={t('credentials.addMenu')}
+              onAction={(key: Key) => navigate(addLlmUrlByType[key as Llm['type']])}
+            >{
+              LLM_TYPES.map((type) => <Dropdown.Item key={type} id={type} textValue={t(llmTypeLabelKeys[type])}>
+                <Label>{t(llmTypeLabelKeys[type])}</Label>
+              </Dropdown.Item>)
+            }</Dropdown.Menu>
+          </Dropdown.Popover>
+        </Dropdown>
       </div>
 
       {status === 'loading' && <div className='grid place-items-center py-16'>
@@ -92,7 +103,7 @@ export function ManageLlmsPage() {
 
       {status === 'loaded' && <LlmTable
         llms={llms}
-        onEdit={(llm) => openForm(llm)}
+        onEdit={openEditor}
         onToggleActive={toggleActive}
         onDelete={(llm) => {
           setSelectedLlm(llm)
@@ -101,11 +112,6 @@ export function ManageLlmsPage() {
       />}
     </section>
 
-    <LlmFormModal
-      key={formSession}
-      state={formState}
-      llm={selectedLlm}
-    />
     <DeleteLlmDialog
       state={deleteState}
       llm={selectedLlm}

@@ -29,4 +29,5 @@ export const { llmsLoaded, llmUpserted, llmDeleted } = llmsSlice.actions
 
 export const {
   selectAll: selectAllLlms,
+  selectById: selectLlmById,
 } = llmsAdapter.getSelectors((state: RootState) => state.llms)

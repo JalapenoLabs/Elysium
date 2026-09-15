@@ -11,10 +11,14 @@ import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
 import { PersonalDetailsPage } from './pages/Settings/PersonalDetails/PersonalDetailsPage'
+import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
+import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
 import { ManageSatellitesPage } from './pages/Settings/Satellites/ManageSatellitesPage'
 
 // Misc
+import { addLlmUrlByType } from './pages/Settings/Llms/llmProviders'
+import { LLM_TYPES } from './pages/Settings/Llms/llmPresentation'
 import { UNKNOWN_ROUTE_REDIRECT_TO, UrlTree } from './urls'
 
 // How AppShell frames a route. `page` (the default) is a padded, scrolling column;
@@ -57,6 +61,14 @@ export const router = createBrowserRouter([
       {
         path: UrlTree.settingsLlms,
         element: <ManageLlmsPage />,
+      },
+      ...LLM_TYPES.map((type) => ({
+        path: addLlmUrlByType[type],
+        element: <AddLlmPage type={type} />,
+      })),
+      {
+        path: UrlTree.settingsLlmsEdit,
+        element: <EditLlmPage />,
       },
       {
         path: UrlTree.settingsSatellites,
