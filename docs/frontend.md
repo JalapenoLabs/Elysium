@@ -76,8 +76,9 @@ Manage LLMs is split into these files:
 - `LlmEditorLayout` puts `LlmForm` on the left and `LlmSetupChecklist` on the right: the steps for getting that
   type's token as checkboxes, with commands and links. Commands, paths, and URLs are data in `llmProviders.ts`
   and never translated. Checked steps are not saved.
-- `LlmForm` handles create and edit. The token field has a reveal toggle. Expiry uses HeroUI's `DatePicker`
-  (typed segments plus a calendar), with One year from now setting it exactly 365 days (in milliseconds) ahead.
+- `LlmForm` handles create and edit. The token field has a reveal toggle. Expiry is a date, not a time: HeroUI's
+  `DatePicker` (typed segments plus a calendar) at day granularity, saved as midnight at the start of that day in
+  the viewer's zone. One year from now picks the date 365 days after today.
 - `DeleteLlmDialog` confirms and performs a delete.
 
 Manage satellites follows the same split under `src/pages/Settings/Satellites/`. Its table shows each satellite's
@@ -267,8 +268,8 @@ first render.
 The server sends and expects UTC ISO 8601 timestamps.
 
 - Display: format with `Intl.DateTimeFormat` in the viewer's locale and time zone, as `LlmTable` does.
-- Input: `DatePicker` holds a `ZonedDateTime` in the viewer's zone, created with `parseAbsoluteToLocal`. It is
-  submitted with `toAbsoluteString()`, which yields a UTC instant.
+- Input: `DatePicker` holds a `CalendarDate` in the viewer's zone, read with `toCalendarDate(parseAbsoluteToLocal())`.
+  It is submitted as `toZoned(date, getLocalTimeZone()).toAbsoluteString()`, the UTC instant of local midnight.
 
 ## Dev server
 

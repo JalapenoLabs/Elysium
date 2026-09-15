@@ -60,10 +60,8 @@ export function LlmTable(props: Props) {
 
   const managedColumns = useMemo(() => {
     // Timestamps arrive as UTC; this is the one place they become local time.
-    const dateFormatter = new Intl.DateTimeFormat(i18n.language, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    })
+    // Expiry is chosen as a date, so the time of day would only be noise.
+    const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' })
 
     const renderCell = {
       name: (llm: Llm) => <div>

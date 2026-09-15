@@ -3,7 +3,7 @@
 import type { TFunction } from 'i18next'
 
 // Utility
-import { ZonedDateTime } from '@internationalized/date'
+import { CalendarDate } from '@internationalized/date'
 import { z } from 'zod'
 
 // Mirrors the API's limits so most mistakes are caught before a round trip.
@@ -39,8 +39,8 @@ export function createLlmFormSchema(t: TFunction<'llms'>, mode: LlmFormMode) {
     secretToken,
     priority: z.number().int(),
     isActive: z.boolean(),
-    // A zoned value in the viewer's time zone; converted to a UTC instant on submit.
-    expiresAt: z.instanceof(ZonedDateTime).nullable(),
+    // A date without a time; it expires at the start of that day in the viewer's time zone.
+    expiresAt: z.instanceof(CalendarDate).nullable(),
   })
 }
 

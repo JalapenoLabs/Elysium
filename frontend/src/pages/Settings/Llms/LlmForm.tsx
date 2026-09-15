@@ -34,16 +34,16 @@ import { LuEye, LuEyeOff } from 'react-icons/lu'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
-import { fromDate, getLocalTimeZone, parseAbsoluteToLocal } from '@internationalized/date'
+import { getLocalTimeZone, parseAbsoluteToLocal, toCalendarDate, today, toZoned } from '@internationalized/date'
 import { HTTPError } from 'ky'
 
 // Misc
 import { createLlm, updateLlm } from '../../../api/routes/llmRoutes'
 import { createLlmFormSchema } from './llmFormSchema'
 
-// 365 days to the millisecond, not "the same date next year", so the expiry matches a
-// token that is valid for exactly that long regardless of leap years or clock changes.
-const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000
+// 365 days rather than "the same date next year", so a leap year never pushes the expiry
+// past a token that is valid for exactly that long.
+const ONE_YEAR_IN_DAYS = 365
 
 type Props = {
   type: LlmType
@@ -75,20 +75,23 @@ export function LlmForm(props: Props) {
       priority: props.llm?.priority ?? 0,
       isActive: props.llm?.isActive ?? true,
       expiresAt: props.llm?.expiresAt
-        ? parseAbsoluteToLocal(props.llm.expiresAt)
+        ? toCalendarDate(parseAbsoluteToLocal(props.llm.expiresAt))
         : null,
     },
   })
 
   const onSubmit = form.handleSubmit(async (values) => {
-    // The server stores UTC; toAbsoluteString() emits the instant with a Z offset.
+    // Midnight at the start of the chosen day in the viewer's zone, sent as a UTC instant.
+    const expiresAt = values.expiresAt
+      ? toZoned(values.expiresAt, getLocalTimeZone()).toAbsoluteString()
+      : null
     const payload = {
       name: values.name,
       description: values.description,
       type: props.type,
       priority: values.priority,
       isActive: values.isActive,
-      expiresAt: values.expiresAt?.toAbsoluteString() ?? null,
+      expiresAt,
     }
 
     try {
@@ -194,8 +197,7 @@ export function LlmForm(props: Props) {
     {/* Expiry, entered and shown in the viewer's local time zone */}
     <div>
       <DatePicker
-        granularity='minute'
-        hideTimeZone
+        granularity='day'
         value={expiresAt}
         onChange={(value) => form.setValue('expiresAt', value, { shouldDirty: true })}
       >
@@ -243,7 +245,7 @@ export function LlmForm(props: Props) {
           variant='outline'
           onPress={() => form.setValue(
             'expiresAt',
-            fromDate(new Date(Date.now() + ONE_YEAR_MS), getLocalTimeZone()),
+            today(getLocalTimeZone()).add({ days: ONE_YEAR_IN_DAYS }),
             { shouldDirty: true },
           )}
         >

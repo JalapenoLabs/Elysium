@@ -41,7 +41,7 @@
     "priorityHint": "Lower numbers are tried first.",
     "isActive": "Active",
     "expiresAt": "Expires",
-    "expiresAtHint": "Optional. Shown in your local time zone.",
+    "expiresAtHint": "Optional. Expires at midnight at the start of this day, in your time zone.",
     "clearExpiry": "Clear expiry",
     "errors": {
       "nameRequired": "Enter a name.",
