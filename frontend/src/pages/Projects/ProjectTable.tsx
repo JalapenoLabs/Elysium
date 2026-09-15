@@ -10,9 +10,12 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
+import { ImagePreview } from '../../components/ImagePreview'
+import { ProjectCover } from './ProjectCover'
 import { ProjectRowActions } from './ProjectRowActions'
 
 // Misc
+import { getProjectCoverUrl } from '../../api/routes/projectRoutes'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { DEFAULT_PROJECT_SORT, PROJECT_SORT_KEYS } from './projectListing'
 
@@ -26,10 +29,11 @@ type Props = {
   onDelete: (project: Project) => void
 }
 
-const PROJECT_COLUMN_KEYS = [ 'name', 'sessions', 'updated', 'rowActions' ] as const
+const PROJECT_COLUMN_KEYS = [ 'cover', 'name', 'sessions', 'updated', 'rowActions' ] as const
 type ProjectColumnKey = typeof PROJECT_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
+  cover: 'table.cover',
   name: 'table.name',
   sessions: 'table.sessions',
   updated: 'table.updated',
@@ -38,13 +42,14 @@ const columnLabelKeys = {
 
 // Starting widths in pixels, summing to less than the page's content column.
 const columnSizes = {
+  cover: 88,
   name: 420,
   sessions: 160,
   updated: 200,
   rowActions: 64,
 } as const satisfies Record<ProjectColumnKey, number>
 
-// The grid view. Its column headers sort through the same state as the toolbar.
+// The table view. Its column headers sort through the same state as the toolbar.
 export function ProjectTable(props: Props) {
   const { t, i18n } = useTranslation([ 'projects', 'common' ])
   const labels = useSmartTableLabels()
@@ -73,6 +78,20 @@ export function ProjectTable(props: Props) {
     const countFormatter = new Intl.NumberFormat(i18n.language)
 
     const renderCell = {
+      cover: (project: Project) => {
+        const coverUrl = getProjectCoverUrl(project)
+        const thumbnail = <ProjectCover src={coverUrl} name={project.name} className='w-14 rounded-md' />
+        if (!coverUrl) {
+          return thumbnail
+        }
+        return <ImagePreview
+          src={coverUrl}
+          alt={t('tile.coverAlt', { name: project.name })}
+          className='inline-block rounded-md'
+        >
+          {thumbnail}
+        </ImagePreview>
+      },
       name: (project: Project) => <div>
         <div className='font-medium'>{project.name}</div>
         {project.description && <div className='max-w-md truncate text-xs opacity-70'>{
@@ -95,6 +114,7 @@ export function ProjectTable(props: Props) {
 
     // Counts and dates sort by their values rather than their formatted text.
     const sortValue = {
+      cover: null,
       name: searchText,
       sessions: (project: Project) => props.sessionCounts[project.id] ?? 0,
       updated: (project: Project) => project.updatedAt,

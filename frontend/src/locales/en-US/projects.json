@@ -4,6 +4,7 @@
   "add": "New project",
   "table": {
     "label": "Projects",
+    "cover": "Cover",
     "name": "Name",
     "sessions": "Coding sessions",
     "updated": "Last updated",
@@ -51,7 +52,7 @@
     "ascending": "Ascending",
     "descending": "Descending",
     "view": "View",
-    "grid": "Grid",
+    "table": "Table",
     "tiles": "Tiles",
     "results_one": "{{count}} project",
     "results_other": "{{count}} projects"

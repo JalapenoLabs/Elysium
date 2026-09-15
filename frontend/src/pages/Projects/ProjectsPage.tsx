@@ -30,15 +30,15 @@ import { useCodingSessionsLoader, useProjectsLoader } from '../../hooks/useServe
 import { DEFAULT_PROJECT_SORT, PROJECT_VIEWS, searchAndSortProjects } from './projectListing'
 
 // The view is a per-browser convenience: storage may be unavailable, and anything
-// unrecognized falls back to the grid.
+// unrecognized falls back to the table.
 function readStoredView(): ProjectView {
   try {
     const stored = window.localStorage.getItem(PROJECTS_VIEW_STORAGE_KEY)
-    return PROJECT_VIEWS.find((view) => view === stored) ?? 'grid'
+    return PROJECT_VIEWS.find((view) => view === stored) ?? 'table'
   }
   catch (error) {
     console.debug('The projects view could not be read from localStorage', { error })
-    return 'grid'
+    return 'table'
   }
 }
 
@@ -139,7 +139,7 @@ export function ProjectsPage() {
         t('table.noMatches')
       }</p>}
 
-      {listedProjects.length > 0 && view === 'grid' && <ProjectTable
+      {listedProjects.length > 0 && view === 'table' && <ProjectTable
         projects={listedProjects}
         sort={sort}
         onSortChange={setSort}

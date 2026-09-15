@@ -34,5 +34,9 @@ export const CODING_LAYOUT_STORAGE_KEY = 'elysium.coding.layout.v1'
 export const PROJECT_COVER_MAX_BYTES = 1_000_000
 export const PROJECT_COVER_ACCEPTED_TYPES = [ 'image/png', 'image/jpeg', 'image/webp', 'image/gif' ]
 
+// How long the pointer rests on an ImagePreview before the larger image appears. Long
+// enough that sweeping across a table of thumbnails opens nothing.
+export const IMAGE_PREVIEW_HOVER_DELAY_MS = 2_000
+
 // Which view the Projects page last showed, remembered per browser.
 export const PROJECTS_VIEW_STORAGE_KEY = 'elysium.projects.view.v1'

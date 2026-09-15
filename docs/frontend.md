@@ -118,7 +118,7 @@ matter when changing it:
 
 ### Projects page
 
-`src/pages/Projects/ProjectsPage.tsx` lists projects in a grid view (uikit's `SmartTable`) or a tiles view (HeroUI
+`src/pages/Projects/ProjectsPage.tsx` lists projects in a table view (uikit's `SmartTable`) or a tiles view (HeroUI
 cards). One toolbar drives both: search matches name and description, and sort is by name, session count, or last
 update, in either direction. `projectListing.ts` does the filtering and sorting once, so switching views keeps
 the same results in the same order. The table's own search and toolbar are hidden, and its column headers sort
@@ -127,7 +127,13 @@ through the same state as the toolbar. The chosen view is remembered per browser
 
 Each tile opens with `ProjectCover`, a 16:9 frame. The cover is contained, never cropped or stretched: a square logo
 sits centered at full height, a wide banner centered at full width, and a blurred, enlarged copy of the same image
-fills the space around it. A project without a cover shows its initial.
+fills the space around it. A project without a cover shows its initial. The table view's first column shows the
+same frame as a thumbnail, wrapped in `ImagePreview`.
+
+`src/components/ImagePreview.tsx` makes any small image viewable larger: resting the pointer on it for two seconds
+(`IMAGE_PREVIEW_HOVER_DELAY_MS`) shows a larger copy in a tooltip, and clicking it, or pressing Enter or Space while
+it has focus, opens it fullscreen over a blurred backdrop. It wraps whatever thumbnail it is given, so the caller keeps
+control of how the small image looks.
 
 New project opens `/projects/new` (`CreateProjectPage`); editing opens `EditProjectModal` over the list. Both render
 `ProjectForm`, the page with the cover beside the other fields (`split`) and the dialog with it below them

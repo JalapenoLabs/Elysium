@@ -29,7 +29,7 @@ const sortLabelKeys = {
   updated: 'sort.updated',
 } as const satisfies Record<ProjectSortKey, string>
 
-// Search, sort, and the grid or tiles switch. It drives both views, so switching views
+// Search, sort, and the table or tiles switch. It drives both views, so switching views
 // keeps the same results in the same order.
 export function ProjectsToolbar(props: Props) {
   const { t } = useTranslation('projects')
@@ -43,7 +43,7 @@ export function ProjectsToolbar(props: Props) {
     const [ view ] = keys === 'all'
       ? []
       : [ ...keys ]
-    if (view === 'grid' || view === 'tiles') {
+    if (view === 'table' || view === 'tiles') {
       props.onViewChange(view)
     }
   }
@@ -109,9 +109,9 @@ export function ProjectsToolbar(props: Props) {
         selectedKeys={[ props.view ]}
         onSelectionChange={changeView}
       >
-        <ToggleButton id='grid' aria-label={t('toolbar.grid')}>
+        <ToggleButton id='table' aria-label={t('toolbar.table')}>
           <LuTable2 className='size-4' aria-hidden />
-          <span>{t('toolbar.grid')}</span>
+          <span>{t('toolbar.table')}</span>
         </ToggleButton>
         <ToggleButton id='tiles' aria-label={t('toolbar.tiles')}>
           <ToggleButtonGroup.Separator />

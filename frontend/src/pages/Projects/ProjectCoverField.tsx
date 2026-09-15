@@ -76,7 +76,11 @@ export function ProjectCoverField(props: Props) {
 
   return <div className='flex flex-col gap-2'>
     <Label>{t('form.cover')}</Label>
-    <ProjectCover src={shownUrl} name={props.name || '?'} />
+    <ProjectCover
+      src={shownUrl}
+      name={props.name || '?'}
+      className='w-full rounded-2xl'
+    />
     <input
       ref={inputRef}
       type='file'

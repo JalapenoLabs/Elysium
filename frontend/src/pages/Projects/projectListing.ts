@@ -5,7 +5,7 @@ import type { Project } from '../../api/routes/projectRoutes'
 // How the Projects page lists projects. Both views show the same search results in
 // the same order, so the filtering and sorting live here rather than in either view.
 
-export const PROJECT_VIEWS = [ 'grid', 'tiles' ] as const
+export const PROJECT_VIEWS = [ 'table', 'tiles' ] as const
 export type ProjectView = typeof PROJECT_VIEWS[number]
 
 export const PROJECT_SORT_KEYS = [ 'name', 'sessions', 'updated' ] as const

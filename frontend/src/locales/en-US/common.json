@@ -38,5 +38,8 @@
     "pagination": "Pagination",
     "previousPage": "Previous page",
     "nextPage": "Next page"
+  },
+  "imagePreview": {
+    "open": "View {{name}} larger"
   }
 }
