@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { MailCapabilities, OAuthMailAccountKind } from '../../../api/routes/mailRoutes'
+import type { MailCapabilities, MailServerStatus, OAuthMailAccountKind } from '../../../api/routes/mailRoutes'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -13,6 +13,13 @@ import { LuPlus } from 'react-icons/lu'
 import { getOAuthStartHref } from '../../../api/routes/mailRoutes'
 import { mailAccountKindIcons, mailAccountKindLabelKeys, OAUTH_MAIL_ACCOUNT_KINDS } from './mailPresentation'
 
+// Why the bundled server cannot take a new mailbox, by its status; null when it can.
+const mailServerReasonKeys = {
+  'setup-required': 'availability.mailServerSetupRequired',
+  'ready': null,
+  'unreachable': 'availability.mailServerUnreachable.title',
+} as const satisfies Record<MailServerStatus, string | null>
+
 type Props = {
   // Undefined while loading: every source shows, disabled, so the row does not jump.
   capabilities: MailCapabilities | undefined
@@ -20,7 +27,7 @@ type Props = {
 }
 
 // Where mailboxes come from: one button per OAuth provider, and one to create a mailbox
-// on the bundled mail server. A source this deployment cannot use is disabled and says why.
+// on the bundled mail server. A source this deployment cannot use yet is disabled and says why.
 export function MailboxSourceActions(props: Props) {
   const { t } = useTranslation('email')
   const capabilities = props.capabilities
@@ -41,6 +48,13 @@ export function MailboxSourceActions(props: Props) {
     }
     return null
   }
+
+  const mailServerReasonKey = capabilities
+    ? mailServerReasonKeys[capabilities.mailServer.status]
+    : null
+  const mailServerReason = mailServerReasonKey
+    ? t(mailServerReasonKey)
+    : null
 
   return <div className='flex flex-wrap items-center gap-2'>
     {OAUTH_MAIL_ACCOUNT_KINDS.map((kind) => {
@@ -77,12 +91,12 @@ export function MailboxSourceActions(props: Props) {
       </Tooltip>
     })}
 
-    <Tooltip delay={200} isDisabled={!capabilities || capabilities.selfHosted}>
+    <Tooltip delay={200} isDisabled={!mailServerReason}>
       <Tooltip.Trigger>
         <div>
           <Button
             size='sm'
-            isDisabled={!capabilities?.selfHosted}
+            isDisabled={capabilities?.mailServer.status !== 'ready'}
             onPress={props.onCreateMailbox}
           >
             <LuPlus className='size-4' aria-hidden />
@@ -91,7 +105,7 @@ export function MailboxSourceActions(props: Props) {
         </div>
       </Tooltip.Trigger>
       <Tooltip.Content className='max-w-xs'>
-        <span>{t('availability.selfHostedMissing')}</span>
+        <span>{mailServerReason}</span>
       </Tooltip.Content>
     </Tooltip>
   </div>

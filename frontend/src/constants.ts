@@ -10,6 +10,10 @@ export const API_REQUEST_TIMEOUT_MS = 10_000
 // for that answer to arrive.
 export const SESSION_HISTORY_TIMEOUT_MS = 15_000
 
+// Mail server setup waits up to 20 seconds for Stalwart to restart, inside the API's
+// 30-second request timeout; this outlasts both, so the API's own answer arrives.
+export const MAIL_SERVER_SETUP_TIMEOUT_MS = 35_000
+
 // The one server-sent event stream every page keeps open.
 export const EVENT_STREAM_PATH = `${API_BASE_PATH}/v1/events`
 

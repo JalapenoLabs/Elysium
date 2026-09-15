@@ -40,6 +40,26 @@ export function createMailboxFormSchema(t: TFunction<'email'>) {
 
 export type CreateMailboxFormValues = z.infer<ReturnType<typeof createMailboxFormSchema>>
 
+// Mirrors api/src/routes/v1/mail/set_up_server.rs.
+const BOOTSTRAP_PASSWORD_MAX_CHARACTERS = 256
+
+export function createSetUpMailServerFormSchema(t: TFunction<'email'>) {
+  return z.object({
+    domain: z
+      .string()
+      .trim()
+      .max(DOMAIN_MAX_CHARACTERS, { error: t('setupForm.errors.domainInvalid') })
+      .regex(DOMAIN_PATTERN, { error: t('setupForm.errors.domainInvalid') }),
+    bootstrapPassword: z
+      .string()
+      .trim()
+      .min(1, { error: t('setupForm.errors.passwordRequired') })
+      .max(BOOTSTRAP_PASSWORD_MAX_CHARACTERS, { error: t('setupForm.errors.passwordRejected') }),
+  })
+}
+
+export type SetUpMailServerFormValues = z.infer<ReturnType<typeof createSetUpMailServerFormSchema>>
+
 export function createSenderNameFormSchema(t: TFunction<'email'>) {
   return z.object({
     displayName: displayNameField(t),

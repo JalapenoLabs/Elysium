@@ -9,6 +9,7 @@ mod finish_oauth;
 mod get_capabilities;
 mod list_accounts;
 mod send_test_message;
+mod set_up_server;
 mod start_oauth;
 mod test_account;
 mod update_account;
@@ -19,16 +20,20 @@ use axum::routing::{get, patch, post};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use validator::ValidationError;
 
 use crate::errors::ApiError;
+use crate::mail::stalwart::{Administrator, StalwartError};
 use crate::mail::transport::{Auth, Mailbox};
 use crate::models::mail_account::{self, MailAccount, MailAccountKind};
+use crate::models::mail_server;
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/capabilities", get(get_capabilities::handle))
+        .route("/server", post(set_up_server::handle))
         .route(
             "/accounts",
             get(list_accounts::handle).post(create_mailbox::handle),
@@ -102,6 +107,122 @@ impl From<MailAccount> for MailAccountResponse {
     }
 }
 
+/// Whether the bundled mail server can host mailboxes yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum MailServerStatus {
+    /// The server waits for its setup: none has run, or the server was reset since and
+    /// no longer knows the stored administrator.
+    SetupRequired,
+    Ready,
+    /// The server did not answer.
+    Unreachable,
+}
+
+/// The bundled mail server as clients see it. The administrator is never included.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MailServerResponse {
+    status: MailServerStatus,
+    /// The domain chosen at setup; `None` before setup.
+    domain: Option<String>,
+    /// Why the server is unreachable, or why a set-up server needs setup again.
+    error: Option<String>,
+}
+
+/// Asks the bundled server, live, whether it accepts the stored administrator.
+///
+/// # Errors
+/// [`ApiError::Internal`] when the database fails or the stored secret does not decrypt.
+async fn mail_server_status(state: &AppState) -> Result<MailServerResponse, ApiError> {
+    let Some((domain, administrator)) = stored_administrator(state).await? else {
+        return Ok(MailServerResponse {
+            status: MailServerStatus::SetupRequired,
+            domain: None,
+            error: None,
+        });
+    };
+
+    let (status, error) = match state.mail.stalwart.verify(&administrator).await {
+        Ok(()) => (MailServerStatus::Ready, None),
+        // A reset server starts over in bootstrap mode, which knows no administrator.
+        Err(StalwartError::Unauthorized) => (
+            MailServerStatus::SetupRequired,
+            Some(
+                "the mail server no longer accepts Elysium's administrator, so it was probably reset"
+                    .to_owned(),
+            ),
+        ),
+        Err(error) => (MailServerStatus::Unreachable, Some(error.to_string())),
+    };
+    Ok(MailServerResponse {
+        status,
+        domain: Some(domain),
+        error,
+    })
+}
+
+/// The stored administrator and the domain it was set up with, or `None` before setup.
+///
+/// # Errors
+/// [`ApiError::Internal`] when the database fails or the stored secret does not decrypt.
+async fn stored_administrator(
+    state: &AppState,
+) -> Result<Option<(String, Administrator)>, ApiError> {
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let Some(server) = mail_server::find(&mut connection).await? else {
+        return Ok(None);
+    };
+
+    let password = server
+        .admin_secret(&state.cipher)
+        .context("stored mail server administrator does not decrypt")?;
+    let administrator = Administrator {
+        username: server.admin_username,
+        password,
+    };
+    Ok(Some((server.domain, administrator)))
+}
+
+/// The administrator for a request that changes mailboxes on the bundled server.
+///
+/// # Errors
+/// [`ApiError::Unavailable`] with `not_set_up` before the server is set up, and [`ApiError::Internal`]
+/// when the database fails or the stored secret does not decrypt.
+async fn require_administrator(
+    state: &AppState,
+    not_set_up: &'static str,
+) -> Result<Administrator, ApiError> {
+    stored_administrator(state)
+        .await?
+        .map(|(_domain, administrator)| administrator)
+        .ok_or(ApiError::Unavailable(not_set_up))
+}
+
+/// Dot-separated labels of letters, digits, and hyphens, at least two of them.
+fn validate_domain(value: &str) -> Result<(), ValidationError> {
+    let labels: Vec<&str> = value.split('.').collect();
+    let well_formed = labels.len() >= 2
+        && labels.iter().all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        });
+    if !well_formed {
+        return Err(ValidationError::new("domain")
+            .with_message("must be a domain such as example.com".into()));
+    }
+    Ok(())
+}
+
 /// Resolves an account into a mailbox with a credential that works right now.
 ///
 /// OAuth accounts get a fresh access token from the broker. When the provider rotates
@@ -109,15 +230,11 @@ impl From<MailAccount> for MailAccountResponse {
 /// one may already be dead.
 ///
 /// # Errors
-/// [`ApiError::Unavailable`] when the service the account needs is not configured,
+/// [`ApiError::Unavailable`] when no broker is configured for an OAuth account,
 /// [`ApiError::BadGateway`] when the broker refuses, and [`ApiError::Internal`] when
 /// the stored credential does not decrypt.
 async fn open_mailbox(state: &AppState, account: &MailAccount) -> Result<Mailbox, ApiError> {
-    let Some((imap, smtp)) = state.mail.endpoints(account.kind) else {
-        return Err(ApiError::Unavailable(
-            "self-hosted mail is not configured on this deployment",
-        ));
-    };
+    let (imap, smtp) = state.mail.endpoints(account.kind);
     let credential = account
         .credential(&state.cipher)
         .context("stored mail credential does not decrypt")?;

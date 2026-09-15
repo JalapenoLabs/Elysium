@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Misc
-import { API_BASE_PATH } from '../../constants'
+import { API_BASE_PATH, MAIL_SERVER_SETUP_TIMEOUT_MS } from '../../constants'
 import { apiClient } from '../index'
 
 // Mirrors `MailAccountKind` in api/src/models/mail_account.rs.
@@ -24,12 +24,25 @@ export type MailAccount = {
   updatedAt: string
 }
 
+// Mirrors `MailServerStatus` in api/src/routes/v1/mail/mod.rs. `setup-required` means the
+// bundled server waits for the temporary password it prints when it starts before setup:
+// it was never set up, or it was reset since.
+export type MailServerStatus = 'setup-required' | 'ready' | 'unreachable'
+
+export type MailServer = {
+  status: MailServerStatus
+  // The domain chosen at setup; null before the first setup.
+  domain: string | null
+  // Why the server is unreachable, or why a set-up server needs setup again; else null.
+  error: string | null
+}
+
 export type MailCapabilities = {
   brokerConfigured: boolean
   // Why a configured broker could not be asked which providers it offers.
   brokerError: string | null
   oauthKinds: OAuthMailAccountKind[]
-  selfHosted: boolean
+  mailServer: MailServer
 }
 
 type GetMailCapabilitiesResponse = {
@@ -40,6 +53,22 @@ export function getMailCapabilities() {
   return apiClient
     .get('v1/mail/capabilities')
     .json<GetMailCapabilitiesResponse>()
+}
+
+type SetUpMailServerRequest = {
+  domain: string
+  bootstrapPassword: string
+}
+
+type SetUpMailServerResponse = {
+  server: MailServer
+}
+
+// Resolves once the server has restarted with its new administrator, a few seconds.
+export function setUpMailServer(body: SetUpMailServerRequest) {
+  return apiClient
+    .post('v1/mail/server', { json: body, timeout: MAIL_SERVER_SETUP_TIMEOUT_MS })
+    .json<SetUpMailServerResponse>()
 }
 
 type ListMailAccountsResponse = {

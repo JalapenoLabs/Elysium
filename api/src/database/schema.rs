@@ -65,6 +65,18 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    mail_servers (id) {
+        id -> Uuid,
+        domain -> Text,
+        admin_username -> Text,
+        admin_secret_encrypted -> Bytea,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     projects (id) {
         id -> Uuid,
         name -> Text,
@@ -96,6 +108,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     coding_sessions,
     llms,
     mail_accounts,
+    mail_servers,
     projects,
     satellites,
 );

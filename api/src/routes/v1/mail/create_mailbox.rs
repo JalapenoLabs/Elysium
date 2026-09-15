@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use tracing::{Level, event};
 use validator::{Validate, ValidateEmail, ValidationError};
 
-use super::MailAccountResponse;
+use super::{MailAccountResponse, require_administrator, validate_domain};
 use crate::errors::ApiError;
 use crate::mail::broker::random_token;
 use crate::models::mail_account::{self, MailAccountKind, NewMailAccount};
@@ -48,26 +48,6 @@ fn validate_local_part(value: &str) -> Result<(), ValidationError> {
     Ok(())
 }
 
-/// Dot-separated labels of letters, digits, and hyphens, at least two of them.
-fn validate_domain(value: &str) -> Result<(), ValidationError> {
-    let labels: Vec<&str> = value.split('.').collect();
-    let well_formed = labels.len() >= 2
-        && labels.iter().all(|label| {
-            !label.is_empty()
-                && label.len() <= 63
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-                && label
-                    .chars()
-                    .all(|character| character.is_ascii_alphanumeric() || character == '-')
-        });
-    if !well_formed {
-        return Err(ValidationError::new("domain")
-            .with_message("must be a domain such as example.com".into()));
-    }
-    Ok(())
-}
-
 pub async fn handle(
     State(state): State<AppState>,
     body: Result<Json<RequestBody>, JsonRejection>,
@@ -75,11 +55,12 @@ pub async fn handle(
     let Json(body) = body?;
     body.validate()?;
 
-    let Some(stalwart) = state.mail.stalwart.as_ref() else {
-        return Err(ApiError::Unavailable(
-            "self-hosted mail is not configured on this deployment",
-        ));
-    };
+    let administrator = require_administrator(
+        &state,
+        "the mail server must be set up before mailboxes can be created",
+    )
+    .await?;
+    let stalwart = &state.mail.stalwart;
 
     let local_part = body.local_part.to_lowercase();
     let domain = body.domain.to_lowercase();
@@ -107,7 +88,7 @@ pub async fn handle(
 
     let password = SecretString::from(random_token());
     let stalwart_id = stalwart
-        .create_mailbox(&local_part, &domain, &password)
+        .create_mailbox(&administrator, &local_part, &domain, &password)
         .await?;
 
     let new_account = NewMailAccount {
@@ -127,7 +108,7 @@ pub async fn handle(
         Err(error) => {
             // Without the row nothing knows the password, so the mailbox would be
             // unreachable and would block its address. Remove it again.
-            if let Err(cleanup) = stalwart.destroy_mailbox(&stalwart_id).await {
+            if let Err(cleanup) = stalwart.destroy_mailbox(&administrator, &stalwart_id).await {
                 event!(
                     name: "mail.mailbox.orphaned",
                     Level::ERROR,

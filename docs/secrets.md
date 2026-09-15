@@ -49,6 +49,7 @@ The version byte identifies the envelope format and key generation. Today only v
 | `llms`       | `secret_token_encrypted` | `llms.secret_token:<id>` |
 | `satellites` | `secret_encrypted`       | `satellites.secret:<id>` |
 | `mail_accounts` | `credential_encrypted` | `mail_accounts.credential:<id>` |
+| `mail_servers` | `admin_secret_encrypted` | `mail_servers.admin_secret:<id>` |
 
 ## Roadmap
 

@@ -2,7 +2,7 @@
 
 `compose.yml` runs the whole stack. Non-secret configuration, such as `CORS_ALLOWED_ORIGINS`, is written inline.
 `.env` supplies the bootstrap credentials: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `REDIS_PASSWORD`,
-`ELYSIUM_ENCRYPTION_KEY`, and `STALWART_ADMIN_PASSWORD`. It may also supply `RUST_LOG`. Compose refuses to start when a required value is
+and `ELYSIUM_ENCRYPTION_KEY`. It may also supply `RUST_LOG`. Compose refuses to start when a required value is
 missing, and `.env.example` is the template.
 
 `WEB_PORT` may be set to move nginx off the default port 4000.
@@ -18,7 +18,7 @@ volume with `docker compose down --volumes`, which destroys the data.
 | `api`      | `api/Dockerfile`           | none               | One replica; reachable only via nginx   |
 | `postgres` | `postgres:18.6-alpine3.23` | `elysium-postgres` | Volume `postgres-data`, `timezone=UTC`  |
 | `redis`    | `redis:8.10.1-alpine`      | `elysium-redis`    | Password required, AOF on, `redis-data` |
-| `stalwart` | `stalwartlabs/stalwart:v0.16.22-alpine` | `elysium-stalwart` | Mail server; no published ports, `stalwart-data` |
+| `stalwart` | `stalwartlabs/stalwart:v0.16.22-alpine` | `elysium-stalwart` | Mail server; no published ports, `stalwart-config`, `stalwart-data` |
 
 `oauth-broker/` is a separate deployable with its own `compose.yml` and .env; it is not part of this
 stack. See `docs/mail.md`.

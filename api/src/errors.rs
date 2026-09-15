@@ -97,6 +97,12 @@ impl From<crate::mail::stalwart::StalwartError> for ApiError {
             StalwartError::AddressTaken => {
                 Self::Conflict("the mail server already has an account for that address")
             }
+            // Only setup signs in with a password someone typed, and it maps this itself.
+            // Anywhere else the stored administrator was refused: Stalwart lost its data.
+            StalwartError::Unauthorized => Self::BadGateway(
+                "the mail server rejected Elysium's administrator; set the mail server up again"
+                    .to_owned(),
+            ),
             refused @ StalwartError::Refused(_) => Self::BadGateway(refused.to_string()),
         }
     }

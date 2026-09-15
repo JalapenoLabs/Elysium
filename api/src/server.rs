@@ -28,7 +28,7 @@ use crate::database::migrations;
 use crate::fleet::Fleet;
 use crate::mail::Mail;
 use crate::mail::broker::Broker;
-use crate::mail::stalwart::{STALWART_ADMIN_USER, Stalwart};
+use crate::mail::stalwart::Stalwart;
 use crate::realtime::EventBus;
 use crate::state::AppState;
 use crate::version::VersionInfo;
@@ -135,27 +135,20 @@ fn build_mail(config: &Config) -> Result<Mail> {
         .context("cannot build the mail HTTP client")?;
     let mail_config = &config.mail;
 
-    let broker = mail_config.oauth_broker_url.clone().map(|public_url| {
+    let broker = mail_config.oauth_broker.clone().map(|public_url| {
         let internal_url = mail_config
-            .oauth_broker_internal_url
+            .oauth_broker_internal
             .clone()
             .unwrap_or_else(|| public_url.clone());
         Broker::new(http.clone(), public_url, internal_url)
     });
-    let stalwart = mail_config.stalwart_admin_password.clone().map(|password| {
-        Stalwart::new(
-            http.clone(),
-            mail_config.stalwart_url.clone(),
-            STALWART_ADMIN_USER.to_owned(),
-            password,
-        )
-    });
+    let stalwart = Stalwart::new(http.clone(), mail_config.stalwart.clone());
 
     event!(
         name: "mail.services.configured",
         Level::INFO,
         mail.broker = broker.is_some(),
-        mail.stalwart = stalwart.is_some(),
+        mail.stalwart.url = %mail_config.stalwart,
         "mail services configured",
     );
     Ok(Mail { broker, stalwart })

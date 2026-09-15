@@ -18,7 +18,17 @@
       "description": "Gmail and Outlook accounts cannot connect until it answers. {{error}}"
     },
     "providerMissing": "The OAuth broker does not offer {{provider}}.",
-    "selfHostedMissing": "Set STALWART_ADMIN_PASSWORD in .env to create mailboxes on Elysium's own mail server."
+    "mailServerSetupRequired": "Set up Elysium's mail server to create mailboxes on it.",
+    "mailServerUnreachable": {
+      "title": "The mail server is not answering",
+      "description": "Self-hosted mailboxes cannot be created or removed until it does. {{error}}"
+    }
+  },
+  "mailServer": {
+    "title": "Set up Elysium's mail server",
+    "description": "Self-hosted mailboxes live on the mail server bundled with Elysium. It needs a domain and the temporary password it printed when it first started.",
+    "setUpAgain": "Any mailboxes it hosted were lost with it; delete them here once it is set up again. Details: {{error}}",
+    "action": "Set up mail server"
   },
   "table": {
     "label": "Mailboxes",
@@ -50,7 +60,7 @@
     "description": "A mailbox on Elysium's own mail server. Mail stays on this host: reaching the internet needs a real domain and DNS first.",
     "localPart": "Name",
     "domain": "Domain",
-    "domainHint": "Any domain works while mail stays on this host, such as elysium.local.",
+    "domainHint": "Any domain works while mail stays on this host. The server's own domain is filled in.",
     "displayName": "Sender name",
     "displayNameHint": "Shown beside the address on sent mail. Optional.",
     "addressPreview": "Creates {{address}}",
@@ -60,6 +70,21 @@
       "domainInvalid": "Enter a domain such as elysium.local.",
       "displayNameTooLong": "Use 120 characters or fewer.",
       "addressTaken": "A mailbox with this address already exists."
+    }
+  },
+  "setupForm": {
+    "title": "Set up the mail server",
+    "description": "Elysium becomes the server's administrator. The administrator's password is stored encrypted and never shown.",
+    "domain": "Domain",
+    "domainHint": "New mailboxes use it by default. Any domain works while mail stays on this host.",
+    "bootstrapPassword": "Temporary password",
+    "bootstrapPasswordHint": "The mail server prints it to its log each time it starts before setup. Use the most recent one:",
+    "restartHint": "The server restarts once, which takes a few seconds.",
+    "submit": "Set up",
+    "errors": {
+      "domainInvalid": "Enter a domain such as elysium.local.",
+      "passwordRequired": "Paste the temporary password from the log.",
+      "passwordRejected": "The mail server did not accept this password. Copy the most recent one from its log; once the server is set up, no temporary password works."
     }
   },
   "renameForm": {
@@ -84,7 +109,9 @@
     "sent": "Test message sent to {{address}}",
     "sendFailed": "The test message could not be sent",
     "connected": "Account connected",
-    "connectFailed": "The account could not be connected"
+    "connectFailed": "The account could not be connected",
+    "serverSetUp": "Mail server set up for {{domain}}",
+    "serverSetupFailed": "The mail server could not be set up"
   },
   "oauthErrors": {
     "access_denied": "Access was not granted.",

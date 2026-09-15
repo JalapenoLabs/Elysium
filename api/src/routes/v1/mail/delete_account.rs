@@ -12,6 +12,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use uuid::Uuid;
 
+use super::require_administrator;
 use crate::errors::ApiError;
 use crate::models::mail_account::{self, MailAccountKind};
 use crate::realtime::ServerEvent;
@@ -31,16 +32,20 @@ pub async fn handle(
     drop(connection);
 
     if account.kind == MailAccountKind::SelfHosted {
-        let Some(stalwart) = state.mail.stalwart.as_ref() else {
-            return Err(ApiError::Unavailable(
-                "self-hosted mail is not configured, so the mailbox cannot be removed from the mail server",
-            ));
-        };
+        let administrator = require_administrator(
+            &state,
+            "the mail server is not set up, so the mailbox cannot be removed from it",
+        )
+        .await?;
         let stalwart_id = account
             .external_id
             .as_deref()
             .context("a self-hosted mailbox row has no Stalwart id")?;
-        stalwart.destroy_mailbox(stalwart_id).await?;
+        state
+            .mail
+            .stalwart
+            .destroy_mailbox(&administrator, stalwart_id)
+            .await?;
     }
 
     let mut connection = state

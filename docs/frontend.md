@@ -89,7 +89,9 @@ its row menu adds Test connection.
 
 Email under `src/pages/Settings/Email/` shows mailboxes in `MailAccountTable`. `MailboxSourceActions` offers
 Connect Gmail, Connect Outlook, and Create mailbox, disabling each with the reason when the deployment lacks the
-service (from `GET /api/v1/mail/capabilities`, read through SWR). The Connect buttons are plain anchors to the API's
+service (from `GET /api/v1/mail/capabilities`, read through SWR). `MailServerNotice` explains a mail server that is
+unreachable or waits for setup, and opens `SetUpMailServerModal`, which sends the domain and temporary password and
+revalidates the capabilities. The Connect buttons are plain anchors to the API's
 OAuth start route, because the answer is a redirect to the broker; a client-side route change would not follow it.
 `useOAuthOutcomeToast` announces the `mailConnected` or `mailError` the callback returns with, then strips it from
 the URL. The row menu tests the connection, sends a test message, changes the sender name, toggles active, and

@@ -97,26 +97,54 @@ unconfigured broker from an unreachable one.
 
 ## Stalwart
 
-Self-hosted mailboxes live on Stalwart (`stalwartlabs/stalwart:v0.16.22-alpine`), a sidecar in `compose.yml`.
+Self-hosted mailboxes live on Stalwart (`stalwartlabs/stalwart:v0.16.22-alpine`), a sidecar in `compose.yml`. The API
+administers it over JMAP at `http://stalwart:8080/jmap/`. Every setting, including domains, accounts, and listeners,
+is a JMAP object in Stalwart's datastore (RocksDB under the `stalwart-data` volume).
 
-- `stalwart/config.json` names only the datastore (RocksDB under the `stalwart-data` volume). Every other setting,
-  including domains, accounts, and listeners, is a JMAP object inside that datastore.
-- The API administers it over JMAP at `http://stalwart:8080/jmap/` as the recovery administrator `elysium`, whose
-  password is `STALWART_ADMIN_PASSWORD` in `.env`. Compose passes the same value to Stalwart as
-  `STALWART_RECOVERY_ADMIN`.
-- Creating a mailbox finds or creates its domain (`x:Domain/query`, `x:Domain/set`), gives the server a default
-  hostname (`mail.<domain>`) and domain the first time, then creates the user with a generated 256-bit password
-  (`x:Account/set`). If saving the row fails, the Stalwart account is destroyed again.
+### Setup
+
+Stalwart's administrator is issued by Stalwart itself and stored in Postgres; nothing about it is configured in
+`.env` or `compose.yml`.
+
+1. A new Stalwart has no configuration file, so it starts in bootstrap mode: only the management listener runs, and
+   it prints a temporary administrator `admin` with a random password to its log. It prints a new one on every start
+   until setup completes.
+2. The Email settings page shows **Set up mail server** while `GET /api/v1/mail/capabilities` reports the server as
+   `setup-required`. The operator enters a domain and the most recent temporary password from
+   `docker logs elysium-stalwart`.
+3. `POST /api/v1/mail/server` signs in with the temporary password and calls `x:Bootstrap/set`, giving the server
+   its default domain, the hostname `mail.<domain>`, a self-signed certificate instead of ACME, DKIM keys, and
+   logging to stdout. Stalwart answers with a permanent administrator (`admin@<domain>`) and writes its
+   configuration file to the `stalwart-config` volume.
+4. The API seals that administrator into `mail_servers` at once. Stalwart shows its password only in that answer,
+   and the temporary password stops working, so the database connection is taken before setup starts.
+5. Stalwart keeps running in bootstrap mode until restarted, and nothing in Elysium can restart a container.
+   `stalwart/entrypoint.sh` therefore waits for the configuration file and stops Stalwart; the service's
+   `restart: unless-stopped` policy starts it again, now configured. The request returns once the restarted server
+   accepts the new administrator, about three seconds after it was sent, and gives up after 20.
+
+The capabilities check signs in with the stored administrator on every call. A server that refuses it was reset
+(its volumes removed) and is back in bootstrap mode, so it is reported as `setup-required` again, with the reason;
+setting it up replaces the stored administrator. A server that does not answer is `unreachable`.
+
+### Mailboxes
+
+- Creating a mailbox finds or creates its domain (`x:Domain/query`, `x:Domain/set`), then creates the user with a
+  generated 256-bit password (`x:Account/set`). If saving the row fails, the Stalwart account is destroyed again.
+  Mailbox changes answer `503` until the server is set up.
 - Deleting a self-hosted mailbox destroys the Stalwart account and its mail before the row is removed.
-- A default installation listens on 25, 465, 993, 995, 4190, 443, and 8080. None is published: mail stays on this
-  host. Mail between mailboxes on the server is delivered; mail to the internet has no domain, DNS, DKIM, or reverse
-  DNS behind it and will be refused or filed as spam.
-- Stalwart starts without network access; its web admin UI is not used.
+
+### Network
+
+- Once set up, Stalwart listens on 25, 465, 993, 995, 4190, 443, and 8080. None is published: mail stays on this
+  host. Mail between mailboxes on the server is delivered; mail to the internet has no DNS or reverse DNS behind it
+  and will be refused or filed as spam.
+- At startup Stalwart downloads its web interface and spam-filter data from GitHub. The web interface is not used.
 
 ## Tables and routes
 
-`mail_accounts` is described in `docs/database.md`, the routes in `docs/api.md`, and the `mailbox.upserted` and
-`mailbox.deleted` events in `docs/realtime.md`.
+`mail_accounts` and `mail_servers` are described in `docs/database.md`, the routes in `docs/api.md`, and the
+`mailbox.upserted` and `mailbox.deleted` events in `docs/realtime.md`.
 
 ## Roadmap
 
@@ -127,4 +155,3 @@ Self-hosted mailboxes live on Stalwart (`stalwartlabs/stalwart:v0.16.22-alpine`)
 - Rate limiting on the broker's public routes.
 - Exposing Stalwart beyond this host: a real domain, published SMTP, DKIM keys, DNS records, and a certificate the
   API can verify.
-- A dedicated Stalwart administrator for the API in place of the recovery administrator.

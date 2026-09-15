@@ -8,7 +8,6 @@ Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind
 `.env` holds only what is needed to bootstrap the stack:
 
 - `ELYSIUM_ENCRYPTION_KEY`
-- `STALWART_ADMIN_PASSWORD`, the bundled mail server's administrator
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`
 - `REDIS_PASSWORD`
 - `RUST_LOG`, which is optional
@@ -37,6 +36,8 @@ Everything else follows these rules:
 - Gmail and Outlook connect through the OAuth broker in `oauth-broker/`, a stateless, separately deployable
   Apache-2.0 service that holds the OAuth apps so self-hosters need none. Its secrets belong to its own deployment,
   never to Elysium's bootstrap file.
+- Stalwart's administrator is issued by Stalwart when the Email settings page sets the server up, and is sealed in
+  Postgres like any application secret. It never goes in `.env` or `compose.yml`.
 - Stalwart stays local to the host until Elysium is given a domain and DNS.
 
 ## One event stream keeps the frontend current

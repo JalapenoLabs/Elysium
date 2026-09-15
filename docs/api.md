@@ -17,6 +17,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PATCH  | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
 | DELETE | `/api/v1/llms/{id}`                   | `204`                                               |
 | GET    | `/api/v1/mail/capabilities`           | `200` `{ capabilities }`                            |
+| POST   | `/api/v1/mail/server`                 | `200` `{ server }`; sets up the bundled mail server |
 | GET    | `/api/v1/mail/accounts`               | `200` `{ accounts: MailAccount[] }`, by address     |
 | POST   | `/api/v1/mail/accounts`               | `201` `{ account }`; creates a self-hosted mailbox  |
 | PATCH  | `/api/v1/mail/accounts/{id}`          | `200` `{ account }`                                 |
@@ -71,10 +72,15 @@ Timestamps sent to the API must include an offset. Responses are always UTC with
 A `MailAccount` has `id`, `kind` (`gmail`, `outlook`, `self-hosted`), `address`, `displayName`, `isActive`,
 `lastCheckedAt`, `lastError`, `createdAt`, and `updatedAt`. The credential is never returned.
 
-`capabilities` is `{ brokerConfigured, brokerError, oauthKinds, selfHosted }`, asking the broker live.
+`capabilities` is `{ brokerConfigured, brokerError, oauthKinds, mailServer }`, asking the broker and the mail server
+live. `mailServer` is `{ status, domain, error }`, where `status` is `setup-required`, `ready`, or `unreachable`.
 
-`POST /accounts` requires `localPart` and `domain` and accepts `displayName`; it answers `503` when Stalwart is not
-configured and `409` when the address exists. `PATCH` accepts `displayName` and `isActive`. `test` answers the
+`POST /server` requires `domain` and `bootstrapPassword`, the temporary password Stalwart prints before setup. It
+answers `400` when Stalwart refuses that password, which it also does once set up, and `502` when Stalwart fails or
+does not restart in time. It returns after the restart with `server` in the same shape as `mailServer`.
+
+`POST /accounts` requires `localPart` and `domain` and accepts `displayName`; it answers `503` before the mail server is
+set up and `409` when the address exists. `PATCH` accepts `displayName` and `isActive`. `test` answers the
 account with `lastError` set or cleared; a failing mailbox is not an error status. `test-message` answers `502`
 with the server's message when sending fails. The OAuth routes are browser navigations; see `docs/mail.md`.
 
@@ -124,7 +130,7 @@ Every error is JSON with a `message`.
 | `409`  | Unique constraint, such as a duplicate LLM name, or a project that still has sessions |
 | `422`  | Field validation failed; `fields` lists each failure                                  |
 | `502`  | A satellite, mail server, or the OAuth broker refused; `message` is its own error     |
-| `503`  | The mail service a request needs is not configured on this deployment                |
+| `503`  | The mail service a request needs is not configured or not set up                     |
 | `500`  | Internal fault; details are logged, never returned                                    |
 
 ## Commands
@@ -167,7 +173,6 @@ seconds for this before `SIGKILL`.
 | `OAUTH_BROKER_URL`         | empty            | OAuth broker for browsers; empty disables Gmail and Outlook |
 | `OAUTH_BROKER_INTERNAL_URL`| `OAUTH_BROKER_URL` | OAuth broker as the API reaches it       |
 | `STALWART_URL`             | `http://stalwart:8080` | Stalwart's management listener      |
-| `STALWART_ADMIN_PASSWORD`  | empty            | Stalwart recovery admin; empty disables self-hosted mail |
 
 Connection strings and the key are held as `SecretString`, so they never appear in debug output.
 

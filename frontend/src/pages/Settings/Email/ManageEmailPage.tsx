@@ -17,7 +17,9 @@ import { CreateMailboxModal } from './CreateMailboxModal'
 import { DisconnectMailAccountDialog } from './DisconnectMailAccountDialog'
 import { MailAccountTable } from './MailAccountTable'
 import { MailboxSourceActions } from './MailboxSourceActions'
+import { MailServerNotice } from './MailServerNotice'
 import { SenderNameModal } from './SenderNameModal'
+import { SetUpMailServerModal } from './SetUpMailServerModal'
 
 // Misc
 import { getUpstreamErrorMessage } from '../../../api/errors'
@@ -42,6 +44,7 @@ export function ManageEmailPage() {
 
   useOAuthOutcomeToast()
 
+  const setUpState = useOverlayState()
   const createState = useOverlayState()
   const renameState = useOverlayState()
   const disconnectState = useOverlayState()
@@ -145,6 +148,11 @@ export function ManageEmailPage() {
         </Alert.Content>
       </Alert>}
 
+      {capabilities && <MailServerNotice
+        server={capabilities.mailServer}
+        onSetUp={() => openFor(null, setUpState.open)}
+      />}
+
       {status === 'loading' && <div className='grid place-items-center py-16'>
         <Spinner />
       </div>}
@@ -166,9 +174,14 @@ export function ManageEmailPage() {
       />}
     </section>
 
+    <SetUpMailServerModal
+      key={`set-up-${formSession}`}
+      state={setUpState}
+    />
     <CreateMailboxModal
       key={`create-${formSession}`}
       state={createState}
+      defaultDomain={capabilities?.mailServer.domain ?? 'elysium.local'}
     />
     <SenderNameModal
       key={`rename-${formSession}`}

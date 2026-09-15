@@ -98,6 +98,20 @@ Connected mailboxes; see `docs/mail.md`.
 | `created_at`           | `TIMESTAMPTZ`       | Set on insert                                                   |
 | `updated_at`           | `TIMESTAMPTZ`       | Maintained by trigger                                           |
 
+### `mail_servers`
+
+The bundled mail server's administrator, issued by Stalwart at setup; see `docs/mail.md`. At most one row, enforced
+by the unique index `mail_servers_singleton` on `(true)`. Setting the server up again replaces the row in one
+transaction.
+
+| Column                   | Type          | Notes                                                    |
+|--------------------------|---------------|----------------------------------------------------------|
+| `id`                     | `UUID`        | UUIDv7, primary key                                      |
+| `domain`                 | `TEXT`        | The server's default domain, lowercase                   |
+| `admin_username`         | `TEXT`        | Stalwart's administrator, `admin@<domain>`               |
+| `admin_secret_encrypted` | `BYTEA`       | Sealed administrator password, see `docs/secrets.md`     |
+| `created_at`             | `TIMESTAMPTZ` | Set on insert                                            |
+
 ### `projects`
 
 What coding sessions are grouped under.

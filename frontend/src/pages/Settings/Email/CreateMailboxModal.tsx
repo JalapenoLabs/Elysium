@@ -36,6 +36,8 @@ import { createMailboxFormSchema } from './mailFormSchemas'
 
 type Props = {
   state: UseOverlayStateReturn
+  // The domain the mail server was set up with, offered first.
+  defaultDomain: string
 }
 
 export function CreateMailboxModal(props: Props) {
@@ -51,7 +53,7 @@ export function CreateMailboxModal(props: Props) {
     resolver,
     defaultValues: {
       localPart: '',
-      domain: 'elysium.local',
+      domain: props.defaultDomain,
       displayName: '',
     },
   })

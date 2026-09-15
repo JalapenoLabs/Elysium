@@ -4,30 +4,42 @@
 //!
 //! Stalwart keeps every setting (domains, accounts, listeners) as a JMAP object in
 //! its own datastore, managed through `x:<Object>/get|query|set` calls at `/jmap/`.
-//! The API signs in as the recovery administrator named in `compose.yml` and uses
-//! only what self-hosted mailboxes need: find or create a domain, give the server a
-//! hostname the first time, and create or destroy a user account.
+//!
+//! A new Stalwart starts in bootstrap mode: only the management listener runs, and a
+//! temporary administrator named `admin` is printed once to its log. The settings page
+//! takes that password and [`Stalwart::complete_setup`] finishes the setup with it,
+//! which gives the server its domain and issues the permanent [`Administrator`] the
+//! API signs in as from then on. Stalwart restarts once to leave bootstrap mode; the
+//! entrypoint in `stalwart/entrypoint.sh` does that as soon as setup writes its
+//! configuration file.
 //!
 //! Mail itself never goes through here. Once a mailbox exists it is reached over
 //! IMAP and SMTP like any other, see [`super::transport`].
 
 use std::time::Duration;
 
+use reqwest::StatusCode;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
 use url::Url;
 
 use super::transport::{Endpoint, Security};
 
-/// The recovery administrator the API signs in as. `compose.yml` sets
-/// `STALWART_RECOVERY_ADMIN` to this name and `STALWART_ADMIN_PASSWORD`.
-pub const STALWART_ADMIN_USER: &str = "elysium";
+/// The temporary administrator a Stalwart in bootstrap mode prints to its log.
+const BOOTSTRAP_ADMIN_USER: &str = "admin";
 
 /// JMAP capabilities every management call declares.
 const USING: [&str; 2] = ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"];
 
 /// Management calls are local and small; anything slower means Stalwart is down.
 const STALWART_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long setup waits for Stalwart to restart out of bootstrap mode. It takes about
+/// two seconds; this stays well inside the API's 30-second request timeout.
+const RESTART_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// How often setup asks whether the restarted server accepts the new administrator.
+const RESTART_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Stalwart's implicit-TLS listeners, present in every new installation.
 const IMAPS_PORT: u16 = 993;
@@ -39,31 +51,29 @@ pub enum StalwartError {
     /// Another account already holds the address.
     #[error("the mail server already has an account for that address")]
     AddressTaken,
+    /// The server rejected the administrator's username or password.
+    #[error("the mail server rejected the administrator credentials")]
+    Unauthorized,
     #[error("mail server: {0}")]
     Refused(String),
+}
+
+/// Credentials for Stalwart's management API.
+#[derive(Debug)]
+pub struct Administrator {
+    pub username: String,
+    pub password: SecretString,
 }
 
 #[derive(Debug, Clone)]
 pub struct Stalwart {
     http: reqwest::Client,
     base_url: Url,
-    admin_user: String,
-    admin_password: SecretString,
 }
 
 impl Stalwart {
-    pub const fn new(
-        http: reqwest::Client,
-        base_url: Url,
-        admin_user: String,
-        admin_password: SecretString,
-    ) -> Self {
-        Self {
-            http,
-            base_url,
-            admin_user,
-            admin_password,
-        }
+    pub const fn new(http: reqwest::Client, base_url: Url) -> Self {
+        Self { http, base_url }
     }
 
     /// The IMAP and SMTP servers self-hosted mailboxes connect to.
@@ -78,6 +88,103 @@ impl Stalwart {
         (endpoint(IMAPS_PORT), endpoint(SUBMISSIONS_PORT))
     }
 
+    /// Finishes a bootstrap-mode server's setup with its temporary password, making
+    /// `domain` the server's default domain, and returns the permanent administrator.
+    ///
+    /// Stalwart shows the permanent administrator's password only in this response, so
+    /// the caller must store it before anything else can fail.
+    ///
+    /// # Errors
+    /// Returns [`StalwartError::Unauthorized`] when the temporary password is wrong or
+    /// the server is already set up, and [`StalwartError::Refused`] otherwise.
+    pub async fn complete_setup(
+        &self,
+        bootstrap_password: &SecretString,
+        domain: &str,
+    ) -> Result<Administrator, StalwartError> {
+        let bootstrap = Administrator {
+            username: BOOTSTRAP_ADMIN_USER.to_owned(),
+            password: bootstrap_password.clone(),
+        };
+        let account_id = self.admin_account_id(&bootstrap).await?;
+
+        let responses = self
+            .call(
+                &bootstrap,
+                json!([[
+                    "x:Bootstrap/set",
+                    {
+                        "accountId": account_id,
+                        "update": {
+                            "singleton": {
+                                "serverHostname": format!("mail.{domain}"),
+                                "defaultDomain": domain,
+                                // Mail stays on this host, so no certificate authority can
+                                // reach it. Stalwart serves a self-signed certificate instead.
+                                "requestTlsCertificate": false,
+                                // Ready for the day the domain gets DNS; harmless until then.
+                                "generateDkimKeys": true,
+                                // Stalwart's own default writes rotating files inside the
+                                // container, where nobody reads them.
+                                "tracer": { "@type": "Stdout", "level": "info" }
+                            }
+                        }
+                    },
+                    "setup"
+                ]]),
+            )
+            .await?;
+
+        let issued = &responses[0]["updated"]["singleton"];
+        let (Some(username), Some(secret)) =
+            (issued["username"].as_str(), issued["secret"].as_str())
+        else {
+            return Err(StalwartError::Refused(format!(
+                "setup not completed: {}",
+                responses[0]["notUpdated"]["singleton"]
+            )));
+        };
+        Ok(Administrator {
+            username: username.to_owned(),
+            password: SecretString::from(secret.to_owned()),
+        })
+    }
+
+    /// Waits for a just-configured server to restart and accept `administrator`.
+    ///
+    /// # Errors
+    /// Returns [`StalwartError::Refused`] when the server is not back within
+    /// [`RESTART_TIMEOUT`].
+    pub async fn wait_until_serving(
+        &self,
+        administrator: &Administrator,
+    ) -> Result<(), StalwartError> {
+        let serving = async {
+            // Until the restart the server is still in bootstrap mode, which refuses the
+            // new administrator; while it restarts, nothing answers at all.
+            while self.verify(administrator).await.is_err() {
+                tokio::time::sleep(RESTART_POLL_INTERVAL).await;
+            }
+        };
+        tokio::time::timeout(RESTART_TIMEOUT, serving)
+            .await
+            .map_err(|_elapsed| {
+                StalwartError::Refused(format!(
+                    "the server did not restart within {} seconds of its setup",
+                    RESTART_TIMEOUT.as_secs()
+                ))
+            })
+    }
+
+    /// Checks that the server answers and accepts `administrator`.
+    ///
+    /// # Errors
+    /// Returns [`StalwartError::Unauthorized`] for rejected credentials and
+    /// [`StalwartError::Refused`] when the server cannot be reached.
+    pub async fn verify(&self, administrator: &Administrator) -> Result<(), StalwartError> {
+        self.admin_account_id(administrator).await.map(drop)
+    }
+
     /// Creates a user `local_part@domain` with `password`, creating the domain first
     /// when the server does not have it. Returns Stalwart's id for the new account.
     ///
@@ -86,31 +193,37 @@ impl Stalwart {
     /// [`StalwartError::Refused`] for any other failure.
     pub async fn create_mailbox(
         &self,
+        administrator: &Administrator,
         local_part: &str,
         domain: &str,
         password: &SecretString,
     ) -> Result<String, StalwartError> {
-        let account_id = self.admin_account_id().await?;
-        let domain_id = self.ensure_domain(&account_id, domain).await?;
+        let account_id = self.admin_account_id(administrator).await?;
+        let domain_id = self
+            .ensure_domain(administrator, &account_id, domain)
+            .await?;
 
         let responses = self
-            .call(json!([[
-                "x:Account/set",
-                {
-                    "accountId": account_id,
-                    "create": {
-                        "mailbox": {
-                            "@type": "User",
-                            "name": local_part,
-                            "domainId": domain_id,
-                            "credentials": {
-                                "0": { "@type": "Password", "secret": password.expose_secret() }
+            .call(
+                administrator,
+                json!([[
+                    "x:Account/set",
+                    {
+                        "accountId": account_id,
+                        "create": {
+                            "mailbox": {
+                                "@type": "User",
+                                "name": local_part,
+                                "domainId": domain_id,
+                                "credentials": {
+                                    "0": { "@type": "Password", "secret": password.expose_secret() }
+                                }
                             }
                         }
-                    }
-                },
-                "create"
-            ]]))
+                    },
+                    "create"
+                ]]),
+            )
             .await?;
 
         let result = &responses[0];
@@ -131,14 +244,21 @@ impl Stalwart {
     ///
     /// # Errors
     /// Returns [`StalwartError::Refused`] when the server refuses or is unreachable.
-    pub async fn destroy_mailbox(&self, stalwart_account_id: &str) -> Result<(), StalwartError> {
-        let account_id = self.admin_account_id().await?;
+    pub async fn destroy_mailbox(
+        &self,
+        administrator: &Administrator,
+        stalwart_account_id: &str,
+    ) -> Result<(), StalwartError> {
+        let account_id = self.admin_account_id(administrator).await?;
         let responses = self
-            .call(json!([[
-                "x:Account/set",
-                { "accountId": account_id, "destroy": [stalwart_account_id] },
-                "destroy"
-            ]]))
+            .call(
+                administrator,
+                json!([[
+                    "x:Account/set",
+                    { "accountId": account_id, "destroy": [stalwart_account_id] },
+                    "destroy"
+                ]]),
+            )
             .await?;
 
         let result = &responses[0];
@@ -155,79 +275,60 @@ impl Stalwart {
         )))
     }
 
-    /// The domain's id, creating it when absent. The first domain also becomes the
-    /// server's default, which Stalwart needs before it will name itself in mail.
-    async fn ensure_domain(&self, account_id: &str, domain: &str) -> Result<String, StalwartError> {
-        let responses = self
-            .call(json!([
-                ["x:Domain/query", { "accountId": account_id, "filter": { "name": domain } }, "query"],
-                ["x:SystemSettings/get", { "accountId": account_id, "ids": ["singleton"] }, "settings"]
-            ]))
+    /// The domain's id, creating it when absent. Setup already created the server's
+    /// default domain; any other domain is added the first time a mailbox names it.
+    async fn ensure_domain(
+        &self,
+        administrator: &Administrator,
+        account_id: &str,
+        domain: &str,
+    ) -> Result<String, StalwartError> {
+        let found = self
+            .call(
+                administrator,
+                json!([[
+                    "x:Domain/query",
+                    { "accountId": account_id, "filter": { "name": domain } },
+                    "query"
+                ]]),
+            )
             .await?;
-
-        if let Some(existing) = responses[0]["ids"][0].as_str() {
+        if let Some(existing) = found[0]["ids"][0].as_str() {
             return Ok(existing.to_owned());
         }
 
         let created = self
-            .call(json!([[
-                "x:Domain/set",
-                { "accountId": account_id, "create": { "domain": { "name": domain } } },
-                "create"
-            ]]))
+            .call(
+                administrator,
+                json!([[
+                    "x:Domain/set",
+                    { "accountId": account_id, "create": { "domain": { "name": domain } } },
+                    "create"
+                ]]),
+            )
             .await?;
-        let Some(domain_id) = created[0]["created"]["domain"]["id"].as_str() else {
-            return Err(StalwartError::Refused(format!(
-                "domain not created: {}",
-                created[0]["notCreated"]["domain"]
-            )));
-        };
-
-        let hostname = responses[1]["list"][0]["defaultHostname"]
+        created[0]["created"]["domain"]["id"]
             .as_str()
-            .unwrap_or_default();
-        if hostname.is_empty() {
-            let updated = self
-                .call(json!([[
-                    "x:SystemSettings/set",
-                    {
-                        "accountId": account_id,
-                        "update": {
-                            "singleton": { "defaultHostname": format!("mail.{domain}"), "defaultDomainId": domain_id }
-                        }
-                    },
-                    "settings"
-                ]]))
-                .await?;
-            if updated[0]["updated"].get("singleton").is_none() {
-                return Err(StalwartError::Refused(format!(
-                    "server settings not updated: {}",
-                    updated[0]["notUpdated"]["singleton"]
-                )));
-            }
-        }
-
-        Ok(domain_id.to_owned())
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                StalwartError::Refused(format!(
+                    "domain not created: {}",
+                    created[0]["notCreated"]["domain"]
+                ))
+            })
     }
 
     /// The administrator's JMAP account id, which every management call names.
-    async fn admin_account_id(&self) -> Result<String, StalwartError> {
-        let session: Value = self
-            .http
-            .get(
-                self.base_url
-                    .join("jmap/session")
-                    .expect("a static path joins"),
-            )
-            .basic_auth(&self.admin_user, Some(self.admin_password.expose_secret()))
-            .timeout(STALWART_TIMEOUT)
-            .send()
-            .await
-            .and_then(reqwest::Response::error_for_status)
-            .map_err(|error| StalwartError::Refused(error.to_string()))?
-            .json()
-            .await
-            .map_err(|error| StalwartError::Refused(error.to_string()))?;
+    async fn admin_account_id(
+        &self,
+        administrator: &Administrator,
+    ) -> Result<String, StalwartError> {
+        let request = self.http.get(
+            self.base_url
+                .join("jmap/session")
+                .expect("a static path joins"),
+        );
+        let session = send(request, administrator).await?;
 
         session["primaryAccounts"]["urn:stalwart:jmap"]
             .as_str()
@@ -238,23 +339,45 @@ impl Stalwart {
     }
 
     /// Sends method calls and returns each call's arguments, in order.
-    async fn call(&self, method_calls: Value) -> Result<Vec<Value>, StalwartError> {
-        let reply: Value = self
+    async fn call(
+        &self,
+        administrator: &Administrator,
+        method_calls: Value,
+    ) -> Result<Vec<Value>, StalwartError> {
+        let request = self
             .http
             .post(self.base_url.join("jmap/").expect("a static path joins"))
-            .basic_auth(&self.admin_user, Some(self.admin_password.expose_secret()))
-            .json(&json!({ "using": USING, "methodCalls": method_calls }))
-            .timeout(STALWART_TIMEOUT)
-            .send()
-            .await
-            .and_then(reqwest::Response::error_for_status)
-            .map_err(|error| StalwartError::Refused(error.to_string()))?
-            .json()
-            .await
-            .map_err(|error| StalwartError::Refused(error.to_string()))?;
+            .json(&json!({ "using": USING, "methodCalls": method_calls }));
+        let reply = send(request, administrator).await?;
 
         method_responses(&reply)
     }
+}
+
+/// Authenticates and sends a management request, reading the JSON reply.
+async fn send(
+    request: reqwest::RequestBuilder,
+    administrator: &Administrator,
+) -> Result<Value, StalwartError> {
+    let response = request
+        .basic_auth(
+            &administrator.username,
+            Some(administrator.password.expose_secret()),
+        )
+        .timeout(STALWART_TIMEOUT)
+        .send()
+        .await
+        .map_err(|error| StalwartError::Refused(error.to_string()))?;
+
+    if response.status() == StatusCode::UNAUTHORIZED {
+        return Err(StalwartError::Unauthorized);
+    }
+    response
+        .error_for_status()
+        .map_err(|error| StalwartError::Refused(error.to_string()))?
+        .json()
+        .await
+        .map_err(|error| StalwartError::Refused(error.to_string()))
 }
 
 /// Unwraps `methodResponses`, turning a JMAP method-level `error` into a refusal.
@@ -300,12 +423,21 @@ mod tests {
         let stalwart = Stalwart::new(
             reqwest::Client::new(),
             "http://stalwart:8080/".parse().expect("url"),
-            "elysium".to_owned(),
-            SecretString::from("password"),
         );
         let (imap, smtp) = stalwart.endpoints();
         assert_eq!((imap.host.as_str(), imap.port), ("stalwart", 993));
         assert_eq!((smtp.host.as_str(), smtp.port), ("stalwart", 465));
         assert!(!imap.verify_certificate && !smtp.verify_certificate);
+    }
+
+    #[test]
+    fn administrators_never_print_their_password() {
+        let administrator = Administrator {
+            username: "admin@elysium.local".to_owned(),
+            password: SecretString::from("issued-at-setup"),
+        };
+        let rendered = format!("{administrator:?}");
+        assert!(rendered.contains("admin@elysium.local"));
+        assert!(!rendered.contains("issued-at-setup"));
     }
 }

@@ -33,18 +33,16 @@ pub struct Config {
     pub mail: MailConfig,
 }
 
-/// Where the mail services are. Each is optional: without it, its account kinds are
-/// unavailable and the settings page says so.
+/// Where the mail services are. Without a broker, Gmail and Outlook are unavailable and
+/// the settings page says so.
 #[derive(Debug, Clone)]
 pub struct MailConfig {
     /// The OAuth broker as browsers reach it. Unset disables Gmail and Outlook.
-    pub oauth_broker_url: Option<Url>,
+    pub oauth_broker: Option<Url>,
     /// The broker as the API reaches it, when that differs from what browsers see.
-    pub oauth_broker_internal_url: Option<Url>,
+    pub oauth_broker_internal: Option<Url>,
     /// Stalwart's management listener.
-    pub stalwart_url: Url,
-    /// The recovery administrator's password. Unset disables self-hosted mailboxes.
-    pub stalwart_admin_password: Option<SecretString>,
+    pub stalwart: Url,
 }
 
 impl Config {
@@ -67,15 +65,11 @@ impl Config {
             request_timeout: Duration::from_secs(env_or("REQUEST_TIMEOUT_SECONDS", 30)?),
             max_request_body_bytes: env_or("MAX_REQUEST_BODY_BYTES", 1_048_576)?,
             mail: MailConfig {
-                oauth_broker_url: optional_base_url("OAUTH_BROKER_URL")?,
-                oauth_broker_internal_url: optional_base_url("OAUTH_BROKER_INTERNAL_URL")?,
-                stalwart_url: optional_base_url("STALWART_URL")?.unwrap_or_else(|| {
+                oauth_broker: optional_base_url("OAUTH_BROKER_URL")?,
+                oauth_broker_internal: optional_base_url("OAUTH_BROKER_INTERNAL_URL")?,
+                stalwart: optional_base_url("STALWART_URL")?.unwrap_or_else(|| {
                     Url::parse("http://stalwart:8080/").expect("a static URL parses")
                 }),
-                stalwart_admin_password: std::env::var("STALWART_ADMIN_PASSWORD")
-                    .ok()
-                    .filter(|password| !password.trim().is_empty())
-                    .map(SecretString::from),
             },
         })
     }

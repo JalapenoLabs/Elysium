@@ -23,22 +23,21 @@ use broker::Broker;
 use stalwart::Stalwart;
 use transport::{Endpoint, Security};
 
-/// The optional mail services this deployment has configured.
+/// The mail services this deployment reaches.
 #[derive(Debug, Clone)]
 pub struct Mail {
     /// `None` when no broker URL is configured: Gmail and Outlook cannot connect.
     pub broker: Option<Broker>,
-    /// `None` when no Stalwart credential is configured: no self-hosted mailboxes.
-    pub stalwart: Option<Stalwart>,
+    /// The bundled server. Its administrator is stored in `mail_servers` once the
+    /// settings page has set it up; until then no self-hosted mailbox can be created.
+    pub stalwart: Stalwart,
 }
 
 impl Mail {
     /// Where an account of `kind` connects: its IMAP server, then its SMTP server.
-    ///
-    /// `None` only for a self-hosted account on a deployment without Stalwart.
-    pub fn endpoints(&self, kind: MailAccountKind) -> Option<(Endpoint, Endpoint)> {
+    pub fn endpoints(&self, kind: MailAccountKind) -> (Endpoint, Endpoint) {
         let provider = |imap_host: &str, smtp_host: &str, smtp_port, smtp_security| {
-            Some((
+            (
                 Endpoint {
                     host: imap_host.to_owned(),
                     port: 993,
@@ -51,7 +50,7 @@ impl Mail {
                     security: smtp_security,
                     verify_certificate: true,
                 },
-            ))
+            )
         };
 
         match kind {
@@ -68,7 +67,7 @@ impl Mail {
                 587,
                 Security::StartTls,
             ),
-            MailAccountKind::SelfHosted => self.stalwart.as_ref().map(Stalwart::endpoints),
+            MailAccountKind::SelfHosted => self.stalwart.endpoints(),
         }
     }
 }
