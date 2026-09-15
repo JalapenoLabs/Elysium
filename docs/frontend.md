@@ -321,13 +321,21 @@ The app's colors come from the Matter VS Code theme (`tobiastimm.matter`). `src/
 base variables for each theme. HeroUI derives the hover, soft, and secondary shades from them.
 
 - **Dark** follows Matter's workbench colors: page `#14191f`, sidebar and panels `#0c0e13`, overlays `#21252b`,
-  text `#e6e6e6`, muted `#7a9bc2`, and accent `#267fb5`. Inputs are `#0c0e13` with a `#343d64` border, as in
-  Matter. Status colors are Matter's terminal green `#95cc5e`, yellow `#ccb85e`, and red `#ff7583`.
+  text `#e6e6e6`, muted `#7a9bc2`, and accent `#267fb5`. Status colors are Matter's terminal green `#95cc5e`, yellow `#ccb85e`, and red `#ff7583`.
 - **Light** has no Matter original. It carries the same blue accent and slate hues onto white, with the status
   colors deepened for contrast.
 - **Adjustments for legibility.** Link text uses a brighter blue in dark mode and a darker one in light mode,
   because `#267fb5` alone falls short of body-text contrast. Borders sit a step lighter than Matter's own, which
   vanish against the page.
+
+### Fields
+
+Fields are filled, in the manner of HeroUI v2's default inputs, rather than v3's bordered ones. Every field-like
+control (inputs, text areas, selects, autocompletes, number and date fields, search fields) is borderless with a
+soft fill (`#1c222b` dark, `#eef2f6` light) that shifts on hover, a 12px radius, a 40px height, and no shadow. Focus
+shows HeroUI's 2px accent ring. Unchecked checkboxes keep a faint outline, since they share the field fill. All of
+it is theme variables and a few class rules at the bottom of `src/theme/matter.css`, so components need no classes
+of their own.
 
 Style text links with `text-link`, not `text-accent`. The accent is for fills, focus rings, and selection.
 

@@ -33,9 +33,15 @@
   --focus: #267fb5;
   --link: #1f6a98;
 
-  --field-background: #ffffff;
+  /* Filled fields: a soft slate that darkens on hover, with no border until focus rings them. */
+  --field-background: #eef2f6;
+  --field-hover: #e4e9ef;
+  --field-focus: #eef2f6;
   --field-foreground: #14191f;
   --field-placeholder: #7a8ca3;
+  --field-border: transparent;
+  --field-border-hover: transparent;
+  --field-border-focus: transparent;
 
   /* Matter's green, yellow, and red, deepened for contrast on white. */
   --success: #5e9a2e;
@@ -76,12 +82,16 @@
   /* Matter's bright blue: #267fb5 is too dim for body-size link text on #14191f. */
   --link: #4cbbff;
 
-  /* input.background, input.border */
-  --field-background: #0c0e13;
+  /* Filled fields a step lighter than the page, lightening on hover, with no border
+     until focus rings them in Matter's blue. */
+  --field-background: #1c222b;
+  --field-hover: #242b35;
+  --field-focus: #1c222b;
   --field-foreground: #e6e6e6;
   --field-placeholder: #516a88;
-  --field-border: #343d64;
-  --field-border-width: 1px;
+  --field-border: transparent;
+  --field-border-hover: transparent;
+  --field-border-focus: transparent;
 
   /* terminal green, yellow, and red from the Matter setup */
   --success: #95cc5e;
@@ -94,6 +104,44 @@
   /* Matter's own borders (#14171f) vanish against the page, so these sit a step lighter. */
   --border: #232a36;
   --separator: #1c222b;
+}
+
+/* Field shape for both themes: rounder, taller, and flat, in the manner of HeroUI v2's
+   filled inputs. Heights apply to every field-like trigger so rows of mixed controls
+   line up. */
+[data-theme='light'],
+[data-theme='dark'] {
+  --field-radius: 0.75rem;
+  --field-shadow: none;
+}
+
+.input,
+.textarea,
+.select__trigger,
+.autocomplete__trigger,
+.combo-box__trigger,
+.search-field__group,
+.input-group,
+.date-input-group {
+  min-height: 2.5rem;
+}
+
+.number-field__group {
+  height: 2.5rem;
+}
+
+/* Triggers pad their text for HeroUI's shorter height; centering keeps it level in the taller one. */
+.select__trigger,
+.autocomplete__trigger,
+.combo-box__trigger {
+  align-items: center;
+}
+
+/* Checkboxes share the field tokens, so without a border an unchecked box nearly vanishes
+   on a card. An outline keeps it findable until it is checked. */
+.checkbox:not([data-selected='true']) .checkbox__control {
+  border-width: 1px;
+  border-color: color-mix(in oklab, var(--field-placeholder) 55%, transparent);
 }
 
 /* @jalapenolabs/uikit tables theme through their own variables. The kit injects its
