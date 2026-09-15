@@ -3,6 +3,7 @@
 // Urls
 export const UrlTree = {
   root: '/',
+  actionItems: '/action-items',
   studio: '/studio',
   projects: '/projects',
   coding: '/coding',

@@ -5,6 +5,7 @@ import { createBrowserRouter, Navigate } from 'react-router'
 
 // User interface
 import { AppShell } from './layout/AppShell'
+import { ActionItemsPage } from './pages/ActionItems/ActionItemsPage'
 import { CodingPage } from './pages/Coding/CodingPage'
 import { HomePage } from './pages/Home/HomePage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
@@ -36,6 +37,10 @@ export const router = createBrowserRouter([
       {
         index: true,
         element: <HomePage />,
+      },
+      {
+        path: UrlTree.actionItems,
+        element: <ActionItemsPage />,
       },
       {
         path: UrlTree.studio,

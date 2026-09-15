@@ -5,6 +5,7 @@ import i18next from 'i18next'
 import { initReactI18next } from 'react-i18next'
 
 // Misc
+import actionItems from './locales/en-US/actionItems.json'
 import coding from './locales/en-US/coding.json'
 import common from './locales/en-US/common.json'
 import home from './locales/en-US/home.json'
@@ -22,6 +23,7 @@ export const DEFAULT_NAMESPACE = 'common'
 // the first render synchronous; other locales can load on demand once adopted.
 export const resources = {
   [DEFAULT_LOCALE]: {
+    actionItems,
     coding,
     common,
     home,
