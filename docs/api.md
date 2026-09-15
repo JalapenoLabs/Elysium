@@ -101,9 +101,10 @@ are browser navigations; see `docs/mail.md`.
 
 ### `/api/v1/projects`
 
-A `Project` has `id`, `name`, `description`, `createdAt`, `updatedAt`, and `coverUpdatedAt` (null without a cover).
-`POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000, default empty). `PATCH`
-accepts either; an empty body is rejected. `DELETE` answers `409` while any coding session belongs to the project.
+A `Project` has `id`, `name`, `description`, `createdAt`, `updatedAt`, `coverUpdatedAt` (null without a cover), and
+`coverFit` (`fit` or `fill`, how clients frame the cover). `POST` requires `name` (1 to 120 characters, unique) and
+accepts `description` (up to 2000, default empty). `PATCH` accepts any of `name`, `description`, and `coverFit`; an
+empty body is rejected. `DELETE` answers `409` while any coding session belongs to the project.
 
 `PUT /{id}/cover` takes the image file as the raw body: PNG, JPEG, WebP, or GIF (first frame), up to 10,000,000
 bytes; this route alone raises the API's 1 MiB body limit, and nginx's, to allow it. The format is read from the bytes,

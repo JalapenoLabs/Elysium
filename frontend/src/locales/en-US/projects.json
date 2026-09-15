@@ -86,6 +86,9 @@
     "addCover": "Add a cover image",
     "coverHint": "Double-click the cover to replace it",
     "removeCover": "Remove cover",
-    "uploadingCover": "Uploading cover…"
+    "uploadingCover": "Uploading cover…",
+    "coverFit": "Cover fit",
+    "fit": "Fit",
+    "fill": "Fill"
   }
 }

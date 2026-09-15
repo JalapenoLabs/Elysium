@@ -13,7 +13,7 @@ use validator::Validate;
 
 use super::{ProjectResponse, validate_not_blank};
 use crate::errors::ApiError;
-use crate::models::project::{self, ProjectChanges};
+use crate::models::project::{self, ProjectChanges, ProjectCoverFit};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -25,6 +25,7 @@ pub struct RequestBody {
     name: Option<String>,
     #[validate(length(max = 2000))]
     description: Option<String>,
+    cover_fit: Option<ProjectCoverFit>,
 }
 
 pub async fn handle(
@@ -39,6 +40,7 @@ pub async fn handle(
     let changes = ProjectChanges {
         name: body.name,
         description: body.description,
+        cover_fit: body.cover_fit,
     };
     if changes.is_empty() {
         return Err(ApiError::BadRequest(

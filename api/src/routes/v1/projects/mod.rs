@@ -19,7 +19,7 @@ use uuid::Uuid;
 use validator::ValidationError;
 
 use crate::images::MAX_UPLOAD_BYTES;
-use crate::models::project::Project;
+use crate::models::project::{Project, ProjectCoverFit};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -52,6 +52,7 @@ pub struct ProjectResponse {
     /// When the cover last changed, or `None` without one. Clients add it to the cover's
     /// URL, so a changed cover is fetched afresh and an unchanged one comes from cache.
     cover_updated_at: Option<DateTime<Utc>>,
+    cover_fit: ProjectCoverFit,
 }
 
 impl From<Project> for ProjectResponse {
@@ -63,6 +64,7 @@ impl From<Project> for ProjectResponse {
             created_at: project.created_at,
             updated_at: project.updated_at,
             cover_updated_at: project.cover_image_updated_at,
+            cover_fit: project.cover_fit,
         }
     }
 }

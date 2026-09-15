@@ -8,6 +8,10 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "mail_account_kind"))]
     pub struct MailAccountKind;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "project_cover_fit"))]
+    pub struct ProjectCoverFit;
 }
 
 diesel::table! {
@@ -89,6 +93,7 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::ProjectCoverFit;
 
     projects (id) {
         id -> Uuid,
@@ -98,6 +103,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         cover_image -> Nullable<Bytea>,
         cover_image_updated_at -> Nullable<Timestamptz>,
+        cover_fit -> ProjectCoverFit,
     }
 }
 

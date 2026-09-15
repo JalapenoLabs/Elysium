@@ -9,9 +9,23 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::schema::projects;
+
+/// How a cover sits in its frame.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, diesel_derive_enum::DbEnum, Serialize, Deserialize,
+)]
+#[ExistingTypePath = "crate::database::schema::sql_types::ProjectCoverFit"]
+#[serde(rename_all = "kebab-case")]
+pub enum ProjectCoverFit {
+    /// The whole image, centered over a blurred copy of itself: logos and odd shapes.
+    Fit,
+    /// The image covers the frame, cropping what does not fit: photos.
+    Fill,
+}
 
 /// A stored project.
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
@@ -24,6 +38,7 @@ pub struct Project {
     pub updated_at: DateTime<Utc>,
     /// When the cover last changed; `None` when the project has no cover.
     pub cover_image_updated_at: Option<DateTime<Utc>>,
+    pub cover_fit: ProjectCoverFit,
 }
 
 /// Fields for a new project.
@@ -39,12 +54,13 @@ pub struct NewProject {
 pub struct ProjectChanges {
     pub name: Option<String>,
     pub description: Option<String>,
+    pub cover_fit: Option<ProjectCoverFit>,
 }
 
 impl ProjectChanges {
     /// True when applying these changes would not touch any column.
     pub const fn is_empty(&self) -> bool {
-        self.name.is_none() && self.description.is_none()
+        self.name.is_none() && self.description.is_none() && self.cover_fit.is_none()
     }
 }
 
@@ -232,6 +248,23 @@ mod tests {
             .await
             .expect("insert");
         assert_eq!(project.cover_image_updated_at, None);
+        assert_eq!(
+            project.cover_fit,
+            ProjectCoverFit::Fit,
+            "covers fit by default"
+        );
+
+        let filled = update(
+            &mut connection,
+            project.id,
+            &ProjectChanges {
+                cover_fit: Some(ProjectCoverFit::Fill),
+                ..ProjectChanges::default()
+            },
+        )
+        .await
+        .expect("update");
+        assert_eq!(filled.cover_fit, ProjectCoverFit::Fill);
         assert_eq!(
             find_cover(&mut connection, project.id).await.expect("read"),
             None

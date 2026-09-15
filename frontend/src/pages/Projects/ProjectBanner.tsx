@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Project } from '../../api/routes/projectRoutes'
+import type { Selection } from '@heroui/react'
+import type { Project, ProjectCoverFit } from '../../api/routes/projectRoutes'
 
 // Core
 import { useRef, useState } from 'react'
@@ -11,15 +12,15 @@ import { useAppDispatch } from '../../store/hooks'
 import { projectUpserted } from '../../store/projectsSlice'
 
 // User interface
-import { Button, Spinner, Tooltip, toast } from '@heroui/react'
-import { LuImagePlus } from 'react-icons/lu'
+import { Button, Spinner, ToggleButton, ToggleButtonGroup, Tooltip, toast } from '@heroui/react'
+import { LuExpand, LuImagePlus, LuShrink } from 'react-icons/lu'
 import { ProjectCover } from './ProjectCover'
 
 // Utility
 import { HTTPError } from 'ky'
 
 // Misc
-import { getProjectCoverUrl, uploadProjectCover } from '../../api/routes/projectRoutes'
+import { getProjectCoverUrl, updateProject, uploadProjectCover } from '../../api/routes/projectRoutes'
 import { PROJECT_COVER_ACCEPTED_TYPES } from '../../constants'
 import { getCoverFileErrorKey } from './projectCover'
 
@@ -28,18 +29,21 @@ const ADD_COVER_CLASS_NAME = [
   'transition hover:opacity-100 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none',
 ].join(' ')
 
-// Out of the way until the banner is hovered or holds focus.
-const CHANGE_COVER_CLASS_NAME = [
-  'absolute top-3 right-3 opacity-0 transition-opacity',
+// The cover's controls stay out of the way until the banner is hovered or holds focus.
+const COVER_CONTROLS_CLASS_NAME = [
+  'absolute top-3 right-3 flex items-center gap-2 opacity-0 transition-opacity',
   'group-focus-within:opacity-100 group-hover:opacity-100',
 ].join(' ')
+
+const COVER_FITS = [ 'fit', 'fill' ] as const satisfies readonly ProjectCoverFit[]
 
 type Props = {
   project: Project
 }
 
-// The cover across the top of the project page. Double-clicking it, or its Change cover
-// button, picks a new image and uploads it at once. Without a cover, the whole strip is
+// The cover across the project page. Double-clicking it, or its Change cover button, picks
+// a new image and uploads it at once; the Fit and Fill switch beside that button changes
+// how every rendering of the cover sits in its frame. Without a cover, the whole strip is
 // one button that adds one.
 export function ProjectBanner(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
@@ -53,6 +57,25 @@ export function ProjectBanner(props: Props) {
       return
     }
     inputRef.current?.click()
+  }
+
+  async function changeFit(keys: Selection) {
+    // The group disallows an empty selection, so one fit is always selected.
+    const [ selected ] = keys === 'all'
+      ? []
+      : [ ...keys ]
+    const fit = COVER_FITS.find((candidate) => candidate === selected)
+    if (!fit || fit === props.project.coverFit) {
+      return
+    }
+    try {
+      const response = await updateProject(props.project.id, { coverFit: fit })
+      dispatch(projectUpserted(response.project))
+    }
+    catch (error) {
+      console.debug('ProjectBanner failed to change the cover fit', { error, projectId: props.project.id })
+      toast.danger(t('common:errors.unexpected'))
+    }
   }
 
   async function upload(file: File | undefined) {
@@ -133,6 +156,7 @@ export function ProjectBanner(props: Props) {
       >
         <ProjectCover
           src={coverUrl}
+          fit={props.project.coverFit}
           name={props.project.name}
           className='h-48 w-full rounded-2xl sm:h-64'
         />
@@ -141,16 +165,35 @@ export function ProjectBanner(props: Props) {
         <span>{t('page.coverHint')}</span>
       </Tooltip.Content>
     </Tooltip>
-    <Button
-      size='sm'
-      variant='secondary'
-      className={CHANGE_COVER_CLASS_NAME}
-      isDisabled={isUploading}
-      onPress={chooseFile}
-    >
-      <LuImagePlus className='size-4' aria-hidden />
-      <span>{t('page.changeCover')}</span>
-    </Button>
+    <div className={COVER_CONTROLS_CLASS_NAME}>
+      <ToggleButtonGroup
+        size='sm'
+        aria-label={t('page.coverFit')}
+        selectionMode='single'
+        disallowEmptySelection
+        selectedKeys={[ props.project.coverFit ]}
+        onSelectionChange={(keys) => void changeFit(keys)}
+      >
+        <ToggleButton id='fit'>
+          <LuShrink className='size-4' aria-hidden />
+          <span>{t('page.fit')}</span>
+        </ToggleButton>
+        <ToggleButton id='fill'>
+          <ToggleButtonGroup.Separator />
+          <LuExpand className='size-4' aria-hidden />
+          <span>{t('page.fill')}</span>
+        </ToggleButton>
+      </ToggleButtonGroup>
+      <Button
+        size='sm'
+        variant='secondary'
+        isDisabled={isUploading}
+        onPress={chooseFile}
+      >
+        <LuImagePlus className='size-4' aria-hidden />
+        <span>{t('page.changeCover')}</span>
+      </Button>
+    </div>
     {uploadingOverlay}
   </div>
 }

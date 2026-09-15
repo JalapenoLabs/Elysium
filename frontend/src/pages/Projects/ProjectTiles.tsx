@@ -39,6 +39,7 @@ export function ProjectTiles(props: Props) {
         <Card className='h-full'>
           <ProjectCover
             src={getProjectCoverUrl(project)}
+            fit={project.coverFit}
             name={project.name}
             className='aspect-video w-full rounded-2xl'
           />

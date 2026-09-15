@@ -148,9 +148,9 @@ through the same state as the toolbar. The chosen view is remembered per browser
 The cover thumbnail opts out of the row click with `data-no-row-highlight`, so previewing it does not navigate.
 
 `ProjectPage` edits the project in place. `ProjectBanner` runs the cover across the page below the name and
-description: double-clicking it, or its
-Change cover button (shown on hover or focus), picks an image and uploads it at once; without a cover it is a single
-Add a cover image button. The name and description are `InlineEditableText`, saved as soon as they are changed. The
+description: double-clicking it, or its Change cover button, picks an image and uploads it at once; without a cover
+it is a single Add a cover image button. Beside Change cover, a Fit and Fill switch saves the project's `coverFit`,
+which every rendering of the cover follows. Both controls show on hover or focus. The name and description are `InlineEditableText`, saved as soon as they are changed. The
 Actions menu on the right (`ProjectActions`) holds what cannot be done in place: Remove cover, and Delete, which
 confirms through `useConfirm` and only explains while sessions remain. Below, `ProjectSessionsTable` lists the
 project's coding sessions; a row or title opens the session on the Coding page.
@@ -159,9 +159,10 @@ project's coding sessions; a row or title opens the session on the Coding page.
 Enter saves a single line, Ctrl or Cmd with Enter a multi-line one, and clicking away saves too; Escape cancels. Its
 `onSave` receives the trimmed value only when it changed, and throwing keeps the editor open on what was typed.
 
-Each tile opens with `ProjectCover`, a 16:9 frame. The cover is contained, never cropped or stretched: a square logo
-sits centered at full height, a wide banner centered at full width, and a blurred, enlarged copy of the same image
-fills the space around it. A project without a cover shows its initial. The table view's first column shows the
+Each tile opens with `ProjectCover`, a 16:9 frame that follows the project's `coverFit`. With `fill` the cover covers
+the frame, cropped to it, which suits photos. With `fit`, the default, it is contained, never cropped or stretched: a
+square logo sits centered at full height, a wide banner centered at full width, and a blurred, enlarged copy of the
+same image fills the space around it. A project without a cover shows its initial. The table view's first column shows the
 same frame as a thumbnail, wrapped in `ImagePreview`.
 
 `src/components/ImagePreview.tsx` makes any small image viewable larger: resting the pointer on it for two seconds

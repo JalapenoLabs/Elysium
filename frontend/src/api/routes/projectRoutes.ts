@@ -4,6 +4,10 @@
 import { API_BASE_PATH, PROJECT_COVER_UPLOAD_TIMEOUT_MS } from '../../constants'
 import { apiClient } from '../index'
 
+// Mirrors `ProjectCoverFit` in api/src/models/project.rs. `fit` shows the whole image over a
+// blurred copy of itself; `fill` covers the frame and crops what does not fit.
+export type ProjectCoverFit = 'fit' | 'fill'
+
 // Mirrors `ProjectResponse` in api/src/routes/v1/projects/mod.rs.
 export type Project = {
   id: string
@@ -13,6 +17,7 @@ export type Project = {
   updatedAt: string
   // When the cover last changed; null when the project has none.
   coverUpdatedAt: string | null
+  coverFit: ProjectCoverFit
 }
 
 type ListProjectsResponse = {
@@ -44,6 +49,7 @@ export function createProject(body: CreateProjectRequest) {
 type UpdateProjectRequest = {
   name?: string
   description?: string
+  coverFit?: ProjectCoverFit
 }
 
 type UpdateProjectResponse = {

@@ -62,6 +62,7 @@ export function ProjectCoverField(props: Props) {
     <Label>{t('form.cover')}</Label>
     <ProjectCover
       src={previewUrl}
+      fit='fit'
       name={props.name || '?'}
       className='aspect-video w-full rounded-2xl'
     />

@@ -137,6 +137,7 @@ What coding sessions are grouped under.
 | `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                    |
 | `cover_image` | `BYTEA`       | Cover, compressed to WebP; at most 1 MB stored |
 | `cover_image_updated_at` | `TIMESTAMPTZ` | When the cover changed; set exactly when `cover_image` is |
+| `cover_fit`   | `project_cover_fit` | `fit` or `fill`, defaults to `fit`; kept when the cover is removed |
 
 `Project` in `api/src/models/project.rs` leaves `cover_image` out, so listing projects never loads images;
 `find_cover` reads it for the one route that serves a cover.
