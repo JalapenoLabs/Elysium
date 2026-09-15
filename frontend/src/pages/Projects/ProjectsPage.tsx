@@ -6,6 +6,7 @@ import type { ProjectSort, ProjectView } from './projectListing'
 // Core
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router'
 
 // Redux
 import { shallowEqual } from 'react-redux'
@@ -17,13 +18,14 @@ import { selectAllProjects } from '../../store/projectsSlice'
 import { Button, Spinner, useOverlayState } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
-import { ProjectFormModal } from './ProjectFormModal'
+import { EditProjectModal } from './EditProjectModal'
 import { ProjectsToolbar } from './ProjectsToolbar'
 import { ProjectTable } from './ProjectTable'
 import { ProjectTiles } from './ProjectTiles'
 
 // Misc
 import { PROJECTS_VIEW_STORAGE_KEY } from '../../constants'
+import { UrlTree } from '../../urls'
 import { useCodingSessionsLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { DEFAULT_PROJECT_SORT, PROJECT_VIEWS, searchAndSortProjects } from './projectListing'
 
@@ -42,6 +44,7 @@ function readStoredView(): ProjectView {
 
 export function ProjectsPage() {
   const { t } = useTranslation('projects')
+  const navigate = useNavigate()
   const projects = useAppSelector(selectAllProjects)
   const status = useProjectsLoader()
   useCodingSessionsLoader()
@@ -66,7 +69,7 @@ export function ProjectsPage() {
     }
   }
 
-  const formState = useOverlayState()
+  const editState = useOverlayState()
   const deleteState = useOverlayState()
   const [ selectedProject, setSelectedProject ] = useState<Project | null>(null)
   // Remounting the form per opening resets it to the chosen project's values.
@@ -74,12 +77,12 @@ export function ProjectsPage() {
 
   // Stable so the table's columns are not rebuilt on every render. The overlay state
   // object is new each render, but its `open` callbacks are memoized.
-  const openFormOverlay = formState.open
-  const openForm = useCallback((project: Project | null) => {
+  const openEditOverlay = editState.open
+  const openEdit = useCallback((project: Project) => {
     setSelectedProject(project)
     setFormSession((session) => session + 1)
-    openFormOverlay()
-  }, [ openFormOverlay ])
+    openEditOverlay()
+  }, [ openEditOverlay ])
 
   const openDeleteOverlay = deleteState.open
   const openDelete = useCallback((project: Project) => {
@@ -100,7 +103,7 @@ export function ProjectsPage() {
       <Button
         size='sm'
         className='shrink-0'
-        onPress={() => openForm(null)}
+        onPress={() => navigate(UrlTree.projectsNew)}
       >
         <LuPlus className='size-4' aria-hidden />
         <span>{t('add')}</span>
@@ -141,21 +144,21 @@ export function ProjectsPage() {
         sort={sort}
         onSortChange={setSort}
         sessionCounts={sessionCounts}
-        onEdit={openForm}
+        onEdit={openEdit}
         onDelete={openDelete}
       />}
 
       {listedProjects.length > 0 && view === 'tiles' && <ProjectTiles
         projects={listedProjects}
         sessionCounts={sessionCounts}
-        onEdit={openForm}
+        onEdit={openEdit}
         onDelete={openDelete}
       />}
     </>}
 
-    <ProjectFormModal
+    <EditProjectModal
       key={formSession}
-      state={formState}
+      state={editState}
       project={selectedProject}
     />
     <DeleteProjectDialog

@@ -8,6 +8,7 @@ import { AppShell } from './layout/AppShell'
 import { ActionItemsPage } from './pages/ActionItems/ActionItemsPage'
 import { CodingPage } from './pages/Coding/CodingPage'
 import { HomePage } from './pages/Home/HomePage'
+import { CreateProjectPage } from './pages/Projects/CreateProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
@@ -50,6 +51,10 @@ export const router = createBrowserRouter([
       {
         path: UrlTree.projects,
         element: <ProjectsPage />,
+      },
+      {
+        path: UrlTree.projectsNew,
+        element: <CreateProjectPage />,
       },
       {
         path: UrlTree.coding,

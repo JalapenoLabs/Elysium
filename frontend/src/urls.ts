@@ -6,6 +6,7 @@ export const UrlTree = {
   actionItems: '/action-items',
   studio: '/studio',
   projects: '/projects',
+  projectsNew: '/projects/new',
   coding: '/coding',
   settings: '/settings',
   settingsPersonalDetails: '/settings/personal-details',

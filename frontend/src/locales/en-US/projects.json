@@ -13,6 +13,8 @@
   },
   "form": {
     "createTitle": "New project",
+    "createDescription": "Projects group coding sessions. A cover image makes the project easy to spot among the tiles.",
+    "create": "Create project",
     "editTitle": "Edit {{name}}",
     "name": "Name",
     "description": "Description",

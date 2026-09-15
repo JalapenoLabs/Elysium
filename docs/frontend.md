@@ -48,6 +48,7 @@ the home page.
 | `/studio`                     | `StudioPage`             | Placeholder                                              |
 | `/`                           | `HomePage`               | Placeholder                                              |
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
+| `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
 | `/coding`                     | `CodingPage`             | Dockview workspace of coding sessions, see below         |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
@@ -126,10 +127,13 @@ through the same state as the toolbar. The chosen view is remembered per browser
 
 Each tile opens with `ProjectCover`, a 16:9 frame. The cover is contained, never cropped or stretched: a square logo
 sits centered at full height, a wide banner centered at full width, and a blurred, enlarged copy of the same image
-fills the space around it. A project without a cover shows its initial. `ProjectFormModal` includes
-`ProjectCoverField`, which checks the type and the 1 MB limit before accepting a file and previews it in the same
-frame. The form saves the project first and then uploads or removes the cover, since a new project has no id before
-it is saved; a failed cover leaves the saved project in place and says so. Cover URLs come from
+fills the space around it. A project without a cover shows its initial.
+
+New project opens `/projects/new` (`CreateProjectPage`); editing opens `EditProjectModal` over the list. Both render
+`ProjectForm`, the page with the cover beside the other fields (`split`) and the dialog with it below them
+(`stacked`). `ProjectCoverField` checks the type and the 1 MB limit before accepting a file and previews it in the
+same frame. The form saves the project first and then uploads or removes the cover, since a new project has no id
+before it is saved; a failed cover leaves the saved project in place and says so. Cover URLs come from
 `getProjectCoverUrl`, which adds `coverUpdatedAt` so a new cover is never served from cache.
 
 ## Jalapeno Labs packages
