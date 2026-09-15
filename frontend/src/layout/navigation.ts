@@ -4,7 +4,7 @@ import type { ParseKeys } from 'i18next'
 import type { IconType } from 'react-icons'
 
 // User interface
-import { LuCodeXml, LuFolderKanban, LuHouse } from 'react-icons/lu'
+import { LuCodeXml, LuFolderKanban, LuHouse, LuSparkles } from 'react-icons/lu'
 
 // Misc
 import { UrlTree } from '../urls'
@@ -19,6 +19,12 @@ export type NavigationItem = {
 
 // Sidebar entries, in display order. New top-level areas are added here.
 export const primaryNavigation: NavigationItem[] = [
+  {
+    labelKey: 'primary.studio',
+    href: UrlTree.studio,
+    icon: LuSparkles,
+    end: false,
+  },
   {
     labelKey: 'primary.home',
     href: UrlTree.root,

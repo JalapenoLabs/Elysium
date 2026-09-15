@@ -13,6 +13,7 @@ import navigation from './locales/en-US/navigation.json'
 import projects from './locales/en-US/projects.json'
 import satellites from './locales/en-US/satellites.json'
 import settings from './locales/en-US/settings.json'
+import studio from './locales/en-US/studio.json'
 
 export const DEFAULT_LOCALE = 'en-US'
 export const DEFAULT_NAMESPACE = 'common'
@@ -29,6 +30,7 @@ export const resources = {
     projects,
     satellites,
     settings,
+    studio,
   },
 } as const
 

@@ -44,6 +44,7 @@ the home page.
 
 | Path                          | Page                     | Notes                                                    |
 |-------------------------------|--------------------------|----------------------------------------------------------|
+| `/studio`                     | `StudioPage`             | Placeholder; first in the sidebar                        |
 | `/`                           | `HomePage`               | Placeholder                                              |
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/coding`                     | `CodingPage`             | Dockview workspace of coding sessions, see below         |
@@ -247,7 +248,7 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `home`, `settings`, `llms`,
-  `satellites`, `projects`, `coding`.
+  `satellites`, `projects`, `coding`, `studio`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.

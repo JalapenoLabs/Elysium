@@ -1,6 +1,7 @@
 {
   "primary": {
     "label": "Primary navigation",
+    "studio": "Studio",
     "home": "Home",
     "projects": "Projects",
     "coding": "Coding"
