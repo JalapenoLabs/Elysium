@@ -16,6 +16,15 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
 | PATCH  | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
 | DELETE | `/api/v1/llms/{id}`                   | `204`                                               |
+| GET    | `/api/v1/mail/capabilities`           | `200` `{ capabilities }`                            |
+| GET    | `/api/v1/mail/accounts`               | `200` `{ accounts: MailAccount[] }`, by address     |
+| POST   | `/api/v1/mail/accounts`               | `201` `{ account }`; creates a self-hosted mailbox  |
+| PATCH  | `/api/v1/mail/accounts/{id}`          | `200` `{ account }`                                 |
+| DELETE | `/api/v1/mail/accounts/{id}`          | `204`; destroys a self-hosted mailbox and its mail  |
+| POST   | `/api/v1/mail/accounts/{id}/test`     | `200` `{ account }` with the check recorded         |
+| POST   | `/api/v1/mail/accounts/{id}/test-message` | `200` `{ sentTo }`                              |
+| GET    | `/api/v1/mail/oauth/{kind}/start`     | `303` to the OAuth broker                           |
+| GET    | `/api/v1/mail/oauth/callback`         | `303` to `/settings/email`                          |
 | GET    | `/api/v1/projects`                    | `200` `{ projects: Project[] }`, by name            |
 | POST   | `/api/v1/projects`                    | `201` `{ project }`                                 |
 | PATCH  | `/api/v1/projects/{id}`               | `200` `{ project }`                                 |
@@ -56,6 +65,18 @@ An `Llm` has `id`, `name`, `description`, `type`, `priority`, `isActive`, `expir
 A new `secretToken` is re-sealed. An empty body is rejected.
 
 Timestamps sent to the API must include an offset. Responses are always UTC with a `Z` suffix.
+
+### `/api/v1/mail`
+
+A `MailAccount` has `id`, `kind` (`gmail`, `outlook`, `self-hosted`), `address`, `displayName`, `isActive`,
+`lastCheckedAt`, `lastError`, `createdAt`, and `updatedAt`. The credential is never returned.
+
+`capabilities` is `{ brokerConfigured, brokerError, oauthKinds, selfHosted }`, asking the broker live.
+
+`POST /accounts` requires `localPart` and `domain` and accepts `displayName`; it answers `503` when Stalwart is not
+configured and `409` when the address exists. `PATCH` accepts `displayName` and `isActive`. `test` answers the
+account with `lastError` set or cleared; a failing mailbox is not an error status. `test-message` answers `502`
+with the server's message when sending fails. The OAuth routes are browser navigations; see `docs/mail.md`.
 
 ### `/api/v1/projects`
 
@@ -102,7 +123,8 @@ Every error is JSON with a `message`.
 | `404`  | No row with that id                                                                   |
 | `409`  | Unique constraint, such as a duplicate LLM name, or a project that still has sessions |
 | `422`  | Field validation failed; `fields` lists each failure                                  |
-| `502`  | A satellite refused or could not be reached; `message` is the satellite's error       |
+| `502`  | A satellite, mail server, or the OAuth broker refused; `message` is its own error     |
+| `503`  | The mail service a request needs is not configured on this deployment                |
 | `500`  | Internal fault; details are logged, never returned                                    |
 
 ## Commands
@@ -142,6 +164,10 @@ seconds for this before `SIGKILL`.
 | `MAX_REQUEST_BODY_BYTES`   | 1048576          | Body cap, answers `413`                    |
 | `RUST_LOG`                 | `info,...`       | tracing filter                             |
 | `LOG_FORMAT`               | compact          | `json` for one JSON object per line        |
+| `OAUTH_BROKER_URL`         | empty            | OAuth broker for browsers; empty disables Gmail and Outlook |
+| `OAUTH_BROKER_INTERNAL_URL`| `OAUTH_BROKER_URL` | OAuth broker as the API reaches it       |
+| `STALWART_URL`             | `http://stalwart:8080` | Stalwart's management listener      |
+| `STALWART_ADMIN_PASSWORD`  | empty            | Stalwart recovery admin; empty disables self-hosted mail |
 
 Connection strings and the key are held as `SecretString`, so they never appear in debug output.
 
@@ -158,9 +184,10 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/database/`          | Pool type, migration runner, generated schema    |
 | `src/crypto.rs`          | Secret sealing                                   |
 | `src/errors.rs`          | `ApiError` and its mapping to HTTP responses     |
-| `src/state.rs`           | `AppState`: pool, Redis, cipher, version, bus, fleet, shutdown token |
+| `src/state.rs`           | `AppState`: pool, Redis, cipher, version, bus, fleet, mail, shutdown token |
 | `src/realtime.rs`        | Event bus and the `ServerEvent` envelope          |
 | `src/fleet/`             | Satellite clients and watchers; JSON views of Arsox types |
+| `src/mail/`              | IMAP and SMTP transport, OAuth broker client, Stalwart admin |
 
 ## Logging
 

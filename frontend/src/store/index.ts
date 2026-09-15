@@ -6,6 +6,7 @@ import { configureStore, createListenerMiddleware } from '@reduxjs/toolkit'
 // Redux
 import { codingSessionsSlice } from './codingSessionsSlice'
 import { llmsSlice } from './llmsSlice'
+import { mailAccountsSlice } from './mailAccountsSlice'
 import { projectsSlice } from './projectsSlice'
 import { realtimeSlice } from './realtimeSlice'
 import { satellitesSlice } from './satellitesSlice'
@@ -22,6 +23,7 @@ export const store = configureStore({
   reducer: {
     [codingSessionsSlice.name]: codingSessionsSlice.reducer,
     [llmsSlice.name]: llmsSlice.reducer,
+    [mailAccountsSlice.name]: mailAccountsSlice.reducer,
     [projectsSlice.name]: projectsSlice.reducer,
     [realtimeSlice.name]: realtimeSlice.reducer,
     [satellitesSlice.name]: satellitesSlice.reducer,

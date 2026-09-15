@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::fleet::Fleet;
+use crate::mail::Mail;
 use crate::realtime::EventBus;
 use crate::version::VersionInfo;
 
@@ -17,16 +18,13 @@ use crate::version::VersionInfo;
 #[derive(Clone)]
 pub struct AppState {
     pub database: Pool,
-    #[expect(
-        dead_code,
-        reason = "no route touches Redis yet; handlers reach it through this handle"
-    )]
     pub redis: ConnectionManager,
     pub cipher: Arc<Cipher>,
     pub version: Arc<VersionInfo>,
     /// Publishes to every open `GET /api/v1/events` stream.
     pub events: EventBus,
     pub fleet: Fleet,
+    pub mail: Mail,
     /// Cancelled when shutdown begins; long-lived responses end on it.
     pub shutdown: CancellationToken,
 }

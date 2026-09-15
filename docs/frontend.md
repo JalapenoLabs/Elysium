@@ -55,6 +55,7 @@ the home page.
 | `/settings/llms/add-<type>`   | `AddLlmPage`             | One per provider, see below                              |
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
 | `/settings/satellites`        | `ManageSatellitesPage`   | Register satellites, see their status, test connections  |
+| `/settings/email`             | `ManageEmailPage`        | Connect Gmail and Outlook, create self-hosted mailboxes  |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s.
 New settings pages add an entry to a section and a route under `/settings`.
@@ -85,6 +86,14 @@ Manage LLMs is split into these files:
 Manage satellites follows the same split under `src/pages/Settings/Satellites/`. Its table shows each satellite's
 live status (online, unreachable with the reason on hover, checking, or inactive), version, and thread load, and
 its row menu adds Test connection.
+
+Email under `src/pages/Settings/Email/` shows mailboxes in `MailAccountTable`. `MailboxSourceActions` offers
+Connect Gmail, Connect Outlook, and Create mailbox, disabling each with the reason when the deployment lacks the
+service (from `GET /api/v1/mail/capabilities`, read through SWR). The Connect buttons are plain anchors to the API's
+OAuth start route, because the answer is a redirect to the broker; a client-side route change would not follow it.
+`useOAuthOutcomeToast` announces the `mailConnected` or `mailError` the callback returns with, then strips it from
+the URL. The row menu tests the connection, sends a test message, changes the sender name, toggles active, and
+disconnects; the disconnect dialog says whether mail is deleted (self-hosted) or only forgotten (OAuth).
 
 ### Coding
 
@@ -154,6 +163,7 @@ Selectors return existing references; never build objects or strings inside one.
 | Slice            | Holds                                                                   |
 |------------------|-------------------------------------------------------------------------|
 | `llms`           | LLM credentials, sorted by priority                                     |
+| `mailAccounts`   | Connected mailboxes, sorted by address                                  |
 | `projects`       | Projects, sorted by name                                                |
 | `satellites`     | Satellites with their latest status                                     |
 | `codingSessions` | Coding sessions with their thread state, newest first                   |
@@ -166,7 +176,7 @@ Server collections use entity adapters. Redux is the source of truth components 
 ### Server data: SWR, then Redux, then the event stream
 
 1. **SWR loads it once.** A component that shows server data calls a loader from `src/hooks/useServerData.ts`
-   (`useLlmsLoader`, `useProjectsLoader`, `useSatellitesLoader`, `useCodingSessionsLoader`,
+   (`useLlmsLoader`, `useMailAccountsLoader`, `useProjectsLoader`, `useSatellitesLoader`, `useCodingSessionsLoader`,
    `useSessionHistoryLoader`). SWR fetches the key once, deduplicates every component asking for it, and buffers the
    response so a remounted page renders at once while it revalidates.
 2. **Redux holds it.** The loader puts the response in Redux (`llmsLoaded`, `sessionHistoryLoaded`, ...).
@@ -188,8 +198,8 @@ for the event. The event that follows is idempotent.
 `sessionEvents` keeps a conversation's events only while its panel is open, capped at 5000. Live events for other
 sessions are dropped.
 
-Satellite failures answer `502` with the satellite's message. `getSatelliteErrorMessage` in `src/api/errors.ts`
-extracts it for toasts.
+Satellite, mail server, and broker failures answer `502` with the upstream's message. `getUpstreamErrorMessage` in
+`src/api/errors.ts` extracts it for toasts.
 
 ## Forms
 
@@ -258,7 +268,7 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `home`, `settings`, `llms`,
-  `satellites`, `projects`, `coding`, `studio`, `actionItems`.
+  `satellites`, `email`, `projects`, `coding`, `studio`, `actionItems`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.

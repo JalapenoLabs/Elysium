@@ -19,6 +19,9 @@ The stack answers on `http://localhost:4000`:
 | `/api/ping`    | `pong`                                   |
 | `/api/version` | build, toolchain, and git history JSON   |
 | `/api/v1/llms` | LLM credentials, tokens stored encrypted |
+| `/api/v1/mail` | Mailboxes: Gmail, Outlook, self-hosted   |
+
+`oauth-broker/` is the separately deployable OAuth broker Gmail and Outlook connect through; see its README.
 
 Design notes live in [`docs/`](docs/). Project rules live in [`CLAUDE.md`](CLAUDE.md).
 

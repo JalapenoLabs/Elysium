@@ -14,6 +14,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use axum::http::HeaderValue;
 use secrecy::SecretString;
+use url::Url;
 
 /// Fully resolved runtime configuration.
 #[derive(Debug, Clone)]
@@ -29,6 +30,21 @@ pub struct Config {
     pub cors_allowed_origins: Vec<HeaderValue>,
     pub request_timeout: Duration,
     pub max_request_body_bytes: usize,
+    pub mail: MailConfig,
+}
+
+/// Where the mail services are. Each is optional: without it, its account kinds are
+/// unavailable and the settings page says so.
+#[derive(Debug, Clone)]
+pub struct MailConfig {
+    /// The OAuth broker as browsers reach it. Unset disables Gmail and Outlook.
+    pub oauth_broker_url: Option<Url>,
+    /// The broker as the API reaches it, when that differs from what browsers see.
+    pub oauth_broker_internal_url: Option<Url>,
+    /// Stalwart's management listener.
+    pub stalwart_url: Url,
+    /// The recovery administrator's password. Unset disables self-hosted mailboxes.
+    pub stalwart_admin_password: Option<SecretString>,
 }
 
 impl Config {
@@ -50,6 +66,17 @@ impl Config {
             cors_allowed_origins: parse_cors_origins()?,
             request_timeout: Duration::from_secs(env_or("REQUEST_TIMEOUT_SECONDS", 30)?),
             max_request_body_bytes: env_or("MAX_REQUEST_BODY_BYTES", 1_048_576)?,
+            mail: MailConfig {
+                oauth_broker_url: optional_base_url("OAUTH_BROKER_URL")?,
+                oauth_broker_internal_url: optional_base_url("OAUTH_BROKER_INTERNAL_URL")?,
+                stalwart_url: optional_base_url("STALWART_URL")?.unwrap_or_else(|| {
+                    Url::parse("http://stalwart:8080/").expect("a static URL parses")
+                }),
+                stalwart_admin_password: std::env::var("STALWART_ADMIN_PASSWORD")
+                    .ok()
+                    .filter(|password| !password.trim().is_empty())
+                    .map(SecretString::from),
+            },
         })
     }
 }
@@ -79,6 +106,22 @@ where
     raw.trim()
         .parse()
         .with_context(|| format!("{key} has an invalid value: {raw:?}"))
+}
+
+/// Reads an optional base URL. Empty counts as unset. The path gains a trailing slash
+/// so that joining a relative path appends to it rather than replacing its last segment.
+fn optional_base_url(key: &str) -> Result<Option<Url>> {
+    let raw = std::env::var(key).unwrap_or_default();
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let mut url = Url::parse(trimmed).with_context(|| format!("{key} is not a URL: {raw:?}"))?;
+    if !url.path().ends_with('/') {
+        url.set_path(&format!("{}/", url.path()));
+    }
+    Ok(Some(url))
 }
 
 /// Parses the comma-separated `CORS_ALLOWED_ORIGINS` list into header values.

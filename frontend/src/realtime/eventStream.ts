@@ -9,6 +9,7 @@ import { mutate } from 'swr'
 import { store } from '../store'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
 import { llmDeleted, llmUpserted } from '../store/llmsSlice'
+import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSlice'
 import { projectDeleted, projectUpserted } from '../store/projectsSlice'
 import { eventStreamLost, eventStreamOpened } from '../store/realtimeSlice'
 import { satelliteDeleted, satelliteStatusReported, satelliteUpserted } from '../store/satellitesSlice'
@@ -38,6 +39,8 @@ const handlers: Handlers = {
   'resync': () => reloadEverything(),
   'llm.upserted': (event) => store.dispatch(llmUpserted(event.data)),
   'llm.deleted': (event) => store.dispatch(llmDeleted(event.data.id)),
+  'mailbox.upserted': (event) => store.dispatch(mailAccountUpserted(event.data)),
+  'mailbox.deleted': (event) => store.dispatch(mailAccountDeleted(event.data.id)),
   'project.upserted': (event) => store.dispatch(projectUpserted(event.data)),
   'project.deleted': (event) => store.dispatch(projectDeleted(event.data.id)),
   'satellite.upserted': (event) => store.dispatch(satelliteUpserted(event.data)),

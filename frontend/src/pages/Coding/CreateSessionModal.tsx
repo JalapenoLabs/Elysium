@@ -34,7 +34,7 @@ import {
 import { zodResolver } from '@hookform/resolvers/zod'
 
 // Misc
-import { getSatelliteErrorMessage } from '../../api/errors'
+import { getUpstreamErrorMessage } from '../../api/errors'
 import { createCodingSession, startTurn } from '../../api/routes/codingSessionRoutes'
 import { useProjectsLoader, useSatellitesLoader } from '../../hooks/useServerData'
 import { useCodingActions } from './codingActionsContext'
@@ -103,7 +103,7 @@ export function CreateSessionModal(props: Props) {
       }
     }
     catch (error) {
-      const message = getSatelliteErrorMessage(error)
+      const message = getUpstreamErrorMessage(error)
       if (!message) {
         console.debug('CreateSessionModal failed to start a session', { error })
       }

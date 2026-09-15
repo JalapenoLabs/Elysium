@@ -20,6 +20,14 @@ would let a client forge them.
 - The event stream carries agent output, including tool input and output previews. It is served on the same
   origin as everything else and shares the API's trust boundary.
 
+## Mail
+
+- Mail servers are fixed per account kind in code; no request names a host the API connects to.
+- OAuth credentials never reach Elysium as passwords. Refresh tokens arrive through the OAuth broker's handoff,
+  redeemed server to server with a PKCE verifier, and each flow is bound to the starting browser by a cookie. See
+  `docs/mail.md` for the full set of protections.
+- Stalwart publishes no ports. The API skips certificate verification only for it, on the compose network.
+
 ## Rate limiting
 
 Token bucket per client IP, on `governor`: 30 requests may be spent at once, refilling at 10 per second. Both are
@@ -77,7 +85,7 @@ API share one origin through nginx, so browsers never need a cross-origin grant.
 ## Secrets
 
 `.env` is ignored by git, and `.env.example` documents its keys. It holds the infrastructure credentials needed to
-bootstrap the stack: Postgres and Redis credentials, `ELYSIUM_ENCRYPTION_KEY`, and optionally `RUST_LOG`.
+bootstrap the stack: Postgres and Redis credentials, `ELYSIUM_ENCRYPTION_KEY`, `STALWART_ADMIN_PASSWORD`, and optionally `RUST_LOG`.
 Application secrets never go there. They are stored in Postgres, encrypted with that key; see `docs/secrets.md`.
 
 ## Roadmap

@@ -4,5 +4,6 @@
 
 pub mod coding_session;
 pub mod llm;
+pub mod mail_account;
 pub mod project;
 pub mod satellite;

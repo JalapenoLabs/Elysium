@@ -26,6 +26,9 @@ use crate::config::Config;
 use crate::crypto::Cipher;
 use crate::database::migrations;
 use crate::fleet::Fleet;
+use crate::mail::Mail;
+use crate::mail::broker::Broker;
+use crate::mail::stalwart::{STALWART_ADMIN_USER, Stalwart};
 use crate::realtime::EventBus;
 use crate::state::AppState;
 use crate::version::VersionInfo;
@@ -69,6 +72,7 @@ pub async fn serve() -> Result<()> {
         shutdown.clone(),
     );
     fleet.start().await?;
+    let mail = build_mail(&config)?;
 
     let state = AppState {
         database: database.clone(),
@@ -77,6 +81,7 @@ pub async fn serve() -> Result<()> {
         version,
         events,
         fleet: fleet.clone(),
+        mail,
         shutdown: shutdown.clone(),
     };
     let rate_limiter = middleware::rate_limit::build();
@@ -120,6 +125,40 @@ pub async fn serve() -> Result<()> {
     event!(name: "api.shutdown.complete", Level::INFO, "shutdown complete");
 
     Ok(())
+}
+
+/// The mail services this deployment configured. They share one HTTP client.
+fn build_mail(config: &Config) -> Result<Mail> {
+    let http = reqwest::Client::builder()
+        .user_agent(concat!("elysium-api/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .context("cannot build the mail HTTP client")?;
+    let mail_config = &config.mail;
+
+    let broker = mail_config.oauth_broker_url.clone().map(|public_url| {
+        let internal_url = mail_config
+            .oauth_broker_internal_url
+            .clone()
+            .unwrap_or_else(|| public_url.clone());
+        Broker::new(http.clone(), public_url, internal_url)
+    });
+    let stalwart = mail_config.stalwart_admin_password.clone().map(|password| {
+        Stalwart::new(
+            http.clone(),
+            mail_config.stalwart_url.clone(),
+            STALWART_ADMIN_USER.to_owned(),
+            password,
+        )
+    });
+
+    event!(
+        name: "mail.services.configured",
+        Level::INFO,
+        mail.broker = broker.is_some(),
+        mail.stalwart = stalwart.is_some(),
+        "mail services configured",
+    );
+    Ok(Mail { broker, stalwart })
 }
 
 /// Assembles middleware around the routes. Outermost layers run first on the way

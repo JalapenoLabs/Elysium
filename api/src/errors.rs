@@ -25,8 +25,12 @@ pub enum ApiError {
     NotFound,
     #[error("{0}")]
     Conflict(&'static str),
-    /// A satellite refused the request or could not be reached. The message is the
-    /// satellite's own error, which names a contract code and never carries a secret.
+    /// A service this request needs is not configured on this deployment.
+    #[error("{0}")]
+    Unavailable(&'static str),
+    /// An upstream (a satellite, a mail server, the OAuth broker) refused the request
+    /// or could not be reached. The message is the upstream's own error, which never
+    /// carries a secret.
     #[error("{0}")]
     BadGateway(String),
     #[error(transparent)]
@@ -63,6 +67,41 @@ impl From<arsox_sdk::client::Error> for ApiError {
     }
 }
 
+impl From<crate::mail::transport::MailError> for ApiError {
+    fn from(error: crate::mail::transport::MailError) -> Self {
+        Self::BadGateway(error.to_string())
+    }
+}
+
+impl From<crate::mail::broker::BrokerError> for ApiError {
+    fn from(error: crate::mail::broker::BrokerError) -> Self {
+        use crate::mail::broker::BrokerError;
+
+        match error {
+            BrokerError::InvalidGrant(message) => {
+                Self::BadGateway(format!("the account must be connected again: {message}"))
+            }
+            BrokerError::Unavailable(message) => {
+                Self::BadGateway(format!("OAuth broker: {message}"))
+            }
+            not_oauth @ BrokerError::NotOAuth(_) => Self::Internal(not_oauth.into()),
+        }
+    }
+}
+
+impl From<crate::mail::stalwart::StalwartError> for ApiError {
+    fn from(error: crate::mail::stalwart::StalwartError) -> Self {
+        use crate::mail::stalwart::StalwartError;
+
+        match error {
+            StalwartError::AddressTaken => {
+                Self::Conflict("the mail server already has an account for that address")
+            }
+            refused @ StalwartError::Refused(_) => Self::BadGateway(refused.to_string()),
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, body) = match self {
@@ -76,12 +115,16 @@ impl IntoResponse for ApiError {
                 json!({ "message": "resource not found" }),
             ),
             Self::Conflict(message) => (StatusCode::CONFLICT, json!({ "message": message })),
+            Self::Unavailable(message) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                json!({ "message": message }),
+            ),
             Self::BadGateway(message) => {
                 event!(
                     name: "http.upstream.failure",
                     Level::WARN,
                     error.message = %message,
-                    "a satellite call failed",
+                    "an upstream call failed",
                 );
                 (StatusCode::BAD_GATEWAY, json!({ "message": message }))
             }

@@ -8,6 +8,7 @@ import useSWR from 'swr'
 import { codingSessionsLoaded } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
 import { llmsLoaded } from '../store/llmsSlice'
+import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { projectsLoaded } from '../store/projectsSlice'
 import { satellitesLoaded } from '../store/satellitesSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
@@ -15,6 +16,7 @@ import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } 
 // Misc
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
+import { listMailAccounts } from '../api/routes/mailRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
 import { listSatellites } from '../api/routes/satelliteRoutes'
 
@@ -51,6 +53,16 @@ export function useLlmsLoader(): LoadStatus {
   const { data, error } = useSWR('v1/llms', async () => {
     const response = await listLlms()
     dispatch(llmsLoaded(response.llms))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useMailAccountsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/mail/accounts', async () => {
+    const response = await listMailAccounts()
+    dispatch(mailAccountsLoaded(response.accounts))
     return response
   })
   return toLoadStatus(data !== undefined, error)

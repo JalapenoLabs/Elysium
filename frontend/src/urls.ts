@@ -16,6 +16,7 @@ export const UrlTree = {
   settingsLlmsAddOpenaiApiKey: '/settings/llms/add-openai-api-key',
   settingsLlmsEdit: '/settings/llms/:llmId/edit',
   settingsSatellites: '/settings/satellites',
+  settingsEmail: '/settings/email',
 } as const
 export type UrlValue = typeof UrlTree[keyof typeof UrlTree]
 

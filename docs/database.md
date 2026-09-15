@@ -80,6 +80,24 @@ Plain `cargo test` skips them because they need `TEST_DATABASE_URL`.
 The partial index `llms_active_priority_idx` on `(priority, created_at) WHERE is_active` serves the lookup for
 active credentials in priority order.
 
+### `mail_accounts`
+
+Connected mailboxes; see `docs/mail.md`.
+
+| Column                 | Type                | Notes                                                           |
+|------------------------|---------------------|-----------------------------------------------------------------|
+| `id`                   | `UUID`              | UUIDv7, primary key                                             |
+| `kind`                 | `mail_account_kind` | `gmail`, `outlook`, `self_hosted`                               |
+| `address`              | `TEXT`              | Lowercase, unique, up to 320 characters                         |
+| `display_name`         | `TEXT`              | Sender name, up to 120 characters, defaults to empty            |
+| `credential_encrypted` | `BYTEA`             | Sealed refresh token or password, see `docs/secrets.md`         |
+| `external_id`          | `TEXT`              | Stalwart's account id; set exactly when `kind` is `self_hosted` |
+| `is_active`            | `BOOLEAN`           | Defaults to true                                                |
+| `last_checked_at`      | `TIMESTAMPTZ`       | Latest connection check; null until one runs                    |
+| `last_error`           | `TEXT`              | Why that check failed; null when it passed                      |
+| `created_at`           | `TIMESTAMPTZ`       | Set on insert                                                   |
+| `updated_at`           | `TIMESTAMPTZ`       | Maintained by trigger                                           |
+
 ### `projects`
 
 What coding sessions are grouped under.

@@ -18,7 +18,7 @@ import { SatelliteFormModal } from './SatelliteFormModal'
 import { SatelliteTable } from './SatelliteTable'
 
 // Misc
-import { getSatelliteErrorMessage } from '../../../api/errors'
+import { getUpstreamErrorMessage } from '../../../api/errors'
 import { testSatellite, updateSatellite } from '../../../api/routes/satelliteRoutes'
 import { useSatellitesLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
@@ -64,7 +64,7 @@ export function ManageSatellitesPage() {
       }))
     }
     catch (error) {
-      const message = getSatelliteErrorMessage(error)
+      const message = getUpstreamErrorMessage(error)
       if (!message) {
         console.debug('ManageSatellitesPage failed to test a satellite', { error, satelliteId: satellite.id })
       }

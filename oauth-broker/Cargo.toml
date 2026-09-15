@@ -1,0 +1,82 @@
+[package]
+name = "elysium-oauth-broker"
+version = "0.1.0"
+edition = "2024"
+description = "Stateless OAuth broker that lets self-hosted Elysium instances connect Gmail and Outlook"
+license = "Apache-2.0"
+repository = "https://github.com/JalapenoLabs/Elysium"
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+base64 = "0.23.1"
+chacha20poly1305 = { version = "0.11.0", features = ["zeroize"] }
+getrandom = "0.4.3"
+html-escape = "0.2.15"
+mimalloc = "0.1.52"
+# Same release and TLS stack (rustls on ring, webpki roots) as the Elysium API.
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "json"] }
+secrecy = { version = "0.10.3", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+url = "2.5.8"
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = "symbols"
+
+[lints.rust]
+ambiguous_negative_literals = "warn"
+missing_debug_implementations = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+
+[lints.clippy]
+cargo = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+
+allow_attributes_without_reason = "warn"
+as_pointer_underscore = "warn"
+assertions_on_result_states = "warn"
+clone_on_ref_ptr = "warn"
+deref_by_slicing = "warn"
+disallowed_script_idents = "warn"
+empty_drop = "warn"
+empty_enum_variants_with_brackets = "warn"
+empty_structs_with_brackets = "warn"
+fn_to_numeric_cast_any = "warn"
+if_then_some_else_none = "warn"
+map_err_ignore = "warn"
+redundant_type_annotations = "warn"
+renamed_function_params = "warn"
+semicolon_outside_block = "warn"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc = "warn"
+unneeded_field_pattern = "warn"
+unused_result_ok = "warn"
+
+# May cause issues with structured logging otherwise.
+literal_string_with_formatting_args = "allow"
+
+# An application's dependency tree inevitably pins two versions of some transitive crate;
+# this lint is only actionable for libraries.
+multiple_crate_versions = "allow"

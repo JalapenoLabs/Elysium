@@ -2,6 +2,7 @@
 
 import type { CodingSession, SessionEvent } from '../api/routes/codingSessionRoutes'
 import type { Llm } from '../api/routes/llmRoutes'
+import type { MailAccount } from '../api/routes/mailRoutes'
 import type { Project } from '../api/routes/projectRoutes'
 import type { Satellite, SatelliteStatus } from '../api/routes/satelliteRoutes'
 
@@ -14,6 +15,8 @@ export type ServerEvent =
   | { type: 'resync' }
   | { type: 'llm.upserted', data: Llm }
   | { type: 'llm.deleted', data: { id: string } }
+  | { type: 'mailbox.upserted', data: MailAccount }
+  | { type: 'mailbox.deleted', data: { id: string } }
   | { type: 'project.upserted', data: Project }
   | { type: 'project.deleted', data: { id: string } }
   | { type: 'satellite.upserted', data: Satellite }

@@ -9,7 +9,7 @@ import { Button, Description, Label, TextArea, TextField, toast } from '@heroui/
 import { LuSendHorizontal } from 'react-icons/lu'
 
 // Misc
-import { getSatelliteErrorMessage } from '../../api/errors'
+import { getUpstreamErrorMessage } from '../../api/errors'
 import { startTurn } from '../../api/routes/codingSessionRoutes'
 
 type Props = {
@@ -38,7 +38,7 @@ export function PromptComposer(props: Props) {
       setPrompt('')
     }
     catch (error) {
-      const message = getSatelliteErrorMessage(error)
+      const message = getUpstreamErrorMessage(error)
       if (!message) {
         console.debug('PromptComposer failed to start a turn', { error, sessionId: props.sessionId })
       }

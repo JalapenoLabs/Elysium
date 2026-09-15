@@ -69,10 +69,15 @@ services:
       DATABASE_URL: *database-url
       REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379/0
       ELYSIUM_ENCRYPTION_KEY: ${ELYSIUM_ENCRYPTION_KEY:?ELYSIUM_ENCRYPTION_KEY is not set}
-      RUST_LOG: ${RUST_LOG:-info,tower_http=info,tower_governor=warn}
+      RUST_LOG: ${RUST_LOG:-info,tower_http=info}
       LOG_FORMAT: compact
       # Empty: frontend and API share nginx's origin, so no cross-origin grant is needed.
       CORS_ALLOWED_ORIGINS: ""
+      # Where browsers reach the OAuth broker Gmail and Outlook accounts connect through.
+      # Empty disables both. OAUTH_BROKER_INTERNAL_URL may name another address for the API.
+      OAUTH_BROKER_URL: ""
+      STALWART_URL: http://stalwart:8080
+      STALWART_ADMIN_PASSWORD: ${STALWART_ADMIN_PASSWORD:?STALWART_ADMIN_PASSWORD is not set}
       TZ: UTC
     depends_on:
       migrate:
@@ -110,6 +115,22 @@ services:
       retries: 5
       start_period: 10s
 
+  # Self-hosted mailboxes. No published ports: mail stays on this host until Elysium is
+  # given a domain and DNS. The API administers it over JMAP as the recovery administrator.
+  stalwart:
+    container_name: elysium-stalwart
+    image: stalwartlabs/stalwart:v0.16.22-alpine
+    restart: unless-stopped
+    environment:
+      # The name must match STALWART_ADMIN_USER in api/src/mail/stalwart.rs.
+      STALWART_RECOVERY_ADMIN: elysium:${STALWART_ADMIN_PASSWORD:?STALWART_ADMIN_PASSWORD is not set}
+      TZ: UTC
+    volumes:
+      # Names only the datastore; every other setting lives inside it.
+      - ./stalwart/config.json:/etc/stalwart/config.json:ro
+      - stalwart-data:/var/lib/stalwart
+    # The image's own healthcheck probes its HTTPS listener.
+
   redis:
     container_name: elysium-redis
     image: redis:8.10.1-alpine
@@ -129,3 +150,4 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  stalwart-data:

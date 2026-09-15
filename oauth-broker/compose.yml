@@ -1,0 +1,29 @@
+name: elysium-oauth-broker
+
+# The broker on its own. Every value comes from oauth-broker/.env (template: .env.example).
+# Put TLS termination in front of it before exposing it: providers only redirect to HTTPS
+# for anything but localhost.
+
+services:
+  broker:
+    container_name: elysium-oauth-broker
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${BROKER_PORT:-4100}:8080"
+    environment:
+      BROKER_PUBLIC_URL: ${BROKER_PUBLIC_URL:?BROKER_PUBLIC_URL is not set}
+      BROKER_SEALING_KEY: ${BROKER_SEALING_KEY:?BROKER_SEALING_KEY is not set}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      RUST_LOG: ${RUST_LOG:-info}
+      LOG_FORMAT: compact
+      TZ: UTC
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

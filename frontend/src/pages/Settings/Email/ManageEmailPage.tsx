@@ -1,0 +1,183 @@
+// Copyright © 2026 Jalapeno Labs
+
+import type { MailAccount } from '../../../api/routes/mailRoutes'
+
+// Core
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import useSWR from 'swr'
+
+// Redux
+import { useAppDispatch, useAppSelector } from '../../../store/hooks'
+import { mailAccountUpserted, selectAllMailAccounts } from '../../../store/mailAccountsSlice'
+
+// User interface
+import { Alert, Breadcrumbs, Spinner, toast, useOverlayState } from '@heroui/react'
+import { CreateMailboxModal } from './CreateMailboxModal'
+import { DisconnectMailAccountDialog } from './DisconnectMailAccountDialog'
+import { MailAccountTable } from './MailAccountTable'
+import { MailboxSourceActions } from './MailboxSourceActions'
+import { SenderNameModal } from './SenderNameModal'
+
+// Misc
+import { getUpstreamErrorMessage } from '../../../api/errors'
+import {
+  getMailCapabilities,
+  sendMailTestMessage,
+  testMailAccount,
+  updateMailAccount,
+} from '../../../api/routes/mailRoutes'
+import { useMailAccountsLoader } from '../../../hooks/useServerData'
+import { UrlTree } from '../../../urls'
+import { useOAuthOutcomeToast } from './useOAuthOutcomeToast'
+
+export function ManageEmailPage() {
+  const { t } = useTranslation([ 'email', 'settings', 'common' ])
+  const dispatch = useAppDispatch()
+  const accounts = useAppSelector(selectAllMailAccounts)
+  const status = useMailAccountsLoader()
+  // Only this page asks, so it stays in SWR rather than Redux.
+  const { data: capabilitiesResponse } = useSWR('v1/mail/capabilities', getMailCapabilities)
+  const capabilities = capabilitiesResponse?.capabilities
+
+  useOAuthOutcomeToast()
+
+  const createState = useOverlayState()
+  const renameState = useOverlayState()
+  const disconnectState = useOverlayState()
+  const [ selectedAccount, setSelectedAccount ] = useState<MailAccount | null>(null)
+  // Remounting a form per opening resets it to the chosen account's values.
+  const [ formSession, setFormSession ] = useState(0)
+
+  function openFor(account: MailAccount | null, open: () => void) {
+    setSelectedAccount(account)
+    setFormSession((session) => session + 1)
+    open()
+  }
+
+  async function runConnectionTest(account: MailAccount) {
+    const toastId = toast(t('toasts.testing', { address: account.address }), { isLoading: true, timeout: 0 })
+    try {
+      const response = await testMailAccount(account.id)
+      dispatch(mailAccountUpserted(response.account))
+      toast.close(toastId)
+
+      if (response.account.lastError) {
+        toast.danger(t('toasts.testFailed', { address: account.address }), {
+          description: response.account.lastError,
+        })
+        return
+      }
+      toast.success(t('toasts.testPassed', { address: account.address }))
+    }
+    catch (error) {
+      toast.close(toastId)
+      console.debug('ManageEmailPage failed to test a mailbox', { error, accountId: account.id })
+      toast.danger(t('common:errors.unexpected'))
+    }
+  }
+
+  async function sendTestMessage(account: MailAccount) {
+    const toastId = toast(t('toasts.sending', { address: account.address }), { isLoading: true, timeout: 0 })
+    try {
+      const response = await sendMailTestMessage(account.id)
+      toast.close(toastId)
+      toast.success(t('toasts.sent', { address: response.sentTo }))
+    }
+    catch (error) {
+      toast.close(toastId)
+      const message = getUpstreamErrorMessage(error)
+      if (!message) {
+        console.debug('ManageEmailPage failed to send a test message', { error, accountId: account.id })
+      }
+      toast.danger(t('toasts.sendFailed'), {
+        description: message ?? t('common:errors.unexpected'),
+      })
+    }
+  }
+
+  async function toggleActive(account: MailAccount) {
+    try {
+      const response = await updateMailAccount(account.id, { isActive: !account.isActive })
+      dispatch(mailAccountUpserted(response.account))
+      toast.success(t('toasts.updated', { address: account.address }))
+    }
+    catch (error) {
+      console.debug('ManageEmailPage failed to toggle a mailbox', { error, accountId: account.id })
+      toast.danger(t('common:errors.unexpected'))
+    }
+  }
+
+  return <div className='container'>
+    <Breadcrumbs className='compact'>
+      <Breadcrumbs.Item href={UrlTree.settings}>{t('settings:title')}</Breadcrumbs.Item>
+      <Breadcrumbs.Item>{t('title')}</Breadcrumbs.Item>
+    </Breadcrumbs>
+    <h1 className='relaxed text-3xl font-bold'>{
+      t('title')
+    }</h1>
+
+    <section>
+      <div className='compact flex flex-wrap items-start justify-between gap-4'>
+        <div>
+          <h2 className='text-xl font-semibold'>{
+            t('mailboxes.heading')
+          }</h2>
+          <p className='mt-1 max-w-2xl text-sm opacity-70'>{
+            t('mailboxes.description')
+          }</p>
+        </div>
+        <MailboxSourceActions
+          capabilities={capabilities}
+          onCreateMailbox={() => openFor(null, createState.open)}
+        />
+      </div>
+
+      {capabilities?.brokerError && <Alert status='warning' className='compact'>
+        <Alert.Indicator />
+        <Alert.Content>
+          <Alert.Title>{
+            t('availability.brokerUnreachable.title')
+          }</Alert.Title>
+          <Alert.Description>{
+            t('availability.brokerUnreachable.description', { error: capabilities.brokerError })
+          }</Alert.Description>
+        </Alert.Content>
+      </Alert>}
+
+      {status === 'loading' && <div className='grid place-items-center py-16'>
+        <Spinner />
+      </div>}
+
+      {status === 'failed' && <p className='py-10 text-center text-sm text-danger'>{
+        t('table.loadError')
+      }</p>}
+
+      {status === 'loaded' && <MailAccountTable
+        accounts={accounts}
+        onTest={runConnectionTest}
+        onSendTest={sendTestMessage}
+        onRename={(account) => openFor(account, renameState.open)}
+        onToggleActive={toggleActive}
+        onDisconnect={(account) => {
+          setSelectedAccount(account)
+          disconnectState.open()
+        }}
+      />}
+    </section>
+
+    <CreateMailboxModal
+      key={`create-${formSession}`}
+      state={createState}
+    />
+    <SenderNameModal
+      key={`rename-${formSession}`}
+      state={renameState}
+      account={selectedAccount}
+    />
+    <DisconnectMailAccountDialog
+      state={disconnectState}
+      account={selectedAccount}
+    />
+  </div>
+}

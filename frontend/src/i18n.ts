@@ -8,6 +8,7 @@ import { initReactI18next } from 'react-i18next'
 import actionItems from './locales/en-US/actionItems.json'
 import coding from './locales/en-US/coding.json'
 import common from './locales/en-US/common.json'
+import email from './locales/en-US/email.json'
 import home from './locales/en-US/home.json'
 import llms from './locales/en-US/llms.json'
 import navigation from './locales/en-US/navigation.json'
@@ -26,6 +27,7 @@ export const resources = {
     actionItems,
     coding,
     common,
+    email,
     home,
     llms,
     navigation,

@@ -12,6 +12,7 @@ import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
 import { PersonalDetailsPage } from './pages/Settings/PersonalDetails/PersonalDetailsPage'
+import { ManageEmailPage } from './pages/Settings/Email/ManageEmailPage'
 import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
@@ -78,6 +79,10 @@ export const router = createBrowserRouter([
       {
         path: UrlTree.settingsSatellites,
         element: <ManageSatellitesPage />,
+      },
+      {
+        path: UrlTree.settingsEmail,
+        element: <ManageEmailPage />,
       },
       {
         path: '*',

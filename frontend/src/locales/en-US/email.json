@@ -1,0 +1,104 @@
+{
+  "title": "Email",
+  "mailboxes": {
+    "heading": "Mailboxes",
+    "description": "The mailboxes Elysium reads and sends mail from. Credentials are encrypted and never shown, and Gmail and Outlook passwords never reach Elysium at all.",
+    "connect": "Connect {{provider}}",
+    "create": "Create mailbox"
+  },
+  "providers": {
+    "gmail": "Gmail",
+    "outlook": "Outlook",
+    "self-hosted": "Self-hosted"
+  },
+  "availability": {
+    "brokerMissing": "Set OAUTH_BROKER_URL for the API in compose.yml to connect Gmail and Outlook accounts.",
+    "brokerUnreachable": {
+      "title": "The OAuth broker could not be reached",
+      "description": "Gmail and Outlook accounts cannot connect until it answers. {{error}}"
+    },
+    "providerMissing": "The OAuth broker does not offer {{provider}}.",
+    "selfHostedMissing": "Set STALWART_ADMIN_PASSWORD in .env to create mailboxes on Elysium's own mail server."
+  },
+  "table": {
+    "label": "Mailboxes",
+    "address": "Address",
+    "provider": "Provider",
+    "status": "Status",
+    "lastChecked": "Last checked",
+    "never": "Never",
+    "empty": "No mailboxes yet. Connect an account or create a mailbox to get started.",
+    "loadError": "Mailboxes could not be loaded."
+  },
+  "status": {
+    "working": "Working",
+    "failing": "Failing",
+    "unchecked": "Not checked",
+    "inactive": "Inactive"
+  },
+  "actions": {
+    "test": "Test connection",
+    "sendTest": "Send test message",
+    "rename": "Change sender name",
+    "activate": "Activate",
+    "deactivate": "Deactivate",
+    "disconnect": "Disconnect",
+    "deleteMailbox": "Delete mailbox"
+  },
+  "createForm": {
+    "title": "Create mailbox",
+    "description": "A mailbox on Elysium's own mail server. Mail stays on this host: reaching the internet needs a real domain and DNS first.",
+    "localPart": "Name",
+    "domain": "Domain",
+    "domainHint": "Any domain works while mail stays on this host, such as elysium.local.",
+    "displayName": "Sender name",
+    "displayNameHint": "Shown beside the address on sent mail. Optional.",
+    "addressPreview": "Creates {{address}}",
+    "errors": {
+      "localPartRequired": "Enter a name for the address.",
+      "localPartInvalid": "Use letters, digits, and . _ + - only, without a leading, trailing, or doubled dot.",
+      "domainInvalid": "Enter a domain such as elysium.local.",
+      "displayNameTooLong": "Use 120 characters or fewer.",
+      "addressTaken": "A mailbox with this address already exists."
+    }
+  },
+  "renameForm": {
+    "title": "Change sender name",
+    "displayName": "Sender name",
+    "hint": "Shown beside {{address}} on sent mail. Leave blank to show only the address."
+  },
+  "disconnect": {
+    "title": "Disconnect {{address}}?",
+    "deleteTitle": "Delete {{address}}?",
+    "selfHosted": "This deletes the mailbox from Elysium's mail server, along with every message in it. The address becomes available again.",
+    "oauth": "Elysium forgets this account and its credential. The mailbox itself is untouched, and you can also revoke Elysium's access from your {{provider}} account settings."
+  },
+  "toasts": {
+    "created": "{{address}} created",
+    "updated": "{{address}} updated",
+    "disconnected": "{{address}} disconnected",
+    "testing": "Signing in to {{address}}…",
+    "testPassed": "{{address}} signed in to IMAP and SMTP",
+    "testFailed": "{{address}} failed its connection test",
+    "sending": "Sending a test message from {{address}}…",
+    "sent": "Test message sent to {{address}}",
+    "sendFailed": "The test message could not be sent",
+    "connected": "Account connected",
+    "connectFailed": "The account could not be connected"
+  },
+  "oauthErrors": {
+    "access_denied": "Access was not granted.",
+    "state_mismatch": "The connection was started in another browser. Start it again from this page.",
+    "flow_expired": "The connection took longer than fifteen minutes or was already completed. Start it again.",
+    "broker_unavailable": "The OAuth broker is no longer configured.",
+    "broker_refused": "The OAuth broker refused to hand over the account.",
+    "token_exchange_failed": "The provider refused the sign-in.",
+    "no_refresh_token": "The provider did not grant lasting access. Try again and approve every permission.",
+    "no_address": "The provider did not share the account's email address.",
+    "provider_unavailable": "The OAuth broker does not offer this provider.",
+    "provider_error": "The provider reported an error.",
+    "address_in_use": "That address is already connected as a different kind of mailbox.",
+    "invalid_request": "The connection response was incomplete.",
+    "internal_error": "Elysium could not save the account."
+  }
+}

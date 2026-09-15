@@ -3,6 +3,7 @@
 
 # Build output
 api/target/
+oauth-broker/target/
 frontend/dist/
 frontend/node_modules/
 

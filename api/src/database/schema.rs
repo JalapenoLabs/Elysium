@@ -4,6 +4,10 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "llm_type"))]
     pub struct LlmType;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "mail_account_kind"))]
+    pub struct MailAccountKind;
 }
 
 diesel::table! {
@@ -41,6 +45,25 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::MailAccountKind;
+
+    mail_accounts (id) {
+        id -> Uuid,
+        kind -> MailAccountKind,
+        address -> Text,
+        display_name -> Text,
+        credential_encrypted -> Bytea,
+        external_id -> Nullable<Text>,
+        is_active -> Bool,
+        last_checked_at -> Nullable<Timestamptz>,
+        last_error -> Nullable<Text>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
 
     projects (id) {
         id -> Uuid,
@@ -69,4 +92,10 @@ diesel::table! {
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
 
-diesel::allow_tables_to_appear_in_same_query!(coding_sessions, llms, projects, satellites,);
+diesel::allow_tables_to_appear_in_same_query!(
+    coding_sessions,
+    llms,
+    mail_accounts,
+    projects,
+    satellites,
+);

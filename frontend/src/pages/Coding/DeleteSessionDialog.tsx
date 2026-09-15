@@ -15,7 +15,7 @@ import { useAppDispatch } from '../../store/hooks'
 import { AlertDialog, Button, toast } from '@heroui/react'
 
 // Misc
-import { getSatelliteErrorMessage } from '../../api/errors'
+import { getUpstreamErrorMessage } from '../../api/errors'
 import { deleteCodingSession } from '../../api/routes/codingSessionRoutes'
 
 type Props = {
@@ -42,7 +42,7 @@ export function DeleteSessionDialog(props: Props) {
       props.state.close()
     }
     catch (error) {
-      const message = getSatelliteErrorMessage(error)
+      const message = getUpstreamErrorMessage(error)
       if (!message) {
         console.debug('DeleteSessionDialog failed to delete the session', { error })
       }

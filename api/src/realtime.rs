@@ -27,6 +27,7 @@ use uuid::Uuid;
 use crate::fleet::views::{SatelliteStatus, SessionEvent};
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
 use crate::routes::v1::llms::LlmResponse;
+use crate::routes::v1::mail::MailAccountResponse;
 use crate::routes::v1::projects::ProjectResponse;
 use crate::routes::v1::satellites::SatelliteResponse;
 
@@ -49,6 +50,10 @@ pub enum ServerEvent {
     LlmUpserted(LlmResponse),
     #[serde(rename = "llm.deleted")]
     LlmDeleted { id: Uuid },
+    #[serde(rename = "mailbox.upserted")]
+    MailAccountUpserted(MailAccountResponse),
+    #[serde(rename = "mailbox.deleted")]
+    MailAccountDeleted { id: Uuid },
     #[serde(rename = "project.upserted")]
     ProjectUpserted(ProjectResponse),
     #[serde(rename = "project.deleted")]

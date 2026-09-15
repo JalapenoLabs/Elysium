@@ -5,6 +5,7 @@
 pub mod coding_sessions;
 mod events;
 pub mod llms;
+pub mod mail;
 pub mod projects;
 pub mod satellites;
 
@@ -17,6 +18,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/events", get(events::handle))
         .nest("/llms", llms::router())
+        .nest("/mail", mail::router())
         .nest("/projects", projects::router())
         .nest("/satellites", satellites::router())
         .nest("/coding-sessions", coding_sessions::router())
