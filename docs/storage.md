@@ -7,7 +7,7 @@ checked.
 ## Locations
 
 A location has a name, a provider with that provider's own settings, an optional directory, an optional storage
-limit, and an access key.
+limit, and an access key (Bunny calls it the zone's password).
 
 | Field               | Meaning                                                                                  |
 |---------------------|------------------------------------------------------------------------------------------|
@@ -37,8 +37,9 @@ that matches on the kind; routes call `Storage` and never name a provider.
 | `zone`   | The storage zone's name: 1 to 64 letters, digits, or hyphens                 |
 | `region` | The zone's main region, which decides the endpoint                           |
 
-The access key is the zone's password, from FTP & API Access in Bunny's dashboard, sent as the `AccessKey` header.
-The account-wide API key is not used.
+The access key is the zone's Password, from Access (API / HTTP tab) in Bunny's dashboard, sent as the `AccessKey`
+header. The form labels it Password, as Bunny does. The Read-only password lists files but cannot write them, and the
+account-wide API key is not used.
 
 Each region has its own endpoint (`api/src/storage/bunny.rs`), and a zone answers only on its own:
 

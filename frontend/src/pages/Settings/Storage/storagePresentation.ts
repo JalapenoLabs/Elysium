@@ -3,6 +3,23 @@
 import type { ParseKeys } from 'i18next'
 import type { BunnyStorageRegion, StorageLocation, StorageProviderKind } from '../../../api/routes/storageRoutes'
 
+// One setup step. The text is translated; URLs are not.
+export type StorageSetupStep = {
+  textKey: ParseKeys<'storage'>
+  link?: string
+}
+
+// Where each provider keeps the settings the form asks for, in the provider's own words.
+export const storageSetupStepsByKind = {
+  bunny: [
+    { textKey: 'setup.bunny.open', link: 'https://dash.bunny.net/storage' },
+    { textKey: 'setup.bunny.zone' },
+    { textKey: 'setup.bunny.access' },
+    { textKey: 'setup.bunny.region' },
+    { textKey: 'setup.bunny.password' },
+  ],
+} as const satisfies Record<StorageProviderKind, readonly StorageSetupStep[]>
+
 export const storageProviderLabelKeys = {
   bunny: 'providers.bunny',
 } as const satisfies Record<StorageProviderKind, ParseKeys<'storage'>>

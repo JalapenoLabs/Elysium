@@ -2,7 +2,7 @@
   "title": "Storage",
   "locations": {
     "heading": "Storage locations",
-    "description": "Places Elysium saves files to, each with an optional limit on how much Elysium stores there. Access keys are encrypted and never shown again after saving.",
+    "description": "Places Elysium saves files to, each with an optional limit on how much Elysium stores there. Passwords are encrypted and never shown again after saving.",
     "add": "Add location"
   },
   "page": {
@@ -43,18 +43,18 @@
     "name": "Name",
     "provider": "Provider",
     "zone": "Storage zone",
-    "zoneHint": "The zone's name as it appears in Bunny's dashboard.",
+    "zoneHint": "The zone's name, as shown at the top of its page in Bunny's dashboard.",
     "region": "Region",
-    "regionHint": "Where the zone's main storage lives.",
+    "regionHint": "Shown under Storage Zone Region Endpoint in Bunny's dashboard.",
     "pathPrefix": "Directory",
     "pathPrefixHint": "Optional. Elysium saves files under this directory in the zone; leave blank for the zone's root.",
     "noLimit": "No limit",
     "noLimitHint": "Elysium stores as much here as the provider allows.",
     "storageLimit": "Storage limit",
     "storageLimitHint": "The most Elysium stores here, in gigabytes.",
-    "accessKey": "Access key",
-    "accessKeyHint": "The zone's password, from FTP & API Access in Bunny's dashboard. Not your account API key.",
-    "accessKeyKeep": "Leave blank to keep the current access key.",
+    "accessKey": "Password",
+    "accessKeyHint": "The zone's Password from Access in Bunny's dashboard. Not the Read-only password, since Elysium writes files.",
+    "accessKeyKeep": "Leave blank to keep the current password.",
     "errors": {
       "nameRequired": "Enter a name.",
       "nameTooLong": "Use 120 characters or fewer.",
@@ -64,8 +64,8 @@
       "pathPrefixTooLong": "Use 1,024 characters or fewer.",
       "storageLimitInvalid": "Enter a limit greater than zero.",
       "storageLimitTooLarge": "Enter a smaller limit.",
-      "accessKeyRequired": "Enter the zone's access key.",
-      "accessKeyTooLong": "Access keys can be at most 1 KB."
+      "accessKeyRequired": "Enter the zone's password.",
+      "accessKeyTooLong": "Passwords can be at most 1 KB."
     }
   },
   "delete": {
@@ -79,5 +79,16 @@
     "testPassed_one": "{{name}} is reachable: {{count}} item in its directory",
     "testPassed_other": "{{name}} is reachable: {{count}} items in its directory",
     "testFailed": "{{name}} could not be reached"
+  },
+  "setup": {
+    "title": "Find the zone's details",
+    "description": "Check off each step as you go.",
+    "bunny": {
+      "open": "Open Storage in the bunny.net dashboard, then open the zone to use, or add one.",
+      "zone": "Copy the zone's name, shown at the top of its menu, into Storage zone.",
+      "access": "Open Access, on the API / HTTP tab.",
+      "region": "Choose the region shown under Storage Zone Region Endpoint, such as London, UK.",
+      "password": "Under Access Key, reveal and copy Password into Password. Not the Read-only password: Elysium writes files."
+    }
   }
 }

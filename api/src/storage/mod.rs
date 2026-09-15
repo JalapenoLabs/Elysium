@@ -16,9 +16,9 @@ use bunny::Bunny;
 /// A provider refused a call or could not be reached.
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
-    /// The provider rejected the access key, or does not know the location there.
+    /// The provider rejected the password or key, or does not know the location there.
     #[error(
-        "the storage provider refused the access key; check the key, and that the zone is in the chosen region"
+        "the storage provider refused the password; check it, and that the zone is in the chosen region"
     )]
     Unauthorized,
     #[error("{0}")]

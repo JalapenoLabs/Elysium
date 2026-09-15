@@ -39,6 +39,7 @@ export function EditStorageLocationPage() {
 
   return <StorageLocationEditorLayout
     title={t('form.editTitle', { name: location.name })}
+    kind={location.provider.kind}
   >
     <StorageLocationForm
       // Remount when navigating between locations so the form takes the new values.

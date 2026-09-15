@@ -11,13 +11,15 @@ import { StorageLocationForm } from './StorageLocationForm'
 // Misc
 import { UrlTree } from '../../../urls'
 
-// `/settings/storage/new`: adding a storage location.
+// `/settings/storage/new`: adding a storage location. Bunny Storage is the only provider
+// today, so its steps sit beside the form.
 export function AddStorageLocationPage() {
   const { t } = useTranslation('storage')
   const navigate = useNavigate()
 
   return <StorageLocationEditorLayout
     title={t('form.createTitle')}
+    kind='bunny'
   >
     <StorageLocationForm
       location={null}

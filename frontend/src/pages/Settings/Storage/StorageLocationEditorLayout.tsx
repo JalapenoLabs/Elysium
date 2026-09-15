@@ -1,23 +1,26 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ReactNode } from 'react'
+import type { StorageProviderKind } from '../../../api/routes/storageRoutes'
 
 // Core
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Breadcrumbs, Card } from '@heroui/react'
+import { Breadcrumbs } from '@heroui/react'
+import { StorageSetupChecklist } from './StorageSetupChecklist'
 
 // Misc
 import { UrlTree } from '../../../urls'
 
 type Props = {
   title: string
+  kind: StorageProviderKind
   children: ReactNode
 }
 
-// The frame the add and edit pages share: breadcrumbs back to Storage, the title, and
-// the form in a card.
+// The frame the add and edit pages share: the form on the left, and on the right the
+// steps for finding the provider's settings. Narrow screens stack them, form first.
 export function StorageLocationEditorLayout(props: Props) {
   const { t } = useTranslation([ 'storage', 'settings' ])
 
@@ -31,8 +34,13 @@ export function StorageLocationEditorLayout(props: Props) {
       props.title
     }</h1>
 
-    <Card className='max-w-3xl p-6'>{
-      props.children
-    }</Card>
+    <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
+      <section>{
+        props.children
+      }</section>
+      <aside className='lg:sticky lg:top-4'>
+        <StorageSetupChecklist kind={props.kind} />
+      </aside>
+    </div>
   </div>
 }

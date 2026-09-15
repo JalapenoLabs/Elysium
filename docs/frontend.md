@@ -111,7 +111,9 @@ Storage under `src/pages/Settings/Storage/` lists storage locations in a table (
 directory, limit) whose row menu edits, tests, or deletes one; delete confirms through `useConfirm`. Adding and
 editing are their own pages, sharing `StorageLocationEditorLayout` and `StorageLocationForm`: provider, zone, region,
 directory, a limit in gigabytes (a `NumberField` formatted in the viewer's locale and converted to bytes on save,
-beside a No limit switch), and the access key, which is kept when left blank while editing. Provider and region labels come from lookup tables in `storagePresentation.ts`.
+beside a No limit switch), and the zone's password, which is kept when left blank while editing. A
+`StorageSetupChecklist` beside the form walks through where Bunny's dashboard shows each setting. It and
+`LlmSetupChecklist` both render `src/components/SetupChecklist.tsx`. Provider and region labels come from lookup tables in `storagePresentation.ts`.
 
 Email under `src/pages/Settings/Email/` has two sections.
 
