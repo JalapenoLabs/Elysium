@@ -8,6 +8,11 @@ x-api-build: &api-build
   context: .
   dockerfile: api/Dockerfile
 
+# nginx's fixed address on the mail network. Stalwart trusts the PROXY protocol header, which
+# carries each mail client's real address, from this address alone. Change it together with the
+# mail network's subnet below if that subnet collides with one on the host.
+x-mail-ingress-address: &mail-ingress-address 172.29.53.2
+
 x-database-url: &database-url postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:?}
 
 services:
@@ -18,8 +23,19 @@ services:
     ports:
       # Loopback only: the API has no authentication yet and can write credentials.
       - "127.0.0.1:${WEB_PORT:-4000}:80"
+      # Mail, on every interface: SMTP, submission, and IMAP, passed through to Stalwart.
+      # Stalwart authenticates these itself. See nginx/mail.conf.
+      - "${SMTP_PORT:-25}:25"
+      - "${SUBMISSIONS_PORT:-465}:465"
+      - "${IMAPS_PORT:-993}:993"
     volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/mail.conf:/etc/nginx/stream.d/mail.conf:ro
+    networks:
+      default:
+      mail:
+        ipv4_address: *mail-ingress-address
     depends_on:
       api:
         condition: service_healthy
@@ -78,10 +94,12 @@ services:
       OAUTH_BROKER_URL: ""
       # The filtered Docker API the mail server is created and run through.
       DOCKER_URL: http://docker-proxy:2375
+      MAIL_INGRESS_ADDRESS: *mail-ingress-address
       TZ: UTC
     networks:
       - default
       - docker-control
+      - mail
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -132,7 +150,6 @@ services:
       CONTAINERS: 1
       IMAGES: 1
       VOLUMES: 1
-      NETWORKS: 1
       POST: 1
       ALLOW_START: 1
       ALLOW_RESTARTS: 1
@@ -163,6 +180,18 @@ networks:
   # Only the API and the Docker proxy. Internal: it has no route out of the host.
   docker-control:
     internal: true
+  # nginx, the API, and the Stalwart container the API creates, which answers as `stalwart`.
+  # A fixed name, because the API attaches Stalwart to it by name; a fixed subnet, because
+  # nginx needs a fixed address. `docker compose down` reports it still in use while Stalwart
+  # runs, and leaves it for the next `up`.
+  mail:
+    name: elysium-mail
+    ipam:
+      config:
+        - subnet: 172.29.53.0/24
+          # Every other container gets an address from here, so none can take nginx's
+          # fixed address before nginx starts.
+          ip_range: 172.29.53.128/25
 
 volumes:
   postgres-data:

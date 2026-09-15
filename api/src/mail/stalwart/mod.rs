@@ -21,6 +21,7 @@
 
 pub mod container;
 
+use std::net::IpAddr;
 use std::time::Duration;
 
 use reqwest::StatusCode;
@@ -370,6 +371,60 @@ impl Stalwart {
             .map_err(|refusal| StalwartError::Refused(format!("domain not removed: {refusal}")))
     }
 
+    /// Makes `proxy` the only address Stalwart accepts a PROXY protocol header from, or
+    /// no address when `None`. Returns whether that changed anything.
+    ///
+    /// The header carries a client's real address through nginx. Stalwart then requires it
+    /// on every listener, management included, from every trusted address, so exactly
+    /// nginx's address is trusted: the API, connecting directly, must not be. A change
+    /// applies when the server next starts; restarting is the caller's job.
+    ///
+    /// # Errors
+    /// Returns [`StalwartError::Refused`] when the server refuses or is unreachable.
+    pub async fn trust_proxy(
+        &self,
+        administrator: &Administrator,
+        proxy: Option<IpAddr>,
+    ) -> Result<bool, StalwartError> {
+        let account_id = self.admin_account_id(administrator).await?;
+        let current = self
+            .call(
+                administrator,
+                json!([[
+                    "x:SystemSettings/get",
+                    { "accountId": account_id, "ids": ["singleton"], "properties": ["proxyTrustedNetworks"] },
+                    "settings"
+                ]]),
+            )
+            .await?;
+
+        let desired = trusted_networks(proxy);
+        if same_networks(&current[0]["list"][0]["proxyTrustedNetworks"], &desired) {
+            return Ok(false);
+        }
+
+        let updated = self
+            .call(
+                administrator,
+                json!([[
+                    "x:SystemSettings/set",
+                    {
+                        "accountId": account_id,
+                        "update": { "singleton": { "proxyTrustedNetworks": desired } }
+                    },
+                    "settings"
+                ]]),
+            )
+            .await?;
+        if updated[0]["updated"].get("singleton").is_none() {
+            return Err(StalwartError::Refused(format!(
+                "trusted proxy not updated: {}",
+                updated[0]["notUpdated"]["singleton"]
+            )));
+        }
+        Ok(true)
+    }
+
     /// Every DNS record Stalwart recommends for a domain, as a BIND zone file: MX, SPF,
     /// DKIM, DMARC, and service discovery. DKIM keys are generated a few seconds after a
     /// domain is added, so a new domain's file may lack them at first.
@@ -469,6 +524,40 @@ async fn send(
         .map_err(|error| StalwartError::Refused(error.to_string()))
 }
 
+/// Stalwart's `proxyTrustedNetworks` value trusting exactly `proxy`.
+fn trusted_networks(proxy: Option<IpAddr>) -> Value {
+    let mut networks = serde_json::Map::new();
+    if let Some(address) = proxy {
+        let prefix = if address.is_ipv4() { 32 } else { 128 };
+        networks.insert(format!("{address}/{prefix}"), Value::Bool(true));
+    }
+    Value::Object(networks)
+}
+
+/// Whether two `proxyTrustedNetworks` values name the same networks. Stalwart reports a
+/// single address without its `/32` or `/128`.
+fn same_networks(current: &Value, desired: &Value) -> bool {
+    let normalized = |value: &Value| -> Vec<String> {
+        let mut networks: Vec<String> = value
+            .as_object()
+            .map(|networks| {
+                networks
+                    .keys()
+                    .map(|network| {
+                        network
+                            .trim_end_matches("/32")
+                            .trim_end_matches("/128")
+                            .to_owned()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        networks.sort();
+        networks
+    };
+    normalized(current) == normalized(desired)
+}
+
 /// `Ok` when a `/set` result destroyed `id` or found it already gone, else the reason
 /// Stalwart gave.
 fn destroyed_or_refusal(result: &Value, id: &str) -> Result<(), Value> {
@@ -522,6 +611,19 @@ fn method_responses(reply: &Value) -> Result<Vec<Value>, StalwartError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exactly_the_proxy_address_is_trusted() {
+        let nginx: IpAddr = "172.29.53.2".parse().expect("address");
+        let desired = trusted_networks(Some(nginx));
+        assert_eq!(desired, json!({ "172.29.53.2/32": true }));
+
+        // Stalwart reports the address it stored without the prefix.
+        assert!(same_networks(&json!({ "172.29.53.2": true }), &desired));
+        assert!(!same_networks(&json!({}), &desired));
+        assert!(!same_networks(&json!({ "172.29.53.0/24": true }), &desired));
+        assert!(same_networks(&Value::Null, &trusted_networks(None)));
+    }
 
     #[test]
     fn only_dkim_keys_are_removed_along_with_a_domain() {

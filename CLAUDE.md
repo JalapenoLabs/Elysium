@@ -40,9 +40,12 @@ Everything else follows these rules:
   Docker, reached only via the filtered `docker-proxy`, never a mounted socket. It is not a compose service.
 - Stalwart's administrator is issued by Stalwart when the API creates the server, and is sealed in Postgres like any
   application secret. It never goes in `.env` or `compose.yml`.
-- The server publishes no ports. Making it reachable from the internet (ports, reverse DNS, TLS certificates) is
-  the operator's responsibility; Elysium provides each domain's DNS records and checks them, and never changes DNS
-  or issues certificates.
+- nginx is the single ingress for web and mail. It passes the mail ports (25, 465, 993) to Stalwart as raw TCP with
+  the PROXY protocol, and Stalwart trusts that header from nginx's fixed address alone. The Stalwart container
+  publishes no ports of its own.
+- What sits in front of the host (a VM's public address, port forwarding, tunnels, reverse DNS, certificates) is
+  the operator's responsibility, and Elysium accepts whatever arrives. Elysium provides each domain's DNS records
+  and checks them, and never changes DNS or issues certificates.
 
 ## One event stream keeps the frontend current
 

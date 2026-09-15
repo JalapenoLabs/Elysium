@@ -180,6 +180,7 @@ fn build_mail(
         events,
         stalwart.clone(),
         StalwartContainer::new(docker),
+        mail_config.ingress_address,
     );
     let dns = DnsChecker::from_system().context("cannot read the resolver configuration")?;
 
@@ -188,6 +189,7 @@ fn build_mail(
         Level::INFO,
         mail.broker = broker.is_some(),
         mail.docker.url = %mail_config.docker,
+        mail.ingress.address = ?mail_config.ingress_address,
         "mail services configured",
     );
     Ok(Mail {

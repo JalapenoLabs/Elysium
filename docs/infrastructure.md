@@ -5,14 +5,15 @@
 and `ELYSIUM_ENCRYPTION_KEY`. It may also supply `RUST_LOG`. Compose refuses to start when a required value is
 missing, and `.env.example` is the template.
 
-`WEB_PORT` may be set to move nginx off the default port 4000.
+`WEB_PORT` may be set to move nginx off the default port 4000. `SMTP_PORT`, `SUBMISSIONS_PORT`, and `IMAPS_PORT`
+move the host side of the mail ports off 25, 465, and 993.
 
 Postgres applies its credentials only when the data volume is first created. After changing them, recreate the
 volume with `docker compose down --volumes`, which destroys the data.
 
 | Service    | Image / build              | Container name     | Notes                                   |
 |------------|----------------------------|--------------------|-----------------------------------------|
-| `nginx`    | `nginx:1.30.4-alpine`      | `elysium-nginx`    | Only published port: `127.0.0.1:4000`   |
+| `nginx`    | `nginx:1.30.4-alpine`      | `elysium-nginx`    | The only published ports: web on `127.0.0.1:4000`, mail on 25, 465, 993 |
 | `frontend` | `frontend/Dockerfile`      | `elysium-frontend` | Vite dev server, source bind-mounted    |
 | `migrate`  | `api/Dockerfile`           | `elysium-migrate`  | One-shot `migrate run`, then exits      |
 | `api`      | `api/Dockerfile`           | none               | One replica; reachable only via nginx   |
@@ -20,7 +21,10 @@ volume with `docker compose down --volumes`, which destroys the data.
 | `redis`    | `redis:8.10.1-alpine`      | `elysium-redis`    | Password required, AOF on, `redis-data` |
 | `docker-proxy` | `tecnativa/docker-socket-proxy:v0.5.0` | `elysium-docker-proxy` | The API's filtered Docker API |
 
-The `docker-control` network is internal and joins only the API and `docker-proxy`.
+The `docker-control` network is internal and joins only the API and `docker-proxy`. The `elysium-mail` network
+(subnet `172.29.53.0/24`) joins nginx at the fixed address `172.29.53.2`, the API, and the Stalwart container; every
+other address comes from `172.29.53.128/25`. Change the subnet, the range, and `x-mail-ingress-address` together if
+the subnet collides with one on the host.
 
 The mail server is not a compose service. The API creates its container (`elysium-stalwart`), volumes, and network
 through `docker-proxy` when the mail server is created on the Email settings page, and they live outside the
@@ -36,6 +40,10 @@ upgrade. `/api/v1/events` has its own location with buffering off and a one-hour
 events arrive immediately and idle streams stay open.
 
 The frontend's HMR client is told nginx's published port through `VITE_HMR_CLIENT_PORT`.
+
+nginx runs its own main configuration, `nginx/nginx.conf`: the image's default plus a `stream` block, since raw TCP
+can only be proxied from the main context. `nginx/default.conf` holds the HTTP routing above, and `nginx/mail.conf`
+passes the mail ports to Stalwart with the PROXY protocol; see `docs/mail.md`.
 
 The API has no container name so it could scale, but it must run as one replica today: its event bus is
 in-process (see `docs/realtime.md`).

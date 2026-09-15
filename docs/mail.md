@@ -106,19 +106,20 @@ domains, accounts, and listeners, is a JMAP object in Stalwart's own datastore.
 ### Docker
 
 The API reaches Docker only through `docker-proxy` in `compose.yml` (`tecnativa/docker-socket-proxy:v0.5.0`), which
-answers the container, image, volume, and network endpoints and refuses the rest. The proxy is on the internal
+answers the container, image, and volume endpoints and refuses the rest. The proxy is on the internal
 `docker-control` network, shared with the API alone. `api/src/mail/stalwart/container.rs` owns everything the API
 creates, all labelled `dev.elysium.managed=mail-server`:
 
 | Kind      | Name                      | Holds                                                   |
 |-----------|---------------------------|---------------------------------------------------------|
-| network   | `elysium-mail`            | The API and Stalwart; Stalwart answers as `stalwart`    |
 | volume    | `elysium-stalwart-config` | `/etc/stalwart`, the configuration file setup writes    |
 | volume    | `elysium-stalwart-data`   | `/var/lib/stalwart`: domains, accounts, keys, and mail  |
 | container | `elysium-stalwart`        | The server, `restart: unless-stopped`, no published ports |
 
-None of these belong to the compose project, so `docker compose down` leaves the server running and its data in
-place; `docker compose down --volumes` does not remove them either.
+The container joins `elysium-mail`, which `compose.yml` defines for nginx, the API, and Stalwart; Stalwart answers
+there as `stalwart`. None of the API's resources belong to the compose project, so `docker compose down` leaves the
+server running and its data in place (compose reports `elysium-mail` still in use and keeps it for the next `up`),
+and `docker compose down --volumes` does not remove them either.
 
 ### Creating the server
 
@@ -126,7 +127,7 @@ The Email settings page asks for the first domain and the server's hostname (`ma
 `POST /api/v1/mail/server` answers `202` at once and the work runs in the background, each step published as
 `mailServer.updated` (`api/src/mail/hosting.rs`):
 
-1. `preparing`: create `elysium-mail` and attach the API's own container to it.
+1. `preparing`: claim the creation, so a second request is refused while it runs.
 2. `pulling-image`: pull the pinned image unless Docker has it.
 3. `starting`: create the volumes and the container, and start it. With no configuration file, Stalwart starts in
    bootstrap mode and prints a temporary administrator `admin` with a random password to its log.
@@ -135,7 +136,7 @@ The Email settings page asks for the first domain and the server's hostname (`ma
    with a permanent administrator (`admin@<domain>`), which is sealed into `mail_servers` at once. Stalwart shows
    its password only in that answer, so the database connection is taken before setup starts.
 5. `restarting`: restart the container, which is how Stalwart leaves bootstrap mode, and wait for it to accept the
-   new administrator.
+   new administrator. Then trust nginx's PROXY protocol header (see below), which takes another restart.
 6. `adding-domain`: record the first domain in `mail_domains` as the default.
 
 With the image already pulled, this takes about four seconds. A failure stops the sequence and the server is
@@ -144,10 +145,11 @@ whose first domain can be added like any other.
 
 ### Keeping it running
 
-At every API start, when a server exists, the API reattaches itself to `elysium-mail` (a recreated API container
-starts without it), pulls the image if it is gone, and starts the container, recreating it from its volumes if it
-was removed. `GET /api/v1/mail/server` signs in with the stored administrator on every call, so a server that stopped
-answering reads `unreachable`, as does one whose volumes were removed, which no longer knows the administrator.
+At every API start, when a server exists, the API pulls the image if it is gone, starts the container
+(recreating it from its volumes if it was removed), and makes sure Stalwart trusts nginx's current address,
+restarting it when that changed. `GET /api/v1/mail/server` signs in with the stored administrator on every call,
+so a server that stopped answering reads `unreachable`, as does one whose volumes were removed, which no longer
+knows the administrator.
 
 ### Domains
 
@@ -169,13 +171,39 @@ answering reads `unreachable`, as does one whose volumes were removed, which no 
 - Deleting a self-hosted mailbox destroys the Stalwart account and its mail before the row is removed.
 - Domain and mailbox changes answer `503` until a server exists.
 
-### Receiving mail from the internet
+### Inbound traffic
 
-The server publishes no ports and mail stays on this host: mail between its mailboxes is delivered, and mail to
-the internet has no DNS behind it. Making the server reachable is the operator's part, not Elysium's: a public IP
-address with ports 25, 465, and 993 reachable, an address record and reverse DNS for the hostname, each domain's
-records from the DNS check, and a TLS certificate for the hostname. Elysium does not issue certificates or publish
-the server's ports.
+nginx is the stack's single ingress, for mail as for the web. It publishes the mail ports on every interface and
+passes each connection to Stalwart as raw TCP (`nginx/mail.conf`):
+
+| Port | Protocol                          | TLS                                   |
+|------|-----------------------------------|---------------------------------------|
+| 25   | SMTP from other mail servers      | STARTTLS, negotiated by Stalwart      |
+| 465  | Submission from mail clients      | From the first byte, by Stalwart      |
+| 993  | IMAP for mail clients             | From the first byte, by Stalwart      |
+
+`SMTP_PORT`, `SUBMISSIONS_PORT`, and `IMAPS_PORT` move the host side of each, for a host whose ports are taken. nginx
+holds no mail certificate: TLS stays end to end with Stalwart, which serves a self-signed certificate today.
+
+nginx resolves `stalwart` per connection, so it starts before any mail server exists, and closes connections while
+none does.
+
+Every connection starts with a PROXY protocol header carrying the client's real address. Without it Stalwart would
+see nginx as the source of all mail, and SPF, rate limits, and blocklists would judge the wrong address. Stalwart
+requires that header from every address it trusts and on every listener, management included, so it trusts exactly
+one: nginx's fixed address on `elysium-mail` (`172.29.53.2`, `MAIL_INGRESS_ADDRESS`). The API connects directly and
+is never trusted. Containers other than nginx take addresses from `172.29.53.128/25`, so none can claim nginx's.
+
+Everything in front of the host is the operator's to arrange, and whatever they arrange is accepted: a cloud VM with
+its public address, a router forwarding the ports, or a tunnel. Pointing a hostname's address record at it, each
+domain's records from the DNS check, reverse DNS, and certificates are theirs too. Two limits hold whatever the
+setup:
+
+- Tunnels built for HTTP, such as Cloudflare Tunnel, carry web traffic but not inbound SMTP from other mail servers.
+  A domain whose MX points through one receives nothing.
+- Many residential ISPs block port 25, and many cloud providers, DigitalOcean among them, block outbound port 25.
+  Receiving can still work; delivering to other servers then needs a relay, which Elysium does not configure
+  today.
 
 At startup Stalwart downloads its web interface and spam-filter data from GitHub. The web interface is not used.
 
@@ -192,3 +220,5 @@ At startup Stalwart downloads its web interface and spam-filter data from GitHub
   verification, so the consent screens stop warning and Gmail's 100-user cap lifts.
 - Rate limiting on the broker's public routes.
 - Removing the mail server from the settings page: its container, volumes, domains, and mailboxes.
+- A relay (smarthost) for outbound mail, for hosts whose provider blocks port 25.
+- Installing a certificate for the server's hostname, replacing the self-signed one.

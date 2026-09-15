@@ -8,18 +8,16 @@
 //!
 //! | Kind      | Name                      | Purpose                                         |
 //! |-----------|---------------------------|-------------------------------------------------|
-//! | network   | `elysium-mail`            | Joins the API and Stalwart, and nothing else    |
 //! | volume    | `elysium-stalwart-config` | `/etc/stalwart`, written by setup               |
 //! | volume    | `elysium-stalwart-data`   | `/var/lib/stalwart`, every domain, account, and message |
 //! | container | `elysium-stalwart`        | The server, reachable as `stalwart` on the network |
 //!
-//! The network belongs to the API rather than to compose, so `docker compose down` can
-//! remove the stack's own network while Stalwart keeps running. The API attaches its
-//! own container to the network at startup, since a recreated API container starts
-//! without it.
+//! The container joins `elysium-mail`, a network `compose.yml` defines for nginx, the
+//! API, and Stalwart. nginx publishes the mail ports and passes connections to
+//! `stalwart`; the container itself publishes none.
 //!
 //! Docker is reached through the filtered socket proxy in `compose.yml`, which allows
-//! the container, image, volume, and network endpoints and nothing else.
+//! the container, image, and volume endpoints and nothing else.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -27,8 +25,8 @@ use std::time::Duration;
 use bollard::Docker;
 use bollard::errors::Error as DockerError;
 use bollard::models::{
-    ContainerCreateBody, EndpointSettings, HostConfig, NetworkConnectRequest, NetworkCreateRequest,
-    NetworkingConfig, RestartPolicy, RestartPolicyNameEnum, VolumeCreateRequest,
+    ContainerCreateBody, EndpointSettings, HostConfig, NetworkingConfig, RestartPolicy,
+    RestartPolicyNameEnum, VolumeCreateRequest,
 };
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, CreateImageOptionsBuilder, LogsOptionsBuilder,
@@ -45,6 +43,7 @@ const IMAGE_REPOSITORY: &str = "stalwartlabs/stalwart";
 const IMAGE_TAG: &str = "v0.16.22-alpine";
 
 const CONTAINER_NAME: &str = "elysium-stalwart";
+/// Defined in `compose.yml`, which names it explicitly so it can be joined by name.
 const NETWORK_NAME: &str = "elysium-mail";
 const CONFIG_VOLUME: &str = "elysium-stalwart-config";
 const DATA_VOLUME: &str = "elysium-stalwart-data";
@@ -65,9 +64,6 @@ const BOOTSTRAP_BANNER: &str = "temporary administrator account";
 pub enum ContainerError {
     #[error("Docker: {0}")]
     Docker(#[from] DockerError),
-    /// The API cannot name its own container, so it cannot join the mail network.
-    #[error("the API is not running in a Docker container, so it cannot reach the mail server")]
-    NotContainerized,
     #[error(
         "the mail server printed no setup password; if its volumes hold a server set up before, remove \
          the {CONTAINER_NAME} container and the {CONFIG_VOLUME} and {DATA_VOLUME} volumes to start over"
@@ -83,65 +79,6 @@ pub struct StalwartContainer {
 impl StalwartContainer {
     pub const fn new(docker: Docker) -> Self {
         Self { docker }
-    }
-
-    /// Creates the mail network when absent and attaches this API's container to it, so
-    /// `stalwart` resolves from here.
-    ///
-    /// # Errors
-    /// [`ContainerError::NotContainerized`] outside Docker, and
-    /// [`ContainerError::Docker`] when Docker refuses.
-    pub async fn attach_api(&self) -> Result<(), ContainerError> {
-        // Docker sets a container's hostname to its short id unless compose names one.
-        let own_container =
-            std::env::var("HOSTNAME").map_err(|_missing| ContainerError::NotContainerized)?;
-
-        if let Err(error) = self.docker.inspect_network(NETWORK_NAME, None).await {
-            if !has_status(&error, 404) {
-                return Err(error.into());
-            }
-            let created = self
-                .docker
-                .create_network(NetworkCreateRequest {
-                    name: NETWORK_NAME.to_owned(),
-                    driver: Some("bridge".to_owned()),
-                    labels: Some(managed_labels()),
-                    ..Default::default()
-                })
-                .await;
-            // Another API replica may have created it in the meantime.
-            if let Err(error) = created
-                && !has_status(&error, 409)
-            {
-                return Err(error.into());
-            }
-        }
-
-        let own = self.docker.inspect_container(&own_container, None).await?;
-        let attached = own
-            .network_settings
-            .and_then(|settings| settings.networks)
-            .is_some_and(|networks| networks.contains_key(NETWORK_NAME));
-        if attached {
-            return Ok(());
-        }
-
-        self.docker
-            .connect_network(
-                NETWORK_NAME,
-                NetworkConnectRequest {
-                    container: own_container,
-                    endpoint_config: None,
-                },
-            )
-            .await?;
-        event!(
-            name: "mail.container.api_attached",
-            Level::INFO,
-            network.name = NETWORK_NAME,
-            "attached the API to the mail network",
-        );
-        Ok(())
     }
 
     /// Pulls the pinned image unless Docker already has it.

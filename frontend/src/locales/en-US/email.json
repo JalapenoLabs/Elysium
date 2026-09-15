@@ -5,7 +5,7 @@
     "description": "Elysium runs one mail server for self-hosted mailboxes. It hosts any number of domains, all on the same ports.",
     "empty": {
       "title": "No mail server yet",
-      "description": "Creating one starts a Stalwart mail server on this host through Docker. Mail stays on this host until you make the server reachable from the internet.",
+      "description": "Creating one starts a Stalwart mail server on this host through Docker. Mail arrives through Elysium's nginx on ports 25, 465, and 993.",
       "action": "Create mail server"
     },
     "hostname": "Answers as {{hostname}}",
@@ -108,7 +108,7 @@
     "zoneFileHint": "Includes optional service discovery records, as a zone file.",
     "internet": {
       "title": "Receiving mail from the internet",
-      "description": "Beyond these records it needs a public IP address with ports 25, 465, and 993 reachable, an address record and reverse DNS for {{hostname}}, and a TLS certificate for {{hostname}}. Providing those is up to you."
+      "description": "Elysium's nginx accepts mail on ports 25, 465, and 993 and passes it to the mail server. Point an address record for {{hostname}} at the host running Elysium and make those ports reachable. Reverse DNS and a TLS certificate for {{hostname}} are up to you."
     }
   },
   "mailboxes": {

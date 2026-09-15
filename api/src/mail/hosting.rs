@@ -8,7 +8,7 @@
 //! returns at once; the work runs in the background because pulling Stalwart's image
 //! can take a minute. Each step is published as `mailServer.updated`:
 //!
-//! 1. `preparing`: create the mail network and attach the API to it.
+//! 1. `preparing`: claim the creation, so a second request is refused.
 //! 2. `pulling-image`: pull Stalwart's pinned image unless Docker has it.
 //! 3. `starting`: create the container and its volumes, and start it. It comes up in
 //!    bootstrap mode and prints a temporary administrator to its log.
@@ -16,7 +16,8 @@
 //!    the permanent administrator Stalwart issues into `mail_servers`. Stalwart shows
 //!    that password only once, so it is stored before anything else can fail.
 //! 5. `restarting`: restart the container out of bootstrap mode and wait for it to
-//!    accept the new administrator.
+//!    accept the new administrator. Then trust nginx's PROXY protocol header, which
+//!    only takes effect on another restart.
 //! 6. `adding-domain`: record the first domain, which setup created, in `mail_domains`.
 //!
 //! A failure stops the sequence and is reported as `failed` with the reason, until
@@ -25,10 +26,11 @@
 //!
 //! # Keeping it running
 //!
-//! [`Hosting::reconcile`] runs at every API start. When a server exists it reattaches
-//! the API to the mail network (a recreated API container starts without it) and
-//! starts the container, recreating it from its volumes if it was removed.
+//! [`Hosting::reconcile`] runs at every API start. When a server exists it starts the
+//! container, recreating it from its volumes if it was removed, and makes Stalwart trust
+//! the configured nginx address, restarting it when that changed.
 
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
@@ -128,6 +130,8 @@ struct Inner {
     events: EventBus,
     stalwart: Stalwart,
     container: StalwartContainer,
+    /// nginx's address on the mail network, the only one allowed to send PROXY headers.
+    ingress_address: Option<IpAddr>,
     progress: Mutex<Progress>,
 }
 
@@ -138,6 +142,7 @@ impl Hosting {
         events: EventBus,
         stalwart: Stalwart,
         container: StalwartContainer,
+        ingress_address: Option<IpAddr>,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -146,6 +151,7 @@ impl Hosting {
                 events,
                 stalwart,
                 container,
+                ingress_address,
                 progress: Mutex::new(Progress::Idle),
             }),
         }
@@ -248,13 +254,17 @@ impl Hosting {
     /// documentation. Failures are logged; the status reports the server unreachable.
     pub async fn reconcile(&self) {
         let outcome = async {
-            if self.stored_server().await?.is_none() {
+            let Some((_hostname, administrator)) = self.stored_server().await? else {
                 return anyhow::Ok(());
-            }
+            };
             let container = &self.inner.container;
-            container.attach_api().await?;
             container.ensure_image().await?;
             container.ensure_running().await?;
+            self.inner
+                .stalwart
+                .wait_until_serving(&administrator)
+                .await?;
+            self.trust_ingress(&administrator).await?;
             anyhow::Ok(())
         }
         .await;
@@ -273,7 +283,6 @@ impl Hosting {
         let container = &self.inner.container;
         let stalwart = &self.inner.stalwart;
 
-        container.attach_api().await?;
         self.advance(Step::PullingImage).await;
         container.ensure_image().await?;
 
@@ -309,6 +318,7 @@ impl Hosting {
         self.advance(Step::Restarting).await;
         container.restart().await?;
         stalwart.wait_until_serving(&administrator).await?;
+        self.trust_ingress(&administrator).await?;
 
         self.advance(Step::AddingDomain).await;
         let stalwart_id = stalwart.ensure_domain(&administrator, domain).await?;
@@ -324,6 +334,28 @@ impl Hosting {
             .publish(&ServerEvent::MailDomainUpserted(MailDomainResponse::from(
                 created,
             )));
+        Ok(())
+    }
+
+    /// Makes Stalwart trust PROXY headers from nginx's configured address alone, and
+    /// restarts it when that changed, since the setting applies at startup.
+    async fn trust_ingress(&self, administrator: &Administrator) -> anyhow::Result<()> {
+        let stalwart = &self.inner.stalwart;
+        let changed = stalwart
+            .trust_proxy(administrator, self.inner.ingress_address)
+            .await?;
+        if !changed {
+            return Ok(());
+        }
+
+        self.inner.container.restart().await?;
+        stalwart.wait_until_serving(administrator).await?;
+        event!(
+            name: "mail.server.ingress_trusted",
+            Level::INFO,
+            network.peer.address = ?self.inner.ingress_address,
+            "the mail server now trusts the configured ingress",
+        );
         Ok(())
     }
 

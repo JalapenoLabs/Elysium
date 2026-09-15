@@ -43,6 +43,10 @@ pub struct MailConfig {
     pub oauth_broker_internal: Option<Url>,
     /// The Docker API the mail server is run through: the filtered socket proxy.
     pub docker: Url,
+    /// nginx's fixed address on the mail network. Stalwart trusts the PROXY protocol
+    /// header, which carries each client's real address, from it alone. Unset when
+    /// mail does not arrive through nginx.
+    pub ingress_address: Option<IpAddr>,
 }
 
 impl Config {
@@ -70,6 +74,12 @@ impl Config {
                 docker: optional_base_url("DOCKER_URL")?.unwrap_or_else(|| {
                     Url::parse("http://docker-proxy:2375/").expect("a static URL parses")
                 }),
+                ingress_address: std::env::var("MAIL_INGRESS_ADDRESS")
+                    .ok()
+                    .filter(|address| !address.trim().is_empty())
+                    .map(|address| address.trim().parse())
+                    .transpose()
+                    .context("MAIL_INGRESS_ADDRESS is not an IP address")?,
             },
         })
     }

@@ -185,6 +185,7 @@ seconds for this before `SIGKILL`.
 | `OAUTH_BROKER_URL`         | empty            | OAuth broker for browsers; empty disables Gmail and Outlook |
 | `OAUTH_BROKER_INTERNAL_URL`| `OAUTH_BROKER_URL` | OAuth broker as the API reaches it       |
 | `DOCKER_URL`               | `http://docker-proxy:2375` | Docker API the mail server runs through |
+| `MAIL_INGRESS_ADDRESS`     | empty            | nginx's address on the mail network; Stalwart trusts its PROXY headers |
 
 Connection strings and the key are held as `SecretString`, so they never appear in debug output.
 
