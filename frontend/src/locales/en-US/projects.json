@@ -37,7 +37,8 @@
     "title": "Delete {{name}}?",
     "body": "The project is removed permanently.",
     "hasSessions_one": "{{name}} still has {{count}} coding session. Delete it before deleting the project.",
-    "hasSessions_other": "{{name}} still has {{count}} coding sessions. Delete them before deleting the project."
+    "hasSessions_other": "{{name}} still has {{count}} coding sessions. Delete them before deleting the project.",
+    "confirm": "Delete project"
   },
   "toasts": {
     "created": "{{name}} created",
@@ -68,5 +69,12 @@
     "updated": "Updated {{date}}",
     "noDescription": "No description",
     "coverAlt": "Cover image for {{name}}"
+  },
+  "page": {
+    "actions": "Actions",
+    "notFound": "This project does not exist, or was deleted.",
+    "backToProjects": "Back to projects",
+    "sessionsHeading": "Coding sessions",
+    "sessionsEmpty": "No coding sessions in this project yet. Start one from Coding."
   }
 }

@@ -5,20 +5,28 @@ import type { CodingSession } from '../../api/routes/codingSessionRoutes'
 import type { CodingActions } from './codingActionsContext'
 
 // Core
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router'
+
+// Redux
+import { codingSessionDeleted, selectCodingSessionById } from '../../store/codingSessionsSlice'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
 
 // User interface
-import { Button, useOverlayState } from '@heroui/react'
+import { Button, toast, useOverlayState } from '@heroui/react'
 import { DockviewReact } from 'dockview-react'
 import { LuLayoutPanelLeft, LuPlus, LuRotateCcw } from 'react-icons/lu'
 import { ConversationPanel } from './ConversationPanel'
 import { CreateSessionModal } from './CreateSessionModal'
-import { DeleteSessionDialog } from './DeleteSessionDialog'
 import { RenameSessionModal } from './RenameSessionModal'
 import { SessionsPanel } from './SessionsPanel'
 
 // Misc
+import { getUpstreamErrorMessage } from '../../api/errors'
+import { deleteCodingSession } from '../../api/routes/codingSessionRoutes'
+import { useConfirm } from '../../hooks/useConfirm'
+import { useCodingSessionsLoader } from '../../hooks/useServerData'
 import { CodingActionsContext } from './codingActionsContext'
 import {
   CODING_PANEL_COMPONENTS,
@@ -38,14 +46,23 @@ const panelComponents = {
 // The Coding area: a Dockview workspace holding the sessions overview and one
 // conversation panel per open session, arranged however the user drags them. The
 // layout persists per browser. This page owns the dialogs; panels open them through
-// CodingActionsContext.
+// CodingActionsContext. `?session=<id>` opens that session's conversation once the
+// workspace and the session are both loaded, then leaves the address.
 export function CodingPage() {
-  const { t } = useTranslation('coding')
+  const { t } = useTranslation([ 'coding', 'common' ])
+  const dispatch = useAppDispatch()
+  const confirm = useConfirm()
   const dockviewApiRef = useRef<DockviewApi | null>(null)
+  const [ isDockviewReady, setIsDockviewReady ] = useState(false)
+  const [ searchParams, setSearchParams ] = useSearchParams()
+  const requestedSessionId = searchParams.get('session')
+  useCodingSessionsLoader()
+  const requestedSession = useAppSelector((state) => requestedSessionId
+    ? selectCodingSessionById(state, requestedSessionId)
+    : undefined)
 
   const createState = useOverlayState()
   const renameState = useOverlayState()
-  const deleteState = useOverlayState()
   const [ selectedSession, setSelectedSession ] = useState<CodingSession | null>(null)
   // Remounting a form per opening resets it.
   const [ formSession, setFormSession ] = useState(0)
@@ -67,14 +84,43 @@ export function CodingPage() {
       setFormSession((formKey) => formKey + 1)
       renameState.open()
     },
-    deleteSession: (session) => {
-      setSelectedSession(session)
-      deleteState.open()
-    },
-  }), [ createState, renameState, deleteState ])
+    deleteSession: (session) => confirm({
+      title: t('delete.title', { title: session.title }),
+      message: t('delete.body'),
+      tone: 'danger',
+      confirmText: t('common:actions.delete'),
+      onConfirm: async () => {
+        try {
+          await deleteCodingSession(session.id)
+        }
+        catch (error) {
+          const message = getUpstreamErrorMessage(error)
+          if (!message) {
+            console.debug('CodingPage failed to delete the session', { error, sessionId: session.id })
+          }
+          toast.danger(message ?? t('common:errors.unexpected'))
+          throw error
+        }
+        dispatch(codingSessionDeleted(session.id))
+        toast.success(t('toasts.deleted', { title: session.title }))
+      },
+    }),
+  }), [ createState, renameState, confirm, dispatch, t ])
+
+  useEffect(() => {
+    if (!isDockviewReady || !requestedSession || !dockviewApiRef.current) {
+      return
+    }
+    openConversation(dockviewApiRef.current, requestedSession)
+    setSearchParams((params) => {
+      params.delete('session')
+      return params
+    }, { replace: true })
+  }, [ isDockviewReady, requestedSession, setSearchParams ])
 
   function onReady(event: DockviewReadyEvent) {
     dockviewApiRef.current = event.api
+    setIsDockviewReady(true)
 
     if (!restoreLayout(event.api)) {
       showSessionsPanel(event.api, t('panels.sessions'))
@@ -148,10 +194,6 @@ export function CodingPage() {
     <RenameSessionModal
       key={`rename-${formSession}`}
       state={renameState}
-      session={selectedSession}
-    />
-    <DeleteSessionDialog
-      state={deleteState}
       session={selectedSession}
     />
   </CodingActionsContext.Provider>

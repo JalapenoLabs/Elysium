@@ -9,7 +9,7 @@ import { z } from 'zod'
 // a round trip.
 const LOCAL_PART_MAX_CHARACTERS = 64
 const DOMAIN_MAX_CHARACTERS = 253
-const DISPLAY_NAME_MAX_CHARACTERS = 120
+export const DISPLAY_NAME_MAX_CHARACTERS = 120
 const LOCAL_PART_PATTERN = /^[a-z0-9_+-]+(\.[a-z0-9_+-]+)*$/i
 const DOMAIN_PATTERN = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i
 
@@ -64,10 +64,3 @@ export function createMailDomainFormSchema(t: TFunction<'email'>) {
 
 export type MailDomainFormValues = z.infer<ReturnType<typeof createMailDomainFormSchema>>
 
-export function createSenderNameFormSchema(t: TFunction<'email'>) {
-  return z.object({
-    displayName: displayNameField(t),
-  })
-}
-
-export type SenderNameFormValues = z.infer<ReturnType<typeof createSenderNameFormSchema>>

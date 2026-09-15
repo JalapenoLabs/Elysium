@@ -27,6 +27,7 @@ export const { projectsLoaded, projectUpserted, projectDeleted } = projectsSlice
 
 export const {
   selectAll: selectAllProjects,
+  selectById: selectProjectById,
   selectEntities: selectProjectEntities,
 } = projectsAdapter.getSelectors((state: RootState) => state.projects)
 

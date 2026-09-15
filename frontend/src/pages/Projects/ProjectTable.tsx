@@ -7,16 +7,18 @@ import type { ProjectSort } from './projectListing'
 // Core
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router'
 
 // User interface
+import { Link } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { ImagePreview } from '../../components/ImagePreview'
 import { ProjectCover } from './ProjectCover'
-import { ProjectRowActions } from './ProjectRowActions'
 
 // Misc
 import { getProjectCoverUrl } from '../../api/routes/projectRoutes'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
+import { getProjectViewUrl } from '../../urls'
 import { DEFAULT_PROJECT_SORT, PROJECT_SORT_KEYS } from './projectListing'
 
 type Props = {
@@ -25,11 +27,9 @@ type Props = {
   sort: ProjectSort
   onSortChange: (sort: ProjectSort) => void
   sessionCounts: Record<string, number>
-  onEdit: (project: Project) => void
-  onDelete: (project: Project) => void
 }
 
-const PROJECT_COLUMN_KEYS = [ 'cover', 'name', 'sessions', 'updated', 'rowActions' ] as const
+const PROJECT_COLUMN_KEYS = [ 'cover', 'name', 'sessions', 'updated' ] as const
 type ProjectColumnKey = typeof PROJECT_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
@@ -37,7 +37,6 @@ const columnLabelKeys = {
   name: 'table.name',
   sessions: 'table.sessions',
   updated: 'table.updated',
-  rowActions: 'common:actions.moreActions',
 } as const satisfies Record<ProjectColumnKey, string>
 
 // Starting widths in pixels, summing to less than the page's content column.
@@ -46,12 +45,13 @@ const columnSizes = {
   name: 420,
   sessions: 160,
   updated: 200,
-  rowActions: 64,
 } as const satisfies Record<ProjectColumnKey, number>
 
-// The table view. Its column headers sort through the same state as the toolbar.
+// The table view. Its column headers sort through the same state as the toolbar, and a
+// row opens its project.
 export function ProjectTable(props: Props) {
   const { t, i18n } = useTranslation([ 'projects', 'common' ])
+  const navigate = useNavigate()
   const labels = useSmartTableLabels()
 
   const sorting: SortingState = [{ id: props.sort.key, desc: props.sort.descending }]
@@ -84,27 +84,27 @@ export function ProjectTable(props: Props) {
         if (!coverUrl) {
           return thumbnail
         }
-        return <ImagePreview
-          src={coverUrl}
-          alt={t('tile.coverAlt', { name: project.name })}
-          className='inline-block rounded-md'
-        >
-          {thumbnail}
-        </ImagePreview>
+        // Opening the preview must not also open the project.
+        return <span data-no-row-highlight='true'>
+          <ImagePreview
+            src={coverUrl}
+            alt={t('tile.coverAlt', { name: project.name })}
+            className='inline-block rounded-md'
+          >
+            {thumbnail}
+          </ImagePreview>
+        </span>
       },
       name: (project: Project) => <div>
-        <div className='font-medium'>{project.name}</div>
+        <Link href={getProjectViewUrl(project.id)} className='font-medium text-inherit no-underline'>{
+          project.name
+        }</Link>
         {project.description && <div className='max-w-md truncate text-xs opacity-70'>{
           project.description
         }</div>}
       </div>,
       sessions: (project: Project) => countFormatter.format(props.sessionCounts[project.id] ?? 0),
       updated: (project: Project) => dateFormatter.format(new Date(project.updatedAt)),
-      rowActions: (project: Project) => <ProjectRowActions
-        project={project}
-        onEdit={props.onEdit}
-        onDelete={props.onDelete}
-      />,
     } satisfies Record<ProjectColumnKey, (project: Project) => unknown>
 
     // Search matches names and descriptions only.
@@ -118,7 +118,6 @@ export function ProjectTable(props: Props) {
       name: searchText,
       sessions: (project: Project) => props.sessionCounts[project.id] ?? 0,
       updated: (project: Project) => project.updatedAt,
-      rowActions: null,
     } satisfies Record<ProjectColumnKey, ((project: Project) => string | number) | null>
 
     return createManagedColumns<Project, ProjectColumnKey>({
@@ -151,13 +150,14 @@ export function ProjectTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, props.sessionCounts, props.onEdit, props.onDelete ])
+  }, [ t, i18n.language, props.sessionCounts ])
 
   return <SmartTable
     ids={{
       tableElementId: 'projects-table',
       tableLocalStorageId: 'elysium.projects.table',
     }}
+    className='[&_tbody_tr]:cursor-pointer'
     tableAriaLabel={t('table.label')}
     data={props.projects}
     managedColumns={managedColumns}
@@ -169,6 +169,14 @@ export function ProjectTable(props: Props) {
     sorting={sorting}
     onSortingChange={onSortingChange}
     enableSorting
+    // A row click opens the project; nothing is ever shown as highlighted.
+    enableRowHighlight
+    highlightedRowId={null}
+    onHighlightedRowChange={(projectId) => {
+      if (projectId) {
+        navigate(getProjectViewUrl(projectId))
+      }
+    }}
     stickyHeader={false}
   />
 }

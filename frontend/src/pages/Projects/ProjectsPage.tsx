@@ -1,10 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Project } from '../../api/routes/projectRoutes'
 import type { ProjectSort, ProjectView } from './projectListing'
 
 // Core
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 
@@ -15,10 +14,8 @@ import { useAppSelector } from '../../store/hooks'
 import { selectAllProjects } from '../../store/projectsSlice'
 
 // User interface
-import { Button, Spinner, useOverlayState } from '@heroui/react'
+import { Button, Spinner } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
-import { DeleteProjectDialog } from './DeleteProjectDialog'
-import { EditProjectModal } from './EditProjectModal'
 import { ProjectsToolbar } from './ProjectsToolbar'
 import { ProjectTable } from './ProjectTable'
 import { ProjectTiles } from './ProjectTiles'
@@ -68,27 +65,6 @@ export function ProjectsPage() {
       console.debug('The projects view could not be saved to localStorage', { error })
     }
   }
-
-  const editState = useOverlayState()
-  const deleteState = useOverlayState()
-  const [ selectedProject, setSelectedProject ] = useState<Project | null>(null)
-  // Remounting the form per opening resets it to the chosen project's values.
-  const [ formSession, setFormSession ] = useState(0)
-
-  // Stable so the table's columns are not rebuilt on every render. The overlay state
-  // object is new each render, but its `open` callbacks are memoized.
-  const openEditOverlay = editState.open
-  const openEdit = useCallback((project: Project) => {
-    setSelectedProject(project)
-    setFormSession((session) => session + 1)
-    openEditOverlay()
-  }, [ openEditOverlay ])
-
-  const openDeleteOverlay = deleteState.open
-  const openDelete = useCallback((project: Project) => {
-    setSelectedProject(project)
-    openDeleteOverlay()
-  }, [ openDeleteOverlay ])
 
   return <div className='container'>
     <div className='level relaxed items-start'>
@@ -144,29 +120,13 @@ export function ProjectsPage() {
         sort={sort}
         onSortChange={setSort}
         sessionCounts={sessionCounts}
-        onEdit={openEdit}
-        onDelete={openDelete}
       />}
 
       {listedProjects.length > 0 && view === 'tiles' && <ProjectTiles
         projects={listedProjects}
         sessionCounts={sessionCounts}
-        onEdit={openEdit}
-        onDelete={openDelete}
       />}
     </>}
 
-    <EditProjectModal
-      key={formSession}
-      state={editState}
-      project={selectedProject}
-    />
-    <DeleteProjectDialog
-      state={deleteState}
-      project={selectedProject}
-      sessionCount={selectedProject
-        ? sessionCounts[selectedProject.id] ?? 0
-        : 0}
-    />
   </div>
 }

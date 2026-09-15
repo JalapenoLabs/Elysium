@@ -9,6 +9,7 @@ import { ActionItemsPage } from './pages/ActionItems/ActionItemsPage'
 import { CodingPage } from './pages/Coding/CodingPage'
 import { HomePage } from './pages/Home/HomePage'
 import { CreateProjectPage } from './pages/Projects/CreateProjectPage'
+import { ProjectPage } from './pages/Projects/ProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
@@ -55,6 +56,10 @@ export const router = createBrowserRouter([
       {
         path: UrlTree.projectsNew,
         element: <CreateProjectPage />,
+      },
+      {
+        path: UrlTree.projectView,
+        element: <ProjectPage />,
       },
       {
         path: UrlTree.coding,

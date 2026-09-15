@@ -49,7 +49,8 @@ the home page.
 | `/`                           | `HomePage`               | Placeholder                                              |
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
-| `/coding`                     | `CodingPage`             | Dockview workspace of coding sessions, see below         |
+| `/projects/:projectId`        | `ProjectPage`            | One project: its sessions, edit, and delete              |
+| `/coding`                     | `CodingPage`             | Dockview workspace; `?session=<id>` opens that session    |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
 | `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
@@ -63,13 +64,29 @@ New settings pages add an entry to a section and a route under `/settings`.
 
 ## Pages and components
 
+### Confirm and prompt gates
+
+`src/gates/ConfirmGate.tsx` and `src/gates/PromptGate.tsx` wrap the router in `main.tsx`, each holding one dialog for
+the whole app. `useConfirm()` and `usePrompt()` return a function that opens it with options, so a page describes
+the question and what happens next instead of owning dialog state:
+
+- `confirm({ title, message, tone, confirmText, canConfirm, onConfirm })`. `tone: 'danger'` shows a danger icon
+  and button. `canConfirm: false` turns the dialog into an explanation with only Close, for an action that is
+  blocked.
+- `prompt({ title, label, defaultValue, description, isOptional, maxLength, isMultiline, onSubmit })` asks for one
+  value and passes it trimmed.
+
+Both keep the dialog open, the button pending, while the callback runs. It closes when the callback resolves and
+stays open when it throws, so a callback reports its own failure (a toast) and rethrows to let the user retry.
+
 Each exported component has its own file. Pages live under `src/pages/<Area>/`. Pure helpers, lookup tables, and
 schemas sit in non-component files beside the page, such as `llmPresentation.ts` and `llmFormSchema.ts`, so React
 Fast Refresh keeps working.
 
 Manage LLMs is split into these files:
 
-- `ManageLlmsPage` owns data loading and the delete dialog. Its Add LLM menu lists the provider types.
+- `ManageLlmsPage` owns data loading and confirms deletes through `useConfirm`. Its Add LLM menu lists the provider
+  types.
 - `LlmTable` renders the credentials with uikit's `SmartTable`: search, result count, sorting, and column
   controls. Column widths and order persist in localStorage.
 - `LlmRowActions` is the per-row menu to edit, activate or deactivate, and delete.
@@ -82,7 +99,6 @@ Manage LLMs is split into these files:
 - `LlmForm` handles create and edit. The token field has a reveal toggle. Expiry is a date, not a time: HeroUI's
   `DatePicker` (typed segments plus a calendar) at day granularity, saved as midnight at the start of that day in
   the viewer's zone. One year from now picks the date 365 days after today.
-- `DeleteLlmDialog` confirms and performs a delete.
 
 Manage satellites follows the same split under `src/pages/Settings/Satellites/`. Its table shows each satellite's
 live status (online, unreachable with the reason on hover, checking, or inactive), version, and thread load, and
@@ -93,8 +109,8 @@ Email under `src/pages/Settings/Email/` has two sections.
 `MailServerSection` follows the mail server's state from Redux. With no server it offers `CreateMailServerModal`
 (first domain, and a hostname that follows it as `mail.<domain>` until edited); while it is created it shows the
 current step from `mailServer.updated` events; once ready it lists domains in `MailDomainTable`, with
-`AddMailDomainModal`, `RemoveMailDomainDialog` (disabled while the domain has mailboxes), and `MailDomainDnsModal`,
-which checks the domain's records through SWR each time it opens and lists them with copy buttons (`DnsRecordRow`).
+`AddMailDomainModal`, a remove confirmation (which only explains while the domain has mailboxes), and
+`MailDomainDnsModal`, which checks the domain's records through SWR each time it opens and lists them with copy buttons (`DnsRecordRow`).
 
 The mailboxes section shows `MailAccountTable`. `MailboxSourceActions` offers Connect Gmail, Connect Outlook, and
 Create mailbox, disabling each with the reason: no broker (from `GET /api/v1/mail/capabilities`, read through SWR),
@@ -102,8 +118,9 @@ no ready mail server, or no domain. `CreateMailboxModal` picks one of the server
 plain anchors to the API's
 OAuth start route, because the answer is a redirect to the broker; a client-side route change would not follow it.
 `useOAuthOutcomeToast` announces the `mailConnected` or `mailError` the callback returns with, then strips it from
-the URL. The row menu tests the connection, sends a test message, changes the sender name, toggles active, and
-disconnects; the disconnect dialog says whether mail is deleted (self-hosted) or only forgotten (OAuth).
+the URL. The row menu tests the connection, sends a test message, changes the sender name (through `usePrompt`),
+toggles active, and disconnects; the disconnect confirmation says whether mail is deleted (self-hosted) or only
+forgotten (OAuth).
 
 ### Coding
 
@@ -113,6 +130,8 @@ matter when changing it:
 
 - Dockview renders panels through portals, so panels share the page's React tree (Redux, i18n, router) but not its
   props. Page actions reach them through `CodingActionsContext`.
+- `?session=<id>` opens that session's conversation once Dockview and the session are both loaded, then removes the
+  parameter. The project page links sessions this way.
 - `DockviewReact` needs a sized parent. The page is a flex column whose Dockview wrapper is `min-h-0 flex-1`,
   inside a workspace-layout `main`.
 
@@ -123,7 +142,14 @@ cards). One toolbar drives both: search matches name and description, and sort i
 update, in either direction. `projectListing.ts` does the filtering and sorting once, so switching views keeps
 the same results in the same order. The table's own search and toolbar are hidden, and its column headers sort
 through the same state as the toolbar. The chosen view is remembered per browser under
-`elysium.projects.view.v1`; search and sort reset on each visit.
+`elysium.projects.view.v1`; search and sort reset on each visit. The listing only opens projects: clicking a row
+(uikit's row highlight, which never shows as highlighted) or a tile, itself a link, goes to `/projects/:projectId`.
+The cover thumbnail opts out of the row click with `data-no-row-highlight`, so previewing it does not navigate.
+
+`ProjectPage` shows the project's name on the left, its cover as an `ImagePreview` thumbnail when it has one, and an
+Actions menu on the right (`ProjectActions`): Edit opens `EditProjectModal`, and Delete confirms through
+`useConfirm`, only explaining while sessions remain. Below, `ProjectSessionsTable` lists the project's coding
+sessions; a row or title opens the session on the Coding page.
 
 Each tile opens with `ProjectCover`, a 16:9 frame. The cover is contained, never cropped or stretched: a square logo
 sits centered at full height, a wide banner centered at full width, and a blurred, enlarged copy of the same image
@@ -135,11 +161,10 @@ same frame as a thumbnail, wrapped in `ImagePreview`.
 it has focus, opens it fullscreen over a blurred backdrop. It wraps whatever thumbnail it is given, so the caller keeps
 control of how the small image looks.
 
-New project opens `/projects/new` (`CreateProjectPage`); editing opens `EditProjectModal` over the list. Both render
-`ProjectForm`, the page with the cover beside the other fields (`split`) and the dialog with it below them
-(`stacked`). `ProjectCoverField` checks the type and the 1 MB limit before accepting a file and previews it in the
-same frame. The form saves the project first and then uploads or removes the cover, since a new project has no id
-before it is saved; a failed cover leaves the saved project in place and says so. Cover URLs come from
+New project opens `/projects/new` (`CreateProjectPage`); editing opens `EditProjectModal` on the project page. Both
+render `ProjectForm`, with the cover beside the other fields. `ProjectCoverField` checks the type and the 1 MB limit
+before accepting a file and previews it in the same frame. The form saves the project first and then uploads or
+removes the cover, since a new project has no id before it is saved; a failed cover leaves the saved project in place and says so. Cover URLs come from
 `getProjectCoverUrl`, which adds `coverUpdatedAt` so a new cover is never served from cache.
 
 ## Jalapeno Labs packages

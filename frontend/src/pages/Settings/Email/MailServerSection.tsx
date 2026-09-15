@@ -7,21 +7,26 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
-import { useAppSelector } from '../../../store/hooks'
+import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { selectAllMailAccounts } from '../../../store/mailAccountsSlice'
-import { selectAllMailDomains } from '../../../store/mailDomainsSlice'
+import { mailDomainDeleted, selectAllMailDomains } from '../../../store/mailDomainsSlice'
 import { selectMailServer } from '../../../store/mailServerSlice'
 
 // User interface
-import { Alert, Button, Card, Spinner, useOverlayState } from '@heroui/react'
+import { Alert, Button, Card, Spinner, toast, useOverlayState } from '@heroui/react'
 import { LuPlus, LuServer } from 'react-icons/lu'
 import { AddMailDomainModal } from './AddMailDomainModal'
 import { CreateMailServerModal } from './CreateMailServerModal'
 import { MailDomainDnsModal } from './MailDomainDnsModal'
 import { MailDomainTable } from './MailDomainTable'
-import { RemoveMailDomainDialog } from './RemoveMailDomainDialog'
+
+// Utility
+import { HTTPError } from 'ky'
 
 // Misc
+import { getUpstreamErrorMessage } from '../../../api/errors'
+import { deleteMailDomain } from '../../../api/routes/mailRoutes'
+import { useConfirm } from '../../../hooks/useConfirm'
 import { useMailDomainsLoader, useMailServerLoader } from '../../../hooks/useServerData'
 
 // Creation's steps in order, as the API reports them.
@@ -46,7 +51,7 @@ const stepLabelKeys = {
 // The mail server and the domains it hosts. Before the server exists this offers to
 // create it; while it is created, it follows the steps the event stream reports.
 export function MailServerSection() {
-  const { t } = useTranslation('email')
+  const { t } = useTranslation([ 'email', 'common' ])
   const server = useAppSelector(selectMailServer)
   const domains = useAppSelector(selectAllMailDomains)
   const accounts = useAppSelector(selectAllMailAccounts)
@@ -56,7 +61,8 @@ export function MailServerSection() {
   const createServerState = useOverlayState()
   const addDomainState = useOverlayState()
   const dnsState = useOverlayState()
-  const removeState = useOverlayState()
+  const dispatch = useAppDispatch()
+  const confirm = useConfirm()
   const [ selectedDomain, setSelectedDomain ] = useState<MailDomain | null>(null)
   // Remounting a form per opening resets it.
   const [ formSession, setFormSession ] = useState(0)
@@ -75,6 +81,36 @@ export function MailServerSection() {
     }
     return counts
   }, [ accounts ])
+
+  function confirmRemove(domain: MailDomain) {
+    const mailboxCount = mailboxCounts.get(domain.id) ?? 0
+    confirm({
+      title: t('removeDomain.title', { name: domain.name }),
+      message: mailboxCount
+        ? t('removeDomain.hasMailboxes', { count: mailboxCount })
+        : t('removeDomain.description'),
+      tone: 'danger',
+      confirmText: t('removeDomain.action'),
+      // The API refuses while mailboxes remain.
+      canConfirm: mailboxCount === 0,
+      onConfirm: async () => {
+        try {
+          await deleteMailDomain(domain.id)
+        }
+        catch (error) {
+          // A 409 means a mailbox was added elsewhere since the dialog opened.
+          const description = error instanceof HTTPError && error.response.status === 409
+            ? t('removeDomain.hasMailboxes', { count: Math.max(mailboxCount, 1) })
+            : getUpstreamErrorMessage(error) ?? t('common:errors.unexpected')
+          console.debug('MailServerSection failed to remove the domain', { error, domainId: domain.id })
+          toast.danger(t('toasts.domainRemoveFailed', { name: domain.name }), { description })
+          throw error
+        }
+        dispatch(mailDomainDeleted(domain.id))
+        toast.success(t('toasts.domainRemoved', { name: domain.name }))
+      },
+    })
+  }
 
   let body = <div className='grid place-items-center py-10'>
     <Spinner />
@@ -156,10 +192,7 @@ export function MailServerSection() {
           setSelectedDomain(domain)
           dnsState.open()
         }}
-        onRemove={(domain) => {
-          setSelectedDomain(domain)
-          removeState.open()
-        }}
+        onRemove={confirmRemove}
       />
     </>
   }
@@ -185,13 +218,6 @@ export function MailServerSection() {
       state={dnsState}
       domain={selectedDomain}
       hostname={server?.hostname ?? ''}
-    />
-    <RemoveMailDomainDialog
-      state={removeState}
-      domain={selectedDomain}
-      mailboxCount={selectedDomain
-        ? mailboxCounts.get(selectedDomain.id) ?? 0
-        : 0}
     />
   </section>
 }

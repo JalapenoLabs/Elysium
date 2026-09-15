@@ -9,29 +9,32 @@ import useSWR from 'swr'
 
 // Redux
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
-import { mailAccountUpserted, selectAllMailAccounts } from '../../../store/mailAccountsSlice'
+import { mailAccountDeleted, mailAccountUpserted, selectAllMailAccounts } from '../../../store/mailAccountsSlice'
 import { selectAllMailDomains } from '../../../store/mailDomainsSlice'
 import { selectMailServer } from '../../../store/mailServerSlice'
 
 // User interface
 import { Alert, Breadcrumbs, Spinner, toast, useOverlayState } from '@heroui/react'
 import { CreateMailboxModal } from './CreateMailboxModal'
-import { DisconnectMailAccountDialog } from './DisconnectMailAccountDialog'
 import { MailAccountTable } from './MailAccountTable'
 import { MailboxSourceActions } from './MailboxSourceActions'
 import { MailServerSection } from './MailServerSection'
-import { SenderNameModal } from './SenderNameModal'
 
 // Misc
 import { getUpstreamErrorMessage } from '../../../api/errors'
 import {
+  deleteMailAccount,
   getMailCapabilities,
   sendMailTestMessage,
   testMailAccount,
   updateMailAccount,
 } from '../../../api/routes/mailRoutes'
+import { useConfirm } from '../../../hooks/useConfirm'
+import { usePrompt } from '../../../hooks/usePrompt'
 import { useMailAccountsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
+import { DISPLAY_NAME_MAX_CHARACTERS } from './mailFormSchemas'
+import { mailAccountKindLabelKeys } from './mailPresentation'
 import { useOAuthOutcomeToast } from './useOAuthOutcomeToast'
 
 export function ManageEmailPage() {
@@ -47,17 +50,71 @@ export function ManageEmailPage() {
 
   useOAuthOutcomeToast()
 
+  const confirm = useConfirm()
+  const prompt = usePrompt()
   const createState = useOverlayState()
-  const renameState = useOverlayState()
-  const disconnectState = useOverlayState()
-  const [ selectedAccount, setSelectedAccount ] = useState<MailAccount | null>(null)
-  // Remounting a form per opening resets it to the chosen account's values.
+  // Remounting the form per opening resets it.
   const [ formSession, setFormSession ] = useState(0)
 
-  function openFor(account: MailAccount | null, open: () => void) {
-    setSelectedAccount(account)
+  function openCreate() {
     setFormSession((session) => session + 1)
-    open()
+    createState.open()
+  }
+
+  // The one thing about a mailbox worth editing: the name recipients see beside it.
+  function promptSenderName(account: MailAccount) {
+    prompt({
+      title: t('renameForm.title'),
+      label: t('renameForm.displayName'),
+      description: t('renameForm.hint', { address: account.address }),
+      defaultValue: account.displayName,
+      isOptional: true,
+      maxLength: DISPLAY_NAME_MAX_CHARACTERS,
+      onSubmit: async (displayName) => {
+        try {
+          const response = await updateMailAccount(account.id, { displayName })
+          dispatch(mailAccountUpserted(response.account))
+          toast.success(t('toasts.updated', { address: response.account.address }))
+        }
+        catch (error) {
+          console.debug('ManageEmailPage failed to save the sender name', { error, accountId: account.id })
+          toast.danger(t('common:errors.unexpected'))
+          throw error
+        }
+      },
+    })
+  }
+
+  // A self-hosted mailbox is destroyed with its mail; an OAuth account is only forgotten.
+  function confirmDisconnect(account: MailAccount) {
+    const isSelfHosted = account.kind === 'self-hosted'
+    confirm({
+      title: isSelfHosted
+        ? t('disconnect.deleteTitle', { address: account.address })
+        : t('disconnect.title', { address: account.address }),
+      message: isSelfHosted
+        ? t('disconnect.selfHosted')
+        : t('disconnect.oauth', { provider: t(mailAccountKindLabelKeys[account.kind]) }),
+      tone: 'danger',
+      confirmText: isSelfHosted
+        ? t('actions.deleteMailbox')
+        : t('actions.disconnect'),
+      onConfirm: async () => {
+        try {
+          await deleteMailAccount(account.id)
+        }
+        catch (error) {
+          const message = getUpstreamErrorMessage(error)
+          if (!message) {
+            console.debug('ManageEmailPage failed to disconnect the account', { error, accountId: account.id })
+          }
+          toast.danger(message ?? t('common:errors.unexpected'))
+          throw error
+        }
+        dispatch(mailAccountDeleted(account.id))
+        toast.success(t('toasts.disconnected', { address: account.address }))
+      },
+    })
   }
 
   async function runConnectionTest(account: MailAccount) {
@@ -138,7 +195,7 @@ export function ManageEmailPage() {
           capabilities={capabilities}
           server={server}
           hasDomains={domains.length > 0}
-          onCreateMailbox={() => openFor(null, createState.open)}
+          onCreateMailbox={openCreate}
         />
       </div>
 
@@ -166,12 +223,9 @@ export function ManageEmailPage() {
         accounts={accounts}
         onTest={runConnectionTest}
         onSendTest={sendTestMessage}
-        onRename={(account) => openFor(account, renameState.open)}
+        onRename={promptSenderName}
         onToggleActive={toggleActive}
-        onDisconnect={(account) => {
-          setSelectedAccount(account)
-          disconnectState.open()
-        }}
+        onDisconnect={confirmDisconnect}
       />}
     </section>
 
@@ -179,15 +233,6 @@ export function ManageEmailPage() {
       key={`create-${formSession}`}
       state={createState}
       domains={domains}
-    />
-    <SenderNameModal
-      key={`rename-${formSession}`}
-      state={renameState}
-      account={selectedAccount}
-    />
-    <DisconnectMailAccountDialog
-      state={disconnectState}
-      account={selectedAccount}
     />
   </div>
 }

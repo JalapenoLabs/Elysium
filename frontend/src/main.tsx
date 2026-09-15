@@ -10,6 +10,10 @@ import { SWRConfig } from 'swr'
 // Redux
 import { store } from './store'
 
+// User interface
+import { ConfirmGate } from './gates/ConfirmGate'
+import { PromptGate } from './gates/PromptGate'
+
 // Misc
 import './i18n'
 import './index.css'
@@ -38,7 +42,11 @@ createRoot(rootElement).render(
   <StrictMode>
     <Provider store={store}>
       <SWRConfig value={swrOptions}>
-        <RouterProvider router={router} />
+        <ConfirmGate>
+          <PromptGate>
+            <RouterProvider router={router} />
+          </PromptGate>
+        </ConfirmGate>
       </SWRConfig>
     </Provider>
   </StrictMode>,

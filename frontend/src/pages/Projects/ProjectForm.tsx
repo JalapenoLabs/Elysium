@@ -31,17 +31,9 @@ import {
 } from '../../api/routes/projectRoutes'
 import { createProjectFormSchema } from './projectFormSchema'
 
-// `stacked` puts the cover under the other fields, for a narrow dialog. `split` puts it
-// beside them on wide screens, at about the width it has on a tile.
-const layoutClassNames = {
-  stacked: 'flex flex-col gap-4',
-  split: 'grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]',
-} as const satisfies Record<string, string>
-
 type Props = {
   // The project being edited, or null to create one.
   project: Project | null
-  layout: keyof typeof layoutClassNames
   onSaved: (project: Project) => void
   onCancel: () => void
 }
@@ -119,7 +111,8 @@ export function ProjectForm(props: Props) {
   })
 
   return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
-    <div className={layoutClassNames[props.layout]}>
+    {/* The cover sits beside the other fields, at about the width it has on a tile. */}
+    <div className='grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]'>
       <div className='flex flex-col gap-4'>
         {/* Name */}
         <TextField

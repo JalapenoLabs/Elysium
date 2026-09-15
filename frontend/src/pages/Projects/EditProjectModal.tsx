@@ -23,7 +23,7 @@ export function EditProjectModal(props: Props) {
   // pressable child React Aria warns. The backdrop takes the open state directly.
   return <Modal.Backdrop isOpen={props.state.isOpen} onOpenChange={props.state.setOpen}>
     <Modal.Container>
-      <Modal.Dialog className='sm:max-w-lg'>
+      <Modal.Dialog className='sm:max-w-4xl'>
         <Modal.CloseTrigger />
         <Modal.Header>
           <Modal.Heading>{
@@ -33,7 +33,6 @@ export function EditProjectModal(props: Props) {
         <Modal.Body className='mt-2'>
           {props.project && <ProjectForm
             project={props.project}
-            layout='stacked'
             onSaved={props.state.close}
             onCancel={props.state.close}
           />}

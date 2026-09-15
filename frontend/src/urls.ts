@@ -7,6 +7,7 @@ export const UrlTree = {
   studio: '/studio',
   projects: '/projects',
   projectsNew: '/projects/new',
+  projectView: '/projects/:projectId',
   coding: '/coding',
   settings: '/settings',
   settingsPersonalDetails: '/settings/personal-details',
@@ -23,3 +24,14 @@ export type UrlValue = typeof UrlTree[keyof typeof UrlTree]
 
 // Settings
 export const UNKNOWN_ROUTE_REDIRECT_TO: UrlValue = UrlTree.root
+
+// Link factories
+
+export function getProjectViewUrl(projectId: string) {
+  return UrlTree.projectView.replace(':projectId', projectId)
+}
+
+// The Coding page opens this session's conversation, then drops the parameter.
+export function getCodingSessionUrl(sessionId: string) {
+  return `${UrlTree.coding}?session=${encodeURIComponent(sessionId)}`
+}

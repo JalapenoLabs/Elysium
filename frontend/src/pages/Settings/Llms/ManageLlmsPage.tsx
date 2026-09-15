@@ -4,22 +4,21 @@ import type { Key } from '@heroui/react'
 import type { Llm } from '../../../api/routes/llmRoutes'
 
 // Core
-import { useState } from 'react'
 import { generatePath, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
 // Redux
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
-import { llmUpserted, selectAllLlms } from '../../../store/llmsSlice'
+import { llmDeleted, llmUpserted, selectAllLlms } from '../../../store/llmsSlice'
 
 // User interface
-import { Breadcrumbs, Button, Dropdown, Label, Spinner, toast, useOverlayState } from '@heroui/react'
+import { Breadcrumbs, Button, Dropdown, Label, Spinner, toast } from '@heroui/react'
 import { LuChevronDown, LuPlus } from 'react-icons/lu'
-import { DeleteLlmDialog } from './DeleteLlmDialog'
 import { LlmTable } from './LlmTable'
 
 // Misc
-import { updateLlm } from '../../../api/routes/llmRoutes'
+import { deleteLlm, updateLlm } from '../../../api/routes/llmRoutes'
+import { useConfirm } from '../../../hooks/useConfirm'
 import { useLlmsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 import { LLM_TYPES, llmTypeLabelKeys } from './llmPresentation'
@@ -32,8 +31,28 @@ export function ManageLlmsPage() {
   const status = useLlmsLoader()
 
   const navigate = useNavigate()
-  const deleteState = useOverlayState()
-  const [ selectedLlm, setSelectedLlm ] = useState<Llm | null>(null)
+  const confirm = useConfirm()
+
+  function confirmDelete(llm: Llm) {
+    confirm({
+      title: t('delete.title', { name: llm.name }),
+      message: t('delete.body'),
+      tone: 'danger',
+      confirmText: t('common:actions.delete'),
+      onConfirm: async () => {
+        try {
+          await deleteLlm(llm.id)
+        }
+        catch (error) {
+          console.debug('ManageLlmsPage failed to delete the LLM', { error, llmId: llm.id })
+          toast.danger(t('common:errors.unexpected'))
+          throw error
+        }
+        dispatch(llmDeleted(llm.id))
+        toast.success(t('toasts.deleted', { name: llm.name }))
+      },
+    })
+  }
 
   function openEditor(llm: Llm) {
     navigate(generatePath(UrlTree.settingsLlmsEdit, { llmId: llm.id }))
@@ -105,16 +124,8 @@ export function ManageLlmsPage() {
         llms={llms}
         onEdit={openEditor}
         onToggleActive={toggleActive}
-        onDelete={(llm) => {
-          setSelectedLlm(llm)
-          deleteState.open()
-        }}
+        onDelete={confirmDelete}
       />}
     </section>
-
-    <DeleteLlmDialog
-      state={deleteState}
-      llm={selectedLlm}
-    />
   </div>
 }
