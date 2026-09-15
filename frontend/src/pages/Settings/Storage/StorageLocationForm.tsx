@@ -212,7 +212,7 @@ export function StorageLocationForm(props: Props) {
             console.debug('StorageLocationForm ignored an unknown provider', { key })
             return
           }
-          form.setValue('option', selected, { shouldDirty: true, shouldValidate: form.formState.isSubmitted })
+          form.setValue('option', selected, { shouldDirty: true, shouldValidate: true })
         }}
       >
         <Label>{t('form.provider')}</Label>
