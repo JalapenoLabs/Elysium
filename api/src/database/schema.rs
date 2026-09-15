@@ -96,6 +96,8 @@ diesel::table! {
         description -> Text,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        cover_image -> Nullable<Bytea>,
+        cover_image_updated_at -> Nullable<Timestamptz>,
     }
 }
 

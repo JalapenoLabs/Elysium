@@ -16,11 +16,18 @@
     "editTitle": "Edit {{name}}",
     "name": "Name",
     "description": "Description",
+    "cover": "Cover image",
+    "coverHint": "PNG, JPEG, WebP, or GIF, up to 1 MB. Shown as a 16:9 banner: other shapes are centered, never cropped or stretched.",
+    "chooseCover": "Choose image",
+    "replaceCover": "Replace",
+    "removeCover": "Remove",
     "errors": {
       "nameRequired": "Enter a name.",
       "nameTooLong": "Use 120 characters or fewer.",
       "nameTaken": "Another project already uses this name.",
-      "descriptionTooLong": "Use 2,000 characters or fewer."
+      "descriptionTooLong": "Use 2,000 characters or fewer.",
+      "coverTooLarge": "The image is larger than 1 MB.",
+      "coverUnsupported": "Choose a PNG, JPEG, WebP, or GIF image."
     }
   },
   "delete": {
@@ -33,7 +40,8 @@
     "created": "{{name}} created",
     "updated": "{{name}} updated",
     "deleted": "{{name}} deleted",
-    "stillHasSessions": "{{name}} still has coding sessions"
+    "stillHasSessions": "{{name}} still has coding sessions",
+    "coverFailed": "{{name}} was saved, but its cover image was not"
   },
   "toolbar": {
     "search": "Search projects",
@@ -55,6 +63,7 @@
     "sessions_one": "{{count}} coding session",
     "sessions_other": "{{count}} coding sessions",
     "updated": "Updated {{date}}",
-    "noDescription": "No description"
+    "noDescription": "No description",
+    "coverAlt": "Cover image for {{name}}"
   }
 }

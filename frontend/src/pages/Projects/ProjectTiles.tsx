@@ -7,7 +7,11 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Card } from '@heroui/react'
+import { ProjectCover } from './ProjectCover'
 import { ProjectRowActions } from './ProjectRowActions'
+
+// Misc
+import { getProjectCoverUrl } from '../../api/routes/projectRoutes'
 
 type Props = {
   projects: Project[]
@@ -26,6 +30,7 @@ export function ProjectTiles(props: Props) {
   return <ul className='grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3'>{
     props.projects.map((project) => <li key={project.id}>
       <Card className='h-full'>
+        <ProjectCover src={getProjectCoverUrl(project)} name={project.name} />
         <Card.Header className='flex flex-row items-start justify-between gap-2'>
           <Card.Title className='min-w-0 truncate'>{project.name}</Card.Title>
           <ProjectRowActions

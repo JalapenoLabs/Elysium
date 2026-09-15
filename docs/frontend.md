@@ -124,6 +124,14 @@ the same results in the same order. The table's own search and toolbar are hidde
 through the same state as the toolbar. The chosen view is remembered per browser under
 `elysium.projects.view.v1`; search and sort reset on each visit.
 
+Each tile opens with `ProjectCover`, a 16:9 frame. The cover is contained, never cropped or stretched: a square logo
+sits centered at full height, a wide banner centered at full width, and a blurred, enlarged copy of the same image
+fills the space around it. A project without a cover shows its initial. `ProjectFormModal` includes
+`ProjectCoverField`, which checks the type and the 1 MB limit before accepting a file and previews it in the same
+frame. The form saves the project first and then uploads or removes the cover, since a new project has no id before
+it is saved; a failed cover leaves the saved project in place and says so. Cover URLs come from
+`getProjectCoverUrl`, which adds `coverUpdatedAt` so a new cover is never served from cache.
+
 ## Jalapeno Labs packages
 
 Both org packages install from GitHub, pinned to a commit in `package.json`. uikit is not on the npm registry. Yarn

@@ -135,6 +135,11 @@ What coding sessions are grouped under.
 | `description` | `TEXT`        | Up to 2000 characters, defaults to empty |
 | `created_at`  | `TIMESTAMPTZ` | Set on insert                            |
 | `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                    |
+| `cover_image` | `BYTEA`       | Cover, compressed to WebP; at most 1 MB  |
+| `cover_image_updated_at` | `TIMESTAMPTZ` | When the cover changed; set exactly when `cover_image` is |
+
+`Project` in `api/src/models/project.rs` leaves `cover_image` out, so listing projects never loads images;
+`find_cover` reads it for the one route that serves a cover.
 
 ### `satellites`
 

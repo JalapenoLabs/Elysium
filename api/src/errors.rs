@@ -67,6 +67,18 @@ impl From<arsox_sdk::client::Error> for ApiError {
     }
 }
 
+impl From<crate::images::ImageError> for ApiError {
+    fn from(error: crate::images::ImageError) -> Self {
+        use crate::images::ImageError;
+
+        match error {
+            // Encoding pixels that decoded fine is not the client's fault.
+            encoding @ ImageError::Encoding(_) => Self::Internal(encoding.into()),
+            refused => Self::BadRequest(refused.to_string()),
+        }
+    }
+}
+
 impl From<crate::mail::transport::MailError> for ApiError {
     fn from(error: crate::mail::transport::MailError) -> Self {
         Self::BadGateway(error.to_string())

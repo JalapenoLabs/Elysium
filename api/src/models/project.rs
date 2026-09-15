@@ -1,6 +1,10 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! Projects: what coding sessions are grouped under.
+//!
+//! A project may have a cover image, stored compressed in `cover_image`. [`Project`]
+//! leaves the bytes out, so listing projects never loads images; [`find_cover`] reads
+//! them for the one request that serves a cover.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -18,6 +22,8 @@ pub struct Project {
     pub description: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// When the cover last changed; `None` when the project has no cover.
+    pub cover_image_updated_at: Option<DateTime<Utc>>,
 }
 
 /// Fields for a new project.
@@ -113,6 +119,42 @@ pub async fn update(
         .await
 }
 
+/// A project's cover as stored, and when it last changed, or `None` without one.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] when no project has that id.
+pub async fn find_cover(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+) -> QueryResult<Option<(Vec<u8>, DateTime<Utc>)>> {
+    let (image, updated_at) = projects::table
+        .find(id)
+        .select((projects::cover_image, projects::cover_image_updated_at))
+        .first::<(Option<Vec<u8>>, Option<DateTime<Utc>>)>(connection)
+        .await?;
+    Ok(image.zip(updated_at))
+}
+
+/// Replaces the cover with `image`, already compressed, or removes it when `None`.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] for an unknown id.
+pub async fn set_cover(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    image: Option<Vec<u8>>,
+) -> QueryResult<Project> {
+    let updated_at = image.as_ref().map(|_image| Utc::now());
+    diesel::update(projects::table.find(id))
+        .set((
+            projects::cover_image.eq(image),
+            projects::cover_image_updated_at.eq(updated_at),
+        ))
+        .returning(Project::as_returning())
+        .get_result(connection)
+        .await
+}
+
 /// Deletes one project.
 ///
 /// # Errors
@@ -180,5 +222,42 @@ mod tests {
             .expect("update");
         assert_eq!(updated.description, "Stripes");
         assert_eq!(updated.name, "Zebra", "absent fields are untouched");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn covers_are_set_read_and_removed() {
+        let (_url, mut connection) = migrated_database().await;
+        let project = create(&mut connection, &new_project("Covered"))
+            .await
+            .expect("insert");
+        assert_eq!(project.cover_image_updated_at, None);
+        assert_eq!(
+            find_cover(&mut connection, project.id).await.expect("read"),
+            None
+        );
+
+        let covered = set_cover(&mut connection, project.id, Some(b"RIFF-webp".to_vec()))
+            .await
+            .expect("set");
+        let (image, updated_at) = find_cover(&mut connection, project.id)
+            .await
+            .expect("read")
+            .expect("a cover");
+        assert_eq!(image, b"RIFF-webp");
+        assert_eq!(covered.cover_image_updated_at, Some(updated_at));
+
+        let uncovered = set_cover(&mut connection, project.id, None)
+            .await
+            .expect("remove");
+        assert_eq!(uncovered.cover_image_updated_at, None);
+        assert_eq!(
+            find_cover(&mut connection, project.id).await.expect("read"),
+            None
+        );
+
+        find_cover(&mut connection, Uuid::now_v7())
+            .await
+            .expect_err("an unknown project has no cover to read");
     }
 }

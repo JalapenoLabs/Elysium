@@ -3,9 +3,12 @@
 //! `/api/v1/projects`: what coding sessions are grouped under.
 
 mod create_project;
+mod delete_cover;
 mod delete_project;
+mod get_cover;
 mod list_projects;
 mod update_project;
+mod upload_cover;
 
 use axum::Router;
 use axum::routing::{get, patch};
@@ -24,6 +27,12 @@ pub fn router() -> Router<AppState> {
             "/{id}",
             patch(update_project::handle).delete(delete_project::handle),
         )
+        .route(
+            "/{id}/cover",
+            get(get_cover::handle)
+                .put(upload_cover::handle)
+                .delete(delete_cover::handle),
+        )
 }
 
 /// A project as clients see it.
@@ -35,6 +44,9 @@ pub struct ProjectResponse {
     description: String,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    /// When the cover last changed, or `None` without one. Clients add it to the cover's
+    /// URL, so a changed cover is fetched afresh and an unchanged one comes from cache.
+    cover_updated_at: Option<DateTime<Utc>>,
 }
 
 impl From<Project> for ProjectResponse {
@@ -45,6 +57,7 @@ impl From<Project> for ProjectResponse {
             description: project.description,
             created_at: project.created_at,
             updated_at: project.updated_at,
+            cover_updated_at: project.cover_image_updated_at,
         }
     }
 }

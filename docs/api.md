@@ -35,6 +35,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/projects`                    | `201` `{ project }`                                 |
 | PATCH  | `/api/v1/projects/{id}`               | `200` `{ project }`                                 |
 | DELETE | `/api/v1/projects/{id}`               | `204`; `409` while sessions belong to it            |
+| GET    | `/api/v1/projects/{id}/cover`         | `200` WebP image; `404` without a cover             |
+| PUT    | `/api/v1/projects/{id}/cover`         | `200` `{ project }`; the body is the image file     |
+| DELETE | `/api/v1/projects/{id}/cover`         | `200` `{ project }`                                 |
 | GET    | `/api/v1/satellites`                  | `200` `{ satellites: Satellite[] }`, by name        |
 | POST   | `/api/v1/satellites`                  | `201` `{ satellite }`                               |
 | GET    | `/api/v1/satellites/{id}`             | `200` `{ satellite }`                               |
@@ -98,9 +101,17 @@ are browser navigations; see `docs/mail.md`.
 
 ### `/api/v1/projects`
 
-A `Project` has `id`, `name`, `description`, `createdAt`, and `updatedAt`. `POST` requires `name` (1 to 120
-characters, unique) and accepts `description` (up to 2000, default empty). `PATCH` accepts either; an empty body
-is rejected. `DELETE` answers `409` while any coding session belongs to the project.
+A `Project` has `id`, `name`, `description`, `createdAt`, `updatedAt`, and `coverUpdatedAt` (null without a cover).
+`POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000, default empty). `PATCH`
+accepts either; an empty body is rejected. `DELETE` answers `409` while any coding session belongs to the project.
+
+`PUT /{id}/cover` takes the image file as the raw body: PNG, JPEG, WebP, or GIF (first frame), up to 1,000,000
+bytes. The format is read from the bytes, not the content type. Decoding refuses images over 8192 pixels on a side
+or 256 MiB of pixels. The image is scaled down to fit 1600 by 900 when larger, keeping its shape, and stored as lossy
+WebP at quality 82, keeping transparency and dropping metadata (`api/src/images.rs`). Anything refused answers
+`400`; a body over the API's 1 MiB limit answers `413`. `GET /{id}/cover` serves it with
+`Cache-Control: private, max-age=31536000, immutable`: clients add `coverUpdatedAt` to the URL, so each cover
+version has its own. Cover changes publish `project.upserted`.
 
 ### `/api/v1/satellites`
 

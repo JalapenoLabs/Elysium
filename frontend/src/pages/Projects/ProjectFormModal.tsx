@@ -2,10 +2,11 @@
 
 import type { UseOverlayStateReturn } from '@heroui/react'
 import type { Project } from '../../api/routes/projectRoutes'
+import type { CoverChange } from './ProjectCoverField'
 import type { ProjectFormValues } from './projectFormSchema'
 
 // Core
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -15,13 +16,20 @@ import { projectUpserted } from '../../store/projectsSlice'
 
 // User interface
 import { Button, FieldError, Form, Input, Label, Modal, TextArea, TextField, toast } from '@heroui/react'
+import { ProjectCoverField } from './ProjectCoverField'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
 import { HTTPError } from 'ky'
 
 // Misc
-import { createProject, updateProject } from '../../api/routes/projectRoutes'
+import {
+  createProject,
+  deleteProjectCover,
+  getProjectCoverUrl,
+  updateProject,
+  uploadProjectCover,
+} from '../../api/routes/projectRoutes'
 import { createProjectFormSchema } from './projectFormSchema'
 
 type Props = {
@@ -33,6 +41,7 @@ type Props = {
 export function ProjectFormModal(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
   const dispatch = useAppDispatch()
+  const [ coverChange, setCoverChange ] = useState<CoverChange>({ kind: 'keep' })
 
   const resolver = useMemo(
     () => zodResolver(createProjectFormSchema(t)),
@@ -47,16 +56,36 @@ export function ProjectFormModal(props: Props) {
     },
   })
 
+  // The project is saved first, then its cover: a new project has no id until saved.
+  // A cover that fails leaves the saved project in place and says so.
+  async function applyCoverChange(project: Project) {
+    if (coverChange.kind === 'keep') {
+      return
+    }
+    try {
+      const response = coverChange.kind === 'replace'
+        ? await uploadProjectCover(project.id, coverChange.file)
+        : await deleteProjectCover(project.id)
+      dispatch(projectUpserted(response.project))
+    }
+    catch (error) {
+      console.debug('ProjectFormModal saved the project but not its cover', { error, projectId: project.id })
+      toast.danger(t('toasts.coverFailed', { name: project.name }))
+    }
+  }
+
   const onSubmit = form.handleSubmit(async (values) => {
     try {
       if (props.project) {
         const response = await updateProject(props.project.id, values)
         dispatch(projectUpserted(response.project))
+        await applyCoverChange(response.project)
         toast.success(t('toasts.updated', { name: values.name }))
       }
       else {
         const response = await createProject(values)
         dispatch(projectUpserted(response.project))
+        await applyCoverChange(response.project)
         toast.success(t('toasts.created', { name: values.name }))
       }
 
@@ -118,6 +147,16 @@ export function ProjectFormModal(props: Props) {
               <TextArea rows={3} />
               <FieldError>{errors.description?.message}</FieldError>
             </TextField>
+
+            {/* Cover image */}
+            <ProjectCoverField
+              savedUrl={props.project
+                ? getProjectCoverUrl(props.project)
+                : null}
+              name={name}
+              change={coverChange}
+              onChange={setCoverChange}
+            />
           </Modal.Body>
           <Modal.Footer>
             <Button slot='close' variant='tertiary'>
