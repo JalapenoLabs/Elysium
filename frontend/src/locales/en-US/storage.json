@@ -1,0 +1,76 @@
+{
+  "title": "Storage",
+  "locations": {
+    "heading": "Storage locations",
+    "description": "Places Elysium saves files to. Each has a limit on how much Elysium stores there. Access keys are encrypted and never shown again after saving.",
+    "add": "Add location"
+  },
+  "providers": {
+    "bunny": "Bunny Storage"
+  },
+  "regions": {
+    "frankfurt": "Frankfurt, DE",
+    "london": "London, UK",
+    "new-york": "New York, US",
+    "los-angeles": "Los Angeles, US",
+    "singapore": "Singapore, SG",
+    "stockholm": "Stockholm, SE",
+    "sao-paulo": "São Paulo, BR",
+    "johannesburg": "Johannesburg, ZA",
+    "sydney": "Sydney, AU"
+  },
+  "table": {
+    "label": "Storage locations",
+    "name": "Name",
+    "provider": "Provider",
+    "location": "Location",
+    "limit": "Limit",
+    "root": "Root",
+    "empty": "No storage locations yet. Add one to choose where Elysium saves files.",
+    "loadError": "Storage locations could not be loaded."
+  },
+  "actions": {
+    "test": "Test connection"
+  },
+  "form": {
+    "createTitle": "Add storage location",
+    "editTitle": "Edit {{name}}",
+    "name": "Name",
+    "provider": "Provider",
+    "zone": "Storage zone",
+    "zoneHint": "The zone's name as it appears in Bunny's dashboard.",
+    "region": "Region",
+    "regionHint": "Where the zone's main storage lives.",
+    "pathPrefix": "Directory",
+    "pathPrefixHint": "Optional. Elysium saves files under this directory in the zone; leave blank for the zone's root.",
+    "storageLimit": "Storage limit",
+    "storageLimitHint": "The most Elysium stores here, in gigabytes.",
+    "accessKey": "Access key",
+    "accessKeyHint": "The zone's password, from FTP & API Access in Bunny's dashboard. Not your account API key.",
+    "accessKeyKeep": "Leave blank to keep the current access key.",
+    "errors": {
+      "nameRequired": "Enter a name.",
+      "nameTooLong": "Use 120 characters or fewer.",
+      "nameTaken": "Another storage location already uses this name.",
+      "zoneInvalid": "Use 1 to 64 letters, digits, or hyphens.",
+      "pathPrefixInvalid": "Use directory names separated by single slashes, without . or .. or backslashes.",
+      "pathPrefixTooLong": "Use 1,024 characters or fewer.",
+      "storageLimitInvalid": "Enter a limit greater than zero.",
+      "storageLimitTooLarge": "Enter a smaller limit.",
+      "accessKeyRequired": "Enter the zone's access key.",
+      "accessKeyTooLong": "Access keys can be at most 1 KB."
+    }
+  },
+  "delete": {
+    "title": "Delete {{name}}?",
+    "body": "Elysium stops saving files here. Files it already saved stay in the storage zone; delete them from Bunny's dashboard if you no longer need them."
+  },
+  "toasts": {
+    "created": "{{name}} added",
+    "updated": "{{name}} updated",
+    "deleted": "{{name}} deleted",
+    "testPassed_one": "{{name}} is reachable: {{count}} item in its directory",
+    "testPassed_other": "{{name}} is reachable: {{count}} items in its directory",
+    "testFailed": "{{name}} could not be reached"
+  }
+}

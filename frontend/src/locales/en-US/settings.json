@@ -20,6 +20,10 @@
     "email": {
       "title": "Email",
       "description": "Connect Gmail and Outlook accounts, or create mailboxes on Elysium's own mail server."
+    },
+    "storage": {
+      "title": "Storage",
+      "description": "Choose where Elysium saves files, such as a Bunny Storage zone, and cap how much it stores there."
     }
   },
   "personalDetails": {

@@ -19,6 +19,7 @@ export const UrlTree = {
   settingsLlmsEdit: '/settings/llms/:llmId/edit',
   settingsSatellites: '/settings/satellites',
   settingsEmail: '/settings/email',
+  settingsStorage: '/settings/storage',
 } as const
 export type UrlValue = typeof UrlTree[keyof typeof UrlTree]
 

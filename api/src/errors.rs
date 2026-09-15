@@ -28,9 +28,9 @@ pub enum ApiError {
     /// A service this request needs is not configured on this deployment.
     #[error("{0}")]
     Unavailable(&'static str),
-    /// An upstream (a satellite, a mail server, the OAuth broker) refused the request
-    /// or could not be reached. The message is the upstream's own error, which never
-    /// carries a secret.
+    /// An upstream (a satellite, a mail server, the OAuth broker, a storage provider)
+    /// refused the request or could not be reached. The message is the upstream's own
+    /// error, which never carries a secret.
     #[error("{0}")]
     BadGateway(String),
     #[error(transparent)]
@@ -117,6 +117,12 @@ impl From<crate::mail::stalwart::StalwartError> for ApiError {
             ),
             refused @ StalwartError::Refused(_) => Self::BadGateway(refused.to_string()),
         }
+    }
+}
+
+impl From<crate::storage::StorageError> for ApiError {
+    fn from(error: crate::storage::StorageError) -> Self {
+        Self::BadGateway(error.to_string())
     }
 }
 

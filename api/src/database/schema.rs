@@ -2,6 +2,10 @@
 
 pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "bunny_storage_region"))]
+    pub struct BunnyStorageRegion;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "llm_type"))]
     pub struct LlmType;
 
@@ -12,6 +16,10 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "project_cover_fit"))]
     pub struct ProjectCoverFit;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "storage_location_kind"))]
+    pub struct StorageLocationKind;
 }
 
 diesel::table! {
@@ -122,6 +130,25 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::StorageLocationKind;
+    use super::sql_types::BunnyStorageRegion;
+
+    storage_locations (id) {
+        id -> Uuid,
+        name -> Text,
+        kind -> StorageLocationKind,
+        bunny_zone -> Nullable<Text>,
+        bunny_region -> Nullable<BunnyStorageRegion>,
+        path_prefix -> Text,
+        storage_limit_bytes -> Int8,
+        access_key_encrypted -> Bytea,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
 diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
@@ -134,4 +161,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_servers,
     projects,
     satellites,
+    storage_locations,
 );

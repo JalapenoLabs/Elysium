@@ -13,6 +13,7 @@ import { projectsSlice } from './projectsSlice'
 import { realtimeSlice } from './realtimeSlice'
 import { satellitesSlice } from './satellitesSlice'
 import { sessionEventsSlice } from './sessionEventsSlice'
+import { storageLocationsSlice } from './storageLocationsSlice'
 import { themeSlice } from './themeSlice'
 
 // The one store for all global state, and the source of truth components render. Server
@@ -32,6 +33,7 @@ export const store = configureStore({
     [realtimeSlice.name]: realtimeSlice.reducer,
     [satellitesSlice.name]: satellitesSlice.reducer,
     [sessionEventsSlice.name]: sessionEventsSlice.reducer,
+    [storageLocationsSlice.name]: storageLocationsSlice.reducer,
     [themeSlice.name]: themeSlice.reducer,
   },
   middleware: (getDefaultMiddleware) => getDefaultMiddleware()

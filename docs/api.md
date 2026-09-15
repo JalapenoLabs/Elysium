@@ -44,6 +44,12 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PATCH  | `/api/v1/satellites/{id}`             | `200` `{ satellite }`                               |
 | DELETE | `/api/v1/satellites/{id}`             | `204`; forgets its sessions                         |
 | POST   | `/api/v1/satellites/{id}/test`        | `200` `{ result }` from a fresh connection          |
+| GET    | `/api/v1/storage-locations`           | `200` `{ locations: StorageLocation[] }`, by name   |
+| POST   | `/api/v1/storage-locations`           | `201` `{ location }`                                |
+| GET    | `/api/v1/storage-locations/{id}`      | `200` `{ location }`                                |
+| PATCH  | `/api/v1/storage-locations/{id}`      | `200` `{ location }`                                |
+| DELETE | `/api/v1/storage-locations/{id}`      | `204`; files already saved stay with the provider   |
+| POST   | `/api/v1/storage-locations/{id}/test` | `200` `{ result }` from listing its directory       |
 | GET    | `/api/v1/coding-sessions`             | `200` `{ sessions: CodingSession[] }`, newest first |
 | POST   | `/api/v1/coding-sessions`             | `201` `{ session }`; opens a thread                 |
 | PATCH  | `/api/v1/coding-sessions/{id}`        | `200` `{ session }`; renames                        |
@@ -126,6 +132,19 @@ true). `PATCH` accepts any subset; a new `secret` is re-sealed. Saving restarts 
 `test` answers `{ version, protoMajor, protoMinor, runningThreads, maxConcurrentThreads }`, or `502` with the
 satellite's error.
 
+### `/api/v1/storage-locations`
+
+A `StorageLocation` has `id`, `name`, `provider`, `pathPrefix`, `storageLimitBytes`, `createdAt`, and `updatedAt`.
+The access key is never returned. `provider` is `{ kind: "bunny", zone, region }`, with `region` one of `frankfurt`,
+`london`, `new-york`, `los-angeles`, `singapore`, `stockholm`, `sao-paulo`, `johannesburg`, or `sydney`.
+
+`POST` requires `name` (1 to 120 characters, unique), `provider`, `storageLimitBytes` (1 to 2^53 - 1), and
+`accessKey`, and accepts `pathPrefix` (default the root; surrounding slashes are dropped). `PATCH` accepts any subset;
+`provider` replaces all of the provider's settings, and a new `accessKey` is re-sealed.
+
+`test` answers `{ entries }`, the number of files and directories directly inside the location's directory, or `502`
+with the provider's error. See `docs/storage.md`.
+
 ### `/api/v1/coding-sessions`
 
 A `CodingSession` has `id`, `projectId`, `satelliteId`, `threadId`, `title`, `createdAt`, `updatedAt`, and
@@ -153,7 +172,7 @@ Every error is JSON with a `message`.
 | `404`  | No row with that id                                                                   |
 | `409`  | Unique constraint, such as a duplicate LLM name, or a project that still has sessions |
 | `422`  | Field validation failed; `fields` lists each failure                                  |
-| `502`  | A satellite, mail server, or the OAuth broker refused; `message` is its own error     |
+| `502`  | A satellite, mail server, storage provider, or the OAuth broker refused; `message` is its own error |
 | `503`  | The mail service a request needs is not configured, or the mail server does not exist |
 | `500`  | Internal fault; details are logged, never returned                                    |
 
@@ -214,10 +233,11 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/database/`          | Pool type, migration runner, generated schema    |
 | `src/crypto.rs`          | Secret sealing                                   |
 | `src/errors.rs`          | `ApiError` and its mapping to HTTP responses     |
-| `src/state.rs`           | `AppState`: pool, Redis, cipher, version, bus, fleet, mail, shutdown token |
+| `src/state.rs`           | `AppState`: pool, Redis, cipher, version, bus, fleet, mail, storage, shutdown token |
 | `src/realtime.rs`        | Event bus and the `ServerEvent` envelope          |
 | `src/fleet/`             | Satellite clients and watchers; JSON views of Arsox types |
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
+| `src/storage/`           | Storage provider clients, reached through `Storage` |
 
 ## Logging
 

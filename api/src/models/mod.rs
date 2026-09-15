@@ -9,3 +9,4 @@ pub mod mail_domain;
 pub mod mail_server;
 pub mod project;
 pub mod satellite;
+pub mod storage_location;

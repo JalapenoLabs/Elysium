@@ -8,6 +8,7 @@ pub mod llms;
 pub mod mail;
 pub mod projects;
 pub mod satellites;
+pub mod storage_locations;
 
 use axum::Router;
 use axum::routing::get;
@@ -21,5 +22,6 @@ pub fn router() -> Router<AppState> {
         .nest("/mail", mail::router())
         .nest("/projects", projects::router())
         .nest("/satellites", satellites::router())
+        .nest("/storage-locations", storage_locations::router())
         .nest("/coding-sessions", coding_sessions::router())
 }

@@ -14,6 +14,7 @@ import { mailServerUpdated } from '../store/mailServerSlice'
 import { projectsLoaded } from '../store/projectsSlice'
 import { satellitesLoaded } from '../store/satellitesSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
+import { storageLocationsLoaded } from '../store/storageLocationsSlice'
 
 // Misc
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
@@ -21,6 +22,7 @@ import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
 import { listSatellites } from '../api/routes/satelliteRoutes'
+import { listStorageLocations } from '../api/routes/storageRoutes'
 
 // How server data reaches a component:
 //
@@ -105,6 +107,16 @@ export function useSatellitesLoader(): LoadStatus {
   const { data, error } = useSWR('v1/satellites', async () => {
     const response = await listSatellites()
     dispatch(satellitesLoaded(response.satellites))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useStorageLocationsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/storage-locations', async () => {
+    const response = await listStorageLocations()
+    dispatch(storageLocationsLoaded(response.locations))
     return response
   })
   return toLoadStatus(data !== undefined, error)

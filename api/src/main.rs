@@ -22,6 +22,7 @@ mod routes;
 mod server;
 mod shutdown;
 mod state;
+mod storage;
 #[cfg(test)]
 mod test_support;
 mod version;

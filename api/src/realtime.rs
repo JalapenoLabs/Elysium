@@ -31,6 +31,7 @@ use crate::routes::v1::llms::LlmResponse;
 use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
 use crate::routes::v1::projects::ProjectResponse;
 use crate::routes::v1::satellites::SatelliteResponse;
+use crate::routes::v1::storage_locations::StorageLocationResponse;
 
 /// How many serialized events a slow client may fall behind before it is told to
 /// resync. Thread event bursts (streamed agent output) are the largest source; this
@@ -73,6 +74,10 @@ pub enum ServerEvent {
     SatelliteDeleted { id: Uuid },
     #[serde(rename = "satellite.status")]
     SatelliteStatus(SatelliteStatus),
+    #[serde(rename = "storageLocation.upserted")]
+    StorageLocationUpserted(StorageLocationResponse),
+    #[serde(rename = "storageLocation.deleted")]
+    StorageLocationDeleted { id: Uuid },
     #[serde(rename = "session.upserted")]
     SessionUpserted(CodingSessionResponse),
     #[serde(rename = "session.deleted")]

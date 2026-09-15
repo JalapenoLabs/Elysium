@@ -19,6 +19,7 @@ import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
 import { ManageSatellitesPage } from './pages/Settings/Satellites/ManageSatellitesPage'
+import { ManageStoragePage } from './pages/Settings/Storage/ManageStoragePage'
 
 // Misc
 import { addLlmUrlByType } from './pages/Settings/Llms/llmProviders'
@@ -93,6 +94,10 @@ export const router = createBrowserRouter([
       {
         path: UrlTree.settingsEmail,
         element: <ManageEmailPage />,
+      },
+      {
+        path: UrlTree.settingsStorage,
+        element: <ManageStoragePage />,
       },
       {
         path: '*',

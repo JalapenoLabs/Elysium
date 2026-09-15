@@ -47,8 +47,8 @@ Guarantees:
 3. `cargo test -- --include-ignored` runs the database-backed tests.
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
-redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, and coding session query.
-Plain `cargo test` skips them because they need `TEST_DATABASE_URL`.
+redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, storage location, and coding
+session query. Plain `cargo test` skips them because they need `TEST_DATABASE_URL`.
 
 ## Conventions
 
@@ -154,6 +154,23 @@ What coding sessions are grouped under.
 | `is_active`        | `BOOLEAN`     | Defaults to true; inactive satellites are not watched  |
 | `created_at`       | `TIMESTAMPTZ` | Set on insert                                          |
 | `updated_at`       | `TIMESTAMPTZ` | Maintained by trigger                                  |
+
+### `storage_locations`
+
+External locations Elysium saves files to; see `docs/storage.md`.
+
+| Column                 | Type                    | Notes                                                        |
+|------------------------|-------------------------|--------------------------------------------------------------|
+| `id`                   | `UUID`                  | UUIDv7, primary key                                          |
+| `name`                 | `TEXT`                  | 1 to 120 characters, unique                                  |
+| `kind`                 | `storage_location_kind` | The provider: `bunny`                                        |
+| `bunny_zone`           | `TEXT`                  | Set exactly for `bunny`; letters, digits, hyphens, up to 64  |
+| `bunny_region`         | `bunny_storage_region`  | Set exactly for `bunny`                                      |
+| `path_prefix`          | `TEXT`                  | Up to 1024 characters, no leading, trailing, or double slash |
+| `storage_limit_bytes`  | `BIGINT`                | Greater than zero                                            |
+| `access_key_encrypted` | `BYTEA`                 | Sealed access key, see `docs/secrets.md`                     |
+| `created_at`           | `TIMESTAMPTZ`           | Set on insert                                                |
+| `updated_at`           | `TIMESTAMPTZ`           | Maintained by trigger                                        |
 
 ### `coding_sessions`
 

@@ -5,6 +5,7 @@ import type { Llm } from '../api/routes/llmRoutes'
 import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRoutes'
 import type { Project } from '../api/routes/projectRoutes'
 import type { Satellite, SatelliteStatus } from '../api/routes/satelliteRoutes'
+import type { StorageLocation } from '../api/routes/storageRoutes'
 
 // Everything the API's event stream can send. Mirrors `ServerEvent` in
 // api/src/realtime.rs: each SSE message's data is one of these as JSON.
@@ -27,6 +28,8 @@ export type ServerEvent =
   // Also removes the satellite's sessions.
   | { type: 'satellite.deleted', data: { id: string } }
   | { type: 'satellite.status', data: SatelliteStatus }
+  | { type: 'storageLocation.upserted', data: StorageLocation }
+  | { type: 'storageLocation.deleted', data: { id: string } }
   | { type: 'session.upserted', data: CodingSession }
   | { type: 'session.deleted', data: { id: string } }
   | { type: 'session.event', data: SessionEvent }

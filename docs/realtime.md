@@ -27,6 +27,8 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `satellite.upserted` | `Satellite`              | A satellite was created or changed (status arrives later)  |
 | `satellite.deleted`  | `{ id }`                 | A satellite and its sessions were deleted                  |
 | `satellite.status`   | `SatelliteStatus`        | A poll found different reachability, version, or load      |
+| `storageLocation.upserted` | `StorageLocation`  | A storage location was added or changed                    |
+| `storageLocation.deleted`  | `{ id }`           | A storage location was deleted                             |
 | `session.upserted`   | `CodingSession`          | A session was created or renamed, or its thread changed    |
 | `session.deleted`    | `{ id }`                 | A session was deleted                                      |
 | `session.event`      | `SessionEvent`           | A thread emitted an event                                  |

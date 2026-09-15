@@ -36,6 +36,7 @@ use crate::mail::stalwart::Stalwart;
 use crate::mail::stalwart::container::StalwartContainer;
 use crate::realtime::EventBus;
 use crate::state::AppState;
+use crate::storage::Storage;
 use crate::version::VersionInfo;
 use crate::{connections, middleware, routes, shutdown};
 
@@ -81,8 +82,15 @@ pub async fn serve() -> Result<()> {
         shutdown.clone(),
     );
     fleet.start().await?;
+    // One HTTP client for every outbound call: the OAuth broker, Stalwart, and storage
+    // providers share its connection pool.
+    let http = reqwest::Client::builder()
+        .user_agent(concat!("elysium-api/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .context("cannot build the HTTP client")?;
     let mail = build_mail(
         &config,
+        http.clone(),
         database.clone(),
         Arc::clone(&cipher),
         events.clone(),
@@ -100,6 +108,7 @@ pub async fn serve() -> Result<()> {
         events,
         fleet: fleet.clone(),
         mail,
+        storage: Storage::new(http),
         shutdown: shutdown.clone(),
     };
     let rate_limiter = middleware::rate_limit::build();
@@ -145,17 +154,14 @@ pub async fn serve() -> Result<()> {
     Ok(())
 }
 
-/// The mail services. The broker and Stalwart share one HTTP client.
+/// The mail services. The broker and Stalwart share `http`.
 fn build_mail(
     config: &Config,
+    http: reqwest::Client,
     database: Pool,
     cipher: Arc<Cipher>,
     events: EventBus,
 ) -> Result<Mail> {
-    let http = reqwest::Client::builder()
-        .user_agent(concat!("elysium-api/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .context("cannot build the mail HTTP client")?;
     let mail_config = &config.mail;
 
     let broker = mail_config.oauth_broker.clone().map(|public_url| {

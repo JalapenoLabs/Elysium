@@ -47,6 +47,13 @@ Everything else follows these rules:
   the operator's responsibility, and Elysium accepts whatever arrives. Elysium provides each domain's DNS records
   and checks them, and never changes DNS or issues certificates.
 
+## Storage
+
+- Storage locations are where Elysium saves files, one row per location with a provider kind. Bunny Storage is the
+  only provider today; S3-compatible buckets and local storage are planned. See `docs/storage.md`.
+- Access keys are application secrets, sealed in Postgres. Routes never match on the provider; `api/src/storage/`
+  does.
+
 ## One event stream keeps the frontend current
 
 - Every page holds one server-sent event stream, `GET /api/v1/events`. Any write or watcher that changes what a

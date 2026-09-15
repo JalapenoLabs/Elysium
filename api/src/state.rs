@@ -12,6 +12,7 @@ use crate::database::Pool;
 use crate::fleet::Fleet;
 use crate::mail::Mail;
 use crate::realtime::EventBus;
+use crate::storage::Storage;
 use crate::version::VersionInfo;
 
 /// Everything a request handler can reach. Cloning is cheap: each field is a handle.
@@ -25,6 +26,7 @@ pub struct AppState {
     pub events: EventBus,
     pub fleet: Fleet,
     pub mail: Mail,
+    pub storage: Storage,
     /// Cancelled when shutdown begins; long-lived responses end on it.
     pub shutdown: CancellationToken,
 }

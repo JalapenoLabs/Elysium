@@ -58,6 +58,7 @@ the home page.
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
 | `/settings/satellites`        | `ManageSatellitesPage`   | Register satellites, see their status, test connections  |
 | `/settings/email`             | `ManageEmailPage`        | Mail server and domains, and every kind of mailbox       |
+| `/settings/storage`           | `ManageStoragePage`      | Storage locations Elysium saves files to                 |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s.
 New settings pages add an entry to a section and a route under `/settings`.
@@ -103,6 +104,12 @@ Manage LLMs is split into these files:
 Manage satellites follows the same split under `src/pages/Settings/Satellites/`. Its table shows each satellite's
 live status (online, unreachable with the reason on hover, checking, or inactive), version, and thread load, and
 its row menu adds Test connection.
+
+Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone and
+directory, limit) whose row menu edits, tests, or deletes one; delete confirms through `useConfirm`.
+`StorageLocationFormModal` adds and edits: provider, zone, region, directory, a limit in gigabytes (a `NumberField`
+formatted in the viewer's locale and converted to bytes on save), and the access key, which is kept when left blank
+while editing. Provider and region labels come from lookup tables in `storagePresentation.ts`.
 
 Email under `src/pages/Settings/Email/` has two sections.
 
@@ -229,6 +236,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `mailServer`     | The mail server's state, replaced whole by every update                 |
 | `projects`       | Projects, sorted by name                                                |
 | `satellites`     | Satellites with their latest status                                     |
+| `storageLocations` | Storage locations, sorted by name                                     |
 | `codingSessions` | Coding sessions with their thread state, newest first                   |
 | `sessionEvents`  | Events for conversations that are open, merged by sequence              |
 | `realtime`       | Event stream connection: `connecting`, `open`, or `reconnecting`        |
@@ -240,9 +248,9 @@ Server collections use entity adapters. Redux is the source of truth components 
 
 1. **SWR loads it once.** A component that shows server data calls a loader from `src/hooks/useServerData.ts`
    (`useLlmsLoader`, `useMailAccountsLoader`, `useMailServerLoader`, `useMailDomainsLoader`, `useProjectsLoader`,
-   `useSatellitesLoader`, `useCodingSessionsLoader`, `useSessionHistoryLoader`). SWR fetches the key once,
-   deduplicates every component asking for it, and buffers the response so a remounted page renders at once while
-   it revalidates.
+   `useSatellitesLoader`, `useStorageLocationsLoader`, `useCodingSessionsLoader`, `useSessionHistoryLoader`). SWR
+   fetches the key once, deduplicates every component asking for it, and buffers the response so a remounted page
+   renders at once while it revalidates.
 2. **Redux holds it.** The loader puts the response in Redux (`llmsLoaded`, `sessionHistoryLoaded`, ...).
    Loaders return only `loading`, `loaded`, or `failed`; components select the data itself from Redux. Once
    `loaded`, a refetch never drops a view back to a spinner.
@@ -332,7 +340,7 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `home`, `settings`, `llms`,
-  `satellites`, `email`, `projects`, `coding`, `studio`, `actionItems`.
+  `satellites`, `email`, `storage`, `projects`, `coding`, `studio`, `actionItems`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.
