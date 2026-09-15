@@ -22,11 +22,22 @@ would let a client forge them.
 
 ## Rate limiting
 
-Token bucket per client IP (`tower_governor`): 30 requests may be spent at once, refilling at 10 per second. Both
-are constants in `api/src/middleware/rate_limit.rs`, not configuration, so every deployment enforces the same
-limit. The event stream counts as one request per connection. Exceeding the limit answers `429` with a JSON body,
+Token bucket per client IP, on `governor`: 30 requests may be spent at once, refilling at 10 per second. Both are
+constants in `api/src/middleware/rate_limit.rs`, not configuration, so every deployment enforces the same limit.
+The event stream counts as one request per connection. Exceeding the limit answers `429` with a JSON body,
 `Retry-After`, and `x-ratelimit-*` headers. Buckets for idle clients are swept every minute so the key map stays
 bounded.
+
+The client is the first parseable `X-Forwarded-For` address, then `X-Real-IP`, then the peer address.
+
+**Buckets are timed with `std::time::Instant`**, which pauses while the host is suspended. governor's default
+clock reads the CPU's time stamp counter, which does not survive a suspend: after one, every stored bucket sat
+hours ahead of "now" and every client was refused until the API restarted. `tower_governor` fixes that clock in
+its types, so the middleware drives governor directly.
+
+A refusal asking for longer than an empty bucket takes to refill is one no working clock produces. The limiter
+logs `rate_limit.clock.moved`, starts every bucket afresh, and admits the request rather than locking every
+client out.
 
 ## Response headers
 

@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
 /// one JSON object per line for log shippers.
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=info,tower_governor=warn"));
+        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=info"));
     let json = std::env::var("LOG_FORMAT").is_ok_and(|format| format.eq_ignore_ascii_case("json"));
 
     let builder = tracing_subscriber::fmt()

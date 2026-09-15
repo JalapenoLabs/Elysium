@@ -80,7 +80,7 @@ pub async fn serve() -> Result<()> {
         shutdown: shutdown.clone(),
     };
     let rate_limiter = middleware::rate_limit::build();
-    let app = build_router(&config, rate_limiter.layer).with_state(state);
+    let app = build_router(&config, Arc::clone(&rate_limiter.limiter)).with_state(state);
 
     let listener = TcpListener::bind(config.bind_address)
         .await
@@ -125,7 +125,10 @@ pub async fn serve() -> Result<()> {
 /// Assembles middleware around the routes. Outermost layers run first on the way
 /// in and last on the way out, so request ids exist before anything logs, and the
 /// security headers cover every response including rate limit rejections.
-fn build_router(config: &Config, rate_limit: middleware::rate_limit::Layer) -> Router<AppState> {
+fn build_router(
+    config: &Config,
+    rate_limit: Arc<middleware::rate_limit::Limiter>,
+) -> Router<AppState> {
     let layers = ServiceBuilder::new()
         .layer(middleware::trace::set_request_id_layer())
         .layer(middleware::trace::propagate_request_id_layer())
@@ -140,7 +143,10 @@ fn build_router(config: &Config, rate_limit: middleware::rate_limit::Layer) -> R
             middleware::security_headers::apply,
         ))
         .layer(middleware::cors::layer(config.cors_allowed_origins.clone()))
-        .layer(rate_limit);
+        .layer(axum::middleware::from_fn_with_state(
+            rate_limit,
+            middleware::rate_limit::enforce,
+        ));
 
     routes::router().layer(layers)
 }
