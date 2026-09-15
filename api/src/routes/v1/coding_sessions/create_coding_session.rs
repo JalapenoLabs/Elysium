@@ -14,17 +14,20 @@ use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
+use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::Uuid;
 use validator::{Validate, ValidationError};
 
+use super::model_stack;
 use super::{CodingSessionResponse, thread_settings, validate_not_blank};
 use crate::errors::ApiError;
 use crate::fleet::views::ThreadStatus;
 use crate::fleet::{MANAGED_METADATA_KEY, SESSION_METADATA_KEY};
 use crate::models::coding_session::{self, NewCodingSession};
+use crate::models::llm;
 use crate::models::{project, satellite};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
@@ -68,7 +71,25 @@ pub async fn handle(
     // here instead of opening a thread the insert would then refuse.
     let project = project::find(&mut connection, body.project_id).await?;
     let satellite = satellite::find(&mut connection, body.satellite_id).await?;
+    let credentials = llm::list(&mut connection).await?;
     drop(connection);
+
+    // Decrypting here rather than in the stack keeps the cipher out of the shaping
+    // rules. A credential that cannot be opened is skipped: the rest still run.
+    let mut opened = Vec::with_capacity(credentials.len());
+    for credential in credentials {
+        match credential.secret_token(&state.cipher) {
+            Ok(token) => opened.push((credential, token)),
+            Err(error) => event!(
+                name: "coding_session.credential.unreadable",
+                Level::ERROR,
+                llm.id = %credential.id,
+                error.message = %error,
+                "a stored credential could not be decrypted and was skipped",
+            ),
+        }
+    }
+    let stack = model_stack::build(&opened, Utc::now());
 
     let client = state.fleet.client(satellite.id).await?;
     let session_id = Uuid::now_v7();
@@ -79,7 +100,7 @@ pub async fn handle(
     let created = client
         .threads()
         .create_with(
-            thread_settings(repository),
+            thread_settings(repository, stack),
             Some(session_id.to_string()),
             metadata,
         )
@@ -228,7 +249,7 @@ mod tests {
 
     #[test]
     fn new_threads_declare_the_ceilings_the_satellite_requires() {
-        let settings = thread_settings(None);
+        let settings = thread_settings(None, None);
         assert!(settings.idle_ttl.is_some());
         let budget = settings.budget.expect("budget is set");
         assert!(budget.max_tokens_per_turn.is_some());

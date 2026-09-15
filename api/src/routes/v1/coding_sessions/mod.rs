@@ -9,6 +9,7 @@ mod create_coding_session;
 mod delete_coding_session;
 mod list_coding_sessions;
 mod list_session_events;
+mod model_stack;
 mod rename_coding_session;
 mod start_turn;
 
@@ -16,6 +17,7 @@ use arsox_sdk::proto::common::v1::{
     CostCeiling, Duration, DurationCeiling, Money, TokenCeiling, Unlimited, cost_ceiling,
     duration_ceiling, token_ceiling,
 };
+use arsox_sdk::proto::harness::v1::Harness;
 use arsox_sdk::proto::settings::v1::{Budget, Repo, ThreadSettings};
 use axum::Router;
 use axum::routing::{get, patch, post};
@@ -24,6 +26,7 @@ use serde::Serialize;
 use uuid::Uuid;
 use validator::ValidationError;
 
+use self::model_stack::ModelStack;
 use crate::fleet::views::ThreadStatus;
 use crate::models::coding_session::CodingSession;
 use crate::state::AppState;
@@ -84,10 +87,12 @@ impl CodingSessionResponse {
     }
 }
 
-/// Settings for a new thread: Elysium's policy ceilings plus the optional repository.
+/// Settings for a new thread: Elysium's policy ceilings, the optional repository, and
+/// the credentials the thread fails over through.
 ///
-/// Models and credentials are left to the satellite's own configuration.
-fn thread_settings(repository: Option<Repo>) -> ThreadSettings {
+/// Without a stack the thread declares no endpoint, and the satellite falls back to
+/// whatever credential it holds itself.
+fn thread_settings(repository: Option<Repo>, stack: Option<ModelStack>) -> ThreadSettings {
     let budget = Budget {
         // Per-turn tokens are bounded by the cost and wall clock ceilings instead.
         max_tokens_per_turn: Some(TokenCeiling {
@@ -107,12 +112,21 @@ fn thread_settings(repository: Option<Repo>) -> ThreadSettings {
         }),
     };
 
+    // The harness has to match the endpoints: a Claude list cannot drive Codex, and
+    // both travel together out of the stack for that reason.
+    let (harness, models) = stack.map_or_else(
+        || (Harness::Unspecified, Vec::new()),
+        |stack| (stack.harness, stack.endpoints),
+    );
+
     ThreadSettings {
         idle_ttl: Some(Duration {
             seconds: THREAD_IDLE_TTL_SECONDS,
             nanos: 0,
         }),
         budget: Some(budget),
+        harness: harness.into(),
+        models,
         repos: repository.into_iter().collect(),
         ..ThreadSettings::default()
     }

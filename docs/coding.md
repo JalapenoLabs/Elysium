@@ -72,7 +72,27 @@ Every thread is opened with Elysium's policy, constants in `api/src/routes/v1/co
 | Tokens per turn           | unlimited | Bounded by the two ceilings above                                 |
 
 An optional repository URL (https, http, ssh, or `git@`) is cloned into the workspace, into a directory named after
-the URL's last segment. Models and model credentials come from the satellite's own configuration.
+the URL's last segment.
+
+## Model credentials
+
+A thread is opened with Elysium's stored LLM credentials as its model endpoints, in priority order. The satellite
+tries the first and moves to the next when it will not answer: a rate-limited credential is waited out and then
+failed over, and a rejected one is never retried. The list is failover, never a pool, so later entries are only
+reached when the ones above them are spent.
+
+One list carries one request shape, because failover relays the harness's request body unchanged. The highest
+priority usable credential therefore decides the thread's harness and family: `claude-api-token` and
+`claude-code-oauth` run Claude, `chatgpt-api-token` and `chatgpt-oauth` run Codex, and the other family's
+credentials are left out of that thread.
+
+Inactive and expired credentials are skipped. A `chatgpt-oauth` credential holds a whole `~/.codex/auth.json`, and
+the API reads the access and refresh tokens out of it; a file it cannot parse is skipped rather than sent. With no
+usable credential the thread declares no endpoint, and the satellite falls back to whatever credential it holds
+itself.
+
+Credentials never reach an agent either way: the satellite's proxy strips what the CLI presents and attaches the
+real one on the way out. The shaping rules live in `api/src/routes/v1/coding_sessions/model_stack.rs`.
 
 Deleting a session destroys its thread first. A thread that already expired or was destroyed does not block the
 delete; any other satellite failure does, so a session is never forgotten while its thread still runs. Deleting a
@@ -138,5 +158,4 @@ their sessions destroyed.
 - Rendering agent messages as Markdown.
 - Answering an agent's questions and deciding proposed plans from the conversation.
 - Cancelling a running turn.
-- Passing Elysium's stored LLM credentials to threads, instead of relying on each satellite's own.
 - Following the satellite control stream once the Rust SDK exposes it, replacing the status poll.

@@ -26,6 +26,8 @@ Everything else follows these rules:
   bearer secret that must not reach a browser. The API is their only client, through `arsox-sdk`.
 - Satellite secrets are application secrets, sealed in Postgres like LLM tokens.
 - Thread policy (idle TTL, budget ceilings) is code constants, not configuration. See `docs/coding.md`.
+- A thread is opened with Elysium's active LLM credentials as an ordered failover stack, highest priority first,
+  so a credential that runs out hands the turn to the next one.
 
 ## One event stream keeps the frontend current
 
