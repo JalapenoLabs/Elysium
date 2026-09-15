@@ -108,18 +108,30 @@ so the workspace follows light and dark mode.
 ## Running a satellite locally
 
 The satellite image is not published. Build it from a clone of `JalapenoLabs/arsox-satellites` (`develop`) with
-`docker build --tag arsox-satellite:dev .`, then run it on the compose network so the API can reach it:
+`docker build --tag arsox-satellite:<commit> .`, then run it from its own compose file outside this repository,
+published only on the `docker0` bridge address:
 
-```sh
-docker run -d --name arsox --network elysium_default \
-  --env ARSOX_SECRET=<a long random value> \
-  --env ANTHROPIC_API_KEY=<model credential> \
-  --volume arsox-db:/var/arsox --volume arsox-workspace:/workspace \
-  arsox-satellite:dev
+```yaml
+services:
+  arsox-local:
+    image: arsox-satellite:<commit>
+    restart: unless-stopped
+    ports: [ "172.17.0.1:8090:8080" ]
+    env_file:
+      - path: arsox-local-secret.conf    # ARSOX_SECRET=<a long random value>
+      - path: model-credentials.conf     # ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY
+        required: false
+    volumes: [ "arsox-local-db:/var/arsox", "arsox-local-workspace:/workspace" ]
+volumes:
+  arsox-local-db:
+  arsox-local-workspace:
 ```
 
-Register it as `http://arsox:8080` with the same secret. Without the volumes, a restarted satellite forgets its
-threads, and Elysium marks their sessions destroyed.
+Register it as `http://172.17.0.1:8090` with the same secret. The API container reaches the host's bridge address,
+so the satellite neither listens on the LAN nor joins Elysium's compose network, which would stop
+`docker compose down` from removing that network. Satellites on other machines publish a port on the LAN and are
+registered by that address. Without the volumes, a restarted satellite forgets its threads, and Elysium marks
+their sessions destroyed.
 
 ## Roadmap
 
