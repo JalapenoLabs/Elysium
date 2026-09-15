@@ -166,8 +166,8 @@ New project opens `/projects/new` (`CreateProjectPage`); editing opens `EditProj
 render `ProjectForm`, with the cover beside the other fields. `ProjectCoverField` checks the type and the 1 MB limit
 before accepting a file and previews it in the same frame. The form saves the project first and then uploads or
 removes the cover, since a new project has no id before it is saved; a failed cover leaves the saved project in place
-and says so. Cover URLs come from
-`getProjectCoverUrl`, which adds `coverUpdatedAt` so a new cover is never served from cache.
+and says so. Cover URLs come from `getProjectCoverUrl`, which adds `coverUpdatedAt` so a new cover is never served
+from cache.
 
 ## Jalapeno Labs packages
 
