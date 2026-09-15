@@ -10,6 +10,8 @@ import useSWR from 'swr'
 // Redux
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { mailAccountUpserted, selectAllMailAccounts } from '../../../store/mailAccountsSlice'
+import { selectAllMailDomains } from '../../../store/mailDomainsSlice'
+import { selectMailServer } from '../../../store/mailServerSlice'
 
 // User interface
 import { Alert, Breadcrumbs, Spinner, toast, useOverlayState } from '@heroui/react'
@@ -17,9 +19,8 @@ import { CreateMailboxModal } from './CreateMailboxModal'
 import { DisconnectMailAccountDialog } from './DisconnectMailAccountDialog'
 import { MailAccountTable } from './MailAccountTable'
 import { MailboxSourceActions } from './MailboxSourceActions'
-import { MailServerNotice } from './MailServerNotice'
+import { MailServerSection } from './MailServerSection'
 import { SenderNameModal } from './SenderNameModal'
-import { SetUpMailServerModal } from './SetUpMailServerModal'
 
 // Misc
 import { getUpstreamErrorMessage } from '../../../api/errors'
@@ -37,6 +38,8 @@ export function ManageEmailPage() {
   const { t } = useTranslation([ 'email', 'settings', 'common' ])
   const dispatch = useAppDispatch()
   const accounts = useAppSelector(selectAllMailAccounts)
+  const server = useAppSelector(selectMailServer)
+  const domains = useAppSelector(selectAllMailDomains)
   const status = useMailAccountsLoader()
   // Only this page asks, so it stays in SWR rather than Redux.
   const { data: capabilitiesResponse } = useSWR('v1/mail/capabilities', getMailCapabilities)
@@ -44,7 +47,6 @@ export function ManageEmailPage() {
 
   useOAuthOutcomeToast()
 
-  const setUpState = useOverlayState()
   const createState = useOverlayState()
   const renameState = useOverlayState()
   const disconnectState = useOverlayState()
@@ -120,6 +122,8 @@ export function ManageEmailPage() {
       t('title')
     }</h1>
 
+    <MailServerSection />
+
     <section>
       <div className='compact flex flex-wrap items-start justify-between gap-4'>
         <div>
@@ -132,6 +136,8 @@ export function ManageEmailPage() {
         </div>
         <MailboxSourceActions
           capabilities={capabilities}
+          server={server}
+          hasDomains={domains.length > 0}
           onCreateMailbox={() => openFor(null, createState.open)}
         />
       </div>
@@ -147,11 +153,6 @@ export function ManageEmailPage() {
           }</Alert.Description>
         </Alert.Content>
       </Alert>}
-
-      {capabilities && <MailServerNotice
-        server={capabilities.mailServer}
-        onSetUp={() => openFor(null, setUpState.open)}
-      />}
 
       {status === 'loading' && <div className='grid place-items-center py-16'>
         <Spinner />
@@ -174,14 +175,10 @@ export function ManageEmailPage() {
       />}
     </section>
 
-    <SetUpMailServerModal
-      key={`set-up-${formSession}`}
-      state={setUpState}
-    />
     <CreateMailboxModal
       key={`create-${formSession}`}
       state={createState}
-      defaultDomain={capabilities?.mailServer.domain ?? 'elysium.local'}
+      domains={domains}
     />
     <SenderNameModal
       key={`rename-${formSession}`}

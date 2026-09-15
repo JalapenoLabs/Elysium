@@ -76,13 +76,19 @@ services:
       # Where browsers reach the OAuth broker Gmail and Outlook accounts connect through.
       # Empty disables both. OAUTH_BROKER_INTERNAL_URL may name another address for the API.
       OAUTH_BROKER_URL: ""
-      STALWART_URL: http://stalwart:8080
+      # The filtered Docker API the mail server is created and run through.
+      DOCKER_URL: http://docker-proxy:2375
       TZ: UTC
+    networks:
+      - default
+      - docker-control
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      docker-proxy:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/ok"]
       interval: 15s
@@ -114,25 +120,27 @@ services:
       retries: 5
       start_period: 10s
 
-  # Self-hosted mailboxes. No published ports: mail stays on this host until Elysium is
-  # given a domain and DNS. It starts in bootstrap mode until the Email settings page sets
-  # it up; the administrator that setup issues is stored encrypted in Postgres.
-  stalwart:
-    container_name: elysium-stalwart
-    image: stalwartlabs/stalwart:v0.16.22-alpine
-    # The wrapper restarts Stalwart once when setup writes its configuration file,
-    # and relies on the restart policy to start it again.
+  # The API's only way to Docker: a proxy that answers the container, image, volume, and
+  # network endpoints and refuses the rest (exec, build, swarm, secrets, system). The API
+  # uses it to create and run the mail server. Container creation is still enough to
+  # control the host, which is one more reason nginx stays on loopback.
+  docker-proxy:
+    container_name: elysium-docker-proxy
+    image: tecnativa/docker-socket-proxy:v0.5.0
     restart: unless-stopped
-    entrypoint: ["/bin/sh", "/opt/elysium/entrypoint.sh"]
     environment:
-      TZ: UTC
+      CONTAINERS: 1
+      IMAGES: 1
+      VOLUMES: 1
+      NETWORKS: 1
+      POST: 1
+      ALLOW_START: 1
+      ALLOW_RESTARTS: 1
+      EVENTS: 0
     volumes:
-      - ./stalwart/entrypoint.sh:/opt/elysium/entrypoint.sh:ro
-      # Written by setup: names the datastore, whose objects hold every other setting.
-      - stalwart-config:/etc/stalwart
-      - stalwart-data:/var/lib/stalwart
-    # The image's own healthcheck probes its HTTPS listener, falling back to the
-    # management listener, which is all that runs before setup.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docker-control
 
   redis:
     container_name: elysium-redis
@@ -150,8 +158,12 @@ services:
       retries: 5
       start_period: 5s
 
+networks:
+  default:
+  # Only the API and the Docker proxy. Internal: it has no route out of the host.
+  docker-control:
+    internal: true
+
 volumes:
   postgres-data:
   redis-data:
-  stalwart-config:
-  stalwart-data:

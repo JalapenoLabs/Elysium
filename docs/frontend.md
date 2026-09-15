@@ -55,7 +55,7 @@ the home page.
 | `/settings/llms/add-<type>`   | `AddLlmPage`             | One per provider, see below                              |
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
 | `/settings/satellites`        | `ManageSatellitesPage`   | Register satellites, see their status, test connections  |
-| `/settings/email`             | `ManageEmailPage`        | Connect Gmail and Outlook, create self-hosted mailboxes  |
+| `/settings/email`             | `ManageEmailPage`        | Mail server and domains, and every kind of mailbox       |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s.
 New settings pages add an entry to a section and a route under `/settings`.
@@ -87,11 +87,18 @@ Manage satellites follows the same split under `src/pages/Settings/Satellites/`.
 live status (online, unreachable with the reason on hover, checking, or inactive), version, and thread load, and
 its row menu adds Test connection.
 
-Email under `src/pages/Settings/Email/` shows mailboxes in `MailAccountTable`. `MailboxSourceActions` offers
-Connect Gmail, Connect Outlook, and Create mailbox, disabling each with the reason when the deployment lacks the
-service (from `GET /api/v1/mail/capabilities`, read through SWR). `MailServerNotice` explains a mail server that is
-unreachable or waits for setup, and opens `SetUpMailServerModal`, which sends the domain and temporary password and
-revalidates the capabilities. The Connect buttons are plain anchors to the API's
+Email under `src/pages/Settings/Email/` has two sections.
+
+`MailServerSection` follows the mail server's state from Redux. With no server it offers `CreateMailServerModal`
+(first domain, and a hostname that follows it as `mail.<domain>` until edited); while it is created it shows the
+current step from `mailServer.updated` events; once ready it lists domains in `MailDomainTable`, with
+`AddMailDomainModal`, `RemoveMailDomainDialog` (disabled while the domain has mailboxes), and `MailDomainDnsModal`,
+which checks the domain's records through SWR each time it opens and lists them with copy buttons (`DnsRecordRow`).
+
+The mailboxes section shows `MailAccountTable`. `MailboxSourceActions` offers Connect Gmail, Connect Outlook, and
+Create mailbox, disabling each with the reason: no broker (from `GET /api/v1/mail/capabilities`, read through SWR),
+no ready mail server, or no domain. `CreateMailboxModal` picks one of the server's domains. The Connect buttons are
+plain anchors to the API's
 OAuth start route, because the answer is a redirect to the broker; a client-side route change would not follow it.
 `useOAuthOutcomeToast` announces the `mailConnected` or `mailError` the callback returns with, then strips it from
 the URL. The row menu tests the connection, sends a test message, changes the sender name, toggles active, and
@@ -166,6 +173,8 @@ Selectors return existing references; never build objects or strings inside one.
 |------------------|-------------------------------------------------------------------------|
 | `llms`           | LLM credentials, sorted by priority                                     |
 | `mailAccounts`   | Connected mailboxes, sorted by address                                  |
+| `mailDomains`    | The mail server's domains, sorted by name                               |
+| `mailServer`     | The mail server's state, replaced whole by every update                 |
 | `projects`       | Projects, sorted by name                                                |
 | `satellites`     | Satellites with their latest status                                     |
 | `codingSessions` | Coding sessions with their thread state, newest first                   |
@@ -178,9 +187,10 @@ Server collections use entity adapters. Redux is the source of truth components 
 ### Server data: SWR, then Redux, then the event stream
 
 1. **SWR loads it once.** A component that shows server data calls a loader from `src/hooks/useServerData.ts`
-   (`useLlmsLoader`, `useMailAccountsLoader`, `useProjectsLoader`, `useSatellitesLoader`, `useCodingSessionsLoader`,
-   `useSessionHistoryLoader`). SWR fetches the key once, deduplicates every component asking for it, and buffers the
-   response so a remounted page renders at once while it revalidates.
+   (`useLlmsLoader`, `useMailAccountsLoader`, `useMailServerLoader`, `useMailDomainsLoader`, `useProjectsLoader`,
+   `useSatellitesLoader`, `useCodingSessionsLoader`, `useSessionHistoryLoader`). SWR fetches the key once,
+   deduplicates every component asking for it, and buffers the response so a remounted page renders at once while
+   it revalidates.
 2. **Redux holds it.** The loader puts the response in Redux (`llmsLoaded`, `sessionHistoryLoaded`, ...).
    Loaders return only `loading`, `loaded`, or `failed`; components select the data itself from Redux. Once
    `loaded`, a refetch never drops a view back to a spinner.

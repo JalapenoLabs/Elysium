@@ -1,6 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { MailCapabilities, MailServerStatus, OAuthMailAccountKind } from '../../../api/routes/mailRoutes'
+import type {
+  MailCapabilities,
+  MailServer,
+  MailServerState,
+  OAuthMailAccountKind,
+} from '../../../api/routes/mailRoutes'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -13,16 +18,21 @@ import { LuPlus } from 'react-icons/lu'
 import { getOAuthStartHref } from '../../../api/routes/mailRoutes'
 import { mailAccountKindIcons, mailAccountKindLabelKeys, OAUTH_MAIL_ACCOUNT_KINDS } from './mailPresentation'
 
-// Why the bundled server cannot take a new mailbox, by its status; null when it can.
+// Why the mail server cannot take a new mailbox, by its state; null when it can.
 const mailServerReasonKeys = {
-  'setup-required': 'availability.mailServerSetupRequired',
+  'not-created': 'availability.mailServerMissing',
+  'creating': 'availability.mailServerMissing',
+  'failed': 'availability.mailServerMissing',
   'ready': null,
-  'unreachable': 'availability.mailServerUnreachable.title',
-} as const satisfies Record<MailServerStatus, string | null>
+  'unreachable': 'server.unreachable.title',
+} as const satisfies Record<MailServerState, string | null>
 
 type Props = {
   // Undefined while loading: every source shows, disabled, so the row does not jump.
   capabilities: MailCapabilities | undefined
+  // Null while loading.
+  server: MailServer | null
+  hasDomains: boolean
   onCreateMailbox: () => void
 }
 
@@ -49,12 +59,21 @@ export function MailboxSourceActions(props: Props) {
     return null
   }
 
-  const mailServerReasonKey = capabilities
-    ? mailServerReasonKeys[capabilities.mailServer.status]
-    : null
-  const mailServerReason = mailServerReasonKey
-    ? t(mailServerReasonKey)
-    : null
+  function createMailboxBlocker() {
+    if (!props.server) {
+      return null
+    }
+    const reasonKey = mailServerReasonKeys[props.server.state]
+    if (reasonKey) {
+      return t(reasonKey)
+    }
+    if (!props.hasDomains) {
+      return t('availability.mailDomainMissing')
+    }
+    return null
+  }
+  const createBlocker = createMailboxBlocker()
+  const canCreateMailbox = props.server?.state === 'ready' && props.hasDomains
 
   return <div className='flex flex-wrap items-center gap-2'>
     {OAUTH_MAIL_ACCOUNT_KINDS.map((kind) => {
@@ -91,12 +110,12 @@ export function MailboxSourceActions(props: Props) {
       </Tooltip>
     })}
 
-    <Tooltip delay={200} isDisabled={!mailServerReason}>
+    <Tooltip delay={200} isDisabled={!createBlocker}>
       <Tooltip.Trigger>
         <div>
           <Button
             size='sm'
-            isDisabled={capabilities?.mailServer.status !== 'ready'}
+            isDisabled={!canCreateMailbox}
             onPress={props.onCreateMailbox}
           >
             <LuPlus className='size-4' aria-hidden />
@@ -105,7 +124,7 @@ export function MailboxSourceActions(props: Props) {
         </div>
       </Tooltip.Trigger>
       <Tooltip.Content className='max-w-xs'>
-        <span>{mailServerReason}</span>
+        <span>{createBlocker}</span>
       </Tooltip.Content>
     </Tooltip>
   </div>

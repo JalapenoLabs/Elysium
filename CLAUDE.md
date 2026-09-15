@@ -31,14 +31,18 @@ Everything else follows these rules:
 
 ## Mail
 
-- Mailboxes are Gmail, Outlook, or self-hosted on the bundled Stalwart sidecar, all read and sent over one IMAP and
+- Mailboxes are Gmail, Outlook, or self-hosted on Elysium's Stalwart server, all read and sent over one IMAP and
   SMTP transport. Servers are fixed per kind in code. See `docs/mail.md`.
 - Gmail and Outlook connect through the OAuth broker in `oauth-broker/`, a stateless, separately deployable
   Apache-2.0 service that holds the OAuth apps so self-hosters need none. Its secrets belong to its own deployment,
   never to Elysium's bootstrap file.
-- Stalwart's administrator is issued by Stalwart when the Email settings page sets the server up, and is sealed in
-  Postgres like any application secret. It never goes in `.env` or `compose.yml`.
-- Stalwart stays local to the host until Elysium is given a domain and DNS.
+- One Stalwart server hosts any number of mail domains on one set of ports. The API creates and runs it through
+  Docker, reached only via the filtered `docker-proxy`, never a mounted socket. It is not a compose service.
+- Stalwart's administrator is issued by Stalwart when the API creates the server, and is sealed in Postgres like any
+  application secret. It never goes in `.env` or `compose.yml`.
+- The server publishes no ports. Making it reachable from the internet (ports, reverse DNS, TLS certificates) is
+  the operator's responsibility; Elysium provides each domain's DNS records and checks them, and never changes DNS
+  or issues certificates.
 
 ## One event stream keeps the frontend current
 

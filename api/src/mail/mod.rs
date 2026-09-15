@@ -15,11 +15,15 @@
 //! See `docs/mail.md`.
 
 pub mod broker;
+pub mod dns;
+pub mod hosting;
 pub mod stalwart;
 pub mod transport;
 
 use crate::models::mail_account::MailAccountKind;
 use broker::Broker;
+use dns::DnsChecker;
+use hosting::Hosting;
 use stalwart::Stalwart;
 use transport::{Endpoint, Security};
 
@@ -28,46 +32,47 @@ use transport::{Endpoint, Security};
 pub struct Mail {
     /// `None` when no broker URL is configured: Gmail and Outlook cannot connect.
     pub broker: Option<Broker>,
-    /// The bundled server. Its administrator is stored in `mail_servers` once the
-    /// settings page has set it up; until then no self-hosted mailbox can be created.
+    /// The mail server's management API. Its administrator comes from [`Hosting`].
     pub stalwart: Stalwart,
+    /// Creates the mail server and keeps it running.
+    pub hosting: Hosting,
+    /// Checks mail domains' records in public DNS.
+    pub dns: DnsChecker,
 }
 
-impl Mail {
-    /// Where an account of `kind` connects: its IMAP server, then its SMTP server.
-    pub fn endpoints(&self, kind: MailAccountKind) -> (Endpoint, Endpoint) {
-        let provider = |imap_host: &str, smtp_host: &str, smtp_port, smtp_security| {
-            (
-                Endpoint {
-                    host: imap_host.to_owned(),
-                    port: 993,
-                    security: Security::ImplicitTls,
-                    verify_certificate: true,
-                },
-                Endpoint {
-                    host: smtp_host.to_owned(),
-                    port: smtp_port,
-                    security: smtp_security,
-                    verify_certificate: true,
-                },
-            )
-        };
+/// Where an account of `kind` connects: its IMAP server, then its SMTP server.
+pub fn endpoints(kind: MailAccountKind) -> (Endpoint, Endpoint) {
+    let provider = |imap_host: &str, smtp_host: &str, smtp_port, smtp_security| {
+        (
+            Endpoint {
+                host: imap_host.to_owned(),
+                port: 993,
+                security: Security::ImplicitTls,
+                verify_certificate: true,
+            },
+            Endpoint {
+                host: smtp_host.to_owned(),
+                port: smtp_port,
+                security: smtp_security,
+                verify_certificate: true,
+            },
+        )
+    };
 
-        match kind {
-            MailAccountKind::Gmail => provider(
-                "imap.gmail.com",
-                "smtp.gmail.com",
-                465,
-                Security::ImplicitTls,
-            ),
-            // Microsoft's SMTP AUTH endpoint only offers STARTTLS on 587.
-            MailAccountKind::Outlook => provider(
-                "outlook.office365.com",
-                "smtp.office365.com",
-                587,
-                Security::StartTls,
-            ),
-            MailAccountKind::SelfHosted => self.stalwart.endpoints(),
-        }
+    match kind {
+        MailAccountKind::Gmail => provider(
+            "imap.gmail.com",
+            "smtp.gmail.com",
+            465,
+            Security::ImplicitTls,
+        ),
+        // Microsoft's SMTP AUTH endpoint only offers STARTTLS on 587.
+        MailAccountKind::Outlook => provider(
+            "outlook.office365.com",
+            "smtp.office365.com",
+            587,
+            Security::StartTls,
+        ),
+        MailAccountKind::SelfHosted => stalwart::endpoints(),
     }
 }

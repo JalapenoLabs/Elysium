@@ -59,6 +59,19 @@ diesel::table! {
         last_error -> Nullable<Text>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        mail_domain_id -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    mail_domains (id) {
+        id -> Uuid,
+        name -> Text,
+        stalwart_id -> Text,
+        is_default -> Bool,
+        created_at -> Timestamptz,
     }
 }
 
@@ -67,7 +80,7 @@ diesel::table! {
 
     mail_servers (id) {
         id -> Uuid,
-        domain -> Text,
+        hostname -> Text,
         admin_username -> Text,
         admin_secret_encrypted -> Bytea,
         created_at -> Timestamptz,
@@ -103,11 +116,13 @@ diesel::table! {
 
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
+diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     coding_sessions,
     llms,
     mail_accounts,
+    mail_domains,
     mail_servers,
     projects,
     satellites,

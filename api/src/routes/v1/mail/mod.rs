@@ -1,39 +1,55 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `/api/v1/mail`: connected mailboxes. Credentials are write-only and never leave
-//! the API; OAuth accounts never even pass one through a request body.
+//! `/api/v1/mail`: connected mailboxes, and the mail server and domains self-hosted
+//! mailboxes live on. Credentials are write-only and never leave the API; OAuth accounts
+//! never even pass one through a request body.
 
+mod check_domain_dns;
+mod create_domain;
 mod create_mailbox;
+mod create_server;
 mod delete_account;
+mod delete_domain;
 mod finish_oauth;
 mod get_capabilities;
+mod get_server;
 mod list_accounts;
+mod list_domains;
 mod send_test_message;
-mod set_up_server;
 mod start_oauth;
 mod test_account;
 mod update_account;
 
 use anyhow::Context;
 use axum::Router;
-use axum::routing::{get, patch, post};
+use axum::routing::{delete, get, patch, post};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::ValidationError;
 
 use crate::errors::ApiError;
-use crate::mail::stalwart::{Administrator, StalwartError};
+use crate::mail;
+use crate::mail::stalwart::Administrator;
 use crate::mail::transport::{Auth, Mailbox};
 use crate::models::mail_account::{self, MailAccount, MailAccountKind};
-use crate::models::mail_server;
+use crate::models::mail_domain::MailDomain;
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/capabilities", get(get_capabilities::handle))
-        .route("/server", post(set_up_server::handle))
+        .route(
+            "/server",
+            get(get_server::handle).post(create_server::handle),
+        )
+        .route(
+            "/domains",
+            get(list_domains::handle).post(create_domain::handle),
+        )
+        .route("/domains/{id}", delete(delete_domain::handle))
+        .route("/domains/{id}/dns", get(check_domain_dns::handle))
         .route(
             "/accounts",
             get(list_accounts::handle).post(create_mailbox::handle),
@@ -89,6 +105,8 @@ pub struct MailAccountResponse {
     last_error: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    /// The mail domain of a self-hosted mailbox; `None` for OAuth accounts.
+    mail_domain_id: Option<Uuid>,
 }
 
 impl From<MailAccount> for MailAccountResponse {
@@ -103,107 +121,52 @@ impl From<MailAccount> for MailAccountResponse {
             last_error: account.last_error,
             created_at: account.created_at,
             updated_at: account.updated_at,
+            mail_domain_id: account.mail_domain_id,
         }
     }
 }
 
-/// Whether the bundled mail server can host mailboxes yet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-enum MailServerStatus {
-    /// The server waits for its setup: none has run, or the server was reset since and
-    /// no longer knows the stored administrator.
-    SetupRequired,
-    Ready,
-    /// The server did not answer.
-    Unreachable,
-}
-
-/// The bundled mail server as clients see it. The administrator is never included.
+/// A mail domain as clients see it.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MailServerResponse {
-    status: MailServerStatus,
-    /// The domain chosen at setup; `None` before setup.
-    domain: Option<String>,
-    /// Why the server is unreachable, or why a set-up server needs setup again.
-    error: Option<String>,
+pub struct MailDomainResponse {
+    id: Uuid,
+    name: String,
+    /// The domain the server was created with, which cannot be removed.
+    is_default: bool,
+    created_at: DateTime<Utc>,
 }
 
-/// Asks the bundled server, live, whether it accepts the stored administrator.
+impl From<MailDomain> for MailDomainResponse {
+    fn from(domain: MailDomain) -> Self {
+        Self {
+            id: domain.id,
+            name: domain.name,
+            is_default: domain.is_default,
+            created_at: domain.created_at,
+        }
+    }
+}
+
+/// The mail server's administrator, for a request that changes the server.
 ///
 /// # Errors
+/// [`ApiError::Unavailable`] with `no_server` when no mail server exists, and
 /// [`ApiError::Internal`] when the database fails or the stored secret does not decrypt.
-async fn mail_server_status(state: &AppState) -> Result<MailServerResponse, ApiError> {
-    let Some((domain, administrator)) = stored_administrator(state).await? else {
-        return Ok(MailServerResponse {
-            status: MailServerStatus::SetupRequired,
-            domain: None,
-            error: None,
-        });
-    };
-
-    let (status, error) = match state.mail.stalwart.verify(&administrator).await {
-        Ok(()) => (MailServerStatus::Ready, None),
-        // A reset server starts over in bootstrap mode, which knows no administrator.
-        Err(StalwartError::Unauthorized) => (
-            MailServerStatus::SetupRequired,
-            Some(
-                "the mail server no longer accepts Elysium's administrator, so it was probably reset"
-                    .to_owned(),
-            ),
-        ),
-        Err(error) => (MailServerStatus::Unreachable, Some(error.to_string())),
-    };
-    Ok(MailServerResponse {
-        status,
-        domain: Some(domain),
-        error,
-    })
-}
-
-/// The stored administrator and the domain it was set up with, or `None` before setup.
-///
-/// # Errors
-/// [`ApiError::Internal`] when the database fails or the stored secret does not decrypt.
-async fn stored_administrator(
-    state: &AppState,
-) -> Result<Option<(String, Administrator)>, ApiError> {
-    let mut connection = state
-        .database
-        .get()
-        .await
-        .context("no database connection available")?;
-    let Some(server) = mail_server::find(&mut connection).await? else {
-        return Ok(None);
-    };
-
-    let password = server
-        .admin_secret(&state.cipher)
-        .context("stored mail server administrator does not decrypt")?;
-    let administrator = Administrator {
-        username: server.admin_username,
-        password,
-    };
-    Ok(Some((server.domain, administrator)))
-}
-
-/// The administrator for a request that changes mailboxes on the bundled server.
-///
-/// # Errors
-/// [`ApiError::Unavailable`] with `not_set_up` before the server is set up, and [`ApiError::Internal`]
-/// when the database fails or the stored secret does not decrypt.
 async fn require_administrator(
     state: &AppState,
-    not_set_up: &'static str,
+    no_server: &'static str,
 ) -> Result<Administrator, ApiError> {
-    stored_administrator(state)
+    state
+        .mail
+        .hosting
+        .administrator()
         .await?
-        .map(|(_domain, administrator)| administrator)
-        .ok_or(ApiError::Unavailable(not_set_up))
+        .ok_or(ApiError::Unavailable(no_server))
 }
 
-/// Dot-separated labels of letters, digits, and hyphens, at least two of them.
+/// Dot-separated labels of letters, digits, and hyphens, at least two of them. Used for
+/// both mail domains and the server's hostname.
 fn validate_domain(value: &str) -> Result<(), ValidationError> {
     let labels: Vec<&str> = value.split('.').collect();
     let well_formed = labels.len() >= 2
@@ -234,7 +197,7 @@ fn validate_domain(value: &str) -> Result<(), ValidationError> {
 /// [`ApiError::BadGateway`] when the broker refuses, and [`ApiError::Internal`] when
 /// the stored credential does not decrypt.
 async fn open_mailbox(state: &AppState, account: &MailAccount) -> Result<Mailbox, ApiError> {
-    let (imap, smtp) = state.mail.endpoints(account.kind);
+    let (imap, smtp) = mail::endpoints(account.kind);
     let credential = account
         .credential(&state.cipher)
         .context("stored mail credential does not decrypt")?;
@@ -274,4 +237,33 @@ async fn open_mailbox(state: &AppState, account: &MailAccount) -> Result<Mailbox
         smtp,
         auth,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn domain_names_need_two_well_formed_labels() {
+        for valid in [
+            "example.com",
+            "mail.example.com",
+            "elysium.local",
+            "a-b.test",
+        ] {
+            assert!(validate_domain(valid).is_ok(), "{valid} should be accepted");
+        }
+        for invalid in [
+            "localhost",
+            "-bad.example",
+            "exa mple.com",
+            "example..com",
+            "bad-.com",
+        ] {
+            assert!(
+                validate_domain(invalid).is_err(),
+                "{invalid} should be refused"
+            );
+        }
+    }
 }

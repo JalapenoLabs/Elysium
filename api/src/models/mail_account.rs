@@ -44,6 +44,8 @@ pub struct MailAccount {
     pub last_error: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The domain a self-hosted mailbox lives on; `None` for OAuth accounts.
+    pub mail_domain_id: Option<Uuid>,
 }
 
 /// Fields for a new mailbox, with the credential still in plaintext.
@@ -56,6 +58,8 @@ pub struct NewMailAccount {
     pub credential: SecretString,
     /// Stalwart's account id; required for, and only for, self-hosted mailboxes.
     pub external_id: Option<String>,
+    /// The mail domain; required for, and only for, self-hosted mailboxes.
+    pub mail_domain_id: Option<Uuid>,
 }
 
 /// A partial update. `None` leaves a column untouched.
@@ -81,6 +85,7 @@ struct MailAccountRow<'a> {
     display_name: &'a str,
     credential_encrypted: Vec<u8>,
     external_id: Option<&'a str>,
+    mail_domain_id: Option<Uuid>,
 }
 
 #[derive(AsChangeset)]
@@ -172,6 +177,7 @@ pub async fn create(
             &credential_context(id),
         ),
         external_id: new_account.external_id.as_deref(),
+        mail_domain_id: new_account.mail_domain_id,
     };
 
     diesel::insert_into(mail_accounts::table)
@@ -275,6 +281,7 @@ mod tests {
             display_name: "Someone".to_owned(),
             credential: SecretString::from(format!("refresh-{address}")),
             external_id: None,
+            mail_domain_id: None,
         }
     }
 

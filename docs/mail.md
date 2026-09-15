@@ -2,7 +2,8 @@
 
 Elysium reads and sends mail through mailboxes connected on the Email settings page (`/settings/email`). This doc
 covers the backend: account kinds, the one transport they share, the OAuth broker Gmail and Outlook go through, and
-the bundled Stalwart server. There is no mail-reading UI; mail will surface through a new kind of UI later.
+the mail server Elysium runs for self-hosted mailboxes. There is no mail-reading UI; mail will surface through a new
+kind of UI later.
 
 ## Account kinds
 
@@ -10,7 +11,7 @@ the bundled Stalwart server. There is no mail-reading UI; mail will surface thro
 |---------------|------------------------------------------------------------------|------------------------------|
 | `gmail`       | `imap.gmail.com:993` TLS, `smtp.gmail.com:465` TLS                | OAuth refresh token          |
 | `outlook`     | `outlook.office365.com:993` TLS, `smtp.office365.com:587` STARTTLS | OAuth refresh token          |
-| `self_hosted` | the bundled Stalwart, `stalwart:993` and `stalwart:465`, TLS       | Generated mailbox password   |
+| `self_hosted` | Elysium's Stalwart, `stalwart:993` and `stalwart:465`, TLS         | Generated mailbox password   |
 
 Servers are fixed per kind in `api/src/mail/mod.rs`, never taken from a request, so no request can point the API at
 an arbitrary host. The credential is sealed in `mail_accounts.credential_encrypted` (see `docs/secrets.md`) and
@@ -26,8 +27,8 @@ Every kind goes through `api/src/mail/transport.rs`: `async-imap` for IMAP and `
 - OAuth accounts authenticate with SASL `XOAUTH2`, using an access token fetched from the broker for each operation.
   When the provider rotates the refresh token in that exchange, the new one is sealed immediately.
 - Self-hosted mailboxes authenticate with their password (`LOGIN` over IMAP, `PLAIN` over SMTP).
-- Certificates are verified against the webpki roots, except for the bundled Stalwart, whose certificate is
-  self-signed for `localhost`. That traffic stays on the compose network, the same as Postgres and Redis.
+- Certificates are verified against the webpki roots, except for Elysium's Stalwart, whose certificate is
+  self-signed. That traffic stays on the private `elysium-mail` network between the API and Stalwart.
 - Each exchange has 15 seconds.
 
 The API exposes two checks:
@@ -95,56 +96,93 @@ a broker holding the secret, and the reason anyone can run their own.
 `GET /api/v1/mail/capabilities` asks the broker which providers it offers, so the settings page can tell an
 unconfigured broker from an unreachable one.
 
-## Stalwart
+## Mail server
 
-Self-hosted mailboxes live on Stalwart (`stalwartlabs/stalwart:v0.16.22-alpine`), a sidecar in `compose.yml`. The API
-administers it over JMAP at `http://stalwart:8080/jmap/`. Every setting, including domains, accounts, and listeners,
-is a JMAP object in Stalwart's datastore (RocksDB under the `stalwart-data` volume).
+Self-hosted mailboxes live on one Stalwart server (`stalwartlabs/stalwart:v0.16.22-alpine`) that the API creates
+and runs through Docker. One server hosts any number of domains on one set of listeners, so every domain shares its
+ports and its hostname. The API administers it over JMAP at `http://stalwart:8080/jmap/`; every setting, including
+domains, accounts, and listeners, is a JMAP object in Stalwart's own datastore.
 
-### Setup
+### Docker
 
-Stalwart's administrator is issued by Stalwart itself and stored in Postgres; nothing about it is configured in
-`.env` or `compose.yml`.
+The API reaches Docker only through `docker-proxy` in `compose.yml` (`tecnativa/docker-socket-proxy:v0.5.0`), which
+answers the container, image, volume, and network endpoints and refuses the rest. The proxy is on the internal
+`docker-control` network, shared with the API alone. `api/src/mail/stalwart/container.rs` owns everything the API
+creates, all labelled `dev.elysium.managed=mail-server`:
 
-1. A new Stalwart has no configuration file, so it starts in bootstrap mode: only the management listener runs, and
-   it prints a temporary administrator `admin` with a random password to its log. It prints a new one on every start
-   until setup completes.
-2. The Email settings page shows **Set up mail server** while `GET /api/v1/mail/capabilities` reports the server as
-   `setup-required`. The operator enters a domain and the most recent temporary password from
-   `docker logs elysium-stalwart`.
-3. `POST /api/v1/mail/server` signs in with the temporary password and calls `x:Bootstrap/set`, giving the server
-   its default domain, the hostname `mail.<domain>`, a self-signed certificate instead of ACME, DKIM keys, and
-   logging to stdout. Stalwart answers with a permanent administrator (`admin@<domain>`) and writes its
-   configuration file to the `stalwart-config` volume.
-4. The API seals that administrator into `mail_servers` at once. Stalwart shows its password only in that answer,
-   and the temporary password stops working, so the database connection is taken before setup starts.
-5. Stalwart keeps running in bootstrap mode until restarted, and nothing in Elysium can restart a container.
-   `stalwart/entrypoint.sh` therefore waits for the configuration file and stops Stalwart; the service's
-   `restart: unless-stopped` policy starts it again, now configured. The request returns once the restarted server
-   accepts the new administrator, about three seconds after it was sent, and gives up after 20.
+| Kind      | Name                      | Holds                                                   |
+|-----------|---------------------------|---------------------------------------------------------|
+| network   | `elysium-mail`            | The API and Stalwart; Stalwart answers as `stalwart`    |
+| volume    | `elysium-stalwart-config` | `/etc/stalwart`, the configuration file setup writes    |
+| volume    | `elysium-stalwart-data`   | `/var/lib/stalwart`: domains, accounts, keys, and mail  |
+| container | `elysium-stalwart`        | The server, `restart: unless-stopped`, no published ports |
 
-The capabilities check signs in with the stored administrator on every call. A server that refuses it was reset
-(its volumes removed) and is back in bootstrap mode, so it is reported as `setup-required` again, with the reason;
-setting it up replaces the stored administrator. A server that does not answer is `unreachable`.
+None of these belong to the compose project, so `docker compose down` leaves the server running and its data in
+place; `docker compose down --volumes` does not remove them either.
+
+### Creating the server
+
+The Email settings page asks for the first domain and the server's hostname (`mail.<domain>` by default).
+`POST /api/v1/mail/server` answers `202` at once and the work runs in the background, each step published as
+`mailServer.updated` (`api/src/mail/hosting.rs`):
+
+1. `preparing`: create `elysium-mail` and attach the API's own container to it.
+2. `pulling-image`: pull the pinned image unless Docker has it.
+3. `starting`: create the volumes and the container, and start it. With no configuration file, Stalwart starts in
+   bootstrap mode and prints a temporary administrator `admin` with a random password to its log.
+4. `configuring`: read that password from the container's log, and call `x:Bootstrap/set` with it: the hostname,
+   the first domain, a self-signed certificate instead of ACME, DKIM keys, and logging to stdout. Stalwart answers
+   with a permanent administrator (`admin@<domain>`), which is sealed into `mail_servers` at once. Stalwart shows
+   its password only in that answer, so the database connection is taken before setup starts.
+5. `restarting`: restart the container, which is how Stalwart leaves bootstrap mode, and wait for it to accept the
+   new administrator.
+6. `adding-domain`: record the first domain in `mail_domains` as the default.
+
+With the image already pulled, this takes about four seconds. A failure stops the sequence and the server is
+reported `failed` with the reason until creation is started again. A failure after step 4 leaves a working server
+whose first domain can be added like any other.
+
+### Keeping it running
+
+At every API start, when a server exists, the API reattaches itself to `elysium-mail` (a recreated API container
+starts without it), pulls the image if it is gone, and starts the container, recreating it from its volumes if it
+was removed. `GET /api/v1/mail/server` signs in with the stored administrator on every call, so a server that stopped
+answering reads `unreachable`, as does one whose volumes were removed, which no longer knows the administrator.
+
+### Domains
+
+- Adding a domain creates it in Stalwart (`x:Domain/set`, or finds it with `x:Domain/query`) and records it in
+  `mail_domains`. Stalwart generates its DKIM keys (Ed25519 and RSA) within seconds.
+- Removing a domain is refused while it has mailboxes, and for the default domain, which Stalwart keeps for itself.
+  Otherwise its DKIM keys are destroyed first, since Stalwart refuses to remove a domain they still link to.
+- `GET /api/v1/mail/domains/{id}/dns` reads the zone file Stalwart generates for the domain and picks out the
+  records delivery and authentication need: MX, SPF (for the domain, and for the hostname on the default domain),
+  DKIM, and DMARC. It looks each one up in public DNS (`api/src/mail/dns.rs`, on `hickory-resolver`) and reports
+  it `published`, `different` (another value for the same purpose, such as a chosen DMARC policy), `missing`, or
+  `unverified` when the lookup itself failed. Whitespace differences, such as a DKIM key split into strings, do not
+  count. The full zone file, with optional service discovery records, comes along. Elysium never changes DNS.
 
 ### Mailboxes
 
-- Creating a mailbox finds or creates its domain (`x:Domain/query`, `x:Domain/set`), then creates the user with a
-  generated 256-bit password (`x:Account/set`). If saving the row fails, the Stalwart account is destroyed again.
-  Mailbox changes answer `503` until the server is set up.
+- A self-hosted mailbox is created on one of the server's domains, with a generated 256-bit password
+  (`x:Account/set`). If saving the row fails, the Stalwart account is destroyed again.
 - Deleting a self-hosted mailbox destroys the Stalwart account and its mail before the row is removed.
+- Domain and mailbox changes answer `503` until a server exists.
 
-### Network
+### Receiving mail from the internet
 
-- Once set up, Stalwart listens on 25, 465, 993, 995, 4190, 443, and 8080. None is published: mail stays on this
-  host. Mail between mailboxes on the server is delivered; mail to the internet has no DNS or reverse DNS behind it
-  and will be refused or filed as spam.
-- At startup Stalwart downloads its web interface and spam-filter data from GitHub. The web interface is not used.
+The server publishes no ports and mail stays on this host: mail between its mailboxes is delivered, and mail to
+the internet has no DNS behind it. Making the server reachable is the operator's part, not Elysium's: a public IP
+address with ports 25, 465, and 993 reachable, an address record and reverse DNS for the hostname, each domain's
+records from the DNS check, and a TLS certificate for the hostname. Elysium does not issue certificates or publish
+the server's ports.
+
+At startup Stalwart downloads its web interface and spam-filter data from GitHub. The web interface is not used.
 
 ## Tables and routes
 
-`mail_accounts` and `mail_servers` are described in `docs/database.md`, the routes in `docs/api.md`, and the
-`mailbox.upserted` and `mailbox.deleted` events in `docs/realtime.md`.
+`mail_accounts`, `mail_domains`, and `mail_servers` are described in `docs/database.md`, the routes in
+`docs/api.md`, and the `mailbox.*`, `mailDomain.*`, and `mailServer.updated` events in `docs/realtime.md`.
 
 ## Roadmap
 
@@ -153,5 +191,4 @@ setting it up replaces the stored administrator. A server that does not answer i
 - Google's security assessment for the restricted `https://mail.google.com/` scope, and Microsoft publisher
   verification, so the consent screens stop warning and Gmail's 100-user cap lifts.
 - Rate limiting on the broker's public routes.
-- Exposing Stalwart beyond this host: a real domain, published SMTP, DKIM keys, DNS records, and a certificate the
-  API can verify.
+- Removing the mail server from the settings page: its container, volumes, domains, and mailboxes.

@@ -41,8 +41,8 @@ pub struct MailConfig {
     pub oauth_broker: Option<Url>,
     /// The broker as the API reaches it, when that differs from what browsers see.
     pub oauth_broker_internal: Option<Url>,
-    /// Stalwart's management listener.
-    pub stalwart: Url,
+    /// The Docker API the mail server is run through: the filtered socket proxy.
+    pub docker: Url,
 }
 
 impl Config {
@@ -67,8 +67,8 @@ impl Config {
             mail: MailConfig {
                 oauth_broker: optional_base_url("OAUTH_BROKER_URL")?,
                 oauth_broker_internal: optional_base_url("OAUTH_BROKER_INTERNAL_URL")?,
-                stalwart: optional_base_url("STALWART_URL")?.unwrap_or_else(|| {
-                    Url::parse("http://stalwart:8080/").expect("a static URL parses")
+                docker: optional_base_url("DOCKER_URL")?.unwrap_or_else(|| {
+                    Url::parse("http://docker-proxy:2375/").expect("a static URL parses")
                 }),
             },
         })

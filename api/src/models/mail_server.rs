@@ -1,11 +1,10 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! The bundled mail server's administrator credential.
+//! The mail server Elysium runs, and its administrator credential.
 //!
-//! Stalwart issues the administrator when its setup completes, and nothing else ever
-//! knows the secret: it is sealed here, bound to the row's id, before it reaches
-//! Postgres. The table holds at most one row, and setting the server up again replaces
-//! it, since a new setup means Stalwart started over with a new administrator.
+//! Stalwart issues the administrator when the API sets the server up, and nothing else
+//! ever knows the secret: it is sealed here, bound to the row's id, before it reaches
+//! Postgres. The table holds at most one row.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -21,7 +20,7 @@ use crate::database::schema::mail_servers;
 #[diesel(table_name = mail_servers, check_for_backend(diesel::pg::Pg))]
 pub struct MailServer {
     pub id: Uuid,
-    pub domain: String,
+    pub hostname: String,
     pub admin_username: String,
     pub admin_secret_encrypted: Vec<u8>,
     pub created_at: DateTime<Utc>,
@@ -31,7 +30,7 @@ pub struct MailServer {
 #[derive(Debug)]
 pub struct NewMailServer {
     /// Lowercased before it is stored.
-    pub domain: String,
+    pub hostname: String,
     pub admin_username: String,
     pub admin_secret: SecretString,
 }
@@ -40,7 +39,7 @@ pub struct NewMailServer {
 #[diesel(table_name = mail_servers)]
 struct MailServerRow<'a> {
     id: Uuid,
-    domain: String,
+    hostname: String,
     admin_username: &'a str,
     admin_secret_encrypted: Vec<u8>,
 }
@@ -68,7 +67,7 @@ impl MailServer {
     }
 }
 
-/// The mail server, or `None` before its setup has completed.
+/// The mail server, or `None` before one has been set up.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -80,7 +79,7 @@ pub async fn find(connection: &mut AsyncPgConnection) -> QueryResult<Option<Mail
         .optional()
 }
 
-/// Seals the secret and stores the administrator in place of any previous one, in one
+/// Seals the secret and stores the server in place of any previous one, in one
 /// transaction so the table is never left empty by a failed insert.
 ///
 /// # Errors
@@ -93,7 +92,7 @@ pub async fn replace(
     let id = Uuid::now_v7();
     let row = MailServerRow {
         id,
-        domain: new_server.domain.to_lowercase(),
+        hostname: new_server.hostname.to_lowercase(),
         admin_username: &new_server.admin_username,
         admin_secret_encrypted: cipher.seal(
             new_server.admin_secret.expose_secret().as_bytes(),
@@ -120,17 +119,17 @@ mod tests {
     use super::*;
     use crate::test_support::{cipher, migrated_database};
 
-    fn administrator(domain: &str, secret: &str) -> NewMailServer {
+    fn administrator(hostname: &str, secret: &str) -> NewMailServer {
         NewMailServer {
-            domain: domain.to_owned(),
-            admin_username: format!("admin@{domain}"),
+            hostname: hostname.to_owned(),
+            admin_username: format!("admin@{hostname}"),
             admin_secret: SecretString::from(secret.to_owned()),
         }
     }
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn setting_up_again_replaces_the_administrator() {
+    async fn replacing_the_server_keeps_one_row() {
         let (_url, mut connection) = migrated_database().await;
         let cipher = cipher();
         assert!(find(&mut connection).await.expect("select").is_none());
@@ -138,11 +137,11 @@ mod tests {
         let first = replace(
             &mut connection,
             &cipher,
-            &administrator("Elysium.Local", "first-secret"),
+            &administrator("Mail.Elysium.Local", "first-secret"),
         )
         .await
         .expect("insert");
-        assert_eq!(first.domain, "elysium.local");
+        assert_eq!(first.hostname, "mail.elysium.local");
         let plaintext = b"first-secret";
         assert!(
             !first
@@ -154,7 +153,7 @@ mod tests {
         let second = replace(
             &mut connection,
             &cipher,
-            &administrator("mail.example", "second-secret"),
+            &administrator("mail.example.com", "second-secret"),
         )
         .await
         .expect("replace");
@@ -180,7 +179,7 @@ mod tests {
         replace(
             &mut connection,
             &cipher,
-            &administrator("elysium.local", "secret"),
+            &administrator("mail.elysium.local", "secret"),
         )
         .await
         .expect("insert");
@@ -189,7 +188,7 @@ mod tests {
         let second = diesel::insert_into(mail_servers::table)
             .values(MailServerRow {
                 id,
-                domain: "other.local".to_owned(),
+                hostname: "mail.other.local".to_owned(),
                 admin_username: "admin@other.local",
                 admin_secret_encrypted: cipher.seal(b"secret", &admin_secret_context(id)),
             })

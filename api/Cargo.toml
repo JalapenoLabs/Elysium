@@ -13,6 +13,7 @@ arsox-sdk = { git = "https://github.com/JalapenoLabs/arsox-satellites", rev = "3
 async-imap = { version = "0.11.3", default-features = false, features = ["runtime-tokio"] }
 axum = "0.8.9"
 base64 = "0.23.1"
+bollard = { version = "0.21.1", default-features = false, features = ["http"] }
 chacha20poly1305 = { version = "0.11.0", features = ["zeroize"] }
 chrono = { version = "0.4.45", default-features = false, features = ["serde", "clock", "std"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
@@ -25,6 +26,7 @@ dotenvy = "0.15.7"
 futures-util = "0.3.34"
 getrandom = "0.4.3"
 governor = "0.10.4"
+hickory-resolver = "0.26.3"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
 mimalloc = "0.1.52"
 prost-types = "0.14.4"

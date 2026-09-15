@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/mail/accounts`: create a mailbox on the bundled mail server.
+//! `POST /api/v1/mail/accounts`: create a mailbox on one of the mail server's domains.
 //!
 //! Gmail and Outlook accounts are not created here; they arrive through the OAuth
 //! flow. A self-hosted mailbox gets a generated password nobody ever sees: Elysium is
@@ -15,12 +15,14 @@ use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::{Level, event};
+use uuid::Uuid;
 use validator::{Validate, ValidateEmail, ValidationError};
 
-use super::{MailAccountResponse, require_administrator, validate_domain};
+use super::{MailAccountResponse, require_administrator};
 use crate::errors::ApiError;
 use crate::mail::broker::random_token;
 use crate::models::mail_account::{self, MailAccountKind, NewMailAccount};
+use crate::models::mail_domain;
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -29,8 +31,8 @@ use crate::state::AppState;
 pub struct RequestBody {
     #[validate(length(min = 1, max = 64), custom(function = "validate_local_part"))]
     local_part: String,
-    #[validate(length(min = 3, max = 253), custom(function = "validate_domain"))]
-    domain: String,
+    /// One of `GET /api/v1/mail/domains`.
+    domain_id: Uuid,
     #[serde(default)]
     #[validate(length(max = 120))]
     display_name: String,
@@ -57,25 +59,33 @@ pub async fn handle(
 
     let administrator = require_administrator(
         &state,
-        "the mail server must be set up before mailboxes can be created",
+        "a mail server must be created before mailboxes can be created",
     )
     .await?;
     let stalwart = &state.mail.stalwart;
-
-    let local_part = body.local_part.to_lowercase();
-    let domain = body.domain.to_lowercase();
-    let address = format!("{local_part}@{domain}");
-    if !address.validate_email() {
-        return Err(ApiError::BadRequest(format!(
-            "{address} is not a valid address"
-        )));
-    }
 
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
+    let domain = match mail_domain::find(&mut connection, body.domain_id).await {
+        Err(diesel::result::Error::NotFound) => {
+            return Err(ApiError::BadRequest(
+                "the mail domain does not exist".to_owned(),
+            ));
+        }
+        found => found?,
+    };
+
+    let local_part = body.local_part.to_lowercase();
+    let address = format!("{local_part}@{}", domain.name);
+    if !address.validate_email() {
+        return Err(ApiError::BadRequest(format!(
+            "{address} is not a valid address"
+        )));
+    }
+
     if mail_account::find_by_address(&mut connection, &address)
         .await?
         .is_some()
@@ -88,7 +98,7 @@ pub async fn handle(
 
     let password = SecretString::from(random_token());
     let stalwart_id = stalwart
-        .create_mailbox(&administrator, &local_part, &domain, &password)
+        .create_mailbox(&administrator, &local_part, &domain.stalwart_id, &password)
         .await?;
 
     let new_account = NewMailAccount {
@@ -97,6 +107,7 @@ pub async fn handle(
         display_name: body.display_name.trim().to_owned(),
         credential: password,
         external_id: Some(stalwart_id.clone()),
+        mail_domain_id: Some(domain.id),
     };
     let mut connection = state
         .database
@@ -134,33 +145,28 @@ pub async fn handle(
 mod tests {
     use super::*;
 
+    const DOMAIN_ID: &str = "01a0a5e5-a7d9-7774-9f90-39274b7d16e0";
+
     fn parse(body: Value) -> RequestBody {
         serde_json::from_value(body).expect("parses")
     }
 
     #[test]
     fn a_plain_mailbox_request_is_valid() {
-        parse(json!({ "localPart": "agent.one", "domain": "elysium.local" }))
+        parse(json!({ "localPart": "agent.one", "domainId": DOMAIN_ID }))
             .validate()
             .expect("valid");
     }
 
     #[test]
-    fn local_parts_and_domains_are_checked() {
-        for (local_part, domain, field) in [
-            ("agent one", "elysium.local", "local_part"),
-            (".agent", "elysium.local", "local_part"),
-            ("agent..one", "elysium.local", "local_part"),
-            ("agent", "localhost", "domain"),
-            ("agent", "-bad.example", "domain"),
-            ("agent", "exa mple.com", "domain"),
-        ] {
-            let errors = parse(json!({ "localPart": local_part, "domain": domain }))
+    fn local_parts_are_checked() {
+        for local_part in ["agent one", ".agent", "agent..one", "agent."] {
+            let errors = parse(json!({ "localPart": local_part, "domainId": DOMAIN_ID }))
                 .validate()
                 .expect_err("invalid");
             assert!(
-                errors.field_errors().contains_key(field),
-                "{local_part}@{domain} should fail on {field}"
+                errors.field_errors().contains_key("local_part"),
+                "{local_part} should be refused"
             );
         }
     }

@@ -34,7 +34,7 @@ pub async fn handle(
     if account.kind == MailAccountKind::SelfHosted {
         let administrator = require_administrator(
             &state,
-            "the mail server is not set up, so the mailbox cannot be removed from it",
+            "the mail server does not exist, so the mailbox cannot be removed from it",
         )
         .await?;
         let stalwart_id = account

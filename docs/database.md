@@ -92,6 +92,7 @@ Connected mailboxes; see `docs/mail.md`.
 | `display_name`         | `TEXT`              | Sender name, up to 120 characters, defaults to empty            |
 | `credential_encrypted` | `BYTEA`             | Sealed refresh token or password, see `docs/secrets.md`         |
 | `external_id`          | `TEXT`              | Stalwart's account id; set exactly when `kind` is `self_hosted` |
+| `mail_domain_id`       | `UUID`              | `mail_domains`; set exactly when `kind` is `self_hosted`, `RESTRICT` on delete |
 | `is_active`            | `BOOLEAN`           | Defaults to true                                                |
 | `last_checked_at`      | `TIMESTAMPTZ`       | Latest connection check; null until one runs                    |
 | `last_error`           | `TEXT`              | Why that check failed; null when it passed                      |
@@ -100,17 +101,28 @@ Connected mailboxes; see `docs/mail.md`.
 
 ### `mail_servers`
 
-The bundled mail server's administrator, issued by Stalwart at setup; see `docs/mail.md`. At most one row, enforced
-by the unique index `mail_servers_singleton` on `(true)`. Setting the server up again replaces the row in one
-transaction.
+The mail server Elysium runs, with the administrator Stalwart issued when it was created; see `docs/mail.md`. At most
+one row, enforced by the unique index `mail_servers_singleton` on `(true)`.
 
 | Column                   | Type          | Notes                                                    |
 |--------------------------|---------------|----------------------------------------------------------|
 | `id`                     | `UUID`        | UUIDv7, primary key                                      |
-| `domain`                 | `TEXT`        | The server's default domain, lowercase                   |
-| `admin_username`         | `TEXT`        | Stalwart's administrator, `admin@<domain>`               |
+| `hostname`               | `TEXT`        | The name the server answers as, lowercase                |
+| `admin_username`         | `TEXT`        | Stalwart's administrator, `admin@<first domain>`         |
 | `admin_secret_encrypted` | `BYTEA`       | Sealed administrator password, see `docs/secrets.md`     |
 | `created_at`             | `TIMESTAMPTZ` | Set on insert                                            |
+
+### `mail_domains`
+
+Domains the mail server hosts.
+
+| Column        | Type          | Notes                                                                 |
+|---------------|---------------|-----------------------------------------------------------------------|
+| `id`          | `UUID`        | UUIDv7, primary key                                                   |
+| `name`        | `TEXT`        | Lowercase, unique                                                     |
+| `stalwart_id` | `TEXT`        | Stalwart's id for the domain                                          |
+| `is_default`  | `BOOLEAN`     | The domain the server was created with; at most one, never removed    |
+| `created_at`  | `TIMESTAMPTZ` | Set on insert                                                         |
 
 ### `projects`
 

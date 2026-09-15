@@ -25,9 +25,10 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use crate::fleet::views::{SatelliteStatus, SessionEvent};
+use crate::mail::hosting::MailServerStatus;
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
 use crate::routes::v1::llms::LlmResponse;
-use crate::routes::v1::mail::MailAccountResponse;
+use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
 use crate::routes::v1::projects::ProjectResponse;
 use crate::routes::v1::satellites::SatelliteResponse;
 
@@ -54,6 +55,13 @@ pub enum ServerEvent {
     MailAccountUpserted(MailAccountResponse),
     #[serde(rename = "mailbox.deleted")]
     MailAccountDeleted { id: Uuid },
+    /// The mail server's status changed, including each step while it is created.
+    #[serde(rename = "mailServer.updated")]
+    MailServerUpdated(MailServerStatus),
+    #[serde(rename = "mailDomain.upserted")]
+    MailDomainUpserted(MailDomainResponse),
+    #[serde(rename = "mailDomain.deleted")]
+    MailDomainDeleted { id: Uuid },
     #[serde(rename = "project.upserted")]
     ProjectUpserted(ProjectResponse),
     #[serde(rename = "project.deleted")]

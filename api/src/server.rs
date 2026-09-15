@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::http::StatusCode;
+use bollard::{API_DEFAULT_VERSION, Docker};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -24,15 +25,23 @@ use tracing::{Level, event};
 
 use crate::config::Config;
 use crate::crypto::Cipher;
+use crate::database::Pool;
 use crate::database::migrations;
 use crate::fleet::Fleet;
 use crate::mail::Mail;
 use crate::mail::broker::Broker;
+use crate::mail::dns::DnsChecker;
+use crate::mail::hosting::Hosting;
 use crate::mail::stalwart::Stalwart;
+use crate::mail::stalwart::container::StalwartContainer;
 use crate::realtime::EventBus;
 use crate::state::AppState;
 use crate::version::VersionInfo;
 use crate::{connections, middleware, routes, shutdown};
+
+/// How long one Docker call may take. Pulling the mail server's image is one call, and
+/// can take minutes on a slow connection.
+const DOCKER_TIMEOUT_SECONDS: u64 = 600;
 
 /// Serves the API until a shutdown signal arrives.
 ///
@@ -72,7 +81,16 @@ pub async fn serve() -> Result<()> {
         shutdown.clone(),
     );
     fleet.start().await?;
-    let mail = build_mail(&config)?;
+    let mail = build_mail(
+        &config,
+        database.clone(),
+        Arc::clone(&cipher),
+        events.clone(),
+    )?;
+    // Brings an existing mail server back up; pulling its image may take a while, so
+    // the API does not wait for it.
+    let hosting = mail.hosting.clone();
+    tokio::spawn(async move { hosting.reconcile().await });
 
     let state = AppState {
         database: database.clone(),
@@ -127,8 +145,13 @@ pub async fn serve() -> Result<()> {
     Ok(())
 }
 
-/// The mail services this deployment configured. They share one HTTP client.
-fn build_mail(config: &Config) -> Result<Mail> {
+/// The mail services. The broker and Stalwart share one HTTP client.
+fn build_mail(
+    config: &Config,
+    database: Pool,
+    cipher: Arc<Cipher>,
+    events: EventBus,
+) -> Result<Mail> {
     let http = reqwest::Client::builder()
         .user_agent(concat!("elysium-api/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -142,16 +165,37 @@ fn build_mail(config: &Config) -> Result<Mail> {
             .unwrap_or_else(|| public_url.clone());
         Broker::new(http.clone(), public_url, internal_url)
     });
-    let stalwart = Stalwart::new(http.clone(), mail_config.stalwart.clone());
+    let stalwart = Stalwart::new(http);
+
+    // Connecting is lazy: nothing reaches Docker until the mail server is needed.
+    let docker = Docker::connect_with_http(
+        mail_config.docker.as_str().trim_end_matches('/'),
+        DOCKER_TIMEOUT_SECONDS,
+        API_DEFAULT_VERSION,
+    )
+    .context("DOCKER_URL is invalid")?;
+    let hosting = Hosting::new(
+        database,
+        cipher,
+        events,
+        stalwart.clone(),
+        StalwartContainer::new(docker),
+    );
+    let dns = DnsChecker::from_system().context("cannot read the resolver configuration")?;
 
     event!(
         name: "mail.services.configured",
         Level::INFO,
         mail.broker = broker.is_some(),
-        mail.stalwart.url = %mail_config.stalwart,
+        mail.docker.url = %mail_config.docker,
         "mail services configured",
     );
-    Ok(Mail { broker, stalwart })
+    Ok(Mail {
+        broker,
+        stalwart,
+        hosting,
+        dns,
+    })
 }
 
 /// Assembles middleware around the routes. Outermost layers run first on the way

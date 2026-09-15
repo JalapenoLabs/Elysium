@@ -18,10 +18,16 @@ volume with `docker compose down --volumes`, which destroys the data.
 | `api`      | `api/Dockerfile`           | none               | One replica; reachable only via nginx   |
 | `postgres` | `postgres:18.6-alpine3.23` | `elysium-postgres` | Volume `postgres-data`, `timezone=UTC`  |
 | `redis`    | `redis:8.10.1-alpine`      | `elysium-redis`    | Password required, AOF on, `redis-data` |
-| `stalwart` | `stalwartlabs/stalwart:v0.16.22-alpine` | `elysium-stalwart` | Mail server; no published ports, `stalwart-config`, `stalwart-data` |
+| `docker-proxy` | `tecnativa/docker-socket-proxy:v0.5.0` | `elysium-docker-proxy` | The API's filtered Docker API |
+
+The `docker-control` network is internal and joins only the API and `docker-proxy`.
+
+The mail server is not a compose service. The API creates its container (`elysium-stalwart`), volumes, and network
+through `docker-proxy` when the mail server is created on the Email settings page, and they live outside the
+compose project. See `docs/mail.md`.
 
 `oauth-broker/` is a separate deployable with its own `compose.yml` and .env; it is not part of this
-stack. See `docs/mail.md`.
+stack.
 
 ## Routing
 

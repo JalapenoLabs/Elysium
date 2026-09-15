@@ -17,7 +17,12 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PATCH  | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
 | DELETE | `/api/v1/llms/{id}`                   | `204`                                               |
 | GET    | `/api/v1/mail/capabilities`           | `200` `{ capabilities }`                            |
-| POST   | `/api/v1/mail/server`                 | `200` `{ server }`; sets up the bundled mail server |
+| GET    | `/api/v1/mail/server`                 | `200` `{ server }`                                  |
+| POST   | `/api/v1/mail/server`                 | `202` `{ server }`; starts creating the mail server |
+| GET    | `/api/v1/mail/domains`                | `200` `{ domains: MailDomain[] }`, by name          |
+| POST   | `/api/v1/mail/domains`                | `201` `{ domain }`                                  |
+| DELETE | `/api/v1/mail/domains/{id}`           | `204`; removes the domain and its DKIM keys         |
+| GET    | `/api/v1/mail/domains/{id}/dns`       | `200` `{ records, zoneFile }`, checked live         |
 | GET    | `/api/v1/mail/accounts`               | `200` `{ accounts: MailAccount[] }`, by address     |
 | POST   | `/api/v1/mail/accounts`               | `201` `{ account }`; creates a self-hosted mailbox  |
 | PATCH  | `/api/v1/mail/accounts/{id}`          | `200` `{ account }`                                 |
@@ -70,19 +75,26 @@ Timestamps sent to the API must include an offset. Responses are always UTC with
 ### `/api/v1/mail`
 
 A `MailAccount` has `id`, `kind` (`gmail`, `outlook`, `self-hosted`), `address`, `displayName`, `isActive`,
-`lastCheckedAt`, `lastError`, `createdAt`, and `updatedAt`. The credential is never returned.
+`lastCheckedAt`, `lastError`, `createdAt`, `updatedAt`, and `mailDomainId` (null for OAuth accounts). The
+credential is never returned.
 
-`capabilities` is `{ brokerConfigured, brokerError, oauthKinds, mailServer }`, asking the broker and the mail server
-live. `mailServer` is `{ status, domain, error }`, where `status` is `setup-required`, `ready`, or `unreachable`.
+`capabilities` is `{ brokerConfigured, brokerError, oauthKinds }`, asking the broker live.
 
-`POST /server` requires `domain` and `bootstrapPassword`, the temporary password Stalwart prints before setup. It
-answers `400` when Stalwart refuses that password, which it also does once set up, and `502` when Stalwart fails or
-does not restart in time. It returns after the restart with `server` in the same shape as `mailServer`.
+A mail server is `{ state, hostname, step, error }`. `state` is `not-created`, `creating` (with `step`: `preparing`,
+`pulling-image`, `starting`, `configuring`, `restarting`, `adding-domain`), `failed` (with `error`), `ready`, or
+`unreachable` (with `error`). `POST /server` requires `hostname` and `domain`, both domain names, and answers `409`
+when a server exists or is being created; progress arrives as `mailServer.updated` events.
 
-`POST /accounts` requires `localPart` and `domain` and accepts `displayName`; it answers `503` before the mail server is
-set up and `409` when the address exists. `PATCH` accepts `displayName` and `isActive`. `test` answers the
-account with `lastError` set or cleared; a failing mailbox is not an error status. `test-message` answers `502`
-with the server's message when sending fails. The OAuth routes are browser navigations; see `docs/mail.md`.
+A `MailDomain` has `id`, `name`, `isDefault`, and `createdAt`. `POST /domains` requires `name` and answers `409` when
+it exists. `DELETE` answers `409` for the default domain or one with mailboxes. `GET /domains/{id}/dns` answers
+`records`, each `{ purpose, recordType, name, value, status, found, error }` as described in `docs/mail.md`, and the
+full `zoneFile`. Every domain route answers `503` when no mail server exists.
+
+`POST /accounts` creates a self-hosted mailbox. It requires `localPart` and `domainId` and accepts `displayName`; it
+answers `400` for an unknown domain, `503` when no mail server exists, and `409` when the address exists. `PATCH`
+accepts `displayName` and `isActive`. `test` answers the account with `lastError` set or cleared; a failing mailbox
+is not an error status. `test-message` answers `502` with the server's message when sending fails. The OAuth routes
+are browser navigations; see `docs/mail.md`.
 
 ### `/api/v1/projects`
 
@@ -130,7 +142,7 @@ Every error is JSON with a `message`.
 | `409`  | Unique constraint, such as a duplicate LLM name, or a project that still has sessions |
 | `422`  | Field validation failed; `fields` lists each failure                                  |
 | `502`  | A satellite, mail server, or the OAuth broker refused; `message` is its own error     |
-| `503`  | The mail service a request needs is not configured or not set up                     |
+| `503`  | The mail service a request needs is not configured, or the mail server does not exist |
 | `500`  | Internal fault; details are logged, never returned                                    |
 
 ## Commands
@@ -172,7 +184,7 @@ seconds for this before `SIGKILL`.
 | `LOG_FORMAT`               | compact          | `json` for one JSON object per line        |
 | `OAUTH_BROKER_URL`         | empty            | OAuth broker for browsers; empty disables Gmail and Outlook |
 | `OAUTH_BROKER_INTERNAL_URL`| `OAUTH_BROKER_URL` | OAuth broker as the API reaches it       |
-| `STALWART_URL`             | `http://stalwart:8080` | Stalwart's management listener      |
+| `DOCKER_URL`               | `http://docker-proxy:2375` | Docker API the mail server runs through |
 
 Connection strings and the key are held as `SecretString`, so they never appear in debug output.
 
@@ -192,7 +204,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/state.rs`           | `AppState`: pool, Redis, cipher, version, bus, fleet, mail, shutdown token |
 | `src/realtime.rs`        | Event bus and the `ServerEvent` envelope          |
 | `src/fleet/`             | Satellite clients and watchers; JSON views of Arsox types |
-| `src/mail/`              | IMAP and SMTP transport, OAuth broker client, Stalwart admin |
+| `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 
 ## Logging
 

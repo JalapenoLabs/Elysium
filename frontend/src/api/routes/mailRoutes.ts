@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Misc
-import { API_BASE_PATH, MAIL_SERVER_SETUP_TIMEOUT_MS } from '../../constants'
+import { API_BASE_PATH, MAIL_DNS_CHECK_TIMEOUT_MS } from '../../constants'
 import { apiClient } from '../index'
 
 // Mirrors `MailAccountKind` in api/src/models/mail_account.rs.
@@ -22,19 +22,8 @@ export type MailAccount = {
   lastError: string | null
   createdAt: string
   updatedAt: string
-}
-
-// Mirrors `MailServerStatus` in api/src/routes/v1/mail/mod.rs. `setup-required` means the
-// bundled server waits for the temporary password it prints when it starts before setup:
-// it was never set up, or it was reset since.
-export type MailServerStatus = 'setup-required' | 'ready' | 'unreachable'
-
-export type MailServer = {
-  status: MailServerStatus
-  // The domain chosen at setup; null before the first setup.
-  domain: string | null
-  // Why the server is unreachable, or why a set-up server needs setup again; else null.
-  error: string | null
+  // The mail domain of a self-hosted mailbox; null for OAuth accounts.
+  mailDomainId: string | null
 }
 
 export type MailCapabilities = {
@@ -42,7 +31,6 @@ export type MailCapabilities = {
   // Why a configured broker could not be asked which providers it offers.
   brokerError: string | null
   oauthKinds: OAuthMailAccountKind[]
-  mailServer: MailServer
 }
 
 type GetMailCapabilitiesResponse = {
@@ -55,20 +43,100 @@ export function getMailCapabilities() {
     .json<GetMailCapabilitiesResponse>()
 }
 
-type SetUpMailServerRequest = {
-  domain: string
-  bootstrapPassword: string
+// Mirrors `MailServerState` and `Step` in api/src/mail/hosting.rs.
+export type MailServerState = 'not-created' | 'creating' | 'failed' | 'ready' | 'unreachable'
+export type MailServerStep = 'preparing' | 'pulling-image' | 'starting' | 'configuring' | 'restarting' | 'adding-domain'
+
+export type MailServer = {
+  state: MailServerState
+  // The name the server answers as, once it exists.
+  hostname: string | null
+  // The step in progress while `creating`.
+  step: MailServerStep | null
+  // Why creation failed, or why the server is unreachable.
+  error: string | null
 }
 
-type SetUpMailServerResponse = {
+type MailServerResponse = {
   server: MailServer
 }
 
-// Resolves once the server has restarted with its new administrator, a few seconds.
-export function setUpMailServer(body: SetUpMailServerRequest) {
+export function getMailServer() {
   return apiClient
-    .post('v1/mail/server', { json: body, timeout: MAIL_SERVER_SETUP_TIMEOUT_MS })
-    .json<SetUpMailServerResponse>()
+    .get('v1/mail/server')
+    .json<MailServerResponse>()
+}
+
+type CreateMailServerRequest = {
+  hostname: string
+  domain: string
+}
+
+// Answers at once with the server `creating`; `mailServer.updated` events follow.
+export function createMailServer(body: CreateMailServerRequest) {
+  return apiClient
+    .post('v1/mail/server', { json: body })
+    .json<MailServerResponse>()
+}
+
+export type MailDomain = {
+  id: string
+  name: string
+  // The domain the server was created with, which cannot be removed.
+  isDefault: boolean
+  createdAt: string
+}
+
+type ListMailDomainsResponse = {
+  domains: MailDomain[]
+}
+
+export function listMailDomains() {
+  return apiClient
+    .get('v1/mail/domains')
+    .json<ListMailDomainsResponse>()
+}
+
+type CreateMailDomainResponse = {
+  domain: MailDomain
+}
+
+export function createMailDomain(name: string) {
+  return apiClient
+    .post('v1/mail/domains', { json: { name }})
+    .json<CreateMailDomainResponse>()
+}
+
+export function deleteMailDomain(domainId: string) {
+  return apiClient
+    .delete(`v1/mail/domains/${domainId}`)
+}
+
+// Mirrors `CheckedRecord` in api/src/mail/dns.rs.
+export type DnsRecordPurpose = 'mx' | 'spf' | 'dkim' | 'dmarc'
+export type DnsRecordStatus = 'published' | 'different' | 'missing' | 'unverified'
+
+export type CheckedDnsRecord = {
+  purpose: DnsRecordPurpose
+  recordType: 'MX' | 'TXT'
+  name: string
+  value: string
+  status: DnsRecordStatus
+  // What public DNS serves for the same purpose.
+  found: string[]
+  error: string | null
+}
+
+type CheckMailDomainDnsResponse = {
+  records: CheckedDnsRecord[]
+  // Every record Stalwart recommends, including the optional ones the check leaves out.
+  zoneFile: string
+}
+
+export function checkMailDomainDns(domainId: string) {
+  return apiClient
+    .get(`v1/mail/domains/${domainId}/dns`, { timeout: MAIL_DNS_CHECK_TIMEOUT_MS })
+    .json<CheckMailDomainDnsResponse>()
 }
 
 type ListMailAccountsResponse = {
@@ -83,7 +151,7 @@ export function listMailAccounts() {
 
 type CreateMailboxRequest = {
   localPart: string
-  domain: string
+  domainId: string
   displayName?: string
 }
 

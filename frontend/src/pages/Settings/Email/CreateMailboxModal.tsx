@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { UseOverlayStateReturn } from '@heroui/react'
+import type { MailDomain } from '../../../api/routes/mailRoutes'
 import type { CreateMailboxFormValues } from './mailFormSchemas'
 
 // Core
@@ -20,7 +21,9 @@ import {
   Form,
   Input,
   Label,
+  ListBox,
   Modal,
+  Select,
   TextField,
   toast,
 } from '@heroui/react'
@@ -36,8 +39,7 @@ import { createMailboxFormSchema } from './mailFormSchemas'
 
 type Props = {
   state: UseOverlayStateReturn
-  // The domain the mail server was set up with, offered first.
-  defaultDomain: string
+  domains: MailDomain[]
 }
 
 export function CreateMailboxModal(props: Props) {
@@ -53,7 +55,8 @@ export function CreateMailboxModal(props: Props) {
     resolver,
     defaultValues: {
       localPart: '',
-      domain: props.defaultDomain,
+      // The default domain is preselected; with none, the first alphabetically.
+      domainId: (props.domains.find((domain) => domain.isDefault) ?? props.domains[0])?.id ?? '',
       displayName: '',
     },
   })
@@ -81,11 +84,12 @@ export function CreateMailboxModal(props: Props) {
 
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
-  const [ localPart, domain, displayName ] = useWatch({
+  const [ localPart, domainId, displayName ] = useWatch({
     control: form.control,
-    name: [ 'localPart', 'domain', 'displayName' ],
+    name: [ 'localPart', 'domainId', 'displayName' ],
   })
-  const address = `${localPart.trim() || '…'}@${domain.trim() || '…'}`.toLowerCase()
+  const domainName = props.domains.find((domain) => domain.id === domainId)?.name
+  const address = `${localPart.trim() || '…'}@${domainName ?? '…'}`.toLowerCase()
 
   // Controlled overlays skip the Modal root: it is a trigger wrapper, and without a
   // pressable child React Aria warns. The backdrop takes the open state directly.
@@ -119,17 +123,35 @@ export function CreateMailboxModal(props: Props) {
               </TextField>
 
               {/* Domain */}
-              <TextField
+              <Select
                 isRequired
-                autoComplete='off'
-                isInvalid={Boolean(errors.domain)}
-                value={domain}
-                onChange={(value) => form.setValue('domain', value, { shouldDirty: true, shouldValidate: true })}
+                isInvalid={Boolean(errors.domainId)}
+                value={domainId || null}
+                onChange={(key) => form.setValue(
+                  'domainId',
+                  String(key ?? ''),
+                  { shouldDirty: true, shouldValidate: true },
+                )}
               >
                 <Label>{t('createForm.domain')}</Label>
-                <Input />
-                <FieldError>{errors.domain?.message}</FieldError>
-              </TextField>
+                <Select.Trigger>
+                  <Select.Value />
+                  <Select.Indicator />
+                </Select.Trigger>
+                <Select.Popover>
+                  <ListBox>{
+                    props.domains.map((domain) => <ListBox.Item
+                      key={domain.id}
+                      id={domain.id}
+                      textValue={domain.name}
+                    >
+                      {domain.name}
+                      <ListBox.ItemIndicator />
+                    </ListBox.Item>)
+                  }</ListBox>
+                </Select.Popover>
+                <FieldError>{errors.domainId?.message}</FieldError>
+              </Select>
             </div>
             <div className='-mt-2 text-xs'>
               <p className='opacity-70'>{

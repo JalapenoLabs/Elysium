@@ -5,6 +5,7 @@
 pub mod coding_session;
 pub mod llm;
 pub mod mail_account;
+pub mod mail_domain;
 pub mod mail_server;
 pub mod project;
 pub mod satellite;

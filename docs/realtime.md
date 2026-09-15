@@ -19,6 +19,9 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `llm.deleted`        | `{ id }`                 | An LLM credential was deleted                              |
 | `mailbox.upserted`   | `MailAccount`            | A mailbox was connected, changed, or checked               |
 | `mailbox.deleted`    | `{ id }`                 | A mailbox was disconnected                                 |
+| `mailServer.updated` | `MailServer`             | The mail server's state changed, including each creation step |
+| `mailDomain.upserted`| `MailDomain`             | A domain was added                                         |
+| `mailDomain.deleted` | `{ id }`                 | A domain was removed                                       |
 | `project.upserted`   | `Project`                | A project was created or changed                           |
 | `project.deleted`    | `{ id }`                 | A project was deleted                                      |
 | `satellite.upserted` | `Satellite`              | A satellite was created or changed (status arrives later)  |

@@ -1,5 +1,116 @@
 {
   "title": "Email",
+  "server": {
+    "heading": "Mail server",
+    "description": "Elysium runs one mail server for self-hosted mailboxes. It hosts any number of domains, all on the same ports.",
+    "empty": {
+      "title": "No mail server yet",
+      "description": "Creating one starts a Stalwart mail server on this host through Docker. Mail stays on this host until you make the server reachable from the internet.",
+      "action": "Create mail server"
+    },
+    "hostname": "Answers as {{hostname}}",
+    "creating": "Creating the mail server",
+    "stepProgress": "Step {{current}} of {{total}}",
+    "steps": {
+      "preparing": "Preparing Docker",
+      "pulling-image": "Downloading the mail server image",
+      "starting": "Starting the mail server",
+      "configuring": "Configuring the mail server",
+      "restarting": "Restarting the mail server",
+      "adding-domain": "Adding the first domain"
+    },
+    "failed": {
+      "title": "The mail server could not be created",
+      "action": "Try again"
+    },
+    "unreachable": {
+      "title": "The mail server is not answering",
+      "description": "Domains and self-hosted mailboxes cannot change until it does. {{error}}"
+    }
+  },
+  "serverForm": {
+    "title": "Create mail server",
+    "description": "Elysium starts Stalwart in Docker and becomes its administrator. The administrator's password is stored encrypted and never shown.",
+    "domain": "First domain",
+    "domainHint": "Addresses end in it, such as agent@example.com. Add more domains later.",
+    "hostname": "Server hostname",
+    "hostnameHint": "The name every domain's MX record points to. It needs an address record of its own once mail leaves this host.",
+    "submit": "Create",
+    "errors": {
+      "domainInvalid": "Enter a domain such as example.com.",
+      "hostnameInvalid": "Enter a hostname such as mail.example.com."
+    }
+  },
+  "domains": {
+    "heading": "Domains",
+    "add": "Add domain",
+    "default": "Default",
+    "defaultHint": "The domain the server was created with. It cannot be removed.",
+    "mailboxCount_one": "{{count}} mailbox",
+    "mailboxCount_other": "{{count}} mailboxes",
+    "table": {
+      "label": "Mail domains",
+      "name": "Domain",
+      "mailboxes": "Mailboxes",
+      "added": "Added"
+    },
+    "actions": {
+      "dns": "DNS records",
+      "remove": "Remove"
+    }
+  },
+  "domainForm": {
+    "title": "Add domain",
+    "description": "The domain shares the mail server and its hostname with every other domain.",
+    "name": "Domain",
+    "submit": "Add",
+    "errors": {
+      "nameInvalid": "Enter a domain such as example.org.",
+      "taken": "This domain is already added."
+    }
+  },
+  "removeDomain": {
+    "title": "Remove {{name}}?",
+    "description": "The mail server stops hosting it and deletes its DKIM signing keys.",
+    "hasMailboxes_one": "Delete its {{count}} mailbox first.",
+    "hasMailboxes_other": "Delete its {{count}} mailboxes first.",
+    "action": "Remove"
+  },
+  "dns": {
+    "title": "DNS records for {{name}}",
+    "description": "Publish these at your DNS provider for this domain to send and receive mail on the internet. Elysium looks them up in public DNS; it never changes DNS.",
+    "recheck": "Check again",
+    "loadError": "The records could not be loaded.",
+    "dkimPending": "DKIM keys are generated a few seconds after a domain is added. Check again shortly.",
+    "table": {
+      "label": "DNS records",
+      "purpose": "Purpose",
+      "type": "Type",
+      "name": "Name",
+      "value": "Value",
+      "status": "Public DNS"
+    },
+    "purposes": {
+      "mx": "Delivery",
+      "spf": "SPF",
+      "dkim": "DKIM",
+      "dmarc": "DMARC"
+    },
+    "statuses": {
+      "published": "Published",
+      "different": "Different value",
+      "missing": "Missing",
+      "unverified": "Not checked"
+    },
+    "found": "Public DNS has: {{values}}",
+    "copy": "Copy {{what}}",
+    "zoneFile": "All recommended records",
+    "zoneFileHint": "Includes optional service discovery records, as a zone file.",
+    "internet": {
+      "title": "Receiving mail from the internet",
+      "description": "Beyond these records it needs a public IP address with ports 25, 465, and 993 reachable, an address record and reverse DNS for {{hostname}}, and a TLS certificate for {{hostname}}. Providing those is up to you."
+    }
+  },
   "mailboxes": {
     "heading": "Mailboxes",
     "description": "The mailboxes Elysium reads and sends mail from. Credentials are encrypted and never shown, and Gmail and Outlook passwords never reach Elysium at all.",
@@ -18,17 +129,8 @@
       "description": "Gmail and Outlook accounts cannot connect until it answers. {{error}}"
     },
     "providerMissing": "The OAuth broker does not offer {{provider}}.",
-    "mailServerSetupRequired": "Set up Elysium's mail server to create mailboxes on it.",
-    "mailServerUnreachable": {
-      "title": "The mail server is not answering",
-      "description": "Self-hosted mailboxes cannot be created or removed until it does. {{error}}"
-    }
-  },
-  "mailServer": {
-    "title": "Set up Elysium's mail server",
-    "description": "Self-hosted mailboxes live on the mail server bundled with Elysium. It needs a domain and the temporary password it printed when it first started.",
-    "setUpAgain": "Any mailboxes it hosted were lost with it; delete them here once it is set up again. Details: {{error}}",
-    "action": "Set up mail server"
+    "mailServerMissing": "Create a mail server first.",
+    "mailDomainMissing": "Add a domain to the mail server first."
   },
   "table": {
     "label": "Mailboxes",
@@ -60,31 +162,16 @@
     "description": "A mailbox on Elysium's own mail server. Mail stays on this host: reaching the internet needs a real domain and DNS first.",
     "localPart": "Name",
     "domain": "Domain",
-    "domainHint": "Any domain works while mail stays on this host. The server's own domain is filled in.",
+    "domainHint": "Add more domains under Mail server.",
     "displayName": "Sender name",
     "displayNameHint": "Shown beside the address on sent mail. Optional.",
     "addressPreview": "Creates {{address}}",
     "errors": {
       "localPartRequired": "Enter a name for the address.",
       "localPartInvalid": "Use letters, digits, and . _ + - only, without a leading, trailing, or doubled dot.",
-      "domainInvalid": "Enter a domain such as elysium.local.",
       "displayNameTooLong": "Use 120 characters or fewer.",
-      "addressTaken": "A mailbox with this address already exists."
-    }
-  },
-  "setupForm": {
-    "title": "Set up the mail server",
-    "description": "Elysium becomes the server's administrator. The administrator's password is stored encrypted and never shown.",
-    "domain": "Domain",
-    "domainHint": "New mailboxes use it by default. Any domain works while mail stays on this host.",
-    "bootstrapPassword": "Temporary password",
-    "bootstrapPasswordHint": "The mail server prints it to its log each time it starts before setup. Use the most recent one:",
-    "restartHint": "The server restarts once, which takes a few seconds.",
-    "submit": "Set up",
-    "errors": {
-      "domainInvalid": "Enter a domain such as elysium.local.",
-      "passwordRequired": "Paste the temporary password from the log.",
-      "passwordRejected": "The mail server did not accept this password. Copy the most recent one from its log; once the server is set up, no temporary password works."
+      "addressTaken": "A mailbox with this address already exists.",
+      "domainRequired": "Choose a domain."
     }
   },
   "renameForm": {
@@ -110,8 +197,12 @@
     "sendFailed": "The test message could not be sent",
     "connected": "Account connected",
     "connectFailed": "The account could not be connected",
-    "serverSetUp": "Mail server set up for {{domain}}",
-    "serverSetupFailed": "The mail server could not be set up"
+    "serverCreateFailed": "The mail server could not be created",
+    "domainAdded": "{{name}} added",
+    "domainRemoved": "{{name}} removed",
+    "domainRemoveFailed": "{{name}} could not be removed",
+    "copied": "Copied",
+    "copyFailed": "The browser did not allow copying"
   },
   "oauthErrors": {
     "access_denied": "Access was not granted.",

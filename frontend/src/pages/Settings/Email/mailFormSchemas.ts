@@ -5,8 +5,8 @@ import type { TFunction } from 'i18next'
 // Utility
 import { z } from 'zod'
 
-// Mirrors the API's checks in api/src/routes/v1/mail/create_mailbox.rs, so most mistakes
-// are caught before a round trip.
+// Mirrors the API's checks in api/src/routes/v1/mail/, so most mistakes are caught before
+// a round trip.
 const LOCAL_PART_MAX_CHARACTERS = 64
 const DOMAIN_MAX_CHARACTERS = 253
 const DISPLAY_NAME_MAX_CHARACTERS = 120
@@ -29,36 +29,40 @@ export function createMailboxFormSchema(t: TFunction<'email'>) {
       .min(1, { error: t('createForm.errors.localPartRequired') })
       .max(LOCAL_PART_MAX_CHARACTERS, { error: t('createForm.errors.localPartInvalid') })
       .regex(LOCAL_PART_PATTERN, { error: t('createForm.errors.localPartInvalid') }),
-    domain: z
+    domainId: z
       .string()
-      .trim()
-      .max(DOMAIN_MAX_CHARACTERS, { error: t('createForm.errors.domainInvalid') })
-      .regex(DOMAIN_PATTERN, { error: t('createForm.errors.domainInvalid') }),
+      .min(1, { error: t('createForm.errors.domainRequired') }),
     displayName: displayNameField(t),
   })
 }
 
 export type CreateMailboxFormValues = z.infer<ReturnType<typeof createMailboxFormSchema>>
 
-// Mirrors api/src/routes/v1/mail/set_up_server.rs.
-const BOOTSTRAP_PASSWORD_MAX_CHARACTERS = 256
+// A domain name, the same rule the API applies to domains and the server's hostname.
+function domainNameField(message: string) {
+  return z
+    .string()
+    .trim()
+    .max(DOMAIN_MAX_CHARACTERS, { error: message })
+    .regex(DOMAIN_PATTERN, { error: message })
+}
 
-export function createSetUpMailServerFormSchema(t: TFunction<'email'>) {
+export function createMailServerFormSchema(t: TFunction<'email'>) {
   return z.object({
-    domain: z
-      .string()
-      .trim()
-      .max(DOMAIN_MAX_CHARACTERS, { error: t('setupForm.errors.domainInvalid') })
-      .regex(DOMAIN_PATTERN, { error: t('setupForm.errors.domainInvalid') }),
-    bootstrapPassword: z
-      .string()
-      .trim()
-      .min(1, { error: t('setupForm.errors.passwordRequired') })
-      .max(BOOTSTRAP_PASSWORD_MAX_CHARACTERS, { error: t('setupForm.errors.passwordRejected') }),
+    domain: domainNameField(t('serverForm.errors.domainInvalid')),
+    hostname: domainNameField(t('serverForm.errors.hostnameInvalid')),
   })
 }
 
-export type SetUpMailServerFormValues = z.infer<ReturnType<typeof createSetUpMailServerFormSchema>>
+export type MailServerFormValues = z.infer<ReturnType<typeof createMailServerFormSchema>>
+
+export function createMailDomainFormSchema(t: TFunction<'email'>) {
+  return z.object({
+    name: domainNameField(t('domainForm.errors.nameInvalid')),
+  })
+}
+
+export type MailDomainFormValues = z.infer<ReturnType<typeof createMailDomainFormSchema>>
 
 export function createSenderNameFormSchema(t: TFunction<'email'>) {
   return z.object({

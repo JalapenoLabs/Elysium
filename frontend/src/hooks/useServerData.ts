@@ -9,6 +9,8 @@ import { codingSessionsLoaded } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
 import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
+import { mailDomainsLoaded } from '../store/mailDomainsSlice'
+import { mailServerUpdated } from '../store/mailServerSlice'
 import { projectsLoaded } from '../store/projectsSlice'
 import { satellitesLoaded } from '../store/satellitesSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
@@ -16,7 +18,7 @@ import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } 
 // Misc
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
-import { listMailAccounts } from '../api/routes/mailRoutes'
+import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
 import { listSatellites } from '../api/routes/satelliteRoutes'
 
@@ -63,6 +65,26 @@ export function useMailAccountsLoader(): LoadStatus {
   const { data, error } = useSWR('v1/mail/accounts', async () => {
     const response = await listMailAccounts()
     dispatch(mailAccountsLoaded(response.accounts))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useMailServerLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/mail/server', async () => {
+    const response = await getMailServer()
+    dispatch(mailServerUpdated(response.server))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useMailDomainsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/mail/domains', async () => {
+    const response = await listMailDomains()
+    dispatch(mailDomainsLoaded(response.domains))
     return response
   })
   return toLoadStatus(data !== undefined, error)

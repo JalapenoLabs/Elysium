@@ -7,6 +7,8 @@ import { configureStore, createListenerMiddleware } from '@reduxjs/toolkit'
 import { codingSessionsSlice } from './codingSessionsSlice'
 import { llmsSlice } from './llmsSlice'
 import { mailAccountsSlice } from './mailAccountsSlice'
+import { mailDomainsSlice } from './mailDomainsSlice'
+import { mailServerSlice } from './mailServerSlice'
 import { projectsSlice } from './projectsSlice'
 import { realtimeSlice } from './realtimeSlice'
 import { satellitesSlice } from './satellitesSlice'
@@ -24,6 +26,8 @@ export const store = configureStore({
     [codingSessionsSlice.name]: codingSessionsSlice.reducer,
     [llmsSlice.name]: llmsSlice.reducer,
     [mailAccountsSlice.name]: mailAccountsSlice.reducer,
+    [mailDomainsSlice.name]: mailDomainsSlice.reducer,
+    [mailServerSlice.name]: mailServerSlice.reducer,
     [projectsSlice.name]: projectsSlice.reducer,
     [realtimeSlice.name]: realtimeSlice.reducer,
     [satellitesSlice.name]: satellitesSlice.reducer,

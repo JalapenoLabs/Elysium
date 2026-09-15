@@ -1,29 +1,40 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Administers the bundled Stalwart mail server over its JMAP management API.
+//! Administers the Stalwart mail server over its JMAP management API.
 //!
 //! Stalwart keeps every setting (domains, accounts, listeners) as a JMAP object in
-//! its own datastore, managed through `x:<Object>/get|query|set` calls at `/jmap/`.
+//! its own datastore, managed through `x:<Object>/get|query|set` calls at `/jmap/`. The
+//! container itself is run by [`container`].
 //!
 //! A new Stalwart starts in bootstrap mode: only the management listener runs, and a
-//! temporary administrator named `admin` is printed once to its log. The settings page
-//! takes that password and [`Stalwart::complete_setup`] finishes the setup with it,
-//! which gives the server its domain and issues the permanent [`Administrator`] the
-//! API signs in as from then on. Stalwart restarts once to leave bootstrap mode; the
-//! entrypoint in `stalwart/entrypoint.sh` does that as soon as setup writes its
-//! configuration file.
+//! temporary administrator named `admin` is printed to its log.
+//! [`Stalwart::complete_setup`] finishes the setup with that password, which names the
+//! server, gives it its first domain, and issues the permanent [`Administrator`] the API
+//! signs in as from then on. Stalwart leaves bootstrap mode when it is next restarted.
+//!
+//! One server hosts any number of domains on one set of listeners. Every domain's MX
+//! record points at the server's hostname, and Stalwart generates each domain's DKIM
+//! keys and the DNS records it needs, see [`Stalwart::domain_zone_file`].
 //!
 //! Mail itself never goes through here. Once a mailbox exists it is reached over
 //! IMAP and SMTP like any other, see [`super::transport`].
+
+pub mod container;
 
 use std::time::Duration;
 
 use reqwest::StatusCode;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Value, json};
-use url::Url;
 
 use super::transport::{Endpoint, Security};
+
+/// The name the API reaches Stalwart by, on the network [`container`] attaches both to.
+pub const STALWART_HOST: &str = "stalwart";
+
+/// Stalwart's management listener, plain HTTP on the private mail network.
+const MANAGEMENT_URL: &str = "http://stalwart:8080/jmap/";
+const SESSION_URL: &str = "http://stalwart:8080/jmap/session";
 
 /// The temporary administrator a Stalwart in bootstrap mode prints to its log.
 const BOOTSTRAP_ADMIN_USER: &str = "admin";
@@ -34,12 +45,12 @@ const USING: [&str; 2] = ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"];
 /// Management calls are local and small; anything slower means Stalwart is down.
 const STALWART_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How long setup waits for Stalwart to restart out of bootstrap mode. It takes about
-/// two seconds; this stays well inside the API's 30-second request timeout.
-const RESTART_TIMEOUT: Duration = Duration::from_secs(20);
+/// How long to wait for a starting Stalwart to answer: a new container before setup, or
+/// a restarted one after it. Either takes a second or two.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// How often setup asks whether the restarted server accepts the new administrator.
-const RESTART_POLL_INTERVAL: Duration = Duration::from_millis(500);
+/// How often to ask whether a starting server answers yet.
+const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Stalwart's implicit-TLS listeners, present in every new installation.
 const IMAPS_PORT: u16 = 993;
@@ -68,44 +79,38 @@ pub struct Administrator {
 #[derive(Debug, Clone)]
 pub struct Stalwart {
     http: reqwest::Client,
-    base_url: Url,
 }
 
 impl Stalwart {
-    pub const fn new(http: reqwest::Client, base_url: Url) -> Self {
-        Self { http, base_url }
+    pub const fn new(http: reqwest::Client) -> Self {
+        Self { http }
     }
 
-    /// The IMAP and SMTP servers self-hosted mailboxes connect to.
-    pub fn endpoints(&self) -> (Endpoint, Endpoint) {
-        let host = self.base_url.host_str().unwrap_or("stalwart").to_owned();
-        let endpoint = |port| Endpoint {
-            host: host.clone(),
-            port,
-            security: Security::ImplicitTls,
-            verify_certificate: false,
-        };
-        (endpoint(IMAPS_PORT), endpoint(SUBMISSIONS_PORT))
-    }
-
-    /// Finishes a bootstrap-mode server's setup with its temporary password, making
-    /// `domain` the server's default domain, and returns the permanent administrator.
+    /// Finishes a bootstrap-mode server's setup with its temporary password, naming it
+    /// `hostname` with `domain` as its first domain, and returns the permanent
+    /// administrator.
     ///
     /// Stalwart shows the permanent administrator's password only in this response, so
     /// the caller must store it before anything else can fail.
     ///
+    /// Waits for the server to answer first, since it is called as the container starts.
+    ///
     /// # Errors
-    /// Returns [`StalwartError::Unauthorized`] when the temporary password is wrong or
-    /// the server is already set up, and [`StalwartError::Refused`] otherwise.
+    /// Returns [`StalwartError::Refused`] when the server does not answer to the
+    /// temporary password in time, which a server already set up never does, or refuses
+    /// the setup.
     pub async fn complete_setup(
         &self,
         bootstrap_password: &SecretString,
+        hostname: &str,
         domain: &str,
     ) -> Result<Administrator, StalwartError> {
         let bootstrap = Administrator {
             username: BOOTSTRAP_ADMIN_USER.to_owned(),
             password: bootstrap_password.clone(),
         };
+        // The container has only just started when its password is known.
+        self.wait_until_serving(&bootstrap).await?;
         let account_id = self.admin_account_id(&bootstrap).await?;
 
         let responses = self
@@ -117,7 +122,7 @@ impl Stalwart {
                         "accountId": account_id,
                         "update": {
                             "singleton": {
-                                "serverHostname": format!("mail.{domain}"),
+                                "serverHostname": hostname,
                                 "defaultDomain": domain,
                                 // Mail stays on this host, so no certificate authority can
                                 // reach it. Stalwart serves a self-signed certificate instead.
@@ -150,28 +155,27 @@ impl Stalwart {
         })
     }
 
-    /// Waits for a just-configured server to restart and accept `administrator`.
+    /// Waits for a starting server to answer and accept `administrator`.
     ///
     /// # Errors
-    /// Returns [`StalwartError::Refused`] when the server is not back within
-    /// [`RESTART_TIMEOUT`].
+    /// Returns [`StalwartError::Refused`] when it does not within [`STARTUP_TIMEOUT`].
     pub async fn wait_until_serving(
         &self,
         administrator: &Administrator,
     ) -> Result<(), StalwartError> {
         let serving = async {
-            // Until the restart the server is still in bootstrap mode, which refuses the
-            // new administrator; while it restarts, nothing answers at all.
+            // While it starts nothing answers, and a server still in bootstrap mode
+            // refuses an administrator issued by setup.
             while self.verify(administrator).await.is_err() {
-                tokio::time::sleep(RESTART_POLL_INTERVAL).await;
+                tokio::time::sleep(STARTUP_POLL_INTERVAL).await;
             }
         };
-        tokio::time::timeout(RESTART_TIMEOUT, serving)
+        tokio::time::timeout(STARTUP_TIMEOUT, serving)
             .await
             .map_err(|_elapsed| {
                 StalwartError::Refused(format!(
-                    "the server did not restart within {} seconds of its setup",
-                    RESTART_TIMEOUT.as_secs()
+                    "the server did not start within {} seconds",
+                    STARTUP_TIMEOUT.as_secs()
                 ))
             })
     }
@@ -185,8 +189,8 @@ impl Stalwart {
         self.admin_account_id(administrator).await.map(drop)
     }
 
-    /// Creates a user `local_part@domain` with `password`, creating the domain first
-    /// when the server does not have it. Returns Stalwart's id for the new account.
+    /// Creates a user `local_part` on the domain Stalwart knows as `domain_id`, with
+    /// `password`. Returns Stalwart's id for the new account.
     ///
     /// # Errors
     /// Returns [`StalwartError::AddressTaken`] when the address exists, and
@@ -195,13 +199,10 @@ impl Stalwart {
         &self,
         administrator: &Administrator,
         local_part: &str,
-        domain: &str,
+        domain_id: &str,
         password: &SecretString,
     ) -> Result<String, StalwartError> {
         let account_id = self.admin_account_id(administrator).await?;
-        let domain_id = self
-            .ensure_domain(administrator, &account_id, domain)
-            .await?;
 
         let responses = self
             .call(
@@ -261,28 +262,21 @@ impl Stalwart {
             )
             .await?;
 
-        let result = &responses[0];
-        let destroyed = result["destroyed"]
-            .as_array()
-            .is_some_and(|ids| ids.iter().any(|id| id == stalwart_account_id));
-        let already_gone = result["notDestroyed"][stalwart_account_id]["type"] == "notFound";
-        if destroyed || already_gone {
-            return Ok(());
-        }
-        Err(StalwartError::Refused(format!(
-            "account not destroyed: {}",
-            result["notDestroyed"][stalwart_account_id]
-        )))
+        destroyed_or_refusal(&responses[0], stalwart_account_id)
+            .map_err(|refusal| StalwartError::Refused(format!("account not destroyed: {refusal}")))
     }
 
-    /// The domain's id, creating it when absent. Setup already created the server's
-    /// default domain; any other domain is added the first time a mailbox names it.
-    async fn ensure_domain(
+    /// Stalwart's id for `domain`, creating the domain when the server does not have it.
+    /// Setup creates the first domain itself, so adding that one finds it.
+    ///
+    /// # Errors
+    /// Returns [`StalwartError::Refused`] when the server refuses or is unreachable.
+    pub async fn ensure_domain(
         &self,
         administrator: &Administrator,
-        account_id: &str,
         domain: &str,
     ) -> Result<String, StalwartError> {
+        let account_id = self.admin_account_id(administrator).await?;
         let found = self
             .call(
                 administrator,
@@ -318,16 +312,100 @@ impl Stalwart {
             })
     }
 
+    /// Removes a domain and its DKIM keys. A domain that is already gone counts as
+    /// removed.
+    ///
+    /// Stalwart refuses to remove a domain other objects still link to. Its DKIM keys
+    /// always do, and exist only for the domain, so they are removed with it. Any other
+    /// link, such as an account, is left in place and the removal refused.
+    ///
+    /// # Errors
+    /// Returns [`StalwartError::Refused`] when the server refuses, which it does for its
+    /// default domain, or is unreachable.
+    pub async fn destroy_domain(
+        &self,
+        administrator: &Administrator,
+        domain_id: &str,
+    ) -> Result<(), StalwartError> {
+        let account_id = self.admin_account_id(administrator).await?;
+        let destroy = json!([[
+            "x:Domain/set",
+            { "accountId": account_id, "destroy": [domain_id] },
+            "destroy"
+        ]]);
+
+        let responses = self.call(administrator, destroy.clone()).await?;
+        let refusal = match destroyed_or_refusal(&responses[0], domain_id) {
+            Ok(()) => return Ok(()),
+            Err(refusal) => refusal,
+        };
+
+        let Some(dkim_keys) = linked_dkim_keys(&refusal) else {
+            return Err(StalwartError::Refused(format!(
+                "domain not removed: {refusal}"
+            )));
+        };
+        let removed = self
+            .call(
+                administrator,
+                json!([[
+                    "x:DkimSignature/set",
+                    { "accountId": account_id, "destroy": dkim_keys },
+                    "keys"
+                ]]),
+            )
+            .await?;
+        if removed[0]["notDestroyed"]
+            .as_object()
+            .is_some_and(|failures| !failures.is_empty())
+        {
+            return Err(StalwartError::Refused(format!(
+                "domain keys not removed: {}",
+                removed[0]["notDestroyed"]
+            )));
+        }
+
+        let responses = self.call(administrator, destroy).await?;
+        destroyed_or_refusal(&responses[0], domain_id)
+            .map_err(|refusal| StalwartError::Refused(format!("domain not removed: {refusal}")))
+    }
+
+    /// Every DNS record Stalwart recommends for a domain, as a BIND zone file: MX, SPF,
+    /// DKIM, DMARC, and service discovery. DKIM keys are generated a few seconds after a
+    /// domain is added, so a new domain's file may lack them at first.
+    ///
+    /// # Errors
+    /// Returns [`StalwartError::Refused`] when the server refuses or is unreachable.
+    pub async fn domain_zone_file(
+        &self,
+        administrator: &Administrator,
+        domain_id: &str,
+    ) -> Result<String, StalwartError> {
+        let account_id = self.admin_account_id(administrator).await?;
+        let responses = self
+            .call(
+                administrator,
+                json!([[
+                    "x:Domain/get",
+                    { "accountId": account_id, "ids": [domain_id], "properties": ["dnsZoneFile"] },
+                    "get"
+                ]]),
+            )
+            .await?;
+        responses[0]["list"][0]["dnsZoneFile"]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                StalwartError::Refused(format!("domain not found: {}", responses[0]["notFound"]))
+            })
+    }
+
     /// The administrator's JMAP account id, which every management call names.
     async fn admin_account_id(
         &self,
         administrator: &Administrator,
     ) -> Result<String, StalwartError> {
-        let request = self.http.get(
-            self.base_url
-                .join("jmap/session")
-                .expect("a static path joins"),
-        );
+        let request = self.http.get(SESSION_URL);
         let session = send(request, administrator).await?;
 
         session["primaryAccounts"]["urn:stalwart:jmap"]
@@ -346,12 +424,23 @@ impl Stalwart {
     ) -> Result<Vec<Value>, StalwartError> {
         let request = self
             .http
-            .post(self.base_url.join("jmap/").expect("a static path joins"))
+            .post(MANAGEMENT_URL)
             .json(&json!({ "using": USING, "methodCalls": method_calls }));
         let reply = send(request, administrator).await?;
 
         method_responses(&reply)
     }
+}
+
+/// The IMAP and SMTP servers self-hosted mailboxes connect to.
+pub fn endpoints() -> (Endpoint, Endpoint) {
+    let endpoint = |port| Endpoint {
+        host: STALWART_HOST.to_owned(),
+        port,
+        security: Security::ImplicitTls,
+        verify_certificate: false,
+    };
+    (endpoint(IMAPS_PORT), endpoint(SUBMISSIONS_PORT))
 }
 
 /// Authenticates and sends a management request, reading the JSON reply.
@@ -380,6 +469,35 @@ async fn send(
         .map_err(|error| StalwartError::Refused(error.to_string()))
 }
 
+/// `Ok` when a `/set` result destroyed `id` or found it already gone, else the reason
+/// Stalwart gave.
+fn destroyed_or_refusal(result: &Value, id: &str) -> Result<(), Value> {
+    let destroyed = result["destroyed"]
+        .as_array()
+        .is_some_and(|ids| ids.iter().any(|destroyed_id| destroyed_id == id));
+    let reason = &result["notDestroyed"][id];
+    if destroyed || reason["type"] == "notFound" {
+        return Ok(());
+    }
+    Err(reason.clone())
+}
+
+/// The DKIM keys behind an `objectIsLinked` refusal, when they are all that links to the
+/// object. `None` when anything else does too.
+fn linked_dkim_keys(refusal: &Value) -> Option<Vec<String>> {
+    if refusal["type"] != "objectIsLinked" {
+        return None;
+    }
+    let mut keys = Vec::new();
+    for linked in refusal["linkedObjects"].as_array()? {
+        if linked["object"] != "DkimSignature" {
+            return None;
+        }
+        keys.push(linked["id"].as_str()?.to_owned());
+    }
+    Some(keys)
+}
+
 /// Unwraps `methodResponses`, turning a JMAP method-level `error` into a refusal.
 fn method_responses(reply: &Value) -> Result<Vec<Value>, StalwartError> {
     let Some(responses) = reply["methodResponses"].as_array() else {
@@ -406,6 +524,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn only_dkim_keys_are_removed_along_with_a_domain() {
+        let keys_only = json!({
+            "type": "objectIsLinked",
+            "linkedObjects": [
+                { "id": "je7uucuzksqa", "object": "DkimSignature" },
+                { "id": "je7uucyhktaa", "object": "DkimSignature" }
+            ]
+        });
+        assert_eq!(
+            linked_dkim_keys(&keys_only),
+            Some(vec!["je7uucuzksqa".to_owned(), "je7uucyhktaa".to_owned()])
+        );
+
+        let with_account = json!({
+            "type": "objectIsLinked",
+            "linkedObjects": [
+                { "id": "je7uucuzksqa", "object": "DkimSignature" },
+                { "id": "d", "object": "Account" }
+            ]
+        });
+        assert_eq!(linked_dkim_keys(&with_account), None);
+        assert_eq!(linked_dkim_keys(&json!({ "type": "forbidden" })), None);
+    }
+
+    #[test]
+    fn a_missing_object_counts_as_destroyed() {
+        let gone = json!({ "notDestroyed": { "c": { "type": "notFound" } } });
+        destroyed_or_refusal(&gone, "c").expect("already gone");
+        let destroyed = json!({ "destroyed": ["c"] });
+        destroyed_or_refusal(&destroyed, "c").expect("destroyed");
+        let linked = json!({ "notDestroyed": { "c": { "type": "objectIsLinked" } } });
+        assert_eq!(
+            destroyed_or_refusal(&linked, "c").expect_err("refused")["type"],
+            "objectIsLinked"
+        );
+    }
+
+    #[test]
     fn method_level_errors_become_refusals() {
         let reply = json!({ "methodResponses": [
             ["x:Domain/query", { "ids": ["b"] }, "0"],
@@ -420,11 +576,7 @@ mod tests {
 
     #[test]
     fn self_hosted_endpoints_use_the_servers_implicit_tls_listeners() {
-        let stalwart = Stalwart::new(
-            reqwest::Client::new(),
-            "http://stalwart:8080/".parse().expect("url"),
-        );
-        let (imap, smtp) = stalwart.endpoints();
+        let (imap, smtp) = endpoints();
         assert_eq!((imap.host.as_str(), imap.port), ("stalwart", 993));
         assert_eq!((smtp.host.as_str(), smtp.port), ("stalwart", 465));
         assert!(!imap.verify_certificate && !smtp.verify_certificate);

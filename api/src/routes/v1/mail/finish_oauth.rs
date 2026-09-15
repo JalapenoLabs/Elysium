@@ -150,6 +150,7 @@ async fn complete(
                 display_name: String::new(),
                 credential: redeemed.refresh_token,
                 external_id: None,
+                mail_domain_id: None,
             };
             mail_account::create(&mut connection, &state.cipher, &new_account).await?
         }
