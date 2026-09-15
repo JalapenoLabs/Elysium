@@ -24,7 +24,7 @@ use tracing::{Level, event};
 /// Fixed in code rather than read from the environment so every deployment enforces
 /// the same limit. Ten per second is well above what a person clicking through the UI
 /// produces, while still throttling scripted abuse.
-const REQUESTS_PER_SECOND: u64 = 10;
+const REQUESTS_PER_SECOND: u32 = 10;
 
 /// Requests a client may spend at once before the sustained rate applies. Covers a
 /// page load that fires several API calls in parallel.
@@ -47,9 +47,12 @@ pub struct RateLimiter {
 /// Builds a limiter allowing [`BURST_SIZE`] immediate requests, refilling
 /// [`REQUESTS_PER_SECOND`] each second.
 pub fn build() -> RateLimiter {
+    // The builder takes the interval between refills, not a rate: its `per_second(n)`
+    // means one request every n seconds.
+    let refill_period = Duration::from_secs(1) / REQUESTS_PER_SECOND;
     let config = GovernorConfigBuilder::default()
         .key_extractor(SmartIpKeyExtractor)
-        .per_second(REQUESTS_PER_SECOND)
+        .period(refill_period)
         .burst_size(BURST_SIZE)
         .use_headers()
         .finish()
@@ -127,4 +130,52 @@ fn reject(error: GovernorError) -> Response<Body> {
     }
 
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::Router;
+    use axum::http::Request;
+    use axum::routing::get;
+    use tower::ServiceExt;
+
+    use super::*;
+
+    async fn status(app: &Router) -> StatusCode {
+        let request = Request::get("/")
+            .header("x-real-ip", "203.0.113.7")
+            .body(Body::empty())
+            .expect("request");
+        app.clone()
+            .oneshot(request)
+            .await
+            .expect("infallible")
+            .status()
+    }
+
+    // Regression: the limiter was built with `per_second(REQUESTS_PER_SECOND)`, which
+    // tower_governor reads as one refill every ten seconds. A page load after a burst
+    // then failed with 429s for ten seconds per request.
+    #[tokio::test]
+    async fn the_bucket_refills_at_the_documented_rate() {
+        let limiter = build();
+        let app = Router::new()
+            .route("/", get(|| async { "ok" }))
+            .layer(limiter.layer);
+
+        for _ in 0..BURST_SIZE {
+            assert_eq!(status(&app).await, StatusCode::OK);
+        }
+        assert_eq!(status(&app).await, StatusCode::TOO_MANY_REQUESTS);
+
+        // Three refill periods (plus slack) buy three requests, and no more.
+        let refill_period = Duration::from_secs(1) / REQUESTS_PER_SECOND;
+        tokio::time::sleep(refill_period * 3 + refill_period / 2).await;
+        for _ in 0..3 {
+            assert_eq!(status(&app).await, StatusCode::OK);
+        }
+        assert_eq!(status(&app).await, StatusCode::TOO_MANY_REQUESTS);
+
+        limiter.sweeper.abort();
+    }
 }
