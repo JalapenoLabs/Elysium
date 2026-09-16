@@ -5,7 +5,10 @@
 and `ELYSIUM_ENCRYPTION_KEY`. It may also supply `RUST_LOG`. Compose refuses to start when a required value is
 missing, and `.env.example` is the template.
 
-`WEB_PORT` may be set to move nginx off the default port 4000. `SMTP_PORT`, `SUBMISSIONS_PORT`, and `IMAPS_PORT`
+`WEB_PORT` may be set to move nginx off the default port 4000. `WEB_BIND_ADDRESS` publishes it on an address other
+than the default `127.0.0.1`, such as `0.0.0.0` for a trusted LAN. Until the API has authentication, that hands
+everyone who can reach the address the stored credentials and control of the Docker host; see `docs/security.md`.
+`SMTP_PORT`, `SUBMISSIONS_PORT`, and `IMAPS_PORT`
 move the host side of the mail ports off 25, 465, and 993.
 
 Postgres applies its credentials only when the data volume is first created. After changing them, recreate the
@@ -13,7 +16,7 @@ volume with `docker compose down --volumes`, which destroys the data.
 
 | Service    | Image / build              | Container name     | Notes                                   |
 |------------|----------------------------|--------------------|-----------------------------------------|
-| `nginx`    | `nginx:1.30.4-alpine`      | `elysium-nginx`    | The only published ports: web on `127.0.0.1:4000`, mail on 25, 465, 993 |
+| `nginx`    | `nginx:1.30.4-alpine`      | `elysium-nginx`    | The only published ports: web on `127.0.0.1:4000` by default, mail on 25, 465, 993 |
 | `frontend` | `frontend/Dockerfile`      | `elysium-frontend` | Vite dev server, source bind-mounted    |
 | `migrate`  | `api/Dockerfile`           | `elysium-migrate`  | One-shot `migrate run`, then exits      |
 | `api`      | `api/Dockerfile`           | none               | One replica; reachable only via nginx   |

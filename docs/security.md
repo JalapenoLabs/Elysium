@@ -43,8 +43,9 @@ The API creates and runs the mail server through Docker. It never mounts the Doc
 other service joins. Exec, build, swarm, secrets, and system endpoints are refused.
 
 The proxy narrows the surface but does not make it safe: creating a container is enough to control the host. Anyone
-who can send the API requests can therefore reach the host, which is one more reason nginx listens on loopback
-only until the API has authentication.
+who can send the API requests can therefore reach the host, which is one more reason nginx listens on loopback by
+default until the API has authentication. `WEB_BIND_ADDRESS` publishes it more widely for an operator who trusts
+every client on that network.
 
 ## Rate limiting
 
@@ -108,6 +109,6 @@ Application secrets never go there. They are stored in Postgres, encrypted with 
 
 ## Roadmap
 
-- Authentication on `/api/v1`, then publishing nginx beyond loopback.
+- Authentication on `/api/v1`, then publishing nginx beyond loopback by default.
 - CSP for the SPA once a production static build replaces the dev server.
 - TLS termination at nginx.

@@ -310,5 +310,5 @@ keys, event envelopes, and the Arsox view conversions.
 ## Roadmap
 
 - Authentication. The LLM and satellite routes write credentials and drive agents, so nginx publishes on loopback
-  only until auth exists.
+  by default until auth exists.
 - TLS to Postgres for deployments where the database is not on a private network.
