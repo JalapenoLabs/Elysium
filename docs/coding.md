@@ -95,7 +95,8 @@ Every thread is opened with Elysium's policy, constants in `api/src/routes/v1/co
 | Tokens per turn           | unlimited | Bounded by the two ceilings above                                 |
 
 An optional repository URL (https, http, ssh, or `git@`) is cloned into the workspace, into a directory named after
-the URL's last segment.
+the URL's last segment. Elysium holds no SSH keys: a github.com SSH remote is cloned over HTTPS (see
+`docs/github.md`), and an SSH remote on any other host is refused with `400`.
 
 ## Model credentials
 

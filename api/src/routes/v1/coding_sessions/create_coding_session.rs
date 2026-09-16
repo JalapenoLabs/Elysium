@@ -29,6 +29,7 @@ use crate::crypto::Cipher;
 use crate::errors::ApiError;
 use crate::fleet::views::ThreadStatus;
 use crate::fleet::{MANAGED_METADATA_KEY, SESSION_METADATA_KEY};
+use crate::github::Repository;
 use crate::models::coding_session::{self, NewCodingSession};
 use crate::models::environment_variable;
 use crate::models::llm::{self, Llm};
@@ -88,16 +89,19 @@ pub async fn handle(
     .await?;
     drop(connection);
 
-    let repository = body.repository_url.as_deref().map(|url| Repo {
-        name: repository_directory(url)
-            .expect("validation guarantees a directory name")
-            .to_owned(),
-        url: url.to_owned(),
-        base_branch: body.base_branch.clone(),
-        auth: github
-            .as_ref()
-            .and_then(|github| github_token::clone_auth(url, &github.token)),
-        ..Repo::default()
+    let repository = body.repository_url.as_deref().map(|url| {
+        let clone_url = github_token::clone_url(url);
+        Repo {
+            name: repository_directory(url)
+                .expect("validation guarantees a directory name")
+                .to_owned(),
+            auth: github
+                .as_ref()
+                .and_then(|github| github_token::clone_auth(&clone_url, &github.token)),
+            url: clone_url,
+            base_branch: body.base_branch.clone(),
+            ..Repo::default()
+        }
     });
 
     let stack = model_stack::build(&open_credentials(credentials, &state.cipher), Utc::now());
@@ -213,6 +217,14 @@ fn validate_repository_url(url: &str) -> Result<(), ValidationError> {
         return Err(ValidationError::new("scheme")
             .with_message("must be an https, http, ssh, or git@ repository URL".into()));
     }
+    // Elysium holds no SSH keys. A github.com SSH remote is cloned over HTTPS instead
+    // (`github_token::clone_url`); any other SSH remote could never authenticate.
+    let is_ssh = url.starts_with("ssh://") || url.starts_with("git@");
+    if is_ssh && Repository::from_url(url).is_none() {
+        return Err(ValidationError::new("ssh").with_message(
+            "SSH remotes are supported only on github.com; use the https URL".into(),
+        ));
+    }
     if repository_directory(url).is_none() {
         return Err(ValidationError::new("name")
             .with_message("must end in a repository name such as org/repo.git".into()));
@@ -281,6 +293,32 @@ mod tests {
             bad_repository
                 .validate()
                 .expect_err("file URLs are refused")
+                .field_errors()
+                .contains_key("repository_url")
+        );
+
+        let github_ssh: RequestBody = serde_json::from_value(json!({
+            "projectId": Uuid::nil(),
+            "satelliteId": Uuid::nil(),
+            "title": "A",
+            "repositoryUrl": "git@github.com:JalapenoLabs/Elysium.git",
+        }))
+        .expect("parses");
+        github_ssh
+            .validate()
+            .expect("github.com SSH remotes are cloned over HTTPS");
+
+        let other_ssh: RequestBody = serde_json::from_value(json!({
+            "projectId": Uuid::nil(),
+            "satelliteId": Uuid::nil(),
+            "title": "A",
+            "repositoryUrl": "git@gitlab.com:org/repo.git",
+        }))
+        .expect("parses");
+        assert!(
+            other_ssh
+                .validate()
+                .expect_err("no key could authenticate it")
                 .field_errors()
                 .contains_key("repository_url")
         );

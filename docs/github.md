@@ -100,8 +100,9 @@ Only one token per session, set in the thread's environment. No satellite change
   These are declared not secret, since an unset flag means secret and would scrub the helper from logs. Nothing is
   written into the workspace. The satellite's pre-push hook lives in repository config, so the two never meet.
 - The satellite's own clone of the session's repository runs before the agent and does not see its environment, so
-  an `https://github.com/` repository also gets the token as `repos[].auth`. SSH remotes get nothing; they
-  authenticate with keys.
+  a github.com repository also gets the token as `repos[].auth`. Elysium holds no SSH keys, so a github.com SSH
+  remote (`git@github.com:` or `ssh://git@github.com/`) is cloned from its `https://github.com/` URL instead
+  (`github_token::clone_url`), and the workspace's `origin` is HTTPS, the remote the `gh` credential helper serves.
 - The token also goes in `ThreadSettings.github`, which the satellite scrubs and its planned `gh` broker will use.
 
 An agent can read every variable in its environment, so it holds the token. Scope each token to what its sessions
