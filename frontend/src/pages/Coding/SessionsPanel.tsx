@@ -24,12 +24,21 @@ import { useCodingSessionsLoader, useProjectsLoader, useSatellitesLoader } from 
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { UrlTree } from '../../urls'
 import { useCodingActions } from './codingActionsContext'
-import { threadStateChipColors, threadStateLabelKeys } from './sessionPresentation'
+import { SESSION_NUMBER_COLUMN_SIZING, threadStateChipColors, threadStateLabelKeys } from './sessionPresentation'
 
-const SESSION_COLUMN_KEYS = [ 'title', 'project', 'satellite', 'state', 'lastActivity', 'rowActions' ] as const
+const SESSION_COLUMN_KEYS = [
+  'number',
+  'title',
+  'project',
+  'satellite',
+  'state',
+  'lastActivity',
+  'rowActions',
+] as const
 type SessionColumnKey = typeof SESSION_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
+  number: 'sessions.number',
   title: 'sessions.title',
   project: 'sessions.project',
   satellite: 'sessions.satellite',
@@ -40,6 +49,7 @@ const columnLabelKeys = {
 
 // Starting widths in pixels, sized for the panel's default half of the workspace.
 const columnSizes = {
+  number: SESSION_NUMBER_COLUMN_SIZING.size,
   title: 220,
   project: 150,
   satellite: 150,
@@ -89,6 +99,9 @@ export function SessionsPanel() {
     }
 
     const renderCell = {
+      number: (session: CodingSession) => <span className='block text-right tabular-nums'>{
+        session.id
+      }</span>,
       title: (session: CodingSession) => <Link
         className='cursor-pointer font-medium text-link no-underline hover:underline'
         onPress={() => actions.openSession(session)}
@@ -110,6 +123,7 @@ export function SessionsPanel() {
     } satisfies Record<SessionColumnKey, (session: CodingSession) => unknown>
 
     const searchValue = {
+      number: (session: CodingSession) => String(session.id),
       title: (session: CodingSession) => session.title,
       project: projectName,
       satellite: satelliteName,
@@ -145,6 +159,16 @@ export function SessionsPanel() {
           cell: ({ row }) => renderCell[columnKey](row.original),
         }
       },
+      columnDefOverrides: {
+        number: ({ columnId, columnLabel }) => ({
+          id: columnId,
+          header: () => <span className='numeric-column-header'>{columnLabel}</span>,
+          // Sorted as a number, so session 10 follows session 9.
+          accessorFn: (session) => session.id,
+          ...SESSION_NUMBER_COLUMN_SIZING,
+          cell: ({ row }) => renderCell.number(row.original),
+        }),
+      },
     })
   }, [ t, i18n.language, projectNames, satelliteNames, actions ])
 
@@ -176,12 +200,12 @@ export function SessionsPanel() {
     <SmartTable
       ids={{
         tableElementId: 'coding-sessions-table',
-        tableLocalStorageId: 'elysium.coding.sessions.table',
+        tableLocalStorageId: 'elysium.coding.sessions.table.v2',
       }}
       tableAriaLabel={t('sessions.label')}
       data={sessions}
       managedColumns={managedColumns}
-      getRowId={(session) => session.id}
+      getRowId={(session) => String(session.id)}
       labels={labels}
       search={{
         value: search,

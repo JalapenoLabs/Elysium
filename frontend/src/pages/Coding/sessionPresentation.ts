@@ -29,6 +29,14 @@ export const threadStateChipColors = {
   'destroyed': 'danger',
 } as const satisfies Record<ThreadState, ChipColor>
 
+// The session number column, in pixels: wide enough for four digits and the sort icon.
+// Set in full because uikit's SmartTable otherwise holds every column to at least 160.
+export const SESSION_NUMBER_COLUMN_SIZING = {
+  size: 80,
+  minSize: 64,
+  maxSize: 120,
+} as const
+
 // A thread in one of these states can no longer take prompts.
 export const CLOSED_THREAD_STATES: readonly ThreadState[] = [ 'expired', 'destroyed' ]
 

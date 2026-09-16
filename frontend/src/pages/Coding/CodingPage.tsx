@@ -7,7 +7,7 @@ import type { CodingActions } from './codingActionsContext'
 // Core
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useParams } from 'react-router'
 
 // Redux
 import { codingSessionDeleted, selectCodingSessionById } from '../../store/codingSessionsSlice'
@@ -27,6 +27,7 @@ import { getUpstreamErrorMessage } from '../../api/errors'
 import { deleteCodingSession } from '../../api/routes/codingSessionRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
 import { useCodingSessionsLoader } from '../../hooks/useServerData'
+import { UrlTree } from '../../urls'
 import { CodingActionsContext } from './codingActionsContext'
 import {
   CODING_PANEL_COMPONENTS,
@@ -46,20 +47,19 @@ const panelComponents = {
 // The Coding area: a Dockview workspace holding the sessions overview and one
 // conversation panel per open session, arranged however the user drags them. The
 // layout persists per browser. This page owns the dialogs; panels open them through
-// CodingActionsContext. `?session=<id>` opens that session's conversation once the
-// workspace and the session are both loaded, then leaves the address.
+// CodingActionsContext. `/coding/<number>` opens that session's conversation once the
+// workspace and the session are both loaded, then returns to `/coding`.
 export function CodingPage() {
   const { t } = useTranslation([ 'coding', 'common' ])
   const dispatch = useAppDispatch()
   const confirm = useConfirm()
   const dockviewApiRef = useRef<DockviewApi | null>(null)
   const [ isDockviewReady, setIsDockviewReady ] = useState(false)
-  const [ searchParams, setSearchParams ] = useSearchParams()
-  const requestedSessionId = searchParams.get('session')
-  useCodingSessionsLoader()
-  const requestedSession = useAppSelector((state) => requestedSessionId
-    ? selectCodingSessionById(state, requestedSessionId)
-    : undefined)
+  const navigate = useNavigate()
+  const params = useParams()
+  const requestedSessionId = Number(params.sessionId)
+  const sessionsStatus = useCodingSessionsLoader()
+  const requestedSession = useAppSelector((state) => selectCodingSessionById(state, requestedSessionId))
 
   const createState = useOverlayState()
   const renameState = useOverlayState()
@@ -108,15 +108,20 @@ export function CodingPage() {
   }), [ createState, renameState, confirm, dispatch, t ])
 
   useEffect(() => {
-    if (!isDockviewReady || !requestedSession || !dockviewApiRef.current) {
+    if (params.sessionId === undefined || !isDockviewReady || !dockviewApiRef.current) {
       return
     }
-    openConversation(dockviewApiRef.current, requestedSession)
-    setSearchParams((params) => {
-      params.delete('session')
-      return params
-    }, { replace: true })
-  }, [ isDockviewReady, requestedSession, setSearchParams ])
+    if (requestedSession) {
+      openConversation(dockviewApiRef.current, requestedSession)
+    }
+    else if (sessionsStatus === 'loading') {
+      return
+    }
+    else {
+      console.debug('CodingPage was linked to a session it cannot find', { sessionId: params.sessionId })
+    }
+    navigate(UrlTree.coding, { replace: true })
+  }, [ params.sessionId, isDockviewReady, requestedSession, sessionsStatus, navigate ])
 
   function onReady(event: DockviewReadyEvent) {
     dockviewApiRef.current = event.api

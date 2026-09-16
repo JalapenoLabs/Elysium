@@ -13,7 +13,7 @@ import { getUpstreamErrorMessage } from '../../api/errors'
 import { startTurn } from '../../api/routes/codingSessionRoutes'
 
 type Props = {
-  sessionId: string
+  sessionId: number
   // The thread has ended and cannot take prompts.
   isClosed: boolean
 }

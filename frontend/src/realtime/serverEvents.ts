@@ -37,9 +37,9 @@ export type ServerEvent =
   | { type: 'storageLocation.upserted', data: StorageLocation }
   | { type: 'storageLocation.deleted', data: { id: string } }
   | { type: 'session.upserted', data: CodingSession }
-  | { type: 'session.deleted', data: { id: string } }
+  | { type: 'session.deleted', data: { id: number } }
   | { type: 'session.event', data: SessionEvent }
   // Live events for this session may have been missed; refetch its history.
-  | { type: 'session.resync', data: { id: string } }
+  | { type: 'session.resync', data: { id: number } }
 
 export type ServerEventType = ServerEvent['type']

@@ -9,6 +9,7 @@
   },
   "sessions": {
     "label": "Coding sessions",
+    "number": "#",
     "title": "Title",
     "project": "Project",
     "satellite": "Satellite",
@@ -113,7 +114,7 @@
     "budgetWarning": "This session has used {{percent}}% of its budget.",
     "incident": "Incident: {{message}}",
     "otherEvent": "{{type}}",
-    "thread": "Thread {{threadId}}",
+    "thread": "Thread {{number}}",
     "composer": {
       "label": "Prompt",
       "placeholder": "Tell the agent what to do next",

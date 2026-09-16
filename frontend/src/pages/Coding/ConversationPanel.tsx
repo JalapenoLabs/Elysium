@@ -66,7 +66,7 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
       <div className='min-w-0'>
         <div className='truncate text-sm font-semibold'>{session.title}</div>
         <div className='truncate text-xs opacity-60'>{
-          [ satellite?.name, t('conversation.thread', { threadId: session.threadId }) ]
+          [ satellite?.name, t('conversation.thread', { number: session.id }) ]
             .filter(Boolean)
             .join(' · ')
         }</div>

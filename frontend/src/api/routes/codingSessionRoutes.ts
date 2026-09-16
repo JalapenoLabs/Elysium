@@ -27,7 +27,8 @@ export type ThreadStatus = {
 }
 
 export type CodingSession = {
-  id: string
+  // The session's number: 1, 2, 3, ... in the order sessions were started.
+  id: number
   projectId: string
   satelliteId: string
   threadId: string
@@ -78,7 +79,7 @@ export type SessionEventPayload =
   | { kind: 'incident', code: string, message: string, retryable: boolean }
 
 export type SessionEvent = {
-  sessionId: string
+  sessionId: number
   // Strictly increasing per thread; history and live events merge on it.
   sequence: number
   turnId: string | null
@@ -122,13 +123,13 @@ type RenameCodingSessionResponse = {
   session: CodingSession
 }
 
-export function renameCodingSession(sessionId: string, title: string) {
+export function renameCodingSession(sessionId: number, title: string) {
   return apiClient
     .patch(`v1/coding-sessions/${sessionId}`, { json: { title }})
     .json<RenameCodingSessionResponse>()
 }
 
-export function deleteCodingSession(sessionId: string) {
+export function deleteCodingSession(sessionId: number) {
   return apiClient
     .delete(`v1/coding-sessions/${sessionId}`)
 }
@@ -139,7 +140,7 @@ export type ListSessionEventsResponse = {
   truncated: boolean
 }
 
-export function listSessionEvents(sessionId: string) {
+export function listSessionEvents(sessionId: number) {
   return apiClient
     .get(`v1/coding-sessions/${sessionId}/events`, { timeout: SESSION_HISTORY_TIMEOUT_MS })
     .json<ListSessionEventsResponse>()
@@ -154,7 +155,7 @@ type StartTurnResponse = {
   }
 }
 
-export function startTurn(sessionId: string, prompt: string) {
+export function startTurn(sessionId: number, prompt: string) {
   return apiClient
     .post(`v1/coding-sessions/${sessionId}/turns`, { json: { prompt }})
     .json<StartTurnResponse>()

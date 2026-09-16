@@ -43,3 +43,11 @@
     max-width: 72rem;
   }
 }
+
+/* A SmartTable header holding `.numeric-column-header` sits over the right edge of its
+   right-aligned numbers. uikit left-aligns every header and keeps room after it for the
+   sort icon; the `html` prefix wins over the stylesheet uikit injects after this one. */
+html .jala-table-sort-button:has(.numeric-column-header) {
+  justify-content: flex-end;
+  padding-right: 0;
+}

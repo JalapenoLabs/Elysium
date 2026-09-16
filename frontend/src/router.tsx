@@ -75,6 +75,11 @@ export const router = createBrowserRouter([
         handle: { layout: 'workspace' } satisfies RouteLayoutHandle,
       },
       {
+        path: UrlTree.codingSession,
+        element: <CodingPage />,
+        handle: { layout: 'workspace' } satisfies RouteLayoutHandle,
+      },
+      {
         path: UrlTree.settings,
         element: <SettingsDirectoryPage />,
       },

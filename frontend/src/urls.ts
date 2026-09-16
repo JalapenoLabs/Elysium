@@ -9,6 +9,7 @@ export const UrlTree = {
   projectsNew: '/projects/new',
   projectView: '/projects/:projectId',
   coding: '/coding',
+  codingSession: '/coding/:sessionId',
   settings: '/settings',
   settingsPersonalDetails: '/settings/personal-details',
   settingsLlms: '/settings/llms',
@@ -53,7 +54,7 @@ export function getStorageLocationEditUrl(locationId: string) {
   return UrlTree.settingsStorageEdit.replace(':locationId', locationId)
 }
 
-// The Coding page opens this session's conversation, then drops the parameter.
-export function getCodingSessionUrl(sessionId: string) {
-  return `${UrlTree.coding}?session=${encodeURIComponent(sessionId)}`
+// The Coding page opens this session's conversation, then returns to its own address.
+export function getCodingSessionUrl(sessionId: number) {
+  return UrlTree.codingSession.replace(':sessionId', String(sessionId))
 }

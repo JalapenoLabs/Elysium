@@ -169,16 +169,16 @@ events. It gives up after 10 seconds with a 502. Clients merge history with live
 
 `frontend/src/pages/Coding/` holds the page. It is a Dockview workspace (`dockview-react`) with two panel types:
 
-- **Sessions** is the overview: every session, its project and satellite, live thread state, and last activity,
-  in uikit's `SmartTable`. A title opens that session's conversation.
-- **Conversation** is one session. It loads history through SWR when it opens and drops its events from Redux when
+- **Sessions** is the overview: every session, its number, project and satellite, live thread state, and last
+  activity, in uikit's `SmartTable`. A title opens that session's conversation.
+- **Conversation** is one session, headed by its title, satellite, and number ("Local · Thread 12"). It loads history through SWR when it opens and drops its events from Redux when
   it closes; a reopened panel shows SWR's buffered history while the fresh copy loads. Prompts and agent messages
   render as chat bubbles; tool calls, thinking, and turn results as compact lines with details folded away. Event
   types without a renderer show their wire name. Enter sends the composer's prompt; Shift+Enter adds a line. A
   thread that has ended shows no composer.
 
 The first conversation opens beside Sessions; later ones open as tabs in its group. Panels can be dragged, split,
-and floated. The layout is saved per browser under `elysium.coding.layout.v1`; Reset layout clears it. A restored
+and floated. The layout is saved per browser under `elysium.coding.layout.v2`; Reset layout clears it. A restored
 panel whose session was deleted says so.
 
 Panels render through portals, so they read page actions (open, create, rename, delete) from
