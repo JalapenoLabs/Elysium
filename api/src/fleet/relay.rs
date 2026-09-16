@@ -115,11 +115,25 @@ async fn serve(fleet: &Fleet, session: &CodingSession, cancel: &CancellationToke
     loop {
         tokio::select! {
             () = cancel.cancelled() => return RelayOutcome::Cancelled,
-            Some(finished) = calls.join_next() => {
-                if let Ok(call_id) = finished {
+            Some(finished) = calls.join_next() => match finished {
+                Ok(call_id) => {
                     in_flight.remove(&call_id);
                 }
-            }
+                // A cancelled call was already removed when its abort was sent.
+                Err(join_error) if join_error.is_cancelled() => {}
+                Err(join_error) => {
+                    let task_id = join_error.id();
+                    in_flight.retain(|_call_id, abort| abort.id() != task_id);
+                    event!(
+                        name: "coding.relay.call.panicked",
+                        Level::ERROR,
+                        session.id = %session.id,
+                        error.message = %join_error,
+                        "a tool call panicked and was never answered; the satellite fails it at \
+                         its deadline",
+                    );
+                }
+            },
             next = relay.next() => match next {
                 Some(Ok(RelayEvent::Call(call))) => {
                     received = true;

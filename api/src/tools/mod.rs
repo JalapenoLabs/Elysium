@@ -57,11 +57,28 @@ impl std::fmt::Debug for ToolContext {
 /// Who a call is made for: the coding session whose agent called, its project, which
 /// decides what the call may reach, and its thread, whose workspace files the call may read
 /// and write.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CallScope {
     pub session_id: Uuid,
     pub project_id: Uuid,
     pub workspace: ThreadHandle,
+}
+
+/// Written by hand because the SDK's derived `Debug` for a thread handle prints the
+/// satellite's bearer secret; only the thread's id is shown.
+impl std::fmt::Debug for CallScope {
+    #[expect(
+        clippy::renamed_function_params,
+        reason = "`f` is a shorthand name; the project spells names out"
+    )]
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CallScope")
+            .field("session_id", &self.session_id)
+            .field("project_id", &self.project_id)
+            .field("thread_id", &self.workspace.id())
+            .finish()
+    }
 }
 
 /// One tool: what the agent is told about it, and what runs when it is called.
