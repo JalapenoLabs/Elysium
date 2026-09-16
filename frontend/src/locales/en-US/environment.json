@@ -1,0 +1,64 @@
+{
+  "title": "Environment variables",
+  "description": "Every coding session's agent receives these variables.",
+  "variables": {
+    "add": "Add variable"
+  },
+  "page": {
+    "notFound": "This environment variable does not exist. It may have been deleted.",
+    "backToList": "Back to environment variables"
+  },
+  "visibility": {
+    "title": "The agent can read every value",
+    "body": "Every variable is placed in each session's environment, where the agent can read, print, or send it anywhere its tools reach.",
+    "secret": "Secret means Elysium never shows the value again and the satellite scrubs it from session logs. Anything that must stay hidden from the agent does not belong here."
+  },
+  "table": {
+    "label": "Environment variables",
+    "key": "Key",
+    "value": "Value",
+    "description": "Description",
+    "secret": "Secret",
+    "emptyValue": "Empty",
+    "empty": "No environment variables yet. Add one to give every coding session's agent a setting or token.",
+    "loadError": "Environment variables could not be loaded."
+  },
+  "form": {
+    "createTitle": "Add environment variable",
+    "editTitle": "Edit {{key}}",
+    "key": "Key",
+    "keyHint": "Letters, digits, and underscores, not starting with a digit, such as NPM_TOKEN.",
+    "value": "Value",
+    "valueHint": "Passed exactly as written, including spaces and line breaks.",
+    "valueKeep": "Leave blank to keep the current value.",
+    "valueReveal": "Enter the value again to make this variable visible.",
+    "isSecret": "Secret",
+    "isSecretHint": "Hide the value from Elysium after saving and scrub it from session logs.",
+    "description": "Description",
+    "descriptionHint": "What the variable is for.",
+    "errors": {
+      "keyRequired": "Enter a key.",
+      "keyTooLong": "Use 128 characters or fewer.",
+      "keyTaken": "Another variable already uses this key.",
+      "keyRefusal": {
+        "malformed": "Use a letter or underscore, then letters, digits, or underscores.",
+        "reservedForElysium": "Elysium sets this variable for GitHub.",
+        "reservedForSatellite": "The satellite reserves every ARSOX_ variable, and never passes one to an agent.",
+        "providerCredential": "This looks like a model provider credential. The satellite's LLM proxy presents those on the agent's behalf.",
+        "overriddenBySatellite": "The satellite sets this variable for every session, so a value here would never reach the agent."
+      },
+      "valueRequired": "A secret variable needs a value.",
+      "valueTooLong": "Use 32 KiB or less.",
+      "descriptionTooLong": "Use 500 characters or fewer."
+    }
+  },
+  "delete": {
+    "title": "Delete {{key}}?",
+    "body": "Sessions opened from now on no longer receive this variable. Sessions already running keep it."
+  },
+  "toasts": {
+    "created": "{{key}} added",
+    "updated": "{{key}} updated",
+    "deleted": "{{key}} deleted"
+  }
+}

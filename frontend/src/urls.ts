@@ -17,6 +17,9 @@ export const UrlTree = {
   settingsLlmsAddClaudeApiKey: '/settings/llms/add-claude-api-key',
   settingsLlmsAddOpenaiApiKey: '/settings/llms/add-openai-api-key',
   settingsLlmsEdit: '/settings/llms/:llmId/edit',
+  settingsEnvironment: '/settings/environment',
+  settingsEnvironmentNew: '/settings/environment/new',
+  settingsEnvironmentEdit: '/settings/environment/:variableId/edit',
   settingsGithub: '/settings/github',
   settingsGithubNew: '/settings/github/new',
   settingsGithubEdit: '/settings/github/:credentialId/edit',
@@ -36,6 +39,10 @@ export const UNKNOWN_ROUTE_REDIRECT_TO: UrlValue = UrlTree.actionItems
 
 export function getProjectViewUrl(projectId: string) {
   return UrlTree.projectView.replace(':projectId', projectId)
+}
+
+export function getEnvironmentVariableEditUrl(variableId: string) {
+  return UrlTree.settingsEnvironmentEdit.replace(':variableId', variableId)
 }
 
 export function getGithubCredentialEditUrl(credentialId: string) {

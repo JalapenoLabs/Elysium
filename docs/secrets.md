@@ -39,10 +39,15 @@ The version byte identifies the envelope format and key generation. Today only v
 - Plaintext secrets travel as `secrecy::SecretString`, which prints as redacted and zeroizes on drop.
 - Request tokens are validated while they are parsed, so a rejected token is never copied into an error report.
 - No response ever includes a secret token, sealed or not. Tokens are write-only over HTTP.
+- Environment variable values are sealed whether or not the variable is secret. Only a non-secret variable's
+  value is returned.
 - `Llm::secret_token` and `Satellite::secret` are the only ways to decrypt, for code that uses the credential.
   A satellite secret is decrypted only to connect, inside `api/src/fleet/`.
 - `StorageLocation::access_key` decrypts a storage location's access key, only to call its provider.
 - `GithubCredential::token` decrypts a GitHub token, only to call GitHub.
+- `EnvironmentVariable::value` decrypts one environment variable, and `environment_variable::thread_environment`
+  every one, to hand them to a satellite thread. A non-secret variable's value is also decrypted for responses; a
+  secret's never is. See `docs/environment.md`.
 
 ## Stored secrets
 
@@ -54,6 +59,7 @@ The version byte identifies the envelope format and key generation. Today only v
 | `mail_servers` | `admin_secret_encrypted` | `mail_servers.admin_secret:<id>` |
 | `storage_locations` | `access_key_encrypted` | `storage_locations.access_key:<id>` |
 | `github_credentials` | `token_encrypted` | `github_credentials.token:<id>` |
+| `environment_variables` | `value_encrypted` | `environment_variables.value:<id>` |
 
 ## Roadmap
 
