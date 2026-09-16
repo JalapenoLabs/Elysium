@@ -92,8 +92,9 @@ private. `.github/workflows/pull-review.yml` only asks for a review by dispatchi
 `review-dispatch.yml`, and the reviewers post back to the pull request through their GitHub Apps. The run itself, its
 job summary, and its failure alerts live in that repository's Actions tab; see its `docs/review-pr/guide.md`.
 
-The request authenticates with the `REVIEW_DISPATCH_TOKEN` repository secret, a fine-grained token with access to
-`JalapenoLabs/github-actions` only and the single permission `Actions: Read and write`.
+The request authenticates with the `REVIEW_DISPATCH_TOKEN` org secret, shared with this repository by name, which
+holds a fine-grained token with access to `JalapenoLabs/github-actions` only and the single permission
+`Actions: Read and write`.
 
 Drafts are skipped until marked ready, pure base-branch merges are skipped, and a head commit whose subject starts
 with `[REVIEW]` forces a review. Pull requests from forks are never reviewed: they get no secrets to request one, and
