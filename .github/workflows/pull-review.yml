@@ -1,0 +1,37 @@
+name: Automated Claude & Codex PR reviews
+run-name: "Automated review · PR #${{ github.event.pull_request.number }} (${{ github.event.pull_request.title }})"
+
+# `ready_for_review` is listed because the default set is only `opened`,
+# `synchronize`, and `reopened`. call-review-pr.yml skips drafts and picks the
+# review up when the author marks one ready, but that transition emits
+# `ready_for_review` and nothing else, so without this line the callee's
+# first-look branch is unreachable: a PR opened as a draft gets no review at
+# all until somebody happens to push another commit.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Called workflows can only request permissions the caller has granted.
+# Mirror call-review-pr.yml's declared set so the job isn't rejected.
+permissions:
+  contents: write
+  actions: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+# Cancel an in-flight review when a new commit lands on the PR - the
+# review was going to be superseded anyway and the new commit kicks
+# off a fresh run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Elysium is public and reviews run on a self-hosted runner, so a fork's
+    # pull request must never reach it: its code would run next to the
+    # reviewer's credentials. The shared workflow enforces the same rule.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    uses: JalapenoLabs/github-actions/.github/workflows/call-review-pr.yml@main
+    secrets: inherit
