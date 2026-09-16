@@ -78,6 +78,13 @@ pub struct GithubCredentialChanges {
     pub verified: Option<VerifiedToken>,
 }
 
+impl GithubCredentialChanges {
+    /// True when applying these changes would not touch any column.
+    pub const fn is_empty(&self) -> bool {
+        self.name.is_none() && self.verified.is_none()
+    }
+}
+
 /// Row-shaped insert, holding the already sealed token.
 #[derive(Insertable)]
 #[diesel(table_name = github_credentials)]

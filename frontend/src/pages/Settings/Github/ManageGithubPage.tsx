@@ -16,7 +16,7 @@ import { LuPlus } from 'react-icons/lu'
 import { GithubCredentialTable } from './GithubCredentialTable'
 
 // Misc
-import { getUpstreamErrorMessage } from '../../../api/errors'
+import { getApiErrorMessage } from '../../../api/errors'
 import { deleteGithubCredential, testGithubCredential } from '../../../api/routes/githubRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useGithubCredentialsLoader } from '../../../hooks/useServerData'
@@ -37,7 +37,8 @@ export function ManageGithubPage() {
       toast.success(t('toasts.testPassed', { name: credential.name, login: result.login }))
     }
     catch (error) {
-      const message = getUpstreamErrorMessage(error)
+      // A refused token answers 400 and an unreachable GitHub 502; both say what happened.
+      const message = getApiErrorMessage(error)
       if (!message) {
         console.debug('ManageGithubPage failed to test a token', { error, credentialId: credential.id })
       }

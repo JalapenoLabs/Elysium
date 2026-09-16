@@ -41,12 +41,6 @@ pub async fn handle(
     let Json(body) = body?;
     body.validate()?;
 
-    if body.name.is_none() && body.token.is_none() && body.kind.is_none() {
-        return Err(ApiError::BadRequest(
-            "request body contains no fields to update".to_owned(),
-        ));
-    }
-
     let mut connection = state
         .database
         .get()
@@ -81,6 +75,14 @@ pub async fn handle(
         name: body.name,
         verified,
     };
+
+    // A kind that matches the stored one changes nothing, so a body of only that leaves
+    // nothing to write.
+    if changes.is_empty() {
+        return Err(ApiError::BadRequest(
+            "request body contains no fields to update".to_owned(),
+        ));
+    }
     let credential =
         github_credential::update(&mut connection, &state.cipher, id, &changes).await?;
     drop(connection);

@@ -32,7 +32,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { HTTPError } from 'ky'
 
 // Misc
-import { getUpstreamErrorMessage } from '../../../api/errors'
+import { getApiErrorMessage } from '../../../api/errors'
 import {
   createGithubCredential,
   GITHUB_TOKEN_KINDS,
@@ -100,7 +100,7 @@ export function GithubCredentialForm(props: Props) {
 
       // A token GitHub refuses comes back as a 400 naming what to check, which belongs on
       // the field the user can fix.
-      const message = getUpstreamErrorMessage(error)
+      const message = getApiErrorMessage(error)
       if (error instanceof HTTPError && error.response.status === 400 && message) {
         form.setError('token', { message })
         return
