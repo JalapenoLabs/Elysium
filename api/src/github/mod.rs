@@ -33,9 +33,11 @@ const USER_REPOSITORIES_URL: &str = "https://api.github.com/user/repos?per_page=
 
 /// How many pages of repositories a listing follows, so 1,000 repositories at most.
 ///
-/// Each page is a round trip of about a second, and the listing answers one request under
-/// the API's 30-second handler deadline. An account past this is told the listing was cut
-/// short and can still add a repository by its URL.
+/// Pages are fetched one after another, each 0.7 to 2.5 seconds when measured, and the whole
+/// listing answers one request under the API's 30-second handler deadline (`408` past it). An
+/// account near the cap on a slow GitHub can reach that deadline; lower this before raising
+/// the deadline. An account past the cap is told the listing was cut short and can still add a
+/// repository by its URL.
 const REPOSITORY_PAGE_LIMIT: usize = 10;
 
 /// Where every next page must point: GitHub's `Link` header is followed only on the host
