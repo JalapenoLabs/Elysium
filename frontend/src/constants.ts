@@ -27,7 +27,7 @@ export const EVENT_STREAM_RETRY_MAX_MS = 30_000
 export const SESSION_EVENTS_LIMIT = 5_000
 
 // Versioned so an incompatible layout from an older build is ignored, not restored.
-export const CODING_LAYOUT_STORAGE_KEY = 'elysium.coding.layout.v1'
+export const CODING_LAYOUT_STORAGE_KEY = 'elysium.coding.layout.v2'
 
 // Project cover uploads: the API refuses anything larger, and reads the format from the
 // bytes. These let the form refuse early and the file picker offer only images.

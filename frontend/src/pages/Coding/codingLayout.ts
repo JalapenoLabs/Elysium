@@ -17,7 +17,7 @@ export const SESSIONS_PANEL_ID = 'sessions'
 const CONVERSATION_PANEL_PREFIX = 'session:'
 
 export type ConversationPanelParams = {
-  sessionId: string
+  sessionId: number
 }
 
 // Colors come from `src/theme/dockview.css`, which points Dockview's variables at the
@@ -27,7 +27,7 @@ export const elysiumDockviewTheme: DockviewTheme = {
   className: 'dockview-theme-elysium',
 }
 
-export function getConversationPanelId(sessionId: string) {
+export function getConversationPanelId(sessionId: number) {
   return `${CONVERSATION_PANEL_PREFIX}${sessionId}`
 }
 

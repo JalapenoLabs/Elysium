@@ -21,7 +21,7 @@ export const codingSessionsSlice = createSlice({
   reducers: {
     codingSessionsLoaded: codingSessionsAdapter.setAll,
     codingSessionUpserted: codingSessionsAdapter.upsertOne,
-    codingSessionDeleted(state, action: PayloadAction<string>) {
+    codingSessionDeleted(state, action: PayloadAction<number>) {
       codingSessionsAdapter.removeOne(state, action.payload)
     },
   },
@@ -29,7 +29,7 @@ export const codingSessionsSlice = createSlice({
     builder
       // The API forgets a deleted satellite's sessions without announcing each one.
       .addCase(satelliteDeleted, (state, action) => {
-        const orphanedIds: string[] = []
+        const orphanedIds: number[] = []
         for (const session of Object.values(state.entities)) {
           if (session.satelliteId === action.payload) {
             orphanedIds.push(session.id)

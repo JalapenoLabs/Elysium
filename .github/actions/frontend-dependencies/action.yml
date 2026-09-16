@@ -1,0 +1,56 @@
+# Copyright © 2026 Jalapeno Labs
+
+# Installs the frontend's pinned Node and Yarn, then its locked dependencies.
+# Node's version is read from frontend/.nvmrc and Yarn's from `packageManager`,
+# so neither is written here.
+name: Frontend dependencies
+description: Install the pinned Node and Yarn, then the frontend's locked dependencies.
+
+runs:
+  using: composite
+  steps:
+    # The runners carry their own Node, which is not the one the frontend image
+    # runs. The pinned release is downloaded into the job's temporary directory,
+    # which the runner empties afterwards, and checked against the checksum
+    # manifest published with it, so a truncated or tampered download fails here.
+    - name: Install the pinned Node
+      shell: bash
+      run: |
+        set -euo pipefail
+        version="$(cat frontend/.nvmrc)"
+        release="https://nodejs.org/dist/v${version}"
+        archive="node-v${version}-linux-x64.tar.xz"
+        install_dir="${RUNNER_TEMP}/node"
+        mkdir -p "${install_dir}"
+        cd "${install_dir}"
+
+        curl -fsSL -o "${archive}" "${release}/${archive}"
+        curl -fsSL -o SHASUMS256.txt "${release}/SHASUMS256.txt"
+        grep " ${archive}\$" SHASUMS256.txt | sha256sum --check --status
+
+        tar -xJf "${archive}" --strip-components=1
+        echo "${install_dir}/bin" >> "${GITHUB_PATH}"
+
+    # corepack is what honours `packageManager`. Asserting the result means a
+    # runner resolving a different Yarn fails loudly here rather than reading the
+    # lockfile with a different resolver.
+    - name: Install the pinned package manager
+      shell: bash
+      working-directory: frontend
+      run: |
+        set -euo pipefail
+        expected_node="v$(cat .nvmrc)"
+        test "$(node --version)" = "${expected_node}"
+
+        corepack enable
+        pinned="$(node --print "require('./package.json').packageManager")"
+        corepack prepare "${pinned}" --activate
+        test "yarn@$(yarn --version)" = "${pinned}"
+        echo "node ${expected_node}, ${pinned}"
+
+    # `--immutable` fails on a lockfile the install would have changed, which is
+    # the whole point of committing one.
+    - name: Install dependencies
+      shell: bash
+      working-directory: frontend
+      run: yarn install --immutable

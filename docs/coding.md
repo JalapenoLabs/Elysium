@@ -65,6 +65,10 @@ travels Elysium to satellite, as every other call does; Elysium listens for noth
 - A dropped socket reconnects with the session watcher's backoff, 1 to 30 seconds. Calls in flight on it are
   abandoned; the satellite has already failed them to the agent.
 - A thread the satellite no longer has ends its relay, as it ends its watcher.
+- A thread that declared no relayed servers, such as one whose project had no storage location, refuses the socket
+  with `409 RELAY_NOT_DECLARED`. A thread's settings never change, so that refusal ends its relay for good instead
+  of reconnecting. Elysium keeps no record of what a thread declared, and reading the thread's settings would cost
+  the same one request, so the refusal is how it finds out.
 
 The satellite keeps no calls for a client that is not attached. While Elysium is down or reconnecting, a call to a
 relayed tool fails at once, and the agent reads that no client is attached to answer it. Nothing is replayed later.
@@ -81,9 +85,19 @@ session. Deleting a satellite still forgets its sessions, whatever project they 
 
 ## Sessions
 
-Creating a session generates its id first and sends it as the satellite's idempotency key, so a retried create
-never opens a second thread. The thread also carries metadata `elysium.session_id`. If the row cannot be recorded,
-the API destroys the thread instead of leaving it running unrecorded.
+Sessions are numbered 1, 2, 3, ... in the order they are created, and the number is the session's id everywhere:
+routes, events, and the Coding page's URLs. Creating a session reserves its number from the table's identity sequence
+(`nextval`) before the thread is opened, then records the row with that number. A create that fails after the
+reservation, such as a satellite refusing the thread, leaves a gap in the numbering; numbers are never reused.
+
+The thread carries the number in its metadata as `elysium.session_id`, for anyone reading the satellite directly.
+Nothing matches on it: two Elysium installs can share a satellite, and each numbers its sessions from 1. The satellite
+watcher finds a session's thread by its thread id among the threads of the session's own satellite.
+
+The satellite's idempotency key is a fresh UUIDv7 for each create request, never the number, since numbers repeat
+across installs and after a database reset. It makes the SDK's retries of that one request safe; a client that sends
+the create again opens a second thread. If the row cannot be recorded, the API destroys the thread instead of leaving
+it running unrecorded.
 
 Every thread is opened with Elysium's policy, constants in `api/src/routes/v1/coding_sessions/mod.rs`:
 
@@ -95,7 +109,9 @@ Every thread is opened with Elysium's policy, constants in `api/src/routes/v1/co
 | Tokens per turn           | unlimited | Bounded by the two ceilings above                                 |
 
 An optional repository URL (https, http, ssh, or `git@`) is cloned into the workspace, into a directory named after
-the URL's last segment.
+the URL's last segment. Elysium holds no SSH keys: a github.com SSH remote is cloned over HTTPS (see
+`docs/github.md`), and an SSH remote on any other host is refused with `400`. The New session form refuses one
+before sending (`createSessionFormSchema.ts`), with the same github.com prefixes.
 
 ## Model credentials
 
@@ -158,16 +174,16 @@ events. It gives up after 10 seconds with a 502. Clients merge history with live
 
 `frontend/src/pages/Coding/` holds the page. It is a Dockview workspace (`dockview-react`) with two panel types:
 
-- **Sessions** is the overview: every session, its project and satellite, live thread state, and last activity,
-  in uikit's `SmartTable`. A title opens that session's conversation.
-- **Conversation** is one session. It loads history through SWR when it opens and drops its events from Redux when
+- **Sessions** is the overview: every session, its number, project and satellite, live thread state, and last
+  activity, in uikit's `SmartTable`. A title opens that session's conversation.
+- **Conversation** is one session, headed by its title, satellite, and number ("Local · Thread 12"). It loads history through SWR when it opens and drops its events from Redux when
   it closes; a reopened panel shows SWR's buffered history while the fresh copy loads. Prompts and agent messages
   render as chat bubbles; tool calls, thinking, and turn results as compact lines with details folded away. Event
   types without a renderer show their wire name. Enter sends the composer's prompt; Shift+Enter adds a line. A
   thread that has ended shows no composer.
 
 The first conversation opens beside Sessions; later ones open as tabs in its group. Panels can be dragged, split,
-and floated. The layout is saved per browser under `elysium.coding.layout.v1`; Reset layout clears it. A restored
+and floated. The layout is saved per browser under `elysium.coding.layout.v2`; Reset layout clears it. A restored
 panel whose session was deleted says so.
 
 Panels render through portals, so they read page actions (open, create, rename, delete) from

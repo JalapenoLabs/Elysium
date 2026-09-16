@@ -20,16 +20,21 @@ import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { useSatellitesLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getCodingSessionUrl } from '../../urls'
-import { threadStateChipColors, threadStateLabelKeys } from '../Coding/sessionPresentation'
+import {
+  SESSION_NUMBER_COLUMN_SIZING,
+  threadStateChipColors,
+  threadStateLabelKeys,
+} from '../Coding/sessionPresentation'
 
 type Props = {
   sessions: CodingSession[]
 }
 
-const SESSION_COLUMN_KEYS = [ 'title', 'satellite', 'state', 'lastActivity' ] as const
+const SESSION_COLUMN_KEYS = [ 'number', 'title', 'satellite', 'state', 'lastActivity' ] as const
 type SessionColumnKey = typeof SESSION_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
+  number: 'coding:sessions.number',
   title: 'coding:sessions.title',
   satellite: 'coding:sessions.satellite',
   state: 'coding:sessions.state',
@@ -38,6 +43,7 @@ const columnLabelKeys = {
 
 // Starting widths in pixels, summing to less than the page's content column.
 const columnSizes = {
+  number: SESSION_NUMBER_COLUMN_SIZING.size,
   title: 380,
   satellite: 200,
   state: 160,
@@ -74,6 +80,9 @@ export function ProjectSessionsTable(props: Props) {
     }
 
     const renderCell = {
+      number: (session: CodingSession) => <span className='block text-right tabular-nums'>{
+        session.id
+      }</span>,
       title: (session: CodingSession) => <Link
         href={getCodingSessionUrl(session.id)}
         className='font-medium text-link no-underline hover:underline'
@@ -91,6 +100,7 @@ export function ProjectSessionsTable(props: Props) {
     } satisfies Record<SessionColumnKey, (session: CodingSession) => unknown>
 
     const sortValue = {
+      number: (session: CodingSession) => String(session.id),
       title: (session: CodingSession) => session.title,
       satellite: satelliteName,
       state: stateLabel,
@@ -109,6 +119,16 @@ export function ProjectSessionsTable(props: Props) {
         size: columnSizes[columnKey],
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
+      columnDefOverrides: {
+        number: ({ columnId, columnLabel }) => ({
+          id: columnId,
+          header: () => <span className='numeric-column-header'>{columnLabel}</span>,
+          // Sorted as a number, so session 10 follows session 9.
+          accessorFn: (session) => session.id,
+          ...SESSION_NUMBER_COLUMN_SIZING,
+          cell: ({ row }) => renderCell.number(row.original),
+        }),
+      },
     })
   }, [ t, i18n.language, satelliteNames ])
 
@@ -121,13 +141,13 @@ export function ProjectSessionsTable(props: Props) {
   return <SmartTable
     ids={{
       tableElementId: 'project-sessions-table',
-      tableLocalStorageId: 'elysium.projects.sessions.table',
+      tableLocalStorageId: 'elysium.projects.sessions.table.v2',
     }}
     className='[&_tbody_tr]:cursor-pointer'
     tableAriaLabel={t('page.sessionsHeading')}
     data={props.sessions}
     managedColumns={managedColumns}
-    getRowId={(session) => session.id}
+    getRowId={(session) => String(session.id)}
     labels={labels}
     toolbar={{ show: false }}
     enableSorting
@@ -136,7 +156,7 @@ export function ProjectSessionsTable(props: Props) {
     highlightedRowId={null}
     onHighlightedRowChange={(sessionId) => {
       if (sessionId) {
-        navigate(getCodingSessionUrl(sessionId))
+        navigate(getCodingSessionUrl(Number(sessionId)))
       }
     }}
     stickyHeader={false}

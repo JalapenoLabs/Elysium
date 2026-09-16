@@ -16,7 +16,6 @@ use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, State};
 use futures_util::StreamExt as _;
 use serde_json::{Value, json};
-use uuid::Uuid;
 
 use crate::errors::ApiError;
 use crate::fleet::views::SessionEvent;
@@ -33,7 +32,7 @@ const HISTORY_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn handle(
     State(state): State<AppState>,
-    path: Result<Path<Uuid>, PathRejection>,
+    path: Result<Path<i64>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
     let mut connection = state

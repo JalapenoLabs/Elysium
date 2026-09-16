@@ -147,8 +147,26 @@ pub fn integration(token: &SecretString) -> GithubIntegration {
     }
 }
 
+/// The URL the satellite clones a repository from.
+///
+/// Elysium holds no SSH keys, so a github.com SSH remote could never clone. It is cloned
+/// over HTTPS instead, where the session's token authenticates it, or nothing does for a
+/// public repository. The workspace's `origin` is then HTTPS too, which is the remote the
+/// `gh` credential helper serves. Any other URL is cloned as written.
+pub fn clone_url(repository_url: &str) -> String {
+    let is_github_ssh = !repository_url.starts_with("https://");
+    match Repository::from_url(repository_url) {
+        Some(repository) if is_github_ssh => {
+            format!(
+                "https://github.com/{}/{}.git",
+                repository.owner, repository.name
+            )
+        }
+        _ => repository_url.to_owned(),
+    }
+}
+
 /// The token lent to the satellite's clone, for a repository on github.com over HTTPS.
-/// SSH remotes authenticate with keys, not tokens, so they get nothing.
 pub fn clone_auth(repository_url: &str, token: &SecretString) -> Option<GitAuth> {
     let is_https = repository_url.starts_with("https://");
     if !is_https || Repository::from_url(repository_url).is_none() {
@@ -286,5 +304,32 @@ mod tests {
         assert!(clone_auth("https://github.com/JalapenoLabs/Elysium.git", &token).is_some());
         assert!(clone_auth("git@github.com:JalapenoLabs/Elysium.git", &token).is_none());
         assert!(clone_auth("https://gitlab.com/JalapenoLabs/Elysium.git", &token).is_none());
+    }
+
+    /// Regression: a session for `git@github.com:JalapenoLabs/Elysium.git` failed to
+    /// provision with `REPO_CLONE_FAILED`, because the satellite tried SSH with no key.
+    #[test]
+    fn github_ssh_remotes_are_cloned_over_https() {
+        let expected = "https://github.com/JalapenoLabs/Elysium.git";
+        assert_eq!(
+            clone_url("git@github.com:JalapenoLabs/Elysium.git"),
+            expected
+        );
+        assert_eq!(
+            clone_url("ssh://git@github.com/JalapenoLabs/Elysium"),
+            expected
+        );
+        assert_eq!(
+            clone_url("https://github.com/JalapenoLabs/Elysium"),
+            "https://github.com/JalapenoLabs/Elysium"
+        );
+        assert_eq!(
+            clone_url("https://gitlab.com/org/repo.git"),
+            "https://gitlab.com/org/repo.git"
+        );
+
+        let token = SecretString::from("ghp_example");
+        let converted = clone_url("git@github.com:JalapenoLabs/Elysium.git");
+        assert!(clone_auth(&converted, &token).is_some());
     }
 }

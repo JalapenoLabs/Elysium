@@ -49,7 +49,8 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
 | `/projects/:projectId`        | `ProjectPage`            | One project, edited in place, with its sessions          |
-| `/coding`                     | `CodingPage`             | Dockview workspace; `?session=<id>` opens that session    |
+| `/coding`                     | `CodingPage`             | Dockview workspace                                       |
+| `/coding/:sessionId`          | `CodingPage`             | Opens session number `sessionId`, then returns to `/coding` |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
 | `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
@@ -177,8 +178,14 @@ matter when changing it:
 
 - Dockview renders panels through portals, so panels share the page's React tree (Redux, i18n, router) but not its
   props. Page actions reach them through `CodingActionsContext`.
-- `?session=<id>` opens that session's conversation once Dockview and the session are both loaded, then removes the
-  parameter. The project page links sessions this way.
+- `/coding/<number>` (`getCodingSessionUrl`) opens that session's conversation once Dockview and the sessions are both
+  loaded, then replaces the address with `/coding`; a number no session has goes straight to `/coding`. The project
+  page links sessions this way.
+- Every table of sessions (Sessions here, `ProjectSessionsTable` on the project page) opens with a thin `#` column: the
+  session number, right aligned in tabular numerals, sorted as a number, sized by `SESSION_NUMBER_COLUMN_SIZING`.
+  uikit holds columns to at least 160 pixels unless a column sets its own bounds, and left-aligns every header, so the
+  `#` header carries `.numeric-column-header`, which `src/index.css` moves to the right edge. The tables' storage ids
+  end in `.v2`, since uikit appends a column it has not seen to the end of a saved column order.
 - `DockviewReact` needs a sized parent. The page is a flex column whose Dockview wrapper is `min-h-0 flex-1`,
   inside a workspace-layout `main`.
 

@@ -66,8 +66,10 @@ use crate::tools::ToolContext;
 /// Metadata key marking a thread as opened by Elysium, so the watcher lists only those.
 pub const MANAGED_METADATA_KEY: &str = "elysium.managed";
 
-/// Metadata key naming the Elysium session a thread belongs to, for operators reading
-/// a satellite directly.
+/// Metadata key carrying the number of the Elysium session a thread belongs to, for
+/// operators reading a satellite directly. Nothing matches on it: numbers repeat across
+/// Elysium installs sharing a satellite, so sessions find their threads by thread id on
+/// their own satellite.
 pub const SESSION_METADATA_KEY: &str = "elysium.session_id";
 
 /// How often each satellite is polled. Bounds how stale a thread's displayed state
@@ -128,10 +130,10 @@ struct Inner {
     /// invalidation does not cache a client built from stale settings.
     client_generation: AtomicU64,
     satellite_watchers: Mutex<HashMap<Uuid, CancellationToken>>,
-    session_watchers: Mutex<HashMap<Uuid, SessionWatch>>,
+    session_watchers: Mutex<HashMap<i64, SessionWatch>>,
     satellite_statuses: RwLock<HashMap<Uuid, SatelliteStatus>>,
     /// Thread status by session id.
-    thread_statuses: RwLock<HashMap<Uuid, ThreadStatus>>,
+    thread_statuses: RwLock<HashMap<i64, ThreadStatus>>,
 }
 
 #[derive(Debug)]
@@ -343,7 +345,7 @@ impl Fleet {
     }
 
     /// Stops following a session's thread and relaying its tool calls.
-    pub fn forget_session(&self, session_id: Uuid) {
+    pub fn forget_session(&self, session_id: i64) {
         if let Some(watch) = self
             .inner
             .session_watchers
@@ -371,7 +373,7 @@ impl Fleet {
     }
 
     /// The state of a session's thread as of the last poll, if known.
-    pub fn thread_status(&self, session_id: Uuid) -> Option<ThreadStatus> {
+    pub fn thread_status(&self, session_id: i64) -> Option<ThreadStatus> {
         self.inner
             .thread_statuses
             .read()

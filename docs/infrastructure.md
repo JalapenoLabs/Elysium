@@ -83,8 +83,24 @@ Postgres runs with `timezone=UTC`, and every server container sets `TZ=UTC`.
 Postgres 18 images place the cluster under `/var/lib/postgresql/<major>/docker`, so the named volume mounts
 `/var/lib/postgresql`, not the older `.../data` path.
 
+## Automated pull request review
+
+Every pull request from a branch of this repository is reviewed by Claude and Codex through
+`.github/workflows/pull-review.yml`, the org's standard consumer file, identical in every JalapenoLabs repository. It
+runs on the self-hosted `reviewer` runner, checks out the private `JalapenoLabs/github-actions` repository into
+`.reviewer/` for the length of the job, and runs its `review-pr` composite. The pipeline never lands in this
+repository; see that repository's `docs/review-pr/guide.md`.
+
+The workflow triggers on `pull_request_target`, so the copy on `main` always runs and a pull request cannot change how
+it is reviewed. Pull requests from forks are never reviewed. Drafts are skipped until marked ready, pure base-branch
+merges are skipped, and a head commit whose subject starts with `[REVIEW]` forces a review.
+
+## CI
+
+Formatting, lints, tests, migrations, and every image are checked on each pull request, merge group, and push to
+`main`. See `docs/ci.md`.
+
 ## Roadmap
 
 - Production frontend image: static `vite build` output served by nginx directly.
 - Redis pub/sub for the event bus, so the API can run more than one replica.
-- CI pipeline building both images and running clippy, typecheck, lint, and `api/scripts/verify-migrations.sh`.

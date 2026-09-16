@@ -159,7 +159,7 @@ export function useCodingSessionsLoader(): LoadStatus {
 // Holds a session's timeline in Redux while the calling component is mounted. History
 // merges by sequence rather than replacing, so SWR's buffered copy is safe to apply and
 // a reopened conversation shows it at once while the fresh copy loads.
-export function useSessionHistoryLoader(sessionId: string) {
+export function useSessionHistoryLoader(sessionId: number) {
   const dispatch = useAppDispatch()
 
   useEffect(() => {

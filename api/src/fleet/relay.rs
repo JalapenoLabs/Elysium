@@ -16,11 +16,18 @@
 //! The satellite keeps nothing for a client that is not attached: while this relay is
 //! reconnecting, calls fail at once to the agent. Calls in flight when the socket drops are
 //! abandoned, because the satellite has already failed them.
+//!
+//! A thread that declared no relayed servers refuses the socket with `RELAY_NOT_DECLARED`.
+//! A thread's settings never change, so that refusal is permanent and ends the relay. It is
+//! the cheapest way to learn it: Elysium stores nothing about what a thread declared, and
+//! reading the thread's settings first would cost the same one request.
 
 use std::collections::HashMap;
 use std::time::Instant;
 
-use arsox_sdk::client::{RelayAnswerer, RelayEvent};
+use arsox_sdk::client::{
+    Relay, RelayAnswerer, RelayEvent, Satellite as SatelliteClient, ThreadHandle,
+};
 use arsox_sdk::proto::relay::v1::{ToolCall, ToolContent, ToolResult, tool_content};
 use tokio::task::{AbortHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -35,6 +42,8 @@ enum RelayOutcome {
     Cancelled,
     /// The satellite no longer has the thread, so there is nothing to relay for.
     ThreadGone,
+    /// The thread declared no relayed servers, so its agent has no tool to call here.
+    NotDeclared,
     Interrupted {
         reason: String,
         /// Whether any call arrived on this attachment, which proves the relay worked
@@ -55,6 +64,15 @@ pub(super) async fn run_relay(fleet: Fleet, session: CodingSession, cancel: Canc
                     Level::DEBUG,
                     session.id = %session.id,
                     "thread no longer exists; stopped relaying its tool calls",
+                );
+                return;
+            }
+            RelayOutcome::NotDeclared => {
+                event!(
+                    name: "coding.relay.not_declared",
+                    Level::DEBUG,
+                    session.id = %session.id,
+                    "thread declared no relayed tools; nothing to relay",
                 );
                 return;
             }
@@ -91,14 +109,9 @@ async fn serve(fleet: &Fleet, session: &CodingSession, cancel: &CancellationToke
         Ok(client) => client,
         Err(error) => return interrupted(error.to_string()),
     };
-    let handle = match client.threads().attach(session.thread_id.as_str()).await {
-        Ok(handle) => handle,
-        Err(error) if error.is_gone() || error.is_not_found() => return RelayOutcome::ThreadGone,
-        Err(error) => return interrupted(error.to_string()),
-    };
-    let mut relay = match handle.relay().await {
-        Ok(relay) => relay,
-        Err(error) => return interrupted(error.to_string()),
+    let (handle, mut relay) = match open_relay(&client, &session.thread_id).await {
+        Ok(opened) => opened,
+        Err(outcome) => return outcome,
     };
     let answerer = relay.answerer();
     let scope = CallScope {
@@ -115,11 +128,25 @@ async fn serve(fleet: &Fleet, session: &CodingSession, cancel: &CancellationToke
     loop {
         tokio::select! {
             () = cancel.cancelled() => return RelayOutcome::Cancelled,
-            Some(finished) = calls.join_next() => {
-                if let Ok(call_id) = finished {
+            Some(finished) = calls.join_next() => match finished {
+                Ok(call_id) => {
                     in_flight.remove(&call_id);
                 }
-            }
+                // A cancelled call was already removed when its abort was sent.
+                Err(join_error) if join_error.is_cancelled() => {}
+                Err(join_error) => {
+                    let task_id = join_error.id();
+                    in_flight.retain(|_call_id, abort| abort.id() != task_id);
+                    event!(
+                        name: "coding.relay.call.panicked",
+                        Level::ERROR,
+                        session.id = %session.id,
+                        error.message = %join_error,
+                        "a tool call panicked and was never answered; the satellite fails it at \
+                         its deadline",
+                    );
+                }
+            },
             next = relay.next() => match next {
                 Some(Ok(RelayEvent::Call(call))) => {
                     received = true;
@@ -155,6 +182,30 @@ async fn serve(fleet: &Fleet, session: &CodingSession, cancel: &CancellationToke
                 }
             },
         }
+    }
+}
+
+/// Attaches to a thread and opens its relay socket, or says why there is none to open.
+async fn open_relay(
+    client: &SatelliteClient,
+    thread_id: &str,
+) -> Result<(ThreadHandle, Relay), RelayOutcome> {
+    let interrupted = |reason: String| RelayOutcome::Interrupted {
+        reason,
+        received: false,
+    };
+
+    let handle = match client.threads().attach(thread_id).await {
+        Ok(handle) => handle,
+        Err(error) if error.is_gone() || error.is_not_found() => {
+            return Err(RelayOutcome::ThreadGone);
+        }
+        Err(error) => return Err(interrupted(error.to_string())),
+    };
+    match handle.relay().await {
+        Ok(relay) => Ok((handle, relay)),
+        Err(error) if error.is_relay_not_declared() => Err(RelayOutcome::NotDeclared),
+        Err(error) => Err(interrupted(error.to_string())),
     }
 }
 
@@ -205,4 +256,83 @@ async fn answer(
         );
     }
     call.call_id
+}
+
+#[cfg(test)]
+mod tests {
+    use arsox_sdk::proto::error::v1::{Error as ContractError, ErrorCode};
+    use arsox_sdk::proto::satellite::v1::GetVersionResponse;
+    use arsox_sdk::proto::thread::v1::{GetThreadResponse, Thread};
+    use axum::Router;
+    use axum::extract::Path;
+    use axum::http::{StatusCode, header};
+    use axum::response::{IntoResponse, Response};
+    use axum::routing::get;
+
+    use super::*;
+
+    fn protobuf(status: StatusCode, message: &impl prost::Message) -> Response {
+        let headers = [(header::CONTENT_TYPE, "application/protobuf")];
+        (status, headers, message.encode_to_vec()).into_response()
+    }
+
+    /// A satellite whose one thread declared no relayed servers, answering its relay the
+    /// way a satellite does: `409 RELAY_NOT_DECLARED` before the upgrade.
+    async fn satellite_without_relayed_servers() -> SatelliteClient {
+        let router = Router::new()
+            .route(
+                "/v1/version",
+                get(|| async {
+                    let answer = GetVersionResponse {
+                        satellite_version: "test".to_owned(),
+                        proto_major: 1,
+                        proto_minor: 0,
+                    };
+                    protobuf(StatusCode::OK, &answer)
+                }),
+            )
+            .route(
+                "/v1/threads/{id}",
+                get(|Path(thread_id): Path<String>| async move {
+                    let answer = GetThreadResponse {
+                        thread: Some(Thread {
+                            thread_id,
+                            ..Thread::default()
+                        }),
+                    };
+                    protobuf(StatusCode::OK, &answer)
+                }),
+            )
+            .route(
+                "/v1/threads/{id}/relay",
+                get(|| async {
+                    let refusal = ContractError {
+                        code: ErrorCode::RelayNotDeclared.into(),
+                        message: "the thread declared no relayed servers".to_owned(),
+                        ..ContractError::default()
+                    };
+                    protobuf(StatusCode::CONFLICT, &refusal)
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let address = listener.local_addr().expect("address");
+        tokio::spawn(async move { axum::serve(listener, router).await });
+
+        SatelliteClient::connect(format!("http://{address}"), "satellite-secret")
+            .await
+            .expect("connect")
+    }
+
+    /// Regression: a relay for a thread with no relayed servers reconnected forever, since
+    /// every refusal read as an interruption to retry.
+    #[tokio::test]
+    async fn a_thread_without_relayed_servers_ends_its_relay() {
+        let client = satellite_without_relayed_servers().await;
+
+        let outcome = open_relay(&client, "thread-1").await;
+
+        assert!(matches!(outcome, Err(RelayOutcome::NotDeclared)));
+    }
 }

@@ -91,12 +91,12 @@ pub enum ServerEvent {
     #[serde(rename = "session.upserted")]
     SessionUpserted(CodingSessionResponse),
     #[serde(rename = "session.deleted")]
-    SessionDeleted { id: Uuid },
+    SessionDeleted { id: i64 },
     #[serde(rename = "session.event")]
     SessionEvent(Box<SessionEvent>),
     /// Live events for the session may have been missed; refetch its history.
     #[serde(rename = "session.resync")]
-    SessionResync { id: Uuid },
+    SessionResync { id: i64 },
 }
 
 impl ServerEvent {
@@ -152,6 +152,13 @@ mod tests {
         assert_eq!(
             deleted,
             json!({ "type": "satellite.deleted", "data": { "id": id } })
+        );
+
+        let session_deleted: Value =
+            serde_json::from_str(&ServerEvent::SessionDeleted { id: 12 }.to_json()).expect("json");
+        assert_eq!(
+            session_deleted,
+            json!({ "type": "session.deleted", "data": { "id": 12 } })
         );
 
         let hello: Value = serde_json::from_str(&ServerEvent::Hello.to_json()).expect("json");

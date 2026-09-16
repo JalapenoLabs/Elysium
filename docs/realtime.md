@@ -34,7 +34,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `storageLocation.upserted` | `StorageLocation`  | A storage location was added or changed                    |
 | `storageLocation.deleted`  | `{ id }`           | A storage location was deleted                             |
 | `session.upserted`   | `CodingSession`          | A session was created or renamed, or its thread changed    |
-| `session.deleted`    | `{ id }`                 | A session was deleted                                      |
+| `session.deleted`    | `{ id }`                 | A session was deleted; `id` is the session's number        |
 | `session.event`      | `SessionEvent`           | A thread emitted an event                                  |
 | `session.resync`     | `{ id }`                 | Live events for that session may have been missed          |
 

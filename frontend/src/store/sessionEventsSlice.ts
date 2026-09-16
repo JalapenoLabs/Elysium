@@ -25,7 +25,7 @@ export type SessionTimeline = {
 }
 
 type SessionEventsState = {
-  bySessionId: Record<string, SessionTimeline>
+  bySessionId: Record<number, SessionTimeline>
 }
 
 const initialState: SessionEventsState = {
@@ -38,10 +38,10 @@ export const sessionEventsSlice = createSlice({
   reducers: {
     // A conversation panel opened. Live events that arrive while its history loads are
     // kept and merged with that history.
-    sessionTimelineOpened(state, action: PayloadAction<string>) {
+    sessionTimelineOpened(state, action: PayloadAction<number>) {
       state.bySessionId[action.payload] ??= { isHistoryLoaded: false, events: [], truncated: false }
     },
-    sessionHistoryLoaded(state, action: PayloadAction<{ sessionId: string, history: ListSessionEventsResponse }>) {
+    sessionHistoryLoaded(state, action: PayloadAction<{ sessionId: number, history: ListSessionEventsResponse }>) {
       const timeline = state.bySessionId[action.payload.sessionId]
       if (!timeline) {
         console.debug('History arrived for a released timeline', { sessionId: action.payload.sessionId })
@@ -59,7 +59,7 @@ export const sessionEventsSlice = createSlice({
       mergeEvents(timeline, [ action.payload ])
     },
     // A conversation panel closed; its events are not worth keeping in memory.
-    sessionTimelineReleased(state, action: PayloadAction<string>) {
+    sessionTimelineReleased(state, action: PayloadAction<number>) {
       delete state.bySessionId[action.payload]
     },
   },
@@ -124,6 +124,6 @@ export const {
   sessionTimelineReleased,
 } = sessionEventsSlice.actions
 
-export function selectSessionTimeline(state: RootState, sessionId: string) {
+export function selectSessionTimeline(state: RootState, sessionId: number) {
   return state.sessionEvents.bySessionId[sessionId]
 }

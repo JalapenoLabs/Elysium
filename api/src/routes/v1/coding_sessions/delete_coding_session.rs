@@ -9,7 +9,6 @@ use anyhow::Context;
 use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use uuid::Uuid;
 
 use crate::errors::ApiError;
 use crate::models::coding_session;
@@ -18,7 +17,7 @@ use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
-    path: Result<Path<Uuid>, PathRejection>,
+    path: Result<Path<i64>, PathRejection>,
 ) -> Result<StatusCode, ApiError> {
     let Path(id) = path?;
     let mut connection = state

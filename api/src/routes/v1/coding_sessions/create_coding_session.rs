@@ -2,9 +2,17 @@
 
 //! `POST /api/v1/coding-sessions`: open a thread on a satellite and record it.
 //!
-//! The session id is generated first and sent as the satellite's idempotency key, so
-//! the thread and the row share an identity. If recording the row fails, the thread
-//! is destroyed rather than left running with nothing pointing at it.
+//! The session's number is reserved first, so the thread carries it in its metadata from
+//! the moment it exists. A create that fails after the reservation leaves a gap in the
+//! numbering, which is harmless.
+//!
+//! The satellite's idempotency key is a fresh `UUIDv7` per request, never the number: numbers
+//! repeat across Elysium installs sharing a satellite and after a database reset, and a
+//! repeated key would hand back another session's thread. The key makes the SDK's own
+//! retries of this one request safe; a client that posts again opens a second thread.
+//!
+//! If recording the row fails, the thread is destroyed rather than left running with
+//! nothing pointing at it.
 
 use std::collections::BTreeMap;
 
@@ -22,13 +30,14 @@ use tracing::{Level, event};
 use uuid::Uuid;
 use validator::{Validate, ValidationError};
 
-use super::github_token::{self, SessionChoice};
+use super::github_token::{self, SessionChoice, SessionToken};
 use super::model_stack;
 use super::{CodingSessionResponse, thread_settings, validate_not_blank};
 use crate::crypto::Cipher;
 use crate::errors::ApiError;
 use crate::fleet::views::ThreadStatus;
 use crate::fleet::{MANAGED_METADATA_KEY, SESSION_METADATA_KEY};
+use crate::github::Repository;
 use crate::models::coding_session::{self, NewCodingSession};
 use crate::models::environment_variable;
 use crate::models::llm::{self, Llm};
@@ -88,22 +97,24 @@ pub async fn handle(
     .await?;
     drop(connection);
 
-    let repository = body.repository_url.as_deref().map(|url| Repo {
-        name: repository_directory(url)
-            .expect("validation guarantees a directory name")
-            .to_owned(),
-        url: url.to_owned(),
-        base_branch: body.base_branch.clone(),
-        auth: github
-            .as_ref()
-            .and_then(|github| github_token::clone_auth(url, &github.token)),
-        ..Repo::default()
-    });
+    let repository = body
+        .repository_url
+        .as_deref()
+        .map(|url| repository_to_clone(url, body.base_branch.clone(), github.as_ref()));
 
     let stack = model_stack::build(&open_credentials(credentials, &state.cipher), Utc::now());
 
     let client = state.fleet.client(satellite.id).await?;
-    let session_id = Uuid::now_v7();
+    // Reserved once there is a client for the satellite, so a create refused for an
+    // inactive or unreachable satellite costs no number.
+    let session_id = {
+        let mut connection = state
+            .database
+            .get()
+            .await
+            .context("no database connection available")?;
+        coding_session::reserve_id(&mut connection).await?
+    };
     let metadata = BTreeMap::from([
         (MANAGED_METADATA_KEY.to_owned(), "true".to_owned()),
         (SESSION_METADATA_KEY.to_owned(), session_id.to_string()),
@@ -118,7 +129,7 @@ pub async fn handle(
                 github.as_ref().map(|github| &github.token),
                 !storage_locations.is_empty(),
             ),
-            Some(session_id.to_string()),
+            Some(Uuid::now_v7().to_string()),
             metadata,
         )
         .await?;
@@ -189,6 +200,25 @@ fn open_credentials(credentials: Vec<Llm>, cipher: &Cipher) -> Vec<(Llm, SecretS
     opened
 }
 
+/// The repository the satellite clones into the workspace, with the session's GitHub token
+/// as its credential when GitHub accepts one for that URL.
+fn repository_to_clone(
+    url: &str,
+    base_branch: Option<String>,
+    github: Option<&SessionToken>,
+) -> Repo {
+    let clone_url = github_token::clone_url(url);
+    Repo {
+        name: repository_directory(url)
+            .expect("validation guarantees a directory name")
+            .to_owned(),
+        auth: github.and_then(|github| github_token::clone_auth(&clone_url, &github.token)),
+        url: clone_url,
+        base_branch,
+        ..Repo::default()
+    }
+}
+
 /// The directory a repository is cloned into: the URL's last path segment without
 /// `.git`. The satellite refuses names that could escape the workspace, so only
 /// plain names are accepted.
@@ -212,6 +242,14 @@ fn validate_repository_url(url: &str) -> Result<(), ValidationError> {
     if !has_git_scheme {
         return Err(ValidationError::new("scheme")
             .with_message("must be an https, http, ssh, or git@ repository URL".into()));
+    }
+    // Elysium holds no SSH keys. A github.com SSH remote is cloned over HTTPS instead
+    // (`github_token::clone_url`); any other SSH remote could never authenticate.
+    let is_ssh = url.starts_with("ssh://") || url.starts_with("git@");
+    if is_ssh && Repository::from_url(url).is_none() {
+        return Err(ValidationError::new("ssh").with_message(
+            "SSH remotes are supported only on github.com; use the https URL".into(),
+        ));
     }
     if repository_directory(url).is_none() {
         return Err(ValidationError::new("name")
@@ -281,6 +319,32 @@ mod tests {
             bad_repository
                 .validate()
                 .expect_err("file URLs are refused")
+                .field_errors()
+                .contains_key("repository_url")
+        );
+
+        let github_ssh: RequestBody = serde_json::from_value(json!({
+            "projectId": Uuid::nil(),
+            "satelliteId": Uuid::nil(),
+            "title": "A",
+            "repositoryUrl": "git@github.com:JalapenoLabs/Elysium.git",
+        }))
+        .expect("parses");
+        github_ssh
+            .validate()
+            .expect("github.com SSH remotes are cloned over HTTPS");
+
+        let other_ssh: RequestBody = serde_json::from_value(json!({
+            "projectId": Uuid::nil(),
+            "satelliteId": Uuid::nil(),
+            "title": "A",
+            "repositoryUrl": "git@gitlab.com:org/repo.git",
+        }))
+        .expect("parses");
+        assert!(
+            other_ssh
+                .validate()
+                .expect_err("no key could authenticate it")
                 .field_errors()
                 .contains_key("repository_url")
         );

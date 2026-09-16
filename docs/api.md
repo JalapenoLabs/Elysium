@@ -201,7 +201,7 @@ visible without sending its `value` answers `400`. A duplicate key answers `409`
 
 ### `/api/v1/coding-sessions`
 
-A `CodingSession` has `id`, `projectId`, `satelliteId`, `threadId`, `title`, `createdAt`, `updatedAt`, and
+A `CodingSession` has `id` (the session's number, 1, 2, 3, ...), `projectId`, `satelliteId`, `threadId`, `title`, `createdAt`, `updatedAt`, and
 `thread`: the thread as of the latest poll, or null until the first poll sees it. `thread` holds `state`,
 `queueDepth`, `currentTurnId`, `latestSequence`, `lastActivityAt`, and `expiresAt`. `state` is one of `unknown`,
 `provisioning`, `idle`, `running`, `awaiting-input`, `watching`, `paused`, `expired`, or `destroyed`.
@@ -211,7 +211,7 @@ A `CodingSession` has `id`, `projectId`, `satelliteId`, `threadId`, `title`, `cr
 an unknown id answers `400`). Sessions carry `githubCredentialId`, the token their thread started with. The satellite must be active (`409` otherwise). `turns` requires `prompt` (1 to 100,000 characters)
 and answers `{ turnId, status, prompt, queuedAt }`; the turn's progress arrives on the event stream.
 
-A `SessionEvent` has `sessionId`, `sequence`, `turnId`, `occurredAt`, `type` (the satellite's wire name, such as
+A `SessionEvent` has `sessionId` (the session's number), `sequence`, `turnId`, `occurredAt`, `type` (the satellite's wire name, such as
 `agent.message`), `memberId`, and `payload`. `payload` is null for event types the API does not render; otherwise
 its `kind` is one of `agentMessage`, `agentThinking`, `toolStarted`, `toolCompleted`, `turnStarted`,
 `turnCompleted`, `planProposed`, `questionAsked`, `budgetWarning`, or `incident`. Field shapes are in
@@ -223,7 +223,7 @@ Every error is JSON with a `message`.
 
 | Status | Cause                                                                                 |
 |--------|---------------------------------------------------------------------------------------|
-| `400`  | Malformed JSON, unknown field, unknown enum value, bad UUID, blank or oversized token, refused environment variable key |
+| `400`  | Malformed JSON, unknown field, unknown enum value, malformed id in the path, blank or oversized token, refused environment variable key |
 | `404`  | No row with that id                                                                   |
 | `409`  | Unique constraint, such as a duplicate LLM name, or a project that still has sessions |
 | `422`  | Field validation failed; `fields` lists each failure                                  |
