@@ -225,6 +225,24 @@ async fn read_all(download: Download) -> Vec<u8> {
     bytes
 }
 
+/// Compiles only for a `Send` value.
+const fn assert_send<Value: Send>(_value: &Value) {}
+
+/// Axum handlers must return `Send` futures, so every operation's future must be one.
+#[test]
+fn every_operation_can_run_in_a_request_handler() {
+    let storage = Storage::new(reqwest::Client::new());
+    let location = bunny_location();
+    let password = SecretString::from(PASSWORD);
+
+    // The futures are only checked, never polled, so no request is made.
+    assert_send(&storage.list(&location, &password, "", None));
+    assert_send(&storage.stat(&location, &password, "a.txt"));
+    assert_send(&storage.download(&location, &password, "a.txt"));
+    assert_send(&storage.upload(&location, &password, "a.txt", chunks_of(&[]), 0, None));
+    assert_send(&storage.delete(&location, &password, "a.txt"));
+}
+
 #[tokio::test]
 async fn uploads_stream_with_a_declared_length_and_download_back() {
     let (storage, files) = fake_storage().await;

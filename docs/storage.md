@@ -114,13 +114,13 @@ a whole directory at once; S3 lists up to 1,000 keys, and `hasMore` says the dir
 operation takes the location, its decrypted access key, and a path relative to the location's directory; entries come
 back named the same way, so a listed path can be passed straight to another operation.
 
-| Operation  | Returns                                                         | Bunny request              | S3 request                        |
-|------------|-----------------------------------------------------------------|----------------------------|-----------------------------------|
-| `list`     | A page of entries directly inside a directory, and a cursor     | `GET` with trailing slash  | `ListObjectsV2`, delimiter `/`    |
-| `stat`     | One entry, or nothing                                           | `DESCRIBE`                 | `HeadObject`, then a 1-key listing |
-| `download` | The file's bytes as a stream, with its length and type if known | `GET`                      | `GetObject`                       |
-| `upload`   | The written file's entry                                        | `PUT`                      | `PutObject`                       |
-| `delete`   | Nothing                                                         | `DESCRIBE`, then `DELETE`  | `HeadObject`, then `DeleteObject` |
+| Operation  | Returns                                        | Bunny request             | S3 request                         |
+|------------|------------------------------------------------|---------------------------|------------------------------------|
+| `list`     | A page of entries directly inside a directory  | `GET` with trailing slash | `ListObjectsV2`, delimiter `/`     |
+| `stat`     | One entry, or nothing                          | `DESCRIBE`                | `HeadObject`, then a 1-key listing |
+| `download` | The file as a stream, with its length and type | `GET`                     | `GetObject`                        |
+| `upload`   | The written file's entry                       | `PUT`                     | `PutObject`                        |
+| `delete`   | Nothing                                        | `DESCRIBE`, then `DELETE` | `HeadObject`, then `DeleteObject`  |
 
 An entry has a `path`, a `kind` (`file` or `directory`), `sizeBytes` for a file, and `modifiedAt` when the provider
 keeps one. S3 keeps no times for directories. An upload's entry is built from what was sent, with no `modifiedAt`,
@@ -169,12 +169,12 @@ stalled. Calls that move no file (listing, describing, deleting) keep a 60-secon
 
 ### Errors
 
-| `StorageError` | Meaning                                                                  | HTTP  |
-|----------------|--------------------------------------------------------------------------|-------|
-| `Invalid`      | A path that is not plain, a Bunny cursor, an oversized or mis-sized upload, or a directory to delete | `400` |
-| `NotFound`     | Nothing to download: Bunny's `404`, S3's `NoSuchKey`                     | `404` |
-| `Unauthorized` | The provider refused the password or key, with what to check             | `502` |
-| `Refused`      | The provider refused otherwise or could not be reached, with its message | `502` |
+| `StorageError` | Meaning                                                                       | HTTP  |
+|----------------|-------------------------------------------------------------------------------|-------|
+| `Invalid`      | A path not plain, a Bunny cursor, a bad upload size, or a directory to delete | `400` |
+| `NotFound`     | Nothing to download: Bunny's `404`, S3's `NoSuchKey`                          | `404` |
+| `Unauthorized` | The provider refused the password or key, with what to check                  | `502` |
+| `Refused`      | The provider refused otherwise or could not be reached, with its message      | `502` |
 
 S3 `HEAD` answers carry no error document, so a `403` from `stat` (and from `delete`, which describes first) cannot
 tell a wrong key from a missing permission, and is reported as a refused key naming both. A missing bucket is
