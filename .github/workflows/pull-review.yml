@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Dispatch the review
         env:
-          GH_TOKEN: ${{ secrets.REVIEW_DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ secrets.JL_FINE_GRAINED_GITHUB_TOKEN }}
           REPOSITORY_NAME: ${{ github.event.repository.name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           EVENT_ACTION: ${{ github.event.action }}
@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::REVIEW_DISPATCH_TOKEN is not set on this repository; no review was requested."
+            echo "::error::JL_FINE_GRAINED_GITHUB_TOKEN is not visible to this repository; no review was requested."
             exit 1
           fi
 
