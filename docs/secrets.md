@@ -44,7 +44,7 @@ The version byte identifies the envelope format and key generation. Today only v
 - `Llm::secret_token` and `Satellite::secret` are the only ways to decrypt, for code that uses the credential.
   A satellite secret is decrypted only to connect, inside `api/src/fleet/`.
 - `StorageLocation::access_key` decrypts a storage location's access key, only to call its provider.
-- `GithubCredential::token` decrypts a GitHub token, only to call GitHub.
+- `GithubCredential::token` decrypts a GitHub token, to call GitHub and to hand a session's thread its token.
 - `EnvironmentVariable::value` decrypts one environment variable, and `environment_variable::thread_environment`
   every one, to hand them to a satellite thread. A non-secret variable's value is also decrypted for responses; a
   secret's never is. See `docs/environment.md`.

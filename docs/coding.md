@@ -115,6 +115,11 @@ itself.
 Credentials never reach an agent either way: the satellite's proxy strips what the CLI presents and attaches the
 real one on the way out. The shaping rules live in `api/src/routes/v1/coding_sessions/model_stack.rs`.
 
+A thread is also opened with an environment: every workspace environment variable, then the session's GitHub token
+as `GH_TOKEN` with the git config that lets `git` use it, and that token as the clone credential for an
+`https://github.com/` repository. Unlike LLM credentials, the agent can read all of it. See `docs/environment.md`
+and `docs/github.md`.
+
 Deleting a session destroys its thread first. A thread that already expired or was destroyed does not block the
 delete; any other satellite failure does, so a session is never forgotten while its thread still runs. Deleting a
 satellite forgets its sessions without destroying their threads, which end on their idle TTL. Otherwise an
