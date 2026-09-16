@@ -64,6 +64,7 @@
       "satelliteRequired": "Choose a satellite.",
       "titleTooLong": "Use 200 characters or fewer.",
       "repositoryUrlInvalid": "Enter a repository URL such as https://github.com/org/repo.git.",
+      "repositoryUrlSshHost": "Elysium has no SSH keys. Use the repository's https URL.",
       "baseBranchTooLong": "Use 255 characters or fewer."
     },
     "github": {

@@ -15,6 +15,12 @@ const PROMPT_MAX_CHARACTERS = 100_000
 // only the git URL forms a satellite can fetch.
 const REPOSITORY_URL_PATTERN = /^(https?:\/\/|ssh:\/\/|git@)\S+\/[\w.-]+?(\.git)?\/?$/
 
+// Elysium holds no SSH keys. The API clones a github.com SSH remote over HTTPS instead and
+// refuses an SSH remote on any other host, since nothing could authenticate it. These are
+// the prefixes the API recognizes as github.com (`Repository::from_url`).
+const SSH_PREFIXES = [ 'ssh://', 'git@' ] as const
+const GITHUB_SSH_PREFIXES = [ 'ssh://git@github.com/', 'git@github.com:' ] as const
+
 // Built per render with `t` so validation messages are already translated.
 export function createSessionFormSchema(t: TFunction<'coding'>) {
   return z.object({
@@ -36,6 +42,13 @@ export function createSessionFormSchema(t: TFunction<'coding'>) {
       .refine(
         (value) => !value || REPOSITORY_URL_PATTERN.test(value),
         { error: t('create.errors.repositoryUrlInvalid') },
+      )
+      .refine(
+        (value) => {
+          const isSsh = SSH_PREFIXES.some((prefix) => value.startsWith(prefix))
+          return !isSsh || GITHUB_SSH_PREFIXES.some((prefix) => value.startsWith(prefix))
+        },
+        { error: t('create.errors.repositoryUrlSshHost') },
       ),
     baseBranch: z
       .string()
