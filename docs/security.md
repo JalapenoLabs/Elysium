@@ -2,8 +2,10 @@
 
 ## Trust boundary
 
-nginx publishes the web on `127.0.0.1` only. The API has no authentication yet, its LLM and satellite routes write
-credentials, and its coding routes drive agents on satellites, so nothing outside this machine may reach it.
+nginx publishes the web on `127.0.0.1` by default. The API has no authentication yet, its LLM and satellite routes
+write credentials, and its coding routes drive agents on satellites, so by default nothing outside this machine may
+reach it. `WEB_BIND_ADDRESS` publishes it on another address, which extends that trust to every client able to reach
+the address.
 
 The mail ports (25, 465, 993) are published on every interface. They reach Stalwart alone, which authenticates
 mailbox access itself and accepts unauthenticated SMTP only as delivery to its own domains, never as a relay.
@@ -16,7 +18,7 @@ would let a client forge them.
 ## Satellites
 
 - The API connects to whatever URL a satellite is registered with. That is intended, since satellites are
-  operator infrastructure, and it is one more reason the API stays on loopback until it has authentication.
+  operator infrastructure, and it is one more reason the API stays on loopback by default until it has authentication.
 - Satellite secrets never leave the API. Browsers talk only to the API, which holds the one client per satellite.
 - Satellite errors shown to clients (`502` messages, `satellite.status` errors) come from the satellite's contract
   errors and transport failures, which never contain the secret.
