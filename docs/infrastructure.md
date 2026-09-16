@@ -86,18 +86,15 @@ Postgres 18 images place the cluster under `/var/lib/postgresql/<major>/docker`,
 
 ## Automated pull request review
 
-Every pull request is reviewed by Claude and Codex. The review runs in the private `JalapenoLabs/github-actions`
-repository, not here: a public repository cannot call a private repository's workflows, and the review pipeline stays
-private. `.github/workflows/pull-review.yml` only asks for a review by dispatching that repository's
-`review-dispatch.yml`, and the reviewers post back to the pull request through their GitHub Apps. The run itself, its
-job summary, and its failure alerts live in that repository's Actions tab; see its `docs/review-pr/guide.md`.
+Every pull request from a branch of this repository is reviewed by Claude and Codex through
+`.github/workflows/pull-review.yml`, the org's standard consumer file, identical in every JalapenoLabs repository. It
+runs on the self-hosted `reviewer` runner, checks out the private `JalapenoLabs/github-actions` repository into
+`.reviewer/` for the length of the job, and runs its `review-pr` composite. The pipeline never lands in this
+repository; see that repository's `docs/review-pr/guide.md`.
 
-The request authenticates with the `JL_FINE_GRAINED_GITHUB_TOKEN` org secret, a fine-grained JalapenoLabs token that
-must carry `Actions: Read and write` on `JalapenoLabs/github-actions`.
-
-Drafts are skipped until marked ready, pure base-branch merges are skipped, and a head commit whose subject starts
-with `[REVIEW]` forces a review. Pull requests from forks are never reviewed: they get no secrets to request one, and
-the review runs on a self-hosted runner that never checks out a fork's code.
+The workflow triggers on `pull_request_target`, so the copy on `main` always runs and a pull request cannot change how
+it is reviewed. Pull requests from forks are never reviewed. Drafts are skipped until marked ready, pure base-branch
+merges are skipped, and a head commit whose subject starts with `[REVIEW]` forces a review.
 
 ## CI
 
