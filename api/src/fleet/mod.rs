@@ -23,6 +23,9 @@
 //! resume point cannot be honored, it tails from the latest event instead and
 //! publishes `session.resync` so clients refetch the history they missed.
 //!
+//! Beside each session watcher runs the session's **relay** ([`relay`]), which answers the
+//! tool calls its agent makes to Elysium over a socket Elysium opens to the satellite.
+//!
 //! # Lifetimes
 //!
 //! Every watcher runs under a child of the process shutdown token and is tracked, so
@@ -30,6 +33,7 @@
 //! restarts or stops its watchers through [`Fleet::reload_satellite`] and
 //! [`Fleet::forget_satellite`].
 
+mod relay;
 pub mod views;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -56,6 +60,8 @@ use crate::models::coding_session::{self, CodingSession};
 use crate::models::satellite::{self, Satellite};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
+use crate::storage::Storage;
+use crate::tools::ToolContext;
 
 /// Metadata key marking a thread as opened by Elysium, so the watcher lists only those.
 pub const MANAGED_METADATA_KEY: &str = "elysium.managed";
@@ -112,6 +118,8 @@ struct Inner {
     database: Pool,
     cipher: Arc<Cipher>,
     events: EventBus,
+    /// What each session's relay answers its agent's tool calls with.
+    tools: ToolContext,
     shutdown: CancellationToken,
     tasks: TaskTracker,
     /// Connected clients by satellite id, created on first use.
@@ -148,13 +156,20 @@ impl Fleet {
         database: Pool,
         cipher: Arc<Cipher>,
         events: EventBus,
+        storage: Storage,
         shutdown: CancellationToken,
     ) -> Self {
+        let tools = ToolContext {
+            database: database.clone(),
+            cipher: Arc::clone(&cipher),
+            storage,
+        };
         Self {
             inner: Arc::new(Inner {
                 database,
                 cipher,
                 events,
+                tools,
                 shutdown,
                 tasks: TaskTracker::new(),
                 clients: Mutex::new(HashMap::new()),
@@ -300,7 +315,8 @@ impl Fleet {
         }
     }
 
-    /// Starts following a session's thread, replacing any existing watcher for it.
+    /// Starts following a session's thread and relaying its tool calls, replacing any
+    /// existing watcher for it.
     pub fn watch_session(&self, session: CodingSession) {
         let cancel = self.inner.shutdown.child_token();
         let watch = SessionWatch {
@@ -316,12 +332,17 @@ impl Fleet {
         {
             previous.cancel.cancel();
         }
+        self.inner.tasks.spawn(relay::run_relay(
+            self.clone(),
+            session.clone(),
+            cancel.clone(),
+        ));
         self.inner
             .tasks
             .spawn(run_session_watcher(self.clone(), session, cancel));
     }
 
-    /// Stops following a session's thread.
+    /// Stops following a session's thread and relaying its tool calls.
     pub fn forget_session(&self, session_id: Uuid) {
         if let Some(watch) = self
             .inner

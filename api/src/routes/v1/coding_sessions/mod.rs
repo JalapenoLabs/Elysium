@@ -35,6 +35,7 @@ use crate::fleet::views::ThreadStatus;
 use crate::models::coding_session::CodingSession;
 use crate::models::environment_variable::ThreadVariable;
 use crate::state::AppState;
+use crate::tools;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -97,8 +98,9 @@ impl CodingSessionResponse {
 }
 
 /// Settings for a new thread: Elysium's policy ceilings, the optional repository, the
-/// credentials the thread fails over through, the workspace's environment variables, and the
-/// GitHub token its agent works with.
+/// credentials the thread fails over through, the workspace's environment variables, the
+/// GitHub token its agent works with, and the storage tools when the project has a storage
+/// location to use them on.
 ///
 /// Without a stack the thread declares no endpoint, and the satellite falls back to
 /// whatever credential it holds itself.
@@ -107,6 +109,7 @@ fn thread_settings(
     stack: Option<ModelStack>,
     variables: &[ThreadVariable],
     github_token: Option<&SecretString>,
+    has_storage_locations: bool,
 ) -> ThreadSettings {
     let budget = Budget {
         // Per-turn tokens are bounded by the cost and wall clock ceilings instead.
@@ -145,6 +148,12 @@ fn thread_settings(
         repos: repository.into_iter().collect(),
         github: github_token.map(github_token::integration),
         env: thread_environment(variables, github_token),
+        // A thread takes its tools once. A project without a location yet has nothing to
+        // call them on; each call re-checks the project's locations anyway.
+        relayed_mcp_servers: has_storage_locations
+            .then(|| tools::relayed_server(&tools::storage::SERVER))
+            .into_iter()
+            .collect(),
         ..ThreadSettings::default()
     }
 }

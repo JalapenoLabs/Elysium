@@ -1,9 +1,8 @@
 # Storage
 
 Storage locations are the external places Elysium saves files to. They are managed on the Storage settings page
-(`/settings/storage`). This doc covers how locations are defined, reached, and checked, and the file operations the API
-performs on them. No route or agent calls the file operations yet; the storage gateway for coding agents is on the
-roadmap.
+(`/settings/storage`). This doc covers how locations are defined, reached, and checked, the file operations the API
+performs on them, and the tools coding agents use to reach them.
 
 ## Locations
 
@@ -181,10 +180,62 @@ tell a wrong key from a missing permission, and is reported as a refused key nam
 `Refused` with the service's message, not `NotFound`. Presigned URLs carry their signature, so no error includes a
 request's URL.
 
+## Agent tools
+
+A coding session's agent lists, describes, downloads, uploads, and deletes files in its project's locations through
+MCP tools that Elysium answers itself. The satellite cannot reach Elysium, so the tools are declared on the thread as
+the relayed MCP server `elysium_storage`, and each call travels over the relay socket Elysium opens to the satellite
+(see `docs/coding.md`). The tools live in `api/src/tools/storage.rs`; `api/src/tools/mod.rs` holds the table that both
+declares them on a new thread and dispatches their calls, so a declared tool always has a handler.
+
+| Tool                | Arguments                                            | Answers                                         |
+|---------------------|------------------------------------------------------|-------------------------------------------------|
+| `storage_locations` | none                                                 | `{ locations: [{ id, name, provider, supportsCursor }], maxUploadBytes }` |
+| `storage_list`      | `locationId`, optional `directory` and `cursor`      | A page: `{ entries, nextCursor }`               |
+| `storage_stat`      | `locationId`, `path`                                 | `{ entry }`, `null` when nothing is there       |
+| `storage_download`  | `locationId`, `path`, `workspacePath`                | `{ workspacePath, sizeBytes }`                  |
+| `storage_upload`    | `workspacePath`, `locationId`, `path`, optional `contentType` | `{ entry }`                            |
+| `storage_delete`    | `locationId`, `path`                                 | `{ deleted }`                                   |
+
+Every tool has a JSON Schema that refuses properties it does not name. `path` and `directory` are relative to the
+location's directory, as in [Paths](#paths); `workspacePath` is relative to the workspace root and checked by the
+satellite. Answers are JSON text, with entries shaped as in [File operations](#file-operations). An agent edits a
+stored file by downloading it, changing the copy, and uploading it back. No access key, directory prefix, or provider
+setting ever reaches the agent.
+
+### Which locations a session reaches
+
+A thread declares `elysium_storage` only when its project has a location when the session is created: one for every
+project (`*`), or one linked to the project. Every call checks again against the database as it is then
+(`storage_location::find_for_project`), so a location unlinked from the project or deleted after the session started is
+refused, and one added later is usable by a session that already declares the server.
+
+### Transfers
+
+A download streams the provider's body into the satellite's workspace file route, and an upload streams the workspace
+file into the provider. Neither is held in memory. Both need the length up front: the satellite requires a declared
+`Content-Length` on a write, and so does every provider upload. A file over 5 GiB is refused before a byte moves. The
+satellite waits about 15 minutes for a call, so a very large file on a slow link can outlast the call; the server's
+instructions tell the agent so.
+
+### Failures
+
+A failed call answers the agent with `isError` and a message that says what to change. Nothing internal is included:
+database and decryption failures are logged under `tools.call.internal_failure` and reported as a fixed message.
+
+| Cause                                                   | What the agent reads                                       |
+|---------------------------------------------------------|------------------------------------------------------------|
+| Arguments that do not match the schema                  | Which property is wrong or unknown                         |
+| A location deleted or not available to the project      | That it is not available, and to call `storage_locations`   |
+| A path that is not plain, a cursor for Bunny, a directory to delete | The storage module's own message                |
+| Nothing stored at a path to download                    | That no file is there, and to call `storage_list`          |
+| A file over 5 GiB                                       | Its size and the limit                                     |
+| The provider refusing the access key                    | That only Elysium's operator can change it, with what to check |
+| The provider refusing otherwise                         | The provider's message                                     |
+| The satellite refusing a workspace path or file         | The satellite's message, such as a missing or non-regular file |
+
 ## Roadmap
 
-- A storage gateway for coding agents: an MCP server that lists, uploads, downloads, and deletes files in the locations
-  linked to a session's project, through these operations.
 - Usage limits: Elysium refuses a write that would take its usage past a location's limit. Usage is counted from
   Elysium's own writes, since a zone's total size is only reachable with the account API key.
 - Multipart uploads for files over 5 GiB: S3's `CreateMultipartUpload` and part uploads, and chunked uploads for Bunny

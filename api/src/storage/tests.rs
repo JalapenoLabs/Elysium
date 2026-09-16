@@ -6,6 +6,8 @@
 //! The fake answers the way Bunny does: `AccessKey` sign-in, JSON listings for a path with
 //! a trailing slash, `DESCRIBE` for one entry, `201` for an upload, and a `DELETE` that
 //! removes a directory with everything inside it.
+//!
+//! The fake is shared: other modules' tests use [`fake_storage`] to reach a location without a network.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -24,17 +26,17 @@ use crate::errors::ApiError;
 use crate::models::storage_location::{BunnyStorageRegion, S3Service, StorageLocationKind};
 
 const ZONE: &str = "files";
-const PASSWORD: &str = "zone-password";
+pub const PASSWORD: &str = "zone-password";
 
 /// Every header an upload arrived with, and the bytes it carried.
 #[derive(Debug, Clone)]
-struct StoredFile {
-    headers: HeaderMap,
-    bytes: Vec<u8>,
+pub struct StoredFile {
+    pub headers: HeaderMap,
+    pub bytes: Vec<u8>,
 }
 
 /// The fake zone's files by key, such as `artifacts/builds/app.tar.gz`.
-type Files = Arc<Mutex<BTreeMap<String, StoredFile>>>;
+pub type Files = Arc<Mutex<BTreeMap<String, StoredFile>>>;
 
 fn bunny_json(status: StatusCode, message: &str) -> Response {
     let body = json!({ "HttpCode": status.as_u16(), "Message": message });
@@ -158,7 +160,7 @@ async fn fake_bunny(
 }
 
 /// Starts the fake on a free local port, and a [`Storage`] whose Bunny client uses it.
-async fn fake_storage() -> (Storage, Files) {
+pub async fn fake_storage() -> (Storage, Files) {
     let files = Files::default();
     let router = Router::new()
         .fallback(fake_bunny)
@@ -204,7 +206,7 @@ fn location(
     }
 }
 
-fn bunny_location() -> StorageLocation {
+pub fn bunny_location() -> StorageLocation {
     location(StorageLocationKind::Bunny, "artifacts", None)
 }
 

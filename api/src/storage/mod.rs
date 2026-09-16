@@ -14,24 +14,13 @@
 //! File bodies stream in both directions and are never held in memory whole; see
 //! [`transfer`] for how stalled transfers are ended.
 
-// Tests exercise every operation; outside them, only `check` has a caller until the
-// storage gateway for coding agents lands. `expect` fails the build once that is no longer
-// true, so this attribute cannot outlive its reason.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "file operations are called only by tests until the storage gateway lands"
-    )
-)]
-
 pub mod bunny;
 pub mod path;
 pub mod s3;
 pub mod transfer;
 
 #[cfg(test)]
-mod tests;
+pub mod tests;
 
 use bytes::Bytes;
 use chrono::{DateTime, Utc};

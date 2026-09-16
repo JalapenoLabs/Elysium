@@ -32,7 +32,7 @@ use crate::fleet::{MANAGED_METADATA_KEY, SESSION_METADATA_KEY};
 use crate::models::coding_session::{self, NewCodingSession};
 use crate::models::environment_variable;
 use crate::models::llm::{self, Llm};
-use crate::models::{project, satellite};
+use crate::models::{project, satellite, storage_location};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -75,6 +75,7 @@ pub async fn handle(
     let project = project::find(&mut connection, body.project_id).await?;
     let satellite = satellite::find(&mut connection, body.satellite_id).await?;
     let credentials = llm::list(&mut connection).await?;
+    let storage_locations = storage_location::list_for_project(&mut connection, project.id).await?;
 
     let variables =
         environment_variable::thread_environment(&mut connection, &state.cipher).await?;
@@ -115,6 +116,7 @@ pub async fn handle(
                 stack,
                 &variables,
                 github.as_ref().map(|github| &github.token),
+                !storage_locations.is_empty(),
             ),
             Some(session_id.to_string()),
             metadata,
@@ -286,7 +288,7 @@ mod tests {
 
     #[test]
     fn new_threads_declare_the_ceilings_the_satellite_requires() {
-        let settings = thread_settings(None, None, &[], None);
+        let settings = thread_settings(None, None, &[], None, false);
         assert!(settings.idle_ttl.is_some());
         let budget = settings.budget.expect("budget is set");
         assert!(budget.max_tokens_per_turn.is_some());
@@ -294,6 +296,28 @@ mod tests {
         assert!(budget.max_wall_clock_per_turn.is_some());
         assert!(settings.repos.is_empty());
         assert!(settings.env.is_empty() && settings.github.is_none());
+        assert!(settings.relayed_mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn storage_tools_are_declared_only_when_the_project_has_a_location() {
+        let without = thread_settings(None, None, &[], None, false);
+        assert!(without.relayed_mcp_servers.is_empty());
+
+        let with = thread_settings(None, None, &[], None, true);
+        let names: Vec<&str> = with
+            .relayed_mcp_servers
+            .iter()
+            .map(|server| server.name.as_str())
+            .collect();
+        assert_eq!(names, ["elysium_storage"]);
+        let tools = &with.relayed_mcp_servers[0].tools;
+        assert_eq!(tools.len(), crate::tools::storage::SERVER.tools.len());
+        for tool in tools {
+            let schema: serde_json::Value =
+                serde_json::from_str(&tool.input_schema_json).expect("schemas are JSON");
+            assert_eq!(schema["type"], "object", "{}", tool.name);
+        }
     }
 
     #[test]
@@ -313,7 +337,7 @@ mod tests {
             },
         ];
         let token = SecretString::from("github_pat_example");
-        let settings = thread_settings(None, None, &variables, Some(&token));
+        let settings = thread_settings(None, None, &variables, Some(&token), false);
 
         let keys: Vec<&str> = settings
             .env

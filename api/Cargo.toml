@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 anyhow = "1.0.104"
-arsox-sdk = { git = "https://github.com/JalapenoLabs/arsox-satellites", rev = "30954772f4e36f90064807c27946838eecde2d49" }
+arsox-sdk = { git = "https://github.com/JalapenoLabs/arsox-satellites", rev = "c9e6760f7bb1c25a9043163bda991f7ac4f2b889" }
 async-imap = { version = "0.11.3", default-features = false, features = ["runtime-tokio"] }
 axum = "0.8.9"
 base64 = "0.23.1"
@@ -57,6 +57,10 @@ validator = { version = "0.21.0", features = ["derive"] }
 webp = { version = "0.3.1", default-features = false }
 webpki-roots = "1.0.9"
 zeroize = "1.9.0"
+
+[dev-dependencies]
+# Encodes the protobuf answers of the fake satellite that tests drive the SDK against.
+prost = "0.14.4"
 
 [build-dependencies]
 serde = { version = "1.0.229", features = ["derive"] }

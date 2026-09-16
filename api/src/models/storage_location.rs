@@ -417,6 +417,47 @@ pub async fn projects_of(
     Ok(ProjectScope::Only(project_ids))
 }
 
+/// Every location a project saves files to, alphabetically: those for every project, and
+/// those linked to this one.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn list_for_project(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+) -> QueryResult<Vec<StorageLocation>> {
+    let linked = storage_location_projects::table
+        .filter(storage_location_projects::project_id.eq(project_id))
+        .select(storage_location_projects::storage_location_id);
+    storage_locations::table
+        .filter(storage_locations::all_projects.or(storage_locations::id.eq_any(linked)))
+        .order(storage_locations::name.asc())
+        .select(StorageLocation::as_select())
+        .load(connection)
+        .await
+}
+
+/// One location by id, only if the project saves files to it.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] when no row has that id, or the location is
+/// neither for every project nor linked to this one.
+pub async fn find_for_project(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    project_id: Uuid,
+) -> QueryResult<StorageLocation> {
+    let linked = storage_location_projects::table
+        .filter(storage_location_projects::project_id.eq(project_id))
+        .select(storage_location_projects::storage_location_id);
+    storage_locations::table
+        .find(id)
+        .filter(storage_locations::all_projects.or(storage_locations::id.eq_any(linked)))
+        .select(StorageLocation::as_select())
+        .first(connection)
+        .await
+}
+
 /// One location by id.
 ///
 /// # Errors
@@ -628,6 +669,69 @@ mod tests {
             1,
             "the refused insert rolled back"
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn projects_reach_only_locations_for_every_project_or_linked_to_them() {
+        use crate::models::project::{self, NewProject};
+
+        let (_url, mut connection) = migrated_database().await;
+        let cipher = cipher();
+        let mut projects = Vec::new();
+        for name in ["reaching", "elsewhere"] {
+            let created = project::create(
+                &mut connection,
+                &NewProject {
+                    name: name.to_owned(),
+                    description: String::new(),
+                },
+            )
+            .await
+            .expect("project");
+            projects.push(created.id);
+        }
+        let (reaching, elsewhere) = (projects[0], projects[1]);
+
+        let mut everyone = new_location("everyone");
+        everyone.projects = ProjectScope::All;
+        let everyone = create(&mut connection, &cipher, &everyone)
+            .await
+            .expect("insert");
+        let mut linked = new_location("linked");
+        linked.projects = ProjectScope::Only(vec![reaching]);
+        let linked = create(&mut connection, &cipher, &linked)
+            .await
+            .expect("insert");
+        let mut other = new_location("other");
+        other.projects = ProjectScope::Only(vec![elsewhere]);
+        let other = create(&mut connection, &cipher, &other)
+            .await
+            .expect("insert");
+
+        let names: Vec<String> = list_for_project(&mut connection, reaching)
+            .await
+            .expect("list")
+            .into_iter()
+            .map(|location| location.name)
+            .collect();
+        assert_eq!(names, ["everyone", "linked"]);
+
+        for reachable in [everyone.id, linked.id] {
+            find_for_project(&mut connection, reachable, reaching)
+                .await
+                .expect("a location for every project or linked to this one");
+        }
+        let unlinked = find_for_project(&mut connection, other.id, reaching)
+            .await
+            .expect_err("a location linked only to another project");
+        assert!(matches!(unlinked, diesel::result::Error::NotFound));
+
+        delete(&mut connection, linked.id).await.expect("delete");
+        let deleted = find_for_project(&mut connection, linked.id, reaching)
+            .await
+            .expect_err("a deleted location");
+        assert!(matches!(deleted, diesel::result::Error::NotFound));
     }
 
     #[tokio::test]

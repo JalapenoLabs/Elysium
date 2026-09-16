@@ -54,6 +54,9 @@ Everything else follows these rules:
   every endpoint fixed in code; local storage is planned. See `docs/storage.md`.
 - Access keys are application secrets, sealed in Postgres. Routes never match on the provider; `api/src/storage/`
   does.
+- Coding agents reach their project's locations through the `elysium_storage` MCP tools, which Elysium answers over a
+  relay socket it opens to the satellite; nothing listens for the satellite. Every call re-checks the location against
+  the project in the database. See `api/src/tools/` and `docs/storage.md`.
 
 ## GitHub
 

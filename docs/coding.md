@@ -19,7 +19,8 @@ on the Coding page.
 
 Satellites speak protobuf and authenticate with a bearer secret that must never reach a browser. The frontend
 therefore never contacts a satellite. The API talks to them with the Rust SDK, `arsox-sdk`, a git dependency
-pinned to a commit of the satellites repository's `develop` branch. It converts every contract type into JSON views
+pinned to a commit of the satellites repository. The pin is a commit of its `feat/tool-relay` branch, which carries the
+tool relay contract, until that branch merges into `develop`. It converts every contract type into JSON views
 in `api/src/fleet/views.rs`, so no route or client depends on the wire format.
 
 To upgrade the SDK, change the `rev` in `api/Cargo.toml`. `api/.cargo/config.toml` sets `git-fetch-with-cli`,
@@ -48,6 +49,28 @@ satellite changes or stops answering. Two kinds of watcher run under it.
 
 Polling stands in for the satellite's control stream, which the Rust SDK does not expose yet. Watchers start at
 boot for every active satellite, restart when a satellite is saved, and stop when it is deactivated or deleted.
+
+## Tool relay
+
+Some of an agent's tools answer from Elysium's own data, such as the storage tools in `docs/storage.md`. A satellite
+cannot reach Elysium, so Elysium declares those tools on the thread as relayed MCP servers
+(`ThreadSettings.relayed_mcp_servers`) and answers their calls over a socket it opens to the satellite. Every byte
+travels Elysium to satellite, as every other call does; Elysium listens for nothing new.
+
+- **Relay**, one per session on an active satellite, beside its session watcher and under the same cancellation, so
+  both start, restart, and stop together (`api/src/fleet/relay.rs`). It opens `GET /v1/threads/{id}/relay` and runs
+  each call in its own task, so a slow download holds up nothing. A cancellation from the satellite (the call's
+  deadline passed, its turn ended) aborts that call's task. Calls are never retried: an agent that wants one again
+  calls again.
+- A dropped socket reconnects with the session watcher's backoff, 1 to 30 seconds. Calls in flight on it are
+  abandoned; the satellite has already failed them to the agent.
+- A thread the satellite no longer has ends its relay, as it ends its watcher.
+
+The satellite keeps no calls for a client that is not attached. While Elysium is down or reconnecting, a call to a
+relayed tool fails at once, and the agent reads that no client is attached to answer it. Nothing is replayed later.
+
+Logs name each call by session, server, tool, and call id (`coding.relay.call.completed`), never by its arguments,
+which can be large.
 
 ## Projects
 

@@ -74,21 +74,26 @@ pub async fn serve() -> Result<()> {
     migrations::ensure_up_to_date(config.database_url.clone()).await?;
     let redis = connections::connect_redis(&config.redis_url).await?;
 
-    let shutdown = CancellationToken::new();
-    let events = EventBus::new();
-    let fleet = Fleet::new(
-        database.clone(),
-        Arc::clone(&cipher),
-        events.clone(),
-        shutdown.clone(),
-    );
-    fleet.start().await?;
     // One HTTP client for every outbound call: the OAuth broker, Stalwart, GitHub, and
     // storage providers share its connection pool.
     let http = reqwest::Client::builder()
         .user_agent(concat!("elysium-api/", env!("CARGO_PKG_VERSION")))
         .build()
         .context("cannot build the HTTP client")?;
+    // Built before the fleet starts, because the fleet's relays answer agents' storage
+    // tool calls with it.
+    let storage = Storage::new(http.clone());
+
+    let shutdown = CancellationToken::new();
+    let events = EventBus::new();
+    let fleet = Fleet::new(
+        database.clone(),
+        Arc::clone(&cipher),
+        events.clone(),
+        storage.clone(),
+        shutdown.clone(),
+    );
+    fleet.start().await?;
     let mail = build_mail(
         &config,
         http.clone(),
@@ -108,9 +113,9 @@ pub async fn serve() -> Result<()> {
         version,
         events,
         fleet: fleet.clone(),
-        github: Github::new(http.clone()),
+        github: Github::new(http),
         mail,
-        storage: Storage::new(http),
+        storage,
         shutdown: shutdown.clone(),
     };
     let rate_limiter = middleware::rate_limit::build();
