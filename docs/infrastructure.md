@@ -94,8 +94,12 @@ base-branch merges are skipped, and a head commit whose subject starts with `[RE
 Only pull requests from branches of this repository are reviewed. Reviews run on a self-hosted runner, and a fork's
 code must never execute there.
 
+## CI
+
+Formatting, lints, tests, migrations, and every image are checked on each pull request, merge group, and push to
+`main`. See `docs/ci.md`.
+
 ## Roadmap
 
 - Production frontend image: static `vite build` output served by nginx directly.
 - Redis pub/sub for the event bus, so the API can run more than one replica.
-- CI pipeline building both images and running clippy, typecheck, lint, and `api/scripts/verify-migrations.sh`.

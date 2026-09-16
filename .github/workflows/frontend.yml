@@ -1,0 +1,149 @@
+# Copyright © 2026 Jalapeno Labs
+
+# The Vite and React frontend. Typecheck, lint, build, and the image are separate
+# jobs, so they run side by side and each failure is reported on its own. See
+# docs/ci.md.
+name: Frontend
+
+# Deliberately unfiltered by path. Every job here is a required check, GitHub
+# never evaluates path filters for merge groups, and a required check whose
+# workflow a path filter skipped stays pending forever. See docs/ci.md.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+    types: [ checks_requested ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: Frontend typecheck
+    # Elysium is public and these runners are self-hosted, so a fork's pull request
+    # never reaches them. Pushes, merge groups, and manual runs always come from
+    # this repository, so the guard never skips those.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        uses: ./.github/actions/frontend-dependencies
+
+      - name: Typecheck
+        working-directory: frontend
+        run: yarn typecheck
+
+  lint:
+    name: Frontend lint
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        uses: ./.github/actions/frontend-dependencies
+
+      # The org-wide ruleset from @jalapenolabs/cli/eslint, which eslint.config.ts
+      # extends. `yarn lint` fails on any warning.
+      - name: Lint
+        working-directory: frontend
+        run: yarn lint
+
+  build:
+    name: Frontend build
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        uses: ./.github/actions/frontend-dependencies
+
+      # The production bundle. Nothing serves it yet, but a bundle that fails to
+      # build is a failure the dev server never reports.
+      - name: Build
+        working-directory: frontend
+        run: yarn build
+
+  image:
+    name: Frontend image
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    env:
+      # Unique per run, because runners in the pool can share one Docker daemon.
+      IMAGE: elysium-frontend:ci-${{ github.run_id }}-${{ github.run_attempt }}
+      CONTAINER: elysium-frontend-ci-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # The image installs its own Node, so its FROM line is compared with the pin
+      # the other jobs install rather than trusted to be edited together.
+      - name: Check the image uses the pinned Node
+        run: |
+          set -euo pipefail
+          version="$(cat frontend/.nvmrc)"
+          if ! grep --quiet --fixed-strings "FROM node:${version}-" frontend/Dockerfile; then
+            echo "::error::frontend/Dockerfile does not build with Node ${version} from frontend/.nvmrc."
+            exit 1
+          fi
+          echo "frontend/Dockerfile builds with Node ${version}."
+
+      # The frontend directory is the build context, as compose uses.
+      - name: Build the image
+        run: docker build --tag "${IMAGE}" frontend
+
+      # The image is the Vite dev server compose runs. Booting it proves the
+      # installed dependencies load and the server answers.
+      - name: Boot the image and check it serves
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name "${CONTAINER}" \
+            --publish 127.0.0.1::5173 \
+            "${IMAGE}" > /dev/null
+
+          # Docker picks the host port, so concurrent runs never collide.
+          port="$(docker port "${CONTAINER}" 5173/tcp | head -n 1 | cut -d: -f2)"
+
+          for _ in $(seq 1 60); do
+            if curl --silent --fail "http://127.0.0.1:${port}/" > /dev/null; then
+              echo "The dev server is serving."
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "::error::The dev server never answered."
+          docker logs "${CONTAINER}" >&2
+          exit 1
+
+      - name: Remove the container and the CI tag
+        if: always()
+        run: |
+          docker rm --force "${CONTAINER}" > /dev/null 2>&1 || true
+          docker rmi --force "${IMAGE}" > /dev/null 2>&1 || true

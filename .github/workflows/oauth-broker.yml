@@ -1,0 +1,168 @@
+# Copyright © 2026 Jalapeno Labs
+
+# The OAuth broker, a crate and image of its own that deploys independently of
+# Elysium. Formatting, lints, tests, and the image are separate jobs, so they run
+# side by side. See docs/ci.md.
+name: OAuth broker
+
+# Deliberately unfiltered by path. Every job here is a required check, GitHub
+# never evaluates path filters for merge groups, and a required check whose
+# workflow a path filter skipped stays pending forever. See docs/ci.md.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+    types: [ checks_requested ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oauth-broker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Fail on any compiler warning. The crate warns on a long list of lints, and
+  # letting them through would make that list decorative.
+  RUSTFLAGS: '-D warnings'
+  # Incremental artifacts only pay off for repeated edits of one file, and they
+  # are most of what a persistent target directory would otherwise accumulate.
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  format:
+    name: Broker format
+    # Elysium is public and these runners are self-hosted, so a fork's pull request
+    # never reaches them. Pushes, merge groups, and manual runs always come from
+    # this repository, so the guard never skips those.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Prepare the toolchain
+        uses: ./.github/actions/rust-toolchain
+        with:
+          crate: oauth-broker
+
+      - name: Check formatting
+        working-directory: oauth-broker
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: Broker clippy
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Prepare the toolchain
+        uses: ./.github/actions/rust-toolchain
+        with:
+          crate: oauth-broker
+
+      - name: Clippy
+        working-directory: oauth-broker
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+  test:
+    name: Broker test
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Prepare the toolchain
+        uses: ./.github/actions/rust-toolchain
+        with:
+          crate: oauth-broker
+
+      - name: Test
+        working-directory: oauth-broker
+        run: cargo test --locked
+
+  image:
+    name: Broker image
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    env:
+      # Unique per run, because runners in the pool can share one Docker daemon.
+      IMAGE: elysium-oauth-broker:ci-${{ github.run_id }}-${{ github.run_attempt }}
+      CONTAINER: elysium-oauth-broker-ci-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # The image compiles with its own FROM line, not rust-toolchain.toml, so the
+      # two are compared here rather than trusted to be edited together.
+      - name: Check the image uses the pinned toolchain
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' oauth-broker/rust-toolchain.toml)"
+          if ! grep --quiet --fixed-strings "FROM rust:${channel}-" oauth-broker/Dockerfile; then
+            echo "::error::oauth-broker/Dockerfile does not build with rust ${channel} from its rust-toolchain.toml."
+            exit 1
+          fi
+          echo "oauth-broker/Dockerfile builds with rust ${channel}."
+
+      # The broker's own directory is the build context, as its compose file uses.
+      - name: Build the image
+        run: docker build --tag "${IMAGE}" oauth-broker
+
+      # A compile proves the builder stage; booting proves the runtime stage. The
+      # broker needs a sealing key, a public URL, and one provider to start. None of
+      # them is a secret here: the key is generated for this run, the provider
+      # credentials are placeholders no provider would accept, and liveness never
+      # contacts a provider.
+      - name: Boot the image and check liveness
+        run: |
+          set -euo pipefail
+          sealing_key="$(docker run --rm "${IMAGE}" elysium-oauth-broker generate-sealing-key)"
+
+          docker run --detach --rm --name "${CONTAINER}" \
+            --env BROKER_PUBLIC_URL=http://127.0.0.1 \
+            --env BROKER_SEALING_KEY="${sealing_key}" \
+            --env GOOGLE_CLIENT_ID=ci-placeholder-client \
+            --env GOOGLE_CLIENT_SECRET=ci-placeholder-secret \
+            --publish 127.0.0.1::8080 \
+            "${IMAGE}" > /dev/null
+
+          # Docker picks the host port, so concurrent runs never collide.
+          port="$(docker port "${CONTAINER}" 8080/tcp | head -n 1 | cut -d: -f2)"
+
+          for _ in $(seq 1 30); do
+            if curl --silent --fail "http://127.0.0.1:${port}/healthz" > /dev/null; then
+              echo "The broker is live."
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "::error::The broker never answered /healthz."
+          docker logs "${CONTAINER}" >&2
+          exit 1
+
+      - name: Remove the container and the CI tag
+        if: always()
+        run: |
+          docker rm --force "${CONTAINER}" > /dev/null 2>&1 || true
+          docker rmi --force "${IMAGE}" > /dev/null 2>&1 || true
