@@ -108,3 +108,34 @@ export function checkRepositoryAccess(credentialId: string, repositoryUrl: strin
     .post(`v1/github-credentials/${credentialId}/repository-access`, { json: { repositoryUrl }})
     .json<CheckRepositoryAccessResponse>()
 }
+
+// Mirrors `RepositoryResponse` in api/src/routes/v1/github_credentials/list_repositories.rs.
+export type GithubRepository = {
+  // owner/name, as GitHub spells it.
+  fullName: string
+  owner: string
+  name: string
+  private: boolean
+  archived: boolean
+  defaultBranch: string
+  // The https://github.com/ URL to clone from.
+  cloneUrl: string
+  // Null for a repository nothing was ever pushed to.
+  pushedAt: string | null
+  // Null when it cannot be known, which is always the case for a fine-grained token.
+  canPush: boolean | null
+}
+
+type ListGithubRepositoriesResponse = {
+  // Most recently pushed first.
+  repositories: GithubRepository[]
+  // True when the token sees more repositories than the API lists.
+  truncated: boolean
+}
+
+// The repositories a token can see. A token GitHub refuses answers 400.
+export function listGithubRepositories(credentialId: string) {
+  return apiClient
+    .get(`v1/github-credentials/${credentialId}/repositories`)
+    .json<ListGithubRepositoriesResponse>()
+}

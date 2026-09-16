@@ -44,9 +44,5 @@ export const IMAGE_PREVIEW_HOVER_DELAY_MS = 2_000
 // Storage limits are entered and shown in decimal units, as storage providers bill them.
 export const BYTES_PER_GIGABYTE = 1_000_000_000
 
-// How long the repository field rests before a session's GitHub token is checked against it.
-// Long enough that typing a URL does not ask GitHub about every prefix of it.
-export const REPOSITORY_ACCESS_CHECK_DELAY_MS = 600
-
 // Which view the Projects page last showed, remembered per browser.
 export const PROJECTS_VIEW_STORAGE_KEY = 'elysium.projects.view.v1'

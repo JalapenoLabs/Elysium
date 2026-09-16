@@ -5,6 +5,9 @@ import type { TFunction } from 'i18next'
 // Utility
 import { z } from 'zod'
 
+// Misc
+import { findRepositoryConflict, MAX_SESSION_REPOSITORIES } from './sessionRepositories'
+
 // Mirrors the API's limits so most mistakes are caught before a round trip.
 export const SESSION_TITLE_MAX_CHARACTERS = 200
 const REPOSITORY_URL_MAX_CHARACTERS = 2048
@@ -21,6 +24,23 @@ const REPOSITORY_URL_PATTERN = /^(https?:\/\/|ssh:\/\/|git@)\S+\/[\w.-]+?(\.git)
 const SSH_PREFIXES = [ 'ssh://', 'git@' ] as const
 const GITHUB_SSH_PREFIXES = [ 'ssh://git@github.com/', 'git@github.com:' ] as const
 
+// One repository URL, as the API's `validate_repository_url` accepts it. Shared by the
+// Add by URL field, which checks a URL before it becomes a row.
+export function createRepositoryUrlSchema(t: TFunction<'coding'>) {
+  return z
+    .string()
+    .trim()
+    .max(REPOSITORY_URL_MAX_CHARACTERS, { error: t('create.errors.repositoryUrlInvalid') })
+    .regex(REPOSITORY_URL_PATTERN, { error: t('create.errors.repositoryUrlInvalid') })
+    .refine(
+      (value) => {
+        const isSsh = SSH_PREFIXES.some((prefix) => value.startsWith(prefix))
+        return !isSsh || GITHUB_SSH_PREFIXES.some((prefix) => value.startsWith(prefix))
+      },
+      { error: t('create.errors.repositoryUrlSshHost') },
+    )
+}
+
 // Built per render with `t` so validation messages are already translated.
 export function createSessionFormSchema(t: TFunction<'coding'>) {
   return z.object({
@@ -35,25 +55,31 @@ export function createSessionFormSchema(t: TFunction<'coding'>) {
       .string()
       .trim()
       .max(SESSION_TITLE_MAX_CHARACTERS, { error: t('create.errors.titleTooLong') }),
-    repositoryUrl: z
-      .string()
-      .trim()
-      .max(REPOSITORY_URL_MAX_CHARACTERS, { error: t('create.errors.repositoryUrlInvalid') })
-      .refine(
-        (value) => !value || REPOSITORY_URL_PATTERN.test(value),
-        { error: t('create.errors.repositoryUrlInvalid') },
-      )
-      .refine(
-        (value) => {
-          const isSsh = SSH_PREFIXES.some((prefix) => value.startsWith(prefix))
-          return !isSsh || GITHUB_SSH_PREFIXES.some((prefix) => value.startsWith(prefix))
-        },
-        { error: t('create.errors.repositoryUrlSshHost') },
-      ),
-    baseBranch: z
-      .string()
-      .trim()
-      .max(BASE_BRANCH_MAX_CHARACTERS, { error: t('create.errors.baseBranchTooLong') }),
+    repositories: z
+      .array(z.object({
+        url: createRepositoryUrlSchema(t),
+        baseBranch: z
+          .string()
+          .trim()
+          .max(BASE_BRANCH_MAX_CHARACTERS, { error: t('create.errors.baseBranchTooLong') }),
+        // owner/name when picked from the token's list; null when added by URL.
+        fullName: z.string().nullable(),
+      }))
+      .max(MAX_SESSION_REPOSITORIES, {
+        error: t('create.repositories.errors.tooMany', { max: MAX_SESSION_REPOSITORIES }),
+      })
+      .superRefine((repositories, context) => {
+        const conflict = findRepositoryConflict(repositories.map((repository) => repository.url))
+        if (!conflict) {
+          return
+        }
+        context.addIssue({
+          code: 'custom',
+          message: conflict.kind === 'duplicate'
+            ? t('create.repositories.errors.duplicate', conflict)
+            : t('create.repositories.errors.directory', conflict),
+        })
+      }),
     prompt: z
       .string()
       .max(PROMPT_MAX_CHARACTERS),
@@ -63,3 +89,4 @@ export function createSessionFormSchema(t: TFunction<'coding'>) {
 }
 
 export type CreateSessionFormValues = z.infer<ReturnType<typeof createSessionFormSchema>>
+export type SessionRepositoryValue = CreateSessionFormValues['repositories'][number]

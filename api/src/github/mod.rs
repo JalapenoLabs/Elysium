@@ -24,6 +24,24 @@ use tracing::{Level, event};
 /// The authenticated user, the one call that proves a token works and says whose it is.
 const USER_URL: &str = "https://api.github.com/user";
 
+/// The first page of the repositories a token can see, most recently pushed first.
+///
+/// With no `type`, GitHub already lists the account's own repositories, the ones it
+/// collaborates on, and its organizations' repositories; an `affiliation` naming all three
+/// changed nothing when measured. A hundred is the most GitHub sends per page.
+const USER_REPOSITORIES_URL: &str = "https://api.github.com/user/repos?per_page=100&sort=pushed";
+
+/// How many pages of repositories a listing follows, so 1,000 repositories at most.
+///
+/// Each page is a round trip of about a second, and the listing answers one request under
+/// the API's 30-second handler deadline. An account past this is told the listing was cut
+/// short and can still add a repository by its URL.
+const REPOSITORY_PAGE_LIMIT: usize = 10;
+
+/// Where every next page must point: GitHub's `Link` header is followed only on the host
+/// fixed here, so the token is never sent anywhere else.
+const API_ORIGIN: &str = "https://api.github.com/";
+
 /// The REST API version these calls are written against. GitHub keeps older versions
 /// working, so pinning one means a new default never changes an answer under Elysium.
 const API_VERSION: &str = "2022-11-28";
@@ -183,6 +201,72 @@ struct RepositoryPermissions {
     push: bool,
 }
 
+/// One repository a token can see, as a listing reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedRepository {
+    /// `owner/name`, as GitHub spells it.
+    pub full_name: String,
+    pub owner: String,
+    pub name: String,
+    pub is_private: bool,
+    pub is_archived: bool,
+    pub default_branch: String,
+    /// The `https://github.com/` URL to clone from.
+    pub clone_url: String,
+    /// When anything was last pushed, or `None` for a repository nothing was ever pushed to.
+    pub pushed_at: Option<DateTime<Utc>>,
+    /// Whether the token's *account* may push, with the same caveats as
+    /// [`RepositoryAccess::role_can_push`].
+    pub role_can_push: bool,
+}
+
+/// The repositories a token can see, most recently pushed first.
+#[derive(Debug, Clone)]
+pub struct RepositoryListing {
+    pub repositories: Vec<ListedRepository>,
+    /// Whether GitHub had more than [`REPOSITORY_PAGE_LIMIT`] pages to send.
+    pub truncated: bool,
+    /// A classic token's scopes; empty for a fine-grained token.
+    pub scopes: Vec<String>,
+}
+
+/// The parts of one repository in `GET /user/repos` Elysium reads.
+#[derive(Deserialize)]
+struct ListedRepositoryBody {
+    full_name: String,
+    name: String,
+    owner: OwnerBody,
+    private: bool,
+    archived: bool,
+    default_branch: String,
+    clone_url: String,
+    pushed_at: Option<DateTime<Utc>>,
+    permissions: Option<RepositoryPermissions>,
+}
+
+#[derive(Deserialize)]
+struct OwnerBody {
+    login: String,
+}
+
+/// The `rel="next"` URL in a `Link` header, such as
+/// `<https://api.github.com/user/repos?page=2>; rel="next", <...>; rel="last"`.
+fn next_page_url(header: &str) -> Option<&str> {
+    header.split(',').find_map(|link| {
+        let (target, parameters) = link.split_once(';')?;
+        let is_next = parameters
+            .split(';')
+            .any(|parameter| parameter.trim() == r#"rel="next""#);
+        if !is_next {
+            return None;
+        }
+        target
+            .trim()
+            .strip_prefix('<')
+            .and_then(|target| target.strip_suffix('>'))
+    })
+}
+
 /// GitHub's API client. Cheap to clone; clones share one HTTP client.
 #[derive(Debug, Clone)]
 pub struct Github {
@@ -253,6 +337,66 @@ impl Github {
         }))
     }
 
+    /// The repositories a token can see, following GitHub's pages up to
+    /// [`REPOSITORY_PAGE_LIMIT`].
+    ///
+    /// For a fine-grained token GitHub lists the repositories the token was granted under
+    /// its one resource owner, plus the account's own public repositories. Other owners'
+    /// public repositories, which the token can still clone, are not listed.
+    ///
+    /// # Errors
+    /// Returns [`GithubError::Unauthorized`] when GitHub rejects the token, and
+    /// [`GithubError::Refused`] when it cannot be reached, refuses a page, or points the
+    /// next page at another host.
+    pub async fn list_repositories(
+        &self,
+        token: &SecretString,
+    ) -> Result<RepositoryListing, GithubError> {
+        let mut repositories = Vec::new();
+        let mut scopes = Vec::new();
+        let mut next = Some(USER_REPOSITORIES_URL.to_owned());
+
+        for _page in 0..REPOSITORY_PAGE_LIMIT {
+            let Some(url) = next.take() else {
+                break;
+            };
+            if !url.starts_with(API_ORIGIN) {
+                return Err(GithubError::Refused(
+                    "GitHub pointed the next page of repositories at another host".to_owned(),
+                ));
+            }
+
+            let reply = self.get(&url, token).await?;
+            if !reply.status.is_success() {
+                return Err(reply.refusal());
+            }
+            let page: Vec<ListedRepositoryBody> =
+                serde_json::from_str(&reply.body).map_err(|error| {
+                    GithubError::Refused(format!("GitHub sent unreadable repositories: {error}"))
+                })?;
+
+            repositories.extend(page.into_iter().map(|body| ListedRepository {
+                full_name: body.full_name,
+                owner: body.owner.login,
+                name: body.name,
+                is_private: body.private,
+                is_archived: body.archived,
+                default_branch: body.default_branch,
+                clone_url: body.clone_url,
+                pushed_at: body.pushed_at,
+                role_can_push: body.permissions.is_some_and(|permissions| permissions.push),
+            }));
+            scopes = reply.scopes;
+            next = reply.next_page;
+        }
+
+        Ok(RepositoryListing {
+            repositories,
+            truncated: next.is_some(),
+            scopes,
+        })
+    }
+
     /// Sends one authenticated `GET` and reads everything a caller may need from it.
     async fn get(&self, url: &str, token: &SecretString) -> Result<Reply, GithubError> {
         let response = self
@@ -279,6 +423,12 @@ impl Github {
             .get("github-authentication-token-expiration")
             .and_then(|value| value.to_str().ok())
             .and_then(parse_expiration);
+        let next_page = response
+            .headers()
+            .get("link")
+            .and_then(|value| value.to_str().ok())
+            .and_then(next_page_url)
+            .map(str::to_owned);
         let body = response
             .text()
             .await
@@ -293,6 +443,7 @@ impl Github {
             status,
             scopes,
             token_expires_at,
+            next_page,
             body,
         })
     }
@@ -303,6 +454,8 @@ struct Reply {
     status: StatusCode,
     scopes: Vec<String>,
     token_expires_at: Option<DateTime<Utc>>,
+    /// The next page of a paged answer, from the `Link` header.
+    next_page: Option<String>,
     body: String,
 }
 
@@ -361,6 +514,23 @@ mod tests {
         ] {
             assert_eq!(Repository::from_url(url), None, "{url}");
         }
+    }
+
+    #[test]
+    fn the_next_page_is_read_from_the_link_header() {
+        let middle = concat!(
+            r#"<https://api.github.com/user/repos?page=1>; rel="prev", "#,
+            r#"<https://api.github.com/user/repos?page=3>; rel="next", "#,
+            r#"<https://api.github.com/user/repos?page=9>; rel="last""#,
+        );
+        assert_eq!(
+            next_page_url(middle),
+            Some("https://api.github.com/user/repos?page=3")
+        );
+
+        let last = r#"<https://api.github.com/user/repos?page=8>; rel="prev""#;
+        assert_eq!(next_page_url(last), None);
+        assert_eq!(next_page_url(""), None);
     }
 
     #[test]

@@ -13,8 +13,14 @@
 //!
 //! If recording the row fails, the thread is destroyed rather than left running with
 //! nothing pointing at it.
+//!
+//! A session clones any number of repositories up to [`MAX_REPOSITORIES`], each into its own
+//! directory under the workspace's `repos/`. The satellite checks that each name is safe but
+//! not that the names differ, so two repositories that would share a directory are refused
+//! here, while the caller is still listening, rather than failing a clone minutes later.
 
 use std::collections::BTreeMap;
+use std::collections::hash_map::{Entry, HashMap};
 
 use anyhow::Context;
 use arsox_sdk::proto::settings::v1::Repo;
@@ -24,7 +30,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use chrono::Utc;
 use secrecy::SecretString;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::Uuid;
@@ -52,11 +58,10 @@ pub struct RequestBody {
     satellite_id: Uuid,
     #[validate(length(min = 1, max = 200), custom(function = "validate_not_blank"))]
     title: String,
-    /// Git URL the satellite clones into the thread's workspace.
-    #[validate(length(max = 2048), custom(function = "validate_repository_url"))]
-    repository_url: Option<String>,
-    #[validate(length(min = 1, max = 255), custom(function = "validate_not_blank"))]
-    base_branch: Option<String>,
+    /// The repositories the satellite clones into the thread's workspace, in order.
+    #[serde(default)]
+    #[validate(length(max = MAX_REPOSITORIES), nested)]
+    repositories: Vec<RepositoryRequest>,
     /// The GitHub token the agent works with: absent follows the project, `null` asks for
     /// none, and an id names one.
     #[serde(default, with = "::serde_with::rust::double_option")]
@@ -67,12 +72,32 @@ pub struct RequestBody {
     github_credential_id: Option<Option<Uuid>>,
 }
 
+/// The most repositories one session clones.
+///
+/// The satellite sets no limit of its own. Clones run one after another before the thread is
+/// usable, and the first that fails parks the thread, so a long list is slow to start and
+/// fragile; sixteen covers a service with its libraries while keeping that bounded.
+const MAX_REPOSITORIES: u64 = 16;
+
+/// One repository to clone. `Serialize` because a length error on the list reports it.
+#[derive(Debug, Deserialize, Serialize, Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RepositoryRequest {
+    /// Git URL the satellite clones from.
+    #[validate(length(max = 2048), custom(function = "validate_repository_url"))]
+    url: String,
+    /// The branch the work starts from; absent uses the remote's default branch.
+    #[validate(length(min = 1, max = 255), custom(function = "validate_not_blank"))]
+    base_branch: Option<String>,
+}
+
 pub async fn handle(
     State(state): State<AppState>,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
     body.validate()?;
+    refuse_shared_directories(&body.repositories)?;
 
     let mut connection = state
         .database
@@ -97,10 +122,11 @@ pub async fn handle(
     .await?;
     drop(connection);
 
-    let repository = body
-        .repository_url
-        .as_deref()
-        .map(|url| repository_to_clone(url, body.base_branch.clone(), github.as_ref()));
+    let repositories = body
+        .repositories
+        .into_iter()
+        .map(|repository| repository_to_clone(repository, github.as_ref()))
+        .collect();
 
     let stack = model_stack::build(&open_credentials(credentials, &state.cipher), Utc::now());
 
@@ -123,7 +149,7 @@ pub async fn handle(
         .threads()
         .create_with(
             thread_settings(
-                repository,
+                repositories,
                 stack,
                 &variables,
                 github.as_ref().map(|github| &github.token),
@@ -200,21 +226,64 @@ fn open_credentials(credentials: Vec<Llm>, cipher: &Cipher) -> Vec<(Llm, SecretS
     opened
 }
 
+/// Refuses a list in which two repositories would clone into the same directory.
+///
+/// Names are compared ignoring case, so a workspace stays usable on a case-insensitive
+/// filesystem and `Api` beside `api` never confuses a reader. The same repository listed
+/// twice is named as such, since it is the likelier mistake.
+///
+/// # Errors
+/// Answers `400` naming both URLs.
+fn refuse_shared_directories(repositories: &[RepositoryRequest]) -> Result<(), ApiError> {
+    let mut claimed: HashMap<String, &str> = HashMap::new();
+    for repository in repositories {
+        let directory =
+            repository_directory(&repository.url).expect("validation guarantees a directory name");
+        let earlier = match claimed.entry(directory.to_lowercase()) {
+            Entry::Vacant(vacant) => {
+                vacant.insert(&repository.url);
+                continue;
+            }
+            Entry::Occupied(occupied) => *occupied.get(),
+        };
+
+        if repository_identity(earlier) == repository_identity(&repository.url) {
+            return Err(ApiError::BadRequest(format!(
+                "repositories lists the same repository twice: {earlier} and {}",
+                repository.url
+            )));
+        }
+        return Err(ApiError::BadRequest(format!(
+            "repositories {earlier} and {} would both clone into the directory {directory}; \
+             each needs its own name, ignoring case",
+            repository.url
+        )));
+    }
+    Ok(())
+}
+
+/// What makes two URLs the same repository. github.com names are case-insensitive and
+/// reachable over HTTPS and SSH alike; any other host is compared as written, without a
+/// trailing slash or `.git`.
+fn repository_identity(url: &str) -> String {
+    if let Some(repository) = Repository::from_url(url) {
+        return format!("github.com/{}/{}", repository.owner, repository.name).to_lowercase();
+    }
+    let trimmed = url.trim_end_matches('/');
+    trimmed.strip_suffix(".git").unwrap_or(trimmed).to_owned()
+}
+
 /// The repository the satellite clones into the workspace, with the session's GitHub token
 /// as its credential when GitHub accepts one for that URL.
-fn repository_to_clone(
-    url: &str,
-    base_branch: Option<String>,
-    github: Option<&SessionToken>,
-) -> Repo {
-    let clone_url = github_token::clone_url(url);
+fn repository_to_clone(repository: RepositoryRequest, github: Option<&SessionToken>) -> Repo {
+    let clone_url = github_token::clone_url(&repository.url);
     Repo {
-        name: repository_directory(url)
+        name: repository_directory(&repository.url)
             .expect("validation guarantees a directory name")
             .to_owned(),
         auth: github.and_then(|github| github_token::clone_auth(&clone_url, &github.token)),
         url: clone_url,
-        base_branch,
+        base_branch: repository.base_branch,
         ..Repo::default()
     }
 }
@@ -284,17 +353,38 @@ mod tests {
         assert_eq!(repository_directory("https://example.com/a b"), None);
     }
 
+    /// A request body with these repository URLs, none with a base branch.
+    fn body_with(urls: &[&str]) -> RequestBody {
+        let repositories: Vec<Value> = urls.iter().map(|url| json!({ "url": url })).collect();
+        serde_json::from_value(json!({
+            "projectId": Uuid::nil(),
+            "satelliteId": Uuid::nil(),
+            "title": "A",
+            "repositories": repositories,
+        }))
+        .expect("parses")
+    }
+
     #[test]
     fn bodies_validate_titles_and_repository_urls() {
         let valid: RequestBody = serde_json::from_value(json!({
             "projectId": Uuid::nil(),
             "satelliteId": Uuid::nil(),
             "title": "Fix the login bug",
-            "repositoryUrl": "https://github.com/JalapenoLabs/Elysium.git",
-            "baseBranch": "main",
+            "repositories": [
+                { "url": "https://github.com/JalapenoLabs/Elysium.git", "baseBranch": "main" },
+                { "url": "git@github.com:JalapenoLabs/uikit.git" },
+            ],
         }))
         .expect("parses");
         valid.validate().expect("valid body");
+        refuse_shared_directories(&valid.repositories).expect("distinct directories");
+
+        let none: RequestBody = serde_json::from_value(
+            json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "A" }),
+        )
+        .expect("parses");
+        assert!(none.repositories.is_empty());
 
         let blank_title: RequestBody = serde_json::from_value(
             json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "  " }),
@@ -308,51 +398,70 @@ mod tests {
                 .contains_key("title")
         );
 
-        let bad_repository: RequestBody = serde_json::from_value(json!({
-            "projectId": Uuid::nil(),
-            "satelliteId": Uuid::nil(),
-            "title": "A",
-            "repositoryUrl": "file:///etc/passwd",
-        }))
-        .expect("parses");
-        assert!(
-            bad_repository
-                .validate()
-                .expect_err("file URLs are refused")
-                .field_errors()
-                .contains_key("repository_url")
-        );
-
-        let github_ssh: RequestBody = serde_json::from_value(json!({
-            "projectId": Uuid::nil(),
-            "satelliteId": Uuid::nil(),
-            "title": "A",
-            "repositoryUrl": "git@github.com:JalapenoLabs/Elysium.git",
-        }))
-        .expect("parses");
-        github_ssh
+        body_with(&["file:///etc/passwd"])
+            .validate()
+            .expect_err("file URLs are refused");
+        body_with(&["git@github.com:JalapenoLabs/Elysium.git"])
             .validate()
             .expect("github.com SSH remotes are cloned over HTTPS");
+        body_with(&["git@gitlab.com:org/repo.git"])
+            .validate()
+            .expect_err("no key could authenticate it");
 
-        let other_ssh: RequestBody = serde_json::from_value(json!({
+        let too_many: Vec<String> = (0..=MAX_REPOSITORIES)
+            .map(|index| format!("https://github.com/JalapenoLabs/repo-{index}"))
+            .collect();
+        let too_many: Vec<&str> = too_many.iter().map(String::as_str).collect();
+        body_with(&too_many)
+            .validate()
+            .expect_err("a session clones at most sixteen repositories");
+
+        serde_json::from_value::<RequestBody>(json!({
             "projectId": Uuid::nil(),
             "satelliteId": Uuid::nil(),
             "title": "A",
-            "repositoryUrl": "git@gitlab.com:org/repo.git",
+            "repositoryUrl": "https://github.com/JalapenoLabs/Elysium.git",
         }))
-        .expect("parses");
+        .expect_err("a single repositoryUrl is no longer accepted");
+    }
+
+    #[test]
+    fn repositories_that_would_share_a_directory_are_refused_naming_both() {
+        let refusal = |urls: &[&str]| match refuse_shared_directories(&body_with(urls).repositories)
+        {
+            Err(ApiError::BadRequest(message)) => message,
+            other => panic!("expected a 400, got {other:?}"),
+        };
+
+        let same = refusal(&[
+            "https://github.com/JalapenoLabs/Elysium.git",
+            "git@github.com:jalapenolabs/elysium",
+        ]);
+        assert!(same.contains("same repository"), "{same}");
         assert!(
-            other_ssh
-                .validate()
-                .expect_err("no key could authenticate it")
-                .field_errors()
-                .contains_key("repository_url")
+            same.contains("https://github.com/JalapenoLabs/Elysium.git"),
+            "{same}"
         );
+        assert!(
+            same.contains("git@github.com:jalapenolabs/elysium"),
+            "{same}"
+        );
+
+        let clash = refusal(&[
+            "https://github.com/JalapenoLabs/api.git",
+            "https://gitlab.com/someone/API",
+        ]);
+        assert!(clash.contains("directory"), "{clash}");
+        assert!(
+            clash.contains("https://github.com/JalapenoLabs/api.git"),
+            "{clash}"
+        );
+        assert!(clash.contains("https://gitlab.com/someone/API"), "{clash}");
     }
 
     #[test]
     fn new_threads_declare_the_ceilings_the_satellite_requires() {
-        let settings = thread_settings(None, None, &[], None, false);
+        let settings = thread_settings(Vec::new(), None, &[], None, false);
         assert!(settings.idle_ttl.is_some());
         let budget = settings.budget.expect("budget is set");
         assert!(budget.max_tokens_per_turn.is_some());
@@ -365,10 +474,10 @@ mod tests {
 
     #[test]
     fn storage_tools_are_declared_only_when_the_project_has_a_location() {
-        let without = thread_settings(None, None, &[], None, false);
+        let without = thread_settings(Vec::new(), None, &[], None, false);
         assert!(without.relayed_mcp_servers.is_empty());
 
-        let with = thread_settings(None, None, &[], None, true);
+        let with = thread_settings(Vec::new(), None, &[], None, true);
         let names: Vec<&str> = with
             .relayed_mcp_servers
             .iter()
@@ -401,7 +510,7 @@ mod tests {
             },
         ];
         let token = SecretString::from("github_pat_example");
-        let settings = thread_settings(None, None, &variables, Some(&token), false);
+        let settings = thread_settings(Vec::new(), None, &variables, Some(&token), false);
 
         let keys: Vec<&str> = settings
             .env

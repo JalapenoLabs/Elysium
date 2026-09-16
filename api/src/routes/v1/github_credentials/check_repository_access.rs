@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 use validator::Validate;
 
+use super::token_can_push;
 use crate::errors::ApiError;
 use crate::github::{Repository, RepositoryAccess};
 use crate::models::github_credential::{self, GithubTokenKind};
@@ -71,10 +72,6 @@ pub async fn handle(
 }
 
 /// Turns GitHub's answer into what the token can do.
-///
-/// A classic token pushes where its account may push and its scopes allow: `repo` for any
-/// repository, or `public_repo` for a public one. A fine-grained token's permissions are
-/// not reported, so its push access is left unknown rather than guessed from the account.
 fn describe(
     repository: &Repository,
     kind: GithubTokenKind,
@@ -90,18 +87,10 @@ fn describe(
         };
     };
 
-    let can_push = match kind {
-        GithubTokenKind::Classic => {
-            let has_scope = |wanted: &str| found.scopes.iter().any(|scope| scope == wanted);
-            let scope_allows = has_scope("repo") || (!found.is_private && has_scope("public_repo"));
-            Some(found.role_can_push && scope_allows)
-        }
-        GithubTokenKind::FineGrained => None,
-    };
     Access {
         repository: found.full_name.clone(),
         can_read: true,
-        can_push,
+        can_push: token_can_push(kind, found.role_can_push, found.is_private, &found.scopes),
         is_private: Some(found.is_private),
     }
 }

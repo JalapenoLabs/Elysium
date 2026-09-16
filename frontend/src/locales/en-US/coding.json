@@ -53,9 +53,42 @@
     "satellitePlaceholder": "Choose a satellite",
     "sessionTitle": "Title",
     "sessionTitleHint": "Defaults to the first line of the prompt.",
-    "repositoryUrl": "Repository",
-    "repositoryUrlHint": "Optional. The satellite clones it into the session's workspace.",
-    "baseBranch": "Base branch",
+    "repositories": {
+      "label": "Repositories",
+      "private": "Private",
+      "archived": "Archived",
+      "defaultBranch": "Default branch",
+      "branchLabel": "Base branch for {{repository}}",
+      "remove": "Remove {{repository}}",
+      "picker": {
+        "placeholder": "Pick repositories",
+        "search": "Search repositories",
+        "selected_one": "{{count}} repository picked",
+        "selected_other": "{{count}} repositories picked",
+        "noMatches": "No repositories match your search.",
+        "hint": "Optional. Cloned into the session's workspace, most recently pushed first.",
+        "loading": "Loading the token's repositories…",
+        "failed": "GitHub could not be reached to list repositories. Add them by URL instead.",
+        "empty": "This token cannot see any repositories. Add them by URL instead.",
+        "truncated": "Showing the {{shown}} most recently pushed repositories. Add others by URL.",
+        "noToken": "Choose a GitHub token to pick from its repositories, or add one under",
+        "settingsLink": "Settings, GitHub"
+      },
+      "manual": {
+        "label": "Add by URL",
+        "hint": "For other hosts, or a repository the list does not show.",
+        "add": "Add"
+      },
+      "notice": {
+        "noToken": "No GitHub token is chosen, so {{repository}} clones only if it is public.",
+        "notListed": "This token does not list {{repository}}, so it may not be able to clone it."
+      },
+      "errors": {
+        "tooMany": "A session clones at most {{max}} repositories.",
+        "duplicate": "{{first}} and {{second}} are the same repository.",
+        "directory": "{{first}} and {{second}} would both clone into {{directory}}. Remove one of them."
+      }
+    },
     "prompt": "First prompt",
     "promptHint": "Optional. Sent as soon as the session starts.",
     "untitled": "Untitled session",

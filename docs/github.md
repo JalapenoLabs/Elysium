@@ -99,14 +99,52 @@ Only one token per session, set in the thread's environment. No satellite change
 
   These are declared not secret, since an unset flag means secret and would scrub the helper from logs. Nothing is
   written into the workspace. The satellite's pre-push hook lives in repository config, so the two never meet.
-- The satellite's own clone of the session's repository runs before the agent and does not see its environment, so
-  a github.com repository also gets the token as `repos[].auth`. Elysium holds no SSH keys, so a github.com SSH
+- The satellite's own clones of the session's repositories run before the agent and do not see its environment, so
+  each github.com repository also gets the token as `repos[].auth`. Elysium holds no SSH keys, so a github.com SSH
   remote (`git@github.com:` or `ssh://git@github.com/`) is cloned from its `https://github.com/` URL instead
   (`github_token::clone_url`), and the workspace's `origin` is HTTPS, the remote the `gh` credential helper serves.
 - The token also goes in `ThreadSettings.github`, which the satellite scrubs and its planned `gh` broker will use.
 
 An agent can read every variable in its environment, so it holds the token. Scope each token to what its sessions
 need.
+
+## Listing a token's repositories
+
+`GET /api/v1/github-credentials/{id}/repositories` lists what the stored token can see, for picking a session's
+repositories instead of pasting their URLs. It asks `GET https://api.github.com/user/repos?per_page=100&sort=pushed`
+and follows the `Link` header's `rel="next"`, only ever on `https://api.github.com/`, for up to 10 pages
+(`REPOSITORY_PAGE_LIMIT`), so 1,000 repositories. It answers `{ repositories, truncated }`, most recently pushed first:
+
+| Field           | Meaning                                                                               |
+|-----------------|---------------------------------------------------------------------------------------|
+| `fullName`      | `owner/name`, as GitHub spells it; also `owner` and `name` on their own                |
+| `private`       | Whether the repository is private                                                     |
+| `archived`      | Whether it is archived; the picker still lists it, marked                              |
+| `defaultBranch` | The branch a session starts from when it names none                                    |
+| `cloneUrl`      | The `https://github.com/` URL a session clones                                         |
+| `pushedAt`      | When anything was last pushed; `null` for a repository nothing was pushed to          |
+| `canPush`       | As for `repository-access`: the account's role and a classic token's scopes; `null` for a fine-grained token |
+
+`truncated` is true when GitHub had more pages; the rest can still be added by URL. A token GitHub refuses answers
+`400`, an unreachable GitHub `502`, and an unknown credential `404`. Nothing is cached: one page answers in about a
+second (0.7 to 2.5 seconds measured), and the list is asked for once when the New session form opens on a token.
+
+With no `type`, GitHub already includes the account's own repositories, the ones it collaborates on, and its
+organizations' repositories. An `affiliation` naming all three changed nothing when measured with a classic token.
+
+### What a fine-grained token lists
+
+Measured with a fine-grained token whose resource owner is the JalapenoLabs organization, granted all of its
+repositories:
+
+- Every repository of the resource owner was listed, private ones included (45 of 45).
+- The account's own public repositories were listed too (44), but none of its private ones, which the token cannot
+  read either (`repository-access` answers `canRead: false`).
+- Other organizations' repositories were not listed, public or private. An organization can refuse the token outright,
+  such as one that forbids fine-grained tokens living longer than 366 days.
+
+So the list holds what the token can clone, except other owners' public repositories, which clone without a token and
+are added by URL. `canPush` is `null` for every entry, since GitHub reports only the account's role.
 
 ## Checking a token against a repository
 
@@ -121,9 +159,10 @@ need.
 | 401            | `400` with what to check                                                                      |
 
 Only `https://github.com/`, `ssh://git@github.com/`, and `git@github.com:` remotes are checked; owner and name are
-checked against GitHub's alphabets before they become part of the path (`Repository::from_url`). The new session
-modal runs the check as the repository field settles (`REPOSITORY_ACCESS_CHECK_DELAY_MS`) and says what the chosen
-token can do, and warns about a token that has expired or expires within a week. A warning never blocks the session.
+checked against GitHub's alphabets before they become part of the path (`Repository::from_url`). The New session
+modal runs the check for each github.com repository added by URL that the token's list does not hold, and says what
+the chosen token can do. It also warns about a token that has expired or expires within a week. A warning never blocks
+the session.
 
 ## Which permissions a token needs
 

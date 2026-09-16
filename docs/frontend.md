@@ -137,9 +137,7 @@ soon as the kind changes, mirroring the API. `githubPresentation.ts` holds the l
 danger chip in place of its date. The default token wears a Default chip, and the row menu makes a token the default
 or stops. `src/components/GithubTokenSelect.tsx` picks a token for a project (`ProjectGithubField` on the project
 page, saved on change, with a notice when its token was deleted) and for a session (`CreateSessionModal`). Both offer
-following the level above, no token, or a token by name. `SessionGithubAccess` checks the chosen token against the
-session's repository through SWR once the field settles (`useDebouncedValue`), and says whether it can read and push,
-cannot see the repository, or is refused. See `docs/github.md`.
+following the level above, no token, or a token by name. See `docs/github.md`.
 
 Environment variables under `src/pages/Settings/Environment/` follow GitHub's shape: a table (key in monospace, value,
 description) whose row menu edits or deletes one, and add and edit as their own pages built from
@@ -186,6 +184,17 @@ matter when changing it:
   uikit holds columns to at least 160 pixels unless a column sets its own bounds, and left-aligns every header, so the
   `#` header carries `.numeric-column-header`, which `src/index.css` moves to the right edge. The tables' storage ids
   end in `.v2`, since uikit appends a column it has not seen to the end of a saved column order.
+- `CreateSessionModal` picks the session's repositories through `SessionRepositoriesField`. `GithubRepositoryPicker`
+  is HeroUI's `Autocomplete` in multiple selection over the resolved token's repositories, loaded through SWR under
+  `['github-repositories', credentialId]`; its value only counts the picks, since each pick is a row below it
+  (`SessionRepositoryRow`) with an optional base branch (the default branch as placeholder) and a remove button.
+  Add by URL keeps manual entry for other hosts and unlisted repositories, checked with the same URL rules. Rows are
+  keyed by URL and matched to the list by repository identity, so a URL added by hand for a listed repository shows as
+  picked. Rows stay when the token changes and their warnings follow it: a picked repository the token does not list,
+  no token at all, a token that can read but not push, and, for a github.com URL the list lacks,
+  `SessionGithubAccess` asking GitHub about that one repository. `SessionGithubTokenExpiry` sits under the token
+  picker. With no token the picker is disabled with a link to Settings, GitHub. Duplicate and directory rules mirror
+  the API (`sessionRepositories.ts`).
 - `DockviewReact` needs a sized parent. The page is a flex column whose Dockview wrapper is `min-h-0 flex-1`,
   inside a workspace-layout `main`.
 
