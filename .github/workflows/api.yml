@@ -1,0 +1,212 @@
+# Copyright © 2026 Jalapeno Labs
+
+# The Rust API. Formatting, lints, tests, the migrations, and the image are
+# separate jobs, so they run side by side on the runner pool and each failure is
+# reported on its own. See docs/ci.md.
+name: API
+
+# Deliberately unfiltered by path. Every job here is a required check, GitHub
+# never evaluates path filters for merge groups, and a required check whose
+# workflow a path filter skipped stays pending forever. See docs/ci.md.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+    types: [ checks_requested ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Fail on any compiler warning. The crate warns on a long list of lints, and
+  # letting them through would make that list decorative.
+  RUSTFLAGS: '-D warnings'
+  # Incremental artifacts only pay off for repeated edits of one file, and they
+  # are most of what a persistent target directory would otherwise accumulate.
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  format:
+    name: API format
+    # Elysium is public and these runners are self-hosted, so a fork's pull request
+    # never reaches them. Pushes, merge groups, and manual runs always come from
+    # this repository, so the guard never skips those.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Prepare the toolchain
+        uses: ./.github/actions/rust-toolchain
+        with:
+          crate: api
+
+      - name: Check formatting
+        working-directory: api
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: API clippy
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Prepare the toolchain
+        uses: ./.github/actions/rust-toolchain
+        with:
+          crate: api
+
+      # `--all-targets` covers the tests, which is where lint debt accumulates
+      # when only the binary is checked.
+      - name: Clippy
+        working-directory: api
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+  test:
+    name: API test
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Prepare the toolchain
+        uses: ./.github/actions/rust-toolchain
+        with:
+          crate: api
+
+      # The hermetic suite. Database-backed tests are ignored here and run in the
+      # migrations job, which provides the Postgres they need.
+      - name: Test
+        working-directory: api
+        run: cargo test --locked
+
+  migrations:
+    name: API migrations
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    env:
+      # Must match the version api/scripts/verify-migrations.sh and docs/database.md name.
+      DIESEL_VERSION: '2.3.13'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Prepare the toolchain
+        uses: ./.github/actions/rust-toolchain
+        with:
+          crate: api
+
+      # The release binary rather than `cargo install`: it is built with libpq
+      # bundled, so the runner needs no Postgres client library, and it costs a
+      # download instead of a compile. It is verified against the checksum
+      # published beside it.
+      - name: Install the Diesel CLI
+        run: |
+          set -euo pipefail
+          release="https://github.com/diesel-rs/diesel/releases/download/v${DIESEL_VERSION}"
+          archive="diesel_cli-x86_64-unknown-linux-gnu.tar.xz"
+          install_dir="${RUNNER_TEMP}/diesel"
+          mkdir -p "${install_dir}"
+          cd "${install_dir}"
+
+          curl -fsSL -o "${archive}" "${release}/${archive}"
+          curl -fsSL -o "${archive}.sha256" "${release}/${archive}.sha256"
+          sha256sum --check --status "${archive}.sha256"
+
+          tar -xJf "${archive}" --strip-components=1
+          echo "${install_dir}" >> "${GITHUB_PATH}"
+
+      - name: Confirm the Diesel CLI version
+        run: |
+          set -euo pipefail
+          diesel --version
+          diesel --version | grep --quiet --fixed-strings "Version: ${DIESEL_VERSION}"
+
+      # The script starts its own disposable Postgres on a port Docker picks, named
+      # after the script's process id, so concurrent jobs on one Docker host never
+      # collide. Its process id is recorded so the cleanup step below can remove
+      # exactly that container when a cancelled run kills the script before its
+      # own cleanup runs.
+      - name: Verify the migrations
+        run: |
+          set -euo pipefail
+          api/scripts/verify-migrations.sh &
+          script_pid=$!
+          echo "${script_pid}" > "${RUNNER_TEMP}/verify-migrations.pid"
+          wait "${script_pid}"
+
+      - name: Remove the disposable Postgres
+        if: always()
+        run: |
+          pid_file="${RUNNER_TEMP}/verify-migrations.pid"
+          if [ ! -f "${pid_file}" ]; then
+            echo "The migrations never started, so there is no container to remove."
+            exit 0
+          fi
+          docker rm --force "elysium-verify-migrations-$(cat "${pid_file}")" > /dev/null 2>&1 || true
+
+  image:
+    name: API image
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    env:
+      # Unique per run, because runners in the pool can share one Docker daemon.
+      IMAGE: elysium-api:ci-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # The image compiles with its own FROM line, not rust-toolchain.toml, so the
+      # two are compared here rather than trusted to be edited together.
+      - name: Check the image uses the pinned toolchain
+        run: |
+          set -euo pipefail
+          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' api/rust-toolchain.toml)"
+          if ! grep --quiet --fixed-strings "FROM rust:${channel}-" api/Dockerfile; then
+            echo "::error::api/Dockerfile does not build with rust ${channel} from api/rust-toolchain.toml."
+            exit 1
+          fi
+          echo "api/Dockerfile builds with rust ${channel}."
+
+      # Built from the repository root with the compose file's Dockerfile, exactly
+      # as compose builds it. Not pushed anywhere.
+      - name: Build the image
+        run: docker build --file api/Dockerfile --tag "${IMAGE}" .
+
+      # Booting the server needs Postgres, Redis, and an encryption key. Running
+      # the CLI still proves the runtime stage: the binary starts and finds every
+      # library it links.
+      - name: Run the binary in the image
+        run: docker run --rm "${IMAGE}" elysium-api --help
+
+      - name: Remove the CI tag
+        if: always()
+        run: docker rmi --force "${IMAGE}" > /dev/null 2>&1 || true

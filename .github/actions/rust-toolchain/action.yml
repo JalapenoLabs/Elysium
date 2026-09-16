@@ -1,0 +1,39 @@
+# Copyright © 2026 Jalapeno Labs
+
+# Prepares a Rust crate for checking. The crate's rust-toolchain.toml is the only
+# place the compiler version is written; rustup installs exactly that version the
+# first time cargo runs inside the crate, and this action never names one itself.
+name: Rust toolchain
+description: Install the crate's pinned toolchain and point cargo at a persistent target directory.
+
+inputs:
+  crate:
+    description: The crate's directory at the repository root, such as api or oauth-broker.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The official rust images are minimal and the crates build inside them, so
+    # rustfmt and clippy are added here rather than listed in rust-toolchain.toml,
+    # where every image build would download them for nothing.
+    - name: Install the pinned toolchain
+      shell: bash
+      working-directory: ${{ inputs.crate }}
+      run: |
+        set -euo pipefail
+        cargo --version
+        rustup component add rustfmt clippy
+        rustup show active-toolchain
+        rustc --version
+
+    # actions/checkout runs `git clean -ffdx`, which deletes a target directory
+    # inside the checkout at the start of every job. One beside the checkout
+    # survives, so a runner compiles only what changed since its last run. It is
+    # per crate, and each runner has its own workspace, so no two jobs ever share
+    # one at the same time. Deleting it is always safe; the next run rebuilds it.
+    - name: Use a persistent target directory
+      shell: bash
+      env:
+        CRATE: ${{ inputs.crate }}
+      run: echo "CARGO_TARGET_DIR=${RUNNER_WORKSPACE}/cargo-target/${CRATE}" >> "${GITHUB_ENV}"

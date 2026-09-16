@@ -1,0 +1,58 @@
+# Copyright © 2026 Jalapeno Labs
+
+# The compose files. The images they build are checked by the API, frontend, and
+# OAuth broker workflows; this one proves the files themselves still parse and
+# interpolate. See docs/ci.md.
+name: Compose
+
+# Deliberately unfiltered by path. Every job here is a required check, GitHub
+# never evaluates path filters for merge groups, and a required check whose
+# workflow a path filter skipped stays pending forever. See docs/ci.md.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+    types: [ checks_requested ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compose-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  config:
+    name: Compose config
+    # Elysium is public and these runners are self-hosted, so a fork's pull request
+    # never reaches them. Pushes, merge groups, and manual runs always come from
+    # this repository, so the guard never skips those.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Compose refuses every command, `config` included, while a required variable
+      # is unset, and the checkout has no environment file. These placeholders exist
+      # only to satisfy interpolation: nothing starts, and no value here is a secret.
+      - name: Validate the Elysium stack
+        env:
+          POSTGRES_USER: ci-placeholder
+          POSTGRES_PASSWORD: ci-placeholder
+          POSTGRES_DB: ci-placeholder
+          REDIS_PASSWORD: ci-placeholder
+          ELYSIUM_ENCRYPTION_KEY: ci-placeholder
+        run: docker compose --file compose.yml config --quiet
+
+      - name: Validate the OAuth broker stack
+        env:
+          BROKER_PUBLIC_URL: http://127.0.0.1
+          BROKER_SEALING_KEY: ci-placeholder
+        run: docker compose --file oauth-broker/compose.yml config --quiet
