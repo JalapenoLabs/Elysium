@@ -98,7 +98,7 @@ impl CodingSessionResponse {
     }
 }
 
-/// Settings for a new thread: Elysium's policy ceilings, the optional repository, the
+/// Settings for a new thread: Elysium's policy ceilings, the repositories to clone, the
 /// credentials the thread fails over through, the workspace's environment variables, the
 /// GitHub token its agent works with, and the storage tools when the project has a storage
 /// location to use them on.
@@ -106,7 +106,7 @@ impl CodingSessionResponse {
 /// Without a stack the thread declares no endpoint, and the satellite falls back to
 /// whatever credential it holds itself.
 fn thread_settings(
-    repository: Option<Repo>,
+    repositories: Vec<Repo>,
     stack: Option<ModelStack>,
     variables: &[ThreadVariable],
     github_token: Option<&SecretString>,
@@ -146,7 +146,7 @@ fn thread_settings(
         budget: Some(budget),
         harness: harness.into(),
         models,
-        repos: repository.into_iter().collect(),
+        repos: repositories,
         github: github_token.map(github_token::integration),
         env: thread_environment(variables, github_token),
         // A thread takes its tools once. A project without a location yet has nothing to

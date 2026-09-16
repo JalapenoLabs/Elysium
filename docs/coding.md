@@ -108,10 +108,22 @@ Every thread is opened with Elysium's policy, constants in `api/src/routes/v1/co
 | Wall clock per turn       | 60 min    | Ends a stuck turn                                                 |
 | Tokens per turn           | unlimited | Bounded by the two ceilings above                                 |
 
-An optional repository URL (https, http, ssh, or `git@`) is cloned into the workspace, into a directory named after
-the URL's last segment. Elysium holds no SSH keys: a github.com SSH remote is cloned over HTTPS (see
-`docs/github.md`), and an SSH remote on any other host is refused with `400`. The New session form refuses one
-before sending (`createSessionFormSchema.ts`), with the same github.com prefixes.
+### Repositories
+
+A session clones up to 16 repositories (https, http, ssh, or `git@` URLs), in the order given, each into the
+workspace's `repos/` directory under a name taken from the URL's last segment without `.git`. Each may name the base
+branch its work starts from; without one the remote's default branch is used.
+
+- **Limit.** The satellite sets none, but clones run one after another before the thread is usable, and the first
+  that fails parks the thread with `REPO_CLONE_FAILED`. Sixteen (`MAX_REPOSITORIES`) covers a service with its
+  libraries and keeps that bounded.
+- **Directory names.** The satellite checks that each name is safe, not that the names differ, so two repositories
+  that would share a directory, ignoring case, answer `400` naming both URLs. The same repository listed twice
+  (github.com names compared ignoring case, over HTTPS or SSH alike) is refused the same way and says so.
+- **SSH.** Elysium holds no SSH keys: a github.com SSH remote is cloned over HTTPS (see `docs/github.md`), and an
+  SSH remote on any other host is refused.
+
+The New session form mirrors every rule before sending (`createSessionFormSchema.ts`, `sessionRepositories.ts`).
 
 ## Model credentials
 
@@ -155,7 +167,7 @@ Credentials never reach an agent either way: the satellite's proxy strips what t
 real one on the way out. The shaping rules live in `api/src/routes/v1/coding_sessions/model_stack.rs`.
 
 A thread is also opened with an environment: every workspace environment variable, then the session's GitHub token
-as `GH_TOKEN` with the git config that lets `git` use it, and that token as the clone credential for an
+as `GH_TOKEN` with the git config that lets `git` use it, and that token as the clone credential for each
 `https://github.com/` repository. Unlike LLM credentials, the agent can read all of it. See `docs/environment.md`
 and `docs/github.md`.
 

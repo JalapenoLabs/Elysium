@@ -31,13 +31,14 @@ import {
   toast,
 } from '@heroui/react'
 import { GithubTokenSelect, INHERIT_GITHUB_TOKEN, NO_GITHUB_TOKEN } from '../../components/GithubTokenSelect'
-import { SessionGithubAccess } from './SessionGithubAccess'
+import { SessionGithubTokenExpiry } from './SessionGithubTokenExpiry'
+import { SessionRepositoriesField } from './SessionRepositoriesField'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
 
 // Misc
-import { getUpstreamErrorMessage } from '../../api/errors'
+import { getApiErrorMessage } from '../../api/errors'
 import { createCodingSession, startTurn } from '../../api/routes/codingSessionRoutes'
 import { useGithubCredentialsLoader, useProjectsLoader, useSatellitesLoader } from '../../hooks/useServerData'
 import { resolveProjectGithubCredentialId } from '../Settings/Github/githubPresentation'
@@ -88,8 +89,7 @@ export function CreateSessionModal(props: Props) {
         ? activeSatellites[0].id
         : '',
       title: '',
-      repositoryUrl: '',
-      baseBranch: '',
+      repositories: [],
       prompt: '',
       githubChoice: INHERIT_GITHUB_TOKEN,
     },
@@ -105,8 +105,10 @@ export function CreateSessionModal(props: Props) {
         projectId: values.projectId,
         satelliteId: values.satelliteId,
         title,
-        repositoryUrl: values.repositoryUrl || undefined,
-        baseBranch: values.baseBranch || undefined,
+        repositories: values.repositories.map((repository) => ({
+          url: repository.url,
+          baseBranch: repository.baseBranch || undefined,
+        })),
         // Following the project is spelled by leaving the field out.
         githubCredentialId: values.githubChoice in githubCredentialIdByChoice
           ? githubCredentialIdByChoice[values.githubChoice]
@@ -122,7 +124,9 @@ export function CreateSessionModal(props: Props) {
       }
     }
     catch (error) {
-      const message = getUpstreamErrorMessage(error)
+      // A refused session (400), such as a repository GitHub or the API will not take, and a
+      // satellite that refused the thread (502) both say what went wrong.
+      const message = getApiErrorMessage(error)
       if (!message) {
         console.debug('CreateSessionModal failed to start a session', { error })
       }
@@ -132,9 +136,9 @@ export function CreateSessionModal(props: Props) {
 
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
-  const [ projectId, satelliteId, title, repositoryUrl, baseBranch, prompt, githubChoice ] = useWatch({
+  const [ projectId, satelliteId, title, repositories, prompt, githubChoice ] = useWatch({
     control: form.control,
-    name: [ 'projectId', 'satelliteId', 'title', 'repositoryUrl', 'baseBranch', 'prompt', 'githubChoice' ],
+    name: [ 'projectId', 'satelliteId', 'title', 'repositories', 'prompt', 'githubChoice' ],
   })
 
   // The token the project would hand this session, and the one the session will start with.
@@ -154,7 +158,7 @@ export function CreateSessionModal(props: Props) {
   // pressable child React Aria warns. The backdrop takes the open state directly.
   return <Modal.Backdrop isOpen={props.state.isOpen} onOpenChange={props.state.setOpen}>
     <Modal.Container>
-      <Modal.Dialog className='sm:max-w-xl'>
+      <Modal.Dialog className='sm:max-w-2xl'>
         <Modal.CloseTrigger />
         <Modal.Header>
           <Modal.Heading>{
@@ -240,32 +244,6 @@ export function CreateSessionModal(props: Props) {
               <FieldError>{errors.title?.message}</FieldError>
             </TextField>
 
-            <div className='grid grid-cols-1 gap-4 sm:grid-cols-[2fr_1fr]'>
-              {/* Repository */}
-              <TextField
-                isInvalid={Boolean(errors.repositoryUrl)}
-                value={repositoryUrl}
-                onChange={(value) => form.setValue('repositoryUrl', value, { shouldDirty: true, shouldValidate: true })}
-              >
-                <Label>{t('create.repositoryUrl')}</Label>
-                <Input placeholder='https://github.com/org/repo.git' />
-                <Description>{t('create.repositoryUrlHint')}</Description>
-                <FieldError>{errors.repositoryUrl?.message}</FieldError>
-              </TextField>
-
-              {/* Base branch */}
-              <TextField
-                isDisabled={!repositoryUrl}
-                isInvalid={Boolean(errors.baseBranch)}
-                value={baseBranch}
-                onChange={(value) => form.setValue('baseBranch', value, { shouldDirty: true, shouldValidate: true })}
-              >
-                <Label>{t('create.baseBranch')}</Label>
-                <Input placeholder='main' />
-                <FieldError>{errors.baseBranch?.message}</FieldError>
-              </TextField>
-            </div>
-
             {/* GitHub token */}
             <div className='flex flex-col gap-2'>
               <GithubTokenSelect
@@ -278,11 +256,17 @@ export function CreateSessionModal(props: Props) {
                 credentials={githubCredentials}
                 onChange={(value) => form.setValue('githubChoice', value, { shouldDirty: true })}
               />
-              <SessionGithubAccess
-                credential={sessionCredential}
-                repositoryUrl={repositoryUrl}
-              />
+              <SessionGithubTokenExpiry credential={sessionCredential} />
             </div>
+
+            {/* Repositories */}
+            <SessionRepositoriesField
+              credential={sessionCredential}
+              value={repositories}
+              errorMessage={errors.repositories?.message ?? errors.repositories?.root?.message}
+              branchErrors={repositories.map((_repository, index) => errors.repositories?.[index]?.baseBranch?.message)}
+              onChange={(value) => form.setValue('repositories', value, { shouldDirty: true, shouldValidate: true })}
+            />
 
             {/* First prompt */}
             <TextField
@@ -300,7 +284,7 @@ export function CreateSessionModal(props: Props) {
             </Button>
             <Button
               type='submit'
-              isDisabled={!projectId || !satelliteId}
+              isDisabled={!projectId || !satelliteId || Boolean(errors.repositories)}
               isPending={form.formState.isSubmitting}
             >
               <span>{t('common:actions.create')}</span>

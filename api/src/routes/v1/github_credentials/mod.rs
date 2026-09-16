@@ -8,6 +8,7 @@ mod create_github_credential;
 mod delete_github_credential;
 mod get_github_credential;
 mod list_github_credentials;
+mod list_repositories;
 mod test_github_credential;
 mod update_github_credential;
 
@@ -35,6 +36,7 @@ pub fn router() -> Router<AppState> {
                 .delete(delete_github_credential::handle),
         )
         .route("/{id}/test", post(test_github_credential::handle))
+        .route("/{id}/repositories", get(list_repositories::handle))
         .route(
             "/{id}/repository-access",
             post(check_repository_access::handle),
@@ -90,6 +92,27 @@ impl GithubCredentialResponse {
             created_at: credential.created_at,
             updated_at: credential.updated_at,
         }
+    }
+}
+
+/// Whether a token can push to a repository its account may or may not push to.
+///
+/// A classic token pushes where its account may push and its scopes allow: `repo` for any
+/// repository, or `public_repo` for a public one. A fine-grained token's own permissions are
+/// not reported, so its push access is `None`, never guessed from the account.
+fn token_can_push(
+    kind: GithubTokenKind,
+    role_can_push: bool,
+    is_private: bool,
+    scopes: &[String],
+) -> Option<bool> {
+    match kind {
+        GithubTokenKind::Classic => {
+            let has_scope = |wanted: &str| scopes.iter().any(|scope| scope == wanted);
+            let scope_allows = has_scope("repo") || (!is_private && has_scope("public_repo"));
+            Some(role_can_push && scope_allows)
+        }
+        GithubTokenKind::FineGrained => None,
     }
 }
 

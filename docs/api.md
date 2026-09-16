@@ -43,6 +43,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/github-credentials/{id}`     | `204`; the token itself stays valid on GitHub       |
 | POST   | `/api/v1/github-credentials/{id}/test` | `200` `{ result }` from asking GitHub now          |
 | POST   | `/api/v1/github-credentials/{id}/repository-access` | `200` `{ result }` for one repository |
+| GET    | `/api/v1/github-credentials/{id}/repositories` | `200` `{ repositories, truncated }` the token can see |
 | GET    | `/api/v1/projects`                    | `200` `{ projects: Project[] }`, by name            |
 | POST   | `/api/v1/projects`                    | `201` `{ project }`                                 |
 | PATCH  | `/api/v1/projects/{id}`               | `200` `{ project }`                                 |
@@ -187,7 +188,9 @@ transaction, and both credentials go out on the event stream; `false` leaves no 
 
 `test` answers `{ login, scopes, tokenExpiresAt }` from asking GitHub now, and records it on the credential.
 `repository-access` takes `{ repositoryUrl }` for a github.com remote and answers
-`{ repository, canRead, canPush, isPrivate }`, with `canPush` null when unknown. See `docs/github.md`.
+`{ repository, canRead, canPush, isPrivate }`, with `canPush` null when unknown. `repositories` answers
+`{ repositories, truncated }`, each repository `{ fullName, owner, name, private, archived, defaultBranch, cloneUrl,
+pushedAt, canPush }`, most recently pushed first, up to 1,000. See `docs/github.md`.
 
 ### `/api/v1/environment-variables`
 
@@ -206,9 +209,10 @@ A `CodingSession` has `id` (the session's number, 1, 2, 3, ...), `projectId`, `s
 `queueDepth`, `currentTurnId`, `latestSequence`, `lastActivityAt`, and `expiresAt`. `state` is one of `unknown`,
 `provisioning`, `idle`, `running`, `awaiting-input`, `watching`, `paused`, `expired`, or `destroyed`.
 
-`POST` requires `projectId`, `satelliteId`, and `title` (1 to 200 characters), and accepts `repositoryUrl` and
-`baseBranch`, and `githubCredentialId` (absent follows the project, `null` asks for no token, and an id names one;
-an unknown id answers `400`). Sessions carry `githubCredentialId`, the token their thread started with. The satellite must be active (`409` otherwise). `turns` requires `prompt` (1 to 100,000 characters)
+`POST` requires `projectId`, `satelliteId`, and `title` (1 to 200 characters), and accepts `repositories`, up to 16
+`{ url, baseBranch? }` cloned in order, and `githubCredentialId` (absent follows the project, `null` asks for no token, and an id names one;
+an unknown id answers `400`). Two repositories that would clone into the same directory, ignoring case, answer `400`
+naming both URLs; see `docs/coding.md`. Sessions carry `githubCredentialId`, the token their thread started with. The satellite must be active (`409` otherwise). `turns` requires `prompt` (1 to 100,000 characters)
 and answers `{ turnId, status, prompt, queuedAt }`; the turn's progress arrives on the event stream.
 
 A `SessionEvent` has `sessionId` (the session's number), `sequence`, `turnId`, `occurredAt`, `type` (the satellite's wire name, such as

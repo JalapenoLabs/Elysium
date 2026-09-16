@@ -99,12 +99,18 @@ export function listCodingSessions() {
     .json<ListCodingSessionsResponse>()
 }
 
+// One repository the session clones. Absent `baseBranch` uses the remote's default branch.
+export type SessionRepositoryRequest = {
+  url: string
+  baseBranch?: string
+}
+
 type CreateCodingSessionRequest = {
   projectId: string
   satelliteId: string
   title: string
-  repositoryUrl?: string
-  baseBranch?: string
+  // Cloned in order, each into its own directory; see sessionRepositories.ts for the rules.
+  repositories: SessionRepositoryRequest[]
   // Absent follows the project, null asks for no token, and an id names one.
   githubCredentialId?: string | null
 }
