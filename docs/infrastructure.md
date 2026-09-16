@@ -86,13 +86,18 @@ Postgres 18 images place the cluster under `/var/lib/postgresql/<major>/docker`,
 
 ## Automated pull request review
 
-Every pull request is reviewed by Claude and Codex through `.github/workflows/pull-review.yml`, a thin wrapper around
-the org's shared `JalapenoLabs/github-actions` `call-review-pr.yml` workflow. The review logic, models, and runner
-live there, not here; see that repository's `docs/review-pr/guide.md`. Drafts are skipped until marked ready, pure
-base-branch merges are skipped, and a head commit whose subject starts with `[REVIEW]` forces a review.
+Every pull request is reviewed by Claude and Codex. The review runs in the private `JalapenoLabs/github-actions`
+repository, not here: a public repository cannot call a private repository's workflows, and the review pipeline stays
+private. `.github/workflows/pull-review.yml` only asks for a review by dispatching that repository's
+`review-dispatch.yml`, and the reviewers post back to the pull request through their GitHub Apps. The run itself, its
+job summary, and its failure alerts live in that repository's Actions tab; see its `docs/review-pr/guide.md`.
 
-Only pull requests from branches of this repository are reviewed. Reviews run on a self-hosted runner, and a fork's
-code must never execute there.
+The request authenticates with the `JL_FINE_GRAINED_GITHUB_TOKEN` org secret, a fine-grained JalapenoLabs token that
+must carry `Actions: Read and write` on `JalapenoLabs/github-actions`.
+
+Drafts are skipped until marked ready, pure base-branch merges are skipped, and a head commit whose subject starts
+with `[REVIEW]` forces a review. Pull requests from forks are never reviewed: they get no secrets to request one, and
+the review runs on a self-hosted runner that never checks out a fork's code.
 
 ## Roadmap
 
