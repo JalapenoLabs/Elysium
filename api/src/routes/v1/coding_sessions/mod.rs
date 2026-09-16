@@ -67,7 +67,8 @@ const TURN_WALL_CLOCK_CEILING_SECONDS: i64 = 60 * 60;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodingSessionResponse {
-    id: Uuid,
+    /// The session's number.
+    id: i64,
     project_id: Uuid,
     satellite_id: Uuid,
     thread_id: String,

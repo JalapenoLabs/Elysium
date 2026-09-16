@@ -159,7 +159,7 @@ impl From<&arsox_sdk::proto::turn::v1::Turn> for TurnView {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionEvent {
-    pub session_id: Uuid,
+    pub session_id: i64,
     /// Strictly increasing per thread. Clients merge live and fetched events on it.
     pub sequence: u64,
     pub turn_id: Option<String>,
@@ -172,7 +172,7 @@ pub struct SessionEvent {
 }
 
 impl SessionEvent {
-    pub fn new(session_id: Uuid, thread_event: ThreadEvent) -> Self {
+    pub fn new(session_id: i64, thread_event: ThreadEvent) -> Self {
         Self {
             session_id,
             sequence: thread_event.sequence,
@@ -423,13 +423,12 @@ mod tests {
             }),
             text: "Done.".to_owned(),
         });
-        let session_id = Uuid::nil();
-        let view = SessionEvent::new(session_id, wire_event(Some(message), "agent.message"));
+        let view = SessionEvent::new(12, wire_event(Some(message), "agent.message"));
 
         assert_eq!(
             serde_json::to_value(view).expect("serializes"),
             json!({
-                "sessionId": session_id,
+                "sessionId": 12,
                 "sequence": 7,
                 "turnId": "turn-1",
                 "occurredAt": "2027-01-15T08:00:00Z",
@@ -470,7 +469,7 @@ mod tests {
             tool_name: "Bash".to_owned(),
             input: Some(input),
         });
-        let view = SessionEvent::new(Uuid::nil(), wire_event(Some(started), "tool.started"));
+        let view = SessionEvent::new(1, wire_event(Some(started), "tool.started"));
 
         let payload = serde_json::to_value(view.payload).expect("serializes");
         assert_eq!(
@@ -481,7 +480,7 @@ mod tests {
 
     #[test]
     fn unrendered_and_unknown_payloads_keep_their_wire_type() {
-        let view = SessionEvent::new(Uuid::nil(), wire_event(None, "team.member.spawned"));
+        let view = SessionEvent::new(1, wire_event(None, "team.member.spawned"));
         assert_eq!(view.event_type, "team.member.spawned");
         assert!(view.payload.is_none());
     }

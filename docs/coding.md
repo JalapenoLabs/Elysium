@@ -81,9 +81,19 @@ session. Deleting a satellite still forgets its sessions, whatever project they 
 
 ## Sessions
 
-Creating a session generates its id first and sends it as the satellite's idempotency key, so a retried create
-never opens a second thread. The thread also carries metadata `elysium.session_id`. If the row cannot be recorded,
-the API destroys the thread instead of leaving it running unrecorded.
+Sessions are numbered 1, 2, 3, ... in the order they are created, and the number is the session's id everywhere:
+routes, events, and the Coding page's URLs. Creating a session reserves its number from the table's identity sequence
+(`nextval`) before the thread is opened, then records the row with that number. A create that fails after the
+reservation, such as a satellite refusing the thread, leaves a gap in the numbering; numbers are never reused.
+
+The thread carries the number in its metadata as `elysium.session_id`, for anyone reading the satellite directly.
+Nothing matches on it: two Elysium installs can share a satellite, and each numbers its sessions from 1. The satellite
+watcher finds a session's thread by its thread id among the threads of the session's own satellite.
+
+The satellite's idempotency key is a fresh UUIDv7 for each create request, never the number, since numbers repeat
+across installs and after a database reset. It makes the SDK's retries of that one request safe; a client that sends
+the create again opens a second thread. If the row cannot be recorded, the API destroys the thread instead of leaving
+it running unrecorded.
 
 Every thread is opened with Elysium's policy, constants in `api/src/routes/v1/coding_sessions/mod.rs`:
 

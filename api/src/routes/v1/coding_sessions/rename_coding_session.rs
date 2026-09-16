@@ -8,7 +8,6 @@ use axum::extract::rejection::{JsonRejection, PathRejection};
 use axum::extract::{Path, State};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use uuid::Uuid;
 use validator::Validate;
 
 use super::{CodingSessionResponse, validate_not_blank};
@@ -26,7 +25,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
-    path: Result<Path<Uuid>, PathRejection>,
+    path: Result<Path<i64>, PathRejection>,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;

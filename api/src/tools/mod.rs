@@ -59,7 +59,7 @@ impl std::fmt::Debug for ToolContext {
 /// and write.
 #[derive(Clone)]
 pub struct CallScope {
-    pub session_id: Uuid,
+    pub session_id: i64,
     pub project_id: Uuid,
     pub workspace: ThreadHandle,
 }

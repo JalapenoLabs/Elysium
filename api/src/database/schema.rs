@@ -38,7 +38,7 @@ diesel::table! {
     use diesel::sql_types::*;
 
     coding_sessions (id) {
-        id -> Uuid,
+        id -> Int8,
         satellite_id -> Uuid,
         thread_id -> Text,
         title -> Text,
