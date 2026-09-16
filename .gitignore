@@ -12,3 +12,6 @@ frontend/node_modules/
 .vscode/*
 !.vscode/extensions.json
 .DS_Store
+
+# Git worktrees that coding agents create for isolated work.
+.claude/worktrees/
