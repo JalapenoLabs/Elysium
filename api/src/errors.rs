@@ -134,7 +134,16 @@ impl From<crate::mail::stalwart::StalwartError> for ApiError {
 
 impl From<crate::storage::StorageError> for ApiError {
     fn from(error: crate::storage::StorageError) -> Self {
-        Self::BadGateway(error.to_string())
+        use crate::storage::StorageError;
+
+        match error {
+            StorageError::NotFound => Self::NotFound,
+            // A path that is not plain, or an upload too large, is the client's to fix.
+            invalid @ StorageError::Invalid(_) => Self::BadRequest(invalid.to_string()),
+            upstream @ (StorageError::Unauthorized(_) | StorageError::Refused(_)) => {
+                Self::BadGateway(upstream.to_string())
+            }
+        }
     }
 }
 
