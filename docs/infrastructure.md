@@ -8,8 +8,7 @@ missing, and `.env.example` is the template.
 `WEB_PORT` may be set to move nginx off the default port 4000. `WEB_BIND_ADDRESS` publishes it on an address other
 than the default `127.0.0.1`, such as `0.0.0.0` for a trusted LAN. Until the API has authentication, that hands
 everyone who can reach the address the stored credentials and control of the Docker host; see `docs/security.md`.
-`SMTP_PORT`, `SUBMISSIONS_PORT`, and `IMAPS_PORT`
-move the host side of the mail ports off 25, 465, and 993.
+`SMTP_PORT`, `SUBMISSIONS_PORT`, and `IMAPS_PORT` move the host side of the mail ports off 25, 465, and 993.
 
 Postgres applies its credentials only when the data volume is first created. After changing them, recreate the
 volume with `docker compose down --volumes`, which destroys the data.
