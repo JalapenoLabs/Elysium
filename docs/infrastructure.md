@@ -84,6 +84,16 @@ Postgres runs with `timezone=UTC`, and every server container sets `TZ=UTC`.
 Postgres 18 images place the cluster under `/var/lib/postgresql/<major>/docker`, so the named volume mounts
 `/var/lib/postgresql`, not the older `.../data` path.
 
+## Automated pull request review
+
+Every pull request is reviewed by Claude and Codex through `.github/workflows/pull-review.yml`, a thin wrapper around
+the org's shared `JalapenoLabs/github-actions` `call-review-pr.yml` workflow. The review logic, models, and runner
+live there, not here; see that repository's `docs/review-pr/guide.md`. Drafts are skipped until marked ready, pure
+base-branch merges are skipped, and a head commit whose subject starts with `[REVIEW]` forces a review.
+
+Only pull requests from branches of this repository are reviewed. Reviews run on a self-hosted runner, and a fork's
+code must never execute there.
+
 ## Roadmap
 
 - Production frontend image: static `vite build` output served by nginx directly.
