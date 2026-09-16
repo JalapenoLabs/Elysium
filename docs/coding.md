@@ -65,6 +65,10 @@ travels Elysium to satellite, as every other call does; Elysium listens for noth
 - A dropped socket reconnects with the session watcher's backoff, 1 to 30 seconds. Calls in flight on it are
   abandoned; the satellite has already failed them to the agent.
 - A thread the satellite no longer has ends its relay, as it ends its watcher.
+- A thread that declared no relayed servers, such as one whose project had no storage location, refuses the socket
+  with `409 RELAY_NOT_DECLARED`. A thread's settings never change, so that refusal ends its relay for good instead
+  of reconnecting. Elysium keeps no record of what a thread declared, and reading the thread's settings would cost
+  the same one request, so the refusal is how it finds out.
 
 The satellite keeps no calls for a client that is not attached. While Elysium is down or reconnecting, a call to a
 relayed tool fails at once, and the agent reads that no client is attached to answer it. Nothing is replayed later.
