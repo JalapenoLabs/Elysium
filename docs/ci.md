@@ -77,19 +77,24 @@ Elysium is public and the runners are self-hosted, so a workflow run is code exe
 
 Every tool is pinned to an exact version, in one place where the repository allows it, and verified.
 
-| Tool                     | Pin                                         | Verified by                                              |
-|--------------------------|---------------------------------------------|----------------------------------------------------------|
-| Rust                     | `rust-toolchain.toml` in `api/` and `oauth-broker/` | rustup installs exactly that channel; each image job fails if its Dockerfile's `FROM rust:` differs |
-| Node                     | `frontend/.nvmrc`                           | downloaded from nodejs.org, checked against `SHASUMS256.txt`, version asserted; the image job fails if `FROM node:` differs |
-| Yarn                     | `packageManager` in `frontend/package.json`  | activated by corepack and asserted                       |
-| Diesel CLI               | `DIESEL_VERSION` in `api.yml`, matching `verify-migrations.sh` | release binary checked against its published `.sha256`, version asserted |
-| Postgres (migrations)    | `api/scripts/verify-migrations.sh`          | same image as compose                                    |
-| `actions/checkout`       | commit SHA in each workflow                 |                                                          |
+| Tool               | Pinned in                                            | Verified by                       |
+|--------------------|------------------------------------------------------|-----------------------------------|
+| Rust               | `rust-toolchain.toml` in `api/` and `oauth-broker/`  | rustup, Dockerfile comparison     |
+| Node               | `frontend/.nvmrc`                                    | checksum, version, Dockerfile comparison |
+| Yarn               | `packageManager` in `frontend/package.json`          | corepack, version                 |
+| Diesel CLI         | `DIESEL_VERSION` in `api.yml`                        | checksum, version                 |
+| Postgres           | `api/scripts/verify-migrations.sh`                   | same image as compose             |
+| `actions/checkout` | a commit SHA in each workflow                        |                                   |
 
-The runners carry their own Node, which is not the frontend's, so the pinned release is installed into the job's
-temporary directory on every run. rustfmt and clippy are added with `rustup component add` rather than listed in
-`rust-toolchain.toml`, because the images build from the minimal official Rust image and would otherwise download
-both for nothing.
+rustup installs exactly the channel a crate's `rust-toolchain.toml` names. rustfmt and clippy are added with
+`rustup component add` rather than listed there, because the images build from the minimal official Rust image and
+would otherwise download both for nothing. Each image job fails when its Dockerfile's `FROM rust:` or `FROM node:`
+names a different version than the pin.
+
+The runners carry their own Node, which is not the frontend's, so the pinned release is downloaded from nodejs.org into
+the job's temporary directory on every run, checked against the release's `SHASUMS256.txt`, and its version asserted.
+The Diesel CLI release binary is checked against the `.sha256` published beside it, and `DIESEL_VERSION` must match
+the version `verify-migrations.sh` and `docs/database.md` name.
 
 Two composite actions hold the setup the jobs share: `.github/actions/rust-toolchain` and
 `.github/actions/frontend-dependencies`.
