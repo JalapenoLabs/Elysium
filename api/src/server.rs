@@ -28,6 +28,7 @@ use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::database::migrations;
 use crate::fleet::Fleet;
+use crate::github::Github;
 use crate::mail::Mail;
 use crate::mail::broker::Broker;
 use crate::mail::dns::DnsChecker;
@@ -82,8 +83,8 @@ pub async fn serve() -> Result<()> {
         shutdown.clone(),
     );
     fleet.start().await?;
-    // One HTTP client for every outbound call: the OAuth broker, Stalwart, and storage
-    // providers share its connection pool.
+    // One HTTP client for every outbound call: the OAuth broker, Stalwart, GitHub, and
+    // storage providers share its connection pool.
     let http = reqwest::Client::builder()
         .user_agent(concat!("elysium-api/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -107,6 +108,7 @@ pub async fn serve() -> Result<()> {
         version,
         events,
         fleet: fleet.clone(),
+        github: Github::new(http.clone()),
         mail,
         storage: Storage::new(http),
         shutdown: shutdown.clone(),

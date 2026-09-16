@@ -67,6 +67,18 @@ impl From<arsox_sdk::client::Error> for ApiError {
     }
 }
 
+impl From<crate::github::GithubError> for ApiError {
+    fn from(error: crate::github::GithubError) -> Self {
+        use crate::github::GithubError;
+
+        match error {
+            // A token GitHub will not accept is the client's to fix, not an upstream fault.
+            GithubError::Unauthorized(message) => Self::BadRequest(message.to_owned()),
+            refused @ GithubError::Refused(_) => Self::BadGateway(refused.to_string()),
+        }
+    }
+}
+
 impl From<crate::images::ImageError> for ApiError {
     fn from(error: crate::images::ImageError) -> Self {
         use crate::images::ImageError;

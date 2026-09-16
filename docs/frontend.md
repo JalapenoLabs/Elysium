@@ -57,6 +57,9 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
 | `/settings/satellites`        | `ManageSatellitesPage`   | Register satellites, see their status, test connections  |
 | `/settings/email`             | `ManageEmailPage`        | Mail server and domains, and every kind of mailbox       |
+| `/settings/github`            | `ManageGithubPage`       | GitHub tokens, their account, scopes, and expiry         |
+| `/settings/github/new`        | `AddGithubCredentialPage` | Add a GitHub token                                      |
+| `/settings/github/:credentialId/edit` | `EditGithubCredentialPage` | Edit a GitHub token                            |
 | `/settings/storage`           | `ManageStoragePage`      | Storage locations Elysium saves files to                 |
 | `/settings/storage/new`       | `AddStorageLocationPage` | Add a storage location                                   |
 | `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
@@ -120,6 +123,14 @@ settings need a new one. Directory, projects (`ProjectScopePicker`, see `docs/st
 (a `NumberField` in the viewer's locale, beside a No limit switch) are shared. Labels, secret wording, and setup steps
 are lookup tables in `storagePresentation.ts`. `StorageSetupChecklist` and `LlmSetupChecklist` both render
 `src/components/SetupChecklist.tsx`.
+
+GitHub under `src/pages/Settings/Github/` follows Storage's shape: a table (name, type, account, scopes, expiry)
+whose row menu edits, tests, or deletes one, and add and edit as their own pages built from
+`GithubCredentialEditorLayout` and `GithubCredentialForm`. The form is a name, a token type picker, and the token,
+beside a `GithubSetupChecklist` for the chosen kind. The token field is optional while editing and turns required as
+soon as the kind changes, mirroring the API. `githubPresentation.ts` holds the labels, setup steps, and
+`matchesGithubTokenKind`, which checks a token's prefix before the API spends a call on it. An expired token shows a
+danger chip in place of its date. See `docs/github.md`.
 
 Email under `src/pages/Settings/Email/` has two sections.
 
@@ -246,6 +257,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `mailServer`     | The mail server's state, replaced whole by every update                 |
 | `projects`       | Projects, sorted by name                                                |
 | `satellites`     | Satellites with their latest status                                     |
+| `githubCredentials` | GitHub tokens, sorted by name                                        |
 | `storageLocations` | Storage locations, sorted by name                                     |
 | `codingSessions` | Coding sessions with their thread state, newest first                   |
 | `sessionEvents`  | Events for conversations that are open, merged by sequence              |
@@ -258,7 +270,8 @@ Server collections use entity adapters. Redux is the source of truth components 
 
 1. **SWR loads it once.** A component that shows server data calls a loader from `src/hooks/useServerData.ts`
    (`useLlmsLoader`, `useMailAccountsLoader`, `useMailServerLoader`, `useMailDomainsLoader`, `useProjectsLoader`,
-   `useSatellitesLoader`, `useStorageLocationsLoader`, `useCodingSessionsLoader`, `useSessionHistoryLoader`). SWR
+   `useSatellitesLoader`, `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useCodingSessionsLoader`,
+   `useSessionHistoryLoader`). SWR
    fetches the key once, deduplicates every component asking for it, and buffers the response so a remounted page
    renders at once while it revalidates.
 2. **Redux holds it.** The loader puts the response in Redux (`llmsLoaded`, `sessionHistoryLoaded`, ...).
@@ -358,7 +371,7 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
-  `satellites`, `email`, `storage`, `projects`, `coding`, `studio`, `actionItems`.
+  `satellites`, `email`, `storage`, `github`, `projects`, `coding`, `studio`, `actionItems`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.

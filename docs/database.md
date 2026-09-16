@@ -155,6 +155,25 @@ What coding sessions are grouped under.
 | `created_at`       | `TIMESTAMPTZ` | Set on insert                                          |
 | `updated_at`       | `TIMESTAMPTZ` | Maintained by trigger                                  |
 
+### `github_credentials`
+
+The GitHub tokens Elysium holds; see `docs/github.md`.
+
+| Column             | Type                 | Notes                                                       |
+|--------------------|----------------------|-------------------------------------------------------------|
+| `id`               | `UUID`               | UUIDv7, primary key                                         |
+| `name`             | `TEXT`               | 1 to 120 characters, unique                                 |
+| `kind`             | `github_token_kind`  | `classic` or `fine_grained`                                 |
+| `token_encrypted`  | `BYTEA`              | Sealed token, see `docs/secrets.md`                         |
+| `login`            | `TEXT`               | The account the token acts as: up to 39 letters, digits, hyphens |
+| `scopes`           | `TEXT`               | Comma separated, as GitHub lists them; empty for fine-grained |
+| `token_expires_at` | `TIMESTAMPTZ`        | NULL for a token that does not expire                       |
+| `checked_at`       | `TIMESTAMPTZ`        | When GitHub last confirmed the token                        |
+| `created_at`       | `TIMESTAMPTZ`        | Set on insert                                               |
+| `updated_at`       | `TIMESTAMPTZ`        | Maintained by trigger                                       |
+
+Every column from `login` on is what GitHub answered, so a row is only written after GitHub accepts the token.
+
 ### `storage_locations`
 
 External locations Elysium saves files to; see `docs/storage.md`.

@@ -21,6 +21,10 @@
       "title": "Email",
       "description": "Connect Gmail and Outlook accounts, or create mailboxes on Elysium's own mail server."
     },
+    "github": {
+      "title": "GitHub",
+      "description": "Connect GitHub with personal access tokens, classic or fine-grained."
+    },
     "storage": {
       "title": "Storage",
       "description": "Choose where Elysium saves files: Bunny Storage, Amazon S3, or Google Cloud Storage."

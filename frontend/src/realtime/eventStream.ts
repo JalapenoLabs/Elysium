@@ -8,6 +8,7 @@ import { mutate } from 'swr'
 // Redux
 import { store } from '../store'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
+import { githubCredentialDeleted, githubCredentialUpserted } from '../store/githubCredentialsSlice'
 import { llmDeleted, llmUpserted } from '../store/llmsSlice'
 import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSlice'
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
@@ -40,6 +41,8 @@ function reloadEverything() {
 const handlers: Handlers = {
   'hello': () => reloadEverything(),
   'resync': () => reloadEverything(),
+  'githubCredential.upserted': (event) => store.dispatch(githubCredentialUpserted(event.data)),
+  'githubCredential.deleted': (event) => store.dispatch(githubCredentialDeleted(event.data.id)),
   'llm.upserted': (event) => store.dispatch(llmUpserted(event.data)),
   'llm.deleted': (event) => store.dispatch(llmDeleted(event.data.id)),
   'mailbox.upserted': (event) => store.dispatch(mailAccountUpserted(event.data)),

@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::fleet::Fleet;
+use crate::github::Github;
 use crate::mail::Mail;
 use crate::realtime::EventBus;
 use crate::storage::Storage;
@@ -25,6 +26,7 @@ pub struct AppState {
     /// Publishes to every open `GET /api/v1/events` stream.
     pub events: EventBus,
     pub fleet: Fleet,
+    pub github: Github,
     pub mail: Mail,
     pub storage: Storage,
     /// Cancelled when shutdown begins; long-lived responses end on it.

@@ -9,6 +9,7 @@ import actionItems from './locales/en-US/actionItems.json'
 import coding from './locales/en-US/coding.json'
 import common from './locales/en-US/common.json'
 import email from './locales/en-US/email.json'
+import github from './locales/en-US/github.json'
 import llms from './locales/en-US/llms.json'
 import navigation from './locales/en-US/navigation.json'
 import projects from './locales/en-US/projects.json'
@@ -28,6 +29,7 @@ export const resources = {
     coding,
     common,
     email,
+    github,
     llms,
     navigation,
     projects,

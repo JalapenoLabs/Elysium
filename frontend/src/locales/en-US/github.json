@@ -1,0 +1,85 @@
+{
+  "title": "GitHub",
+  "credentials": {
+    "add": "Add token"
+  },
+  "page": {
+    "notFound": "This GitHub token does not exist. It may have been deleted.",
+    "backToList": "Back to GitHub"
+  },
+  "kinds": {
+    "classic": "Classic",
+    "fine-grained": "Fine-grained"
+  },
+  "table": {
+    "label": "GitHub tokens",
+    "name": "Name",
+    "kind": "Type",
+    "account": "Account",
+    "scopes": "Scopes",
+    "expires": "Expires",
+    "never": "Never",
+    "expired": "Expired",
+    "perRepository": "Per repository",
+    "noScopes": "None",
+    "empty": "No GitHub tokens yet. Add one so Elysium can reach your repositories.",
+    "loadError": "GitHub tokens could not be loaded."
+  },
+  "actions": {
+    "test": "Test token"
+  },
+  "form": {
+    "createTitle": "Add GitHub token",
+    "editTitle": "Edit {{name}}",
+    "name": "Name",
+    "nameHint": "How Elysium lists this token, such as Work or Open source.",
+    "kind": "Token type",
+    "kindHint": "A classic token carries scopes across every repository you can reach. A fine-grained token is granted per repository.",
+    "token": "Token",
+    "tokenHint": {
+      "classic": "Shown once, when the token is generated. It starts with ghp_.",
+      "fine-grained": "Shown once, when the token is generated. It starts with github_pat_."
+    },
+    "tokenKeep": "Leave blank to keep the current token.",
+    "checkedHint": "Saving checks the token with GitHub and records the account it belongs to.",
+    "errors": {
+      "nameRequired": "Enter a name.",
+      "nameTooLong": "Use 120 characters or fewer.",
+      "nameTaken": "Another token already uses this name.",
+      "tokenRequired": "Enter the token.",
+      "tokenTooLong": "Use 255 characters or fewer.",
+      "tokenShape": {
+        "classic": "A classic token starts with ghp_, or is the 40 characters GitHub issued before 2021.",
+        "fine-grained": "A fine-grained token starts with github_pat_."
+      }
+    }
+  },
+  "delete": {
+    "title": "Delete {{name}}?",
+    "body": "Elysium stops using this token. The token itself keeps working until you revoke it on GitHub."
+  },
+  "toasts": {
+    "created": "{{name}} added",
+    "updated": "{{name}} updated",
+    "deleted": "{{name}} deleted",
+    "testPassed": "{{name}} works: GitHub signed it in as {{login}}",
+    "testFailed": "{{name}} was refused"
+  },
+  "setup": {
+    "title": "Create the token",
+    "description": "Check off each step as you go.",
+    "classic": {
+      "open": "Open Developer settings, Personal access tokens, Tokens (classic) on GitHub, then Generate new token (classic).",
+      "name": "Give the token a note naming this Elysium, and choose how long it lasts.",
+      "scopes": "Select repo, so Elysium can read and write the repositories you use. Add workflow to change GitHub Actions files, and read:org for an organization's repositories.",
+      "generate": "Generate the token and copy it into Token. GitHub shows it once."
+    },
+    "fine-grained": {
+      "open": "Open Developer settings, Personal access tokens, Fine-grained tokens on GitHub, then Generate new token.",
+      "owner": "Choose the resource owner, you or an organization, and how long the token lasts.",
+      "repositories": "Under Repository access, pick the repositories Elysium works in.",
+      "permissions": "Under Repository permissions, grant Contents read and write, Pull requests read and write, and Metadata read.",
+      "generate": "Generate the token and copy it into Token. GitHub shows it once."
+    }
+  }
+}

@@ -3,6 +3,7 @@
 //! Database records and the queries that read and write them.
 
 pub mod coding_session;
+pub mod github_credential;
 pub mod llm;
 pub mod mail_account;
 pub mod mail_domain;

@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { CodingSession, SessionEvent } from '../api/routes/codingSessionRoutes'
+import type { GithubCredential } from '../api/routes/githubRoutes'
 import type { Llm } from '../api/routes/llmRoutes'
 import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRoutes'
 import type { Project } from '../api/routes/projectRoutes'
@@ -14,6 +15,8 @@ export type ServerEvent =
   | { type: 'hello' }
   // Events were missed; refetch everything shown.
   | { type: 'resync' }
+  | { type: 'githubCredential.upserted', data: GithubCredential }
+  | { type: 'githubCredential.deleted', data: { id: string } }
   | { type: 'llm.upserted', data: Llm }
   | { type: 'llm.deleted', data: { id: string } }
   | { type: 'mailbox.upserted', data: MailAccount }

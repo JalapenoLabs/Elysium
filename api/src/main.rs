@@ -13,6 +13,7 @@ mod database;
 mod errors;
 mod fleet;
 mod git_info;
+mod github;
 mod images;
 mod mail;
 mod middleware;

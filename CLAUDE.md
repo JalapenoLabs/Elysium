@@ -55,6 +55,14 @@ Everything else follows these rules:
 - Access keys are application secrets, sealed in Postgres. Routes never match on the provider; `api/src/storage/`
   does.
 
+## GitHub
+
+- Elysium holds any number of GitHub personal access tokens, classic or fine-grained, managed under Settings, GitHub.
+  Tokens are application secrets, sealed in Postgres. See `docs/github.md`.
+- Every write checks the token with GitHub first and stores what it answers: the account, its scopes, and the expiry.
+  `api/src/github/` is the only caller, and `api.github.com` is fixed in code; GitHub Enterprise Server is not
+  supported.
+
 ## One event stream keeps the frontend current
 
 - Every page holds one server-sent event stream, `GET /api/v1/events`. Any write or watcher that changes what a

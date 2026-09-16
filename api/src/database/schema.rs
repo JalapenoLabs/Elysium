@@ -6,6 +6,10 @@ pub mod sql_types {
     pub struct BunnyStorageRegion;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "github_token_kind"))]
+    pub struct GithubTokenKind;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "llm_type"))]
     pub struct LlmType;
 
@@ -37,6 +41,24 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         project_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::GithubTokenKind;
+
+    github_credentials (id) {
+        id -> Uuid,
+        name -> Text,
+        kind -> GithubTokenKind,
+        token_encrypted -> Bytea,
+        login -> Text,
+        scopes -> Text,
+        token_expires_at -> Nullable<Timestamptz>,
+        checked_at -> Timestamptz,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -177,6 +199,7 @@ diesel::joinable!(storage_location_projects -> storage_locations (storage_locati
 
 diesel::allow_tables_to_appear_in_same_query!(
     coding_sessions,
+    github_credentials,
     llms,
     mail_accounts,
     mail_domains,

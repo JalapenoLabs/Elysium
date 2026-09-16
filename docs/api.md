@@ -31,6 +31,12 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/mail/accounts/{id}/test-message` | `200` `{ sentTo }`                              |
 | GET    | `/api/v1/mail/oauth/{kind}/start`     | `303` to the OAuth broker                           |
 | GET    | `/api/v1/mail/oauth/callback`         | `303` to `/settings/email`                          |
+| GET    | `/api/v1/github-credentials`          | `200` `{ credentials: GithubCredential[] }`, by name |
+| POST   | `/api/v1/github-credentials`          | `201` `{ credential }`; checked with GitHub first   |
+| GET    | `/api/v1/github-credentials/{id}`     | `200` `{ credential }`                              |
+| PATCH  | `/api/v1/github-credentials/{id}`     | `200` `{ credential }`                              |
+| DELETE | `/api/v1/github-credentials/{id}`     | `204`; the token itself stays valid on GitHub       |
+| POST   | `/api/v1/github-credentials/{id}/test` | `200` `{ result }` from asking GitHub now          |
 | GET    | `/api/v1/projects`                    | `200` `{ projects: Project[] }`, by name            |
 | POST   | `/api/v1/projects`                    | `201` `{ project }`                                 |
 | PATCH  | `/api/v1/projects/{id}`               | `200` `{ project }`                                 |
@@ -152,6 +158,23 @@ S3 service, or access key id answers `400` unless it comes with its `accessKey`.
 
 `test` answers `{ entries, hasMore }`: the files and directories directly inside the location's directory, up to one
 page, and whether it holds more. It answers `502` with the provider's error. See `docs/storage.md`.
+
+### `/api/v1/github-credentials`
+
+A `GithubCredential` has `id`, `name`, `kind` (`classic` or `fine-grained`), `login`, `scopes`, `tokenExpiresAt`,
+`checkedAt`, `createdAt`, and `updatedAt`. Everything from `login` on is what GitHub answered when the token was last
+checked. The token is never returned.
+
+`POST` requires `name` (1 to 120 characters, unique), `kind`, and `token` (up to 255 characters, surrounding
+whitespace dropped). `PATCH` accepts any subset of `name`, `kind`, and `token`; a new token is re-sealed. A token
+written the wrong way for its kind answers `400` without a call to GitHub, and a `kind` that differs from the stored
+one without a `token` answers `400`.
+
+Every write checks the token with `GET https://api.github.com/user` and stores it only if GitHub accepts it: a
+rejected token answers `400` with what to check, and an unreachable GitHub `502`.
+
+`test` answers `{ login, scopes, tokenExpiresAt }` from asking GitHub now, and records it on the credential. See
+`docs/github.md`.
 
 ### `/api/v1/coding-sessions`
 

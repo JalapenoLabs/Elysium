@@ -7,6 +7,7 @@ import useSWR from 'swr'
 // Redux
 import { codingSessionsLoaded } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
+import { githubCredentialsLoaded } from '../store/githubCredentialsSlice'
 import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { mailDomainsLoaded } from '../store/mailDomainsSlice'
@@ -18,6 +19,7 @@ import { storageLocationsLoaded } from '../store/storageLocationsSlice'
 
 // Misc
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
+import { listGithubCredentials } from '../api/routes/githubRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
@@ -51,6 +53,16 @@ function toLoadStatus(hasData: boolean, error: unknown): LoadStatus {
 // Collections dispatch from inside the fetcher, so only a response fresh off the network
 // replaces Redux. SWR's buffered copy is older than the event stream's updates, and a
 // component mounting on it must not roll Redux back.
+
+export function useGithubCredentialsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/github-credentials', async () => {
+    const response = await listGithubCredentials()
+    dispatch(githubCredentialsLoaded(response.credentials))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
 
 export function useLlmsLoader(): LoadStatus {
   const dispatch = useAppDispatch()

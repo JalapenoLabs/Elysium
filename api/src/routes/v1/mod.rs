@@ -4,6 +4,7 @@
 
 pub mod coding_sessions;
 mod events;
+pub mod github_credentials;
 pub mod llms;
 pub mod mail;
 pub mod projects;
@@ -18,6 +19,7 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/events", get(events::handle))
+        .nest("/github-credentials", github_credentials::router())
         .nest("/llms", llms::router())
         .nest("/mail", mail::router())
         .nest("/projects", projects::router())
