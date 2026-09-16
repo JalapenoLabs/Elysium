@@ -47,8 +47,9 @@ Guarantees:
 3. `cargo test -- --include-ignored` runs the database-backed tests.
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
-redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, storage location, and coding
-session query. Plain `cargo test` skips them because they need `TEST_DATABASE_URL`.
+redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, storage location, GitHub
+credential, environment variable, and coding session query. Plain `cargo test` skips them because they need
+`TEST_DATABASE_URL`.
 
 ## Conventions
 
@@ -173,6 +174,22 @@ The GitHub tokens Elysium holds; see `docs/github.md`.
 | `updated_at`       | `TIMESTAMPTZ`        | Maintained by trigger                                       |
 
 Every column from `login` on is what GitHub answered, so a row is only written after GitHub accepts the token.
+
+### `environment_variables`
+
+Global environment variables every coding session's thread receives; see `docs/environment.md`.
+
+| Column            | Type          | Notes                                                                  |
+|-------------------|---------------|------------------------------------------------------------------------|
+| `id`              | `UUID`        | UUIDv7, primary key                                                    |
+| `key`             | `TEXT`        | Unique; `^[A-Za-z_][A-Za-z0-9_]*$`, up to 128 characters               |
+| `value_encrypted` | `BYTEA`       | Sealed value, secret or not, see `docs/secrets.md`                     |
+| `is_secret`       | `BOOLEAN`     | The value is write-only over HTTP and scrubbed from thread output      |
+| `description`     | `TEXT`        | Up to 500 characters, defaults to empty                                |
+| `created_at`      | `TIMESTAMPTZ` | Set on insert                                                          |
+| `updated_at`      | `TIMESTAMPTZ` | Maintained by trigger                                                  |
+
+Which keys may be stored beyond their shape is decided in the API, not in SQL, since the rules follow the satellite.
 
 ### `storage_locations`
 

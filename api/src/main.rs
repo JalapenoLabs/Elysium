@@ -10,6 +10,7 @@ mod config;
 mod connections;
 mod crypto;
 mod database;
+mod environment;
 mod errors;
 mod fleet;
 mod git_info;

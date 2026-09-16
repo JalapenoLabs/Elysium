@@ -28,6 +28,10 @@
     "storage": {
       "title": "Storage",
       "description": "Choose where Elysium saves files: Bunny Storage, Amazon S3, or Google Cloud Storage."
+    },
+    "environment": {
+      "title": "Environment variables",
+      "description": "Set variables every coding session's agent receives, such as registry tokens or build settings."
     }
   },
   "personalDetails": {

@@ -7,6 +7,7 @@ import useSWR from 'swr'
 // Redux
 import { codingSessionsLoaded } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
+import { environmentVariablesLoaded } from '../store/environmentVariablesSlice'
 import { githubCredentialsLoaded } from '../store/githubCredentialsSlice'
 import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
@@ -19,6 +20,7 @@ import { storageLocationsLoaded } from '../store/storageLocationsSlice'
 
 // Misc
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
+import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
 import { listGithubCredentials } from '../api/routes/githubRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
@@ -53,6 +55,16 @@ function toLoadStatus(hasData: boolean, error: unknown): LoadStatus {
 // Collections dispatch from inside the fetcher, so only a response fresh off the network
 // replaces Redux. SWR's buffered copy is older than the event stream's updates, and a
 // component mounting on it must not roll Redux back.
+
+export function useEnvironmentVariablesLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/environment-variables', async () => {
+    const response = await listEnvironmentVariables()
+    dispatch(environmentVariablesLoaded(response.variables))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
 
 export function useGithubCredentialsLoader(): LoadStatus {
   const dispatch = useAppDispatch()

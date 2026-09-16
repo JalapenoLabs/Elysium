@@ -63,6 +63,16 @@ Everything else follows these rules:
   `api/src/github/` is the only caller, and `api.github.com` is fixed in code; GitHub Enterprise Server is not
   supported.
 
+## Environment variables
+
+- Global environment variables, managed under Settings, Environment variables, are passed into every coding session's
+  satellite thread. See `docs/environment.md`.
+- Every value is sealed in Postgres, secret or not. Secret means Elysium never returns the value and the satellite
+  scrubs it from thread output; the agent can always read it, so nothing that must stay hidden from the agent belongs
+  here.
+- Keys that Elysium sets, the satellite refuses, or the satellite overrides are refused, by one rule table in
+  `api/src/environment/` that the frontend mirrors.
+
 ## One event stream keeps the frontend current
 
 - Every page holds one server-sent event stream, `GET /api/v1/events`. Any write or watcher that changes what a

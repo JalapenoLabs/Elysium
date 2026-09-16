@@ -27,6 +27,7 @@ use uuid::Uuid;
 use crate::fleet::views::{SatelliteStatus, SessionEvent};
 use crate::mail::hosting::MailServerStatus;
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
+use crate::routes::v1::environment_variables::EnvironmentVariableResponse;
 use crate::routes::v1::github_credentials::GithubCredentialResponse;
 use crate::routes::v1::llms::LlmResponse;
 use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
@@ -49,6 +50,10 @@ pub enum ServerEvent {
     /// The client missed events and must refetch everything it shows.
     #[serde(rename = "resync")]
     Resync,
+    #[serde(rename = "environmentVariable.upserted")]
+    EnvironmentVariableUpserted(EnvironmentVariableResponse),
+    #[serde(rename = "environmentVariable.deleted")]
+    EnvironmentVariableDeleted { id: Uuid },
     #[serde(rename = "githubCredential.upserted")]
     GithubCredentialUpserted(GithubCredentialResponse),
     #[serde(rename = "githubCredential.deleted")]

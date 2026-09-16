@@ -14,6 +14,9 @@ import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
 import { PersonalDetailsPage } from './pages/Settings/PersonalDetails/PersonalDetailsPage'
 import { ManageEmailPage } from './pages/Settings/Email/ManageEmailPage'
+import { AddEnvironmentVariablePage } from './pages/Settings/Environment/AddEnvironmentVariablePage'
+import { EditEnvironmentVariablePage } from './pages/Settings/Environment/EditEnvironmentVariablePage'
+import { ManageEnvironmentPage } from './pages/Settings/Environment/ManageEnvironmentPage'
 import { AddGithubCredentialPage } from './pages/Settings/Github/AddGithubCredentialPage'
 import { EditGithubCredentialPage } from './pages/Settings/Github/EditGithubCredentialPage'
 import { ManageGithubPage } from './pages/Settings/Github/ManageGithubPage'
@@ -90,6 +93,18 @@ export const router = createBrowserRouter([
       {
         path: UrlTree.settingsLlmsEdit,
         element: <EditLlmPage />,
+      },
+      {
+        path: UrlTree.settingsEnvironment,
+        element: <ManageEnvironmentPage />,
+      },
+      {
+        path: UrlTree.settingsEnvironmentNew,
+        element: <AddEnvironmentVariablePage />,
+      },
+      {
+        path: UrlTree.settingsEnvironmentEdit,
+        element: <EditEnvironmentVariablePage />,
       },
       {
         path: UrlTree.settingsGithub,

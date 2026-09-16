@@ -57,6 +57,9 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
 | `/settings/satellites`        | `ManageSatellitesPage`   | Register satellites, see their status, test connections  |
 | `/settings/email`             | `ManageEmailPage`        | Mail server and domains, and every kind of mailbox       |
+| `/settings/environment`       | `ManageEnvironmentPage`  | Environment variables every coding session receives     |
+| `/settings/environment/new`   | `AddEnvironmentVariablePage` | Add an environment variable                          |
+| `/settings/environment/:variableId/edit` | `EditEnvironmentVariablePage` | Edit an environment variable              |
 | `/settings/github`            | `ManageGithubPage`       | GitHub tokens, their account, scopes, and expiry         |
 | `/settings/github/new`        | `AddGithubCredentialPage` | Add a GitHub token                                      |
 | `/settings/github/:credentialId/edit` | `EditGithubCredentialPage` | Edit a GitHub token                            |
@@ -131,6 +134,16 @@ beside a `GithubSetupChecklist` for the chosen kind. The token field is optional
 soon as the kind changes, mirroring the API. `githubPresentation.ts` holds the labels, setup steps, and
 `matchesGithubTokenKind`, which checks a token's prefix before the API spends a call on it. An expired token shows a
 danger chip in place of its date. See `docs/github.md`.
+
+Environment variables under `src/pages/Settings/Environment/` follow GitHub's shape: a table (key in monospace, value,
+description) whose row menu edits or deletes one, and add and edit as their own pages built from
+`EnvironmentVariableEditorLayout` and `EnvironmentVariableForm`. A secret's value shows as a mask beside a Secret chip; a
+visible one is truncated in monospace. The form is a key, a Secret switch, the value (a multi-line text area, or a
+password field while Secret is on), and a description. `EnvironmentVisibilityNote` sits beside the form and above the
+table, saying that the agent can read every value and that secret only hides it from Elysium and the satellite's logs.
+While editing a secret the value is optional and keeps the stored one, and it turns required when Secret is switched
+off, mirroring the API. `environmentPresentation.ts` mirrors the API's refused-key rules (`getKeyRefusal`), so a key
+Elysium would refuse is flagged before saving. See `docs/environment.md`.
 
 Email under `src/pages/Settings/Email/` has two sections.
 
@@ -258,6 +271,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `projects`       | Projects, sorted by name                                                |
 | `satellites`     | Satellites with their latest status                                     |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
+| `environmentVariables` | Environment variables, sorted by key                              |
 | `storageLocations` | Storage locations, sorted by name                                     |
 | `codingSessions` | Coding sessions with their thread state, newest first                   |
 | `sessionEvents`  | Events for conversations that are open, merged by sequence              |
@@ -270,7 +284,7 @@ Server collections use entity adapters. Redux is the source of truth components 
 
 1. **SWR loads it once.** A component that shows server data calls a loader from `src/hooks/useServerData.ts`
    (`useLlmsLoader`, `useMailAccountsLoader`, `useMailServerLoader`, `useMailDomainsLoader`, `useProjectsLoader`,
-   `useSatellitesLoader`, `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useCodingSessionsLoader`,
+   `useSatellitesLoader`, `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useEnvironmentVariablesLoader`, `useCodingSessionsLoader`,
    `useSessionHistoryLoader`). SWR
    fetches the key once, deduplicates every component asking for it, and buffers the response so a remounted page
    renders at once while it revalidates.
@@ -371,7 +385,7 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
-  `satellites`, `email`, `storage`, `github`, `projects`, `coding`, `studio`, `actionItems`.
+  `satellites`, `email`, `storage`, `github`, `environment`, `projects`, `coding`, `studio`, `actionItems`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.

@@ -31,6 +31,11 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/mail/accounts/{id}/test-message` | `200` `{ sentTo }`                              |
 | GET    | `/api/v1/mail/oauth/{kind}/start`     | `303` to the OAuth broker                           |
 | GET    | `/api/v1/mail/oauth/callback`         | `303` to `/settings/email`                          |
+| GET    | `/api/v1/environment-variables`       | `200` `{ variables: EnvironmentVariable[] }`, by key |
+| POST   | `/api/v1/environment-variables`       | `201` `{ variable }`                                |
+| GET    | `/api/v1/environment-variables/{id}`  | `200` `{ variable }`                                |
+| PATCH  | `/api/v1/environment-variables/{id}`  | `200` `{ variable }`                                |
+| DELETE | `/api/v1/environment-variables/{id}`  | `204`; running threads keep it                      |
 | GET    | `/api/v1/github-credentials`          | `200` `{ credentials: GithubCredential[] }`, by name |
 | POST   | `/api/v1/github-credentials`          | `201` `{ credential }`; checked with GitHub first   |
 | GET    | `/api/v1/github-credentials/{id}`     | `200` `{ credential }`                              |
@@ -176,6 +181,16 @@ rejected token answers `400` with what to check, and an unreachable GitHub `502`
 `test` answers `{ login, scopes, tokenExpiresAt }` from asking GitHub now, and records it on the credential. See
 `docs/github.md`.
 
+### `/api/v1/environment-variables`
+
+An `EnvironmentVariable` has `id`, `key`, `isSecret`, `description`, `value`, `createdAt`, and `updatedAt`. `value` is
+the plaintext of a non-secret variable and `null` for a secret one, whose value is never returned.
+
+`POST` requires `key`, `value` (up to 32 KiB, kept exactly as sent), and `isSecret`, and accepts `description` (up to
+500 characters, default empty). `PATCH` accepts any subset; an absent `value` keeps the stored one. A key that breaks
+a rule answers `400` naming the key and the rule, a secret with an empty value answers `400`, and making a secret
+visible without sending its `value` answers `400`. A duplicate key answers `409`. See `docs/environment.md`.
+
 ### `/api/v1/coding-sessions`
 
 A `CodingSession` has `id`, `projectId`, `satelliteId`, `threadId`, `title`, `createdAt`, `updatedAt`, and
@@ -199,7 +214,7 @@ Every error is JSON with a `message`.
 
 | Status | Cause                                                                                 |
 |--------|---------------------------------------------------------------------------------------|
-| `400`  | Malformed JSON, unknown field, unknown enum value, bad UUID, blank or oversized token |
+| `400`  | Malformed JSON, unknown field, unknown enum value, bad UUID, blank or oversized token, refused environment variable key |
 | `404`  | No row with that id                                                                   |
 | `409`  | Unique constraint, such as a duplicate LLM name, or a project that still has sessions |
 | `422`  | Field validation failed; `fields` lists each failure                                  |
@@ -269,6 +284,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/fleet/`             | Satellite clients and watchers; JSON views of Arsox types |
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
+| `src/environment/`       | The rules for which environment variable keys are refused |
 
 ## Logging
 
@@ -278,8 +294,8 @@ client-supplied or a generated UUID. The id is echoed on the response and attach
 
 ## Testing
 
-`cargo test` runs the hermetic unit tests: encryption, request parsing and validation, event envelopes, and the
-Arsox view conversions.
+`cargo test` runs the hermetic unit tests: encryption, request parsing and validation, refused environment variable
+keys, event envelopes, and the Arsox view conversions.
 `api/scripts/verify-migrations.sh` also runs the database-backed tests against a disposable Postgres.
 
 ## Roadmap

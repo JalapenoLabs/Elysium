@@ -46,6 +46,20 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    environment_variables (id) {
+        id -> Uuid,
+        key -> Text,
+        value_encrypted -> Bytea,
+        is_secret -> Bool,
+        description -> Text,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::GithubTokenKind;
 
     github_credentials (id) {
@@ -199,6 +213,7 @@ diesel::joinable!(storage_location_projects -> storage_locations (storage_locati
 
 diesel::allow_tables_to_appear_in_same_query!(
     coding_sessions,
+    environment_variables,
     github_credentials,
     llms,
     mail_accounts,
