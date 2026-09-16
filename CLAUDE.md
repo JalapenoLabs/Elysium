@@ -59,6 +59,9 @@ Everything else follows these rules:
 
 - Elysium holds any number of GitHub personal access tokens, classic or fine-grained, managed under Settings, GitHub.
   Tokens are application secrets, sealed in Postgres. See `docs/github.md`.
+- A coding session starts with one token or none, chosen by the workspace default, overridden by the project, and
+  overridden again when the session starts. The agent gets it as `GH_TOKEN`, with git routed through `gh` by
+  `GIT_CONFIG_*` variables; no satellite change is involved.
 - Every write checks the token with GitHub first and stores what it answers: the account, its scopes, and the expiry.
   `api/src/github/` is the only caller, and `api.github.com` is fixed in code; GitHub Enterprise Server is not
   supported.

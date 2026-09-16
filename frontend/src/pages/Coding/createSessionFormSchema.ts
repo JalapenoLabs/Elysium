@@ -44,6 +44,8 @@ export function createSessionFormSchema(t: TFunction<'coding'>) {
     prompt: z
       .string()
       .max(PROMPT_MAX_CHARACTERS),
+    // `inherit` follows the project, `none` asks for no token, and anything else is a token id.
+    githubChoice: z.string(),
   })
 }
 

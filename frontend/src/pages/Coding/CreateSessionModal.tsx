@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 
 // Redux
 import { codingSessionUpserted } from '../../store/codingSessionsSlice'
+import { selectAllGithubCredentials, selectDefaultGithubCredential } from '../../store/githubCredentialsSlice'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { selectAllProjects } from '../../store/projectsSlice'
 import { selectAllSatellites } from '../../store/satellitesSlice'
@@ -29,6 +30,8 @@ import {
   TextField,
   toast,
 } from '@heroui/react'
+import { GithubTokenSelect, INHERIT_GITHUB_TOKEN, NO_GITHUB_TOKEN } from '../../components/GithubTokenSelect'
+import { SessionGithubAccess } from './SessionGithubAccess'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -36,12 +39,20 @@ import { zodResolver } from '@hookform/resolvers/zod'
 // Misc
 import { getUpstreamErrorMessage } from '../../api/errors'
 import { createCodingSession, startTurn } from '../../api/routes/codingSessionRoutes'
-import { useProjectsLoader, useSatellitesLoader } from '../../hooks/useServerData'
+import { useGithubCredentialsLoader, useProjectsLoader, useSatellitesLoader } from '../../hooks/useServerData'
+import { resolveProjectGithubCredentialId } from '../Settings/Github/githubPresentation'
 import { useCodingActions } from './codingActionsContext'
 import { createSessionFormSchema, SESSION_TITLE_MAX_CHARACTERS } from './createSessionFormSchema'
 
 type Props = {
   state: UseOverlayStateReturn
+}
+
+// What the token picker's fixed choices send as `githubCredentialId`: following the project
+// leaves the field out, and no token sends null. Every other choice is a token id.
+const githubCredentialIdByChoice: Record<string, string | null | undefined> = {
+  [INHERIT_GITHUB_TOKEN]: undefined,
+  [NO_GITHUB_TOKEN]: null,
 }
 
 export function CreateSessionModal(props: Props) {
@@ -50,7 +61,10 @@ export function CreateSessionModal(props: Props) {
   const codingActions = useCodingActions()
   useProjectsLoader()
   useSatellitesLoader()
+  useGithubCredentialsLoader()
   const projects = useAppSelector(selectAllProjects)
+  const githubCredentials = useAppSelector(selectAllGithubCredentials)
+  const workspaceDefault = useAppSelector(selectDefaultGithubCredential)
   const satellites = useAppSelector(selectAllSatellites)
 
   const activeSatellites = useMemo(
@@ -77,6 +91,7 @@ export function CreateSessionModal(props: Props) {
       repositoryUrl: '',
       baseBranch: '',
       prompt: '',
+      githubChoice: INHERIT_GITHUB_TOKEN,
     },
   })
 
@@ -92,6 +107,10 @@ export function CreateSessionModal(props: Props) {
         title,
         repositoryUrl: values.repositoryUrl || undefined,
         baseBranch: values.baseBranch || undefined,
+        // Following the project is spelled by leaving the field out.
+        githubCredentialId: values.githubChoice in githubCredentialIdByChoice
+          ? githubCredentialIdByChoice[values.githubChoice]
+          : values.githubChoice,
       })
       dispatch(codingSessionUpserted(session))
       codingActions.openSession(session)
@@ -113,10 +132,23 @@ export function CreateSessionModal(props: Props) {
 
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
-  const [ projectId, satelliteId, title, repositoryUrl, baseBranch, prompt ] = useWatch({
+  const [ projectId, satelliteId, title, repositoryUrl, baseBranch, prompt, githubChoice ] = useWatch({
     control: form.control,
-    name: [ 'projectId', 'satelliteId', 'title', 'repositoryUrl', 'baseBranch', 'prompt' ],
+    name: [ 'projectId', 'satelliteId', 'title', 'repositoryUrl', 'baseBranch', 'prompt', 'githubChoice' ],
   })
+
+  // The token the project would hand this session, and the one the session will start with.
+  const project = projects.find((candidate) => candidate.id === projectId)
+  const projectCredentialId = project
+    ? resolveProjectGithubCredentialId(project.github, workspaceDefault?.id ?? null)
+    : workspaceDefault?.id ?? null
+  const projectCredential = githubCredentials.find((credential) => credential.id === projectCredentialId)
+  const sessionCredentialId = githubChoice === INHERIT_GITHUB_TOKEN
+    ? projectCredentialId
+    : githubChoice === NO_GITHUB_TOKEN
+      ? null
+      : githubChoice
+  const sessionCredential = githubCredentials.find((credential) => credential.id === sessionCredentialId) ?? null
 
   // Controlled overlays skip the Modal root: it is a trigger wrapper, and without a
   // pressable child React Aria warns. The backdrop takes the open state directly.
@@ -232,6 +264,24 @@ export function CreateSessionModal(props: Props) {
                 <Input placeholder='main' />
                 <FieldError>{errors.baseBranch?.message}</FieldError>
               </TextField>
+            </div>
+
+            {/* GitHub token */}
+            <div className='flex flex-col gap-2'>
+              <GithubTokenSelect
+                label={t('create.github.label')}
+                description={t('create.github.hint')}
+                inheritLabel={projectCredential
+                  ? t('create.github.inherit', { name: projectCredential.name })
+                  : t('create.github.inheritNone')}
+                value={githubChoice}
+                credentials={githubCredentials}
+                onChange={(value) => form.setValue('githubChoice', value, { shouldDirty: true })}
+              />
+              <SessionGithubAccess
+                credential={sessionCredential}
+                repositoryUrl={repositoryUrl}
+              />
             </div>
 
             {/* First prompt */}

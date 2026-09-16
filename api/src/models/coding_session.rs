@@ -23,6 +23,9 @@ pub struct CodingSession {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub project_id: Uuid,
+    /// The GitHub token the thread was started with, or `None` for no token or one that
+    /// has since been deleted.
+    pub github_credential_id: Option<Uuid>,
 }
 
 /// Fields for a new session. The id is chosen by the caller because it doubles as the
@@ -35,6 +38,7 @@ pub struct NewCodingSession {
     pub satellite_id: Uuid,
     pub thread_id: String,
     pub title: String,
+    pub github_credential_id: Option<Uuid>,
 }
 
 /// Every session, newest first.
@@ -164,6 +168,7 @@ mod tests {
             satellite_id,
             thread_id: thread_id.to_owned(),
             title: format!("Session on {thread_id}"),
+            github_credential_id: None,
         }
     }
 

@@ -14,12 +14,12 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, patch};
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::ValidationError;
 
 use crate::images::MAX_UPLOAD_BYTES;
-use crate::models::project::{Project, ProjectCoverFit};
+use crate::models::project::{GithubAccess, Project, ProjectCoverFit};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -53,6 +53,20 @@ pub struct ProjectResponse {
     /// URL, so a changed cover is fetched afresh and an unchanged one comes from cache.
     cover_updated_at: Option<DateTime<Utc>>,
     cover_fit: ProjectCoverFit,
+    github: ProjectGithub,
+}
+
+/// How a project picks the GitHub token its sessions start with.
+///
+/// `credentialId` names the project's own token for `specific` access and is `null`
+/// otherwise. A response with `specific` access and a `null` id means the chosen token was
+/// deleted, and the project follows the workspace default until it chooses again.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectGithub {
+    access: GithubAccess,
+    #[serde(default)]
+    credential_id: Option<Uuid>,
 }
 
 impl From<Project> for ProjectResponse {
@@ -65,6 +79,10 @@ impl From<Project> for ProjectResponse {
             updated_at: project.updated_at,
             cover_updated_at: project.cover_image_updated_at,
             cover_fit: project.cover_fit,
+            github: ProjectGithub {
+                access: project.github_access,
+                credential_id: project.github_credential_id,
+            },
         }
     }
 }

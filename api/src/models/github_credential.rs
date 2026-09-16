@@ -12,7 +12,7 @@
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -53,6 +53,9 @@ pub struct GithubCredential {
     pub checked_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The workspace default, which sessions start with unless their project or the
+    /// session chooses otherwise. At most one token is the default.
+    pub is_default: bool,
 }
 
 /// A token GitHub has just accepted, with what it answered about it.
@@ -256,7 +259,63 @@ pub async fn record_check(
         .await
 }
 
-/// Deletes one credential.
+/// The workspace default token, if one is set.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn find_default(
+    connection: &mut AsyncPgConnection,
+) -> QueryResult<Option<GithubCredential>> {
+    github_credentials::table
+        .filter(github_credentials::is_default)
+        .select(GithubCredential::as_select())
+        .first(connection)
+        .await
+        .optional()
+}
+
+/// Makes a token the workspace default, or stops it being one, and returns every row the
+/// change touched: the token itself and the default it replaced.
+///
+/// Clearing the old default and setting the new one happen in one transaction, so the
+/// workspace never has two defaults, and the unique index backs that up.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] when no row has that id, and propagates any
+/// other database error.
+pub async fn set_default(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    is_default: bool,
+) -> QueryResult<Vec<GithubCredential>> {
+    connection
+        .transaction(async move |connection| {
+            let mut changed = Vec::new();
+            if is_default {
+                changed = diesel::update(
+                    github_credentials::table
+                        .filter(github_credentials::is_default)
+                        .filter(github_credentials::id.ne(id)),
+                )
+                .set(github_credentials::is_default.eq(false))
+                .returning(GithubCredential::as_returning())
+                .get_results(connection)
+                .await?;
+            }
+
+            let credential = diesel::update(github_credentials::table.find(id))
+                .set(github_credentials::is_default.eq(is_default))
+                .returning(GithubCredential::as_returning())
+                .get_result(connection)
+                .await?;
+            changed.push(credential);
+            Ok(changed)
+        })
+        .await
+}
+
+/// Deletes one credential. Projects that chose it follow the workspace default from then
+/// on, and sessions keep running with the token their thread was given.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] when no row has that id.
@@ -450,6 +509,123 @@ mod tests {
         assert_eq!(checked.token_expires_at, None);
         assert!(checked.checked_at > original.checked_at);
         assert_eq!(checked.token_encrypted, original.token_encrypted);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_new_default_replaces_the_previous_one() {
+        let (_url, mut connection) = migrated_database().await;
+        let cipher = cipher();
+        let work = create(&mut connection, &cipher, &new_credential("Work", "octocat"))
+            .await
+            .expect("insert");
+        let personal = create(
+            &mut connection,
+            &cipher,
+            &new_credential("Personal", "hubot"),
+        )
+        .await
+        .expect("insert");
+        assert!(!work.is_default, "a new token is not the default");
+
+        let changed = set_default(&mut connection, work.id, true)
+            .await
+            .expect("set");
+        assert_eq!(changed.len(), 1);
+        assert_eq!(
+            find_default(&mut connection)
+                .await
+                .expect("read")
+                .map(|credential| credential.id),
+            Some(work.id)
+        );
+
+        let changed = set_default(&mut connection, personal.id, true)
+            .await
+            .expect("replace");
+        let changed_ids: Vec<Uuid> = changed.iter().map(|credential| credential.id).collect();
+        assert_eq!(changed_ids, vec![work.id, personal.id]);
+        assert!(
+            !find(&mut connection, work.id)
+                .await
+                .expect("read")
+                .is_default
+        );
+
+        set_default(&mut connection, personal.id, false)
+            .await
+            .expect("clear");
+        assert!(find_default(&mut connection).await.expect("read").is_none());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn deleting_a_token_moves_its_projects_to_the_default() {
+        use crate::models::project::{self, GithubAccess, NewProject, ProjectChanges};
+
+        let (_url, mut connection) = migrated_database().await;
+        let cipher = cipher();
+        let workspace_default = create(
+            &mut connection,
+            &cipher,
+            &new_credential("Default", "octocat"),
+        )
+        .await
+        .expect("insert");
+        set_default(&mut connection, workspace_default.id, true)
+            .await
+            .expect("set");
+        let doomed = create(&mut connection, &cipher, &new_credential("Doomed", "hubot"))
+            .await
+            .expect("insert");
+
+        let created = project::create(
+            &mut connection,
+            &NewProject {
+                name: "Elysium".to_owned(),
+                description: String::new(),
+            },
+        )
+        .await
+        .expect("insert");
+        let project = project::update(
+            &mut connection,
+            created.id,
+            &ProjectChanges {
+                github_access: Some(GithubAccess::Specific),
+                github_credential_id: Some(Some(doomed.id)),
+                ..ProjectChanges::default()
+            },
+        )
+        .await
+        .expect("choose a token");
+        assert_eq!(
+            project.github_credential(Some(workspace_default.id)),
+            Some(doomed.id)
+        );
+
+        delete(&mut connection, doomed.id).await.expect("delete");
+        let orphaned = project::find(&mut connection, project.id)
+            .await
+            .expect("read");
+        assert_eq!(orphaned.github_access, GithubAccess::Specific);
+        assert_eq!(orphaned.github_credential_id, None);
+        assert_eq!(
+            orphaned.github_credential(Some(workspace_default.id)),
+            Some(workspace_default.id)
+        );
+
+        project::update(
+            &mut connection,
+            project.id,
+            &ProjectChanges {
+                github_access: Some(GithubAccess::None),
+                github_credential_id: Some(Some(workspace_default.id)),
+                ..ProjectChanges::default()
+            },
+        )
+        .await
+        .expect_err("projects_github_credential_is_specific refuses a token without Specific");
     }
 
     #[tokio::test]

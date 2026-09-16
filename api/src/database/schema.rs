@@ -6,6 +6,10 @@ pub mod sql_types {
     pub struct BunnyStorageRegion;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "github_access"))]
+    pub struct GithubAccess;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "github_token_kind"))]
     pub struct GithubTokenKind;
 
@@ -41,6 +45,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         project_id -> Uuid,
+        github_credential_id -> Nullable<Uuid>,
     }
 }
 
@@ -59,6 +64,7 @@ diesel::table! {
         checked_at -> Timestamptz,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        is_default -> Bool,
     }
 }
 
@@ -128,6 +134,7 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::ProjectCoverFit;
+    use super::sql_types::GithubAccess;
 
     projects (id) {
         id -> Uuid,
@@ -138,6 +145,8 @@ diesel::table! {
         cover_image -> Nullable<Bytea>,
         cover_image_updated_at -> Nullable<Timestamptz>,
         cover_fit -> ProjectCoverFit,
+        github_access -> GithubAccess,
+        github_credential_id -> Nullable<Uuid>,
     }
 }
 
@@ -191,9 +200,11 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
 diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
+diesel::joinable!(projects -> github_credentials (github_credential_id));
 diesel::joinable!(storage_location_projects -> projects (project_id));
 diesel::joinable!(storage_location_projects -> storage_locations (storage_location_id));
 

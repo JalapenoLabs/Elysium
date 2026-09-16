@@ -138,6 +138,8 @@ What coding sessions are grouped under.
 | `cover_image` | `BYTEA`       | Cover, compressed to WebP; at most 1 MB stored |
 | `cover_image_updated_at` | `TIMESTAMPTZ` | When the cover changed; set exactly when `cover_image` is |
 | `cover_fit`   | `project_cover_fit` | `fit` or `fill`, defaults to `fit`; kept when the cover is removed |
+| `github_access` | `github_access` | `default`, `none`, or `specific`; defaults to `default` |
+| `github_credential_id` | `UUID` | References `github_credentials`, `ON DELETE SET NULL`; set only for `specific` |
 
 `Project` in `api/src/models/project.rs` leaves `cover_image` out, so listing projects never loads images;
 `find_cover` reads it for the one route that serves a cover.
@@ -169,6 +171,7 @@ The GitHub tokens Elysium holds; see `docs/github.md`.
 | `scopes`           | `TEXT`               | Comma separated, as GitHub lists them; empty for fine-grained |
 | `token_expires_at` | `TIMESTAMPTZ`        | NULL for a token that does not expire                       |
 | `checked_at`       | `TIMESTAMPTZ`        | When GitHub last confirmed the token                        |
+| `is_default`       | `BOOLEAN`            | The workspace default; a partial unique index allows one    |
 | `created_at`       | `TIMESTAMPTZ`        | Set on insert                                               |
 | `updated_at`       | `TIMESTAMPTZ`        | Maintained by trigger                                       |
 
@@ -221,6 +224,7 @@ A pointer to an Arsox thread. The thread's state and history live on the satelli
 | `satellite_id` | `UUID`        | References `satellites`; deleting the satellite deletes its sessions  |
 | `thread_id`    | `TEXT`        | The satellite's thread id; unique per satellite                       |
 | `title`        | `TEXT`        | 1 to 200 characters                                                   |
+| `github_credential_id` | `UUID` | The GitHub token the thread started with; `ON DELETE SET NULL`     |
 | `created_at`   | `TIMESTAMPTZ` | Set on insert                                                         |
 | `updated_at`   | `TIMESTAMPTZ` | Maintained by trigger                                                 |
 

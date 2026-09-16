@@ -64,6 +64,22 @@
       "titleTooLong": "Use 200 characters or fewer.",
       "repositoryUrlInvalid": "Enter a repository URL such as https://github.com/org/repo.git.",
       "baseBranchTooLong": "Use 255 characters or fewer."
+    },
+    "github": {
+      "label": "GitHub token",
+      "hint": "The agent works with it through gh and git.",
+      "inherit": "Project's choice ({{name}})",
+      "inheritNone": "Project's choice (no token)",
+      "access": {
+        "checking": "Checking access to {{repository}}…",
+        "push": "This token can read and push to {{repository}}.",
+        "readOnly": "This token can read {{repository}} but cannot push to it.",
+        "pushUnknown": "This token can read {{repository}}. GitHub does not report whether a fine-grained token can push.",
+        "none": "This token cannot access {{repository}}. Pick another token, or check the token's repository access on GitHub.",
+        "failed": "Access to {{repository}} could not be checked.",
+        "expiresSoon": "This token expires on {{date}}.",
+        "expired": "This token has expired. Pick another token, or replace it under Settings, GitHub."
+      }
     }
   },
   "rename": {

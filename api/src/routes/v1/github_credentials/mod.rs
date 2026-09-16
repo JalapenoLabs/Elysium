@@ -3,6 +3,7 @@
 //! `/api/v1/github-credentials`: the GitHub tokens Elysium holds. Tokens are write-only
 //! over HTTP, and every write checks the token with GitHub before it is stored.
 
+mod check_repository_access;
 mod create_github_credential;
 mod delete_github_credential;
 mod get_github_credential;
@@ -34,6 +35,10 @@ pub fn router() -> Router<AppState> {
                 .delete(delete_github_credential::handle),
         )
         .route("/{id}/test", post(test_github_credential::handle))
+        .route(
+            "/{id}/repository-access",
+            post(check_repository_access::handle),
+        )
 }
 
 /// Upper bound on a stored token. A fine-grained token is about 93 characters today;
@@ -59,6 +64,9 @@ pub struct GithubCredentialResponse {
     token_expires_at: Option<DateTime<Utc>>,
     /// When GitHub last confirmed the token.
     checked_at: DateTime<Utc>,
+    /// The workspace default, which sessions start with unless their project or the
+    /// session chooses otherwise.
+    is_default: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -78,6 +86,7 @@ impl GithubCredentialResponse {
                 .collect(),
             token_expires_at: credential.token_expires_at,
             checked_at: credential.checked_at,
+            is_default: credential.is_default,
             created_at: credential.created_at,
             updated_at: credential.updated_at,
         }

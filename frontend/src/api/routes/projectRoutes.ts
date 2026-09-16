@@ -13,6 +13,19 @@ export type ProjectScope = typeof ALL_PROJECTS | string[]
 // blurred copy of itself; `fill` covers the frame and crops what does not fit.
 export type ProjectCoverFit = 'fit' | 'fill'
 
+// Mirrors `GithubAccess` in api/src/models/project.rs: how a project picks the GitHub token
+// its sessions start with.
+export const GITHUB_ACCESS_CHOICES = [ 'default', 'none', 'specific' ] as const
+export type GithubAccess = typeof GITHUB_ACCESS_CHOICES[number]
+
+// Mirrors `ProjectGithub` in api/src/routes/v1/projects/mod.rs. `credentialId` is set only for
+// `specific` access; `specific` with a null id means the chosen token was deleted, and the
+// project follows the workspace default until it chooses again.
+export type ProjectGithub = {
+  access: GithubAccess
+  credentialId: string | null
+}
+
 // Mirrors `ProjectResponse` in api/src/routes/v1/projects/mod.rs.
 export type Project = {
   id: string
@@ -23,6 +36,7 @@ export type Project = {
   // When the cover last changed; null when the project has none.
   coverUpdatedAt: string | null
   coverFit: ProjectCoverFit
+  github: ProjectGithub
 }
 
 type ListProjectsResponse = {
@@ -55,6 +69,7 @@ type UpdateProjectRequest = {
   name?: string
   description?: string
   coverFit?: ProjectCoverFit
+  github?: ProjectGithub
 }
 
 type UpdateProjectResponse = {

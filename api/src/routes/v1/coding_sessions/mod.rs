@@ -7,6 +7,7 @@
 
 mod create_coding_session;
 mod delete_coding_session;
+mod github_token;
 mod list_coding_sessions;
 mod list_session_events;
 mod model_stack;
@@ -22,6 +23,7 @@ use arsox_sdk::proto::settings::v1::{Budget, Repo, ThreadSettings};
 use axum::Router;
 use axum::routing::{get, patch, post};
 use chrono::{DateTime, Utc};
+use secrecy::SecretString;
 use serde::Serialize;
 use uuid::Uuid;
 use validator::ValidationError;
@@ -66,6 +68,9 @@ pub struct CodingSessionResponse {
     satellite_id: Uuid,
     thread_id: String,
     title: String,
+    /// The GitHub token the thread was started with, or `null` for none or a token since
+    /// deleted.
+    github_credential_id: Option<Uuid>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     /// The thread as of the fleet's latest poll; `None` until the first poll sees it.
@@ -80,6 +85,7 @@ impl CodingSessionResponse {
             satellite_id: session.satellite_id,
             thread_id: session.thread_id,
             title: session.title,
+            github_credential_id: session.github_credential_id,
             created_at: session.created_at,
             updated_at: session.updated_at,
             thread,
@@ -87,12 +93,16 @@ impl CodingSessionResponse {
     }
 }
 
-/// Settings for a new thread: Elysium's policy ceilings, the optional repository, and
-/// the credentials the thread fails over through.
+/// Settings for a new thread: Elysium's policy ceilings, the optional repository, the
+/// credentials the thread fails over through, and the GitHub token its agent works with.
 ///
 /// Without a stack the thread declares no endpoint, and the satellite falls back to
 /// whatever credential it holds itself.
-fn thread_settings(repository: Option<Repo>, stack: Option<ModelStack>) -> ThreadSettings {
+fn thread_settings(
+    repository: Option<Repo>,
+    stack: Option<ModelStack>,
+    github_token: Option<&SecretString>,
+) -> ThreadSettings {
     let budget = Budget {
         // Per-turn tokens are bounded by the cost and wall clock ceilings instead.
         max_tokens_per_turn: Some(TokenCeiling {
@@ -128,6 +138,10 @@ fn thread_settings(repository: Option<Repo>, stack: Option<ModelStack>) -> Threa
         harness: harness.into(),
         models,
         repos: repository.into_iter().collect(),
+        github: github_token.map(github_token::integration),
+        env: github_token
+            .map(github_token::thread_environment)
+            .unwrap_or_default(),
         ..ThreadSettings::default()
     }
 }

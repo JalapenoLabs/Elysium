@@ -37,6 +37,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PATCH  | `/api/v1/github-credentials/{id}`     | `200` `{ credential }`                              |
 | DELETE | `/api/v1/github-credentials/{id}`     | `204`; the token itself stays valid on GitHub       |
 | POST   | `/api/v1/github-credentials/{id}/test` | `200` `{ result }` from asking GitHub now          |
+| POST   | `/api/v1/github-credentials/{id}/repository-access` | `200` `{ result }` for one repository |
 | GET    | `/api/v1/projects`                    | `200` `{ projects: Project[] }`, by name            |
 | POST   | `/api/v1/projects`                    | `201` `{ project }`                                 |
 | PATCH  | `/api/v1/projects/{id}`               | `200` `{ project }`                                 |
@@ -114,9 +115,12 @@ are browser navigations; see `docs/mail.md`.
 ### `/api/v1/projects`
 
 A `Project` has `id`, `name`, `description`, `createdAt`, `updatedAt`, `coverUpdatedAt` (null without a cover), and
-`coverFit` (`fit` or `fill`, how clients frame the cover). `POST` requires `name` (1 to 120 characters, unique) and
-accepts `description` (up to 2000, default empty). `PATCH` accepts any of `name`, `description`, and `coverFit`; an
-empty body is rejected. `DELETE` answers `409` while any coding session belongs to the project.
+`coverFit` (`fit` or `fill`, how clients frame the cover), and `github`: `{ access, credentialId }`, how the project
+picks its sessions' GitHub token. `access` is `default` (the workspace default), `none`, or `specific` with the token's
+`credentialId`; `specific` with a null id means the chosen token was deleted and the project follows the default.
+`POST` requires `name` (1 to 120 characters, unique) and accepts `description` (up to 2000, default empty). `PATCH`
+accepts any of `name`, `description`, `coverFit`, and `github`; an empty body is rejected. A `github` whose
+`credentialId` is missing for `specific`, present for another access, or names no token answers `400`. `DELETE` answers `409` while any coding session belongs to the project.
 
 `PUT /{id}/cover` takes the image file as the raw body: PNG, JPEG, WebP, or GIF (first frame), up to 10,000,000
 bytes; this route alone raises the API's 1 MiB body limit, and nginx's, to allow it. The format is read from the bytes,
@@ -173,8 +177,12 @@ one without a `token` answers `400`.
 Every write checks the token with `GET https://api.github.com/user` and stores it only if GitHub accepts it: a
 rejected token answers `400` with what to check, and an unreachable GitHub `502`.
 
-`test` answers `{ login, scopes, tokenExpiresAt }` from asking GitHub now, and records it on the credential. See
-`docs/github.md`.
+`isDefault` marks the workspace default. `PATCH` accepts `isDefault`: `true` replaces the previous default in the same
+transaction, and both credentials go out on the event stream; `false` leaves no default.
+
+`test` answers `{ login, scopes, tokenExpiresAt }` from asking GitHub now, and records it on the credential.
+`repository-access` takes `{ repositoryUrl }` for a github.com remote and answers
+`{ repository, canRead, canPush, isPrivate }`, with `canPush` null when unknown. See `docs/github.md`.
 
 ### `/api/v1/coding-sessions`
 
@@ -184,7 +192,8 @@ A `CodingSession` has `id`, `projectId`, `satelliteId`, `threadId`, `title`, `cr
 `provisioning`, `idle`, `running`, `awaiting-input`, `watching`, `paused`, `expired`, or `destroyed`.
 
 `POST` requires `projectId`, `satelliteId`, and `title` (1 to 200 characters), and accepts `repositoryUrl` and
-`baseBranch`. The satellite must be active (`409` otherwise). `turns` requires `prompt` (1 to 100,000 characters)
+`baseBranch`, and `githubCredentialId` (absent follows the project, `null` asks for no token, and an id names one;
+an unknown id answers `400`). Sessions carry `githubCredentialId`, the token their thread started with. The satellite must be active (`409` otherwise). `turns` requires `prompt` (1 to 100,000 characters)
 and answers `{ turnId, status, prompt, queuedAt }`; the turn's progress arrives on the event stream.
 
 A `SessionEvent` has `sessionId`, `sequence`, `turnId`, `occurredAt`, `type` (the satellite's wire name, such as

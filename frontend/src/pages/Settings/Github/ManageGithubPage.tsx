@@ -8,7 +8,11 @@ import { useNavigate } from 'react-router'
 
 // Redux
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
-import { githubCredentialDeleted, selectAllGithubCredentials } from '../../../store/githubCredentialsSlice'
+import {
+  githubCredentialDeleted,
+  githubCredentialUpserted,
+  selectAllGithubCredentials,
+} from '../../../store/githubCredentialsSlice'
 
 // User interface
 import { Breadcrumbs, Button, Spinner, toast } from '@heroui/react'
@@ -17,7 +21,11 @@ import { GithubCredentialTable } from './GithubCredentialTable'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
-import { deleteGithubCredential, testGithubCredential } from '../../../api/routes/githubRoutes'
+import {
+  deleteGithubCredential,
+  testGithubCredential,
+  updateGithubCredential,
+} from '../../../api/routes/githubRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useGithubCredentialsLoader } from '../../../hooks/useServerData'
 import { getGithubCredentialEditUrl, UrlTree } from '../../../urls'
@@ -45,6 +53,23 @@ export function ManageGithubPage() {
       toast.danger(t('toasts.testFailed', { name: credential.name }), {
         description: message ?? t('common:errors.unexpected'),
       })
+    }
+  }
+
+  // The token that was the default loses the flag through its own event on the stream.
+  async function toggleDefault(credential: GithubCredential) {
+    const isDefault = !credential.isDefault
+    try {
+      const response = await updateGithubCredential(credential.id, { isDefault })
+      dispatch(githubCredentialUpserted(response.credential))
+      const key = isDefault
+        ? 'toasts.defaultSet'
+        : 'toasts.defaultCleared'
+      toast.success(t(key, { name: credential.name }))
+    }
+    catch (error) {
+      console.debug('ManageGithubPage failed to change the default token', { error, credentialId: credential.id })
+      toast.danger(t('common:errors.unexpected'), { description: getApiErrorMessage(error) ?? undefined })
     }
   }
 
@@ -92,6 +117,8 @@ export function ManageGithubPage() {
         </Button>
       </div>
 
+      <p className='relaxed text-sm opacity-70'>{t('page.defaultHint')}</p>
+
       {status === 'loading' && <div className='grid place-items-center py-16'>
         <Spinner />
       </div>}
@@ -104,6 +131,7 @@ export function ManageGithubPage() {
         credentials={credentials}
         onEdit={(credential) => navigate(getGithubCredentialEditUrl(credential.id))}
         onTest={runTokenTest}
+        onToggleDefault={toggleDefault}
         onDelete={confirmDelete}
       />}
     </section>

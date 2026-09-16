@@ -15,6 +15,7 @@ import { Breadcrumbs, Link, Spinner, toast } from '@heroui/react'
 import { InlineEditableText } from '../../components/InlineEditableText'
 import { ProjectActions } from './ProjectActions'
 import { ProjectBanner } from './ProjectBanner'
+import { ProjectGithubField } from './ProjectGithubField'
 import { ProjectSessionsTable } from './ProjectSessionsTable'
 
 // Utility
@@ -115,6 +116,8 @@ export function ProjectPage() {
     </div>
 
     <ProjectBanner project={project} />
+
+    <ProjectGithubField project={project} />
 
     <section>
       <h2 className='compact text-xl font-semibold'>{t('page.sessionsHeading')}</h2>

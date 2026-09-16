@@ -2,6 +2,7 @@
 
 import type { ParseKeys } from 'i18next'
 import type { GithubTokenKind } from '../../../api/routes/githubRoutes'
+import type { ProjectGithub } from '../../../api/routes/projectRoutes'
 
 export const githubKindLabelKeys = {
   'classic': 'kinds.classic',
@@ -52,4 +53,32 @@ export function matchesGithubTokenKind(kind: GithubTokenKind, token: string) {
     return /^ghp_[A-Za-z0-9]+$/.test(token) || /^[0-9a-fA-F]{40}$/.test(token)
   }
   return /^github_pat_\w+$/.test(token)
+}
+
+// The token a project's sessions start with, mirroring `Project::github_credential` in
+// api/src/models/project.rs. A project whose token was deleted follows the default.
+export function resolveProjectGithubCredentialId(github: ProjectGithub, defaultCredentialId: string | null) {
+  if (github.access === 'none') {
+    return null
+  }
+  if (github.access === 'specific' && github.credentialId) {
+    return github.credentialId
+  }
+  return defaultCredentialId
+}
+
+// The repository a git remote URL points at on github.com, mirroring `Repository::from_url`
+// in api/src/github/mod.rs; null for any other host or shape.
+const GITHUB_REMOTE_PREFIX = String.raw`(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)`
+// An owner is a GitHub login; a name allows dots, hyphens, and underscores too.
+const GITHUB_REMOTE_PATTERN = new RegExp(
+  String.raw`^${GITHUB_REMOTE_PREFIX}([A-Za-z0-9-]{1,39})/([A-Za-z0-9._-]{1,100}?)(?:\.git)?/?$`,
+)
+
+export function parseGithubRepository(url: string) {
+  const match = GITHUB_REMOTE_PATTERN.exec(url.trim())
+  if (!match || match[2] === '.' || match[2] === '..') {
+    return null
+  }
+  return `${match[1]}/${match[2]}`
 }

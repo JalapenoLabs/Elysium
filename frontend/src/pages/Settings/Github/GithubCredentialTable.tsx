@@ -19,6 +19,7 @@ type Props = {
   credentials: GithubCredential[]
   onEdit: (credential: GithubCredential) => void
   onTest: (credential: GithubCredential) => void
+  onToggleDefault: (credential: GithubCredential) => void
   onDelete: (credential: GithubCredential) => void
 }
 
@@ -77,7 +78,10 @@ export function GithubCredentialTable(props: Props) {
     }
 
     const renderCell = {
-      name: (credential: GithubCredential) => <span className='font-medium'>{credential.name}</span>,
+      name: (credential: GithubCredential) => <div className='flex items-center gap-2'>
+        <span className='font-medium'>{credential.name}</span>
+        {credential.isDefault && <Chip size='sm' variant='soft' color='accent'>{t('table.default')}</Chip>}
+      </div>,
       kind: (credential: GithubCredential) => t(githubKindLabelKeys[credential.kind]),
       account: (credential: GithubCredential) => <code className='text-xs'>{credential.login}</code>,
       scopes: (credential: GithubCredential) => <span className='line-clamp-2'>{
@@ -95,6 +99,7 @@ export function GithubCredentialTable(props: Props) {
         credential={credential}
         onEdit={props.onEdit}
         onTest={props.onTest}
+        onToggleDefault={props.onToggleDefault}
         onDelete={props.onDelete}
       />,
     } satisfies Record<GithubColumnKey, (credential: GithubCredential) => unknown>
@@ -150,7 +155,7 @@ export function GithubCredentialTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, now, props.onEdit, props.onTest, props.onDelete ])
+  }, [ t, i18n.language, now, props.onEdit, props.onTest, props.onToggleDefault, props.onDelete ])
 
   if (!props.credentials.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

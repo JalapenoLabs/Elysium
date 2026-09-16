@@ -130,7 +130,12 @@ whose row menu edits, tests, or deletes one, and add and edit as their own pages
 beside a `GithubSetupChecklist` for the chosen kind. The token field is optional while editing and turns required as
 soon as the kind changes, mirroring the API. `githubPresentation.ts` holds the labels, setup steps, and
 `matchesGithubTokenKind`, which checks a token's prefix before the API spends a call on it. An expired token shows a
-danger chip in place of its date. See `docs/github.md`.
+danger chip in place of its date. The default token wears a Default chip, and the row menu makes a token the default
+or stops. `src/components/GithubTokenSelect.tsx` picks a token for a project (`ProjectGithubField` on the project
+page, saved on change, with a notice when its token was deleted) and for a session (`CreateSessionModal`). Both offer
+following the level above, no token, or a token by name. `SessionGithubAccess` checks the chosen token against the
+session's repository through SWR once the field settles (`useDebouncedValue`), and says whether it can read and push,
+cannot see the repository, or is refused. See `docs/github.md`.
 
 Email under `src/pages/Settings/Email/` has two sections.
 

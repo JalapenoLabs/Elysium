@@ -5,7 +5,8 @@
   },
   "page": {
     "notFound": "This GitHub token does not exist. It may have been deleted.",
-    "backToList": "Back to GitHub"
+    "backToList": "Back to GitHub",
+    "defaultHint": "Sessions use the default token unless their project or the session picks another."
   },
   "kinds": {
     "classic": "Classic",
@@ -23,10 +24,13 @@
     "perRepository": "Per repository",
     "noScopes": "None",
     "empty": "No GitHub tokens yet. Add one so Elysium can reach your repositories.",
-    "loadError": "GitHub tokens could not be loaded."
+    "loadError": "GitHub tokens could not be loaded.",
+    "default": "Default"
   },
   "actions": {
-    "test": "Test token"
+    "test": "Test token",
+    "makeDefault": "Make default",
+    "clearDefault": "Stop using as default"
   },
   "form": {
     "createTitle": "Add GitHub token",
@@ -63,7 +67,9 @@
     "updated": "{{name}} updated",
     "deleted": "{{name}} deleted",
     "testPassed": "{{name}} works: GitHub signed it in as {{login}}",
-    "testFailed": "{{name}} was refused"
+    "testFailed": "{{name}} was refused",
+    "defaultSet": "{{name}} is now the default GitHub token",
+    "defaultCleared": "{{name}} is no longer the default GitHub token"
   },
   "setup": {
     "title": "Create the token",
@@ -81,5 +87,8 @@
       "permissions": "Under Repository permissions, grant Contents read and write, Pull requests read and write, and Metadata read.",
       "generate": "Generate the token and copy it into Token. GitHub shows it once."
     }
+  },
+  "choice": {
+    "none": "No GitHub token"
   }
 }

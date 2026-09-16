@@ -106,6 +106,83 @@ fn parse_expiration(header: &str) -> Option<DateTime<Utc>> {
     None
 }
 
+/// A repository on github.com, named the way its URL names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Repository {
+    pub owner: String,
+    pub name: String,
+}
+
+impl Repository {
+    /// The repository a git remote URL points at, if it is on github.com.
+    ///
+    /// Accepts `https://github.com/owner/name`, `ssh://git@github.com/owner/name`, and
+    /// `git@github.com:owner/name`, each with or without `.git` and a trailing slash. The
+    /// owner and name are checked against GitHub's own alphabets, since both become part
+    /// of an API path.
+    pub fn from_url(url: &str) -> Option<Self> {
+        let path = [
+            "https://github.com/",
+            "ssh://git@github.com/",
+            "git@github.com:",
+        ]
+        .iter()
+        .find_map(|prefix| url.strip_prefix(prefix))?;
+        let path = path.trim_end_matches('/');
+        let path = path.strip_suffix(".git").unwrap_or(path);
+        let (owner, name) = path.split_once('/')?;
+
+        // GitHub logins: letters, digits, and hyphens, up to 39.
+        let is_owner = (1..=39).contains(&owner.len())
+            && owner
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-');
+        // Repository names: letters, digits, hyphens, underscores, and dots, up to 100,
+        // never `.` or `..`.
+        let is_name = (1..=100).contains(&name.len())
+            && name != "."
+            && name != ".."
+            && name.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+            });
+        if !is_owner || !is_name {
+            return None;
+        }
+        Some(Self {
+            owner: owner.to_owned(),
+            name: name.to_owned(),
+        })
+    }
+}
+
+/// What a token can see of one repository.
+#[derive(Debug, Clone)]
+pub struct RepositoryAccess {
+    /// `owner/name`, as GitHub spells it.
+    pub full_name: String,
+    pub is_private: bool,
+    /// Whether the token's *account* may push. For a classic token its scopes decide the
+    /// rest; a fine-grained token's own permissions are not reported, so for one this says
+    /// nothing about the token.
+    pub role_can_push: bool,
+    /// A classic token's scopes; empty for a fine-grained token.
+    pub scopes: Vec<String>,
+}
+
+/// The parts of `GET /repos/{owner}/{repo}` Elysium reads.
+#[derive(Deserialize)]
+struct RepositoryBody {
+    full_name: String,
+    private: bool,
+    /// Present whenever the request is authenticated.
+    permissions: Option<RepositoryPermissions>,
+}
+
+#[derive(Deserialize)]
+struct RepositoryPermissions {
+    push: bool,
+}
+
 /// GitHub's API client. Cheap to clone; clones share one HTTP client.
 #[derive(Debug, Clone)]
 pub struct Github {
@@ -125,9 +202,62 @@ impl Github {
     /// [`GithubError::Refused`] when it cannot be reached or refuses the call, such as
     /// for a token an organization has blocked.
     pub async fn verify(&self, token: &SecretString) -> Result<Account, GithubError> {
+        let reply = self.get(USER_URL, token).await?;
+        if !reply.status.is_success() {
+            return Err(reply.refusal());
+        }
+
+        let user: UserBody = serde_json::from_str(&reply.body).map_err(|error| {
+            GithubError::Refused(format!("GitHub sent an unreadable account: {error}"))
+        })?;
+        Ok(Account {
+            login: user.login,
+            scopes: reply.scopes,
+            token_expires_at: reply.token_expires_at,
+        })
+    }
+
+    /// What a token can do with one repository, or `None` when the token cannot see it.
+    ///
+    /// GitHub answers `404`, not `403`, for a private repository a token has no access
+    /// to, so "cannot see" and "does not exist" are the same answer here.
+    ///
+    /// # Errors
+    /// Returns [`GithubError::Unauthorized`] when GitHub rejects the token, and
+    /// [`GithubError::Refused`] when it cannot be reached or refuses the call.
+    pub async fn repository_access(
+        &self,
+        token: &SecretString,
+        repository: &Repository,
+    ) -> Result<Option<RepositoryAccess>, GithubError> {
+        let url = format!(
+            "https://api.github.com/repos/{}/{}",
+            repository.owner, repository.name
+        );
+        let reply = self.get(&url, token).await?;
+        if reply.status == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !reply.status.is_success() {
+            return Err(reply.refusal());
+        }
+
+        let body: RepositoryBody = serde_json::from_str(&reply.body).map_err(|error| {
+            GithubError::Refused(format!("GitHub sent an unreadable repository: {error}"))
+        })?;
+        Ok(Some(RepositoryAccess {
+            full_name: body.full_name,
+            is_private: body.private,
+            role_can_push: body.permissions.is_some_and(|permissions| permissions.push),
+            scopes: reply.scopes,
+        }))
+    }
+
+    /// Sends one authenticated `GET` and reads everything a caller may need from it.
+    async fn get(&self, url: &str, token: &SecretString) -> Result<Reply, GithubError> {
         let response = self
             .http
-            .get(USER_URL)
+            .get(url)
             .bearer_auth(token.expose_secret())
             .header(ACCEPT, "application/vnd.github+json")
             .header("X-GitHub-Api-Version", API_VERSION)
@@ -149,7 +279,6 @@ impl Github {
             .get("github-authentication-token-expiration")
             .and_then(|value| value.to_str().ok())
             .and_then(parse_expiration);
-
         let body = response
             .text()
             .await
@@ -160,21 +289,29 @@ impl Github {
                 "GitHub refused the token; check that it was copied whole and has not expired or been revoked",
             ));
         }
-        if !status.is_success() {
-            let message = serde_json::from_str::<ErrorBody>(&body)
-                .map_or_else(|_error| status.to_string(), |error| error.message);
-            return Err(GithubError::Refused(format!("GitHub: {message}")));
-        }
-
-        let user: UserBody = serde_json::from_str(&body).map_err(|error| {
-            GithubError::Refused(format!("GitHub sent an unreadable account: {error}"))
-        })?;
-
-        Ok(Account {
-            login: user.login,
+        Ok(Reply {
+            status,
             scopes,
             token_expires_at,
+            body,
         })
+    }
+}
+
+/// One answer from GitHub, read in full.
+struct Reply {
+    status: StatusCode,
+    scopes: Vec<String>,
+    token_expires_at: Option<DateTime<Utc>>,
+    body: String,
+}
+
+impl Reply {
+    /// An unsuccessful answer as an error carrying GitHub's own message.
+    fn refusal(&self) -> GithubError {
+        let message = serde_json::from_str::<ErrorBody>(&self.body)
+            .map_or_else(|_error| self.status.to_string(), |error| error.message);
+        GithubError::Refused(format!("GitHub: {message}"))
     }
 }
 
@@ -196,6 +333,34 @@ mod tests {
         );
         assert_eq!(parse_expiration(""), None);
         assert_eq!(parse_expiration("never"), None);
+    }
+
+    #[test]
+    fn repositories_are_read_from_every_github_remote_form() {
+        let elysium = Some(Repository {
+            owner: "JalapenoLabs".to_owned(),
+            name: "Elysium".to_owned(),
+        });
+        for url in [
+            "https://github.com/JalapenoLabs/Elysium",
+            "https://github.com/JalapenoLabs/Elysium.git",
+            "https://github.com/JalapenoLabs/Elysium/",
+            "git@github.com:JalapenoLabs/Elysium.git",
+            "ssh://git@github.com/JalapenoLabs/Elysium.git",
+        ] {
+            assert_eq!(Repository::from_url(url), elysium, "{url}");
+        }
+
+        for url in [
+            "https://gitlab.com/JalapenoLabs/Elysium.git",
+            "https://github.com/JalapenoLabs",
+            "https://github.com/JalapenoLabs/Elysium/pulls",
+            "https://github.com/../..",
+            "https://github.com/owner/name?x=1",
+            "https://github.com.evil.com/owner/name",
+        ] {
+            assert_eq!(Repository::from_url(url), None, "{url}");
+        }
     }
 
     #[test]

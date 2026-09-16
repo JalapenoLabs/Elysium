@@ -32,6 +32,8 @@ export type CodingSession = {
   satelliteId: string
   threadId: string
   title: string
+  // The GitHub token the thread was started with; null for none or a token since deleted.
+  githubCredentialId: string | null
   createdAt: string
   updatedAt: string
   // The thread as of the API's latest poll; null until the first poll sees it.
@@ -102,6 +104,8 @@ type CreateCodingSessionRequest = {
   title: string
   repositoryUrl?: string
   baseBranch?: string
+  // Absent follows the project, null asks for no token, and an id names one.
+  githubCredentialId?: string | null
 }
 
 type CreateCodingSessionResponse = {

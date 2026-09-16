@@ -15,19 +15,22 @@ use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use chrono::Utc;
+use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::Uuid;
 use validator::{Validate, ValidationError};
 
+use super::github_token::{self, SessionChoice};
 use super::model_stack;
 use super::{CodingSessionResponse, thread_settings, validate_not_blank};
+use crate::crypto::Cipher;
 use crate::errors::ApiError;
 use crate::fleet::views::ThreadStatus;
 use crate::fleet::{MANAGED_METADATA_KEY, SESSION_METADATA_KEY};
 use crate::models::coding_session::{self, NewCodingSession};
-use crate::models::llm;
+use crate::models::llm::{self, Llm};
 use crate::models::{project, satellite};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
@@ -44,6 +47,14 @@ pub struct RequestBody {
     repository_url: Option<String>,
     #[validate(length(min = 1, max = 255), custom(function = "validate_not_blank"))]
     base_branch: Option<String>,
+    /// The GitHub token the agent works with: absent follows the project, `null` asks for
+    /// none, and an id names one.
+    #[serde(default, with = "::serde_with::rust::double_option")]
+    #[expect(
+        clippy::option_option,
+        reason = "absent, null, and an id are three distinct requests"
+    )]
+    github_credential_id: Option<Option<Uuid>>,
 }
 
 pub async fn handle(
@@ -52,15 +63,6 @@ pub async fn handle(
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
     body.validate()?;
-
-    let repository = body.repository_url.as_deref().map(|url| Repo {
-        name: repository_directory(url)
-            .expect("validation guarantees a directory name")
-            .to_owned(),
-        url: url.to_owned(),
-        base_branch: body.base_branch.clone(),
-        ..Repo::default()
-    });
 
     let mut connection = state
         .database
@@ -72,24 +74,29 @@ pub async fn handle(
     let project = project::find(&mut connection, body.project_id).await?;
     let satellite = satellite::find(&mut connection, body.satellite_id).await?;
     let credentials = llm::list(&mut connection).await?;
+
+    let github = github_token::open(
+        &mut connection,
+        &state.cipher,
+        &project,
+        SessionChoice::from_request(body.github_credential_id),
+    )
+    .await?;
     drop(connection);
 
-    // Decrypting here rather than in the stack keeps the cipher out of the shaping
-    // rules. A credential that cannot be opened is skipped: the rest still run.
-    let mut opened = Vec::with_capacity(credentials.len());
-    for credential in credentials {
-        match credential.secret_token(&state.cipher) {
-            Ok(token) => opened.push((credential, token)),
-            Err(error) => event!(
-                name: "coding_session.credential.unreadable",
-                Level::ERROR,
-                llm.id = %credential.id,
-                error.message = %error,
-                "a stored credential could not be decrypted and was skipped",
-            ),
-        }
-    }
-    let stack = model_stack::build(&opened, Utc::now());
+    let repository = body.repository_url.as_deref().map(|url| Repo {
+        name: repository_directory(url)
+            .expect("validation guarantees a directory name")
+            .to_owned(),
+        url: url.to_owned(),
+        base_branch: body.base_branch.clone(),
+        auth: github
+            .as_ref()
+            .and_then(|github| github_token::clone_auth(url, &github.token)),
+        ..Repo::default()
+    });
+
+    let stack = model_stack::build(&open_credentials(credentials, &state.cipher), Utc::now());
 
     let client = state.fleet.client(satellite.id).await?;
     let session_id = Uuid::now_v7();
@@ -100,7 +107,11 @@ pub async fn handle(
     let created = client
         .threads()
         .create_with(
-            thread_settings(repository, stack),
+            thread_settings(
+                repository,
+                stack,
+                github.as_ref().map(|github| &github.token),
+            ),
             Some(session_id.to_string()),
             metadata,
         )
@@ -112,6 +123,7 @@ pub async fn handle(
         satellite_id: satellite.id,
         thread_id: created.thread.thread_id.clone(),
         title: body.title,
+        github_credential_id: github.map(|github| github.credential_id),
     };
     let mut connection = state
         .database
@@ -148,6 +160,27 @@ pub async fn handle(
         StatusCode::CREATED,
         Json(json!({ "session": CodingSessionResponse::new(session, Some(thread)) })),
     ))
+}
+
+/// Decrypts the model credentials a thread fails over through.
+///
+/// Decrypting here rather than in the stack keeps the cipher out of the shaping rules. A
+/// credential that cannot be opened is skipped: the rest still run.
+fn open_credentials(credentials: Vec<Llm>, cipher: &Cipher) -> Vec<(Llm, SecretString)> {
+    let mut opened = Vec::with_capacity(credentials.len());
+    for credential in credentials {
+        match credential.secret_token(cipher) {
+            Ok(token) => opened.push((credential, token)),
+            Err(error) => event!(
+                name: "coding_session.credential.unreadable",
+                Level::ERROR,
+                llm.id = %credential.id,
+                error.message = %error,
+                "a stored credential could not be decrypted and was skipped",
+            ),
+        }
+    }
+    opened
 }
 
 /// The directory a repository is cloned into: the URL's last path segment without
@@ -249,12 +282,31 @@ mod tests {
 
     #[test]
     fn new_threads_declare_the_ceilings_the_satellite_requires() {
-        let settings = thread_settings(None, None);
+        let settings = thread_settings(None, None, None);
         assert!(settings.idle_ttl.is_some());
         let budget = settings.budget.expect("budget is set");
         assert!(budget.max_tokens_per_turn.is_some());
         assert!(budget.max_cost_per_thread.is_some());
         assert!(budget.max_wall_clock_per_turn.is_some());
         assert!(settings.repos.is_empty());
+        assert!(settings.env.is_empty() && settings.github.is_none());
+    }
+
+    #[test]
+    fn github_credential_ids_distinguish_absent_null_and_an_id() {
+        let base = json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "A" });
+
+        let absent: RequestBody = serde_json::from_value(base.clone()).expect("parses");
+        assert_eq!(absent.github_credential_id, None);
+
+        let mut null = base.clone();
+        null["githubCredentialId"] = Value::Null;
+        let null: RequestBody = serde_json::from_value(null).expect("parses");
+        assert_eq!(null.github_credential_id, Some(None));
+
+        let mut named = base;
+        named["githubCredentialId"] = json!(Uuid::nil());
+        let named: RequestBody = serde_json::from_value(named).expect("parses");
+        assert_eq!(named.github_credential_id, Some(Some(Uuid::nil())));
     }
 }

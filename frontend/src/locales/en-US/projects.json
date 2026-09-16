@@ -96,5 +96,14 @@
     "placeholder": "Choose projects",
     "search": "Search projects",
     "empty": "No projects match."
+  },
+  "github": {
+    "heading": "GitHub",
+    "label": "GitHub token",
+    "hint": "The token this project's sessions start with. A session can pick another when it starts.",
+    "inherit": "Workspace default ({{name}})",
+    "inheritNone": "Workspace default (none set)",
+    "orphaned": "The token this project used was deleted, so its sessions use the workspace default until you pick another.",
+    "saved": "GitHub token updated"
   }
 }

@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `PATCH /api/v1/github-credentials/{id}`: rename a credential, or give it a new token.
+//! `PATCH /api/v1/github-credentials/{id}`: rename a credential, give it a new token, or make
+//! it the workspace default.
 
 use anyhow::Context;
 use axum::Json;
@@ -30,6 +31,9 @@ pub struct RequestBody {
     name: Option<String>,
     kind: Option<GithubTokenKind>,
     token: Option<GithubToken>,
+    /// `true` makes this the workspace default, replacing the previous one; `false` leaves
+    /// the workspace without a default if this was it.
+    is_default: Option<bool>,
 }
 
 pub async fn handle(
@@ -78,18 +82,35 @@ pub async fn handle(
 
     // A kind that matches the stored one changes nothing, so a body of only that leaves
     // nothing to write.
-    if changes.is_empty() {
+    if changes.is_empty() && body.is_default.is_none() {
         return Err(ApiError::BadRequest(
             "request body contains no fields to update".to_owned(),
         ));
     }
-    let credential =
-        github_credential::update(&mut connection, &state.cipher, id, &changes).await?;
+
+    let mut credential = stored;
+    if !changes.is_empty() {
+        credential =
+            github_credential::update(&mut connection, &state.cipher, id, &changes).await?;
+    }
+    // Moving the default touches the token that held it too, and every client hears of both.
+    let mut replaced = Vec::new();
+    if let Some(is_default) = body.is_default {
+        for changed in github_credential::set_default(&mut connection, id, is_default).await? {
+            if changed.id == id {
+                credential = changed;
+            } else {
+                replaced.push(changed);
+            }
+        }
+    }
     drop(connection);
 
-    state.events.publish(&ServerEvent::GithubCredentialUpserted(
-        GithubCredentialResponse::new(credential.clone()),
-    ));
+    for changed in replaced.into_iter().chain([credential.clone()]) {
+        state.events.publish(&ServerEvent::GithubCredentialUpserted(
+            GithubCredentialResponse::new(changed),
+        ));
+    }
 
     Ok(Json(
         json!({ "credential": GithubCredentialResponse::new(credential) }),

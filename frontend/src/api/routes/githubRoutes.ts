@@ -21,6 +21,9 @@ export type GithubCredential = {
   // Null for a token that does not expire.
   tokenExpiresAt: string | null
   checkedAt: string
+  // The workspace default, which sessions start with unless their project or the session
+  // chooses otherwise.
+  isDefault: boolean
   createdAt: string
   updatedAt: string
 }
@@ -56,6 +59,8 @@ type UpdateGithubCredentialRequest = {
   name?: string
   kind?: GithubTokenKind
   token?: string
+  // True replaces the workspace default with this token; false leaves no default.
+  isDefault?: boolean
 }
 
 export function updateGithubCredential(credentialId: string, body: UpdateGithubCredentialRequest) {
@@ -81,4 +86,25 @@ export function testGithubCredential(credentialId: string) {
   return apiClient
     .post(`v1/github-credentials/${credentialId}/test`)
     .json<TestGithubCredentialResponse>()
+}
+
+export type RepositoryAccess = {
+  // owner/name, as GitHub spells it.
+  repository: string
+  canRead: boolean
+  // Null when it cannot be known, which is always the case for a fine-grained token.
+  canPush: boolean | null
+  // Null when the token cannot see the repository.
+  isPrivate: boolean | null
+}
+
+type CheckRepositoryAccessResponse = {
+  result: RepositoryAccess
+}
+
+// What a token can do with a repository on github.com. A token GitHub refuses answers 400.
+export function checkRepositoryAccess(credentialId: string, repositoryUrl: string) {
+  return apiClient
+    .post(`v1/github-credentials/${credentialId}/repository-access`, { json: { repositoryUrl }})
+    .json<CheckRepositoryAccessResponse>()
 }

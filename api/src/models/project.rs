@@ -76,6 +76,22 @@ pub enum ProjectCoverFit {
     Fill,
 }
 
+/// How a project picks the GitHub token its sessions start with.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, diesel_derive_enum::DbEnum, Serialize, Deserialize,
+)]
+#[ExistingTypePath = "crate::database::schema::sql_types::GithubAccess"]
+#[serde(rename_all = "kebab-case")]
+pub enum GithubAccess {
+    /// Follows the workspace's default token, whichever that is when a session starts.
+    Default,
+    /// Sessions get no GitHub token, even when the workspace has a default.
+    None,
+    /// Sessions get the project's own token. A project whose token was deleted keeps this
+    /// access with no token, and follows the workspace default until it chooses again.
+    Specific,
+}
+
 /// A stored project.
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
 #[diesel(table_name = projects, check_for_backend(diesel::pg::Pg))]
@@ -88,6 +104,24 @@ pub struct Project {
     /// When the cover last changed; `None` when the project has no cover.
     pub cover_image_updated_at: Option<DateTime<Utc>>,
     pub cover_fit: ProjectCoverFit,
+    pub github_access: GithubAccess,
+    /// The project's own token, for `Specific` access only.
+    pub github_credential_id: Option<Uuid>,
+}
+
+impl Project {
+    /// The token this project's sessions start with, given the workspace default.
+    pub const fn github_credential(&self, workspace_default: Option<Uuid>) -> Option<Uuid> {
+        match self.github_access {
+            GithubAccess::Default => workspace_default,
+            GithubAccess::None => None,
+            // A deleted token leaves no id behind, and the project follows the default.
+            GithubAccess::Specific => match self.github_credential_id {
+                Some(id) => Some(id),
+                None => workspace_default,
+            },
+        }
+    }
 }
 
 /// Fields for a new project.
@@ -104,12 +138,23 @@ pub struct ProjectChanges {
     pub name: Option<String>,
     pub description: Option<String>,
     pub cover_fit: Option<ProjectCoverFit>,
+    /// Changed together with `github_credential_id`: the database allows a token only for
+    /// `Specific` access.
+    pub github_access: Option<GithubAccess>,
+    #[expect(
+        clippy::option_option,
+        reason = "Diesel's changeset encoding: outer None skips, Some(None) writes NULL"
+    )]
+    pub github_credential_id: Option<Option<Uuid>>,
 }
 
 impl ProjectChanges {
     /// True when applying these changes would not touch any column.
     pub const fn is_empty(&self) -> bool {
-        self.name.is_none() && self.description.is_none() && self.cover_fit.is_none()
+        self.name.is_none()
+            && self.description.is_none()
+            && self.cover_fit.is_none()
+            && self.github_access.is_none()
     }
 }
 
