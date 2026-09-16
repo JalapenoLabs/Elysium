@@ -9,7 +9,7 @@ publish = false
 
 [dependencies]
 anyhow = "1.0.104"
-arsox-sdk = { git = "https://github.com/JalapenoLabs/arsox-satellites", rev = "c9e6760f7bb1c25a9043163bda991f7ac4f2b889" }
+arsox-sdk = { git = "https://github.com/JalapenoLabs/arsox-satellites", rev = "407b6a533792939c0365b9fff67e77bc064e5468" }
 async-imap = { version = "0.11.3", default-features = false, features = ["runtime-tokio"] }
 axum = "0.8.9"
 base64 = "0.23.1"
