@@ -14,16 +14,18 @@ mod model_stack;
 mod rename_coding_session;
 mod start_turn;
 
+use arsox_sdk::proto::common::v1::Secret;
 use arsox_sdk::proto::common::v1::{
     CostCeiling, Duration, DurationCeiling, Money, TokenCeiling, Unlimited, cost_ceiling,
     duration_ceiling, token_ceiling,
 };
 use arsox_sdk::proto::harness::v1::Harness;
+use arsox_sdk::proto::settings::v1::EnvVar;
 use arsox_sdk::proto::settings::v1::{Budget, Repo, ThreadSettings};
 use axum::Router;
 use axum::routing::{get, patch, post};
 use chrono::{DateTime, Utc};
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
 use uuid::Uuid;
 use validator::ValidationError;
@@ -31,6 +33,7 @@ use validator::ValidationError;
 use self::model_stack::ModelStack;
 use crate::fleet::views::ThreadStatus;
 use crate::models::coding_session::CodingSession;
+use crate::models::environment_variable::ThreadVariable;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -94,13 +97,15 @@ impl CodingSessionResponse {
 }
 
 /// Settings for a new thread: Elysium's policy ceilings, the optional repository, the
-/// credentials the thread fails over through, and the GitHub token its agent works with.
+/// credentials the thread fails over through, the workspace's environment variables, and the
+/// GitHub token its agent works with.
 ///
 /// Without a stack the thread declares no endpoint, and the satellite falls back to
 /// whatever credential it holds itself.
 fn thread_settings(
     repository: Option<Repo>,
     stack: Option<ModelStack>,
+    variables: &[ThreadVariable],
     github_token: Option<&SecretString>,
 ) -> ThreadSettings {
     let budget = Budget {
@@ -139,11 +144,30 @@ fn thread_settings(
         models,
         repos: repository.into_iter().collect(),
         github: github_token.map(github_token::integration),
-        env: github_token
-            .map(github_token::thread_environment)
-            .unwrap_or_default(),
+        env: thread_environment(variables, github_token),
         ..ThreadSettings::default()
     }
+}
+
+/// The thread's environment: the workspace's variables, then the ones Elysium sets itself.
+/// Elysium's names are refused as workspace variables, so neither list can override the
+/// other; Elysium's go last all the same, as the satellite applies the last value for a key.
+fn thread_environment(
+    variables: &[ThreadVariable],
+    github_token: Option<&SecretString>,
+) -> Vec<EnvVar> {
+    let workspace = variables.iter().map(|variable| EnvVar {
+        key: variable.key.clone(),
+        value: Some(Secret {
+            value: Some(variable.value.expose_secret().to_owned()),
+            display: None,
+        }),
+        is_secret: Some(variable.is_secret),
+    });
+    let elysium = github_token
+        .map(github_token::thread_environment)
+        .unwrap_or_default();
+    workspace.chain(elysium).collect()
 }
 
 /// Rejects text that is only whitespace; `length` alone would accept `"   "`.

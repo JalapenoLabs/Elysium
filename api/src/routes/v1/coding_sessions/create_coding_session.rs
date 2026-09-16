@@ -30,6 +30,7 @@ use crate::errors::ApiError;
 use crate::fleet::views::ThreadStatus;
 use crate::fleet::{MANAGED_METADATA_KEY, SESSION_METADATA_KEY};
 use crate::models::coding_session::{self, NewCodingSession};
+use crate::models::environment_variable;
 use crate::models::llm::{self, Llm};
 use crate::models::{project, satellite};
 use crate::realtime::ServerEvent;
@@ -75,6 +76,8 @@ pub async fn handle(
     let satellite = satellite::find(&mut connection, body.satellite_id).await?;
     let credentials = llm::list(&mut connection).await?;
 
+    let variables =
+        environment_variable::thread_environment(&mut connection, &state.cipher).await?;
     let github = github_token::open(
         &mut connection,
         &state.cipher,
@@ -110,6 +113,7 @@ pub async fn handle(
             thread_settings(
                 repository,
                 stack,
+                &variables,
                 github.as_ref().map(|github| &github.token),
             ),
             Some(session_id.to_string()),
@@ -282,7 +286,7 @@ mod tests {
 
     #[test]
     fn new_threads_declare_the_ceilings_the_satellite_requires() {
-        let settings = thread_settings(None, None, None);
+        let settings = thread_settings(None, None, &[], None);
         assert!(settings.idle_ttl.is_some());
         let budget = settings.budget.expect("budget is set");
         assert!(budget.max_tokens_per_turn.is_some());
@@ -290,6 +294,36 @@ mod tests {
         assert!(budget.max_wall_clock_per_turn.is_some());
         assert!(settings.repos.is_empty());
         assert!(settings.env.is_empty() && settings.github.is_none());
+    }
+
+    #[test]
+    fn workspace_variables_come_before_the_ones_elysium_sets() {
+        use crate::models::environment_variable::ThreadVariable;
+
+        let variables = [
+            ThreadVariable {
+                key: "NPM_TOKEN".to_owned(),
+                value: SecretString::from("npm-secret"),
+                is_secret: true,
+            },
+            ThreadVariable {
+                key: "NODE_ENV".to_owned(),
+                value: SecretString::from("development"),
+                is_secret: false,
+            },
+        ];
+        let token = SecretString::from("github_pat_example");
+        let settings = thread_settings(None, None, &variables, Some(&token));
+
+        let keys: Vec<&str> = settings
+            .env
+            .iter()
+            .map(|variable| variable.key.as_str())
+            .collect();
+        assert_eq!(&keys[..3], ["NPM_TOKEN", "NODE_ENV", "GH_TOKEN"]);
+        assert_eq!(settings.env[0].is_secret, Some(true));
+        assert_eq!(settings.env[1].is_secret, Some(false));
+        assert!(settings.github.is_some());
     }
 
     #[test]

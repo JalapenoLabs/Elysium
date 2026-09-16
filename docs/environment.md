@@ -77,12 +77,15 @@ switch is turned off.
 `thread_environment(connection, cipher) -> anyhow::Result<Vec<ThreadVariable>>` in
 `api/src/models/environment_variable.rs` returns every variable decrypted, ordered by key, as
 `ThreadVariable { key, value: SecretString, is_secret }`. It is the only way code reads the whole environment. A
-value that will not open fails the call naming the key, never the value.
+value that will not open fails the call naming the key, never the value, and the session is not created.
+
+Creating a coding session puts every variable into `ThreadSettings.env` with its `is_secret` flag, followed by the
+variables Elysium sets itself for GitHub (`GH_TOKEN` and `GIT_CONFIG_*`, see `docs/github.md`). Elysium's names are
+refused as workspace variables, so neither list overrides the other.
 
 Changes apply to threads created afterwards. A running thread keeps the environment it was created with, and deleting
 a variable does not remove it from one.
 
 ## Roadmap
 
-- Passing the environment into thread creation, alongside the GitHub variables Elysium sets itself.
 - Variables scoped to projects, linked the way storage locations are.

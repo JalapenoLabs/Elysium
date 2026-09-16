@@ -65,13 +65,6 @@ impl EnvironmentVariableChanges {
 }
 
 /// One variable as a satellite thread receives it, decrypted.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "read when a coding session opens its thread; remove once that caller lands"
-    )
-)]
 #[derive(Debug)]
 pub struct ThreadVariable {
     pub key: String,
@@ -162,13 +155,6 @@ pub async fn find(
 /// Propagates database errors, and fails naming the key of any value that will not open,
 /// which only a changed encryption key or altered row can cause. The value itself is never
 /// part of the error.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "read when a coding session opens its thread; remove once that caller lands"
-    )
-)]
 pub async fn thread_environment(
     connection: &mut AsyncPgConnection,
     cipher: &Cipher,
