@@ -19,8 +19,7 @@ on the Coding page.
 
 Satellites speak protobuf and authenticate with a bearer secret that must never reach a browser. The frontend
 therefore never contacts a satellite. The API talks to them with the Rust SDK, `arsox-sdk`, a git dependency
-pinned to a commit of the satellites repository. The pin is a commit of its `feat/tool-relay` branch, which carries the
-tool relay contract, until that branch merges into `develop`. It converts every contract type into JSON views
+pinned to a commit of the satellites repository's `develop` branch. The API converts every contract type into JSON views
 in `api/src/fleet/views.rs`, so no route or client depends on the wire format.
 
 To upgrade the SDK, change the `rev` in `api/Cargo.toml`. `api/.cargo/config.toml` sets `git-fetch-with-cli`,
