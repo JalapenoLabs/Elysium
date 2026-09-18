@@ -88,9 +88,9 @@ until their implementation lands.
   hand. Initiatives group items toward a goal that ends and carry the progress bar; projects never end and have
   none. Items belong to many projects and many initiatives. See `docs/action-items.md`.
 - An item is a commitment, not a copy. The provider stays the source of truth for a linked issue's fields; the item
-  holds triage, priority, dates, membership, provenance, and history. Resolving an item moves its linked issue
-  automatically, and the provider closing an issue resolves its item. A pull request is never merged or closed from
-  Elysium.
+  holds triage, priority, dates, membership, provenance, and history. Resolving an item moves every linked issue
+  still open automatically, and the provider closing a linked issue resolves its item. A pull request is never
+  merged or closed from Elysium.
 - Progress is resolved over total with a burnup of both, never a percentage alone. Initiatives link to containers
   (a Jira epic or search, a GitHub milestone or label) rather than issues one by one, so nothing is tracked twice.
 - Anything the user did not do directly (Elysia, Elysium's AI assistant; email triage; coding agents) proposes a

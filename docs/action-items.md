@@ -75,9 +75,10 @@ Deleting is soft. `deletedAt` hides the item everywhere, and it can be restored 
 Elysium is used by one person today and is built to be shared by a small team. The API has no authentication yet
 (`docs/security.md`) and there is no users table, so ownership is recorded without one:
 
-- `owner` is null for the user's own items, and otherwise the name or address of whoever owns it, as a provider
-  reports it. Items an initiative tracks on behalf of others (a teammate's Jira issue under a linked epic) count
-  toward progress but never appear in Next.
+- `owner` is one of three things: the user, someone else by the name or address a provider reports, or nobody,
+  for a linked issue with no assignee. Only the user's items appear in Next. Items an initiative tracks on behalf
+  of others (a teammate's Jira issue under a linked epic) count toward progress but never appear in Next, and
+  neither do unowned items until the user claims one.
 - `waitingOn` is free text: a name or an address.
 - Every history entry names its actor: `user`, `elysia`, `session:<number>`, or `watcher:<provider>`.
 
@@ -131,8 +132,11 @@ actually works in.
 ## Links and the watcher
 
 A link is a provider, an external id, a URL, and the credential that reaches it. One link on an item is its primary
-link, where comments are posted. Links go through a provider trait with one implementation per provider under the
-action items module, so routes and tools never match on the provider, the same way `api/src/storage/` works.
+link, where comments are posted and whose assignee is the item's owner. The primary link is the one the item was
+created from, or the first one added, and only the user changes it, so adding a link (such as the pull request an
+agent opened) never moves an item's ownership. Links go through a provider trait with one implementation per
+provider under the action items module, so routes and tools never match on the provider, the same way
+`api/src/storage/` works.
 
 | Provider | Linkable                  | Resolved by the provider when   | Resolving the item does          |
 |----------|---------------------------|---------------------------------|----------------------------------|
@@ -159,9 +163,11 @@ the watcher sees twice, or one that Elysium itself caused, finds the item alread
 every provider write checks the provider's current state first, so a retried write never moves an issue twice. Polling
 works behind NAT and needs no public address; webhooks are a later upgrade for installs that can receive them.
 
-The watcher is not a proposer and needs no changeset: it records what already happened in a provider. The one
-provider write it causes is the one the user chose for every resolve: an item it resolves moves its other linked
-issues.
+The watcher is not a proposer and needs no changeset: it records what already happened in a provider. Besides
+retrying pending writes that were already approved, the only provider write it causes is the one the user chose for
+every resolve: an item it resolves moves its other linked issues.
+
+A GitHub issue closed as not planned dismisses its item, with the watcher as the actor, and moves nothing else.
 
 Notification emails from Jira and GitHub about a linked issue are matched to that issue's item rather than becoming
 items of their own.
@@ -190,9 +196,9 @@ Coding agents reach action items through one relayed MCP server, `elysium_work` 
 on every session's thread, whether or not the thread also declares `elysium_storage`, which it does only when the
 project has a storage location (`docs/storage.md`). Every thread then has a relay, so `docs/coding.md`'s
 `409 RELAY_NOT_DECLARED` path is left only for threads created before `elysium_work`; that doc changes with the
-implementation. It speaks Elysium's terms (items, initiatives, projects, comments), and
-never a provider's; the provider behind a link is Elysium's business. Every call is scoped to the session's project
-and re-checked against the database, the way storage tools are.
+implementation. It speaks Elysium's terms (items, initiatives, projects, comments), and never a provider's; the
+provider behind a link is Elysium's business. Every call is scoped to the session's project and re-checked against
+the database, the way storage tools are.
 
 - A session can be started from an item. It belongs to the item's project when the item has exactly one, and
   otherwise the user picks: one of the item's projects, or any project when it has none. Its first turn carries the
