@@ -35,7 +35,7 @@ use uuid::Uuid;
 use validator::ValidationError;
 
 use crate::errors::ApiError;
-use crate::jira::{Account, Board, Jira, JiraError, Project, Site};
+use crate::jira::{Account, Board, Issue, Jira, JiraError, Project, Site};
 use crate::models::jira_credential::{
     self, Allowed, AllowedBoard, AllowedProject, Allowlist, JiraCredential,
 };
@@ -75,6 +75,11 @@ pub fn router() -> Router<AppState> {
 /// Upper bound on a stored token. An Atlassian API token is about 200 characters today;
 /// this leaves room for longer ones without letting a row carry an arbitrary blob.
 const TOKEN_MAX_BYTES: usize = 512;
+
+/// The longest text one request may carry, for a description or a comment. Jira's own
+/// ceiling is far higher; this keeps one request from carrying a document nobody meant to
+/// paste, and it is one policy rather than one per route.
+const TEXT_MAX_CHARACTERS: u64 = 32_768;
 
 /// A credential as clients see it. The token is never included, sealed or not.
 #[derive(Debug, Serialize)]
@@ -355,53 +360,81 @@ pub async fn open(state: &AppState, id: Uuid) -> Result<OpenCredential, ApiError
     })
 }
 
-/// An opened credential for the route tests, which call the fake Jira but no database.
+/// One issue, refused unless this credential may touch the project Jira reports it in.
 ///
-/// The account and the token are the ones the fake accepts, and the site is the one a
-/// person would open: the fake is reached through the client's test origin, not through it.
-#[cfg(test)]
-pub fn opened_for_test(project_keys: &[&str]) -> OpenCredential {
-    use crate::jira::tests::{EMAIL, SITE_URL, TOKEN};
+/// Every route that names an issue by its key resolves it here, so the two halves of the
+/// check cannot come apart: the project the key names, before the call, and the project
+/// Jira answers with, after it. An issue keeps its key when it moves project, which is what
+/// makes the second half the one that matters.
+///
+/// A route that writes calls this **before** it writes. Checking afterwards would tell the
+/// caller the write was refused while Jira had already taken it, and a transition fires the
+/// target project's automations on the way.
+///
+/// # Errors
+/// Returns [`ApiError::BadRequest`] when the key is not an issue key, [`ApiError::Forbidden`]
+/// when either half of the check refuses, and whatever Jira answered otherwise.
+pub async fn allowed_issue(
+    jira: &Jira,
+    stored: &OpenCredential,
+    key: &str,
+) -> Result<Issue, ApiError> {
+    let projects = &stored.allowed.projects;
+    let name = &stored.credential.name;
+    allowlist::issue_project(projects, name, key)?;
 
-    let projects: Vec<AllowedProject> = project_keys
-        .iter()
-        .map(|key| AllowedProject {
-            id: "10002".to_owned(),
-            key: (*key).to_owned(),
-            name: format!("{key} project"),
-        })
-        .collect();
-    let checked_at = Utc::now();
+    let issue = jira.issue(&stored.site(), key).await?;
+    allowlist::ensure_allowed(projects, name, &issue.project_key)?;
 
-    OpenCredential {
-        credential: JiraCredential {
-            id: Uuid::now_v7(),
-            name: "Work".to_owned(),
-            site_url: SITE_URL.to_owned(),
-            account_email: EMAIL.to_owned(),
-            token_encrypted: Vec::new(),
-            account_id: "5b10a2844c20165700ede21g".to_owned(),
-            display_name: "Alex Navarro".to_owned(),
-            all_projects: false,
-            all_boards: false,
-            checked_at,
-            created_at: checked_at,
-            updated_at: checked_at,
-        },
-        allowed: Allowed {
-            projects: Allowlist::Only(projects),
-            boards: Allowlist::Only(Vec::new()),
-        },
-        token: SecretString::from(TOKEN),
-    }
+    Ok(issue)
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use secrecy::ExposeSecret;
     use serde_json::json;
 
     use super::*;
+
+    /// An opened credential for the route tests, which call the fake Jira but no database.
+    ///
+    /// The address and the token are the ones the fake authenticates, and the site is the
+    /// one a person would open: the fake itself is reached through the client's test origin.
+    pub fn opened_for_test(project_keys: &[&str]) -> OpenCredential {
+        use crate::jira::tests::{EMAIL, SITE_URL, TOKEN};
+
+        let projects: Vec<AllowedProject> = project_keys
+            .iter()
+            .map(|key| AllowedProject {
+                id: "10002".to_owned(),
+                key: (*key).to_owned(),
+                name: format!("{key} project"),
+            })
+            .collect();
+        let checked_at = Utc::now();
+
+        OpenCredential {
+            credential: JiraCredential {
+                id: Uuid::now_v7(),
+                name: "Work".to_owned(),
+                site_url: SITE_URL.to_owned(),
+                account_email: EMAIL.to_owned(),
+                token_encrypted: Vec::new(),
+                account_id: "5b10a2844c20165700ede21g".to_owned(),
+                display_name: "Alex Navarro".to_owned(),
+                all_projects: false,
+                all_boards: false,
+                checked_at,
+                created_at: checked_at,
+                updated_at: checked_at,
+            },
+            allowed: Allowed {
+                projects: Allowlist::Only(projects),
+                boards: Allowlist::Only(Vec::new()),
+            },
+            token: SecretString::from(TOKEN),
+        }
+    }
 
     fn reachable() -> Reachable {
         Reachable {

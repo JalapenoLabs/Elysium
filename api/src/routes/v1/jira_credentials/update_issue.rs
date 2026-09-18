@@ -3,7 +3,7 @@
 //! `PATCH /api/v1/jira-credentials/{id}/issues/{key}`: change an issue's fields.
 //!
 //! Jira answers a change with no content, so the issue is read back and returned as it is
-//! afterwards. That read also proves the issue is still in an allowed project.
+//! afterwards.
 
 use axum::Json;
 use axum::extract::rejection::{JsonRejection, PathRejection};
@@ -13,13 +13,10 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::{allowlist, open};
+use super::{OpenCredential, TEXT_MAX_CHARACTERS, allowed_issue, open};
 use crate::errors::ApiError;
-use crate::jira::IssueChanges;
+use crate::jira::{Issue, IssueChanges, Jira};
 use crate::state::AppState;
-
-/// The longest description a client may send, as when creating an issue.
-const TEXT_MAX_CHARACTERS: u64 = 32_768;
 
 /// Absent fields stay as they are.
 #[derive(Debug, Deserialize, Validate)]
@@ -64,23 +61,37 @@ pub async fn handle(
     }
 
     let stored = open(&state, id).await?;
-    let projects = &stored.allowed.projects;
-    let name = &stored.credential.name;
-    allowlist::issue_project(projects, name, &key)?;
-
-    state
-        .jira
-        .update_issue(&stored.site(), &key, &changes)
-        .await?;
-    let issue = state.jira.issue(&stored.site(), &key).await?;
-    allowlist::ensure_allowed(projects, name, &issue.project_key)?;
+    let issue = change(&state.jira, &stored, &key, &changes).await?;
 
     Ok(Json(json!({ "issue": issue })))
 }
 
+/// Changes an issue's fields, refused unless the credential may touch the project it is in.
+///
+/// The issue is resolved before the change rather than after it, so a field of an issue
+/// outside the allowlist is never overwritten and then reported `403`. It is read again
+/// afterwards because the answer carries the issue as it is now, and that read checks the
+/// project once more for free.
+async fn change(
+    jira: &Jira,
+    stored: &OpenCredential,
+    key: &str,
+    changes: &IssueChanges,
+) -> Result<Issue, ApiError> {
+    allowed_issue(jira, stored, key).await?;
+
+    jira.update_issue(&stored.site(), key, changes).await?;
+
+    allowed_issue(jira, stored, key).await
+}
+
 #[cfg(test)]
 mod tests {
+    use reqwest::Method;
+
     use super::*;
+    use crate::jira::tests::{fake_jira_site, sent};
+    use crate::routes::v1::jira_credentials::tests::opened_for_test;
 
     #[test]
     fn an_absent_assignee_and_a_null_one_are_different_requests() {
@@ -112,6 +123,33 @@ mod tests {
         assert!(
             changes.is_empty(),
             "the handler refuses this before calling Jira"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_issue_that_moved_out_of_the_allowlist_is_never_changed() {
+        let (jira, log) = fake_jira_site().await;
+        let stored = opened_for_test(&["ELY"]);
+        let changes = IssueChanges {
+            summary: Some("Renamed".to_owned()),
+            ..IssueChanges::default()
+        };
+
+        // ELY-99 answers with project SECRET: the key says one project and the issue is in
+        // another, which is what an issue moved since the key was written looks like.
+        let refused = change(&jira, &stored, "ELY-99", &changes)
+            .await
+            .unwrap_err();
+
+        let ApiError::Forbidden(message) = refused else {
+            panic!("an issue outside the allowlist is forbidden, not something else");
+        };
+        assert!(message.contains("SECRET"), "{message}");
+        assert!(
+            sent(&log)
+                .iter()
+                .all(|request| request.method == Method::GET),
+            "an issue outside the allowlist is read and refused, never written to"
         );
     }
 }

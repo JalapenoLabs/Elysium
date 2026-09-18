@@ -47,11 +47,13 @@ two of them.
 - Where the issue key implies a project, the project is checked **before** the call: `ELY-12` is in project `ELY`.
   A key is split at its last hyphen, and keys are compared case insensitively.
 - The project Jira reports on the answer is checked **after** the call, so an issue moved to another project since
-  it was written cannot slip through a stale key. Where the answer names no project of its own, as a list of
-  transitions and a written comment do not, the issue itself is read first and that project is checked before
-  anything is read or written: `GET .../issues/ELY-99/transitions` and `POST .../issues/ELY-99/comments` answer
-  `403` for an issue that has moved to a project outside the list, and the transitions are never asked for and the
-  comment never written.
+  it was written cannot slip through a stale key. Both halves live in one function, `allowed_issue`, and every
+  route that names an issue by key resolves it through that function rather than checking for itself.
+- A route that writes resolves the issue **before** it writes: a transition, a field change, and a comment on an
+  issue that has moved outside the list are refused with `403` and never reach Jira. Checking afterwards would
+  tell the caller the write was refused while Jira had already taken it, and a transition fires the target
+  project's automations on the way. A write then reads the issue again for its answer, which checks the project a
+  second time at no extra cost, since the answer carries the issue as it is afterwards anyway.
 - A search is **bounded**, never filtered afterwards: the caller's JQL is rewritten as
   `(<their where clause>) AND project IN ("ABC", "DEF") ORDER BY <their ordering>`, so Jira itself never looks
   outside the allowed projects. An `ORDER BY` in the caller's JQL is hoisted out before the `AND` is added, since

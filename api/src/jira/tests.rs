@@ -37,9 +37,7 @@ const BOARD_PAGES: u32 = 12;
 /// One request the fake received.
 #[derive(Debug, Clone)]
 pub(crate) struct Received {
-    /// Kept for the `{:?}` a failing assertion prints, which is where it earns its place.
-    #[expect(dead_code, reason = "read only in a failed assertion's debug output")]
-    method: Method,
+    pub(crate) method: Method,
     pub(crate) path: String,
     query: String,
     authorization: Option<String>,
@@ -230,7 +228,9 @@ async fn fake_jira(
             axum::Json(json!({ "id": "10043", "key": "ELY-13", "self": "…" })),
         )
             .into_response(),
-        (Method::PUT, "/rest/api/3/issue/ELY-12") => StatusCode::NO_CONTENT.into_response(),
+        (Method::PUT, "/rest/api/3/issue/ELY-12" | "/rest/api/3/issue/ELY-99") => {
+            StatusCode::NO_CONTENT.into_response()
+        }
 
         // A moved issue answers these the same way its new project would, which is what
         // makes the routes' own check against the project Jira reports worth having.
@@ -245,9 +245,10 @@ async fn fake_jira(
             }],
         }))
         .into_response(),
-        (Method::POST, "/rest/api/3/issue/ELY-12/transitions") => {
-            StatusCode::NO_CONTENT.into_response()
-        }
+        (
+            Method::POST,
+            "/rest/api/3/issue/ELY-12/transitions" | "/rest/api/3/issue/ELY-99/transitions",
+        ) => StatusCode::NO_CONTENT.into_response(),
 
         (
             Method::POST,

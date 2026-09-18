@@ -14,13 +14,10 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::{OpenCredential, allowlist, open};
+use super::{OpenCredential, TEXT_MAX_CHARACTERS, allowed_issue, open};
 use crate::errors::ApiError;
 use crate::jira::{Comment, Jira};
 use crate::state::AppState;
-
-/// The longest comment a client may send.
-const TEXT_MAX_CHARACTERS: u64 = 32_768;
 
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -46,23 +43,15 @@ pub async fn handle(
 
 /// Comments on an issue, refused unless the credential may touch the project it is in.
 ///
-/// A comment names no project of its own, so the issue is read first and the project Jira
-/// reports for it is checked, which is what every other issue route checks on its answer.
-/// The key alone is not enough: an issue keeps its old key when it moves project, so
-/// `ELY-99` can resolve to an issue that now lives in one this credential was never given.
-/// Here the check comes before the write, since a comment cannot be taken back.
+/// A comment names no project of its own, so the issue is resolved before the write rather
+/// than after it: a comment cannot be taken back.
 async fn comment_on(
     jira: &Jira,
     stored: &OpenCredential,
     key: &str,
     text: &str,
 ) -> Result<Comment, ApiError> {
-    let projects = &stored.allowed.projects;
-    let name = &stored.credential.name;
-    allowlist::issue_project(projects, name, key)?;
-
-    let issue = jira.issue(&stored.site(), key).await?;
-    allowlist::ensure_allowed(projects, name, &issue.project_key)?;
+    allowed_issue(jira, stored, key).await?;
 
     let comment = jira.add_comment(&stored.site(), key, text).await?;
     Ok(comment)
@@ -72,7 +61,7 @@ async fn comment_on(
 mod tests {
     use super::*;
     use crate::jira::tests::{fake_jira_site, sent};
-    use crate::routes::v1::jira_credentials::opened_for_test;
+    use crate::routes::v1::jira_credentials::tests::opened_for_test;
 
     #[test]
     fn a_comment_needs_a_body() {

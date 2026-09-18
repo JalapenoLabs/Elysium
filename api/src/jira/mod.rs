@@ -346,8 +346,8 @@ pub fn normalize_site_url(value: &str) -> Result<String, &'static str> {
     });
     if !named {
         return Err(
-            "a Jira Cloud site is named in letters, digits, and hyphens, and starts \
-                    with a letter or a digit",
+            "a Jira Cloud site is named in letters, digits, and hyphens, and starts with a \
+             letter or a digit",
         );
     }
 

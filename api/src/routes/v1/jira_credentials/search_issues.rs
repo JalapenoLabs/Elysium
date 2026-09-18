@@ -78,8 +78,9 @@ pub async fn handle(
         )
         .await?;
 
-    // The search was bounded, so this only ever refuses an answer Jira should not have
-    // given. It costs one comparison per issue and closes the gap if it ever does.
+    // A backstop, not the boundary: the boundary is `bounded_jql`, which is why the module
+    // doc argues against filtering an answer. The search was already bounded, so this only
+    // ever refuses an answer Jira should not have given. It costs one comparison per issue.
     for issue in &found.issues {
         allowlist::ensure_allowed(
             &stored.allowed.projects,

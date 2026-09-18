@@ -15,14 +15,10 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::{allowlist, open};
+use super::{TEXT_MAX_CHARACTERS, allowed_issue, allowlist, open};
 use crate::errors::ApiError;
 use crate::jira::NewIssue;
 use crate::state::AppState;
-
-/// The longest description a client may send. Jira's own ceiling is far higher; this keeps
-/// one request from carrying a document nobody meant to paste.
-const TEXT_MAX_CHARACTERS: u64 = 32_768;
 
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -72,8 +68,9 @@ pub async fn handle(
     };
     let key = state.jira.create_issue(&stored.site(), &new_issue).await?;
 
-    let issue = state.jira.issue(&stored.site(), &key).await?;
-    allowlist::ensure_allowed(projects, name, &issue.project_key)?;
+    // Read back for the answer, which also proves Jira put the issue where it was asked to:
+    // a parent in another project is what would move it.
+    let issue = allowed_issue(&state.jira, &stored, &key).await?;
 
     Ok((StatusCode::CREATED, Json(json!({ "issue": issue }))))
 }
