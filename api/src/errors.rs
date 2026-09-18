@@ -71,6 +71,18 @@ impl From<DieselError> for ApiError {
     }
 }
 
+impl From<crate::action_items::WorkError> for ApiError {
+    fn from(error: crate::action_items::WorkError) -> Self {
+        use crate::action_items::WorkError;
+
+        match error {
+            WorkError::Database(database) => database.into(),
+            WorkError::Conflict(message) => Self::Conflict(message),
+            WorkError::Invalid(message) => Self::BadRequest(message.to_owned()),
+        }
+    }
+}
+
 impl From<arsox_sdk::client::Error> for ApiError {
     fn from(error: arsox_sdk::client::Error) -> Self {
         Self::BadGateway(error.to_string())

@@ -26,9 +26,11 @@ use uuid::Uuid;
 
 use crate::fleet::views::{SatelliteStatus, SessionEvent};
 use crate::mail::hosting::MailServerStatus;
+use crate::routes::v1::action_items::{ActionItemResponse, CommentResponse, HistoryEntryResponse};
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
 use crate::routes::v1::environment_variables::EnvironmentVariableResponse;
 use crate::routes::v1::github_credentials::GithubCredentialResponse;
+use crate::routes::v1::initiatives::InitiativeResponse;
 use crate::routes::v1::jira_credentials::JiraCredentialResponse;
 use crate::routes::v1::llms::LlmResponse;
 use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
@@ -51,6 +53,18 @@ pub enum ServerEvent {
     /// The client missed events and must refetch everything it shows.
     #[serde(rename = "resync")]
     Resync,
+    #[serde(rename = "actionItem.upserted")]
+    ActionItemUpserted(ActionItemResponse),
+    /// The item was deleted or, softly, hidden until restored.
+    #[serde(rename = "actionItem.deleted")]
+    ActionItemDeleted { id: Uuid },
+    #[serde(rename = "actionItemComment.upserted")]
+    ActionItemCommentUpserted(CommentResponse),
+    #[serde(rename = "actionItemComment.deleted")]
+    ActionItemCommentDeleted { id: Uuid, action_item_id: Uuid },
+    /// A write to an item or initiative recorded this in its history.
+    #[serde(rename = "history.appended")]
+    HistoryAppended(HistoryEntryResponse),
     #[serde(rename = "environmentVariable.upserted")]
     EnvironmentVariableUpserted(EnvironmentVariableResponse),
     #[serde(rename = "environmentVariable.deleted")]
@@ -59,6 +73,12 @@ pub enum ServerEvent {
     GithubCredentialUpserted(GithubCredentialResponse),
     #[serde(rename = "githubCredential.deleted")]
     GithubCredentialDeleted { id: Uuid },
+    /// An initiative was created or changed, or its progress moved.
+    #[serde(rename = "initiative.upserted")]
+    InitiativeUpserted(InitiativeResponse),
+    /// The initiative was deleted or, softly, hidden until restored.
+    #[serde(rename = "initiative.deleted")]
+    InitiativeDeleted { id: Uuid },
     #[serde(rename = "jiraCredential.upserted")]
     JiraCredentialUpserted(JiraCredentialResponse),
     #[serde(rename = "jiraCredential.deleted")]
@@ -164,6 +184,19 @@ mod tests {
         assert_eq!(
             session_deleted,
             json!({ "type": "session.deleted", "data": { "id": 12 } })
+        );
+
+        let action_item_id = Uuid::now_v7();
+        let comment_deleted: Value = serde_json::from_str(
+            &ServerEvent::ActionItemCommentDeleted { id, action_item_id }.to_json(),
+        )
+        .expect("json");
+        assert_eq!(
+            comment_deleted,
+            json!({
+                "type": "actionItemComment.deleted",
+                "data": { "id": id, "actionItemId": action_item_id },
+            })
         );
 
         let hello: Value = serde_json::from_str(&ServerEvent::Hello.to_json()).expect("json");

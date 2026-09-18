@@ -2,9 +2,13 @@
 
 //! Database records and the queries that read and write them.
 
+pub mod action_item;
+pub mod action_item_comment;
+pub mod action_item_event;
 pub mod coding_session;
 pub mod environment_variable;
 pub mod github_credential;
+pub mod initiative;
 pub mod jira_credential;
 pub mod llm;
 pub mod mail_account;
