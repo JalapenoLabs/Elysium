@@ -11,8 +11,13 @@
 //! repeated key would hand back another session's thread. The key makes the SDK's own
 //! retries of this one request safe; a client that posts again opens a second thread.
 //!
-//! If recording the row fails, the thread is destroyed rather than left running with
-//! nothing pointing at it.
+//! A prompt, when given, is queued as the thread's first turn before the row is recorded. A
+//! session started from an action item must have one, and its first turn carries the item's
+//! context ahead of it (see `first_turn`).
+//!
+//! If queuing the first turn or recording the row fails, the thread is destroyed rather than
+//! left running with nothing pointing at it, so a create either yields a session with its
+//! first turn queued or nothing.
 //!
 //! A session clones any number of repositories up to [`MAX_REPOSITORIES`], each into its own
 //! directory under the workspace's `repos/`. The satellite checks that each name is safe but
@@ -23,6 +28,7 @@ use std::collections::BTreeMap;
 use std::collections::hash_map::{Entry, HashMap};
 
 use anyhow::Context;
+use arsox_sdk::client::ThreadHandle;
 use arsox_sdk::proto::settings::v1::Repo;
 use axum::Json;
 use axum::extract::State;
@@ -37,14 +43,14 @@ use uuid::Uuid;
 use validator::{Validate, ValidationError};
 
 use super::github_token::{self, SessionChoice, SessionToken};
-use super::model_stack;
 use super::{CodingSessionResponse, thread_settings, validate_not_blank};
+use super::{first_turn, model_stack};
 use crate::crypto::Cipher;
 use crate::errors::ApiError;
 use crate::fleet::views::ThreadStatus;
 use crate::fleet::{MANAGED_METADATA_KEY, SESSION_METADATA_KEY};
 use crate::github::Repository;
-use crate::models::coding_session::{self, NewCodingSession};
+use crate::models::coding_session::{self, CodingSession, NewCodingSession};
 use crate::models::environment_variable;
 use crate::models::llm::{self, Llm};
 use crate::models::{project, satellite, storage_location};
@@ -70,6 +76,16 @@ pub struct RequestBody {
         reason = "absent, null, and an id are three distinct requests"
     )]
     github_credential_id: Option<Option<Uuid>>,
+    /// The first prompt, queued as the thread's first turn. Large enough for a pasted stack
+    /// trace or spec, as a later turn's is.
+    #[validate(
+        length(min = 1, max = 100_000),
+        custom(function = "validate_not_blank")
+    )]
+    prompt: Option<String>,
+    /// The action item the session is started from. Its first turn carries the item's
+    /// context ahead of `prompt`, which is then required.
+    action_item_id: Option<Uuid>,
 }
 
 /// The most repositories one session clones.
@@ -110,6 +126,15 @@ pub async fn handle(
     let satellite = satellite::find(&mut connection, body.satellite_id).await?;
     let credentials = llm::list(&mut connection).await?;
     let storage_locations = storage_location::list_for_project(&mut connection, project.id).await?;
+    // An item is checked, and its context read, before a thread exists.
+    let first_turn = first_turn::build(
+        &mut connection,
+        &project,
+        body.action_item_id,
+        body.prompt,
+        Utc::now(),
+    )
+    .await?;
 
     let variables =
         environment_variable::thread_environment(&mut connection, &state.cipher).await?;
@@ -160,6 +185,13 @@ pub async fn handle(
         )
         .await?;
 
+    if let Some(first_turn) = first_turn
+        && let Err(turn_error) = created.handle.start_turn(first_turn).await
+    {
+        abandon_thread(&created.handle, satellite.id).await;
+        return Err(turn_error.into());
+    }
+
     let new_session = NewCodingSession {
         id: session_id,
         project_id: project.id,
@@ -167,28 +199,9 @@ pub async fn handle(
         thread_id: created.thread.thread_id.clone(),
         title: body.title,
         github_credential_id: github.map(|github| github.credential_id),
+        action_item_id: body.action_item_id,
     };
-    let mut connection = state
-        .database
-        .get()
-        .await
-        .context("no database connection available")?;
-    let session = match coding_session::create(&mut connection, &new_session).await {
-        Ok(session) => session,
-        Err(database_error) => {
-            if let Err(destroy_error) = created.handle.destroy().await {
-                event!(
-                    name: "coding_session.create.orphaned_thread",
-                    Level::ERROR,
-                    satellite.id = %satellite.id,
-                    thread.id = %created.thread.thread_id,
-                    error.message = %destroy_error,
-                    "could not record the session or destroy its thread; the thread expires on its idle TTL",
-                );
-            }
-            return Err(database_error.into());
-        }
-    };
+    let session = record_or_abandon(&state, &created.handle, &new_session).await?;
 
     let thread = ThreadStatus::from(&created.thread);
     state.fleet.watch_session(session.clone());
@@ -203,6 +216,45 @@ pub async fn handle(
         StatusCode::CREATED,
         Json(json!({ "session": CodingSessionResponse::new(session, Some(thread)) })),
     ))
+}
+
+/// Records the session of a thread just opened, destroying the thread when the row cannot be
+/// written, so no thread runs with nothing pointing at it.
+///
+/// # Errors
+/// Propagates the database's refusal.
+async fn record_or_abandon(
+    state: &AppState,
+    handle: &ThreadHandle,
+    new_session: &NewCodingSession,
+) -> Result<CodingSession, ApiError> {
+    let recorded = match state.database.get().await {
+        Ok(mut connection) => coding_session::create(&mut connection, new_session)
+            .await
+            .map_err(ApiError::from),
+        Err(pool_error) => Err(anyhow::Error::from(pool_error)
+            .context("no database connection available")
+            .into()),
+    };
+    if recorded.is_err() {
+        abandon_thread(handle, new_session.satellite_id).await;
+    }
+    recorded
+}
+
+/// Destroys a thread whose session could not be completed. A thread that will not go is
+/// logged and left to expire on its idle TTL.
+async fn abandon_thread(handle: &ThreadHandle, satellite_id: Uuid) {
+    if let Err(destroy_error) = handle.destroy().await {
+        event!(
+            name: "coding_session.create.orphaned_thread",
+            Level::ERROR,
+            satellite.id = %satellite_id,
+            thread.id = %handle.id(),
+            error.message = %destroy_error,
+            "could not complete the session or destroy its thread; the thread expires on its idle TTL",
+        );
+    }
 }
 
 /// Decrypts the model credentials a thread fails over through.
@@ -469,27 +521,31 @@ mod tests {
         assert!(budget.max_wall_clock_per_turn.is_some());
         assert!(settings.repos.is_empty());
         assert!(settings.env.is_empty() && settings.github.is_none());
-        assert!(settings.relayed_mcp_servers.is_empty());
     }
 
     #[test]
-    fn storage_tools_are_declared_only_when_the_project_has_a_location() {
+    fn every_thread_declares_the_work_tools_and_storage_only_with_a_location() {
+        let names = |settings: &arsox_sdk::proto::settings::v1::ThreadSettings| -> Vec<String> {
+            settings
+                .relayed_mcp_servers
+                .iter()
+                .map(|server| server.name.clone())
+                .collect()
+        };
+
         let without = thread_settings(Vec::new(), None, &[], None, false);
-        assert!(without.relayed_mcp_servers.is_empty());
+        assert_eq!(names(&without), ["elysium_work"]);
 
         let with = thread_settings(Vec::new(), None, &[], None, true);
-        let names: Vec<&str> = with
-            .relayed_mcp_servers
-            .iter()
-            .map(|server| server.name.as_str())
-            .collect();
-        assert_eq!(names, ["elysium_storage"]);
-        let tools = &with.relayed_mcp_servers[0].tools;
-        assert_eq!(tools.len(), crate::tools::storage::SERVER.tools.len());
-        for tool in tools {
-            let schema: serde_json::Value =
-                serde_json::from_str(&tool.input_schema_json).expect("schemas are JSON");
-            assert_eq!(schema["type"], "object", "{}", tool.name);
+        assert_eq!(names(&with), ["elysium_storage", "elysium_work"]);
+        let servers = [crate::tools::storage::SERVER, crate::tools::work::SERVER];
+        for (declared, server) in with.relayed_mcp_servers.iter().zip(servers) {
+            assert_eq!(declared.tools.len(), server.tools.len(), "{}", server.name);
+            for tool in &declared.tools {
+                let schema: serde_json::Value =
+                    serde_json::from_str(&tool.input_schema_json).expect("schemas are JSON");
+                assert_eq!(schema["type"], "object", "{}", tool.name);
+            }
         }
     }
 
@@ -521,6 +577,30 @@ mod tests {
         assert_eq!(settings.env[0].is_secret, Some(true));
         assert_eq!(settings.env[1].is_secret, Some(false));
         assert!(settings.github.is_some());
+    }
+
+    #[test]
+    fn a_first_prompt_is_optional_and_never_blank() {
+        let base = json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "A" });
+
+        let none: RequestBody = serde_json::from_value(base.clone()).expect("parses");
+        none.validate()
+            .expect("a session may start without a prompt");
+        assert_eq!(none.prompt, None);
+        assert_eq!(none.action_item_id, None);
+
+        let mut blank = base.clone();
+        blank["prompt"] = json!("  ");
+        let blank: RequestBody = serde_json::from_value(blank).expect("parses");
+        let refused = blank.validate().expect_err("a blank prompt");
+        assert!(refused.field_errors().contains_key("prompt"));
+
+        let mut from_item = base;
+        from_item["prompt"] = json!("Fix it.");
+        from_item["actionItemId"] = json!(Uuid::nil());
+        let from_item: RequestBody = serde_json::from_value(from_item).expect("parses");
+        from_item.validate().expect("valid");
+        assert_eq!(from_item.action_item_id, Some(Uuid::nil()));
     }
 
     #[test]

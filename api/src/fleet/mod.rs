@@ -165,6 +165,7 @@ impl Fleet {
             database: database.clone(),
             cipher: Arc::clone(&cipher),
             storage,
+            events: events.clone(),
         };
         Self {
             inner: Arc::new(Inner {

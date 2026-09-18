@@ -117,6 +117,7 @@ async fn serve(fleet: &Fleet, session: &CodingSession, cancel: &CancellationToke
     let scope = CallScope {
         session_id: session.id,
         project_id: session.project_id,
+        action_item_id: session.action_item_id,
         workspace: handle,
     };
 

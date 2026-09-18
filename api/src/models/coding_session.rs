@@ -29,6 +29,8 @@ pub struct CodingSession {
     /// The GitHub token the thread was started with, or `None` for no token or one that
     /// has since been deleted.
     pub github_credential_id: Option<Uuid>,
+    /// The action item the session was started from, if any.
+    pub action_item_id: Option<Uuid>,
 }
 
 /// Fields for a new session. The id comes from [`reserve_id`], because the thread is
@@ -42,6 +44,7 @@ pub struct NewCodingSession {
     pub thread_id: String,
     pub title: String,
     pub github_credential_id: Option<Uuid>,
+    pub action_item_id: Option<Uuid>,
 }
 
 /// Every session, newest first.
@@ -194,6 +197,7 @@ mod tests {
             thread_id: thread_id.to_owned(),
             title: format!("Session on {thread_id}"),
             github_credential_id: None,
+            action_item_id: None,
         };
         create(connection, &new_session).await
     }
@@ -323,5 +327,54 @@ mod tests {
         project::delete(&mut connection, project)
             .await
             .expect("an empty project deletes");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_session_keeps_the_item_it_started_from_and_outlives_the_item_row() {
+        use crate::action_items::Actor;
+        use crate::database::schema::action_items;
+        use crate::models::action_item::{
+            self, ActionItemPriority, ActionItemState, NewActionItem, Owner,
+        };
+
+        let (_url, mut connection) = migrated_database().await;
+        let project = project_named(&mut connection, "Elysium").await;
+        let orbit = satellite_named(&mut connection, "orbit").await;
+        let new_item = NewActionItem {
+            title: "Fix the login bug".to_owned(),
+            notes: String::new(),
+            state: ActionItemState::Open,
+            priority: ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::User,
+            project_ids: vec![project],
+            initiative_ids: Vec::new(),
+        };
+        let item = action_item::create(&mut connection, new_item, Actor::User, chrono::Utc::now())
+            .await
+            .expect("item")
+            .record;
+
+        let new_session = NewCodingSession {
+            id: reserve_id(&mut connection).await.expect("reserve"),
+            project_id: project,
+            satellite_id: orbit,
+            thread_id: "thread-a".to_owned(),
+            title: "Fix the login bug".to_owned(),
+            github_credential_id: None,
+            action_item_id: Some(item.id),
+        };
+        let session = create(&mut connection, &new_session).await.expect("insert");
+        assert_eq!(session.action_item_id, Some(item.id));
+
+        // Items are deleted softly; a hard delete only happens outside the API, and must
+        // not take the session with it.
+        diesel::delete(action_items::table.find(item.id))
+            .execute(&mut connection)
+            .await
+            .expect("delete the item row");
+        let kept = find(&mut connection, session.id).await.expect("kept");
+        assert_eq!(kept.action_item_id, None);
     }
 }
