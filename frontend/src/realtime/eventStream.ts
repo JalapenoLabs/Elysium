@@ -10,6 +10,7 @@ import { store } from '../store'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
 import { environmentVariableDeleted, environmentVariableUpserted } from '../store/environmentVariablesSlice'
 import { githubCredentialDeleted, githubCredentialUpserted } from '../store/githubCredentialsSlice'
+import { jiraCredentialDeleted, jiraCredentialUpserted } from '../store/jiraCredentialsSlice'
 import { llmDeleted, llmUpserted } from '../store/llmsSlice'
 import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSlice'
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
@@ -46,6 +47,8 @@ const handlers: Handlers = {
   'environmentVariable.deleted': (event) => store.dispatch(environmentVariableDeleted(event.data.id)),
   'githubCredential.upserted': (event) => store.dispatch(githubCredentialUpserted(event.data)),
   'githubCredential.deleted': (event) => store.dispatch(githubCredentialDeleted(event.data.id)),
+  'jiraCredential.upserted': (event) => store.dispatch(jiraCredentialUpserted(event.data)),
+  'jiraCredential.deleted': (event) => store.dispatch(jiraCredentialDeleted(event.data.id)),
   'llm.upserted': (event) => store.dispatch(llmUpserted(event.data)),
   'llm.deleted': (event) => store.dispatch(llmDeleted(event.data.id)),
   'mailbox.upserted': (event) => store.dispatch(mailAccountUpserted(event.data)),

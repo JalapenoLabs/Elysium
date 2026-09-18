@@ -1,0 +1,114 @@
+{
+  "title": "Jira",
+  "credentials": {
+    "add": "Add Jira site"
+  },
+  "page": {
+    "notFound": "This Jira site does not exist. It may have been deleted.",
+    "backToList": "Back to Jira",
+    "hint": "Each credential is one Atlassian account on one Jira site, with the projects and boards Elysium may read."
+  },
+  "table": {
+    "label": "Jira sites",
+    "name": "Name",
+    "site": "Site",
+    "account": "Account",
+    "projects": "Projects",
+    "boards": "Boards",
+    "checked": "Last checked",
+    "all": "All",
+    "none": "None",
+    "projectCount_one": "{{count}} project",
+    "projectCount_other": "{{count}} projects",
+    "boardCount_one": "{{count}} board",
+    "boardCount_other": "{{count}} boards",
+    "andMore_one": "{{names}} and {{count}} more",
+    "andMore_other": "{{names}} and {{count}} more",
+    "empty": "No Jira sites yet. Add one so Elysium can read your projects and boards.",
+    "loadError": "Jira sites could not be loaded."
+  },
+  "actions": {
+    "test": "Test connection"
+  },
+  "form": {
+    "createTitle": "Add Jira site",
+    "editTitle": "Edit {{name}}",
+    "name": "Name",
+    "nameHint": "How Elysium lists this site, such as Work or Acme.",
+    "siteUrl": "Site URL",
+    "siteUrlHint": "Your Jira Cloud address.",
+    "accountEmail": "Account email",
+    "accountEmailHint": "The address you sign in to Atlassian with. The token belongs to it.",
+    "token": "API token",
+    "tokenHint": "Shown once, when the token is created at id.atlassian.com.",
+    "tokenKeep": "Leave blank to keep the stored token.",
+    "tokenRetype": "The stored token belongs to the site and account it was created for. Enter the token for the new one.",
+    "checkedHint": "Saving checks the token with Jira and records the account it belongs to.",
+    "errors": {
+      "nameRequired": "Enter a name.",
+      "nameTooLong": "Use 120 characters or fewer.",
+      "nameTaken": "Another Jira site already uses this name.",
+      "siteUrlRequired": "Enter the site URL.",
+      "siteUrlShape": "A Jira Cloud address looks like https://acme.atlassian.net.",
+      "emailRequired": "Enter the account email.",
+      "emailShape": "Enter a valid email address.",
+      "tokenRequired": "Enter the API token.",
+      "tokenTooLong": "Use 255 characters or fewer."
+    }
+  },
+  "steps": {
+    "connect": "Connect",
+    "choose": "Choose what Elysium reads",
+    "connectHint": "Elysium asks Jira what this token can reach. Nothing is saved yet.",
+    "chooseHint": "Pick from what Jira reported. Only these projects and boards are read.",
+    "continue": "Continue",
+    "back": "Back",
+    "connectedAs": "Jira signed this token in as {{name}} ({{email}}).",
+    "reachable_one": "It reaches {{count}} project.",
+    "reachable_other": "It reaches {{count}} projects.",
+    "reachableBoards_one": "It reaches {{count}} board.",
+    "reachableBoards_other": "It reaches {{count}} boards."
+  },
+  "scope": {
+    "allProjects": "All projects",
+    "allProjectsHint": "Every project this token reaches, including ones added later.",
+    "allBoards": "All boards",
+    "allBoardsHint": "Every board this token reaches, including ones added later.",
+    "projects": "Projects",
+    "projectsHint": "Only these projects are read.",
+    "boards": "Boards",
+    "boardsHint": "Only these boards are read.",
+    "placeholder": "Pick from what this token reaches",
+    "search": "Search",
+    "noMatches": "Nothing matches.",
+    "noProjects": "This token reaches no projects.",
+    "noBoards": "This token reaches no boards.",
+    "loading": "Loading what this token reaches.",
+    "loadError": "What this token reaches could not be loaded.",
+    "siteChanged": "Save the new site and token first, then choose its projects and boards.",
+    "unreachable_one": "{{count}} allowed item is no longer reachable with this token: {{names}}",
+    "unreachable_other": "{{count}} allowed items are no longer reachable with this token: {{names}}"
+  },
+  "delete": {
+    "title": "Delete {{name}}?",
+    "body": "Elysium stops reading this Jira site. The API token itself keeps working until you revoke it at id.atlassian.com."
+  },
+  "toasts": {
+    "created": "{{name}} added",
+    "updated": "{{name}} updated",
+    "deleted": "{{name}} deleted",
+    "testPassed": "{{name}} works: Jira signed it in as {{account}}",
+    "testFailed": "{{name}} was refused",
+    "testUnreachable_one": "{{name}} works, but {{count}} allowed item is out of reach",
+    "testUnreachable_other": "{{name}} works, but {{count}} allowed items are out of reach"
+  },
+  "setup": {
+    "title": "Create the API token",
+    "description": "Check off each step as you go.",
+    "open": "Open Atlassian account settings, Security, API tokens, then Create API token.",
+    "name": "Name the token after this Elysium, and choose how long it lasts.",
+    "copy": "Copy the token into API token. Atlassian shows it once.",
+    "email": "Use the email address you sign in to Atlassian with, and the site address you open Jira at.",
+    "permissions": "The token carries your own permissions, so Elysium reads exactly the projects and boards you can."
+  }
+}

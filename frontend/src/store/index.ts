@@ -7,6 +7,7 @@ import { configureStore, createListenerMiddleware } from '@reduxjs/toolkit'
 import { codingSessionsSlice } from './codingSessionsSlice'
 import { environmentVariablesSlice } from './environmentVariablesSlice'
 import { githubCredentialsSlice } from './githubCredentialsSlice'
+import { jiraCredentialsSlice } from './jiraCredentialsSlice'
 import { llmsSlice } from './llmsSlice'
 import { mailAccountsSlice } from './mailAccountsSlice'
 import { mailDomainsSlice } from './mailDomainsSlice'
@@ -29,6 +30,7 @@ export const store = configureStore({
     [codingSessionsSlice.name]: codingSessionsSlice.reducer,
     [environmentVariablesSlice.name]: environmentVariablesSlice.reducer,
     [githubCredentialsSlice.name]: githubCredentialsSlice.reducer,
+    [jiraCredentialsSlice.name]: jiraCredentialsSlice.reducer,
     [llmsSlice.name]: llmsSlice.reducer,
     [mailAccountsSlice.name]: mailAccountsSlice.reducer,
     [mailDomainsSlice.name]: mailDomainsSlice.reducer,
