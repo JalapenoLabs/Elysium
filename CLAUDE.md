@@ -79,6 +79,24 @@ Everything else follows these rules:
 - Keys that Elysium sets, the satellite refuses, or the satellite overrides are refused, by one rule table in
   `api/src/environment/` that the frontend mirrors.
 
+## Action items
+
+- Action items are the one list of what the user owes attention to, from Jira, GitHub, email, meetings, or typed by
+  hand. Initiatives group items toward a goal that ends and carry the progress bar; projects never end and have
+  none. Items belong to many projects and many initiatives. See `docs/action-items.md`.
+- An item is a commitment, not a copy. The provider stays the source of truth for a linked issue's fields; the item
+  holds triage, priority, dates, membership, provenance, and history. Resolving an item moves its linked issue
+  automatically, and the provider closing an issue resolves its item. A pull request is never merged or closed from
+  Elysium.
+- Progress is resolved over total with a burnup of both, never a percentage alone. Initiatives link to containers
+  (a Jira epic or search, a GitHub milestone or label) rather than issues one by one, so nothing is tracked twice.
+- Anything the user did not do directly (Elysia, email triage, coding agents) proposes a changeset. Nothing is
+  written in Elysium or any provider until the user approves it, wholly or in part.
+- The watcher polls providers for changes; webhooks come later. Link providers sit behind one trait, so routes and
+  tools never match on the provider.
+- Coding agents use one relayed MCP server, `elysium_work`, in Elysium's terms and scoped to the session's project.
+- There is no users table yet. Ownership and actors are recorded as text and become references when users land.
+
 ## One event stream keeps the frontend current
 
 - Every page holds one server-sent event stream, `GET /api/v1/events`. Any write or watcher that changes what a
