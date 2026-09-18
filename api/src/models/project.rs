@@ -178,6 +178,22 @@ pub async fn list(connection: &mut AsyncPgConnection) -> QueryResult<Vec<Project
         .await
 }
 
+/// The projects among `ids`, alphabetically. Ids with no project are left out.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn find_many(
+    connection: &mut AsyncPgConnection,
+    ids: &[Uuid],
+) -> QueryResult<Vec<Project>> {
+    projects::table
+        .filter(projects::id.eq_any(ids))
+        .order(projects::name.asc())
+        .select(Project::as_select())
+        .load(connection)
+        .await
+}
+
 /// One project by id.
 ///
 /// # Errors

@@ -190,7 +190,7 @@ export function SessionsPanel() {
         <SessionsEmptyState
           hasProjects={projectsStatus === 'loaded' && Object.keys(projectNames).length > 0}
           hasSatellites={satellitesStatus === 'loaded' && Object.keys(satelliteNames).length > 0}
-          onCreateSession={actions.createSession}
+          onCreateSession={() => actions.createSession()}
         />
       </div>
     </div>

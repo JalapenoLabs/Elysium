@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ActionItem, ActionItemComment, HistoryEntry } from './api/routes/actionItemRoutes'
+import type { CodingSession } from './api/routes/codingSessionRoutes'
 import type { Initiative } from './api/routes/initiativeRoutes'
 import type { Project } from './api/routes/projectRoutes'
 
@@ -65,6 +66,21 @@ export function makeHistoryEntry(overrides: Partial<HistoryEntry> & Pick<History
     actor: 'user',
     data: {},
     createdAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeCodingSession(overrides: Partial<CodingSession> & Pick<CodingSession, 'id'>): CodingSession {
+  return {
+    projectId: 'project',
+    satelliteId: 'satellite',
+    threadId: `thread-${overrides.id}`,
+    title: `Session ${overrides.id}`,
+    githubCredentialId: null,
+    actionItemId: null,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    thread: null,
     ...overrides,
   }
 }

@@ -7,6 +7,7 @@
 
 mod create_coding_session;
 mod delete_coding_session;
+mod first_turn;
 mod github_token;
 mod list_coding_sessions;
 mod list_session_events;
@@ -76,6 +77,8 @@ pub struct CodingSessionResponse {
     /// The GitHub token the thread was started with, or `null` for none or a token since
     /// deleted.
     github_credential_id: Option<Uuid>,
+    /// The action item the session was started from, if any.
+    action_item_id: Option<Uuid>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     /// The thread as of the fleet's latest poll; `None` until the first poll sees it.
@@ -91,6 +94,7 @@ impl CodingSessionResponse {
             thread_id: session.thread_id,
             title: session.title,
             github_credential_id: session.github_credential_id,
+            action_item_id: session.action_item_id,
             created_at: session.created_at,
             updated_at: session.updated_at,
             thread,
@@ -100,8 +104,8 @@ impl CodingSessionResponse {
 
 /// Settings for a new thread: Elysium's policy ceilings, the repositories to clone, the
 /// credentials the thread fails over through, the workspace's environment variables, the
-/// GitHub token its agent works with, and the storage tools when the project has a storage
-/// location to use them on.
+/// GitHub token its agent works with, and the tools Elysium relays: the work tools always,
+/// and the storage tools when the project has a storage location to use them on.
 ///
 /// Without a stack the thread declares no endpoint, and the satellite falls back to
 /// whatever credential it holds itself.
@@ -150,10 +154,12 @@ fn thread_settings(
         github: github_token.map(github_token::integration),
         env: thread_environment(variables, github_token),
         // A thread takes its tools once. A project without a location yet has nothing to
-        // call them on; each call re-checks the project's locations anyway.
+        // call the storage tools on; each call re-checks the project's locations anyway.
+        // Every project has its work to read, so every thread declares the work tools.
         relayed_mcp_servers: has_storage_locations
             .then(|| tools::relayed_server(&tools::storage::SERVER))
             .into_iter()
+            .chain([tools::relayed_server(&tools::work::SERVER)])
             .collect(),
         ..ThreadSettings::default()
     }

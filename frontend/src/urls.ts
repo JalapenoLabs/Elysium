@@ -46,6 +46,9 @@ export type UrlValue = typeof UrlTree[keyof typeof UrlTree]
 export const NEW_ITEM_PROJECT_PARAM = 'project'
 export const NEW_ITEM_INITIATIVE_PARAM = 'initiative'
 
+// The query parameter that opens the Coding page's New session dialog started from an item.
+export const NEW_SESSION_ITEM_PARAM = 'item'
+
 // Settings
 // The first page in the sidebar; the app has no home page.
 export const UNKNOWN_ROUTE_REDIRECT_TO: UrlValue = UrlTree.actionItems
@@ -104,4 +107,9 @@ export function getStorageLocationEditUrl(locationId: string) {
 // The Coding page opens this session's conversation, then returns to its own address.
 export function getCodingSessionUrl(sessionId: number) {
   return UrlTree.codingSession.replace(':sessionId', String(sessionId))
+}
+
+// The Coding page opens New session started from this item, then returns to its own address.
+export function getNewCodingSessionUrl(actionItemId: string) {
+  return `${UrlTree.coding}?${NEW_SESSION_ITEM_PARAM}=${encodeURIComponent(actionItemId)}`
 }

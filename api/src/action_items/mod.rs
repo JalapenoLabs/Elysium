@@ -10,11 +10,13 @@
 //! - [`Transition`]: which state changes an item allows.
 //! - [`next`]: which items are in Next, and in what order.
 //! - [`progress`]: an initiative's resolved and total, now and over time.
+//! - [`session_context`]: what a coding session started from an item is told about it.
 //!
 //! The queries live in `crate::models::action_item` and its siblings, and call into these.
 
 pub mod next;
 pub mod progress;
+pub mod session_context;
 
 use std::fmt;
 
@@ -22,12 +24,14 @@ use crate::models::action_item::ActionItemState;
 
 /// Who made a change. Every history entry and comment names one.
 ///
-/// Only the user acts over HTTP today. Elysia, coding sessions, and the provider watcher
-/// arrive in later stages as `elysia`, `session:<number>`, and `watcher:<provider>`; the
-/// database already accepts those forms.
+/// The user acts over HTTP, and a coding session's agent through the `elysium_work` tools
+/// (`crate::tools::work`). Elysia and the provider watcher arrive in later stages as
+/// `elysia` and `watcher:<provider>`; the database already accepts those forms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Actor {
     User,
+    /// The agent of the coding session with this number.
+    Session(i64),
 }
 
 impl fmt::Display for Actor {
@@ -38,6 +42,7 @@ impl fmt::Display for Actor {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::User => formatter.write_str("user"),
+            Self::Session(number) => write!(formatter, "session:{number}"),
         }
     }
 }
@@ -182,7 +187,8 @@ mod tests {
     }
 
     #[test]
-    fn the_user_is_recorded_as_user() {
+    fn actors_are_recorded_in_the_form_the_database_checks() {
         assert_eq!(Actor::User.to_string(), "user");
+        assert_eq!(Actor::Session(12).to_string(), "session:12");
     }
 }

@@ -9,14 +9,16 @@
 //!
 //! Each server is a [`ToolServer`]: its name, the instructions the agent reads, and a table
 //! of [`Tool`]s. The same table declares the tools on a new thread and dispatches a call to
-//! them, so a declared tool always has a handler. A new tool set (mail, projects) is one
-//! more module with its own table, listed in [`SERVERS`].
+//! them, so a declared tool always has a handler. Each tool set is one module with its own
+//! table, listed in [`SERVERS`]: [`storage`] for the project's storage locations and
+//! [`work`] for its action items and initiatives.
 //!
 //! Results are JSON text. A failure answers the agent with what to fix, never with an
 //! internal error chain: database and decryption failures are logged here and reported
 //! as a fixed message.
 
 pub mod storage;
+pub mod work;
 
 use std::sync::Arc;
 
@@ -30,6 +32,7 @@ use uuid::Uuid;
 
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::realtime::EventBus;
 use crate::storage::Storage;
 
 /// The services tool calls use. Cheap to clone; clones share every connection.
@@ -38,6 +41,8 @@ pub struct ToolContext {
     pub database: Pool,
     pub cipher: Arc<Cipher>,
     pub storage: Storage,
+    /// Where a call that writes tells every client about the change.
+    pub events: EventBus,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -55,12 +60,13 @@ impl std::fmt::Debug for ToolContext {
 }
 
 /// Who a call is made for: the coding session whose agent called, its project, which
-/// decides what the call may reach, and its thread, whose workspace files the call may read
-/// and write.
+/// decides what the call may reach, the action item it was started from, and its thread,
+/// whose workspace files the call may read and write.
 #[derive(Clone)]
 pub struct CallScope {
     pub session_id: i64,
     pub project_id: Uuid,
+    pub action_item_id: Option<Uuid>,
     pub workspace: ThreadHandle,
 }
 
@@ -76,6 +82,7 @@ impl std::fmt::Debug for CallScope {
             .debug_struct("CallScope")
             .field("session_id", &self.session_id)
             .field("project_id", &self.project_id)
+            .field("action_item_id", &self.action_item_id)
             .field("thread_id", &self.workspace.id())
             .finish()
     }
@@ -109,7 +116,7 @@ pub struct ToolServer {
 }
 
 /// Every server Elysium can relay, looked up by name when a call arrives.
-pub const SERVERS: [&ToolServer; 1] = [&storage::SERVER];
+pub const SERVERS: [&ToolServer; 2] = [&storage::SERVER, &work::SERVER];
 
 /// A server as a thread declares it, so the satellite serves its tools to the agent.
 pub fn relayed_server(server: &ToolServer) -> RelayedMcpServer {
@@ -145,6 +152,16 @@ pub enum ToolError {
          storage_locations for the ones that are"
     )]
     LocationUnavailable(Uuid),
+    #[error(
+        "action item {0} is not in this session's project or was deleted; call work_items for \
+         the ones that are"
+    )]
+    ItemUnavailable(Uuid),
+    #[error(
+        "initiative {0} is not in this session's project or was deleted; call \
+         work_initiatives for the ones that are"
+    )]
+    InitiativeUnavailable(Uuid),
     /// The storage provider refused or could not be reached, in its own words.
     #[error("{0}")]
     Provider(String),
@@ -316,6 +333,10 @@ mod tests {
         }
         assert!(find_tool("elysium_storage", "storage_rename").is_none());
         assert!(find_tool("elysium_mail", "storage_list").is_none());
+        assert!(
+            find_tool("elysium_storage", "work_items").is_none(),
+            "a tool is found only on its own server"
+        );
     }
 
     #[test]
@@ -330,6 +351,16 @@ mod tests {
             refused.text.contains("storage_locations"),
             "{}",
             refused.text
+        );
+
+        let item = ToolOutput::from(Err(ToolError::ItemUnavailable(Uuid::nil())));
+        assert!(item.is_error);
+        assert!(item.text.contains("work_items"), "{}", item.text);
+        let initiative = ToolOutput::from(Err(ToolError::InitiativeUnavailable(Uuid::nil())));
+        assert!(
+            initiative.text.contains("work_initiatives"),
+            "{}",
+            initiative.text
         );
 
         let internal = ToolOutput::from(Err(ToolError::Internal));

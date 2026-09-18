@@ -211,6 +211,11 @@
     "deletedTitle": "This item is deleted",
     "deletedBody": "It is hidden everywhere and counts toward no initiative. Restore it to work on it again."
   },
+  "sessions": {
+    "heading": "Coding sessions",
+    "start": "Start a coding session",
+    "empty": "No coding session was started from this item yet."
+  },
   "form": {
     "createTitle": "New item",
     "title": "Title",

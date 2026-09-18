@@ -15,8 +15,8 @@ import { Breadcrumbs, Link, Spinner, toast } from '@heroui/react'
 import { InlineEditableText } from '../../components/InlineEditableText'
 import { ProjectActions } from './ProjectActions'
 import { ProjectBanner } from './ProjectBanner'
+import { CodingSessionsTable } from '../Coding/CodingSessionsTable'
 import { ProjectGithubField } from './ProjectGithubField'
-import { ProjectSessionsTable } from './ProjectSessionsTable'
 import { ProjectWork } from './ProjectWork'
 
 // Utility
@@ -129,7 +129,15 @@ export function ProjectPage() {
         ? <div className='grid place-items-center py-10'>
           <Spinner />
         </div>
-        : <ProjectSessionsTable sessions={sessions} />}
+        : <CodingSessionsTable
+          sessions={sessions}
+          ids={{
+            tableElementId: 'project-sessions-table',
+            tableLocalStorageId: 'elysium.projects.sessions.table.v2',
+          }}
+          ariaLabel={t('page.sessionsHeading')}
+          emptyMessage={t('page.sessionsEmpty')}
+        />}
     </section>
   </div>
 }

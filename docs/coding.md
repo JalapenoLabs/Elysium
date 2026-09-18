@@ -51,10 +51,12 @@ boot for every active satellite, restart when a satellite is saved, and stop whe
 
 ## Tool relay
 
-Some of an agent's tools answer from Elysium's own data, such as the storage tools in `docs/storage.md`. A satellite
-cannot reach Elysium, so Elysium declares those tools on the thread as relayed MCP servers
-(`ThreadSettings.relayed_mcp_servers`) and answers their calls over a socket it opens to the satellite. Every byte
-travels Elysium to satellite, as every other call does; Elysium listens for nothing new.
+Some of an agent's tools answer from Elysium's own data: `elysium_work` for the project's action items and
+initiatives (`docs/action-items.md`), declared on every thread, and `elysium_storage` for its storage locations
+(`docs/storage.md`), declared when the project has one. A satellite cannot reach Elysium, so Elysium declares those
+tools on the thread as relayed MCP servers (`ThreadSettings.relayed_mcp_servers`) and answers their calls over a socket
+it opens to the satellite. Every byte travels Elysium to satellite, as every other call does; Elysium listens for
+nothing new.
 
 - **Relay**, one per session on an active satellite, beside its session watcher and under the same cancellation, so
   both start, restart, and stop together (`api/src/fleet/relay.rs`). It opens `GET /v1/threads/{id}/relay` and runs
@@ -64,10 +66,11 @@ travels Elysium to satellite, as every other call does; Elysium listens for noth
 - A dropped socket reconnects with the session watcher's backoff, 1 to 30 seconds. Calls in flight on it are
   abandoned; the satellite has already failed them to the agent.
 - A thread the satellite no longer has ends its relay, as it ends its watcher.
-- A thread that declared no relayed servers, such as one whose project had no storage location, refuses the socket
-  with `409 RELAY_NOT_DECLARED`. A thread's settings never change, so that refusal ends its relay for good instead
-  of reconnecting. Elysium keeps no record of what a thread declared, and reading the thread's settings would cost
-  the same one request, so the refusal is how it finds out.
+- A thread that declared no relayed servers refuses the socket with `409 RELAY_NOT_DECLARED`. Every thread declares
+  `elysium_work`, so only a thread created before it can refuse, such as one whose project had no storage location
+  then. A thread's settings never change, so that refusal ends its relay for good instead of reconnecting. Elysium
+  keeps no record of what a thread declared, and reading the thread's settings would cost the same one request, so
+  the refusal is how it finds out.
 
 The satellite keeps no calls for a client that is not attached. While Elysium is down or reconnecting, a call to a
 relayed tool fails at once, and the agent reads that no client is attached to answer it. Nothing is replayed later.
@@ -95,8 +98,19 @@ watcher finds a session's thread by its thread id among the threads of the sessi
 
 The satellite's idempotency key is a fresh UUIDv7 for each create request, never the number, since numbers repeat
 across installs and after a database reset. It makes the SDK's retries of that one request safe; a client that sends
-the create again opens a second thread. If the row cannot be recorded, the API destroys the thread instead of leaving
-it running unrecorded.
+the create again opens a second thread.
+
+A create may carry the first prompt, which the API queues as the thread's first turn once the row is recorded and the
+session's watcher and relay are started, so the relayed tools the turn asks for have Elysium attached as early as it
+can be. The relay still connects on its own task, so a tool call the agent makes in the moment before it attaches
+fails like any call with no client attached; an agent reaches its first tool call only after a model round trip, far
+longer than the connect. If the row cannot be recorded or the turn cannot be queued, the API destroys the thread and
+removes the row instead of leaving either behind, so a create yields a session with its first turn queued or nothing.
+A session removed that way is announced as `session.deleted`, since the satellite poll may already have announced it.
+
+A session can be started from an action item. It then belongs to one of the item's projects, or any project when the
+item has none, records the item, and requires a first prompt, which follows the item's context in the first turn. See
+[Coding sessions](action-items.md#coding-sessions).
 
 Every thread is opened with Elysium's policy, constants in `api/src/routes/v1/coding_sessions/mod.rs`:
 
@@ -187,8 +201,9 @@ events. It gives up after 10 seconds with a 502. Clients merge history with live
 
 - **Sessions** is the overview: every session, its number, project and satellite, live thread state, and last
   activity, in uikit's `SmartTable`. A title opens that session's conversation.
-- **Conversation** is one session, headed by its title, satellite, and number ("Local · Thread 12"). It loads history through SWR when it opens and drops its events from Redux when
-  it closes; a reopened panel shows SWR's buffered history while the fresh copy loads. Prompts and agent messages
+- **Conversation** is one session, headed by its title, satellite, and number ("Local · Thread 12"), and by a link to
+  the action item it was started from, if any. It loads history through SWR when it opens and drops its events from
+  Redux when it closes; a reopened panel shows SWR's buffered history while the fresh copy loads. Prompts and agent messages
   render as chat bubbles; tool calls, thinking, and turn results as compact lines with details folded away. Event
   types without a renderer show their wire name. Enter sends the composer's prompt; Shift+Enter adds a line. A
   thread that has ended shows no composer.

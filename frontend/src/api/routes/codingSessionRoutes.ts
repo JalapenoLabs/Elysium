@@ -35,6 +35,8 @@ export type CodingSession = {
   title: string
   // The GitHub token the thread was started with; null for none or a token since deleted.
   githubCredentialId: string | null
+  // The action item the session was started from, if any.
+  actionItemId: string | null
   createdAt: string
   updatedAt: string
   // The thread as of the API's latest poll; null until the first poll sees it.
@@ -113,6 +115,11 @@ type CreateCodingSessionRequest = {
   repositories: SessionRepositoryRequest[]
   // Absent follows the project, null asks for no token, and an id names one.
   githubCredentialId?: string | null
+  // Queued as the thread's first turn. Required with `actionItemId`.
+  prompt?: string
+  // The item the session is started from. Its first turn carries the item's context ahead of
+  // the prompt, and the session must belong to one of the item's projects, if it has any.
+  actionItemId?: string
 }
 
 type CreateCodingSessionResponse = {

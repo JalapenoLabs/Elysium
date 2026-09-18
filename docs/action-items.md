@@ -7,8 +7,9 @@ action items toward a goal that ends, and carry the progress bar. Projects are l
 The core is built: items, initiatives, their projects and memberships, comments, history, Next, and progress, served
 under `/api/v1/action-items` and `/api/v1/initiatives` (`docs/api.md`) and kept current on the event stream
 (`docs/realtime.md`). So is the frontend for them: Next, inbox triage, the item list and pages, initiatives with their
-burnup, and the project page's items and initiatives (`docs/frontend.md`). Links, the watcher, changesets, and the
-`elysium_work` tools are still a design; the sections about them are the plan, and each stops being one as it lands.
+burnup, and the project page's items and initiatives (`docs/frontend.md`). So are the `elysium_work` tools and coding
+sessions started from an item ([Coding sessions](#coding-sessions)). Links, the watcher, and changesets are still a
+design; the sections about them are the plan, and each stops being one as it lands.
 
 The design goal is that work arrives from anywhere, is triaged and managed in one place, and every change made here
 reaches the system it came from. The user approves; Elysium and Elysia, Elysium's AI assistant, do the bookkeeping.
@@ -242,20 +243,41 @@ Rules that apply trusted kinds of operations without review are on the roadmap. 
 
 ## Coding sessions
 
-Coding agents reach action items through one relayed MCP server, `elysium_work` (`api/src/tools/`). It is declared
-on every session's thread, whether or not the thread also declares `elysium_storage`, which it does only when the
-project has a storage location (`docs/storage.md`). Every thread then has a relay, so `docs/coding.md`'s
-`409 RELAY_NOT_DECLARED` path is left only for threads created before `elysium_work`; that doc changes with the
-implementation. It speaks Elysium's terms (items, initiatives, projects, comments), and never a provider's; the
-provider behind a link is Elysium's business. Every call is scoped to the session's project and re-checked against
-the database, the way storage tools are.
+Coding agents reach action items through one relayed MCP server, `elysium_work` (`api/src/tools/work.rs`). It is
+declared on every session's thread, whether or not the thread also declares `elysium_storage`, which it does only when
+the project has a storage location (`docs/storage.md`). Every thread therefore has a relay, and `docs/coding.md`'s
+`409 RELAY_NOT_DECLARED` path is left only for threads created before `elysium_work`. It speaks Elysium's terms
+(items, initiatives, projects, comments), and never a provider's; the provider behind a link is Elysium's business.
+Every call is scoped to the session's project and re-checked against the database, the way storage tools are.
 
+| Tool               | Arguments                                                  | Answers                                                     |
+|--------------------|------------------------------------------------------------|-------------------------------------------------------------|
+| `work_project`     | none                                                       | The project, its active initiatives, its items in the inbox or open, and `sessionItemId` |
+| `work_items`       | optional `states`, `initiativeId`, `waiting`, `search`, `limit` | `{ items, moreItems }`, newest first, without notes    |
+| `work_item`        | `itemId`                                                   | The item with its notes, comments, latest 50 history entries, projects, and initiatives |
+| `work_initiatives` | optional `states`                                          | `{ initiatives }` with progress, by name                    |
+| `work_initiative`  | `initiativeId`                                             | The initiative with its description and the project's items in it, up to 200 with `moreItems` |
+| `work_comment`     | `itemId`, `body`                                           | `{ comment }`                                               |
+
+- An item or initiative is reachable while it is live and in the session's project, as the database says at the
+  moment of the call. Anything else is refused the same way, deleted or elsewhere, pointing the agent at the list
+  tool. That holds for an initiative `work_items` filters on too. An initiative's members in other projects are
+  counted, not shown; its progress counts them all.
+- `work_items` lists items in the inbox or open unless asked for other states, at most 50 unless `limit` says
+  otherwise, up to 200. `search` matches the title or notes, ignoring case.
+- The agent reads items and initiatives in its project and comments on its project's items. A comment is written as
+  `session:<number>`, recorded in the item's history, and published on the event stream like the user's; only its
+  author may change it, so the user cannot rewrite it either. Linking the pull request it opened and proposing
+  changes as a changeset arrive with links and changesets; the server's instructions tell the agent to ask the user
+  for any other change until then. It cannot resolve or delete anything directly.
 - A session can be started from an item. It belongs to the item's project when the item has exactly one, and
-  otherwise the user picks: one of the item's projects, or any project when it has none. Its first turn carries the
-  item, its links' descriptions and recent comments, its initiatives, and its project, so the agent starts with the
-  full picture.
-- The agent can read items and initiatives in its project, comment on its item, link the pull request it opened,
-  and propose changes as a changeset. It cannot resolve or delete anything directly.
+  otherwise the user picks: one of the item's projects, or any project when it has none. The session records the item
+  (`coding_sessions.action_item_id`), the item's page lists the sessions started from it, and a session's
+  conversation links back to its item.
+- The first turn of a session started from an item carries the item, its latest 10 comments, its initiatives with
+  their progress, and its project, then the user's prompt, which such a session requires. It is compact Markdown built
+  by `api/src/action_items/session_context.rs`: notes, descriptions, and comments longer than a fixed length are cut
+  short and marked, since `work_item` reads them in full. Links' descriptions join it once links exist.
 - A pull request linked to an item resolves it when it merges, through the watcher.
 
 ## Roadmap

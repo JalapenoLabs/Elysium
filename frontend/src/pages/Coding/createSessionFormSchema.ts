@@ -41,8 +41,17 @@ export function createRepositoryUrlSchema(t: TFunction<'coding'>) {
     )
 }
 
+type SessionFormOptions = {
+  // A session started from an action item needs a prompt, as the API requires.
+  isPromptRequired: boolean
+}
+
 // Built per render with `t` so validation messages are already translated.
-export function createSessionFormSchema(t: TFunction<'coding'>) {
+export function createSessionFormSchema(t: TFunction<'coding'>, options: SessionFormOptions) {
+  const prompt = z
+    .string()
+    .max(PROMPT_MAX_CHARACTERS)
+
   return z.object({
     projectId: z
       .string()
@@ -80,9 +89,9 @@ export function createSessionFormSchema(t: TFunction<'coding'>) {
             : t('create.repositories.errors.directory', conflict),
         })
       }),
-    prompt: z
-      .string()
-      .max(PROMPT_MAX_CHARACTERS),
+    prompt: options.isPromptRequired
+      ? prompt.refine((value) => value.trim().length > 0, { error: t('create.errors.promptRequired') })
+      : prompt,
     // `inherit` follows the project, `none` asks for no token, and anything else is a token id.
     githubChoice: z.string(),
   })

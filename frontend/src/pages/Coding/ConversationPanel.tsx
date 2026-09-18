@@ -17,6 +17,7 @@ import { selectSessionTimeline } from '../../store/sessionEventsSlice'
 import { Button, Chip, Spinner } from '@heroui/react'
 import { ConversationTimeline } from './ConversationTimeline'
 import { PromptComposer } from './PromptComposer'
+import { SessionActionItemLink } from './SessionActionItemLink'
 
 // Misc
 import { useCodingSessionsLoader, useSatellitesLoader, useSessionHistoryLoader } from '../../hooks/useServerData'
@@ -70,6 +71,9 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
             .filter(Boolean)
             .join(' · ')
         }</div>
+        {session.actionItemId && <div className='truncate text-xs'>
+          <SessionActionItemLink actionItemId={session.actionItemId} />
+        </div>}
       </div>
       <Chip size='sm' variant='soft' color={threadStateChipColors[state]}>{
         t(threadStateLabelKeys[state])

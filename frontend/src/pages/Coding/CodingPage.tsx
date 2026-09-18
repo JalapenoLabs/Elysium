@@ -7,7 +7,7 @@ import type { CodingActions } from './codingActionsContext'
 // Core
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
+import { useNavigate, useParams, useSearchParams } from 'react-router'
 
 // Redux
 import { codingSessionDeleted, selectCodingSessionById } from '../../store/codingSessionsSlice'
@@ -27,7 +27,7 @@ import { getUpstreamErrorMessage } from '../../api/errors'
 import { deleteCodingSession } from '../../api/routes/codingSessionRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
 import { useCodingSessionsLoader } from '../../hooks/useServerData'
-import { UrlTree } from '../../urls'
+import { NEW_SESSION_ITEM_PARAM, UrlTree } from '../../urls'
 import { CodingActionsContext } from './codingActionsContext'
 import {
   CODING_PANEL_COMPONENTS,
@@ -48,7 +48,8 @@ const panelComponents = {
 // conversation panel per open session, arranged however the user drags them. The
 // layout persists per browser. This page owns the dialogs; panels open them through
 // CodingActionsContext. `/coding/<number>` opens that session's conversation once the
-// workspace and the session are both loaded, then returns to `/coding`.
+// workspace and the session are both loaded, then returns to `/coding`, and
+// `/coding?item=<id>` opens New session started from that action item the same way.
 export function CodingPage() {
   const { t } = useTranslation([ 'coding', 'common' ])
   const dispatch = useAppDispatch()
@@ -57,13 +58,20 @@ export function CodingPage() {
   const [ isDockviewReady, setIsDockviewReady ] = useState(false)
   const navigate = useNavigate()
   const params = useParams()
+  const [ searchParams ] = useSearchParams()
+  const requestedItemId = searchParams.get(NEW_SESSION_ITEM_PARAM)
   const requestedSessionId = Number(params.sessionId)
   const sessionsStatus = useCodingSessionsLoader()
   const requestedSession = useAppSelector((state) => selectCodingSessionById(state, requestedSessionId))
 
   const createState = useOverlayState()
   const renameState = useOverlayState()
+  // useOverlayState answers a new object every render; only its functions are stable. The
+  // actions depend on those alone, so effects that call an action run once, not every render.
+  const openCreate = createState.open
+  const openRename = renameState.open
   const [ selectedSession, setSelectedSession ] = useState<CodingSession | null>(null)
+  const [ createActionItemId, setCreateActionItemId ] = useState<string | null>(null)
   // Remounting a form per opening resets it.
   const [ formSession, setFormSession ] = useState(0)
 
@@ -75,14 +83,15 @@ export function CodingPage() {
       }
       openConversation(dockviewApiRef.current, session)
     },
-    createSession: () => {
+    createSession: (actionItemId) => {
+      setCreateActionItemId(actionItemId ?? null)
       setFormSession((session) => session + 1)
-      createState.open()
+      openCreate()
     },
     renameSession: (session) => {
       setSelectedSession(session)
       setFormSession((formKey) => formKey + 1)
-      renameState.open()
+      openRename()
     },
     deleteSession: (session) => confirm({
       title: t('delete.title', { title: session.title }),
@@ -105,7 +114,7 @@ export function CodingPage() {
         toast.success(t('toasts.deleted', { title: session.title }))
       },
     }),
-  }), [ createState, renameState, confirm, dispatch, t ])
+  }), [ openCreate, openRename, confirm, dispatch, t ])
 
   useEffect(() => {
     if (params.sessionId === undefined || !isDockviewReady || !dockviewApiRef.current) {
@@ -122,6 +131,15 @@ export function CodingPage() {
     }
     navigate(UrlTree.coding, { replace: true })
   }, [ params.sessionId, isDockviewReady, requestedSession, sessionsStatus, navigate ])
+
+  // Waits for Dockview, which opens the session once it is created.
+  useEffect(() => {
+    if (!requestedItemId || !isDockviewReady) {
+      return
+    }
+    actions.createSession(requestedItemId)
+    navigate(UrlTree.coding, { replace: true })
+  }, [ requestedItemId, isDockviewReady, actions, navigate ])
 
   function onReady(event: DockviewReadyEvent) {
     dockviewApiRef.current = event.api
@@ -173,7 +191,7 @@ export function CodingPage() {
           </Button>
           <Button
             size='sm'
-            onPress={actions.createSession}
+            onPress={() => actions.createSession()}
           >
             <LuPlus className='size-4' aria-hidden />
             <span>{t('newSession')}</span>
@@ -195,6 +213,7 @@ export function CodingPage() {
     <CreateSessionModal
       key={`create-${formSession}`}
       state={createState}
+      actionItemId={createActionItemId}
     />
     <RenameSessionModal
       key={`rename-${formSession}`}

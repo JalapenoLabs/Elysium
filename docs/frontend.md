@@ -57,7 +57,7 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
 | `/projects/:projectId`        | `ProjectPage`            | One project, edited in place, with its sessions          |
-| `/coding`                     | `CodingPage`             | Dockview workspace                                       |
+| `/coding`                     | `CodingPage`             | Dockview workspace; `?item=` opens New session started from that item |
 | `/coding/:sessionId`          | `CodingPage`             | Opens session number `sessionId`, then returns to `/coding` |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
@@ -217,7 +217,7 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
 
 - **Next** (`NextPage`, `NextItemCard`) shows one item from Next with its badges, notes, projects and initiatives,
   comments, and history. Quick actions each have a key: Resolve `R`, Dismiss `D`, Snooze `S`, Wait on someone `W`,
-  Comment `C` (focuses the composer), Skip `J`, and Open `O`. Keys go through uikit's `useHotkey`, wrapped by
+  Comment `C` (focuses the composer), Start a coding session `G`, Skip `J`, and Open `O`. Keys go through uikit's `useHotkey`, wrapped by
   `useQuickActionHotkey` so they are ignored while typing, while a dialog, menu, or list box has focus, and with a
   modifier held. Acting takes the item out of Next, so the next one takes its place without a request. Skip sets an
   item aside for the visit only, and skipping the last one starts the round again (`nextRotation.ts`). While the inbox
@@ -235,7 +235,8 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   with only what differs from the defaults written, so a filtered list survives opening an item and coming back.
 - **Item page** (`ActionItemPage`) edits the title and notes in place with `InlineEditableText`. `ActionItemActionBar`
   offers the state changes the state allows (`transitionsByState` mirrors the API's table), Snooze, Wait on someone,
-  and a menu to stop waiting or delete. `ActionItemDetailsPanel` saves priority, due date, projects, and initiatives
+  Start a coding session, and a menu to stop waiting or delete. `ActionItemSessions` lists the coding sessions started
+  from the item, from the `codingSessions` slice, below its comments. `ActionItemDetailsPanel` saves priority, due date, projects, and initiatives
   as they change; projects and initiatives go through their per-id routes, one request per one joined or left
   (`membershipChanges.ts`). A deleted item is read-only under a banner with Restore.
 - **Snooze** (`SnoozeMenu`) offers later today (three hours), tomorrow morning, next Monday morning, or a day picked
@@ -257,6 +258,9 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   one out, adds existing items from a search, and links to a new item started in the initiative.
 - **Project page** (`ProjectWork`) lists the project's inbox and open items and its initiatives, each with a New
   button that presets the project, and a link to every item of the project in All items.
+- **Start a coding session**, on the item page and in Next, goes to `/coding?item=<id>` (`getNewCodingSessionUrl`). The
+  Coding page opens New session started from the item once Dockview is ready, then returns to `/coding`; see
+  [Coding](#coding).
 
 The shared `src/components/` pieces are `DayPicker` (a date without a time), `MultiPicker` (tags from a searchable
 list), `OptionSelect` (a labelled select over a short list), and `EmptyNotice` (what a list shows instead of an empty
@@ -273,12 +277,17 @@ matter when changing it:
 - `/coding/<number>` (`getCodingSessionUrl`) opens that session's conversation once Dockview and the sessions are both
   loaded, then replaces the address with `/coding`; a number no session has goes straight to `/coding`. The project
   page links sessions this way.
-- Every table of sessions (Sessions here, `ProjectSessionsTable` on the project page) opens with a thin `#` column: the
+- Every table of sessions (Sessions here, and `CodingSessionsTable` on the project and item pages) opens with a thin
+  `#` column: the
   session number, right aligned in tabular numerals, sorted as a number, sized by `SESSION_NUMBER_COLUMN_SIZING`.
   uikit holds columns to at least 160 pixels unless a column sets its own bounds, and left-aligns every header, so the
   `#` header carries `.numeric-column-header`, which `src/index.css` moves to the right edge. The tables' storage ids
   end in `.v2`, since uikit appends a column it has not seen to the end of a saved column order.
-- `CreateSessionModal` picks the session's repositories through `SessionRepositoriesField`. `GithubRepositoryPicker`
+- `CreateSessionModal` is the dialog's frame. It holds `CreateSessionForm`, or, for a session started from an action
+  item, `ActionItemSessionForm`, which loads the item first, since the form presets itself from it: the title, the
+  item's projects (`getSessionProjectChoices` in `sessionItemProjects.ts` mirrors the API; an item in one project fixes
+  it), and a required prompt. The form sends the prompt with the create, and the API queues it as the first turn.
+- `CreateSessionForm` picks the session's repositories through `SessionRepositoriesField`. `GithubRepositoryPicker`
   is HeroUI's `Autocomplete` in multiple selection over the resolved token's repositories, loaded through SWR under
   `['github-repositories', credentialId]`; its value only counts the picks, since each pick is a row below it
   (`SessionRepositoryRow`) with an optional base branch (the default branch as placeholder) and a remove button.
@@ -308,7 +317,7 @@ description: double-clicking it, or its Change cover button, picks an image and 
 it is a single Add a cover image button. Beside Change cover, a Fit and Fill switch saves the project's `coverFit`,
 which every rendering of the cover follows. Both controls show on hover or focus. The name and description are `InlineEditableText`, saved as soon as they are changed. The
 Actions menu on the right (`ProjectActions`) holds what cannot be done in place: Remove cover, and Delete, which
-confirms through `useConfirm` and only explains while sessions remain. Below, `ProjectSessionsTable` lists the
+confirms through `useConfirm` and only explains while sessions remain. Below, `CodingSessionsTable` lists the
 project's coding sessions; a row or title opens the session on the Coding page.
 
 `src/components/InlineEditableText.tsx` shows text that becomes its own editor when clicked, in the same typography.

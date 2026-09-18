@@ -10,11 +10,11 @@ import { useNavigate } from 'react-router'
 
 // User interface
 import { Button, Dropdown, Label } from '@heroui/react'
-import { LuAlarmClock, LuEllipsis, LuHourglass, LuTrash2 } from 'react-icons/lu'
+import { LuAlarmClock, LuEllipsis, LuHourglass, LuSquareTerminal, LuTrash2 } from 'react-icons/lu'
 import { SnoozeMenu } from './SnoozeMenu'
 
 // Misc
-import { UrlTree } from '../../urls'
+import { getNewCodingSessionUrl, UrlTree } from '../../urls'
 import { transitionLabelKeys, transitionsByState } from './actionItemPresentation'
 import { useActionItemActions } from './useActionItemActions'
 
@@ -24,7 +24,8 @@ type Props = {
 }
 
 // The actions at the top of an item's page: the state changes its state allows, snoozing,
-// waiting on someone, and, in a menu, deleting. The first allowed state change leads.
+// waiting on someone, starting a coding session from it, and, in a menu, deleting. The
+// first allowed state change leads.
 export function ActionItemActionBar(props: Props) {
   const { t } = useTranslation([ 'actionItems', 'common' ])
   const navigate = useNavigate()
@@ -69,6 +70,11 @@ export function ActionItemActionBar(props: Props) {
         ? t('wait.change')
         : t('wait.action')}</span>
     </Button>}
+
+    <Button size='sm' variant='outline' onPress={() => navigate(getNewCodingSessionUrl(item.id))}>
+      <LuSquareTerminal className='size-4' aria-hidden />
+      <span>{t('sessions.start')}</span>
+    </Button>
 
     <Dropdown>
       <Button isIconOnly size='sm' variant='ghost' aria-label={t('common:actions.moreActions')}>

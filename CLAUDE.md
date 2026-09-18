@@ -99,9 +99,9 @@ Everything else follows these rules:
 ## Action items
 
 The core and its frontend are built: items, initiatives, memberships, comments, history, Next, and progress, under
-`/api/v1/action-items` and `/api/v1/initiatives`, and the Action items area that uses them. Links, the watcher,
-changesets, and `elysium_work` are designed, not yet built; do not build against them until their implementation
-lands.
+`/api/v1/action-items` and `/api/v1/initiatives`, and the Action items area that uses them. So are the `elysium_work`
+tools and coding sessions started from an item. Links, the watcher, and changesets are designed, not yet built; do not
+build against them until their implementation lands.
 
 - Action items are the one list of what the user owes attention to, from Jira, GitHub, email, meetings, or typed by
   hand. Initiatives group items toward a goal that ends and carry the progress bar; projects never end and have
@@ -117,7 +117,10 @@ lands.
   watcher only records what already happened in a provider, so it needs no changeset.
 - The watcher polls providers for changes; webhooks come later. Link providers sit behind one trait, so routes and
   tools never match on the provider.
-- Coding agents use one relayed MCP server, `elysium_work`, in Elysium's terms and scoped to the session's project.
+- Coding agents use one relayed MCP server, `elysium_work`, declared on every thread, in Elysium's terms and scoped to
+  the session's project, re-checked on every call. Until changesets exist, commenting is the only write it offers.
+- A session started from an item records it, and its first turn carries the item's context ahead of the user's
+  prompt.
 - There is no users table yet. Ownership and actors are recorded as text and become references when users land.
 - Every write records a history entry with its actor in the same transaction, with before and after values so it can
   be shown and undone. Deleting items and initiatives is soft. Next's order and the progress rules are pure functions

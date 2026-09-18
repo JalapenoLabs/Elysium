@@ -124,6 +124,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         project_id -> Uuid,
         github_credential_id -> Nullable<Uuid>,
+        action_item_id -> Nullable<Uuid>,
     }
 }
 
@@ -378,6 +379,7 @@ diesel::joinable!(action_item_events -> action_items (action_item_id));
 diesel::joinable!(action_item_events -> initiatives (initiative_id));
 diesel::joinable!(action_item_projects -> action_items (action_item_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
+diesel::joinable!(coding_sessions -> action_items (action_item_id));
 diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
