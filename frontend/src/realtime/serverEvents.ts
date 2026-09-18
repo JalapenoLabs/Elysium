@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ActionItem, ActionItemComment, HistoryEntry } from '../api/routes/actionItemRoutes'
+import type { Initiative } from '../api/routes/initiativeRoutes'
 import type { CodingSession, SessionEvent } from '../api/routes/codingSessionRoutes'
 import type { EnvironmentVariable } from '../api/routes/environmentRoutes'
 import type { GithubCredential } from '../api/routes/githubRoutes'
@@ -17,6 +19,18 @@ export type ServerEvent =
   | { type: 'hello' }
   // Events were missed; refetch everything shown.
   | { type: 'resync' }
+  // Also sent when an item joins or leaves a project or initiative, and when it is restored.
+  | { type: 'actionItem.upserted', data: ActionItem }
+  // Soft: the item can be restored.
+  | { type: 'actionItem.deleted', data: { id: string } }
+  | { type: 'actionItemComment.upserted', data: ActionItemComment }
+  | { type: 'actionItemComment.deleted', data: { id: string, actionItemId: string } }
+  // Also sent whenever the initiative's progress moves.
+  | { type: 'initiative.upserted', data: Initiative }
+  // Soft: the initiative can be restored.
+  | { type: 'initiative.deleted', data: { id: string } }
+  // An entry an item's or an initiative's write recorded.
+  | { type: 'history.appended', data: HistoryEntry }
   | { type: 'environmentVariable.upserted', data: EnvironmentVariable }
   | { type: 'environmentVariable.deleted', data: { id: string } }
   | { type: 'githubCredential.upserted', data: GithubCredential }

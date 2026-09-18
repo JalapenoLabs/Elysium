@@ -51,8 +51,9 @@ Payload shapes are the same JSON the REST routes return; see `docs/api.md` and `
 
 A write to an item also sends `initiative.upserted` for every initiative it is in, and for one it just left, since
 their progress may have moved. Deleting or restoring an initiative sends `actionItem.upserted` for each of its items,
-whose `initiativeIds` leave deleted initiatives out. A write that changed nothing sends nothing. The frontend handles
-the action item events once its pages land; until then the stream's lookup table ignores types it does not know.
+whose `initiativeIds` leave deleted initiatives out. A write that changed nothing sends nothing. The frontend applies
+every action item event to Redux; `actionItem.deleted` and `initiative.deleted` also revalidate the deleted lists, and
+`initiative.upserted` the initiative's burnup, each only while a view shows it (`docs/frontend.md`).
 
 The stream sends a comment every 15 seconds so proxies never see it idle. nginx serves `/api/v1/events` from its
 own location with buffering off and a one-hour read timeout.

@@ -105,5 +105,15 @@
     "inheritNone": "Workspace default (none set)",
     "orphaned": "The token this project used was deleted, so its sessions use the workspace default until you pick another.",
     "saved": "GitHub token updated"
+  },
+  "work": {
+    "itemsHeading": "Action items",
+    "seeAllItems_one": "See the {{count}} item",
+    "seeAllItems_other": "See all {{count}} items",
+    "newItem": "New item",
+    "itemsEmpty": "Nothing is owed here. Resolved and dismissed items are under all items.",
+    "initiativesHeading": "Initiatives",
+    "newInitiative": "New initiative",
+    "initiativesEmpty": "No initiatives in this project yet."
   }
 }

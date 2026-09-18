@@ -5,8 +5,16 @@ import { createBrowserRouter, Navigate } from 'react-router'
 
 // User interface
 import { AppShell } from './layout/AppShell'
-import { ActionItemsPage } from './pages/ActionItems/ActionItemsPage'
+import { ActionItemListPage } from './pages/ActionItems/ActionItemListPage'
+import { ActionItemPage } from './pages/ActionItems/ActionItemPage'
+import { ActionItemsLayout } from './pages/ActionItems/ActionItemsLayout'
+import { CreateActionItemPage } from './pages/ActionItems/CreateActionItemPage'
+import { InboxPage } from './pages/ActionItems/InboxPage'
+import { NextPage } from './pages/ActionItems/NextPage'
 import { CodingPage } from './pages/Coding/CodingPage'
+import { CreateInitiativePage } from './pages/Initiatives/CreateInitiativePage'
+import { InitiativePage } from './pages/Initiatives/InitiativePage'
+import { InitiativesPage } from './pages/Initiatives/InitiativesPage'
 import { CreateProjectPage } from './pages/Projects/CreateProjectPage'
 import { ProjectPage } from './pages/Projects/ProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
@@ -52,9 +60,44 @@ export const router = createBrowserRouter([
         index: true,
         element: <Navigate to={UNKNOWN_ROUTE_REDIRECT_TO} replace />,
       },
+      // Next, the inbox, every item, and initiatives share the area's heading and tabs.
       {
         path: UrlTree.actionItems,
-        element: <ActionItemsPage />,
+        element: <ActionItemsLayout />,
+        children: [
+          {
+            index: true,
+            element: <NextPage />,
+          },
+          {
+            path: UrlTree.actionItemsInbox,
+            element: <InboxPage />,
+          },
+          {
+            path: UrlTree.actionItemsAll,
+            element: <ActionItemListPage />,
+          },
+          {
+            path: UrlTree.initiatives,
+            element: <InitiativesPage />,
+          },
+        ],
+      },
+      {
+        path: UrlTree.actionItemsNew,
+        element: <CreateActionItemPage />,
+      },
+      {
+        path: UrlTree.actionItemView,
+        element: <ActionItemPage />,
+      },
+      {
+        path: UrlTree.initiativesNew,
+        element: <CreateInitiativePage />,
+      },
+      {
+        path: UrlTree.initiativeView,
+        element: <InitiativePage />,
       },
       {
         path: UrlTree.studio,

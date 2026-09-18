@@ -285,8 +285,9 @@ Membership routes are idempotent: adding an item to a project or initiative it i
 not in, answers the item unchanged. Adding to an unknown project or initiative answers `404`, and joining a deleted
 initiative `409`. Deleting a project takes its items and initiatives out of it, each recording the removal.
 
-A `Comment` has `id`, `actionItemId`, `author`, `body` (1 to 20,000 characters), `createdAt`, and `updatedAt`. `POST`
-and `PATCH` take `{ body }`. Editing or deleting a comment someone else wrote answers `409`.
+A `Comment` has `id`, `actionItemId`, `author`, `body` (1 to 20,000 characters), `createdAt`, and `updatedAt`, which
+equals `createdAt` until the comment is edited. `POST` and `PATCH` take `{ body }`. Editing or deleting a comment
+someone else wrote answers `409`.
 
 A `HistoryEntry` has `id`, `actionItemId`, `initiativeId`, `kind`, `actor`, `data`, and `createdAt`; kinds and their
 `data` are listed in `docs/action-items.md`. Every write is recorded with the actor `user`.

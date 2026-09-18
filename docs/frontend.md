@@ -20,6 +20,7 @@ HeroUI v3 on Tailwind CSS v4 and is modeled on Stripe's dashboard.
 | Dates           | `@internationalized/date` for input, `Intl` for display        |
 | Icons           | `react-icons/lu` (Lucide)                                      |
 | Translations    | i18next with react-i18next                                     |
+| Tests           | Vitest with jsdom and Testing Library                          |
 
 ## Layout
 
@@ -44,7 +45,14 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 
 | Path                          | Page                     | Notes                                                    |
 |-------------------------------|--------------------------|----------------------------------------------------------|
-| `/action-items`               | `ActionItemsPage`        | Placeholder; first in the sidebar                        |
+| `/action-items`               | `NextPage`               | Next, one item at a time; first in the sidebar           |
+| `/action-items/inbox`         | `InboxPage`              | Inbox triage, one item at a time                         |
+| `/action-items/all`           | `ActionItemListPage`     | Every item, filtered from the address                    |
+| `/action-items/new`           | `CreateActionItemPage`   | Add an item; `?project=` and `?initiative=` preset it    |
+| `/action-items/:itemId`       | `ActionItemPage`         | One item, edited in place, live or deleted               |
+| `/action-items/initiatives`   | `InitiativesPage`        | Initiatives with their progress                          |
+| `/action-items/initiatives/new` | `CreateInitiativePage` | Start an initiative; `?project=` presets it              |
+| `/action-items/initiatives/:initiativeId` | `InitiativePage` | One initiative: progress, burnup, items, history  |
 | `/studio`                     | `StudioPage`             | Placeholder                                              |
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
@@ -201,6 +209,59 @@ the URL. The row menu tests the connection, sends a test message, changes the se
 toggles active, and disconnects; the disconnect confirmation says whether mail is deleted (self-hosted) or only
 forgotten (OAuth).
 
+### Action items
+
+`src/pages/ActionItems/` and `src/pages/Initiatives/` build the area `docs/action-items.md` designs. Next, Inbox, All
+items, and Initiatives are tabs under one heading (`ActionItemsLayout`, a parent route with an `Outlet`); the item,
+initiative, and create pages stand on their own with breadcrumbs. The sidebar keeps its one Action items entry.
+
+- **Next** (`NextPage`, `NextItemCard`) shows one item from Next with its badges, notes, projects and initiatives,
+  comments, and history. Quick actions each have a key: Resolve `R`, Dismiss `D`, Snooze `S`, Wait on someone `W`,
+  Comment `C` (focuses the composer), Skip `J`, and Open `O`. Keys go through uikit's `useHotkey`, wrapped by
+  `useQuickActionHotkey` so they are ignored while typing, while a dialog, menu, or list box has focus, and with a
+  modifier held. Acting takes the item out of Next, so the next one takes its place without a request. Skip sets an
+  item aside for the visit only, and skipping the last one starts the round again (`nextRotation.ts`). While the inbox
+  holds anything, `InboxLeadCard` leads the page. An empty Next says how many items wait on someone or are snoozed.
+- **Next is computed in the browser.** `src/store/nextOrder.ts` mirrors the API's Next (which items, and
+  `api/src/action_items/next.rs`'s order) and is tested against the same cases, the way `environmentPresentation.ts`
+  mirrors the API's key rules; keep the two in step. `selectNextActionItems(state, now)` applies it to every live
+  item. A snooze running out sends no event, so time-dependent views read `useNow`, which re-reads the clock every
+  minute (`ACTION_ITEMS_CLOCK_TICK_MS`) and fetches nothing. The API's `next` route is not used by the frontend.
+- **Inbox** (`InboxPage`, `InboxTriageCard`) takes the inbox oldest first: Accept `A`, Dismiss `D`, Open `O`, with the
+  next few titles listed below.
+- **All items** (`ActionItemListPage`) is `ActionItemTable` (uikit's `SmartTable`) under `ActionItemFiltersBar`:
+  states (the inbox and open by default), project (or no project), initiative, waiting, snoozed, and a Deleted items
+  switch that lists deleted items instead, each with Restore. Filters live in the address (`actionItemFilters.ts`),
+  with only what differs from the defaults written, so a filtered list survives opening an item and coming back.
+- **Item page** (`ActionItemPage`) edits the title and notes in place with `InlineEditableText`. `ActionItemActionBar`
+  offers the state changes the state allows (`transitionsByState` mirrors the API's table), Snooze, Wait on someone,
+  and a menu to stop waiting or delete. `ActionItemDetailsPanel` saves priority, due date, projects, and initiatives
+  as they change; projects and initiatives go through their per-id routes, one request per one joined or left
+  (`membershipChanges.ts`). A deleted item is read-only under a banner with Restore.
+- **Snooze** (`SnoozeMenu`) offers later today (three hours), tomorrow morning, next Monday morning, or a day picked
+  from a calendar; a day snooze wakes at 09:00 in the viewer's zone (`SNOOZE_WAKE_HOUR`). **Due and target dates** are
+  picked as days and stored as the last millisecond of that day in the viewer's zone, so an item due today is overdue
+  tomorrow (`actionItemDates.ts`).
+- **Comments** (`ActionItemComments`) post with Ctrl or Cmd and Enter. Only the user's own comments offer edit and
+  delete; an edited one says so.
+- **History** (`HistoryTimeline`) lists entries newest first, each an actor and a sentence built by
+  `historyPresentation.ts` from the entry's kind and data, with every field an edit changed. Unknown kinds and
+  malformed data still read as something.
+- **Initiatives** (`InitiativesPage`, `InitiativeTable`) list name, state, progress, target date, and projects, active
+  ones by default, with a Deleted initiatives switch like items'. Progress is always resolved and total together
+  (`InitiativeProgressSummary`), with a bar beside the counts, never a percentage.
+- **Initiative page** (`InitiativePage`) edits name and description in place and state, target date, and projects in
+  `InitiativeDetailsPanel`. `BurnupChart` draws total and resolved as steps from the API's burnup, with a legend,
+  direct end labels, a crosshair and tooltip that snap to the nearest change (by pointer or arrow keys), and the same
+  numbers in a table beneath; its geometry is `burnup.ts`. `InitiativeMembers` lists the items with a button to take
+  one out, adds existing items from a search, and links to a new item started in the initiative.
+- **Project page** (`ProjectWork`) lists the project's inbox and open items and its initiatives, each with a New
+  button that presets the project, and a link to every item of the project in All items.
+
+The shared `src/components/` pieces are `DayPicker` (a date without a time), `MultiPicker` (tags from a searchable
+list), `OptionSelect` (a labelled select over a short list), and `EmptyNotice` (what a list shows instead of an empty
+table).
+
 ### Coding
 
 `src/pages/Coding/` is a Dockview workspace with a Sessions overview panel and one conversation panel per open
@@ -318,6 +379,10 @@ Selectors return existing references; never build objects or strings inside one.
 
 | Slice            | Holds                                                                   |
 |------------------|-------------------------------------------------------------------------|
+| `actionItems`    | Live and deleted items in separate halves, newest first                 |
+| `actionItemComments` | Comments of the items viewed, oldest first                          |
+| `actionItemHistory` | Item and initiative history entries, oldest first                    |
+| `initiatives`    | Live and deleted initiatives in separate halves, by name                |
 | `llms`           | LLM credentials, sorted by priority                                     |
 | `mailAccounts`   | Connected mailboxes, sorted by address                                  |
 | `mailDomains`    | The mail server's domains, sorted by name                               |
@@ -341,7 +406,9 @@ Server collections use entity adapters. Redux is the source of truth components 
    (`useLlmsLoader`, `useMailAccountsLoader`, `useMailServerLoader`, `useMailDomainsLoader`, `useProjectsLoader`,
    `useSatellitesLoader`, `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useJiraCredentialsLoader`,
    `useEnvironmentVariablesLoader`, `useCodingSessionsLoader`,
-   `useSessionHistoryLoader`). SWR
+   `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,
+   `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,
+   `useInitiativeLoader`, `useInitiativeHistoryLoader`). SWR
    fetches the key once, deduplicates every component asking for it, and buffers the response so a remounted page
    renders at once while it revalidates.
 2. **Redux holds it.** The loader puts the response in Redux (`llmsLoaded`, `sessionHistoryLoaded`, ...).
@@ -362,6 +429,15 @@ for the event. The event that follows is idempotent.
 
 `sessionEvents` keeps a conversation's events only while its panel is open, capped at 5000. Live events for other
 sessions are dropped.
+
+Action items and initiatives keep live and deleted records apart because each list answers one or the other: the
+live load replaces only the live half, and deleted ones load only while a view asks for them. `actionItem.deleted`
+and `initiative.deleted` carry only an id, so they drop the record from the live half and revalidate the deleted
+list's key and the record's own page, each of which refetches only if a view holds it, so an open page shows the record
+as deleted rather than missing. Items list only live initiatives, so a deleted initiative's page says its items return
+once it is restored instead of listing them. An upsert files a record by its `deletedAt`, so a restore moves
+it back. An initiative's burnup is the one view read from SWR rather than Redux (`useInitiativeProgress`): no event
+carries it, so `initiative.upserted` revalidates its key, which refetches only while an initiative page shows it.
 
 Satellite, mail server, and broker failures answer `502` with the upstream's message. `getUpstreamErrorMessage` in
 `src/api/errors.ts` extracts it for toasts.
@@ -428,6 +504,10 @@ of their own.
 Style text links with `text-link`, not `text-accent`. The accent is for fills, focus rings, and selection.
 
 `--sidebar` (`bg-sidebar`) is Elysium's own token for app chrome, registered with Tailwind through `@theme inline`.
+`--chart-scope` and `--chart-resolved` (`bg-chart-scope`, `stroke-chart-resolved`, ...) are the burnup's two series.
+They were checked as a pair against each theme's page for lightness, chroma, color-blind separation, and contrast;
+dark mode steps them toward the middle of the lightness band, since Matter's accent and green sit outside it. Change
+them together and check them again.
 
 The same file points uikit's `--jala-table-*` variables at the palette, including the dark table colors.
 
@@ -441,7 +521,8 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
-  `satellites`, `email`, `storage`, `github`, `jira`, `environment`, `projects`, `coding`, `studio`, `actionItems`.
+  `satellites`, `email`, `storage`, `github`, `jira`, `environment`, `projects`, `coding`, `studio`,
+  `actionItems`, `initiatives`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.
@@ -472,12 +553,18 @@ The compose frontend image installs `node_modules` at build time. After changing
 
 ## Checks
 
-`yarn typecheck` and `yarn lint` must both pass.
+`yarn typecheck`, `yarn lint`, `yarn test`, and `yarn build` must all pass.
+
+Tests are Vitest, beside the file they test (`nextOrder.ts` and `nextOrder.test.ts`), configured in
+`vite.config.ts`. They run in jsdom; `src/testSetup.ts` loads the en-US translations, stands in for media queries, and
+unmounts rendered components after each test. `src/testFixtures.ts` builds records as the API sends them. Slices and
+selectors are tested against a fresh store from `createAppStore()`. Pure helpers, slices, selectors, and small
+components are tested; pages are checked in the running app.
 
 ## Roadmap
 
 - Additional locales, once the product adopts them.
-- A unit test setup (Vitest) for pure logic such as the timeline merge in `sessionEventsSlice`.
+- Tests for the older areas' pure logic, such as the timeline merge in `sessionEventsSlice`.
 - Search results behind the topbar field.
 - Contact and account fields on the Personal details page once user accounts exist, with the theme preference
   moving to the user profile.

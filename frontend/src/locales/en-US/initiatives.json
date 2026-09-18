@@ -1,0 +1,88 @@
+{
+  "title": "Initiatives",
+  "newInitiative": "New initiative",
+  "states": {
+    "active": "Active",
+    "achieved": "Achieved",
+    "abandoned": "Abandoned"
+  },
+  "progress": {
+    "heading": "Progress",
+    "counts": "{{resolved}} of {{total}} resolved"
+  },
+  "burnup": {
+    "label": "Burnup chart: {{resolved}} of {{total}} items resolved now. Use the arrow keys to step through each change.",
+    "total": "Total",
+    "resolved": "Resolved",
+    "totalEnd": "{{count}} total",
+    "resolvedEnd": "{{count}} resolved",
+    "now": "Now",
+    "when": "When",
+    "showTable": "Show as a table",
+    "loadError": "The burnup could not be loaded."
+  },
+  "list": {
+    "state": "State",
+    "allStates": "Every state",
+    "deleted": "Deleted initiatives",
+    "loadError": "Initiatives could not be loaded.",
+    "empty": "No initiatives match these filters.",
+    "emptyDeleted": "No deleted initiatives match these filters.",
+    "restore": "Restore"
+  },
+  "table": {
+    "name": "Name",
+    "state": "State",
+    "progress": "Progress",
+    "target": "Target date",
+    "projects": "Projects"
+  },
+  "fields": {
+    "state": "State",
+    "targetDate": "Target date",
+    "clearTargetDate": "Clear the target date",
+    "projects": "Projects",
+    "created": "Created",
+    "updated": "Updated"
+  },
+  "members": {
+    "heading": "Items",
+    "add": "Add an existing item",
+    "addPlaceholder": "Search items by title",
+    "noCandidates": "No other items to add.",
+    "new": "New item",
+    "remove": "Take out of this initiative",
+    "empty": "No items yet. Add existing ones, or create one here.",
+    "hiddenWhileDeleted": "This initiative keeps its items while deleted. They show here again once it is restored."
+  },
+  "page": {
+    "notFound": "This initiative does not exist.",
+    "backToList": "Back to initiatives",
+    "renameLabel": "Name",
+    "describeLabel": "Description",
+    "addDescription": "Add a description",
+    "deletedTitle": "This initiative is deleted",
+    "deletedBody": "Its items keep it as a member but no longer list it. Restore it to track its progress again."
+  },
+  "form": {
+    "createTitle": "New initiative",
+    "name": "Name",
+    "description": "Description",
+    "targetDateHint": "The goal is due by the end of that day.",
+    "submit": "Create initiative",
+    "errors": {
+      "nameRequired": "Give the initiative a name.",
+      "nameTooLong": "Keep the name to 200 characters.",
+      "descriptionTooLong": "Keep the description to 20,000 characters."
+    }
+  },
+  "delete": {
+    "title": "Delete “{{name}}”?",
+    "body": "Its items stay, and stay members, but stop listing it until it is restored. You can restore it from Initiatives, under Deleted initiatives."
+  },
+  "toasts": {
+    "created": "Created “{{name}}”.",
+    "deleted": "Deleted “{{name}}”.",
+    "restored": "Restored “{{name}}”."
+  }
+}
