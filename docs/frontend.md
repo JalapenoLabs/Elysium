@@ -398,7 +398,9 @@ sessions are dropped.
 Action items and initiatives keep live and deleted records apart because each list answers one or the other: the
 live load replaces only the live half, and deleted ones load only while a view asks for them. `actionItem.deleted`
 and `initiative.deleted` carry only an id, so they drop the record from the live half and revalidate the deleted
-list's key, which refetches only if a view holds it. An upsert files a record by its `deletedAt`, so a restore moves
+list's key and the record's own page, each of which refetches only if a view holds it, so an open page shows the record
+as deleted rather than missing. Items list only live initiatives, so a deleted initiative's page says its items return
+once it is restored instead of listing them. An upsert files a record by its `deletedAt`, so a restore moves
 it back. An initiative's burnup is the one view read from SWR rather than Redux (`useInitiativeProgress`): no event
 carries it, so `initiative.upserted` revalidates its key, which refetches only while an initiative page shows it.
 

@@ -67,7 +67,9 @@ export function InitiativeMembers(props: Props) {
     </div>}
 
     {status !== 'loading' && !members.length && <EmptyNotice>{
-      t('members.empty')
+      isDeleted
+        ? t('members.hiddenWhileDeleted')
+        : t('members.empty')
     }</EmptyNotice>}
 
     {members.length > 0 && <ActionItemTable

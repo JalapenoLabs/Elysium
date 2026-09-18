@@ -56,11 +56,11 @@
     "skip": "Skip",
     "emptyTitle": "Nothing is next",
     "emptyBody": "Every open item is done, waiting, or snoozed.",
-    "emptyElsewhere": "{{waiting}} and {{snoozed}}.",
-    "waitingCount_one": "{{count}} item is waiting on someone",
-    "waitingCount_other": "{{count}} items are waiting on someone",
-    "snoozedCount_one": "{{count}} is snoozed",
-    "snoozedCount_other": "{{count}} are snoozed",
+    "emptyWaiting_one": "{{count}} item is waiting on someone.",
+    "emptyWaiting_other": "{{count}} items are waiting on someone.",
+    "emptySnoozed_one": "{{count}} item is snoozed.",
+    "emptySnoozed_other": "{{count}} items are snoozed.",
+    "emptyWaitingAndSnoozed": "Waiting on someone: {{waiting}}. Snoozed: {{snoozed}}.",
     "seeAll": "See all items"
   },
   "inboxLead": {

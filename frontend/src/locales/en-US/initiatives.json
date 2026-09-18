@@ -52,7 +52,8 @@
     "noCandidates": "No other items to add.",
     "new": "New item",
     "remove": "Take out of this initiative",
-    "empty": "No items yet. Add existing ones, or create one here."
+    "empty": "No items yet. Add existing ones, or create one here.",
+    "hiddenWhileDeleted": "This initiative keeps its items while deleted. They show here again once it is restored."
   },
   "page": {
     "notFound": "This initiative does not exist.",

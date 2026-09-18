@@ -39,16 +39,23 @@ export function NextEmptyState(props: Props) {
     }
   }
 
+  // One whole sentence for each case, so a count of zero is never spelled out.
+  let elsewhere: string | null = null
+  if (waitingCount && snoozedCount) {
+    elsewhere = t('next.emptyWaitingAndSnoozed', { waiting: waitingCount, snoozed: snoozedCount })
+  }
+  else if (waitingCount) {
+    elsewhere = t('next.emptyWaiting', { count: waitingCount })
+  }
+  else if (snoozedCount) {
+    elsewhere = t('next.emptySnoozed', { count: snoozedCount })
+  }
+
   return <div className='rounded-xl border border-separator px-6 py-14 text-center'>
     <LuCircleCheck className='mx-auto mb-3 size-10 text-success' aria-hidden />
     <h2 className='compact text-xl font-semibold'>{t('next.emptyTitle')}</h2>
     <p className='compact text-sm opacity-70'>{t('next.emptyBody')}</p>
-    {(waitingCount > 0 || snoozedCount > 0) && <p className='compact text-sm opacity-70'>{
-      t('next.emptyElsewhere', {
-        waiting: t('next.waitingCount', { count: waitingCount }),
-        snoozed: t('next.snoozedCount', { count: snoozedCount }),
-      })
-    }</p>}
+    {elsewhere && <p className='compact text-sm opacity-70'>{elsewhere}</p>}
     <div className='mt-4 flex justify-center gap-2'>
       <Link href={UrlTree.actionItemsNew} className={buttonVariants({ size: 'sm' })}>
         <span>{t('newItem')}</span>
