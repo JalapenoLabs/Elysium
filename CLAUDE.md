@@ -81,6 +81,9 @@ Everything else follows these rules:
 
 ## Action items
 
+Designed, not yet built: none of the tables, routes, watcher, or tools below exist yet. Do not build against them
+until their implementation lands.
+
 - Action items are the one list of what the user owes attention to, from Jira, GitHub, email, meetings, or typed by
   hand. Initiatives group items toward a goal that ends and carry the progress bar; projects never end and have
   none. Items belong to many projects and many initiatives. See `docs/action-items.md`.
@@ -90,8 +93,9 @@ Everything else follows these rules:
   Elysium.
 - Progress is resolved over total with a burnup of both, never a percentage alone. Initiatives link to containers
   (a Jira epic or search, a GitHub milestone or label) rather than issues one by one, so nothing is tracked twice.
-- Anything the user did not do directly (Elysia, email triage, coding agents) proposes a changeset. Nothing is
-  written in Elysium or any provider until the user approves it, wholly or in part.
+- Anything the user did not do directly (Elysia, Elysium's AI assistant; email triage; coding agents) proposes a
+  changeset. Nothing is written in Elysium or any provider until the user approves it, wholly or in part. The
+  watcher only records what already happened in a provider, so it needs no changeset.
 - The watcher polls providers for changes; webhooks come later. Link providers sit behind one trait, so routes and
   tools never match on the provider.
 - Coding agents use one relayed MCP server, `elysium_work`, in Elysium's terms and scoped to the session's project.

@@ -4,8 +4,11 @@ Action items are the one list of everything the user owes attention to, wherever
 GitHub issue or pull request, an inbound email, an ask from a meeting, or something typed by hand. Initiatives group
 action items toward a goal that ends, and carry the progress bar. Projects are long lived and group both.
 
+This is a design; nothing in it is built yet. Implementation lands in stages, and this doc stops being a plan section
+by section as they do.
+
 The design goal is that work arrives from anywhere, is triaged and managed in one place, and every change made here
-reaches the system it came from. The user approves; Elysium and Elysia do the bookkeeping.
+reaches the system it came from. The user approves; Elysium and Elysia, Elysium's AI assistant, do the bookkeeping.
 
 ## Terms
 
@@ -14,7 +17,7 @@ reaches the system it came from. The user approves; Elysium and Elysia do the bo
 | Project     | Ongoing, never ends  | None     | An area of work (`projects`). Groups initiatives and action items         |
 | Initiative  | Ends when achieved   | Yes      | A goal too big for one item: "ship the storage page", "deploy to prod"    |
 | Action item | Ends when resolved   | None     | One commitment of attention: reply, review, fix, decide                   |
-| Link        | As long as its item  | None     | The external thing an item or initiative points at: a Jira issue, a PR    |
+| Link        | Until unlinked       | None     | The external thing an item or initiative points at: a Jira issue, a PR    |
 | Changeset   | Until applied        | None     | A staged batch of proposed changes, waiting for the user's approval       |
 
 An action item is linked to any number of projects and any number of initiatives. An initiative is linked to any
@@ -30,19 +33,29 @@ provider has:
 - which projects and initiatives it belongs to;
 - where it came from, and its history.
 
+Priority and due date are the item's own even when the issue has fields of the same name. They start from the
+issue's values when the item is created from it, and are never synced after that: Next ranks on the item's values,
+and the item page shows the issue's beside them. Priority defaults to `normal`. `owner` is the exception, because
+it decides whose list an item is on: a linked item's owner follows its primary link's assignee, as the watcher
+reports it.
+
 Changes flow both ways, driven by Elysium, never by copying fields back and forth:
 
-- **Provider to Elysium.** When the linked issue closes, is merged, or reaches a done status, the item resolves,
-  with the watcher as the actor. A reopened issue reopens the item.
-- **Elysium to provider.** Resolving an item moves its linked issue automatically: a Jira issue takes its project's
-  done transition, and a GitHub issue closes as completed. A pull request is never merged or closed by resolving an
-  item. A comment written on an item is posted to its primary link as the credential's account.
+- **Provider to Elysium.** When any of an item's links closes, is merged, or reaches a done status, the item
+  resolves, with the watcher as the actor. A linked issue that reopens returns a resolved item to `open`, since the
+  user already accepted it; a dismissed item stays dismissed.
+- **Elysium to provider.** Resolving an item moves every linked issue that is still open: a Jira issue takes its
+  project's done transition, and a GitHub issue closes as completed. So a pull request merging resolves the item
+  and moves the issue it fixes. A pull request is never merged or closed by resolving an item. A comment written on
+  an item is posted to its primary link as the credential's account.
+- **A pull request closed without merging** resolves nothing. The close is recorded in the item's history and shown
+  on it, and the item stays `open`: the work it stands for may still be owed, so the user resolves or dismisses it.
 
 ## States
 
 | State       | Meaning                                                                          |
 |-------------|----------------------------------------------------------------------------------|
-| `inbox`     | Arrived but not accepted. Everything that is not typed by the user starts here    |
+| `inbox`     | Arrived but not accepted. Items the user did not create or accept start here      |
 | `open`      | Accepted; the user intends to do it                                              |
 | `resolved`  | Done. "Resolved", not "read": the item was acted on                               |
 | `dismissed` | Will not be done. Triaged away from the inbox or dropped later                    |
@@ -51,6 +64,9 @@ Two fields sit beside the state rather than being states themselves, so an item 
 
 - `snoozedUntil`: hidden from Next until that moment passes.
 - `waitingOn`: someone else owes the next step. Hidden from Next, listed under Waiting.
+
+Container children are the exception to the inbox: linking the container accepted them, so they start `open`
+(see [Containers](#containers-keep-work-from-being-tracked-twice)).
 
 Deleting is soft. `deletedAt` hides the item everywhere, and it can be restored from its history.
 
@@ -76,9 +92,9 @@ click away. Resolving, dismissing, snoozing, or marking an item as waiting moves
 An item is in Next when it is `open`, owned by the user, not deleted, not waiting on anyone, and not snoozed. The
 order is fixed in code, not configured:
 
-1. Overdue items, most overdue first.
+1. Overdue items before the rest, as two groups. Every key below orders within a group.
 2. Priority, `urgent`, `high`, `normal`, then `low`.
-3. Due date, soonest first; items with no due date after those with one.
+3. Due date, soonest first, so the most overdue leads; items with no due date after those with one.
 4. Age, oldest first.
 
 When the inbox is not empty, Next leads with a card to triage it.
@@ -86,12 +102,13 @@ When the inbox is not empty, Next leads with a card to triage it.
 ## Initiatives
 
 An initiative has a name, a description, an optional target date, and a state: `active`, `achieved`, or
-`abandoned`. Its progress is `resolved / total` over its items, where a dismissed item counts toward neither.
+`abandoned`. Its progress is `resolved / total` over its items. Total counts every member in `inbox`, `open`, or
+`resolved`; a dismissed or deleted item counts toward neither.
 
 Progress is never shown as a percentage alone. A bar that drops when scope grows, or reads 100% because the last
 task was never written down, misleads. The initiative page shows resolved and total together, and a burnup chart of
 both over time, so added scope is visible as scope. To draw it, membership rows keep when an item joined and left,
-and items keep when they were resolved.
+and items keep when they were resolved and dismissed.
 
 An item in two initiatives counts fully toward both. Each initiative counts only its own members, so nothing is
 counted twice within one bar.
@@ -106,8 +123,10 @@ An initiative can link to a container instead of to issues one by one:
 | GitHub   | A milestone, or a label on a repo |
 
 The watcher keeps the container's children as items of the initiative, each linked to its issue and owned as the
-provider reports. A child added in Jira joins the initiative; a child removed leaves it. The user never enters the
-same work twice, and progress stays true to the tool the team actually works in.
+provider reports. They start `open`, never in the inbox: the user accepted this work by linking the container, and
+children owned by someone else stay out of Next by their owner alone. A child added in Jira joins the initiative; a
+child removed leaves it. The user never enters the same work twice, and progress stays true to the tool the team
+actually works in.
 
 ## Links and the watcher
 
@@ -120,16 +139,29 @@ action items module, so routes and tools never match on the provider, the same w
 | Jira     | Issue                     | Its status category is `done`   | Applies the project's done transition |
 | GitHub   | Issue                     | Closed as completed             | Closes it as completed           |
 | GitHub   | Pull request              | Merged                          | Nothing                          |
-| Mail     | Message thread            | Never                           | Marks the thread read            |
+
+Mail threads become linkable with email triage, on the roadmap.
 
 A Jira project's done transition is chosen once per project the credential reaches. When the project's workflow has
 exactly one transition into a `done` status category, it is used without asking; otherwise the user picks one, and
-until then resolving the item says the issue was not moved. Every Jira and GitHub call goes through the existing
-credential and its allowlist.
+until then the move waits. Jira is reached through a Jira Cloud credential, sealed in Postgres and bounded by the
+projects it names (`docs/jira.md`); GitHub through a personal access token against the fixed `api.github.com`
+(`docs/github.md`). Links never reach past what their credential allows.
 
-The watcher polls. For each credential it asks the provider for everything updated since its last cursor, applies
-what changed to linked items and containers, and publishes the result on the event stream. Polling works behind NAT
-and needs no public address; webhooks are a later upgrade for installs that can receive them.
+A provider write that has not succeeded, because it failed or is waiting on a done transition, leaves its link
+`pending` with the provider's last answer, shown on the item. The item's own change stands, and the watcher retries
+the write on every pass until it succeeds or the user cancels it, so Elysium and the provider never disagree
+silently.
+
+The watcher polls. For each credential it asks the provider for everything updated since its last cursor, applies what
+changed to linked items and containers, and publishes the result on the event stream. Applying is idempotent: a change
+the watcher sees twice, or one that Elysium itself caused, finds the item already in that state and does nothing, and
+every provider write checks the provider's current state first, so a retried write never moves an issue twice. Polling
+works behind NAT and needs no public address; webhooks are a later upgrade for installs that can receive them.
+
+The watcher is not a proposer and needs no changeset: it records what already happened in a provider. The one
+provider write it causes is the one the user chose for every resolve: an item it resolves moves its other linked
+issues.
 
 Notification emails from Jira and GitHub about a linked issue are matched to that issue's item rather than becoming
 items of their own.
@@ -141,8 +173,10 @@ changes instead of making them. A changeset is a batch of operations, each with 
 the quote and source it came from. Nothing is written, in Elysium or anywhere else, until the user approves.
 
 - The user approves all of it, some of it, or none of it. Each operation is approved or rejected on its own.
+- An operation that acts on something another operation creates (commenting on, linking, or resolving a proposed
+  item) depends on it. Rejecting an operation rejects its dependents, and the review shows that before approving.
 - Approving applies the approved operations in order: Elysium's own data first, then the provider writes. A provider
-  write that fails marks that operation failed with the provider's answer, and the rest still apply.
+  write that fails leaves its operation and link `pending`, retried as above, and the rest still apply.
 - Operations: create an item, update an item, resolve or dismiss an item, comment, link, add to or remove from an
   initiative, create an initiative.
 - Applied operations are recorded in each item's history with the changeset as their source, so one changeset can be
@@ -152,13 +186,18 @@ Rules that apply trusted kinds of operations without review are on the roadmap. 
 
 ## Coding sessions
 
-Coding agents reach action items through one relayed MCP server, `elysium_work`, declared on every session's thread
-beside `elysium_storage` (`api/src/tools/`). It speaks Elysium's terms (items, initiatives, projects, comments), and
+Coding agents reach action items through one relayed MCP server, `elysium_work` (`api/src/tools/`). It is declared
+on every session's thread, whether or not the thread also declares `elysium_storage`, which it does only when the
+project has a storage location (`docs/storage.md`). Every thread then has a relay, so `docs/coding.md`'s
+`409 RELAY_NOT_DECLARED` path is left only for threads created before `elysium_work`; that doc changes with the
+implementation. It speaks Elysium's terms (items, initiatives, projects, comments), and
 never a provider's; the provider behind a link is Elysium's business. Every call is scoped to the session's project
 and re-checked against the database, the way storage tools are.
 
-- A session can be started from an item. Its first turn carries the item, its links' descriptions and recent
-  comments, its initiatives, and its project, so the agent starts with the full picture.
+- A session can be started from an item. It belongs to the item's project when the item has exactly one, and
+  otherwise the user picks: one of the item's projects, or any project when it has none. Its first turn carries the
+  item, its links' descriptions and recent comments, its initiatives, and its project, so the agent starts with the
+  full picture.
 - The agent can read items and initiatives in its project, comment on its item, link the pull request it opened,
   and propose changes as a changeset. It cannot resolve or delete anything directly.
 - A pull request linked to an item resolves it when it merges, through the watcher.
