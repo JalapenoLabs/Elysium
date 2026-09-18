@@ -29,6 +29,7 @@ use crate::database::Pool;
 use crate::database::migrations;
 use crate::fleet::Fleet;
 use crate::github::Github;
+use crate::jira::Jira;
 use crate::mail::Mail;
 use crate::mail::broker::Broker;
 use crate::mail::dns::DnsChecker;
@@ -113,7 +114,8 @@ pub async fn serve() -> Result<()> {
         version,
         events,
         fleet: fleet.clone(),
-        github: Github::new(http),
+        github: Github::new(http.clone()),
+        jira: Jira::new(http),
         mail,
         storage,
         shutdown: shutdown.clone(),

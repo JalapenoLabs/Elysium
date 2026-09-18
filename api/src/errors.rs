@@ -6,7 +6,7 @@
 //! answered with a generic message so internals never leak into a response.
 
 use axum::Json;
-use axum::extract::rejection::{JsonRejection, PathRejection};
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
@@ -21,6 +21,10 @@ pub enum ApiError {
     BadRequest(String),
     #[error("request failed validation")]
     Validation(#[from] ValidationErrors),
+    /// The request named something the credential it was made with may not touch, such as
+    /// a Jira project outside its allowlist. The message names what and whose.
+    #[error("{0}")]
+    Forbidden(String),
     #[error("resource not found")]
     NotFound,
     #[error("{0}")]
@@ -45,6 +49,12 @@ impl From<JsonRejection> for ApiError {
 
 impl From<PathRejection> for ApiError {
     fn from(rejection: PathRejection) -> Self {
+        Self::BadRequest(rejection.body_text())
+    }
+}
+
+impl From<QueryRejection> for ApiError {
+    fn from(rejection: QueryRejection) -> Self {
         Self::BadRequest(rejection.body_text())
     }
 }
@@ -75,6 +85,21 @@ impl From<crate::github::GithubError> for ApiError {
             // A token GitHub will not accept is the client's to fix, not an upstream fault.
             GithubError::Unauthorized(message) => Self::BadRequest(message.to_owned()),
             refused @ GithubError::Refused(_) => Self::BadGateway(refused.to_string()),
+        }
+    }
+}
+
+impl From<crate::jira::JiraError> for ApiError {
+    fn from(error: crate::jira::JiraError) -> Self {
+        use crate::jira::JiraError;
+
+        match error {
+            // Credentials Jira will not accept, and a call Jira reads as malformed, are
+            // both the client's to fix rather than an upstream fault.
+            JiraError::Unauthorized(message) => Self::BadRequest(message.to_owned()),
+            invalid @ JiraError::Invalid(_) => Self::BadRequest(invalid.to_string()),
+            JiraError::NotFound => Self::NotFound,
+            refused @ JiraError::Refused(_) => Self::BadGateway(refused.to_string()),
         }
     }
 }
@@ -155,6 +180,7 @@ impl IntoResponse for ApiError {
                 StatusCode::UNPROCESSABLE_ENTITY,
                 json!({ "message": "request failed validation", "fields": errors }),
             ),
+            Self::Forbidden(message) => (StatusCode::FORBIDDEN, json!({ "message": message })),
             Self::NotFound => (
                 StatusCode::NOT_FOUND,
                 json!({ "message": "resource not found" }),

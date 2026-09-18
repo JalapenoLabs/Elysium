@@ -84,6 +84,49 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    jira_credential_boards (jira_credential_id, board_id) {
+        jira_credential_id -> Uuid,
+        board_id -> Int8,
+        name -> Text,
+        project_key -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    jira_credential_projects (jira_credential_id, project_id) {
+        jira_credential_id -> Uuid,
+        project_id -> Text,
+        project_key -> Text,
+        name -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    jira_credentials (id) {
+        id -> Uuid,
+        name -> Text,
+        site_url -> Text,
+        account_email -> Text,
+        token_encrypted -> Bytea,
+        account_id -> Text,
+        display_name -> Text,
+        all_projects -> Bool,
+        all_boards -> Bool,
+        checked_at -> Timestamptz,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::LlmType;
 
     llms (id) {
@@ -217,6 +260,8 @@ diesel::table! {
 diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
+diesel::joinable!(jira_credential_boards -> jira_credentials (jira_credential_id));
+diesel::joinable!(jira_credential_projects -> jira_credentials (jira_credential_id));
 diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
 diesel::joinable!(storage_location_projects -> projects (project_id));
@@ -226,6 +271,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     coding_sessions,
     environment_variables,
     github_credentials,
+    jira_credential_boards,
+    jira_credential_projects,
+    jira_credentials,
     llms,
     mail_accounts,
     mail_domains,

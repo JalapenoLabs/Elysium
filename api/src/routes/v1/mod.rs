@@ -6,6 +6,7 @@ pub mod coding_sessions;
 pub mod environment_variables;
 mod events;
 pub mod github_credentials;
+pub mod jira_credentials;
 pub mod llms;
 pub mod mail;
 pub mod projects;
@@ -22,6 +23,7 @@ pub fn router() -> Router<AppState> {
         .route("/events", get(events::handle))
         .nest("/environment-variables", environment_variables::router())
         .nest("/github-credentials", github_credentials::router())
+        .nest("/jira-credentials", jira_credentials::router())
         .nest("/llms", llms::router())
         .nest("/mail", mail::router())
         .nest("/projects", projects::router())
