@@ -78,6 +78,9 @@ Everything else follows these rules:
 - Every call is bounded by that list in one place, `api/src/routes/v1/jira_credentials/allowlist.rs`: an issue
   key's project is checked before the call, the project Jira answers with is checked after it, and a search is
   bounded by rewriting its JQL rather than filtering results. Outside the list answers `403`.
+- JQL stays free-form, so the list bounds what is returned, read, and written, never what Jira evaluates on the way
+  there. It is a guardrail over a token that can already read everything it reaches, not a security boundary. See
+  `docs/jira.md`.
 - `api/src/jira/` is the only caller. Each credential names its own site, so the host is validated rather than
   fixed in code: https on `.atlassian.net`, stored as the origin alone.
 - Issue text is Atlassian Document Format. Elysium takes plain text and wraps it, and returns both the stored

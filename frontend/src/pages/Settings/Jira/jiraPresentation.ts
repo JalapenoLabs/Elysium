@@ -6,9 +6,14 @@ import type { JiraBoard, JiraCredential, JiraProject } from '../../../api/routes
 // Misc
 import { ALL_JIRA_ITEMS } from '../../../api/routes/jiraRoutes'
 
-// A Jira Cloud site is always a subdomain of atlassian.net. Jira Data Center, which lives
-// on a customer's own host, is not supported, so no credential carries another endpoint.
-export const JIRA_SITE_URL_PATTERN = /^https:\/\/[a-z0-9-]+\.atlassian\.net$/
+// A Jira Cloud site is always under atlassian.net. Jira Data Center, which lives on a
+// customer's own host, is not supported, so no credential carries another endpoint.
+// This is the shape the API and the database column both hold the site to, so a site one
+// accepts is a site all three accept: one or more labels of letters, digits, and hyphens,
+// each starting with a letter or a digit. Sites such as https://acme.jira-dev.atlassian.net
+// carry more than one. The value is normalized before it is tested, so it is already
+// trimmed and lowercase.
+export const JIRA_SITE_URL_PATTERN = /^https:\/\/([a-z0-9][a-z0-9-]*\.)+atlassian\.net$/
 
 // The site as the API stores it. A pasted address usually carries a trailing slash, and
 // the host is case-insensitive, so both are settled before anything is compared or sent.

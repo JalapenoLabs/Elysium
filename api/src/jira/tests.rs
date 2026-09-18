@@ -24,29 +24,29 @@ use serde_json::json;
 use super::*;
 
 /// The account and token the fake accepts. Anything else is answered `401`, as Jira does.
-const EMAIL: &str = "alex@example.com";
-const TOKEN: &str = "ATATTsecret-token-value";
+pub(crate) const EMAIL: &str = "alex@example.com";
+pub(crate) const TOKEN: &str = "ATATTsecret-token-value";
 
 /// The site a credential names. Requests go to the fake, but every URL Elysium builds for a
 /// person still points here.
-const SITE_URL: &str = "https://acme.atlassian.net";
+pub(crate) const SITE_URL: &str = "https://acme.atlassian.net";
 
 /// How many boards the fake has: more than [`PAGE_LIMIT`] pages, so a listing is truncated.
 const BOARD_PAGES: u32 = 12;
 
 /// One request the fake received.
 #[derive(Debug, Clone)]
-struct Received {
+pub(crate) struct Received {
     /// Kept for the `{:?}` a failing assertion prints, which is where it earns its place.
     #[expect(dead_code, reason = "read only in a failed assertion's debug output")]
     method: Method,
-    path: String,
+    pub(crate) path: String,
     query: String,
     authorization: Option<String>,
     body: Value,
 }
 
-type Log = Arc<Mutex<Vec<Received>>>;
+pub(crate) type Log = Arc<Mutex<Vec<Received>>>;
 
 fn jira_error(status: StatusCode, message: &str) -> Response {
     (
@@ -232,7 +232,12 @@ async fn fake_jira(
             .into_response(),
         (Method::PUT, "/rest/api/3/issue/ELY-12") => StatusCode::NO_CONTENT.into_response(),
 
-        (Method::GET, "/rest/api/3/issue/ELY-12/transitions") => axum::Json(json!({
+        // A moved issue answers these the same way its new project would, which is what
+        // makes the routes' own check against the project Jira reports worth having.
+        (
+            Method::GET,
+            "/rest/api/3/issue/ELY-12/transitions" | "/rest/api/3/issue/ELY-99/transitions",
+        ) => axum::Json(json!({
             "transitions": [{
                 "id": "31",
                 "name": "Done",
@@ -244,7 +249,10 @@ async fn fake_jira(
             StatusCode::NO_CONTENT.into_response()
         }
 
-        (Method::POST, "/rest/api/3/issue/ELY-12/comment") => (
+        (
+            Method::POST,
+            "/rest/api/3/issue/ELY-12/comment" | "/rest/api/3/issue/ELY-99/comment",
+        ) => (
             StatusCode::CREATED,
             axum::Json(json!({
                 "id": "10101",
@@ -264,7 +272,7 @@ async fn fake_jira(
 }
 
 /// Starts the fake on a free local port, and a [`Jira`] pointed at it.
-async fn fake_jira_site() -> (Jira, Log) {
+pub(crate) async fn fake_jira_site() -> (Jira, Log) {
     let log = Log::default();
     let router = Router::new()
         .fallback(fake_jira)
@@ -292,7 +300,7 @@ fn site(token: &SecretString) -> Site<'_> {
 }
 
 /// Everything the fake was sent, for asserting on what left the process.
-fn sent(log: &Log) -> Vec<Received> {
+pub(crate) fn sent(log: &Log) -> Vec<Received> {
     log.lock().expect("lock").clone()
 }
 
@@ -724,6 +732,11 @@ fn only_a_jira_cloud_origin_is_accepted_and_it_is_normalized() {
         "https://acme.atlassian.net/#fragment",
         "acme.atlassian.net",
         "",
+        // A host the site_url column's own constraint would refuse, answered here as a bad
+        // request rather than as a failed insert.
+        "https://-acme.atlassian.net",
+        "https://acme..atlassian.net",
+        "https://acme_test.atlassian.net",
     ] {
         normalize_site_url(refused).expect_err(refused);
     }

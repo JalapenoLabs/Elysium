@@ -19,7 +19,7 @@
 
 pub mod adf;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::time::Duration;
 
@@ -327,8 +327,28 @@ pub fn normalize_site_url(value: &str) -> Result<String, &'static str> {
     let Some(host) = url.host_str() else {
         return Err(ADVICE);
     };
-    if !host.ends_with(CLOUD_HOST_SUFFIX) || host.len() <= CLOUD_HOST_SUFFIX.len() {
+    let Some(site) = host
+        .strip_suffix(CLOUD_HOST_SUFFIX)
+        .filter(|site| !site.is_empty())
+    else {
         return Err("Elysium reaches Jira Cloud only, so a site ends in .atlassian.net");
+    };
+    // What is left is the site's own labels, checked the way the column's own constraint
+    // checks them, so a host Postgres would refuse is answered here instead of at the
+    // insert. `url` has already lowercased the host and punycoded anything that was not
+    // ASCII. A site may carry more than one label, as `acme.jira-dev.atlassian.net` does.
+    let named = site.split('.').all(|label| {
+        let starts_named = label.starts_with(|first: char| first.is_ascii_alphanumeric());
+        starts_named
+            && label
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    });
+    if !named {
+        return Err(
+            "a Jira Cloud site is named in letters, digits, and hyphens, and starts \
+                    with a letter or a digit",
+        );
     }
 
     Ok(format!("https://{host}"))

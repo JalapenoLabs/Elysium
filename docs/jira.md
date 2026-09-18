@@ -28,6 +28,12 @@ A site URL is refused unless it is `https`, its host ends in `.atlassian.net` an
 carries no userinfo, port, query, or fragment, and no path beyond `/`. What is stored is the origin alone, so two
 spellings of one site are one site.
 
+The site's own name is one or more labels of letters, digits, and hyphens, each starting with a letter or a digit:
+`^https://([a-z0-9][a-z0-9-]*\.)+atlassian\.net$`. More than one label is normal, as
+`https://acme.jira-dev.atlassian.net` shows. The settings form, `normalize_site_url`, and the `site_url` column's
+own constraint hold a site to that same shape, so a site one accepts is a site all three accept and no host
+reaches the insert only to be refused there.
+
 Selections are stored with their display names (`jira_credential_projects`, `jira_credential_boards`), so the
 settings page renders a credential without calling Jira. `"*"` is stored as `all_projects` or `all_boards` and
 removes the link rows, the same shape storage locations use for their projects.
@@ -41,18 +47,49 @@ two of them.
 - Where the issue key implies a project, the project is checked **before** the call: `ELY-12` is in project `ELY`.
   A key is split at its last hyphen, and keys are compared case insensitively.
 - The project Jira reports on the answer is checked **after** the call, so an issue moved to another project since
-  it was written cannot slip through a stale key.
+  it was written cannot slip through a stale key. Where the answer names no project of its own, as a list of
+  transitions and a written comment do not, the issue itself is read first and that project is checked before
+  anything is read or written: `GET .../issues/ELY-99/transitions` and `POST .../issues/ELY-99/comments` answer
+  `403` for an issue that has moved to a project outside the list, and the transitions are never asked for and the
+  comment never written.
 - A search is **bounded**, never filtered afterwards: the caller's JQL is rewritten as
   `(<their where clause>) AND project IN ("ABC", "DEF") ORDER BY <their ordering>`, so Jira itself never looks
   outside the allowed projects. An `ORDER BY` in the caller's JQL is hoisted out before the `AND` is added, since
   `(... ORDER BY x) AND ...` is not valid JQL. Quotes in the caller's JQL are tracked, so an `order by` inside a
   quoted string is left alone. With no ordering of their own, a search is ordered `updated DESC`.
+- JQL that cannot be wrapped is refused with `400` before anything is sent, in the same pass that finds the
+  ordering: a quote that is never closed, a parenthesis closed before it is opened, or a parenthesis left open.
+  Counting is not enough, since the order is what matters. `status = Open) OR (project = SECRET` balances by
+  count, yet its first `)` closes the parenthesis Elysium is about to open, which would leave
+  `status = Open OR (project = SECRET AND project IN ("ELY"))`: a first disjunct carrying no bound at all. An
+  `ORDER BY` inside a pair of the caller's own parentheses belongs to that sub-expression and is not hoisted.
 - A credential for every project (`"*"`) adds no `project IN` clause, and an empty JQL means every allowed project
   ordered by `updated DESC`.
 - Anything outside the list answers `403` naming the project and the credential. Nothing is silently dropped.
 
 Boards are allowlisted the same way and are read only today: they are listed for picking, and the roadmap below
 builds on them.
+
+### What the allowlist does and does not promise
+
+It promises the results. No issue outside the list is ever returned, read, or written: a key is checked before the
+call, the project Jira names on the answer is checked after it, a search is bounded inside the query rather than
+filtered afterwards, and anything outside the list answers `403` naming what and whose.
+
+It does not promise what Jira evaluates on the way to that answer. JQL stays free-form on purpose, since the point
+is to hand the operator the whole query language, and a crafted query can name an issue outside the list and have
+Jira evaluate it. `issue in linkedIssues("SECRET-1")` returns nothing from `SECRET`, and whether it matches at all
+still says something about an issue the credential may not touch. Elysium does not restrict functions or
+cross-issue references: the set of them grows with every Jira release, so a list of refused ones would be a
+guarantee Elysium could not keep.
+
+So read the allowlist as a guardrail over a token that can already read everything it reaches, not as a security
+boundary. It is what keeps a token given to Elysium for two of its thirty projects from listing, changing, or
+commenting on the other twenty-eight, by accident or by a careless query. A token whose reach must be smaller than
+that is a token Atlassian should be issuing with a smaller scope in the first place.
+
+The Jira routes are not exposed to coding agents today. A session's agent gets the `elysium_storage` tools and
+nothing else (`api/src/tools/`), so the only caller writing JQL is the user's own browser.
 
 ## No freeform entry
 
@@ -277,7 +314,7 @@ error.
 
 | Status | Cause                                                                                            |
 |--------|--------------------------------------------------------------------------------------------------|
-| `400`  | A malformed request, a site URL that is not a Jira Cloud site, a selection Jira does not report, a token Jira refuses, or a call Jira refused as invalid (bad JQL, an unknown field, a transition that does not apply), carrying Jira's own messages |
+| `400`  | A malformed request, a site URL that is not a Jira Cloud site, a selection Jira does not report, a token Jira refuses, JQL whose quotes or parentheses do not balance, or a call Jira refused as invalid (bad JQL, an unknown field, a transition that does not apply), carrying Jira's own messages |
 | `403`  | A project outside the credential's allowlist, naming the project and the credential                |
 | `404`  | No credential with that id, or an issue the token cannot see; Jira answers `404` for both a missing issue and one the token may not read |
 | `409`  | A credential name that is already taken                                                           |

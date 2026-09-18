@@ -53,7 +53,7 @@ pub async fn handle(
 
     let stored = open(&state, id).await?;
     let jql = query.jql.as_deref().unwrap_or_default();
-    let Some(bounded) = allowlist::bounded_jql(jql, &stored.allowed.projects) else {
+    let Some(bounded) = allowlist::bounded_jql(jql, &stored.allowed.projects)? else {
         event!(
             name: "jira.search.no_projects",
             Level::DEBUG,

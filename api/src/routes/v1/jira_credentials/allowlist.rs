@@ -9,7 +9,9 @@
 //!   to another project since the key was written cannot slip through.
 //! - A search is **bounded** rather than filtered: [`bounded_jql`] rewrites the caller's JQL
 //!   so Jira itself never looks outside the allowed projects. Filtering the answer would
-//!   still have sent the question.
+//!   still have sent the question. Wrapping only holds for JQL that can be wrapped, so the
+//!   caller's query is checked for balanced parentheses and terminated quotes first, and
+//!   refused when it is neither.
 //!
 //! Nothing here calls Jira or touches the database, so every rule below is a plain function
 //! with a test.
@@ -68,8 +70,14 @@ pub fn issue_project<'key>(
 /// The caller's ordering is kept, since `(… ORDER BY x) AND …` is not valid JQL and dropping
 /// it would quietly reorder their results. With no JQL at all, the answer is every allowed
 /// project, newest first.
-pub fn bounded_jql(jql: &str, projects: &Allowlist<AllowedProject>) -> Option<String> {
-    let (conditions, ordering) = split_ordering(jql.trim());
+///
+/// # Errors
+/// Returns [`ApiError::BadRequest`] for JQL that cannot be wrapped: see [`split_ordering`].
+pub fn bounded_jql(
+    jql: &str,
+    projects: &Allowlist<AllowedProject>,
+) -> Result<Option<String>, ApiError> {
+    let (conditions, ordering) = split_ordering(jql.trim())?;
     let ordering = if ordering.is_empty() {
         DEFAULT_ORDERING
     } else {
@@ -80,7 +88,7 @@ pub fn bounded_jql(jql: &str, projects: &Allowlist<AllowedProject>) -> Option<St
         Allowlist::All => conditions.to_owned(),
         Allowlist::Only(allowed) => {
             if allowed.is_empty() {
-                return None;
+                return Ok(None);
             }
             // Keys are quoted because a project key may be a JQL reserved word, and their
             // shape is checked both in the API and by a constraint on the link table, so a
@@ -99,19 +107,31 @@ pub fn bounded_jql(jql: &str, projects: &Allowlist<AllowedProject>) -> Option<St
     };
 
     if bounded.is_empty() {
-        return Some(format!("ORDER BY {ordering}"));
+        return Ok(Some(format!("ORDER BY {ordering}")));
     }
-    Some(format!("{bounded} ORDER BY {ordering}"))
+    Ok(Some(format!("{bounded} ORDER BY {ordering}")))
 }
 
-/// Splits JQL into its conditions and its ordering, at the last `ORDER BY` outside quotes.
+/// Splits JQL into its conditions and its ordering, at the last top level `ORDER BY`.
+///
+/// One pass does the splitting and the checking, because both need the same state.
 ///
 /// Quotes are tracked so an `order by` inside a quoted value, such as
-/// `summary ~ "sort order by date"`, is left where it is.
-fn split_ordering(jql: &str) -> (&str, &str) {
+/// `summary ~ "sort order by date"`, is left where it is, and so is a parenthesis inside
+/// one. Parentheses are counted for two reasons: an `ORDER BY` inside a pair is part of a
+/// sub-expression rather than the query's ordering, and the conditions are about to be
+/// wrapped in a pair of Elysium's own, which only holds while they balance on their own.
+///
+/// # Errors
+/// Returns [`ApiError::BadRequest`] for a quote that is never closed, or a parenthesis that
+/// is closed before it is opened or opened and never closed. `status = Open) OR (project =
+/// SECRET` balances by count, yet its first `)` closes the parenthesis Elysium opened, which
+/// would leave the bound clause governing only the last disjunct.
+fn split_ordering(jql: &str) -> Result<(&str, &str), ApiError> {
     let bytes = jql.as_bytes();
     let mut quote: Option<u8> = None;
     let mut escaped = false;
+    let mut depth: usize = 0;
     let mut ordering_at: Option<(usize, usize)> = None;
 
     let mut index = 0;
@@ -127,7 +147,18 @@ fn split_ordering(jql: &str) -> (&str, &str) {
             }
         } else if byte == b'"' || byte == b'\'' {
             quote = Some(byte);
-        } else if let Some(end) = order_by(bytes, index) {
+        } else if byte == b'(' {
+            depth += 1;
+        } else if byte == b')' {
+            let Some(outside) = depth.checked_sub(1) else {
+                return Err(ApiError::BadRequest(
+                    "the JQL closes a parenthesis it never opened".to_owned(),
+                ));
+            };
+            depth = outside;
+        } else if depth == 0
+            && let Some(end) = order_by(bytes, index)
+        {
             ordering_at = Some((index, end));
             index = end;
             continue;
@@ -135,9 +166,21 @@ fn split_ordering(jql: &str) -> (&str, &str) {
         index += 1;
     }
 
+    if let Some(open) = quote {
+        return Err(ApiError::BadRequest(format!(
+            "the JQL opens a {} quote it never closes",
+            char::from(open)
+        )));
+    }
+    if depth != 0 {
+        return Err(ApiError::BadRequest(
+            "the JQL opens a parenthesis it never closes".to_owned(),
+        ));
+    }
+
     match ordering_at {
-        Some((start, end)) => (jql[..start].trim(), jql[end..].trim()),
-        None => (jql.trim(), ""),
+        Some((start, end)) => Ok((jql[..start].trim(), jql[end..].trim())),
+        None => Ok((jql.trim(), "")),
     }
 }
 
@@ -245,16 +288,23 @@ mod tests {
         }
     }
 
+    /// The JQL Elysium would send for `jql`, for the assertions that expect one.
+    fn bounded(jql: &str, projects: &Allowlist<AllowedProject>) -> String {
+        bounded_jql(jql, projects)
+            .expect("JQL that wraps")
+            .expect("an allowlist that can match")
+    }
+
     #[test]
     fn a_search_is_bounded_to_the_allowed_projects() {
         let projects = allowed(&["ELY", "OPS"]);
 
         assert_eq!(
-            bounded_jql("status = Open", &projects).expect("bounded"),
+            bounded("status = Open", &projects),
             r#"(status = Open) AND project IN ("ELY", "OPS") ORDER BY updated DESC"#
         );
         assert_eq!(
-            bounded_jql("", &projects).expect("bounded"),
+            bounded("", &projects),
             r#"project IN ("ELY", "OPS") ORDER BY updated DESC"#,
             "no JQL means every allowed project, newest first"
         );
@@ -265,16 +315,16 @@ mod tests {
         let projects = allowed(&["ELY"]);
 
         assert_eq!(
-            bounded_jql("status = Open ORDER BY created ASC", &projects).expect("bounded"),
+            bounded("status = Open ORDER BY created ASC", &projects),
             r#"(status = Open) AND project IN ("ELY") ORDER BY created ASC"#
         );
         assert_eq!(
-            bounded_jql("order by priority DESC", &projects).expect("bounded"),
+            bounded("order by priority DESC", &projects),
             r#"project IN ("ELY") ORDER BY priority DESC"#,
             "an ordering on its own still bounds"
         );
         assert_eq!(
-            bounded_jql("status = Open ORDER   BY created", &projects).expect("bounded"),
+            bounded("status = Open ORDER   BY created", &projects),
             r#"(status = Open) AND project IN ("ELY") ORDER BY created"#,
             "any spacing between the two words"
         );
@@ -285,22 +335,21 @@ mod tests {
         let projects = allowed(&["ELY"]);
 
         assert_eq!(
-            bounded_jql(r#"summary ~ "sort order by date""#, &projects).expect("bounded"),
+            bounded(r#"summary ~ "sort order by date""#, &projects),
             r#"(summary ~ "sort order by date") AND project IN ("ELY") ORDER BY updated DESC"#
         );
         assert_eq!(
-            bounded_jql(r#"summary ~ "a \" order by b" ORDER BY created"#, &projects)
-                .expect("bounded"),
+            bounded(r#"summary ~ "a \" order by b" ORDER BY created"#, &projects),
             r#"(summary ~ "a \" order by b") AND project IN ("ELY") ORDER BY created"#,
             "an escaped quote does not end the value"
         );
         assert_eq!(
-            bounded_jql("reorder = 1 AND orderby = 2", &projects).expect("bounded"),
+            bounded("reorder = 1 AND orderby = 2", &projects),
             r#"(reorder = 1 AND orderby = 2) AND project IN ("ELY") ORDER BY updated DESC"#,
             "only the whole keyword, on its own, is an ordering"
         );
         assert_eq!(
-            bounded_jql("status = Open ORDER BY a ORDER BY b", &projects).expect("bounded"),
+            bounded("status = Open ORDER BY a ORDER BY b", &projects),
             r#"(status = Open ORDER BY a) AND project IN ("ELY") ORDER BY b"#,
             "two orderings are not valid JQL to begin with; the split is at the last one and \
              Jira is left to refuse it"
@@ -308,18 +357,77 @@ mod tests {
     }
 
     #[test]
-    fn every_project_adds_no_clause_and_no_projects_matches_nothing() {
-        assert_eq!(
-            bounded_jql("status = Open", &Allowlist::All).expect("bounded"),
-            "status = Open ORDER BY updated DESC"
-        );
-        assert_eq!(
-            bounded_jql("", &Allowlist::All).expect("bounded"),
-            "ORDER BY updated DESC"
-        );
+    fn jql_that_would_break_out_of_the_bound_clause_is_refused() {
+        let projects = allowed(&["ELY"]);
+
+        // The parentheses balance by count, so only their order gives this away: the first
+        // `)` closes the one Elysium is about to open. Wrapped, Jira would read it as
+        // `status = Open OR (project = SECRET AND project IN ("ELY"))`, whose first
+        // disjunct carries no bound at all.
+        let refused = bounded_jql("status = Open) OR (project = SECRET", &projects).unwrap_err();
+        let ApiError::BadRequest(message) = refused else {
+            panic!("JQL Elysium cannot bound is the caller's to fix, so a bad request");
+        };
+        assert!(message.contains("parenthesis"), "{message}");
+
+        for unwrappable in [
+            "(status = Open",
+            "status = Open)",
+            "((status = Open)",
+            r#"summary ~ "never closed"#,
+            "summary ~ 'never closed",
+            r#"summary ~ "escaped \""#,
+        ] {
+            assert!(
+                matches!(
+                    bounded_jql(unwrappable, &projects),
+                    Err(ApiError::BadRequest(_))
+                ),
+                "{unwrappable}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_balanced_query_is_bounded_exactly_as_it_was_written() {
+        let projects = allowed(&["ELY"]);
 
         assert_eq!(
-            bounded_jql("status = Open", &Allowlist::Only(Vec::new())),
+            bounded(
+                "(status = Open OR status = Reopened) AND assignee = currentUser()",
+                &projects
+            ),
+            concat!(
+                r#"((status = Open OR status = Reopened) AND assignee = currentUser()) "#,
+                r#"AND project IN ("ELY") ORDER BY updated DESC"#
+            ),
+            "parentheses of the caller's own are kept, and the whole is wrapped in one pair"
+        );
+        assert_eq!(
+            bounded(r#"summary ~ "a (b" AND text ~ 'it\'s )'"#, &projects),
+            concat!(
+                r#"(summary ~ "a (b" AND text ~ 'it\'s )') "#,
+                r#"AND project IN ("ELY") ORDER BY updated DESC"#
+            ),
+            "a parenthesis or a quote inside a value is text, not structure"
+        );
+        assert_eq!(
+            bounded("(status = Open) ORDER BY created", &projects),
+            r#"((status = Open)) AND project IN ("ELY") ORDER BY created"#,
+            "an ordering after a closed pair is still the query's own"
+        );
+    }
+
+    #[test]
+    fn every_project_adds_no_clause_and_no_projects_matches_nothing() {
+        assert_eq!(
+            bounded("status = Open", &Allowlist::All),
+            "status = Open ORDER BY updated DESC"
+        );
+        assert_eq!(bounded("", &Allowlist::All), "ORDER BY updated DESC");
+
+        assert_eq!(
+            bounded_jql("status = Open", &Allowlist::Only(Vec::new())).expect("JQL that wraps"),
             None,
             "a credential with no projects can match nothing, so nothing is asked of Jira"
         );
