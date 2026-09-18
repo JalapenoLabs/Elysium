@@ -2,7 +2,7 @@
 
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 
 // When the dev server runs behind nginx (compose), the browser reaches the HMR
 // websocket through nginx's published port rather than Vite's own port.
@@ -27,5 +27,11 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  // Unit tests for slices, selectors, helpers, and components. jsdom gives component
+  // tests a DOM, and the setup file loads the translations components read.
+  test: {
+    environment: 'jsdom',
+    setupFiles: [ './src/testSetup.ts' ],
   },
 })
