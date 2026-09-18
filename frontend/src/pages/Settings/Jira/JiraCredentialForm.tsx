@@ -1,6 +1,10 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { JiraCredential } from '../../../api/routes/jiraRoutes'
+import type {
+  JiraBoardSelection,
+  JiraCredential,
+  JiraProjectSelection,
+} from '../../../api/routes/jiraRoutes'
 import type { JiraFormInput, JiraFormValues } from './jiraFormSchema'
 import type { JiraScopeSelection } from './jiraPresentation'
 
@@ -68,6 +72,10 @@ export function JiraCredentialForm(props: Props) {
   })
 
   const [ scope, setScope ] = useState<JiraScopeSelection>(() => toJiraScopeSelection(stored))
+  // A rename must not carry an allowlist: the API re-checks every one it is sent, and a
+  // stored project the token has since lost would refuse the save.
+  const [ isScopeChanged, setIsScopeChanged ] = useState(false)
+  const [ failureMessage, setFailureMessage ] = useState<string | null>(null)
 
   const projects = useSWR(
     [ 'jira-credential-projects', stored.id ],
@@ -79,6 +87,7 @@ export function JiraCredentialForm(props: Props) {
   )
 
   const onSubmit = form.handleSubmit(async (values) => {
+    setFailureMessage(null)
     try {
       const response = await updateJiraCredential(stored.id, {
         name: values.name,
@@ -86,12 +95,7 @@ export function JiraCredentialForm(props: Props) {
         accountEmail: values.accountEmail,
         // A blank token means "keep the stored one", so it is only sent when typed.
         token: values.token || undefined,
-        projects: scope.allProjects
-          ? ALL_JIRA_ITEMS
-          : scope.projectIds,
-        boards: scope.allBoards
-          ? ALL_JIRA_ITEMS
-          : scope.boardIds,
+        ...scopeRequest(),
       })
       dispatch(jiraCredentialUpserted(response.credential))
       toast.success(t('toasts.updated', { name: values.name }))
@@ -103,16 +107,13 @@ export function JiraCredentialForm(props: Props) {
         return
       }
 
-      // A token Jira refuses comes back as a 400 naming what to check, which belongs on
-      // the field the user can fix.
+      // A 400 names what to check, and it can be the token, the site, or a project the
+      // token lost since this page opened, so it sits above the whole form.
       const message = getApiErrorMessage(error)
-      if (error instanceof HTTPError && error.response.status === 400 && message) {
-        form.setError('token', { message })
-        return
+      if (!message) {
+        console.debug('JiraCredentialForm failed to save the credential', { error })
       }
-
-      console.debug('JiraCredentialForm failed to save the credential', { error })
-      toast.danger(t('common:errors.unexpected'), { description: message ?? undefined })
+      setFailureMessage(message ?? t('common:errors.unexpected'))
     }
   })
 
@@ -128,6 +129,36 @@ export function JiraCredentialForm(props: Props) {
   const unreachableNames = findUnreachableNames(stored, reachableProjects, reachableBoards)
   const hasScopeFailed = Boolean(projects.error || boards.error)
   const isLoadingScope = !hasScopeFailed && (!projects.data || !boards.data)
+  // Everything is unreachable before the lists arrive, so the warning waits for them, and
+  // says nothing about the old site once another one is typed.
+  const hasLostAccess = unreachableNames.length > 0
+    && !isLoadingScope
+    && !hasScopeFailed
+    && !isMovingSite
+
+  // The allowlist half of the request. Moving site must bring both, and the old site's
+  // ids name nothing there, so it starts open again; an untouched allowlist is left out
+  // altogether, since the API checks with Jira every one it is sent; and what is sent
+  // holds only what Jira reports today, which is all the API will accept.
+  function scopeRequest(): { projects?: JiraProjectSelection, boards?: JiraBoardSelection } {
+    if (isMovingSite) {
+      return { projects: ALL_JIRA_ITEMS, boards: ALL_JIRA_ITEMS }
+    }
+    if (!isScopeChanged) {
+      return {}
+    }
+
+    const reachableProjectIds = new Set(reachableProjects.map((project) => project.id))
+    const reachableBoardIds = new Set(reachableBoards.map((board) => board.id))
+    return {
+      projects: scope.allProjects
+        ? ALL_JIRA_ITEMS
+        : scope.projectIds.filter((id) => reachableProjectIds.has(id)),
+      boards: scope.allBoards
+        ? ALL_JIRA_ITEMS
+        : scope.boardIds.filter((id) => reachableBoardIds.has(id)),
+    }
+  }
 
   return <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
     <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
@@ -139,7 +170,7 @@ export function JiraCredentialForm(props: Props) {
 
       <p className='text-sm opacity-70'>{t('form.checkedHint')}</p>
 
-      {unreachableNames.length > 0 && <Alert status='warning'>
+      {hasLostAccess && <Alert status='warning'>
         <Alert.Indicator />
         <Alert.Content>
           <Alert.Description>{
@@ -165,9 +196,19 @@ export function JiraCredentialForm(props: Props) {
         projectsTruncated={projects.data?.truncated ?? false}
         boardsTruncated={boards.data?.truncated ?? false}
         value={scope}
-        onChange={setScope}
+        onChange={(next) => {
+          setScope(next)
+          setIsScopeChanged(true)
+        }}
         isDisabled={isMovingSite}
       />}
+
+      {failureMessage && <Alert status='danger'>
+        <Alert.Indicator />
+        <Alert.Content>
+          <Alert.Description>{failureMessage}</Alert.Description>
+        </Alert.Content>
+      </Alert>}
 
       <div className='mt-2 flex justify-end gap-2'>
         <Button variant='tertiary' onPress={props.onCancel}>

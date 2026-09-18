@@ -157,9 +157,13 @@ comes from what Jira said the token reaches.
   first step again; that token lives in page state and reaches nothing else, not Redux, storage, a toast, or a log.
 - `EditJiraCredentialPage` renders `JiraCredentialForm`, which keeps the connection fields and loads today's options
   through SWR under `['jira-credential-projects', id]` and `['jira-credential-boards', id]`. An allowed id missing from
-  those lists is one the token no longer reaches: it is named in a warning above the pickers and carried through every
-  pick rather than quietly dropped. Typing another site URL disables the pickers, since an id from the old site means
-  nothing on the new one.
+  those lists is one the token no longer reaches, named in a warning above the pickers once the lists have arrived.
+  What the form sends follows the API's rule that it re-checks with Jira every allowlist it is given: an allowlist the
+  user never touched is left out of the `PATCH` entirely, so a rename neither calls Jira nor disturbs a project the
+  token has temporarily lost; one they did touch is sent holding only what Jira reports today; and typing another site
+  URL disables the pickers and saves both allowlists open, since an id from the old site names nothing on the new one
+  and the API refuses a move that brings neither. A `400` from the save sits above the whole form, because it can name
+  the token, the site, or a project lost since the page opened.
 - `JiraConnectionFields` is the connection half both forms render. The token field is optional while editing and turns
   required as soon as the site or the account email changes, mirroring the API.
 - `JiraScopeFields` is the allowlist half both forms render: an All projects switch over `JiraScopePicker`, and the

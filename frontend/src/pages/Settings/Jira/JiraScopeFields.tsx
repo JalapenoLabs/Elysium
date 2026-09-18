@@ -24,23 +24,12 @@ type Props = {
   isDisabled: boolean
 }
 
-// Splits picked ids into the ones the token still reaches, which the picker shows as
-// tags, and the ones it no longer does, which are kept so a pick made about something
-// else never quietly drops them. The page above says which those are.
-function splitByReach(pickedIds: string[], options: JiraScopeOption[]) {
+// The picked ids the picker can show as tags. A stored id the token no longer reaches is
+// not among the options, so it has no tag; the page above names those in a warning, and
+// the form decides what becomes of them when it saves.
+function pickedFromOptions(pickedIds: string[], options: JiraScopeOption[]) {
   const offeredIds = new Set(options.map((option) => option.id))
-  const offered: string[] = []
-  const unreachable: string[] = []
-
-  for (const id of pickedIds) {
-    if (offeredIds.has(id)) {
-      offered.push(id)
-      continue
-    }
-    unreachable.push(id)
-  }
-
-  return { offered, unreachable } as const
+  return pickedIds.filter((id) => offeredIds.has(id))
 }
 
 // The allowlist half of a Jira credential, shared by the second step of adding a site and
@@ -68,8 +57,8 @@ export function JiraScopeFields(props: Props) {
     [ props.boardOptions ],
   )
 
-  const pickedProjects = splitByReach(props.value.projectIds, projectOptions)
-  const pickedBoards = splitByReach(props.value.boardIds.map(String), boardOptions)
+  const pickedProjects = pickedFromOptions(props.value.projectIds, projectOptions)
+  const pickedBoards = pickedFromOptions(props.value.boardIds.map(String), boardOptions)
 
   return <div className='flex flex-col gap-4'>
     {/* Projects */}
@@ -92,11 +81,8 @@ export function JiraScopeFields(props: Props) {
         label={t('scope.projects')}
         description={t('scope.projectsHint')}
         options={projectOptions}
-        selectedIds={pickedProjects.offered}
-        onChange={(ids) => props.onChange({
-          ...props.value,
-          projectIds: [ ...pickedProjects.unreachable, ...ids ],
-        })}
+        selectedIds={pickedProjects}
+        onChange={(ids) => props.onChange({ ...props.value, projectIds: ids })}
         isDisabled={props.isDisabled}
       />
       : <p className='text-sm opacity-70'>{t('scope.noProjects')}</p>)}
@@ -125,11 +111,8 @@ export function JiraScopeFields(props: Props) {
         label={t('scope.boards')}
         description={t('scope.boardsHint')}
         options={boardOptions}
-        selectedIds={pickedBoards.offered}
-        onChange={(ids) => props.onChange({
-          ...props.value,
-          boardIds: [ ...pickedBoards.unreachable, ...ids ].map(Number),
-        })}
+        selectedIds={pickedBoards}
+        onChange={(ids) => props.onChange({ ...props.value, boardIds: ids.map(Number) })}
         isDisabled={props.isDisabled}
       />
       : <p className='text-sm opacity-70'>{t('scope.noBoards')}</p>)}

@@ -20,8 +20,9 @@ export function normalizeJiraSiteUrl(siteUrl: string) {
 }
 
 // A stored token belongs to one site and one Atlassian account, as the API enforces:
-// changing either means bringing the token that goes with it. Addresses are compared
-// case-insensitively, since Atlassian does not tell two spellings apart.
+// changing either means bringing the token that goes with it. The site is compared
+// normalized and the address exactly, which is how `update_jira_credential.rs` compares
+// them, so the form asks for a token in exactly the cases the API would refuse without one.
 export function keepsStoredJiraToken(
   stored: JiraCredential | null,
   siteUrl: string,
@@ -32,7 +33,7 @@ export function keepsStoredJiraToken(
   }
 
   return stored.siteUrl === normalizeJiraSiteUrl(siteUrl)
-    && stored.accountEmail.toLowerCase() === accountEmail.trim().toLowerCase()
+    && stored.accountEmail === accountEmail.trim()
 }
 
 // How a form holds an allowlist: a switch for everything, and the ids picked one by one
