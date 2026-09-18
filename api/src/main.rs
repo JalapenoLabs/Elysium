@@ -17,6 +17,7 @@ mod fleet;
 mod git_info;
 mod github;
 mod images;
+mod jira;
 mod mail;
 mod middleware;
 mod models;

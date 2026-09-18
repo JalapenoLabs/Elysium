@@ -72,6 +72,9 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/github`            | `ManageGithubPage`       | GitHub tokens, their account, scopes, and expiry         |
 | `/settings/github/new`        | `AddGithubCredentialPage` | Add a GitHub token                                      |
 | `/settings/github/:credentialId/edit` | `EditGithubCredentialPage` | Edit a GitHub token                            |
+| `/settings/jira`              | `ManageJiraPage`         | Jira Cloud sites, their account, projects, and boards    |
+| `/settings/jira/new`          | `AddJiraCredentialPage`  | Add a Jira site, in two steps                            |
+| `/settings/jira/:credentialId/edit` | `EditJiraCredentialPage` | Edit a Jira site                                   |
 | `/settings/storage`           | `ManageStoragePage`      | Storage locations Elysium saves files to                 |
 | `/settings/storage/new`       | `AddStorageLocationPage` | Add a storage location                                   |
 | `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
@@ -146,6 +149,36 @@ danger chip in place of its date. The default token wears a Default chip, and th
 or stops. `src/components/GithubTokenSelect.tsx` picks a token for a project (`ProjectGithubField` on the project
 page, saved on change, with a notice when its token was deleted) and for a session (`CreateSessionModal`). Both offer
 following the level above, no token, or a token by name. See `docs/github.md`.
+
+Jira under `src/pages/Settings/Jira/` holds any number of Jira Cloud credentials, each one Atlassian account on one
+site with the projects and boards Elysium may read. Nothing about a project or a board is ever typed in: every option
+comes from what Jira said the token reaches.
+
+- `ManageJiraPage` renders `JiraCredentialTable` (name, site, account, projects, boards, last checked) whose row menu
+  edits, tests, or deletes one; delete confirms through `useConfirm`. Testing toasts the account Jira answered with, or
+  a warning naming every allowed project and board the token can no longer reach.
+- Adding a site is two steps in `AddJiraCredentialPage`, which holds the whole flow's state as one discriminated
+  value, so the second step exists only once Jira has answered. `JiraConnectionForm` takes the name, site URL, account
+  email, and API token, and submits to `POST /jira-credentials/discover`, which stores nothing and answers the account
+  plus every project and board the token reaches. `JiraScopeForm` then shows that account and picks from those lists,
+  and its submit is the one call that stores anything. Stepping back carries the typed values, token included, into the
+  first step again; that token lives in page state and reaches nothing else, not Redux, storage, a toast, or a log.
+- `EditJiraCredentialPage` renders `JiraCredentialForm`, which keeps the connection fields and loads today's options
+  through SWR under `['jira-credential-projects', id]` and `['jira-credential-boards', id]`. An allowed id missing from
+  those lists is one the token no longer reaches, named in a warning above the pickers once the lists have arrived.
+  What the form sends follows the API's rule that it re-checks with Jira every allowlist it is given: an allowlist the
+  user never touched is left out of the `PATCH` entirely, so a rename neither calls Jira nor disturbs a project the
+  token has temporarily lost; one they did touch is sent holding only what Jira reports today; and typing another site
+  URL disables the pickers and saves both allowlists open, since an id from the old site names nothing on the new one
+  and the API refuses a move that brings neither. A `400` from the save sits above the whole form, because it can name
+  the token, the site, or a project lost since the page opened.
+- `JiraConnectionFields` is the connection half both forms render. The token field is optional while editing and turns
+  required as soon as the site or the account email changes, mirroring the API.
+- `JiraScopeFields` is the allowlist half both forms render: an All projects switch over `JiraScopePicker`, and the
+  same for boards. A board's id is a number over the API and a key in the picker, and this is the one place the two
+  spellings meet. `jiraPresentation.ts` holds the site URL rule, `keepsStoredJiraToken`, `toJiraScopeSelection`, and
+  the table's scope summary. `JiraSetupChecklist` renders `src/components/SetupChecklist.tsx`, as GitHub's and
+  Storage's do. See `docs/jira.md`.
 
 Environment variables under `src/pages/Settings/Environment/` follow GitHub's shape: a table (key in monospace, value,
 description) whose row menu edits or deletes one, and add and edit as their own pages built from
@@ -366,6 +399,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `projects`       | Projects, sorted by name                                                |
 | `satellites`     | Satellites with their latest status                                     |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
+| `jiraCredentials` | Jira Cloud credentials, sorted by name                                 |
 | `environmentVariables` | Environment variables, sorted by key                              |
 | `storageLocations` | Storage locations, sorted by name                                     |
 | `codingSessions` | Coding sessions with their thread state, newest first                   |
@@ -379,7 +413,8 @@ Server collections use entity adapters. Redux is the source of truth components 
 
 1. **SWR loads it once.** A component that shows server data calls a loader from `src/hooks/useServerData.ts`
    (`useLlmsLoader`, `useMailAccountsLoader`, `useMailServerLoader`, `useMailDomainsLoader`, `useProjectsLoader`,
-   `useSatellitesLoader`, `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useEnvironmentVariablesLoader`, `useCodingSessionsLoader`,
+   `useSatellitesLoader`, `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useJiraCredentialsLoader`,
+   `useEnvironmentVariablesLoader`, `useCodingSessionsLoader`,
    `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,
    `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,
    `useInitiativeLoader`, `useInitiativeHistoryLoader`). SWR
@@ -495,8 +530,8 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
-  `satellites`, `email`, `storage`, `github`, `environment`, `projects`, `coding`, `studio`, `actionItems`,
-  `initiatives`.
+  `satellites`, `email`, `storage`, `github`, `jira`, `environment`, `projects`, `coding`, `studio`,
+  `actionItems`, `initiatives`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.

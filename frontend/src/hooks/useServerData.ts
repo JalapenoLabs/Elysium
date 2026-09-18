@@ -13,6 +13,7 @@ import { useAppDispatch } from '../store/hooks'
 import { environmentVariablesLoaded } from '../store/environmentVariablesSlice'
 import { githubCredentialsLoaded } from '../store/githubCredentialsSlice'
 import { deletedInitiativesLoaded, initiativesLoaded, initiativeUpserted } from '../store/initiativesSlice'
+import { jiraCredentialsLoaded } from '../store/jiraCredentialsSlice'
 import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { mailDomainsLoaded } from '../store/mailDomainsSlice'
@@ -38,6 +39,7 @@ import {
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
 import { listGithubCredentials } from '../api/routes/githubRoutes'
+import { listJiraCredentials } from '../api/routes/jiraRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
@@ -87,6 +89,16 @@ export function useGithubCredentialsLoader(): LoadStatus {
   const { data, error } = useSWR('v1/github-credentials', async () => {
     const response = await listGithubCredentials()
     dispatch(githubCredentialsLoaded(response.credentials))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useJiraCredentialsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/jira-credentials', async () => {
+    const response = await listJiraCredentials()
+    dispatch(jiraCredentialsLoaded(response.credentials))
     return response
   })
   return toLoadStatus(data !== undefined, error)

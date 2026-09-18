@@ -48,8 +48,8 @@ Guarantees:
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
 redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, storage location, GitHub
-credential, environment variable, coding session, action item, initiative, comment, and history query, and every
-`elysium_work` tool against its project scope. Plain `cargo test` skips them because they need
+credential, Jira credential, environment variable, coding session, action item, initiative, comment, and history
+query, and every `elysium_work` tool against its project scope. Plain `cargo test` skips them because they need
 `TEST_DATABASE_URL`.
 
 ## Conventions
@@ -179,6 +179,52 @@ The GitHub tokens Elysium holds; see `docs/github.md`.
 | `updated_at`       | `TIMESTAMPTZ`        | Maintained by trigger                                       |
 
 Every column from `login` on is what GitHub answered, so a row is only written after GitHub accepts the token.
+
+### `jira_credentials`
+
+The Jira Cloud credentials Elysium holds; see `docs/jira.md`.
+
+| Column            | Type          | Notes                                                                 |
+|-------------------|---------------|-----------------------------------------------------------------------|
+| `id`              | `UUID`        | UUIDv7, primary key                                                   |
+| `name`            | `TEXT`        | 1 to 120 characters, unique                                           |
+| `site_url`        | `TEXT`        | The site's origin; https on `.atlassian.net`, with no port or path    |
+| `account_email`   | `TEXT`        | The Atlassian account, the username half of basic auth; up to 320     |
+| `token_encrypted` | `BYTEA`       | Sealed API token, see `docs/secrets.md`                               |
+| `account_id`      | `TEXT`        | The account Jira reports for the token                                |
+| `display_name`    | `TEXT`        | That account's name, up to 255 characters, defaults to empty          |
+| `all_projects`    | `BOOLEAN`     | Every project, including ones added later; defaults to false          |
+| `all_boards`      | `BOOLEAN`     | Every board, the same way                                             |
+| `checked_at`      | `TIMESTAMPTZ` | When Jira last confirmed the token                                    |
+| `created_at`      | `TIMESTAMPTZ` | Set on insert                                                         |
+| `updated_at`      | `TIMESTAMPTZ` | Maintained by trigger                                                 |
+
+`account_id` and `display_name` are what Jira answered, so a row is only written after Jira accepts the token.
+
+### `jira_credential_projects`
+
+The projects a credential may touch without `all_projects`. The primary key is `(jira_credential_id, project_id)`,
+and `(jira_credential_id, project_key)` is unique as well, since the key is what a bounded search names in JQL.
+
+| Column               | Type          | Notes                                                             |
+|----------------------|---------------|-------------------------------------------------------------------|
+| `jira_credential_id` | `UUID`        | References `jira_credentials`; deleted with the credential        |
+| `project_id`         | `TEXT`        | Jira's own project id, digits only                                |
+| `project_key`        | `TEXT`        | 2 to 255 characters: a letter, then uppercase letters, digits, `_` |
+| `name`               | `TEXT`        | The project's name, so a selection renders without calling Jira   |
+| `created_at`         | `TIMESTAMPTZ` | Set on insert                                                     |
+
+### `jira_credential_boards`
+
+The boards a credential may touch without `all_boards`. The primary key is `(jira_credential_id, board_id)`.
+
+| Column               | Type          | Notes                                                        |
+|----------------------|---------------|--------------------------------------------------------------|
+| `jira_credential_id` | `UUID`        | References `jira_credentials`; deleted with the credential   |
+| `board_id`           | `BIGINT`      | Jira's own board id, greater than zero                       |
+| `name`               | `TEXT`        | The board's name                                             |
+| `project_key`        | `TEXT`        | The board's project when it has exactly one; NULL otherwise  |
+| `created_at`         | `TIMESTAMPTZ` | Set on insert                                                |
 
 ### `environment_variables`
 

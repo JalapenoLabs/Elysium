@@ -73,6 +73,22 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/github-credentials/{id}/test` | `200` `{ result }` from asking GitHub now          |
 | POST   | `/api/v1/github-credentials/{id}/repository-access` | `200` `{ result }` for one repository |
 | GET    | `/api/v1/github-credentials/{id}/repositories` | `200` `{ repositories, truncated }` the token can see |
+| GET    | `/api/v1/jira-credentials`            | `200` `{ credentials: JiraCredential[] }`, by name  |
+| POST   | `/api/v1/jira-credentials`            | `201` `{ credential }`; checked with Jira first     |
+| POST   | `/api/v1/jira-credentials/discover`   | `200` what a token can reach; stores nothing        |
+| GET    | `/api/v1/jira-credentials/{id}`       | `200` `{ credential }`                              |
+| PATCH  | `/api/v1/jira-credentials/{id}`       | `200` `{ credential }`                              |
+| DELETE | `/api/v1/jira-credentials/{id}`       | `204`; the token itself stays valid on Atlassian    |
+| POST   | `/api/v1/jira-credentials/{id}/test`  | `200` `{ credential, result }` from asking Jira now |
+| GET    | `/api/v1/jira-credentials/{id}/projects` | `200` `{ projects, truncated }` it can reach now |
+| GET    | `/api/v1/jira-credentials/{id}/boards`   | `200` `{ boards, truncated }` it can reach now   |
+| GET    | `/api/v1/jira-credentials/{id}/issues`   | `200` `{ issues, nextPageToken, isLast }`        |
+| POST   | `/api/v1/jira-credentials/{id}/issues`   | `201` `{ issue }`                                |
+| GET    | `/api/v1/jira-credentials/{id}/issues/{key}` | `200` `{ issue }`, with text and comments    |
+| PATCH  | `/api/v1/jira-credentials/{id}/issues/{key}` | `200` `{ issue }`                            |
+| GET    | `/api/v1/jira-credentials/{id}/issues/{key}/transitions` | `200` `{ transitions }`          |
+| POST   | `/api/v1/jira-credentials/{id}/issues/{key}/transitions` | `200` `{ issue }` after the move |
+| POST   | `/api/v1/jira-credentials/{id}/issues/{key}/comments`    | `201` `{ comment }`              |
 | GET    | `/api/v1/projects`                    | `200` `{ projects: Project[] }`, by name            |
 | POST   | `/api/v1/projects`                    | `201` `{ project }`                                 |
 | PATCH  | `/api/v1/projects/{id}`               | `200` `{ project }`                                 |
@@ -221,6 +237,21 @@ transaction, and both credentials go out on the event stream; `false` leaves no 
 `{ repositories, truncated }`, each repository `{ fullName, owner, name, private, archived, defaultBranch, cloneUrl,
 pushedAt, canPush }`, most recently pushed first, up to 1,000. See `docs/github.md`.
 
+### `/api/v1/jira-credentials`
+
+A `JiraCredential` has `id`, `name`, `siteUrl`, `accountEmail`, `accountId`, `displayName`, `projects`, `boards`,
+`checkedAt`, `createdAt`, and `updatedAt`. `projects` is `"*"` or an array of `{ id, key, name }`, and `boards` is
+`"*"` or an array of `{ id, name, projectKey }`. The token is never returned.
+
+Adding one is two steps: `POST /discover` with `{ siteUrl, accountEmail, token }` answers the account, projects,
+and boards that token can reach without storing anything, and `POST /` then creates the credential with the picks
+made from it. Every write checks the token with Jira and matches the picks against what Jira reports; a pick it
+does not report answers `400` naming it.
+
+Issue routes are bounded by the credential's projects: a search's JQL is rewritten rather than its results
+filtered, and a project outside the list answers `403` naming the project and the credential. Paging is by
+`nextPageToken`, not an offset. Every shape, rule, and page cap is in `docs/jira.md`.
+
 ### `/api/v1/environment-variables`
 
 An `EnvironmentVariable` has `id`, `key`, `isSecret`, `description`, `value`, `createdAt`, and `updatedAt`. `value` is
@@ -305,7 +336,8 @@ Every error is JSON with a `message`.
 
 | Status | Cause                                                                                 |
 |--------|---------------------------------------------------------------------------------------|
-| `400`  | Malformed JSON or query, unknown field, unknown enum value, malformed id in the path, blank or oversized token, refused environment variable key |
+| `400`  | Malformed JSON or query, unknown field, unknown enum value, malformed id in the path, blank or oversized token, refused environment variable key, a call an upstream reads as malformed such as invalid JQL |
+| `403`  | The credential the request was made with may not touch what it named; see `docs/jira.md` |
 | `404`  | No row with that id                                                                   |
 | `409`  | Unique constraint, such as a duplicate LLM name, a project that still has sessions, or a change the record's state refuses |
 | `422`  | Field validation failed; `fields` lists each failure                                  |
@@ -373,6 +405,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/state.rs`           | `AppState`: pool, Redis, cipher, version, bus, fleet, mail, storage, shutdown token |
 | `src/realtime.rs`        | Event bus and the `ServerEvent` envelope          |
 | `src/fleet/`             | Satellite clients and watchers; JSON views of Arsox types |
+| `src/jira/`              | Jira Cloud's REST API and Atlassian Document Format |
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
