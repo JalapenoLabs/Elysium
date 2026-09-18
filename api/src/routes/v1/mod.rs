@@ -2,10 +2,12 @@
 
 //! Version 1 resource routes, mounted at `/api/v1`.
 
+pub mod action_items;
 pub mod coding_sessions;
 pub mod environment_variables;
 mod events;
 pub mod github_credentials;
+pub mod initiatives;
 pub mod llms;
 pub mod mail;
 pub mod projects;
@@ -20,8 +22,10 @@ use crate::state::AppState;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/events", get(events::handle))
+        .nest("/action-items", action_items::router())
         .nest("/environment-variables", environment_variables::router())
         .nest("/github-credentials", github_credentials::router())
+        .nest("/initiatives", initiatives::router())
         .nest("/llms", llms::router())
         .nest("/mail", mail::router())
         .nest("/projects", projects::router())

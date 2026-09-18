@@ -15,6 +15,13 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 |----------------------|--------------------------|------------------------------------------------------------|
 | `hello`              | none                     | First message on every connection                          |
 | `resync`             | none                     | This client fell behind and missed events                  |
+| `actionItem.upserted` | `ActionItem`            | An item was created, changed, restored, or joined or left a project or initiative |
+| `actionItem.deleted` | `{ id }`                 | An item was deleted (softly; it may be restored)           |
+| `actionItemComment.upserted` | `Comment`        | A comment was written or edited                            |
+| `actionItemComment.deleted`  | `{ id, actionItemId }` | A comment was deleted                                |
+| `initiative.upserted` | `Initiative`            | An initiative was created, changed, or restored, or its progress moved |
+| `initiative.deleted` | `{ id }`                 | An initiative was deleted (softly; it may be restored)     |
+| `history.appended`   | `HistoryEntry`           | A write recorded an entry in an item's or initiative's history |
 | `llm.upserted`       | `Llm`                    | An LLM credential was created or changed                   |
 | `llm.deleted`        | `{ id }`                 | An LLM credential was deleted                              |
 | `mailbox.upserted`   | `MailAccount`            | A mailbox was connected, changed, or checked               |
@@ -39,6 +46,11 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `session.resync`     | `{ id }`                 | Live events for that session may have been missed          |
 
 Payload shapes are the same JSON the REST routes return; see `docs/api.md` and `docs/coding.md`.
+
+A write to an item also sends `initiative.upserted` for every initiative it is in, and for one it just left, since
+their progress may have moved. Deleting or restoring an initiative sends `actionItem.upserted` for each of its items,
+whose `initiativeIds` leave deleted initiatives out. A write that changed nothing sends nothing. The frontend handles
+the action item events once its pages land; until then the stream's lookup table ignores types it does not know.
 
 The stream sends a comment every 15 seconds so proxies never see it idle. nginx serves `/api/v1/events` from its
 own location with buffering off and a one-hour read timeout.

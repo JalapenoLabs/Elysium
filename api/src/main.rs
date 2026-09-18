@@ -5,6 +5,7 @@
 //! One binary, three jobs: serve HTTP (the default), manage database migrations,
 //! and generate encryption keys. See `elysium-api --help`.
 
+mod action_items;
 mod cli;
 mod config;
 mod connections;

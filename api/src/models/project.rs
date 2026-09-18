@@ -190,6 +190,34 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<P
         .await
 }
 
+/// Share-locks a project's row until the transaction ends, for a write that links
+/// something to it: deleting the project waits for that write.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] when no row has that id.
+pub async fn lock_shared(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Uuid> {
+    projects::table
+        .find(id)
+        .for_share()
+        .select(projects::id)
+        .first(connection)
+        .await
+}
+
+/// Locks a project's row for its deletion until the transaction ends, so nothing links to
+/// it in the meantime.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] when no row has that id.
+pub async fn lock_for_delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Uuid> {
+    projects::table
+        .find(id)
+        .for_update()
+        .select(projects::id)
+        .first(connection)
+        .await
+}
+
 /// Inserts a project with a new `UUIDv7` id.
 ///
 /// # Errors

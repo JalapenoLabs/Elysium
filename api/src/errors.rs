@@ -6,7 +6,7 @@
 //! answered with a generic message so internals never leak into a response.
 
 use axum::Json;
-use axum::extract::rejection::{JsonRejection, PathRejection};
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
@@ -49,6 +49,12 @@ impl From<PathRejection> for ApiError {
     }
 }
 
+impl From<QueryRejection> for ApiError {
+    fn from(rejection: QueryRejection) -> Self {
+        Self::BadRequest(rejection.body_text())
+    }
+}
+
 impl From<DieselError> for ApiError {
     fn from(error: DieselError) -> Self {
         match error {
@@ -57,6 +63,18 @@ impl From<DieselError> for ApiError {
                 Self::Conflict("a record with the same unique value already exists")
             }
             other => Self::Internal(other.into()),
+        }
+    }
+}
+
+impl From<crate::action_items::WorkError> for ApiError {
+    fn from(error: crate::action_items::WorkError) -> Self {
+        use crate::action_items::WorkError;
+
+        match error {
+            WorkError::Database(database) => database.into(),
+            WorkError::Conflict(message) => Self::Conflict(message),
+            WorkError::Invalid(message) => Self::BadRequest(message.to_owned()),
         }
     }
 }
