@@ -6,8 +6,9 @@ action items toward a goal that ends, and carry the progress bar. Projects are l
 
 The core is built: items, initiatives, their projects and memberships, comments, history, Next, and progress, served
 under `/api/v1/action-items` and `/api/v1/initiatives` (`docs/api.md`) and kept current on the event stream
-(`docs/realtime.md`). Links, the watcher, changesets, the `elysium_work` tools, and the frontend are still a design;
-the sections about them are the plan, and each stops being one as it lands.
+(`docs/realtime.md`). So is the frontend for them: Next, inbox triage, the item list and pages, initiatives with their
+burnup, and the project page's items and initiatives (`docs/frontend.md`). Links, the watcher, changesets, and the
+`elysium_work` tools are still a design; the sections about them are the plan, and each stops being one as it lands.
 
 The design goal is that work arrives from anywhere, is triaged and managed in one place, and every change made here
 reaches the system it came from. The user approves; Elysium and Elysia, Elysium's AI assistant, do the bookkeeping.
@@ -140,6 +141,11 @@ order is fixed in code, not configured:
 The id breaks any remaining tie. The order is `api/src/action_items/next.rs`, and `GET /api/v1/action-items/next`
 answers the items in it together with how many wait in the inbox. When the inbox is not empty, Next leads with a card
 to triage it.
+
+The frontend computes Next from the items it holds rather than asking for it, with the same rules and order
+(`frontend/src/store/nextOrder.ts`), so acting on an item moves to the next one at once and a snooze that runs out
+brings its item back without an event. Each quick action has a key, and skipping sets an item aside for the visit
+without changing it.
 
 ## Initiatives
 

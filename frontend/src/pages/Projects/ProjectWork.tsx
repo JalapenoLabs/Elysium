@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ItemColumnKey } from '../ActionItems/ActionItemTable'
+
 // Core
 import { useTranslation } from 'react-i18next'
 
@@ -24,6 +26,9 @@ import { writeActionItemFilters } from '../ActionItems/actionItemFilters'
 type Props = {
   projectId: string
 }
+
+// Every item here is in this project.
+const OMITTED_COLUMNS: readonly ItemColumnKey[] = [ 'projects' ]
 
 // A project's work on its page: the items still owed (in the inbox or open) and the
 // initiatives it holds, each with a way to add one here and a link to the full list.
@@ -55,7 +60,7 @@ export function ProjectWork(props: Props) {
           }</Link>
           <Link
             href={getNewActionItemUrl({ projectId: props.projectId })}
-            className={buttonVariants({ size: 'sm', variant: 'outline' })}
+            className={buttonVariants({ size: 'sm', variant: 'outline', className: 'gap-2' })}
           >
             <LuPlus className='size-4' aria-hidden />
             <span>{t('work.newItem')}</span>
@@ -73,6 +78,7 @@ export function ProjectWork(props: Props) {
         now={now}
         label={t('work.itemsHeading')}
         storageId='elysium.projects.items.table.v1'
+        omittedColumns={OMITTED_COLUMNS}
       />}
     </section>
 
@@ -81,7 +87,7 @@ export function ProjectWork(props: Props) {
         <h2 className='text-xl font-semibold'>{t('work.initiativesHeading')}</h2>
         <Link
           href={getNewInitiativeUrl(props.projectId)}
-          className={buttonVariants({ size: 'sm', variant: 'outline' })}
+          className={buttonVariants({ size: 'sm', variant: 'outline', className: 'gap-2' })}
         >
           <LuPlus className='size-4' aria-hidden />
           <span>{t('work.newInitiative')}</span>

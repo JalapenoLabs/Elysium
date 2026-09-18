@@ -65,7 +65,7 @@ export function InitiativesPage() {
         value={stateFilter}
         onChange={setStateFilter}
       />
-      <Switch className='mb-2' isSelected={isShowingDeleted} onChange={setIsShowingDeleted}>
+      <Switch className='h-10 flex-row items-center gap-2' isSelected={isShowingDeleted} onChange={setIsShowingDeleted}>
         <Switch.Control>
           <Switch.Thumb />
         </Switch.Control>

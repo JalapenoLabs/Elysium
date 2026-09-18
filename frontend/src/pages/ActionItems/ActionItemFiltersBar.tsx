@@ -132,7 +132,7 @@ export function ActionItemFiltersBar(props: Props) {
     />
 
     <Switch
-      className='mb-2'
+      className='h-10 flex-row items-center gap-2'
       isSelected={filters.deleted}
       onChange={(isSelected) => props.onChange({ ...filters, deleted: isSelected })}
     >

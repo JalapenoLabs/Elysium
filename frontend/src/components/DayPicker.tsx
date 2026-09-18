@@ -22,6 +22,7 @@ type Props = {
 // a due date lasts until the day ends, a snooze wakes that morning.
 export function DayPicker(props: Props) {
   return <DatePicker
+    className='w-full'
     granularity='day'
     value={props.value}
     minValue={props.minValue}

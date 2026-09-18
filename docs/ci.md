@@ -48,6 +48,7 @@ Job names are the check names. Require exactly these in the `main` ruleset:
 | `Broker image`       | `oauth-broker.yml`       | `oauth-broker/Dockerfile` builds and the broker answers `/healthz` |
 | `Frontend typecheck` | `frontend.yml`           | `yarn typecheck`                                                |
 | `Frontend lint`      | `frontend.yml`           | `yarn lint`, the `@jalapenolabs/cli/eslint` ruleset, no warnings |
+| `Frontend test`      | `frontend.yml`           | `yarn test`, the Vitest suite                                   |
 | `Frontend build`     | `frontend.yml`           | `yarn build`, the production bundle                             |
 | `Frontend image`     | `frontend.yml`           | `frontend/Dockerfile` builds and the dev server answers         |
 | `Compose config`     | `compose.yml`            | both compose files parse and interpolate                        |
@@ -128,7 +129,7 @@ it with a sealing key generated for the run and placeholder Google credentials, 
 
 Each job installs the pinned Node and Yarn and runs `yarn install --immutable`, which fails on a lockfile the install
 would have changed. The org packages install from public GitHub repositories, so no token is needed. Typecheck, lint,
-and build then run as separate jobs.
+tests, and build then run as separate jobs.
 
 `Frontend image` builds `frontend/Dockerfile`, the Vite dev server compose runs, boots it, and waits for it to serve
 `/`.

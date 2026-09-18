@@ -2,6 +2,7 @@
 
 import type { ActionItem } from '../../api/routes/actionItemRoutes'
 import type { Initiative } from '../../api/routes/initiativeRoutes'
+import type { ItemColumnKey } from '../ActionItems/ActionItemTable'
 
 // Core
 import { useCallback } from 'react'
@@ -28,6 +29,9 @@ type Props = {
   initiative: Initiative
 }
 
+// Every member is in this initiative, and the page shows when each changed in its history.
+const OMITTED_COLUMNS: readonly ItemColumnKey[] = [ 'initiatives', 'updated' ]
+
 // The items an initiative tracks, whatever their state, with ways to add an existing item,
 // start a new one in the initiative, or take one out.
 export function InitiativeMembers(props: Props) {
@@ -51,7 +55,7 @@ export function InitiativeMembers(props: Props) {
       <AddItemToInitiative initiative={props.initiative} />
       <Link
         href={getNewActionItemUrl({ initiativeId })}
-        className={buttonVariants({ size: 'md', variant: 'outline' })}
+        className={buttonVariants({ size: 'md', variant: 'outline', className: 'gap-2' })}
       >
         <LuPlus className='size-4' aria-hidden />
         <span>{t('members.new')}</span>
@@ -71,6 +75,7 @@ export function InitiativeMembers(props: Props) {
       now={now}
       label={t('members.heading')}
       storageId='elysium.initiatives.members.table.v1'
+      omittedColumns={OMITTED_COLUMNS}
       renderRowActions={isDeleted
         ? undefined
         : renderLeaveButton}

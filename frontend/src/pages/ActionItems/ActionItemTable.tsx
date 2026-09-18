@@ -42,6 +42,9 @@ type Props = {
   isSearchable?: boolean
   // A trailing column of actions per row, such as restoring a deleted item.
   renderRowActions?: (item: ActionItem) => ReactNode
+  // Columns that would only repeat the page's own subject, such as Initiatives on an
+  // initiative's page. Pass a constant, so the columns are not rebuilt on every render.
+  omittedColumns?: readonly ItemColumnKey[]
 }
 
 const ITEM_COLUMN_KEYS = [
@@ -54,7 +57,7 @@ const ITEM_COLUMN_KEYS = [
   'updated',
   'rowActions',
 ] as const
-type ItemColumnKey = typeof ITEM_COLUMN_KEYS[number]
+export type ItemColumnKey = typeof ITEM_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
   title: 'table.title',
@@ -91,6 +94,7 @@ export function ActionItemTable(props: Props) {
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
   const initiativeNames = useAppSelector(selectInitiativeNamesById, shallowEqual)
   const renderRowActions = props.renderRowActions
+  const omittedColumns = props.omittedColumns
 
   // The overdue items as one string, so the columns rebuild (which resets the table's
   // state) only when an item turns overdue, not on every tick of the clock.
@@ -178,9 +182,12 @@ export function ActionItemTable(props: Props) {
     } satisfies Record<ItemColumnKey, ((item: ActionItem) => string | number) | null>
 
     // The actions column appears only where there are actions to show.
-    const columnKeys = renderRowActions
-      ? ITEM_COLUMN_KEYS
-      : ITEM_COLUMN_KEYS.filter((columnKey) => columnKey !== 'rowActions')
+    const columnKeys = ITEM_COLUMN_KEYS.filter((columnKey) => {
+      if (columnKey === 'rowActions') {
+        return Boolean(renderRowActions)
+      }
+      return !omittedColumns?.includes(columnKey)
+    })
 
     return createManagedColumns<ActionItem, ItemColumnKey>({
       columnKeys,
@@ -209,7 +216,7 @@ export function ActionItemTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, projectNames, initiativeNames, renderRowActions, overdueIds ])
+  }, [ t, i18n.language, projectNames, initiativeNames, renderRowActions, omittedColumns, overdueIds ])
 
   return <SmartTable
     ids={{
