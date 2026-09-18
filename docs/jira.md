@@ -283,7 +283,10 @@ empty, since a listing has no use for them and they are the largest part of an i
 makes the check after a call meaningful.
 
 `POST /{id}/issues` takes `{ projectKey, issueType, summary, description?, labels?, priority?, assigneeAccountId?,
-parentKey? }` and answers the created issue, read back from Jira. `PATCH /{id}/issues/{key}` takes any subset of
+parentKey? }` and answers the created issue, read back from Jira. `projectKey` names a project, so it is checked as
+one; `parentKey` names an issue, so it is resolved the way every other issue key is, before anything is created.
+Jira puts a child in its parent's project, so a parent that has moved outside the list would carry the new issue
+with it, and answers `403` instead. `PATCH /{id}/issues/{key}` takes any subset of
 `{ summary, description, labels, priority, assigneeAccountId }` and answers the issue as it is afterwards;
 `assigneeAccountId: null` unassigns it, and an empty body is refused.
 
@@ -361,6 +364,12 @@ handler deadline:
 
 Fifty is the most Jira sends per page for both. Past the cap the answer carries `truncated: true`, which the
 picker shows; there is no way to widen a selection past it today, which is the roadmap item below.
+
+A cut short listing also changes what an edit may do. A stored selection missing from it is either one the token
+lost or one the listing never reached, and the two cannot be told apart, so the settings page reports neither and
+leaves the allowlist alone: the pickers are disabled, the form says which selections are missing, and a save
+carries no `projects` or `boards` at all. Sending them would drop the missing ones, and the API could not keep
+them either, since its own listing stops at the same cap. A name, a site, an address, or a token still saves.
 
 ## Realtime
 

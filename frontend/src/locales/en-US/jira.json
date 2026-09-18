@@ -89,7 +89,9 @@
     "loadError": "What this token reaches could not be loaded.",
     "siteChanged": "Saving reads every project and board on the new site. Come back here to narrow it.",
     "unreachable_one": "{{count}} allowed item is no longer reachable with this token: {{names}}. It stays until you change what is read.",
-    "unreachable_other": "{{count}} allowed items are no longer reachable with this token: {{names}}. They stay until you change what is read."
+    "unreachable_other": "{{count}} allowed items are no longer reachable with this token: {{names}}. They stay until you change what is read.",
+    "beyondListing_one": "{{count}} allowed item is missing from the list above, which Jira cut short: {{names}}. What this site may touch is left as it is here, since saving could drop it.",
+    "beyondListing_other": "{{count}} allowed items are missing from the list above, which Jira cut short: {{names}}. What this site may touch is left as it is here, since saving could drop them."
   },
   "delete": {
     "title": "Delete {{name}}?",

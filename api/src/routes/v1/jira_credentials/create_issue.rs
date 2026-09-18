@@ -15,9 +15,9 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::{TEXT_MAX_CHARACTERS, allowed_issue, allowlist, open};
+use super::{OpenCredential, TEXT_MAX_CHARACTERS, allowed_issue, allowlist, open};
 use crate::errors::ApiError;
-use crate::jira::NewIssue;
+use crate::jira::{Issue, Jira, NewIssue};
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize, Validate)]
@@ -49,13 +49,6 @@ pub async fn handle(
     body.validate()?;
 
     let stored = open(&state, id).await?;
-    let projects = &stored.allowed.projects;
-    let name = &stored.credential.name;
-    allowlist::ensure_allowed(projects, name, &body.project_key)?;
-    if let Some(parent_key) = &body.parent_key {
-        allowlist::issue_project(projects, name, parent_key)?;
-    }
-
     let new_issue = NewIssue {
         project_key: body.project_key,
         issue_type: body.issue_type,
@@ -66,18 +59,44 @@ pub async fn handle(
         assignee_account_id: body.assignee_account_id,
         parent_key: body.parent_key,
     };
-    let key = state.jira.create_issue(&stored.site(), &new_issue).await?;
-
-    // Read back for the answer, which also proves Jira put the issue where it was asked to:
-    // a parent in another project is what would move it.
-    let issue = allowed_issue(&state.jira, &stored, &key).await?;
+    let issue = create(&state.jira, &stored, &new_issue).await?;
 
     Ok((StatusCode::CREATED, Json(json!({ "issue": issue }))))
 }
 
+/// Creates an issue, refused unless the credential may touch what the request names.
+///
+/// The project is named rather than an issue, so it is checked as a project. The parent is
+/// an issue, so its key is not enough: an issue keeps its key when it moves project, and
+/// Jira puts a child in its parent's project. It is resolved through [`allowed_issue`]
+/// before the create, since a subtask landing in another project cannot be unmade.
+async fn create(
+    jira: &Jira,
+    stored: &OpenCredential,
+    new_issue: &NewIssue,
+) -> Result<Issue, ApiError> {
+    allowlist::ensure_allowed(
+        &stored.allowed.projects,
+        &stored.credential.name,
+        &new_issue.project_key,
+    )?;
+    if let Some(parent_key) = &new_issue.parent_key {
+        allowed_issue(jira, stored, parent_key).await?;
+    }
+
+    let key = jira.create_issue(&stored.site(), new_issue).await?;
+
+    // Read back for the answer, which also proves Jira put the issue where it was asked to.
+    allowed_issue(jira, stored, &key).await
+}
+
 #[cfg(test)]
 mod tests {
+    use reqwest::Method;
+
     use super::*;
+    use crate::jira::tests::{fake_jira_site, sent};
+    use crate::routes::v1::jira_credentials::tests::opened_for_test;
 
     #[test]
     fn an_issue_parses_with_its_optional_fields() {
@@ -114,6 +133,34 @@ mod tests {
                 .expect_err("an oversized summary")
                 .field_errors()
                 .contains_key("summary")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_parent_that_moved_out_of_the_allowlist_creates_nothing() {
+        let (jira, log) = fake_jira_site().await;
+        let stored = opened_for_test(&["ELY"]);
+        let new_issue = NewIssue {
+            project_key: "ELY".to_owned(),
+            issue_type: "Task".to_owned(),
+            summary: "Under a parent that moved".to_owned(),
+            // ELY-99 answers with project SECRET: a parent whose key still says ELY while
+            // Jira has it in a project this credential was never given.
+            parent_key: Some("ELY-99".to_owned()),
+            ..NewIssue::default()
+        };
+
+        let refused = create(&jira, &stored, &new_issue).await.unwrap_err();
+
+        let ApiError::Forbidden(message) = refused else {
+            panic!("a parent outside the allowlist is forbidden, not something else");
+        };
+        assert!(message.contains("SECRET"), "{message}");
+        assert!(
+            sent(&log)
+                .iter()
+                .all(|request| request.method == Method::GET),
+            "a child of an issue outside the allowlist is never created"
         );
     }
 }

@@ -126,15 +126,21 @@ export function JiraCredentialForm(props: Props) {
   const isMovingSite = normalizeJiraSiteUrl(values.siteUrl ?? '') !== stored.siteUrl
   const reachableProjects = projects.data?.projects ?? []
   const reachableBoards = boards.data?.boards ?? []
-  const unreachableNames = findUnreachableNames(stored, reachableProjects, reachableBoards)
+  const missingNames = findUnreachableNames(stored, reachableProjects, reachableBoards)
   const hasScopeFailed = Boolean(projects.error || boards.error)
   const isLoadingScope = !hasScopeFailed && (!projects.data || !boards.data)
-  // Everything is unreachable before the lists arrive, so the warning waits for them, and
-  // says nothing about the old site once another one is typed.
-  const hasLostAccess = unreachableNames.length > 0
+  // Everything is missing before the lists arrive, so the warnings wait for them, and say
+  // nothing about the old site once another one is typed.
+  const hasMissingSelection = missingNames.length > 0
     && !isLoadingScope
     && !hasScopeFailed
     && !isMovingSite
+  // Jira had more than one listing reads, so a stored selection missing from it may be one
+  // the listing never reached rather than one the token lost. The two cannot be told apart
+  // here, so the allowlist is neither narrowed nor reported as lost.
+  const isListingCutShort = (projects.data?.truncated ?? false) || (boards.data?.truncated ?? false)
+  const hasLostAccess = hasMissingSelection && !isListingCutShort
+  const isScopeLocked = hasMissingSelection && isListingCutShort
 
   // The allowlist half of the request. Moving site must bring both, and the old site's
   // ids name nothing there, so it starts open again; an untouched allowlist is left out
@@ -143,6 +149,16 @@ export function JiraCredentialForm(props: Props) {
   function scopeRequest(): { projects?: JiraProjectSelection, boards?: JiraBoardSelection } {
     if (isMovingSite) {
       return { projects: ALL_JIRA_ITEMS, boards: ALL_JIRA_ITEMS }
+    }
+    // A selection past the end of a cut short listing would be filtered out below and lost
+    // on save, and the API could not re-check it either, since its own listing stops at the
+    // same cap. So the stored allowlist is sent nowhere and stays exactly as it is.
+    if (isScopeLocked) {
+      console.debug('JiraCredentialForm left the allowlist alone: Jira listed less than it holds', {
+        credentialId: stored.id,
+        missingNames,
+      })
+      return {}
     }
     if (!isScopeChanged) {
       return {}
@@ -175,8 +191,20 @@ export function JiraCredentialForm(props: Props) {
         <Alert.Content>
           <Alert.Description>{
             t('scope.unreachable', {
-              count: unreachableNames.length,
-              names: unreachableNames.join(', '),
+              count: missingNames.length,
+              names: missingNames.join(', '),
+            })
+          }</Alert.Description>
+        </Alert.Content>
+      </Alert>}
+
+      {isScopeLocked && <Alert status='warning'>
+        <Alert.Indicator />
+        <Alert.Content>
+          <Alert.Description>{
+            t('scope.beyondListing', {
+              count: missingNames.length,
+              names: missingNames.join(', '),
             })
           }</Alert.Description>
         </Alert.Content>
@@ -200,7 +228,7 @@ export function JiraCredentialForm(props: Props) {
           setScope(next)
           setIsScopeChanged(true)
         }}
-        isDisabled={isMovingSite}
+        isDisabled={isMovingSite || isScopeLocked}
       />}
 
       {failureMessage && <Alert status='danger'>
