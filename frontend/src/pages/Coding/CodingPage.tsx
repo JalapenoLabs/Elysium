@@ -66,6 +66,10 @@ export function CodingPage() {
 
   const createState = useOverlayState()
   const renameState = useOverlayState()
+  // useOverlayState answers a new object every render; only its functions are stable. The
+  // actions depend on those alone, so effects that call an action run once, not every render.
+  const openCreate = createState.open
+  const openRename = renameState.open
   const [ selectedSession, setSelectedSession ] = useState<CodingSession | null>(null)
   const [ createActionItemId, setCreateActionItemId ] = useState<string | null>(null)
   // Remounting a form per opening resets it.
@@ -82,12 +86,12 @@ export function CodingPage() {
     createSession: (actionItemId) => {
       setCreateActionItemId(actionItemId ?? null)
       setFormSession((session) => session + 1)
-      createState.open()
+      openCreate()
     },
     renameSession: (session) => {
       setSelectedSession(session)
       setFormSession((formKey) => formKey + 1)
-      renameState.open()
+      openRename()
     },
     deleteSession: (session) => confirm({
       title: t('delete.title', { title: session.title }),
@@ -110,7 +114,7 @@ export function CodingPage() {
         toast.success(t('toasts.deleted', { title: session.title }))
       },
     }),
-  }), [ createState, renameState, confirm, dispatch, t ])
+  }), [ openCreate, openRename, confirm, dispatch, t ])
 
   useEffect(() => {
     if (params.sessionId === undefined || !isDockviewReady || !dockviewApiRef.current) {

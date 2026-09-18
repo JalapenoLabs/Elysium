@@ -14,6 +14,10 @@ import { CodingSessionsTable } from '../Coding/CodingSessionsTable'
 // Misc
 import { useCodingSessionsLoader } from '../../hooks/useServerData'
 
+// The item page's main column is narrower than the project page, so the satellite is left
+// to the conversation.
+const ITEM_SESSION_COLUMNS = [ 'number', 'title', 'state', 'lastActivity' ] as const
+
 type Props = {
   itemId: string
 }
@@ -38,5 +42,6 @@ export function ActionItemSessions(props: Props) {
     }}
     ariaLabel={t('sessions.heading')}
     emptyMessage={t('sessions.empty')}
+    columnKeys={ITEM_SESSION_COLUMNS}
   />
 }

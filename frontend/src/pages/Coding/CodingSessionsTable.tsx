@@ -37,10 +37,12 @@ type Props = {
   ariaLabel: string
   // Shown instead of an empty table.
   emptyMessage: string
+  // The columns to show, for a page narrower than the project page; every column by default.
+  columnKeys?: readonly SessionColumnKey[]
 }
 
 const SESSION_COLUMN_KEYS = [ 'number', 'title', 'satellite', 'state', 'lastActivity' ] as const
-type SessionColumnKey = typeof SESSION_COLUMN_KEYS[number]
+export type SessionColumnKey = typeof SESSION_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
   number: 'sessions.number',
@@ -53,7 +55,7 @@ const columnLabelKeys = {
 // Starting widths in pixels, summing to less than the page's content column.
 const columnSizes = {
   number: SESSION_NUMBER_COLUMN_SIZING.size,
-  title: 380,
+  title: 240,
   satellite: 200,
   state: 160,
   lastActivity: 220,
@@ -67,6 +69,7 @@ export function CodingSessionsTable(props: Props) {
   const labels = useSmartTableLabels()
   useSatellitesLoader()
   const satelliteNames = useAppSelector(selectSatelliteNamesById, shallowEqual)
+  const columnKeys = props.columnKeys ?? SESSION_COLUMN_KEYS
 
   const managedColumns = useMemo(() => {
     // Timestamps arrive as UTC; this is where they become the viewer's local time.
@@ -118,7 +121,7 @@ export function CodingSessionsTable(props: Props) {
     } satisfies Record<SessionColumnKey, (session: CodingSession) => string>
 
     return createManagedColumns<CodingSession, SessionColumnKey>({
-      columnKeys: SESSION_COLUMN_KEYS,
+      columnKeys,
       getColumnLabel: (columnKey) => t(columnLabelKeys[columnKey]),
       getSearchKey: () => null,
       getSearchValue: (columnKey) => sortValue[columnKey],
@@ -140,7 +143,7 @@ export function CodingSessionsTable(props: Props) {
         }),
       },
     })
-  }, [ t, i18n.language, satelliteNames ])
+  }, [ t, i18n.language, satelliteNames, columnKeys ])
 
   if (!props.sessions.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
