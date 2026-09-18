@@ -154,6 +154,23 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<I
         .await
 }
 
+/// The initiatives among `ids` that are not deleted, by name.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn find_live(
+    connection: &mut AsyncPgConnection,
+    ids: &[Uuid],
+) -> QueryResult<Vec<Initiative>> {
+    initiatives::table
+        .filter(initiatives::id.eq_any(ids))
+        .filter(initiatives::deleted_at.is_null())
+        .order((initiatives::name.asc(), initiatives::id.asc()))
+        .select(Initiative::as_select())
+        .load(connection)
+        .await
+}
+
 /// The initiatives `filter` selects, by name.
 ///
 /// # Errors

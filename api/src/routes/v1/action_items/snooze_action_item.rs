@@ -38,8 +38,7 @@ pub async fn handle(
     let Json(body) = body?;
     let now = Utc::now();
 
-    let until = body.until;
-    if until.is_some_and(|until| until <= now) {
+    if body.until.is_some_and(|until| until <= now) {
         return Err(ApiError::BadRequest(
             "until must be in the future".to_owned(),
         ));
@@ -51,7 +50,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let changes = ActionItemChanges {
-        snoozed_until: Some(until),
+        snoozed_until: Some(body.until),
         ..ActionItemChanges::default()
     };
     let snoozed = action_item::update(&mut connection, id, changes, Actor::User, now).await?;

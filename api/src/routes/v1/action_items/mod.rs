@@ -245,13 +245,7 @@ pub async fn publish_initiatives(
     initiative_ids: &[Uuid],
     now: DateTime<Utc>,
 ) -> Result<(), ApiError> {
-    let mut initiatives = Vec::new();
-    for &initiative_id in initiative_ids {
-        let found = initiative::find(connection, initiative_id).await?;
-        if found.deleted_at.is_none() {
-            initiatives.push(found);
-        }
-    }
+    let initiatives = initiative::find_live(connection, initiative_ids).await?;
     for response in initiative_responses(connection, initiatives, now).await? {
         state
             .events

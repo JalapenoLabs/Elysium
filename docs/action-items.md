@@ -4,8 +4,10 @@ Action items are the one list of everything the user owes attention to, wherever
 GitHub issue or pull request, an inbound email, an ask from a meeting, or something typed by hand. Initiatives group
 action items toward a goal that ends, and carry the progress bar. Projects are long lived and group both.
 
-This is a design; nothing in it is built yet. Implementation lands in stages, and this doc stops being a plan section
-by section as they do.
+The core is built: items, initiatives, their projects and memberships, comments, history, Next, and progress, served
+under `/api/v1/action-items` and `/api/v1/initiatives` (`docs/api.md`) and kept current on the event stream
+(`docs/realtime.md`). Links, the watcher, changesets, the `elysium_work` tools, and the frontend are still a design;
+the sections about them are the plan, and each stops being one as it lands.
 
 The design goal is that work arrives from anywhere, is triaged and managed in one place, and every change made here
 reaches the system it came from. The user approves; Elysium and Elysia, Elysium's AI assistant, do the bookkeeping.
@@ -65,10 +67,24 @@ Two fields sit beside the state rather than being states themselves, so an item 
 - `snoozedUntil`: hidden from Next until that moment passes.
 - `waitingOn`: someone else owes the next step. Hidden from Next, listed under Waiting.
 
-Container children are the exception to the inbox: linking the container accepted them, so they start `open`
-(see [Containers](#containers-keep-work-from-being-tracked-twice)).
+An item the user creates starts `open`, since creating it accepts it. Container children are the other exception to
+the inbox: linking the container accepted them, so they start `open` (see
+[Containers](#containers-keep-work-from-being-tracked-twice)).
 
-Deleting is soft. `deletedAt` hides the item everywhere, and it can be restored from its history.
+The state changes by name, and a change the current state does not allow is refused:
+
+| Transition | From                    | To          |
+|------------|-------------------------|-------------|
+| Accept     | `inbox`                 | `open`      |
+| Resolve    | `inbox`, `open`         | `resolved`  |
+| Dismiss    | `inbox`, `open`         | `dismissed` |
+| Reopen     | `resolved`, `dismissed` | `open`      |
+
+Resolving stamps `resolvedAt` and dismissing `dismissedAt`; each is set exactly while the item is in that state, and
+reopening clears both. The table is `Transition` in `api/src/action_items/`.
+
+Deleting is soft. `deletedAt` hides the item everywhere, and it can be restored from its history. Every write but
+restore refuses a deleted item, and a deleted item counts toward no initiative's progress.
 
 ## Ownership and multiple users
 
@@ -76,14 +92,37 @@ Elysium is used by one person today and is built to be shared by a small team. T
 (`docs/security.md`) and there is no users table, so ownership is recorded without one:
 
 - `owner` is one of three things: the user, someone else by the name or address a provider reports, or nobody,
-  for a linked issue with no assignee. Only the user's items appear in Next. Items an initiative tracks on behalf
-  of others (a teammate's Jira issue under a linked epic) count toward progress but never appear in Next, and
-  neither do unowned items until the user claims one.
+  for a linked issue with no assignee. It is stored as `owner_kind` (`user`, `other`, `nobody`) with `owner_name`
+  set exactly for `other`. Only the user's items appear in Next. Items an initiative tracks on behalf of others (a
+  teammate's Jira issue under a linked epic) count toward progress but never appear in Next, and neither do unowned
+  items until the user claims one.
 - `waitingOn` is free text: a name or an address.
 - Every history entry names its actor: `user`, `elysia`, `session:<number>`, or `watcher:<provider>`.
 
 When users exist, `owner`, `waitingOn`, and the `user` actor become references to them, and Next becomes per user.
 Nothing else in this design assumes a single user.
+
+## History
+
+Every write records a history entry in the same transaction as the change, so history and state never disagree. An
+entry has a kind, its actor, and `data` holding what changed, with the value before and after wherever one was
+replaced: enough to show the change and to undo it. An entry is about an item, an initiative, or both, for an item
+joining or leaving one, and then shows in both histories. A write that changes nothing records nothing.
+
+| Kind                 | `data`                                          |
+|----------------------|-------------------------------------------------|
+| `created`            | The fields as created                           |
+| `updated`            | `changes`: each field that changed, `{ from, to }` |
+| `state_changed`      | `{ from, to }`                                  |
+| `deleted`, `restored` | Empty, or the `deletedAt` a restore undid       |
+| `commented`          | `{ commentId, body }`                           |
+| `comment_edited`     | `{ commentId, from, to }`                       |
+| `comment_deleted`    | `{ commentId, body }`, so it can be put back    |
+| `project_added`, `project_removed` | `{ projectId }`                   |
+| `initiative_joined`, `initiative_left` | Empty; the entry names both      |
+
+Kinds and actors are stored as text rather than enums, so later stages add kinds without an enum migration. Only a
+comment's author edits or deletes it: the user cannot rewrite what Elysia or an agent said.
 
 ## Next
 
@@ -98,7 +137,9 @@ order is fixed in code, not configured:
 3. Due date, soonest first, so the most overdue leads; items with no due date after those with one.
 4. Age, oldest first.
 
-When the inbox is not empty, Next leads with a card to triage it.
+The id breaks any remaining tie. The order is `api/src/action_items/next.rs`, and `GET /api/v1/action-items/next`
+answers the items in it together with how many wait in the inbox. When the inbox is not empty, Next leads with a card
+to triage it.
 
 ## Initiatives
 
@@ -108,8 +149,11 @@ An initiative has a name, a description, an optional target date, and a state: `
 
 Progress is never shown as a percentage alone. A bar that drops when scope grows, or reads 100% because the last
 task was never written down, misleads. The initiative page shows resolved and total together, and a burnup chart of
-both over time, so added scope is visible as scope. To draw it, membership rows keep when an item joined and left,
-and items keep when they were resolved and dismissed.
+both over time, so added scope is visible as scope. To draw it, membership rows keep when an item joined and left
+(leaving closes the row and rejoining opens another), and items keep when they were resolved, dismissed, and deleted.
+The burnup has a point at the initiative's creation, one at every moment either count changed, and one now; clients
+draw it as steps. An item keeps only its latest resolution, so one resolved, reopened, and resolved again counts as
+resolved from the second time on. The rules are `api/src/action_items/progress.rs`.
 
 An item in two initiatives counts fully toward both. Each initiative counts only its own members, so nothing is
 counted twice within one bar.

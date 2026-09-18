@@ -48,7 +48,7 @@ Guarantees:
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
 redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, storage location, GitHub
-credential, environment variable, and coding session query. Plain `cargo test` skips them because they need
+credential, environment variable, coding session, action item, initiative, comment, and history query. Plain `cargo test` skips them because they need
 `TEST_DATABASE_URL`.
 
 ## Conventions
@@ -252,3 +252,95 @@ project lookups, including the delete check.
 The `project_id` foreign key is `ON DELETE NO ACTION` rather than `RESTRICT`. Both refuse the delete, but only
 `NO ACTION` reports SQLSTATE `23503`, which Diesel surfaces as a foreign key violation; `RESTRICT` reports
 `23001`, which Diesel does not classify.
+
+### `action_items`
+
+What the user owes attention to; see `docs/action-items.md`.
+
+| Column          | Type                     | Notes                                                        |
+|-----------------|--------------------------|--------------------------------------------------------------|
+| `id`            | `UUID`                   | UUIDv7, primary key                                          |
+| `title`         | `TEXT`                   | 1 to 500 characters                                          |
+| `notes`         | `TEXT`                   | Up to 20,000 characters, defaults to empty                   |
+| `state`         | `action_item_state`      | `inbox`, `open`, `resolved`, or `dismissed`                  |
+| `priority`      | `action_item_priority`   | `urgent`, `high`, `normal`, `low`, declared in that order; defaults to `normal` |
+| `due_at`        | `TIMESTAMPTZ`            | Optional                                                     |
+| `snoozed_until` | `TIMESTAMPTZ`            | Hidden from Next until then                                  |
+| `waiting_on`    | `TEXT`                   | Who owes the next step, 1 to 320 characters; NULL when nobody |
+| `owner_kind`    | `action_item_owner_kind` | `user`, `other`, or `nobody`; defaults to `user`             |
+| `owner_name`    | `TEXT`                   | 1 to 320 characters; set exactly when `owner_kind` is `other` |
+| `resolved_at`   | `TIMESTAMPTZ`            | Set exactly while `state` is `resolved`                      |
+| `dismissed_at`  | `TIMESTAMPTZ`            | Set exactly while `state` is `dismissed`                     |
+| `deleted_at`    | `TIMESTAMPTZ`            | Soft delete; NULL while the item is live                     |
+| `created_at`    | `TIMESTAMPTZ`            | Written by the API, the moment of the create                 |
+| `updated_at`    | `TIMESTAMPTZ`            | Maintained by trigger                                        |
+
+The partial index `action_items_live_state_idx` on `state` where `deleted_at` is NULL serves Next and the state
+filters.
+
+### `action_item_projects`
+
+The projects an item belongs to. The primary key is `(action_item_id, project_id)`, and an index on `project_id`
+finds a project's items. Both references delete their rows with the item or the project.
+
+### `initiatives`
+
+| Column        | Type               | Notes                                            |
+|---------------|--------------------|--------------------------------------------------|
+| `id`          | `UUID`             | UUIDv7, primary key                              |
+| `name`        | `TEXT`             | 1 to 200 characters                              |
+| `description` | `TEXT`             | Up to 20,000 characters, defaults to empty       |
+| `target_at`   | `TIMESTAMPTZ`      | Optional                                         |
+| `state`       | `initiative_state` | `active`, `achieved`, or `abandoned`; defaults to `active` |
+| `deleted_at`  | `TIMESTAMPTZ`      | Soft delete; NULL while the initiative is live   |
+| `created_at`  | `TIMESTAMPTZ`      | Written by the API; the burnup starts here       |
+| `updated_at`  | `TIMESTAMPTZ`      | Maintained by trigger                            |
+
+### `initiative_projects`
+
+The projects an initiative belongs to, shaped like `action_item_projects`.
+
+### `initiative_items`
+
+Every span an item spent in an initiative. Leaving sets `left_at` rather than deleting the row, and rejoining inserts
+a new one, so progress can be counted at any moment.
+
+| Column           | Type          | Notes                                                    |
+|------------------|---------------|----------------------------------------------------------|
+| `id`             | `UUID`        | UUIDv7, primary key                                      |
+| `initiative_id`  | `UUID`        | References `initiatives`; deleted with it                |
+| `action_item_id` | `UUID`        | References `action_items`; deleted with it               |
+| `joined_at`      | `TIMESTAMPTZ` | When the span began                                      |
+| `left_at`        | `TIMESTAMPTZ` | When it ended, not before `joined_at`; NULL while current |
+
+The partial unique index `initiative_items_current_unique` on `(initiative_id, action_item_id)` where `left_at` is
+NULL keeps an item in an initiative at most once at a time.
+
+### `action_item_comments`
+
+| Column           | Type          | Notes                                                        |
+|------------------|---------------|--------------------------------------------------------------|
+| `id`             | `UUID`        | UUIDv7, primary key                                          |
+| `action_item_id` | `UUID`        | References `action_items`; deleted with it                   |
+| `author`         | `TEXT`        | An actor: `user`, `elysia`, `session:<n>`, or `watcher:<provider>` |
+| `body`           | `TEXT`        | 1 to 20,000 characters                                       |
+| `created_at`     | `TIMESTAMPTZ` | Written by the API                                           |
+| `updated_at`     | `TIMESTAMPTZ` | Maintained by trigger                                        |
+
+### `action_item_events`
+
+The history of items and initiatives, one row per change; see `docs/action-items.md`.
+
+| Column           | Type          | Notes                                                        |
+|------------------|---------------|--------------------------------------------------------------|
+| `id`             | `UUID`        | UUIDv7, primary key; orders entries as they were written     |
+| `action_item_id` | `UUID`        | The item it is about, if any; deleted with it                |
+| `initiative_id`  | `UUID`        | The initiative it is about, if any; deleted with it          |
+| `kind`           | `TEXT`        | Lowercase with underscores, such as `state_changed`          |
+| `actor`          | `TEXT`        | `user`, `elysia`, `session:<n>`, or `watcher:<provider>`     |
+| `data`           | `JSONB`       | A JSON object shaped by `kind`                               |
+| `created_at`     | `TIMESTAMPTZ` | Written by the API, the moment of the change                 |
+
+At least one of `action_item_id` and `initiative_id` is set; both are for an item joining or leaving an initiative.
+`kind` and `actor` are text with shape checks rather than enums, because later stages add kinds, and Postgres refuses
+a new enum value in the transaction that added it.

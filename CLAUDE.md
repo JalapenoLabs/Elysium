@@ -81,8 +81,9 @@ Everything else follows these rules:
 
 ## Action items
 
-Designed, not yet built: none of the tables, routes, watcher, or tools below exist yet. Do not build against them
-until their implementation lands.
+The core is built: items, initiatives, memberships, comments, history, Next, and progress, under
+`/api/v1/action-items` and `/api/v1/initiatives`. Links, the watcher, changesets, `elysium_work`, and the frontend are
+designed, not yet built; do not build against them until their implementation lands.
 
 - Action items are the one list of what the user owes attention to, from Jira, GitHub, email, meetings, or typed by
   hand. Initiatives group items toward a goal that ends and carry the progress bar; projects never end and have
@@ -100,6 +101,9 @@ until their implementation lands.
   tools never match on the provider.
 - Coding agents use one relayed MCP server, `elysium_work`, in Elysium's terms and scoped to the session's project.
 - There is no users table yet. Ownership and actors are recorded as text and become references when users land.
+- Every write records a history entry with its actor in the same transaction, with before and after values so it can
+  be shown and undone. Deleting items and initiatives is soft. Next's order and the progress rules are pure functions
+  in `api/src/action_items/`.
 
 ## One event stream keeps the frontend current
 

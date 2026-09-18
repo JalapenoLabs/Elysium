@@ -11,6 +11,35 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/ping`                           | `200` text `pong`                                   |
 | GET    | `/api/version`                        | `200` JSON, see below                               |
 | GET    | `/api/v1/events`                      | Server-sent event stream, see `docs/realtime.md`    |
+| GET    | `/api/v1/action-items`                | `200` `{ items: ActionItem[] }`, newest first       |
+| POST   | `/api/v1/action-items`                | `201` `{ item }`                                    |
+| GET    | `/api/v1/action-items/next`           | `200` `{ items: ActionItem[], inboxCount }`, in Next's order |
+| GET    | `/api/v1/action-items/{id}`           | `200` `{ item }`, deleted or not                    |
+| PATCH  | `/api/v1/action-items/{id}`           | `200` `{ item }`                                    |
+| DELETE | `/api/v1/action-items/{id}`           | `204`; soft, restorable                             |
+| POST   | `/api/v1/action-items/{id}/restore`   | `200` `{ item }`                                    |
+| POST   | `/api/v1/action-items/{id}/accept`    | `200` `{ item }`; also `resolve`, `dismiss`, `reopen` |
+| POST   | `/api/v1/action-items/{id}/snooze`    | `200` `{ item }`                                    |
+| POST   | `/api/v1/action-items/{id}/wait`      | `200` `{ item }`                                    |
+| GET    | `/api/v1/action-items/{id}/history`   | `200` `{ history: HistoryEntry[] }`, oldest first   |
+| GET    | `/api/v1/action-items/{id}/comments`  | `200` `{ comments: Comment[] }`, oldest first       |
+| POST   | `/api/v1/action-items/{id}/comments`  | `201` `{ comment }`                                 |
+| PATCH  | `/api/v1/action-items/{id}/comments/{commentId}` | `200` `{ comment }`                      |
+| DELETE | `/api/v1/action-items/{id}/comments/{commentId}` | `204`                                    |
+| PUT    | `/api/v1/action-items/{id}/projects/{projectId}` | `200` `{ item }`                         |
+| DELETE | `/api/v1/action-items/{id}/projects/{projectId}` | `200` `{ item }`                         |
+| PUT    | `/api/v1/action-items/{id}/initiatives/{initiativeId}` | `200` `{ item }`                   |
+| DELETE | `/api/v1/action-items/{id}/initiatives/{initiativeId}` | `200` `{ item }`                   |
+| GET    | `/api/v1/initiatives`                 | `200` `{ initiatives: Initiative[] }`, by name      |
+| POST   | `/api/v1/initiatives`                 | `201` `{ initiative }`                              |
+| GET    | `/api/v1/initiatives/{id}`            | `200` `{ initiative }`, deleted or not              |
+| PATCH  | `/api/v1/initiatives/{id}`            | `200` `{ initiative }`                              |
+| DELETE | `/api/v1/initiatives/{id}`            | `204`; soft, restorable                             |
+| POST   | `/api/v1/initiatives/{id}/restore`    | `200` `{ initiative }`                              |
+| GET    | `/api/v1/initiatives/{id}/progress`   | `200` `{ resolved, total, burnup }`                 |
+| GET    | `/api/v1/initiatives/{id}/history`    | `200` `{ history: HistoryEntry[] }`, oldest first   |
+| PUT    | `/api/v1/initiatives/{id}/projects/{projectId}` | `200` `{ initiative }`                    |
+| DELETE | `/api/v1/initiatives/{id}/projects/{projectId}` | `200` `{ initiative }`                    |
 | GET    | `/api/v1/llms`                        | `200` `{ llms: Llm[] }`, in priority order          |
 | POST   | `/api/v1/llms`                        | `201` `{ llm }`                                     |
 | GET    | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
@@ -202,6 +231,48 @@ the plaintext of a non-secret variable and `null` for a secret one, whose value 
 a rule answers `400` naming the key and the rule, a secret with an empty value answers `400`, and making a secret
 visible without sending its `value` answers `400`. A duplicate key answers `409`. See `docs/environment.md`.
 
+### `/api/v1/action-items`
+
+An `ActionItem` has `id`, `title`, `notes`, `state` (`inbox`, `open`, `resolved`, `dismissed`), `priority` (`urgent`,
+`high`, `normal`, `low`), `dueAt`, `snoozedUntil`, `waitingOn`, `owner`, `resolvedAt`, `dismissedAt`, `deletedAt`,
+`projectIds`, `initiativeIds` (the initiatives it is in now, leaving out deleted ones), `createdAt`, and `updatedAt`.
+`owner` is `{ kind: "user" }`, `{ kind: "other", name }`, or `{ kind: "nobody" }`. See `docs/action-items.md`.
+
+`GET /` takes `state` (one or more, comma separated), `project` (an id, or `none` for items in no project),
+`initiative`, `waiting` and `snoozed` (`true` or `false`), and `deleted=true` for deleted items only; without
+`deleted`, deleted items are left out.
+
+`POST` requires `title` (1 to 500 characters) and accepts `notes` (up to 20,000), `priority` (default `normal`),
+`dueAt`, `owner` (default the user), `projectIds`, and `initiativeIds`. The item starts `open`. An unknown project, or
+an initiative that does not exist or is deleted, answers `400`. `PATCH` accepts any of `title`, `notes`, `priority`,
+`dueAt` (`null` removes it), and `owner`; an empty body is rejected. `snooze` requires `until`, a future moment or
+`null` to end the snooze. `wait` requires `on`, a name or address up to 320 characters or `null` to stop waiting.
+The transitions answer `409` when the item's state does not allow them. Every write to a deleted item but `restore`
+answers `409`, as do deleting a deleted item and restoring one that is not.
+
+Membership routes are idempotent: adding an item to a project or initiative it is in, or removing it from one it is
+not in, answers the item unchanged. An unknown project or initiative answers `404`, and joining a deleted initiative
+`409`.
+
+A `Comment` has `id`, `actionItemId`, `author`, `body` (1 to 20,000 characters), `createdAt`, and `updatedAt`. `POST`
+and `PATCH` take `{ body }`. Editing or deleting a comment someone else wrote answers `409`.
+
+A `HistoryEntry` has `id`, `actionItemId`, `initiativeId`, `kind`, `actor`, `data`, and `createdAt`; kinds and their
+`data` are listed in `docs/action-items.md`. Every write is recorded with the actor `user`.
+
+### `/api/v1/initiatives`
+
+An `Initiative` has `id`, `name`, `description`, `state` (`active`, `achieved`, `abandoned`), `targetAt`,
+`projectIds`, `progress` (`{ resolved, total }` now), `deletedAt`, `createdAt`, and `updatedAt`.
+
+`GET /` takes `state`, `project`, and `deleted` like the item list. `POST` requires `name` (1 to 200 characters) and
+accepts `description` (up to 20,000), `targetAt`, and `projectIds`; it starts `active`. `PATCH` accepts any of `name`,
+`description`, `targetAt` (`null` removes it), and `state`, in any direction. Deleting keeps its items as members;
+they stop listing it until it is restored.
+
+`progress` answers `{ resolved, total, burnup }`, with `burnup` a list of `{ at, resolved, total }`: a point at the
+initiative's creation, one at every moment either count changed, and one now.
+
 ### `/api/v1/coding-sessions`
 
 A `CodingSession` has `id` (the session's number, 1, 2, 3, ...), `projectId`, `satelliteId`, `threadId`, `title`, `createdAt`, `updatedAt`, and
@@ -227,9 +298,9 @@ Every error is JSON with a `message`.
 
 | Status | Cause                                                                                 |
 |--------|---------------------------------------------------------------------------------------|
-| `400`  | Malformed JSON, unknown field, unknown enum value, malformed id in the path, blank or oversized token, refused environment variable key |
+| `400`  | Malformed JSON or query, unknown field, unknown enum value, malformed id in the path, blank or oversized token, refused environment variable key |
 | `404`  | No row with that id                                                                   |
-| `409`  | Unique constraint, such as a duplicate LLM name, or a project that still has sessions |
+| `409`  | Unique constraint, such as a duplicate LLM name, a project that still has sessions, or a change the record's state refuses |
 | `422`  | Field validation failed; `fields` lists each failure                                  |
 | `502`  | A satellite, mail server, storage provider, or the OAuth broker refused; `message` is its own error |
 | `503`  | The mail service a request needs is not configured, or the mail server does not exist |
@@ -298,6 +369,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
+| `src/action_items/`      | Action item rules: actors, state transitions, Next's order, and initiative progress |
 
 ## Logging
 
@@ -308,7 +380,7 @@ client-supplied or a generated UUID. The id is echoed on the response and attach
 ## Testing
 
 `cargo test` runs the hermetic unit tests: encryption, request parsing and validation, refused environment variable
-keys, event envelopes, and the Arsox view conversions.
+keys, event envelopes, the Arsox view conversions, and the action item rules: transitions, Next's order, and progress.
 `api/scripts/verify-migrations.sh` also runs the database-backed tests against a disposable Postgres.
 
 ## Roadmap
