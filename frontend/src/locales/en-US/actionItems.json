@@ -1,4 +1,244 @@
 {
   "title": "Action items",
-  "subtitle": "Coming soon."
+  "newItem": "New item",
+  "nav": {
+    "label": "Action items views",
+    "next": "Next",
+    "inbox": "Inbox",
+    "all": "All items",
+    "initiatives": "Initiatives"
+  },
+  "states": {
+    "inbox": "Inbox",
+    "open": "Open",
+    "resolved": "Resolved",
+    "dismissed": "Dismissed"
+  },
+  "priorities": {
+    "urgent": "Urgent",
+    "high": "High",
+    "normal": "Normal",
+    "low": "Low"
+  },
+  "transitions": {
+    "accept": "Accept",
+    "resolve": "Resolve",
+    "dismiss": "Dismiss",
+    "reopen": "Reopen"
+  },
+  "actors": {
+    "user": "You",
+    "elysia": "Elysia",
+    "session": "Session {{detail}}",
+    "watcher": "The {{detail}} watcher",
+    "unknown": "{{detail}}"
+  },
+  "owner": {
+    "user": "You",
+    "other": "{{name}}",
+    "nobody": "Nobody"
+  },
+  "badges": {
+    "due": "Due {{date}}",
+    "overdue": "Overdue since {{date}}",
+    "snoozed": "Snoozed until {{date}}",
+    "waiting": "Waiting on {{name}}",
+    "owner": "Owned by {{owner}}"
+  },
+  "memberships": {
+    "none": "Not in any project or initiative.",
+    "project": "Project",
+    "initiative": "Initiative"
+  },
+  "next": {
+    "loadError": "Action items could not be loaded.",
+    "position": "{{position}} of {{total}} in Next",
+    "skip": "Skip",
+    "emptyTitle": "Nothing is next",
+    "emptyBody": "Every open item is done, waiting, or snoozed.",
+    "emptyElsewhere": "{{waiting}} and {{snoozed}}.",
+    "waitingCount_one": "{{count}} item is waiting on someone",
+    "waitingCount_other": "{{count}} items are waiting on someone",
+    "snoozedCount_one": "{{count}} is snoozed",
+    "snoozedCount_other": "{{count}} are snoozed",
+    "seeAll": "See all items"
+  },
+  "inboxLead": {
+    "title_one": "{{count}} item is waiting in your inbox",
+    "title_other": "{{count}} items are waiting in your inbox",
+    "body": "Accept what you intend to do and dismiss the rest before starting on Next.",
+    "action": "Triage the inbox"
+  },
+  "inbox": {
+    "remaining_one": "{{count}} item left to triage",
+    "remaining_other": "{{count}} items left to triage",
+    "arrived": "Arrived {{date}}",
+    "upNext": "Up next",
+    "andMore_one": "and {{count}} more",
+    "andMore_other": "and {{count}} more",
+    "emptyTitle": "The inbox is clear",
+    "emptyBody": "Everything that arrived has been accepted or dismissed.",
+    "backToNext": "Back to Next"
+  },
+  "snooze": {
+    "label": "Snooze",
+    "laterToday": "Later today",
+    "tomorrow": "Tomorrow morning",
+    "nextWeek": "Next week",
+    "pickDate": "Pick a day",
+    "end": "End the snooze",
+    "dialogTitle": "Snooze until",
+    "dateLabel": "Day",
+    "dateHint": "The item comes back to Next that morning.",
+    "submit": "Snooze"
+  },
+  "wait": {
+    "action": "Wait on someone",
+    "change": "Change who it waits on",
+    "stop": "Stop waiting",
+    "title": "Wait on someone",
+    "label": "Name or email address",
+    "description": "The item leaves Next until you stop waiting.",
+    "submit": "Wait"
+  },
+  "comments": {
+    "heading": "Comments",
+    "action": "Comment",
+    "label": "Comment",
+    "placeholder": "Write a comment",
+    "hint": "Press Ctrl+Enter, or Cmd+Enter on a Mac, to post.",
+    "post": "Post",
+    "empty": "No comments yet.",
+    "edited": "Edited",
+    "loadError": "Comments could not be loaded.",
+    "editTitle": "Edit the comment",
+    "deleteTitle": "Delete this comment?",
+    "deleteBody": "The comment is removed. It stays in the item's history."
+  },
+  "history": {
+    "heading": "History",
+    "loadError": "History could not be loaded.",
+    "createdItem": "created this item",
+    "createdInitiative": "created this initiative",
+    "updated": "edited",
+    "stateChanged": "moved it from {{from}} to {{to}}",
+    "stateChangedUnknown": "changed its state",
+    "deleted": "deleted it",
+    "restored": "restored it",
+    "commented": "commented",
+    "commentEdited": "edited a comment",
+    "commentDeleted": "deleted a comment",
+    "projectAdded": "added it to {{name}}",
+    "projectRemoved": "removed it from {{name}}",
+    "joinedInitiative": "added it to the initiative {{name}}",
+    "leftInitiative": "took it out of the initiative {{name}}",
+    "itemJoined": "added {{title}}",
+    "itemLeft": "took out {{title}}",
+    "unknownKind": "recorded {{kind}}",
+    "fieldChanged": "{{field}} changed",
+    "fieldChangedFromTo": "{{field}}: {{from}} to {{to}}",
+    "fields": {
+      "title": "Title",
+      "notes": "Notes",
+      "priority": "Priority",
+      "dueAt": "Due date",
+      "snoozedUntil": "Snoozed until",
+      "waitingOn": "Waiting on",
+      "owner": "Owner",
+      "name": "Name",
+      "description": "Description",
+      "targetAt": "Target date",
+      "state": "State"
+    },
+    "values": {
+      "none": "none",
+      "deletedProject": "a deleted project",
+      "unknownInitiative": "a deleted initiative",
+      "unknownItem": "an item"
+    }
+  },
+  "list": {
+    "loadError": "Action items could not be loaded.",
+    "empty": "No items match these filters.",
+    "emptyDeleted": "No deleted items match these filters.",
+    "restore": "Restore"
+  },
+  "filters": {
+    "state": "State",
+    "allStates": "Every state",
+    "project": "Project",
+    "anyProject": "Any project",
+    "noProject": "No project",
+    "initiative": "Initiative",
+    "anyInitiative": "Any initiative",
+    "waiting": "Waiting",
+    "snoozed": "Snoozed",
+    "any": "Any",
+    "yes": "Yes",
+    "no": "No",
+    "deleted": "Deleted items"
+  },
+  "table": {
+    "title": "Title",
+    "state": "State",
+    "priority": "Priority",
+    "due": "Due",
+    "projects": "Projects",
+    "initiatives": "Initiatives",
+    "updated": "Updated"
+  },
+  "fields": {
+    "priority": "Priority",
+    "dueDate": "Due date",
+    "clearDueDate": "Clear the due date",
+    "projects": "Projects",
+    "searchProjects": "Search projects",
+    "noProjectsFound": "No projects found.",
+    "initiatives": "Initiatives",
+    "searchInitiatives": "Search initiatives",
+    "noInitiativesFound": "No initiatives found.",
+    "owner": "Owner",
+    "created": "Created",
+    "updated": "Updated"
+  },
+  "item": {
+    "notFound": "This item does not exist.",
+    "backToList": "Back to all items",
+    "renameLabel": "Title",
+    "notesHeading": "Notes",
+    "notesLabel": "Notes",
+    "addNotes": "Add notes",
+    "deletedTitle": "This item is deleted",
+    "deletedBody": "It is hidden everywhere and counts toward no initiative. Restore it to work on it again."
+  },
+  "form": {
+    "createTitle": "New item",
+    "title": "Title",
+    "notes": "Notes",
+    "dueDateHint": "Due until the end of that day.",
+    "submit": "Create item",
+    "errors": {
+      "titleRequired": "Give the item a title.",
+      "titleTooLong": "Keep the title to 500 characters.",
+      "notesTooLong": "Keep the notes to 20,000 characters."
+    }
+  },
+  "delete": {
+    "title": "Delete “{{title}}”?",
+    "body": "The item is hidden everywhere and counts toward no initiative. You can restore it from All items, under Deleted items."
+  },
+  "toasts": {
+    "created": "Created “{{title}}”.",
+    "accepted": "Accepted “{{title}}”.",
+    "resolved": "Resolved “{{title}}”.",
+    "dismissed": "Dismissed “{{title}}”.",
+    "reopened": "Reopened “{{title}}”.",
+    "snoozed": "Snoozed “{{title}}”.",
+    "unsnoozed": "“{{title}}” is no longer snoozed.",
+    "waiting": "“{{title}}” is waiting on {{name}}.",
+    "stoppedWaiting": "“{{title}}” is no longer waiting.",
+    "deleted": "Deleted “{{title}}”.",
+    "restored": "Restored “{{title}}”.",
+    "conflict": "“{{title}}” changed elsewhere, so that could not be done."
+  }
 }

@@ -17,6 +17,7 @@ import { ProjectActions } from './ProjectActions'
 import { ProjectBanner } from './ProjectBanner'
 import { ProjectGithubField } from './ProjectGithubField'
 import { ProjectSessionsTable } from './ProjectSessionsTable'
+import { ProjectWork } from './ProjectWork'
 
 // Utility
 import { HTTPError } from 'ky'
@@ -29,7 +30,8 @@ import { DESCRIPTION_MAX_CHARACTERS, NAME_MAX_CHARACTERS } from './projectFormSc
 
 // `/projects/:projectId`: one project, edited in place. The name and description come
 // first and are edited where they are shown, the cover runs across the page below them, and the Actions menu holds
-// what cannot be: removing the cover and deleting the project.
+// what cannot be: removing the cover and deleting the project. Its action items and
+// initiatives, then its coding sessions, follow.
 export function ProjectPage() {
   const { t } = useTranslation([ 'projects', 'common' ])
   const dispatch = useAppDispatch()
@@ -118,6 +120,8 @@ export function ProjectPage() {
     <ProjectBanner project={project} />
 
     <ProjectGithubField project={project} />
+
+    <ProjectWork projectId={project.id} />
 
     <section>
       <h2 className='compact text-xl font-semibold'>{t('page.sessionsHeading')}</h2>

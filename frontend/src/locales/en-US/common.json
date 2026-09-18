@@ -40,6 +40,9 @@
     "previousPage": "Previous page",
     "nextPage": "Next page"
   },
+  "picker": {
+    "placeholder": "Choose"
+  },
   "imagePreview": {
     "open": "View {{name}} larger"
   }
