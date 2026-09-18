@@ -139,7 +139,11 @@ body is refused.
 - A different `siteUrl` also needs `projects` and `boards`, since selections made on the old site mean nothing on
   the new one.
 - Any request carrying `projects` or `boards` is re-checked against Jira before it is stored, exactly as a create
-  is.
+  is. A `token` on its own is checked the same way, and the row records the check.
+- A body that names only values the credential already holds changes nothing and answers `400`, rather than
+  writing an empty update.
+
+A rename calls Jira not at all.
 
 ### `POST /discover`
 
@@ -194,7 +198,12 @@ pages with an opaque `nextPageToken` and reports `isLast`; the older offset endp
 is deprecated, and neither an offset nor a total count is available. Send no token for the first page, then send
 back the `nextPageToken` from the previous answer. `nextPageToken` is null on the last page.
 
-`maxResults` is 1 to 100, defaulting to 50. The ceiling is Elysium's own; Jira may return fewer.
+`maxResults` is 1 to 100, defaulting to 50. The ceiling is Elysium's own; Jira may return fewer. Any other query
+parameter answers `400` rather than being ignored, so a `startAt` left over from the old endpoint is reported
+instead of quietly returning page one forever.
+
+A credential whose project list is empty can match nothing, so it answers an empty page with `isLast: true`
+without calling Jira at all.
 
 ```json
 {
@@ -226,9 +235,13 @@ An `Issue` is the same shape everywhere it appears:
 }
 ```
 
-`priority`, `assignee`, `reporter`, and `description` are null when Jira reports none. `description` and `comments`
-are filled in only by `GET /{id}/issues/{key}`; a search leaves them null and empty, since a listing has no use for
-them and they are the largest part of an issue.
+Every field but `id`, `key`, `projectKey`, `summary`, `labels`, and `url` can be null: Jira reports a status, a
+type, a priority, or a person only when the project has one, and Elysium passes that through rather than inventing
+a value. `description` and `comments` are filled in only by `GET /{id}/issues/{key}`; a search leaves them null and
+empty, since a listing has no use for them and they are the largest part of an issue.
+
+`projectKey` is what Jira reports the issue is in now, not the prefix of the key that was asked for, which is what
+makes the check after a call meaningful.
 
 `POST /{id}/issues` takes `{ projectKey, issueType, summary, description?, labels?, priority?, assigneeAccountId?,
 parentKey? }` and answers the created issue, read back from Jira. `PATCH /{id}/issues/{key}` takes any subset of
@@ -324,5 +337,11 @@ Issues are not pushed. Jira has no stream Elysium listens to, so an issue view r
 - Action items: work Elysium tracks itself, created from and synced to Jira issues, built on these credentials and
   bounded by the same allowlist.
 - Board contents: sprints and their issues, which the stored boards already name.
+- A remembered reachability per selection, so the credentials list can mark a project the token has lost access to
+  without anyone pressing Test. A `JiraCredential` is built from stored rows and costs no Jira call today, and the
+  two ways to change that are both worse than the gap: calling Jira once per credential would make the settings
+  page as slow as the slowest site, and storing what the last check found would show a boolean that is only as
+  current as the last time someone looked. Today `POST /{id}/test` reports it live and publishes the refreshed
+  credential on the event stream, and the edit form's listings mark what is selected.
 - A searchable picker for sites with more projects or boards than one page cap holds.
 - Webhooks, so an issue changed in Jira reaches the event stream instead of waiting for a refetch.

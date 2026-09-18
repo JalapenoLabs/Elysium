@@ -69,6 +69,20 @@ Everything else follows these rules:
   `api/src/github/` is the only caller, and `api.github.com` is fixed in code; GitHub Enterprise Server is not
   supported.
 
+## Jira
+
+- Elysium holds any number of Jira Cloud credentials, managed under Settings, Jira. A credential is a site, an
+  account email, and an API token sealed in Postgres. Jira Data Center is not supported. See `docs/jira.md`.
+- A credential names the projects and boards it may touch, or `*` for all, stored the way storage locations store
+  their projects. The user picks from what Jira reports their token can reach; no key or id is ever typed.
+- Every call is bounded by that list in one place, `api/src/routes/v1/jira_credentials/allowlist.rs`: an issue
+  key's project is checked before the call, the project Jira answers with is checked after it, and a search is
+  bounded by rewriting its JQL rather than filtering results. Outside the list answers `403`.
+- `api/src/jira/` is the only caller. Each credential names its own site, so the host is validated rather than
+  fixed in code: https on `.atlassian.net`, stored as the origin alone.
+- Issue text is Atlassian Document Format. Elysium takes plain text and wraps it, and returns both the stored
+  document and a plain rendering.
+
 ## Environment variables
 
 - Global environment variables, managed under Settings, Environment variables, are passed into every coding session's
