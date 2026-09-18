@@ -20,7 +20,7 @@ use crate::action_items::progress::Membership;
 use crate::action_items::{Actor, WorkError};
 use crate::database::schema::{action_items, initiative_items, initiative_projects, initiatives};
 use crate::models::action_item::ProjectFilter;
-use crate::models::action_item_event::{self, Change, HistoryKind, Recorded, Subject};
+use crate::models::action_item_event::{self, Change, HistoryKind, Recorded, Subject, replaced};
 use crate::models::project;
 
 /// Where an initiative stands.
@@ -373,10 +373,7 @@ pub async fn update(
             if let Some(name) = changes.name
                 && name != initiative.name
             {
-                diff.insert(
-                    "name".to_owned(),
-                    json!({ "from": initiative.name, "to": name }),
-                );
+                diff.insert("name".to_owned(), replaced(&initiative.name, &name));
                 changeset.name = Some(name);
             }
             if let Some(description) = changes.description
@@ -384,7 +381,7 @@ pub async fn update(
             {
                 diff.insert(
                     "description".to_owned(),
-                    json!({ "from": initiative.description, "to": description }),
+                    replaced(&initiative.description, &description),
                 );
                 changeset.description = Some(description);
             }
@@ -393,17 +390,14 @@ pub async fn update(
             {
                 diff.insert(
                     "targetAt".to_owned(),
-                    json!({ "from": initiative.target_at, "to": target_at }),
+                    replaced(initiative.target_at, target_at),
                 );
                 changeset.target_at = Some(target_at);
             }
             if let Some(state) = changes.state
                 && state != initiative.state
             {
-                diff.insert(
-                    "state".to_owned(),
-                    json!({ "from": initiative.state, "to": state }),
-                );
+                diff.insert("state".to_owned(), replaced(initiative.state, state));
                 changeset.state = Some(state);
             }
 
@@ -532,7 +526,7 @@ pub async fn add_project(
     connection
         .transaction(async move |connection| {
             let initiative = lock_live(connection, id).await?;
-            project::find(connection, project_id).await?;
+            project::lock_shared(connection, project_id).await?;
             let inserted = diesel::insert_into(initiative_projects::table)
                 .values(ProjectLinkRow {
                     initiative_id: id,
@@ -582,36 +576,73 @@ pub async fn remove_project(
     connection
         .transaction(async move |connection| {
             let initiative = lock_live(connection, id).await?;
-            let removed = diesel::delete(
-                initiative_projects::table
-                    .filter(initiative_projects::initiative_id.eq(id))
-                    .filter(initiative_projects::project_id.eq(project_id)),
-            )
-            .execute(connection)
-            .await?;
-            if removed == 0 {
-                return Ok(Recorded {
-                    record: initiative,
-                    history: Vec::new(),
-                });
-            }
-            let entry = action_item_event::record(
-                connection,
-                Change {
-                    subject: Subject::Initiative(id),
-                    kind: HistoryKind::ProjectRemoved,
-                    actor,
-                    data: json!({ "projectId": project_id }),
-                    at: now,
-                },
-            )
-            .await?;
-            Ok(Recorded {
-                record: initiative,
-                history: vec![entry],
-            })
+            Ok(unlink_project(connection, initiative, project_id, actor, now).await?)
         })
         .await
+}
+
+/// Takes every initiative, deleted ones included, out of a project about to be deleted,
+/// so each records the removal instead of losing it silently to the cascade. Call it inside
+/// the transaction that deletes the project, after [`project::lock_for_delete`].
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn remove_all_from_project(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> QueryResult<Vec<Recorded<Initiative>>> {
+    let initiative_ids: Vec<Uuid> = initiative_projects::table
+        .filter(initiative_projects::project_id.eq(project_id))
+        .order(initiative_projects::initiative_id)
+        .select(initiative_projects::initiative_id)
+        .load(connection)
+        .await?;
+    let mut removed = Vec::new();
+    for initiative_id in initiative_ids {
+        let initiative = lock(connection, initiative_id).await?;
+        removed.push(unlink_project(connection, initiative, project_id, actor, now).await?);
+    }
+    Ok(removed)
+}
+
+/// Deletes the initiative's link to the project and records it, if there was one.
+async fn unlink_project(
+    connection: &mut AsyncPgConnection,
+    initiative: Initiative,
+    project_id: Uuid,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> QueryResult<Recorded<Initiative>> {
+    let removed = diesel::delete(
+        initiative_projects::table
+            .filter(initiative_projects::initiative_id.eq(initiative.id))
+            .filter(initiative_projects::project_id.eq(project_id)),
+    )
+    .execute(connection)
+    .await?;
+    if removed == 0 {
+        return Ok(Recorded {
+            record: initiative,
+            history: Vec::new(),
+        });
+    }
+    let entry = action_item_event::record(
+        connection,
+        Change {
+            subject: Subject::Initiative(initiative.id),
+            kind: HistoryKind::ProjectRemoved,
+            actor,
+            data: json!({ "projectId": project_id }),
+            at: now,
+        },
+    )
+    .await?;
+    Ok(Recorded {
+        record: initiative,
+        history: vec![entry],
+    })
 }
 
 #[cfg(test)]

@@ -16,13 +16,13 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, json};
 use uuid::Uuid;
 
 use crate::action_items::{Actor, Transition, WorkError, next};
 use crate::database::schema::{action_item_projects, action_items, initiative_items, initiatives};
 use crate::models::action_item_event::{
-    self, Change, HistoryEntry, HistoryKind, Recorded, Subject,
+    self, Change, HistoryEntry, HistoryKind, Recorded, Subject, replaced,
 };
 use crate::models::project;
 
@@ -196,7 +196,9 @@ pub struct ActionItemFilter {
     /// Items in any of these states; empty for every state.
     pub states: Vec<ActionItemState>,
     pub project: Option<ProjectFilter>,
-    /// Items currently in this initiative.
+    /// Items currently in this initiative, even a deleted one: restoring an initiative
+    /// republishes its members through this filter. Responses hide deleted initiatives from
+    /// an item's `initiativeIds` instead.
     pub initiative: Option<Uuid>,
     /// Items waiting on someone, or not.
     pub waiting: Option<bool>,
@@ -281,11 +283,6 @@ struct InitiativeSpanRow {
     initiative_id: Uuid,
     action_item_id: Uuid,
     joined_at: DateTime<Utc>,
-}
-
-/// `{ from, to }`, the shape every replaced value takes in history.
-fn replaced(from: impl Serialize, to: impl Serialize) -> Value {
-    json!({ "from": from, "to": to })
 }
 
 /// Loads an item for a write, locking its row until the transaction ends.
@@ -389,7 +386,8 @@ pub async fn list(
         .await
 }
 
-/// Next as of `now`, in order, and how many items wait in the inbox.
+/// Next as of `now`, in order, and how many items wait in the inbox. The inbox is one
+/// list to triage, so it counts every live inbox item whoever owns it.
 ///
 /// An item is in Next when it is open, the user's, not deleted, not waiting on anyone,
 /// and not snoozed past `now`. The order is [`next::order`].
@@ -490,18 +488,20 @@ pub async fn current_initiative_ids(
         .await
 }
 
-/// Refuses initiative ids that name no initiative, or a deleted one.
+/// Refuses initiative ids that name no initiative, or a deleted one. The rows stay
+/// share-locked until the transaction ends, so none can be deleted before the item joins.
 async fn require_live_initiatives(
     connection: &mut AsyncPgConnection,
     initiative_ids: &[Uuid],
 ) -> Result<(), WorkError> {
-    let live: i64 = initiatives::table
+    let live: Vec<Uuid> = initiatives::table
         .filter(initiatives::id.eq_any(initiative_ids))
         .filter(initiatives::deleted_at.is_null())
-        .count()
-        .get_result(connection)
+        .for_share()
+        .select(initiatives::id)
+        .load(connection)
         .await?;
-    if usize::try_from(live).ok() != Some(initiative_ids.len()) {
+    if live.len() != initiative_ids.len() {
         return Err(WorkError::Invalid(
             "initiativeIds lists an initiative that does not exist or is deleted",
         ));
@@ -591,9 +591,10 @@ pub async fn create(
     connection
         .transaction(async move |connection| {
             require_live_initiatives(connection, &initiative_ids).await?;
-            diesel::insert_into(action_items::table)
+            let record = diesel::insert_into(action_items::table)
                 .values(row)
-                .execute(connection)
+                .returning(ActionItem::as_returning())
+                .get_result(connection)
                 .await?;
             diesel::insert_into(action_item_projects::table)
                 .values(project_links)
@@ -617,7 +618,6 @@ pub async fn create(
                 history.push(join(connection, id, initiative_id, actor, now).await?);
             }
 
-            let record = find(connection, id).await?;
             Ok(Recorded { record, history })
         })
         .await
@@ -866,7 +866,7 @@ pub async fn add_project(
     connection
         .transaction(async move |connection| {
             let item = lock_live(connection, id).await?;
-            project::find(connection, project_id).await?;
+            project::lock_shared(connection, project_id).await?;
             let inserted = diesel::insert_into(action_item_projects::table)
                 .values(ProjectLinkRow {
                     action_item_id: id,
@@ -915,36 +915,73 @@ pub async fn remove_project(
     connection
         .transaction(async move |connection| {
             let item = lock_live(connection, id).await?;
-            let removed = diesel::delete(
-                action_item_projects::table
-                    .filter(action_item_projects::action_item_id.eq(id))
-                    .filter(action_item_projects::project_id.eq(project_id)),
-            )
-            .execute(connection)
-            .await?;
-            if removed == 0 {
-                return Ok(Recorded {
-                    record: item,
-                    history: Vec::new(),
-                });
-            }
-            let entry = action_item_event::record(
-                connection,
-                Change {
-                    subject: Subject::Item(id),
-                    kind: HistoryKind::ProjectRemoved,
-                    actor,
-                    data: json!({ "projectId": project_id }),
-                    at: now,
-                },
-            )
-            .await?;
-            Ok(Recorded {
-                record: item,
-                history: vec![entry],
-            })
+            Ok(unlink_project(connection, item, project_id, actor, now).await?)
         })
         .await
+}
+
+/// Takes every item, deleted ones included, out of a project about to be deleted, so each
+/// records the removal instead of losing it silently to the cascade. Call it inside the
+/// transaction that deletes the project, after [`project::lock_for_delete`].
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn remove_all_from_project(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> QueryResult<Vec<Recorded<ActionItem>>> {
+    let item_ids: Vec<Uuid> = action_item_projects::table
+        .filter(action_item_projects::project_id.eq(project_id))
+        .order(action_item_projects::action_item_id)
+        .select(action_item_projects::action_item_id)
+        .load(connection)
+        .await?;
+    let mut removed = Vec::new();
+    for item_id in item_ids {
+        let item = lock(connection, item_id).await?;
+        removed.push(unlink_project(connection, item, project_id, actor, now).await?);
+    }
+    Ok(removed)
+}
+
+/// Deletes the item's link to the project and records it, if there was one.
+async fn unlink_project(
+    connection: &mut AsyncPgConnection,
+    item: ActionItem,
+    project_id: Uuid,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> QueryResult<Recorded<ActionItem>> {
+    let removed = diesel::delete(
+        action_item_projects::table
+            .filter(action_item_projects::action_item_id.eq(item.id))
+            .filter(action_item_projects::project_id.eq(project_id)),
+    )
+    .execute(connection)
+    .await?;
+    if removed == 0 {
+        return Ok(Recorded {
+            record: item,
+            history: Vec::new(),
+        });
+    }
+    let entry = action_item_event::record(
+        connection,
+        Change {
+            subject: Subject::Item(item.id),
+            kind: HistoryKind::ProjectRemoved,
+            actor,
+            data: json!({ "projectId": project_id }),
+            at: now,
+        },
+    )
+    .await?;
+    Ok(Recorded {
+        record: item,
+        history: vec![entry],
+    })
 }
 
 /// Puts a live item into a live initiative. Joining one it is already in changes nothing.
@@ -962,8 +999,10 @@ pub async fn join_initiative(
     connection
         .transaction(async move |connection| {
             let item = lock_live(connection, id).await?;
+            // Share-locked, so a concurrent delete waits for the join, or the join sees it.
             let initiative_deleted_at: Option<DateTime<Utc>> = initiatives::table
                 .find(initiative_id)
+                .for_share()
                 .select(initiatives::deleted_at)
                 .first(connection)
                 .await?;
@@ -1728,5 +1767,74 @@ mod tests {
             .execute(&mut connection)
             .await
             .expect_err("action_items_owner_name_set refuses a name for the user");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn deleting_a_project_records_each_removal_instead_of_cascading_silently() {
+        let (_url, mut connection) = migrated_database().await;
+        let project = project::create(
+            &mut connection,
+            &NewProject {
+                name: "Retired".to_owned(),
+                description: String::new(),
+            },
+        )
+        .await
+        .expect("project");
+        let in_project = |title: &str| NewActionItem {
+            project_ids: vec![project.id],
+            ..new_item(title)
+        };
+        let live = create_at(&mut connection, in_project("live"), minute(0)).await;
+        let trashed = create_at(&mut connection, in_project("trashed"), minute(0)).await;
+        soft_delete(&mut connection, trashed.id, Actor::User, minute(1))
+            .await
+            .expect("delete");
+        let launch = initiative::create(
+            &mut connection,
+            NewInitiative {
+                project_ids: vec![project.id],
+                ..new_initiative("Launch")
+            },
+            Actor::User,
+            minute(0),
+        )
+        .await
+        .expect("initiative")
+        .record;
+
+        let (items, initiatives) = connection
+            .transaction(async move |connection| {
+                project::lock_for_delete(connection, project.id).await?;
+                let items =
+                    remove_all_from_project(connection, project.id, Actor::User, minute(2)).await?;
+                let initiatives = initiative::remove_all_from_project(
+                    connection,
+                    project.id,
+                    Actor::User,
+                    minute(2),
+                )
+                .await?;
+                project::delete(connection, project.id).await?;
+                Ok::<_, diesel::result::Error>((items, initiatives))
+            })
+            .await
+            .expect("project deleted");
+
+        assert_eq!(items.len(), 2, "deleted items leave the project too");
+        assert_eq!(initiatives.len(), 1);
+        for id in [live.id, trashed.id] {
+            let kinds = history_kinds(&mut connection, id).await;
+            assert_eq!(kinds.last().map(String::as_str), Some("project_removed"));
+        }
+        let initiative_kinds: Vec<String> =
+            crate::models::action_item_event::list_for_initiative(&mut connection, launch.id)
+                .await
+                .expect("history")
+                .into_iter()
+                .map(|entry| entry.kind)
+                .collect();
+        assert_eq!(initiative_kinds, ["created", "project_removed"]);
     }
 }

@@ -13,7 +13,8 @@
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
-use serde_json::Value;
+use serde::Serialize;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::action_items::Actor;
@@ -107,6 +108,11 @@ pub struct Change {
     pub actor: Actor,
     pub data: Value,
     pub at: DateTime<Utc>,
+}
+
+/// `{ from, to }`, the shape every replaced value takes in history.
+pub fn replaced(from: impl Serialize, to: impl Serialize) -> Value {
+    json!({ "from": from, "to": to })
 }
 
 /// A record as a write left it, with the history entries the write recorded.

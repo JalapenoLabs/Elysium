@@ -251,8 +251,8 @@ The transitions answer `409` when the item's state does not allow them. Every wr
 answers `409`, as do deleting a deleted item and restoring one that is not.
 
 Membership routes are idempotent: adding an item to a project or initiative it is in, or removing it from one it is
-not in, answers the item unchanged. An unknown project or initiative answers `404`, and joining a deleted initiative
-`409`.
+not in, answers the item unchanged. Adding to an unknown project or initiative answers `404`, and joining a deleted
+initiative `409`. Deleting a project takes its items and initiatives out of it, each recording the removal.
 
 A `Comment` has `id`, `actionItemId`, `author`, `body` (1 to 20,000 characters), `createdAt`, and `updatedAt`. `POST`
 and `PATCH` take `{ body }`. Editing or deleting a comment someone else wrote answers `409`.

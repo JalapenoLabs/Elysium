@@ -337,7 +337,8 @@ fn validate_owner(owner: &Owner) -> Result<(), ValidationError> {
     }
 }
 
-/// Parses a comma-separated query value, such as `state=inbox,open`, into a list.
+/// Parses a comma-separated query value, such as `state=inbox,open`, into a list. Empty
+/// values are skipped, so `state=` filters on nothing.
 ///
 /// # Errors
 /// Fails naming the first value that does not parse.
@@ -348,8 +349,10 @@ where
 {
     let text = String::deserialize(deserializer)?;
     text.split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .map(|value| {
-            Item::deserialize(value.trim().into_deserializer())
+            Item::deserialize(value.into_deserializer())
                 .map_err(|error: serde::de::value::Error| serde::de::Error::custom(error))
         })
         .collect()
@@ -408,6 +411,7 @@ mod tests {
             [ActionItemState::Inbox, ActionItemState::Open]
         );
         assert!(query("").expect("parses").state.is_empty());
+        assert!(query("state=").expect("parses").state.is_empty());
         query("state=inbox,archived").expect_err("archived is not a state");
     }
 
