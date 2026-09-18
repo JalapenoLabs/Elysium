@@ -471,6 +471,31 @@ pub async fn memberships(
     Ok(memberships)
 }
 
+/// How many live items are in the initiative now without being in the project.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn count_in_initiative_outside_project(
+    connection: &mut AsyncPgConnection,
+    initiative_id: Uuid,
+    project_id: Uuid,
+) -> QueryResult<i64> {
+    let members = initiative_items::table
+        .filter(initiative_items::initiative_id.eq(initiative_id))
+        .filter(initiative_items::left_at.is_null())
+        .select(initiative_items::action_item_id);
+    let in_project = action_item_projects::table
+        .filter(action_item_projects::project_id.eq(project_id))
+        .select(action_item_projects::action_item_id);
+    action_items::table
+        .filter(action_items::deleted_at.is_null())
+        .filter(action_items::id.eq_any(members))
+        .filter(diesel::dsl::not(action_items::id.eq_any(in_project)))
+        .count()
+        .get_result(connection)
+        .await
+}
+
 /// Every initiative the item is in now, deleted or not. A change to the item changes
 /// their progress.
 ///

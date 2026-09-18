@@ -256,12 +256,13 @@ Every call is scoped to the session's project and re-checked against the databas
 | `work_items`       | optional `states`, `initiativeId`, `waiting`, `search`, `limit` | `{ items, moreItems }`, newest first, without notes    |
 | `work_item`        | `itemId`                                                   | The item with its notes, comments, latest 50 history entries, projects, and initiatives |
 | `work_initiatives` | optional `states`                                          | `{ initiatives }` with progress, by name                    |
-| `work_initiative`  | `initiativeId`                                             | The initiative with its description and the project's items in it |
+| `work_initiative`  | `initiativeId`                                             | The initiative with its description and the project's items in it, up to 200 with `moreItems` |
 | `work_comment`     | `itemId`, `body`                                           | `{ comment }`                                               |
 
 - An item or initiative is reachable while it is live and in the session's project, as the database says at the
   moment of the call. Anything else is refused the same way, deleted or elsewhere, pointing the agent at the list
-  tool. An initiative's members in other projects are counted, not shown; its progress counts them all.
+  tool. That holds for an initiative `work_items` filters on too. An initiative's members in other projects are
+  counted, not shown; its progress counts them all.
 - `work_items` lists items in the inbox or open unless asked for other states, at most 50 unless `limit` says
   otherwise, up to 200. `search` matches the title or notes, ignoring case.
 - The agent reads items and initiatives in its project and comments on its project's items. A comment is written as

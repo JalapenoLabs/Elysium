@@ -467,6 +467,7 @@ async fn initiatives_list_and_show_only_the_projects_own() {
         "only the project's own members are shown"
     );
     assert_eq!(initiative["itemsOutsideProject"], 1);
+    assert_eq!(initiative["moreItems"], false);
 
     let refused = initiative_detail(&mut connection, scope, elsewhere.id, now)
         .await
@@ -633,5 +634,36 @@ async fn an_items_history_keeps_its_latest_entries_and_counts_them_all() {
             .len(),
         HISTORY_MAX,
         "every comment is shown"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn items_cannot_be_filtered_on_another_projects_initiative() {
+    let (_url, mut connection) = migrated_database().await;
+    let Fixture {
+        scope,
+        other_project,
+    } = fixture(&mut connection).await;
+    let elsewhere = initiative_in(&mut connection, "Elsewhere", vec![other_project]).await;
+    // Ours, and in their initiative: the filter must not become a way to read it.
+    item_in(
+        &mut connection,
+        "Ours",
+        vec![scope.project_id],
+        vec![elsewhere.id],
+    )
+    .await;
+
+    let filtered = ItemsArguments {
+        initiative_id: Some(elsewhere.id),
+        ..ItemsArguments::default()
+    };
+    let refused = list_items(&mut connection, scope, filtered, Utc::now())
+        .await
+        .expect_err("another project's initiative");
+    assert_eq!(
+        refusal(refused),
+        ToolError::InitiativeUnavailable(elsewhere.id)
     );
 }

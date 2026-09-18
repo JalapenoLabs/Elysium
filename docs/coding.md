@@ -100,9 +100,12 @@ The satellite's idempotency key is a fresh UUIDv7 for each create request, never
 across installs and after a database reset. It makes the SDK's retries of that one request safe; a client that sends
 the create again opens a second thread.
 
-A create may carry the first prompt, which the API queues as the thread's first turn before recording the row. If the
-turn cannot be queued or the row cannot be recorded, the API destroys the thread instead of leaving it running
-unrecorded, so a create yields a session with its first turn queued or nothing.
+A create may carry the first prompt, which the API queues as the thread's first turn once the row is recorded and the
+session's watcher and relay are started, so the relayed tools the turn asks for have Elysium attached as early as it
+can be. The relay still connects on its own task, so a tool call the agent makes in the moment before it attaches
+fails like any call with no client attached; an agent reaches its first tool call only after a model round trip, far
+longer than the connect. If the row cannot be recorded or the turn cannot be queued, the API destroys the thread and
+removes the row instead of leaving either behind, so a create yields a session with its first turn queued or nothing.
 
 A session can be started from an action item. It then belongs to one of the item's projects, or any project when the
 item has none, records the item, and requires a first prompt, which follows the item's context in the first turn. See

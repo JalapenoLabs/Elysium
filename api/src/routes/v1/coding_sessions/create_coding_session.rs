@@ -11,13 +11,15 @@
 //! repeated key would hand back another session's thread. The key makes the SDK's own
 //! retries of this one request safe; a client that posts again opens a second thread.
 //!
-//! A prompt, when given, is queued as the thread's first turn before the row is recorded. A
-//! session started from an action item must have one, and its first turn carries the item's
-//! context ahead of it (see `first_turn`).
+//! A prompt, when given, is queued as the thread's first turn. A session started from an
+//! action item must have one, and its first turn carries the item's context ahead of it (see
+//! `first_turn`). The turn is queued only once the session is recorded and its watcher and
+//! relay are started, so the tools the turn asks the agent to call have a client answering
+//! them as early as Elysium can manage.
 //!
-//! If queuing the first turn or recording the row fails, the thread is destroyed rather than
-//! left running with nothing pointing at it, so a create either yields a session with its
-//! first turn queued or nothing.
+//! If recording the row or queuing the first turn fails, the thread is destroyed rather than
+//! left running with nothing pointing at it, and a recorded row is removed with it, so a
+//! create either yields a session with its first turn queued or nothing.
 //!
 //! A session clones any number of repositories up to [`MAX_REPOSITORIES`], each into its own
 //! directory under the workspace's `repos/`. The satellite checks that each name is safe but
@@ -185,13 +187,6 @@ pub async fn handle(
         )
         .await?;
 
-    if let Some(first_turn) = first_turn
-        && let Err(turn_error) = created.handle.start_turn(first_turn).await
-    {
-        abandon_thread(&created.handle, satellite.id).await;
-        return Err(turn_error.into());
-    }
-
     let new_session = NewCodingSession {
         id: session_id,
         project_id: project.id,
@@ -205,6 +200,9 @@ pub async fn handle(
 
     let thread = ThreadStatus::from(&created.thread);
     state.fleet.watch_session(session.clone());
+    if let Some(first_turn) = first_turn {
+        queue_or_discard(&state, &created.handle, &session, first_turn).await?;
+    }
     state
         .events
         .publish(&ServerEvent::SessionUpserted(CodingSessionResponse::new(
@@ -240,6 +238,46 @@ async fn record_or_abandon(
         abandon_thread(handle, new_session.satellite_id).await;
     }
     recorded
+}
+
+/// Queues a new session's first turn, or, when the satellite refuses it, discards the session
+/// whole: its thread, its watchers, and its row. Nothing has been announced yet, so no client
+/// ever saw it.
+///
+/// # Errors
+/// Answers the satellite's refusal of the turn.
+async fn queue_or_discard(
+    state: &AppState,
+    handle: &ThreadHandle,
+    session: &CodingSession,
+    first_turn: String,
+) -> Result<(), ApiError> {
+    let Err(turn_error) = handle.start_turn(first_turn).await else {
+        return Ok(());
+    };
+    state.fleet.forget_session(session.id);
+    abandon_thread(handle, session.satellite_id).await;
+    match state.database.get().await {
+        Ok(mut connection) => {
+            if let Err(database_error) = coding_session::delete(&mut connection, session.id).await {
+                event!(
+                    name: "coding_session.create.orphaned_row",
+                    Level::ERROR,
+                    session.id = %session.id,
+                    error.message = %database_error,
+                    "could not remove a session whose first turn was refused; delete it by hand",
+                );
+            }
+        }
+        Err(pool_error) => event!(
+            name: "coding_session.create.orphaned_row",
+            Level::ERROR,
+            session.id = %session.id,
+            error.message = %pool_error,
+            "could not remove a session whose first turn was refused; delete it by hand",
+        ),
+    }
+    Err(turn_error.into())
 }
 
 /// Destroys a thread whose session could not be completed. A thread that will not go is

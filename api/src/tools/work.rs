@@ -89,7 +89,8 @@ const TOOLS: [Tool; 6] = [
     Tool {
         name: "work_initiative",
         description: "Shows one initiative: its description, target date, progress, and the \
-            items of this project that belong to it.",
+            items of this project that belong to it, in every state, newest first, with \
+            moreItems when there are more than one answer holds.",
         input_schema: initiative_schema,
         run: |context, scope, arguments| run_initiative(context, scope, arguments).boxed(),
     },
@@ -504,6 +505,9 @@ async fn items_in_project(
     if !(1..=ITEMS_MAX).contains(&limit) {
         return Err(ToolError::Invalid(format!("limit must be from 1 to {ITEMS_MAX}")).into());
     }
+    if let Some(initiative_id) = arguments.initiative_id {
+        find_initiative(connection, scope, initiative_id).await?;
+    }
     let filter = ActionItemFilter {
         states: arguments
             .states
@@ -596,7 +600,8 @@ async fn initiatives_in_project(
     initiative_summaries(connection, &initiatives, now).await
 }
 
-/// One initiative of the project with its description and the project's items in it.
+/// One initiative of the project with its description and the project's items in it, in
+/// every state, newest first and at most [`ITEMS_MAX`] of them.
 ///
 /// Members outside the project are counted, not shown: the session reaches its own
 /// project's items only, while progress counts every member.
@@ -606,6 +611,47 @@ async fn initiative_detail(
     initiative_id: Uuid,
     now: DateTime<Utc>,
 ) -> Result<Value, Failure> {
+    let found = find_initiative(connection, scope, initiative_id).await?;
+    let mut summary = initiative_summaries(connection, std::slice::from_ref(&found), now)
+        .await?
+        .pop()
+        .expect("one initiative in, one summary out");
+    summary["description"] = json!(found.description);
+
+    let members = ItemsArguments {
+        states: Some(vec![
+            ActionItemState::Inbox,
+            ActionItemState::Open,
+            ActionItemState::Resolved,
+            ActionItemState::Dismissed,
+        ]),
+        initiative_id: Some(initiative_id),
+        limit: Some(ITEMS_MAX),
+        ..ItemsArguments::default()
+    };
+    let (items, more_items) = items_in_project(connection, scope, members, now).await?;
+    let outside_project = action_item::count_in_initiative_outside_project(
+        connection,
+        initiative_id,
+        scope.project_id,
+    )
+    .await?;
+    summary["items"] = json!(items);
+    summary["moreItems"] = json!(more_items);
+    summary["itemsOutsideProject"] = json!(outside_project);
+    Ok(json!({ "initiative": summary }))
+}
+
+/// A live initiative of the session's project.
+///
+/// # Errors
+/// Refuses with [`ToolError::InitiativeUnavailable`] an initiative that does not exist, is
+/// deleted, or is not in the project.
+async fn find_initiative(
+    connection: &mut AsyncPgConnection,
+    scope: WorkScope,
+    initiative_id: Uuid,
+) -> Result<Initiative, Failure> {
     let unavailable = || Failure::Refused(ToolError::InitiativeUnavailable(initiative_id));
     let found = initiative::find(connection, initiative_id)
         .await
@@ -620,35 +666,7 @@ async fn initiative_detail(
     if found.deleted_at.is_some() || !is_in_project {
         return Err(unavailable());
     }
-
-    let mut summary = initiative_summaries(connection, std::slice::from_ref(&found), now)
-        .await?
-        .pop()
-        .expect("one initiative in, one summary out");
-    summary["description"] = json!(found.description);
-
-    let every_member = ActionItemFilter {
-        initiative: Some(initiative_id),
-        ..ActionItemFilter::default()
-    };
-    let members = action_item::list(connection, &every_member, now).await?;
-    let member_ids: Vec<Uuid> = members.iter().map(|item| item.id).collect();
-    let memberships = action_item::memberships(connection, &member_ids).await?;
-    let mut items = Vec::new();
-    let mut outside_project = 0_usize;
-    for member in &members {
-        if memberships
-            .project_ids(member.id)
-            .contains(&scope.project_id)
-        {
-            items.push(item_summary(member, &memberships));
-        } else {
-            outside_project += 1;
-        }
-    }
-    summary["items"] = json!(items);
-    summary["itemsOutsideProject"] = json!(outside_project);
-    Ok(json!({ "initiative": summary }))
+    Ok(found)
 }
 
 /// Writes `arguments.body` on an item of the project as the session.
