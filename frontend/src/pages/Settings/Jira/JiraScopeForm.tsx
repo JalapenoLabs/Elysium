@@ -16,6 +16,7 @@ import { jiraCredentialUpserted } from '../../../store/jiraCredentialsSlice'
 // User interface
 import { Alert, Button, Card, Form, toast } from '@heroui/react'
 import { JiraScopeFields } from './JiraScopeFields'
+import { JiraSetupChecklist } from './JiraSetupChecklist'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
@@ -81,53 +82,61 @@ export function JiraScopeForm(props: Props) {
     }
   }
 
-  return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
-    <Card>
-      <Card.Header>
-        <Card.Title>{props.connection.name}</Card.Title>
-        <Card.Description>{
-          // Atlassian lets an account hide its address, so the name stands alone then.
-          props.discovery.account.email
-            ? t('steps.connectedAs', {
-              name: props.discovery.account.displayName,
-              email: props.discovery.account.email,
-            })
-            : t('steps.connectedAsHidden', { name: props.discovery.account.displayName })
-        }</Card.Description>
-      </Card.Header>
-      <Card.Content className='flex flex-col gap-1 text-sm opacity-70'>
-        <span>{props.connection.siteUrl}</span>
-        <span>{t('steps.reachable', { count: props.discovery.projects.length })}</span>
-        <span>{t('steps.reachableBoards', { count: props.discovery.boards.length })}</span>
-      </Card.Content>
-    </Card>
+  // The same two columns as the first step, so the form keeps its width across them. The
+  // checklist stays because stepping back lands on the token again.
+  return <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
+    <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
+      <Card>
+        <Card.Header>
+          <Card.Title>{props.connection.name}</Card.Title>
+          <Card.Description>{
+            // Atlassian lets an account hide its address, so the name stands alone then.
+            props.discovery.account.email
+              ? t('steps.connectedAs', {
+                name: props.discovery.account.displayName,
+                email: props.discovery.account.email,
+              })
+              : t('steps.connectedAsHidden', { name: props.discovery.account.displayName })
+          }</Card.Description>
+        </Card.Header>
+        <Card.Content className='flex flex-col gap-1 text-sm opacity-70'>
+          <span>{props.connection.siteUrl}</span>
+          <span>{t('steps.reachable', { count: props.discovery.projects.length })}</span>
+          <span>{t('steps.reachableBoards', { count: props.discovery.boards.length })}</span>
+        </Card.Content>
+      </Card>
 
-    <p className='text-sm opacity-70'>{t('steps.chooseHint')}</p>
+      <p className='text-sm opacity-70'>{t('steps.chooseHint')}</p>
 
-    <JiraScopeFields
-      projectOptions={props.discovery.projects}
-      boardOptions={props.discovery.boards}
-      projectsTruncated={props.discovery.projectsTruncated}
-      boardsTruncated={props.discovery.boardsTruncated}
-      value={scope}
-      onChange={setScope}
-      isDisabled={isSubmitting}
-    />
+      <JiraScopeFields
+        projectOptions={props.discovery.projects}
+        boardOptions={props.discovery.boards}
+        projectsTruncated={props.discovery.projectsTruncated}
+        boardsTruncated={props.discovery.boardsTruncated}
+        value={scope}
+        onChange={setScope}
+        isDisabled={isSubmitting}
+      />
 
-    {failureMessage && <Alert status='danger'>
-      <Alert.Indicator />
-      <Alert.Content>
-        <Alert.Description>{failureMessage}</Alert.Description>
-      </Alert.Content>
-    </Alert>}
+      {failureMessage && <Alert status='danger'>
+        <Alert.Indicator />
+        <Alert.Content>
+          <Alert.Description>{failureMessage}</Alert.Description>
+        </Alert.Content>
+      </Alert>}
 
-    <div className='mt-2 flex justify-end gap-2'>
-      <Button variant='tertiary' onPress={props.onBack}>
-        <span>{t('steps.back')}</span>
-      </Button>
-      <Button type='submit' isPending={isSubmitting}>
-        <span>{t('common:actions.save')}</span>
-      </Button>
-    </div>
-  </Form>
+      <div className='mt-2 flex justify-end gap-2'>
+        <Button variant='tertiary' onPress={props.onBack}>
+          <span>{t('steps.back')}</span>
+        </Button>
+        <Button type='submit' isPending={isSubmitting}>
+          <span>{t('common:actions.save')}</span>
+        </Button>
+      </div>
+    </Form>
+
+    <aside className='lg:sticky lg:top-4'>
+      <JiraSetupChecklist />
+    </aside>
+  </div>
 }

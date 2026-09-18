@@ -45,14 +45,15 @@ const columnLabelKeys = {
   rowActions: 'common:actions.moreActions',
 } as const satisfies Record<JiraColumnKey, string>
 
-// Starting widths in pixels, summing to less than the settings content column.
+// Starting widths in pixels. Six columns plus the actions must still fit the settings
+// content column, or the row menu is pushed past its right edge.
 const columnSizes = {
-  name: 180,
-  site: 180,
-  account: 190,
-  projects: 190,
-  boards: 190,
-  checked: 170,
+  name: 165,
+  site: 170,
+  account: 175,
+  projects: 165,
+  boards: 165,
+  checked: 145,
   rowActions: 64,
 } as const satisfies Record<JiraColumnKey, number>
 
