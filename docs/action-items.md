@@ -37,7 +37,7 @@ Priority and due date are the item's own even when the issue has fields of the s
 issue's values when the item is created from it, and are never synced after that: Next ranks on the item's values,
 and the item page shows the issue's beside them. Priority defaults to `normal`. `owner` is the exception, because
 it decides whose list an item is on: a linked item's owner follows its primary link's assignee, as the watcher
-reports it.
+reports it, and an assignee that is the link credential's own account is the user.
 
 Changes flow both ways, driven by Elysium, never by copying fields back and forth:
 
