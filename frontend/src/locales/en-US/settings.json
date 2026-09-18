@@ -25,6 +25,10 @@
       "title": "GitHub",
       "description": "Connect GitHub with personal access tokens, classic or fine-grained."
     },
+    "jira": {
+      "title": "Jira",
+      "description": "Connect Jira Cloud sites with API tokens, and choose the projects and boards Elysium reads."
+    },
     "storage": {
       "title": "Storage",
       "description": "Choose where Elysium saves files: Bunny Storage, Amazon S3, or Google Cloud Storage."

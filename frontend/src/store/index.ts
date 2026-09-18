@@ -11,6 +11,7 @@ import { codingSessionsSlice } from './codingSessionsSlice'
 import { environmentVariablesSlice } from './environmentVariablesSlice'
 import { githubCredentialsSlice } from './githubCredentialsSlice'
 import { initiativesSlice } from './initiativesSlice'
+import { jiraCredentialsSlice } from './jiraCredentialsSlice'
 import { llmsSlice } from './llmsSlice'
 import { mailAccountsSlice } from './mailAccountsSlice'
 import { mailDomainsSlice } from './mailDomainsSlice'
@@ -40,6 +41,7 @@ export function createAppStore() {
       [environmentVariablesSlice.name]: environmentVariablesSlice.reducer,
       [githubCredentialsSlice.name]: githubCredentialsSlice.reducer,
       [initiativesSlice.name]: initiativesSlice.reducer,
+      [jiraCredentialsSlice.name]: jiraCredentialsSlice.reducer,
       [llmsSlice.name]: llmsSlice.reducer,
       [mailAccountsSlice.name]: mailAccountsSlice.reducer,
       [mailDomainsSlice.name]: mailDomainsSlice.reducer,

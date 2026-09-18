@@ -38,6 +38,8 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `environmentVariable.deleted`  | `{ id }`              | An environment variable was deleted               |
 | `githubCredential.upserted` | `GithubCredential` | A GitHub token was added, changed, or checked             |
 | `githubCredential.deleted`  | `{ id }`          | A GitHub token was deleted                                 |
+| `jiraCredential.upserted` | `JiraCredential` | A Jira credential was added, changed, or checked           |
+| `jiraCredential.deleted`  | `{ id }`         | A Jira credential was deleted                              |
 | `storageLocation.upserted` | `StorageLocation`  | A storage location was added or changed                    |
 | `storageLocation.deleted`  | `{ id }`           | A storage location was deleted                             |
 | `session.upserted`   | `CodingSession`          | A session was created or renamed, or its thread changed    |

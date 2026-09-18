@@ -5,6 +5,7 @@ import type { Initiative } from '../api/routes/initiativeRoutes'
 import type { CodingSession, SessionEvent } from '../api/routes/codingSessionRoutes'
 import type { EnvironmentVariable } from '../api/routes/environmentRoutes'
 import type { GithubCredential } from '../api/routes/githubRoutes'
+import type { JiraCredential } from '../api/routes/jiraRoutes'
 import type { Llm } from '../api/routes/llmRoutes'
 import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRoutes'
 import type { Project } from '../api/routes/projectRoutes'
@@ -34,6 +35,8 @@ export type ServerEvent =
   | { type: 'environmentVariable.deleted', data: { id: string } }
   | { type: 'githubCredential.upserted', data: GithubCredential }
   | { type: 'githubCredential.deleted', data: { id: string } }
+  | { type: 'jiraCredential.upserted', data: JiraCredential }
+  | { type: 'jiraCredential.deleted', data: { id: string } }
   | { type: 'llm.upserted', data: Llm }
   | { type: 'llm.deleted', data: { id: string } }
   | { type: 'mailbox.upserted', data: MailAccount }

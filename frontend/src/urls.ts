@@ -31,6 +31,9 @@ export const UrlTree = {
   settingsGithub: '/settings/github',
   settingsGithubNew: '/settings/github/new',
   settingsGithubEdit: '/settings/github/:credentialId/edit',
+  settingsJira: '/settings/jira',
+  settingsJiraNew: '/settings/jira/new',
+  settingsJiraEdit: '/settings/jira/:credentialId/edit',
   settingsSatellites: '/settings/satellites',
   settingsEmail: '/settings/email',
   settingsStorage: '/settings/storage',
@@ -88,6 +91,10 @@ export function getEnvironmentVariableEditUrl(variableId: string) {
 
 export function getGithubCredentialEditUrl(credentialId: string) {
   return UrlTree.settingsGithubEdit.replace(':credentialId', credentialId)
+}
+
+export function getJiraCredentialEditUrl(credentialId: string) {
+  return UrlTree.settingsJiraEdit.replace(':credentialId', credentialId)
 }
 
 export function getStorageLocationEditUrl(locationId: string) {

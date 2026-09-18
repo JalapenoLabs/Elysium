@@ -11,6 +11,7 @@ use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::fleet::Fleet;
 use crate::github::Github;
+use crate::jira::Jira;
 use crate::mail::Mail;
 use crate::realtime::EventBus;
 use crate::storage::Storage;
@@ -27,6 +28,7 @@ pub struct AppState {
     pub events: EventBus,
     pub fleet: Fleet,
     pub github: Github,
+    pub jira: Jira,
     pub mail: Mail,
     pub storage: Storage,
     /// Cancelled when shutdown begins; long-lived responses end on it.

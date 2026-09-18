@@ -45,6 +45,8 @@ The version byte identifies the envelope format and key generation. Today only v
   A satellite secret is decrypted only to connect, inside `api/src/fleet/`.
 - `StorageLocation::access_key` decrypts a storage location's access key, only to call its provider.
 - `GithubCredential::token` decrypts a GitHub token, to call GitHub and to hand a session's thread its token.
+- `JiraCredential::token` decrypts a Jira API token, only to sign in to that credential's site. It is the
+  password half of HTTP basic auth, so it leaves the process in an `Authorization` header and nowhere else.
 - `EnvironmentVariable::value` decrypts one environment variable, and `environment_variable::thread_environment`
   every one, to hand them to a satellite thread. A non-secret variable's value is also decrypted for responses; a
   secret's never is. See `docs/environment.md`.
@@ -59,6 +61,7 @@ The version byte identifies the envelope format and key generation. Today only v
 | `mail_servers` | `admin_secret_encrypted` | `mail_servers.admin_secret:<id>` |
 | `storage_locations` | `access_key_encrypted` | `storage_locations.access_key:<id>` |
 | `github_credentials` | `token_encrypted` | `github_credentials.token:<id>` |
+| `jira_credentials` | `token_encrypted` | `jira_credentials.token:<id>` |
 | `environment_variables` | `value_encrypted` | `environment_variables.value:<id>` |
 
 ## Roadmap

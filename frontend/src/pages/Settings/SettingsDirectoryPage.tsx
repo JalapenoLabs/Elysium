@@ -4,7 +4,16 @@
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { LuBot, LuGithub, LuHardDrive, LuMail, LuSatellite, LuUser, LuVariable } from 'react-icons/lu'
+import {
+  LuBot,
+  LuGithub,
+  LuHardDrive,
+  LuMail,
+  LuSatellite,
+  LuSquareKanban,
+  LuUser,
+  LuVariable,
+} from 'react-icons/lu'
 import { SettingsDirectoryItem } from './SettingsDirectoryItem'
 
 // Misc
@@ -57,6 +66,12 @@ export function SettingsDirectoryPage() {
           title={t('items.github.title')}
           description={t('items.github.description')}
           href={UrlTree.settingsGithub}
+        />
+        <SettingsDirectoryItem
+          icon={LuSquareKanban}
+          title={t('items.jira.title')}
+          description={t('items.jira.description')}
+          href={UrlTree.settingsJira}
         />
         <SettingsDirectoryItem
           icon={LuHardDrive}

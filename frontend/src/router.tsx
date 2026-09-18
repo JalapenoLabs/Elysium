@@ -28,6 +28,9 @@ import { ManageEnvironmentPage } from './pages/Settings/Environment/ManageEnviro
 import { AddGithubCredentialPage } from './pages/Settings/Github/AddGithubCredentialPage'
 import { EditGithubCredentialPage } from './pages/Settings/Github/EditGithubCredentialPage'
 import { ManageGithubPage } from './pages/Settings/Github/ManageGithubPage'
+import { AddJiraCredentialPage } from './pages/Settings/Jira/AddJiraCredentialPage'
+import { EditJiraCredentialPage } from './pages/Settings/Jira/EditJiraCredentialPage'
+import { ManageJiraPage } from './pages/Settings/Jira/ManageJiraPage'
 import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
@@ -165,6 +168,18 @@ export const router = createBrowserRouter([
       {
         path: UrlTree.settingsGithubEdit,
         element: <EditGithubCredentialPage />,
+      },
+      {
+        path: UrlTree.settingsJira,
+        element: <ManageJiraPage />,
+      },
+      {
+        path: UrlTree.settingsJiraNew,
+        element: <AddJiraCredentialPage />,
+      },
+      {
+        path: UrlTree.settingsJiraEdit,
+        element: <EditJiraCredentialPage />,
       },
       {
         path: UrlTree.settingsSatellites,

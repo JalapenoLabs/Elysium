@@ -31,6 +31,7 @@ use crate::routes::v1::coding_sessions::CodingSessionResponse;
 use crate::routes::v1::environment_variables::EnvironmentVariableResponse;
 use crate::routes::v1::github_credentials::GithubCredentialResponse;
 use crate::routes::v1::initiatives::InitiativeResponse;
+use crate::routes::v1::jira_credentials::JiraCredentialResponse;
 use crate::routes::v1::llms::LlmResponse;
 use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
 use crate::routes::v1::projects::ProjectResponse;
@@ -78,6 +79,10 @@ pub enum ServerEvent {
     /// The initiative was deleted or, softly, hidden until restored.
     #[serde(rename = "initiative.deleted")]
     InitiativeDeleted { id: Uuid },
+    #[serde(rename = "jiraCredential.upserted")]
+    JiraCredentialUpserted(JiraCredentialResponse),
+    #[serde(rename = "jiraCredential.deleted")]
+    JiraCredentialDeleted { id: Uuid },
     #[serde(rename = "llm.upserted")]
     LlmUpserted(LlmResponse),
     #[serde(rename = "llm.deleted")]
