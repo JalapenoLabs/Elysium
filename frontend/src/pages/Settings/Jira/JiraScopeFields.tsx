@@ -21,7 +21,10 @@ type Props = {
   boardsTruncated: boolean
   value: JiraScopeSelection
   onChange: (value: JiraScopeSelection) => void
-  isDisabled: boolean
+  // Each list locks on its own: one may be missing a stored selection while the other is
+  // whole. The form above decides; this only renders it.
+  isProjectsDisabled: boolean
+  isBoardsDisabled: boolean
 }
 
 // The picked ids the picker can show as tags. A stored id the token no longer reaches is
@@ -64,7 +67,7 @@ export function JiraScopeFields(props: Props) {
     {/* Projects */}
     <Switch
       isSelected={props.value.allProjects}
-      isDisabled={props.isDisabled}
+      isDisabled={props.isProjectsDisabled}
       onChange={(isSelected) => props.onChange({ ...props.value, allProjects: isSelected })}
     >
       <Switch.Control>
@@ -83,7 +86,7 @@ export function JiraScopeFields(props: Props) {
         options={projectOptions}
         selectedIds={pickedProjects}
         onChange={(ids) => props.onChange({ ...props.value, projectIds: ids })}
-        isDisabled={props.isDisabled}
+        isDisabled={props.isProjectsDisabled}
       />
       : <p className='text-sm opacity-70'>{t('scope.noProjects')}</p>)}
 
@@ -94,7 +97,7 @@ export function JiraScopeFields(props: Props) {
     {/* Boards */}
     <Switch
       isSelected={props.value.allBoards}
-      isDisabled={props.isDisabled}
+      isDisabled={props.isBoardsDisabled}
       onChange={(isSelected) => props.onChange({ ...props.value, allBoards: isSelected })}
     >
       <Switch.Control>
@@ -113,7 +116,7 @@ export function JiraScopeFields(props: Props) {
         options={boardOptions}
         selectedIds={pickedBoards}
         onChange={(ids) => props.onChange({ ...props.value, boardIds: ids.map(Number) })}
-        isDisabled={props.isDisabled}
+        isDisabled={props.isBoardsDisabled}
       />
       : <p className='text-sm opacity-70'>{t('scope.noBoards')}</p>)}
 

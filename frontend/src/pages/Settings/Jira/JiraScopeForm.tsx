@@ -115,7 +115,8 @@ export function JiraScopeForm(props: Props) {
         boardsTruncated={props.discovery.boardsTruncated}
         value={scope}
         onChange={setScope}
-        isDisabled={isSubmitting}
+        isProjectsDisabled={isSubmitting}
+        isBoardsDisabled={isSubmitting}
       />
 
       {failureMessage && <Alert status='danger'>

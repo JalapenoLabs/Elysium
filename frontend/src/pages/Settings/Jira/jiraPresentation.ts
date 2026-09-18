@@ -77,21 +77,24 @@ export function summarizeScope(names: string[]) {
   } as const
 }
 
-// The allowed projects and boards the token no longer reaches, named as they were picked.
+// The allowed projects and boards a listing does not name, as they were picked. Each list
+// answers for itself, since a missing entry means one thing when its listing is whole (the
+// token lost it) and another when Jira cut that listing short (it may be past the end).
 // An allowlist of everything can never hold one, since it names nothing in particular.
-export function findUnreachableNames(
+export function findMissingSelectionNames(
   credential: JiraCredential,
   reachableProjects: JiraProject[],
   reachableBoards: JiraBoard[],
 ) {
   const projectIds = new Set(reachableProjects.map((project) => project.id))
   const boardIds = new Set(reachableBoards.map((board) => board.id))
-  const names: string[] = []
+  const projects: string[] = []
+  const boards: string[] = []
 
   if (credential.projects !== ALL_JIRA_ITEMS) {
     for (const project of credential.projects) {
       if (!projectIds.has(project.id)) {
-        names.push(project.key)
+        projects.push(project.key)
       }
     }
   }
@@ -99,12 +102,12 @@ export function findUnreachableNames(
   if (credential.boards !== ALL_JIRA_ITEMS) {
     for (const board of credential.boards) {
       if (!boardIds.has(board.id)) {
-        names.push(board.name)
+        boards.push(board.name)
       }
     }
   }
 
-  return names
+  return { projects, boards } as const
 }
 
 // One setup step. The text is translated; the URL is not.

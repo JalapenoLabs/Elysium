@@ -367,9 +367,11 @@ picker shows; there is no way to widen a selection past it today, which is the r
 
 A cut short listing also changes what an edit may do. A stored selection missing from it is either one the token
 lost or one the listing never reached, and the two cannot be told apart, so the settings page reports neither and
-leaves the allowlist alone: the pickers are disabled, the form says which selections are missing, and a save
-carries no `projects` or `boards` at all. Sending them would drop the missing ones, and the API could not keep
-them either, since its own listing stops at the same cap. A name, a site, an address, or a token still saves.
+leaves that list alone: its picker is disabled, the form names the missing selections, and the save carries no
+`projects` (or no `boards`) at all. Sending them would drop the missing ones, and the API could not keep them
+either, since its own listing stops at the same cap. Projects and boards are judged separately, so a site with
+more boards than Elysium reads can still have its projects narrowed. A name, a site, an address, or a token
+always saves.
 
 ## Realtime
 

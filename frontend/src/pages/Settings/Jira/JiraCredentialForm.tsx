@@ -38,7 +38,7 @@ import {
 } from '../../../api/routes/jiraRoutes'
 import { createJiraFormSchema } from './jiraFormSchema'
 import {
-  findUnreachableNames,
+  findMissingSelectionNames,
   keepsStoredJiraToken,
   normalizeJiraSiteUrl,
   toJiraScopeSelection,
@@ -126,21 +126,32 @@ export function JiraCredentialForm(props: Props) {
   const isMovingSite = normalizeJiraSiteUrl(values.siteUrl ?? '') !== stored.siteUrl
   const reachableProjects = projects.data?.projects ?? []
   const reachableBoards = boards.data?.boards ?? []
-  const missingNames = findUnreachableNames(stored, reachableProjects, reachableBoards)
+  const missing = findMissingSelectionNames(stored, reachableProjects, reachableBoards)
   const hasScopeFailed = Boolean(projects.error || boards.error)
   const isLoadingScope = !hasScopeFailed && (!projects.data || !boards.data)
   // Everything is missing before the lists arrive, so the warnings wait for them, and say
   // nothing about the old site once another one is typed.
-  const hasMissingSelection = missingNames.length > 0
-    && !isLoadingScope
-    && !hasScopeFailed
-    && !isMovingSite
-  // Jira had more than one listing reads, so a stored selection missing from it may be one
-  // the listing never reached rather than one the token lost. The two cannot be told apart
-  // here, so the allowlist is neither narrowed nor reported as lost.
-  const isListingCutShort = (projects.data?.truncated ?? false) || (boards.data?.truncated ?? false)
-  const hasLostAccess = hasMissingSelection && !isListingCutShort
-  const isScopeLocked = hasMissingSelection && isListingCutShort
+  const isScopeReady = !isLoadingScope && !hasScopeFailed && !isMovingSite
+  // A selection missing from a whole listing is one the token lost. Missing from a listing
+  // Jira cut short, it may be one the listing never reached, and the two cannot be told
+  // apart, so that list alone is neither narrowed nor reported as lost. Each list is judged
+  // on its own truncation: a site with more boards than Elysium reads says nothing about
+  // whether its projects are whole.
+  const isProjectScopeLocked = isScopeReady
+    && (projects.data?.truncated ?? false)
+    && missing.projects.length > 0
+  const isBoardScopeLocked = isScopeReady
+    && (boards.data?.truncated ?? false)
+    && missing.boards.length > 0
+  const lostNames = [
+    ...(isProjectScopeLocked ? [] : missing.projects),
+    ...(isBoardScopeLocked ? [] : missing.boards),
+  ]
+  const beyondNames = [
+    ...(isProjectScopeLocked ? missing.projects : []),
+    ...(isBoardScopeLocked ? missing.boards : []),
+  ]
+  const hasLostAccess = isScopeReady && lostNames.length > 0
 
   // The allowlist half of the request. Moving site must bring both, and the old site's
   // ids name nothing there, so it starts open again; an untouched allowlist is left out
@@ -150,30 +161,42 @@ export function JiraCredentialForm(props: Props) {
     if (isMovingSite) {
       return { projects: ALL_JIRA_ITEMS, boards: ALL_JIRA_ITEMS }
     }
-    // A selection past the end of a cut short listing would be filtered out below and lost
-    // on save, and the API could not re-check it either, since its own listing stops at the
-    // same cap. So the stored allowlist is sent nowhere and stays exactly as it is.
-    if (isScopeLocked) {
-      console.debug('JiraCredentialForm left the allowlist alone: Jira listed less than it holds', {
-        credentialId: stored.id,
-        missingNames,
-      })
-      return {}
-    }
     if (!isScopeChanged) {
       return {}
     }
 
     const reachableProjectIds = new Set(reachableProjects.map((project) => project.id))
     const reachableBoardIds = new Set(reachableBoards.map((board) => board.id))
-    return {
-      projects: scope.allProjects
-        ? ALL_JIRA_ITEMS
-        : scope.projectIds.filter((id) => reachableProjectIds.has(id)),
-      boards: scope.allBoards
-        ? ALL_JIRA_ITEMS
-        : scope.boardIds.filter((id) => reachableBoardIds.has(id)),
+    const request: { projects?: JiraProjectSelection, boards?: JiraBoardSelection } = {}
+
+    // A locked list is left out of the request altogether, so it stays exactly as it is.
+    // Sending it would drop the selections this listing never reached, and the API could
+    // not keep them either, since its own listing stops at the same cap.
+    if (isProjectScopeLocked) {
+      console.debug('JiraCredentialForm left the projects allowlist alone', {
+        credentialId: stored.id,
+        missing: missing.projects,
+      })
     }
+    else {
+      request.projects = scope.allProjects
+        ? ALL_JIRA_ITEMS
+        : scope.projectIds.filter((id) => reachableProjectIds.has(id))
+    }
+
+    if (isBoardScopeLocked) {
+      console.debug('JiraCredentialForm left the boards allowlist alone', {
+        credentialId: stored.id,
+        missing: missing.boards,
+      })
+    }
+    else {
+      request.boards = scope.allBoards
+        ? ALL_JIRA_ITEMS
+        : scope.boardIds.filter((id) => reachableBoardIds.has(id))
+    }
+
+    return request
   }
 
   return <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
@@ -191,20 +214,20 @@ export function JiraCredentialForm(props: Props) {
         <Alert.Content>
           <Alert.Description>{
             t('scope.unreachable', {
-              count: missingNames.length,
-              names: missingNames.join(', '),
+              count: lostNames.length,
+              names: lostNames.join(', '),
             })
           }</Alert.Description>
         </Alert.Content>
       </Alert>}
 
-      {isScopeLocked && <Alert status='warning'>
+      {Boolean(beyondNames.length) && <Alert status='warning'>
         <Alert.Indicator />
         <Alert.Content>
           <Alert.Description>{
             t('scope.beyondListing', {
-              count: missingNames.length,
-              names: missingNames.join(', '),
+              count: beyondNames.length,
+              names: beyondNames.join(', '),
             })
           }</Alert.Description>
         </Alert.Content>
@@ -228,7 +251,8 @@ export function JiraCredentialForm(props: Props) {
           setScope(next)
           setIsScopeChanged(true)
         }}
-        isDisabled={isMovingSite || isScopeLocked}
+        isProjectsDisabled={isMovingSite || isProjectScopeLocked}
+        isBoardsDisabled={isMovingSite || isBoardScopeLocked}
       />}
 
       {failureMessage && <Alert status='danger'>
