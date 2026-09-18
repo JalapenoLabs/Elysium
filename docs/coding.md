@@ -106,6 +106,7 @@ can be. The relay still connects on its own task, so a tool call the agent makes
 fails like any call with no client attached; an agent reaches its first tool call only after a model round trip, far
 longer than the connect. If the row cannot be recorded or the turn cannot be queued, the API destroys the thread and
 removes the row instead of leaving either behind, so a create yields a session with its first turn queued or nothing.
+A session removed that way is announced as `session.deleted`, since the satellite poll may already have announced it.
 
 A session can be started from an action item. It then belongs to one of the item's projects, or any project when the
 item has none, records the item, and requires a first prompt, which follows the item's context in the first turn. See

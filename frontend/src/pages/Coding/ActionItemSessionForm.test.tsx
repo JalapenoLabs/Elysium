@@ -75,6 +75,14 @@ describe('ActionItemSessionForm', () => {
     expect(screen.queryByText('Form for Fix the login bug')).toBeNull()
   })
 
+  it('says so instead of mounting a form it could never submit when the projects fail to load', () => {
+    loaderStatus.projects = 'failed'
+    renderFor('login', [ makeActionItem({ id: 'login', title: 'Fix the login bug', projectIds: [ 'elysium' ]}) ])
+
+    expect(screen.queryByText('Form for Fix the login bug')).toBeNull()
+    expect(screen.getByText('Projects or satellites could not be loaded. Close this and try again.')).toBeTruthy()
+  })
+
   it('starts nothing from a deleted item', () => {
     renderFor('login', [ makeActionItem({ id: 'login', deletedAt: '2026-09-10T00:00:00.000Z' }) ])
 

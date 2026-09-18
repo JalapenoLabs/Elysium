@@ -30,28 +30,23 @@ export function ActionItemSessionForm(props: Props) {
   const projectsStatus = useProjectsLoader()
   const satellitesStatus = useSatellitesLoader()
   const actionItem = useAppSelector((state) => selectActionItemById(state, props.actionItemId))
-  const isPresetLoading = projectsStatus === 'loading' || satellitesStatus === 'loading'
+  const presetStatuses = [ projectsStatus, satellitesStatus ]
 
   if (!actionItem && status === 'loading') {
     return <LoadingBody />
   }
   if (!actionItem || actionItem.deletedAt) {
-    return <>
-      <Modal.Body>
-        <p className='py-6 text-center text-sm opacity-70'>{
-          actionItem
-            ? t('create.fromItem.deleted')
-            : t('create.fromItem.missing')
-        }</p>
-      </Modal.Body>
-      <Modal.Footer>
-        <Button slot='close' variant='tertiary'>
-          <span>{t('common:actions.close')}</span>
-        </Button>
-      </Modal.Footer>
-    </>
+    return <MessageBody message={
+      actionItem
+        ? t('create.fromItem.deleted')
+        : t('create.fromItem.missing')
+    } />
   }
-  if (isPresetLoading) {
+  // A form mounted without them could never be submitted, so a failed load says so instead.
+  if (presetStatuses.includes('failed')) {
+    return <MessageBody message={t('create.fromItem.presetFailed')} />
+  }
+  if (presetStatuses.includes('loading')) {
     return <LoadingBody />
   }
 
@@ -59,6 +54,26 @@ export function ActionItemSessionForm(props: Props) {
     actionItem={actionItem}
     onCreated={props.onCreated}
   />
+}
+
+type MessageBodyProps = {
+  message: string
+}
+
+// Why no form is shown, with only Close.
+function MessageBody(props: MessageBodyProps) {
+  const { t } = useTranslation('common')
+
+  return <>
+    <Modal.Body>
+      <p className='py-6 text-center text-sm opacity-70'>{props.message}</p>
+    </Modal.Body>
+    <Modal.Footer>
+      <Button slot='close' variant='tertiary'>
+        <span>{t('actions.close')}</span>
+      </Button>
+    </Modal.Footer>
+  </>
 }
 
 function LoadingBody() {

@@ -100,7 +100,8 @@
       "projectChoices": "One of the item's projects.",
       "promptHint": "What the agent should do about the item.",
       "missing": "This action item could not be found.",
-      "deleted": "This action item is deleted. Restore it before starting a session from it."
+      "deleted": "This action item is deleted. Restore it before starting a session from it.",
+      "presetFailed": "Projects or satellites could not be loaded. Close this and try again."
     },
     "errors": {
       "promptRequired": "Say what the agent should do about the item.",

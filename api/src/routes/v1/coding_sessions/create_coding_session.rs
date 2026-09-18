@@ -241,8 +241,12 @@ async fn record_or_abandon(
 }
 
 /// Queues a new session's first turn, or, when the satellite refuses it, discards the session
-/// whole: its thread, its watchers, and its row. Nothing has been announced yet, so no client
-/// ever saw it.
+/// whole: its thread, its row, and its watchers, then announces it gone. This handler has not
+/// announced the session, but the satellite poll reads the row and may have; a
+/// `session.deleted` for a session a client never saw changes nothing.
+///
+/// The row goes before the watchers, so a poll landing in between cannot record a status
+/// for a session nothing would clear.
 ///
 /// # Errors
 /// Answers the satellite's refusal of the turn.
@@ -255,7 +259,6 @@ async fn queue_or_discard(
     let Err(turn_error) = handle.start_turn(first_turn).await else {
         return Ok(());
     };
-    state.fleet.forget_session(session.id);
     abandon_thread(handle, session.satellite_id).await;
     match state.database.get().await {
         Ok(mut connection) => {
@@ -277,6 +280,10 @@ async fn queue_or_discard(
             "could not remove a session whose first turn was refused; delete it by hand",
         ),
     }
+    state.fleet.forget_session(session.id);
+    state
+        .events
+        .publish(&ServerEvent::SessionDeleted { id: session.id });
     Err(turn_error.into())
 }
 
