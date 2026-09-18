@@ -19,9 +19,10 @@ use uuid::Uuid;
 
 use crate::action_items::Actor;
 use crate::errors::ApiError;
+use crate::models::action_item_event::Recorded;
 use crate::models::{action_item, initiative, project};
 use crate::realtime::ServerEvent;
-use crate::routes::v1::action_items::publish_item_write;
+use crate::routes::v1::action_items::{item_responses, publish_history};
 use crate::routes::v1::initiatives::publish_initiative_write;
 use crate::state::AppState;
 
@@ -58,13 +59,24 @@ pub async fn handle(
         Err(other) => return Err(other.into()),
     };
 
-    for item in items {
-        publish_item_write(&state, &mut connection, item, &[], now).await?;
+    // The deletion is the fact clients must not miss, so it goes out before anything that
+    // could fail. Leaving a project moves no initiative's progress, so items are published
+    // on their own, once each, with no initiative fan-out.
+    state.events.publish(&ServerEvent::ProjectDeleted { id });
+
+    let mut live_items = Vec::new();
+    for Recorded { record, history } in items {
+        publish_history(&state, history);
+        if record.deleted_at.is_none() {
+            live_items.push(record);
+        }
+    }
+    for item in item_responses(&mut connection, live_items).await? {
+        state.events.publish(&ServerEvent::ActionItemUpserted(item));
     }
     for initiative in initiatives {
         publish_initiative_write(&state, &mut connection, initiative, now).await?;
     }
-    state.events.publish(&ServerEvent::ProjectDeleted { id });
 
     Ok(StatusCode::NO_CONTENT)
 }
