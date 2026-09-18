@@ -6,10 +6,12 @@
 
    HeroUI derives hover, soft, and secondary shades from these base variables, so
    only base colors are set here. `--sidebar` is Elysium's own token for the app
-   chrome, mirroring Matter's darker side bar. */
+   chrome, mirroring Matter's darker side bar, and `--chart-*` are its chart series. */
 
 @theme inline {
   --color-sidebar: var(--sidebar);
+  --color-chart-scope: var(--chart-scope);
+  --color-chart-resolved: var(--chart-resolved);
 }
 
 [data-theme='light'] {
@@ -53,6 +55,12 @@
 
   --border: #dfe4ea;
   --separator: #e8ecf0;
+
+  /* Chart series: the burnup's scope and resolved lines. Validated as a pair against the
+     page with the dataviz palette checks (lightness band, chroma, color-blind separation,
+     contrast); change them together and re-run those checks. */
+  --chart-scope: #267fb5;
+  --chart-resolved: #5e9a2e;
 }
 
 [data-theme='dark'] {
@@ -104,6 +112,11 @@
   /* Matter's own borders (#14171f) vanish against the page, so these sit a step lighter. */
   --border: #232a36;
   --separator: #1c222b;
+
+  /* Matter's accent and green sit outside the dark lightness band charts need, so the
+     series take a step toward the middle. Validated as for light. */
+  --chart-scope: #3a8fc4;
+  --chart-resolved: #6aa33a;
 }
 
 /* Field shape for both themes: rounder, taller, and flat, in the manner of HeroUI v2's

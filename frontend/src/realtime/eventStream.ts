@@ -7,9 +7,13 @@ import { mutate } from 'swr'
 
 // Redux
 import { store } from '../store'
+import { actionItemCommentDeleted, actionItemCommentUpserted } from '../store/actionItemCommentsSlice'
+import { historyAppended } from '../store/actionItemHistorySlice'
+import { actionItemDeleted, actionItemUpserted } from '../store/actionItemsSlice'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
 import { environmentVariableDeleted, environmentVariableUpserted } from '../store/environmentVariablesSlice'
 import { githubCredentialDeleted, githubCredentialUpserted } from '../store/githubCredentialsSlice'
+import { initiativeDeleted, initiativeUpserted } from '../store/initiativesSlice'
 import { llmDeleted, llmUpserted } from '../store/llmsSlice'
 import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSlice'
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
@@ -42,6 +46,28 @@ function reloadEverything() {
 const handlers: Handlers = {
   'hello': () => reloadEverything(),
   'resync': () => reloadEverything(),
+  'actionItem.upserted': (event) => store.dispatch(actionItemUpserted(event.data)),
+  // The event carries only the id, so the deleted list and the item's own page reload, each
+  // only if a view shows it; the page then shows the item as deleted rather than missing.
+  'actionItem.deleted': (event) => {
+    store.dispatch(actionItemDeleted(event.data.id))
+    void mutate('v1/action-items?deleted=true')
+    void mutate(`v1/action-items/${event.data.id}`)
+  },
+  'actionItemComment.upserted': (event) => store.dispatch(actionItemCommentUpserted(event.data)),
+  'actionItemComment.deleted': (event) => store.dispatch(actionItemCommentDeleted(event.data.id)),
+  // Progress moved or the initiative changed; its burnup, if a page draws it, reloads.
+  'initiative.upserted': (event) => {
+    store.dispatch(initiativeUpserted(event.data))
+    void mutate(`v1/initiatives/${event.data.id}/progress`)
+  },
+  // Reloads the same way as a deleted item.
+  'initiative.deleted': (event) => {
+    store.dispatch(initiativeDeleted(event.data.id))
+    void mutate('v1/initiatives?deleted=true')
+    void mutate(`v1/initiatives/${event.data.id}`)
+  },
+  'history.appended': (event) => store.dispatch(historyAppended(event.data)),
   'environmentVariable.upserted': (event) => store.dispatch(environmentVariableUpserted(event.data)),
   'environmentVariable.deleted': (event) => store.dispatch(environmentVariableDeleted(event.data.id)),
   'githubCredential.upserted': (event) => store.dispatch(githubCredentialUpserted(event.data)),

@@ -38,6 +38,9 @@ struct CommentRow {
     author: String,
     body: String,
     created_at: DateTime<Utc>,
+    /// Written with `created_at` rather than left to the column default, so a comment that
+    /// was never edited has equal timestamps and clients can tell an edited one apart.
+    updated_at: DateTime<Utc>,
 }
 
 /// Loads one of the item's comments for a write by `actor`, locking its row.
@@ -101,6 +104,7 @@ pub async fn create(
                     author: actor.to_string(),
                     body,
                     created_at: now,
+                    updated_at: now,
                 })
                 .returning(Comment::as_returning())
                 .get_result(connection)
@@ -271,6 +275,10 @@ mod tests {
         .await
         .expect("comment");
         assert_eq!(first.author, "user");
+        assert_eq!(
+            first.updated_at, first.created_at,
+            "a comment never edited was last updated when it was written"
+        );
         let bodies: Vec<String> = list(&mut connection, item)
             .await
             .expect("list")
@@ -301,6 +309,10 @@ mod tests {
         .await
         .expect("edit");
         assert_eq!(edited.record.body, "Looks good");
+        assert!(
+            edited.record.updated_at > edited.record.created_at,
+            "an edit moves updated_at"
+        );
         assert_eq!(
             edited.history[0].data,
             json!({ "commentId": first.id, "from": "Looks close", "to": "Looks good" })
@@ -346,6 +358,7 @@ mod tests {
                 author: "elysia".to_owned(),
                 body: "The PR fixes #12.".to_owned(),
                 created_at: minute(1),
+                updated_at: minute(1),
             })
             .execute(&mut connection)
             .await
@@ -403,6 +416,7 @@ mod tests {
                 author: "session:0".to_owned(),
                 body: "x".to_owned(),
                 created_at: minute(5),
+                updated_at: minute(5),
             })
             .execute(&mut connection)
             .await;

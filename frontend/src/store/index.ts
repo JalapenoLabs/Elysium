@@ -4,9 +4,13 @@
 import { configureStore, createListenerMiddleware } from '@reduxjs/toolkit'
 
 // Redux
+import { actionItemCommentsSlice } from './actionItemCommentsSlice'
+import { actionItemHistorySlice } from './actionItemHistorySlice'
+import { actionItemsSlice } from './actionItemsSlice'
 import { codingSessionsSlice } from './codingSessionsSlice'
 import { environmentVariablesSlice } from './environmentVariablesSlice'
 import { githubCredentialsSlice } from './githubCredentialsSlice'
+import { initiativesSlice } from './initiativesSlice'
 import { llmsSlice } from './llmsSlice'
 import { mailAccountsSlice } from './mailAccountsSlice'
 import { mailDomainsSlice } from './mailDomainsSlice'
@@ -24,25 +28,35 @@ import { themeSlice } from './themeSlice'
 // API announces.
 export const listenerMiddleware = createListenerMiddleware()
 
-export const store = configureStore({
-  reducer: {
-    [codingSessionsSlice.name]: codingSessionsSlice.reducer,
-    [environmentVariablesSlice.name]: environmentVariablesSlice.reducer,
-    [githubCredentialsSlice.name]: githubCredentialsSlice.reducer,
-    [llmsSlice.name]: llmsSlice.reducer,
-    [mailAccountsSlice.name]: mailAccountsSlice.reducer,
-    [mailDomainsSlice.name]: mailDomainsSlice.reducer,
-    [mailServerSlice.name]: mailServerSlice.reducer,
-    [projectsSlice.name]: projectsSlice.reducer,
-    [realtimeSlice.name]: realtimeSlice.reducer,
-    [satellitesSlice.name]: satellitesSlice.reducer,
-    [sessionEventsSlice.name]: sessionEventsSlice.reducer,
-    [storageLocationsSlice.name]: storageLocationsSlice.reducer,
-    [themeSlice.name]: themeSlice.reducer,
-  },
-  middleware: (getDefaultMiddleware) => getDefaultMiddleware()
-    .prepend(listenerMiddleware.middleware),
-})
+// Builds a store with every slice. The app holds one (`store` below); tests build their own,
+// so each starts from empty state.
+export function createAppStore() {
+  return configureStore({
+    reducer: {
+      [actionItemCommentsSlice.name]: actionItemCommentsSlice.reducer,
+      [actionItemHistorySlice.name]: actionItemHistorySlice.reducer,
+      [actionItemsSlice.name]: actionItemsSlice.reducer,
+      [codingSessionsSlice.name]: codingSessionsSlice.reducer,
+      [environmentVariablesSlice.name]: environmentVariablesSlice.reducer,
+      [githubCredentialsSlice.name]: githubCredentialsSlice.reducer,
+      [initiativesSlice.name]: initiativesSlice.reducer,
+      [llmsSlice.name]: llmsSlice.reducer,
+      [mailAccountsSlice.name]: mailAccountsSlice.reducer,
+      [mailDomainsSlice.name]: mailDomainsSlice.reducer,
+      [mailServerSlice.name]: mailServerSlice.reducer,
+      [projectsSlice.name]: projectsSlice.reducer,
+      [realtimeSlice.name]: realtimeSlice.reducer,
+      [satellitesSlice.name]: satellitesSlice.reducer,
+      [sessionEventsSlice.name]: sessionEventsSlice.reducer,
+      [storageLocationsSlice.name]: storageLocationsSlice.reducer,
+      [themeSlice.name]: themeSlice.reducer,
+    },
+    middleware: (getDefaultMiddleware) => getDefaultMiddleware()
+      .prepend(listenerMiddleware.middleware),
+  })
+}
+
+export const store = createAppStore()
 
 export type RootState = ReturnType<typeof store.getState>
 export type AppDispatch = typeof store.dispatch

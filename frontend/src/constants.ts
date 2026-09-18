@@ -46,3 +46,15 @@ export const BYTES_PER_GIGABYTE = 1_000_000_000
 
 // Which view the Projects page last showed, remembered per browser.
 export const PROJECTS_VIEW_STORAGE_KEY = 'elysium.projects.view.v1'
+
+// Snoozing an item to a day wakes it at this hour in the viewer's zone, and "later today"
+// snoozes it this many hours from now.
+export const SNOOZE_WAKE_HOUR = 9
+export const SNOOZE_LATER_TODAY_HOURS = 3
+
+// How often views that depend on the time (Next, overdue and snoozed markers) look at the
+// clock again, so a snooze that runs out brings its item back. No request is made.
+export const ACTION_ITEMS_CLOCK_TICK_MS = 60_000
+
+// A waiting-on name or address and an owner's name, matching the API's limit.
+export const ACTION_ITEM_PERSON_MAX_CHARACTERS = 320

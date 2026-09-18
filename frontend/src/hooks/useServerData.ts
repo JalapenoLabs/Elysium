@@ -5,10 +5,14 @@ import { useEffect } from 'react'
 import useSWR from 'swr'
 
 // Redux
+import { actionItemCommentsLoaded } from '../store/actionItemCommentsSlice'
+import { historyLoaded } from '../store/actionItemHistorySlice'
+import { actionItemsLoaded, actionItemUpserted, deletedActionItemsLoaded } from '../store/actionItemsSlice'
 import { codingSessionsLoaded } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
 import { environmentVariablesLoaded } from '../store/environmentVariablesSlice'
 import { githubCredentialsLoaded } from '../store/githubCredentialsSlice'
+import { deletedInitiativesLoaded, initiativesLoaded, initiativeUpserted } from '../store/initiativesSlice'
 import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { mailDomainsLoaded } from '../store/mailDomainsSlice'
@@ -19,6 +23,18 @@ import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } 
 import { storageLocationsLoaded } from '../store/storageLocationsSlice'
 
 // Misc
+import {
+  getActionItem,
+  listActionItemComments,
+  listActionItemHistory,
+  listActionItems,
+} from '../api/routes/actionItemRoutes'
+import {
+  getInitiative,
+  getInitiativeProgress,
+  listInitiatives,
+  listInitiativeHistory,
+} from '../api/routes/initiativeRoutes'
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
 import { listGithubCredentials } from '../api/routes/githubRoutes'
@@ -184,4 +200,124 @@ export function useSessionHistoryLoader(sessionId: number) {
     error,
     retry: () => mutate(),
   }
+}
+
+// Every live action item. Next, the inbox, the list, and the project and initiative pages
+// all select from these, so one load serves the whole area.
+export function useActionItemsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/action-items', async () => {
+    const response = await listActionItems()
+    dispatch(actionItemsLoaded(response.items))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Deleted items, loaded only while a view shows them. `actionItem.deleted` carries only an
+// id, so the event stream revalidates this key when one arrives.
+export function useDeletedActionItemsLoader(isEnabled: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isEnabled
+    ? 'v1/action-items?deleted=true'
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await listActionItems({ deleted: true })
+    dispatch(deletedActionItemsLoaded(response.items))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One item, live or deleted, for its own page: an address can name a deleted item, which
+// the collections above leave out until asked.
+export function useActionItemLoader(itemId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/action-items/${itemId}`, async () => {
+    const response = await getActionItem(itemId)
+    dispatch(actionItemUpserted(response.item))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Replaces the item's comments, so it dispatches only a fresh response.
+export function useActionItemCommentsLoader(itemId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/action-items/${itemId}/comments`, async () => {
+    const response = await listActionItemComments(itemId)
+    dispatch(actionItemCommentsLoaded({ actionItemId: itemId, comments: response.comments }))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useActionItemHistoryLoader(itemId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/action-items/${itemId}/history`, async () => {
+    const response = await listActionItemHistory(itemId)
+    dispatch(historyLoaded(response.history))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useInitiativesLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/initiatives', async () => {
+    const response = await listInitiatives()
+    dispatch(initiativesLoaded(response.initiatives))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Deleted initiatives, loaded only while a view shows them, revalidated by the event stream
+// on `initiative.deleted` like deleted items.
+export function useDeletedInitiativesLoader(isEnabled: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isEnabled
+    ? 'v1/initiatives?deleted=true'
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await listInitiatives({ deleted: true })
+    dispatch(deletedInitiativesLoaded(response.initiatives))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One initiative, live or deleted, for its own page.
+export function useInitiativeLoader(initiativeId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/initiatives/${initiativeId}`, async () => {
+    const response = await getInitiative(initiativeId)
+    dispatch(initiativeUpserted(response.initiative))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useInitiativeHistoryLoader(initiativeId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/initiatives/${initiativeId}/history`, async () => {
+    const response = await listInitiativeHistory(initiativeId)
+    dispatch(historyLoaded(response.history))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// The burnup is the one view read from SWR rather than Redux: no event carries it, and only
+// the initiative's own page draws it. `initiative.upserted` carries the counts now, and the
+// event stream revalidates this key with it, so the chart moves when progress does.
+export function useInitiativeProgress(initiativeId: string) {
+  const { data, error } = useSWR(
+    `v1/initiatives/${initiativeId}/progress`,
+    () => getInitiativeProgress(initiativeId),
+  )
+  return {
+    progress: data,
+    status: toLoadStatus(data !== undefined, error),
+  } as const
 }

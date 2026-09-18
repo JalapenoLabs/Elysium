@@ -1,6 +1,6 @@
 # Copyright © 2026 Jalapeno Labs
 
-# The Vite and React frontend. Typecheck, lint, build, and the image are separate
+# The Vite and React frontend. Typecheck, lint, tests, build, and the image are separate
 # jobs, so they run side by side and each failure is reported on its own. See
 # docs/ci.md.
 name: Frontend
@@ -65,6 +65,25 @@ jobs:
       - name: Lint
         working-directory: frontend
         run: yarn lint
+
+  test:
+    name: Frontend test
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        uses: ./.github/actions/frontend-dependencies
+
+      # Vitest over slices, selectors, helpers, and components, in jsdom.
+      - name: Test
+        working-directory: frontend
+        run: yarn test
 
   build:
     name: Frontend build
