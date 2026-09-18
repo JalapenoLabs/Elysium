@@ -24,21 +24,30 @@ import {
   SESSION_NUMBER_COLUMN_SIZING,
   threadStateChipColors,
   threadStateLabelKeys,
-} from '../Coding/sessionPresentation'
+} from './sessionPresentation'
 
 type Props = {
   sessions: CodingSession[]
+  // The table's element id, and where its column layout is saved in the browser. Each
+  // page keeps its own, ending in a version uikit's saved column order can move past.
+  ids: {
+    tableElementId: string
+    tableLocalStorageId: string
+  }
+  ariaLabel: string
+  // Shown instead of an empty table.
+  emptyMessage: string
 }
 
 const SESSION_COLUMN_KEYS = [ 'number', 'title', 'satellite', 'state', 'lastActivity' ] as const
 type SessionColumnKey = typeof SESSION_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
-  number: 'coding:sessions.number',
-  title: 'coding:sessions.title',
-  satellite: 'coding:sessions.satellite',
-  state: 'coding:sessions.state',
-  lastActivity: 'coding:sessions.lastActivity',
+  number: 'sessions.number',
+  title: 'sessions.title',
+  satellite: 'sessions.satellite',
+  state: 'sessions.state',
+  lastActivity: 'sessions.lastActivity',
 } as const satisfies Record<SessionColumnKey, string>
 
 // Starting widths in pixels, summing to less than the page's content column.
@@ -50,9 +59,10 @@ const columnSizes = {
   lastActivity: 220,
 } as const satisfies Record<SessionColumnKey, number>
 
-// A project's coding sessions. Clicking one opens its conversation on the Coding page.
-export function ProjectSessionsTable(props: Props) {
-  const { t, i18n } = useTranslation([ 'projects', 'coding' ])
+// A list of coding sessions outside the Coding page, such as a project's or an action
+// item's. Clicking one opens its conversation on the Coding page.
+export function CodingSessionsTable(props: Props) {
+  const { t, i18n } = useTranslation('coding')
   const navigate = useNavigate()
   const labels = useSmartTableLabels()
   useSatellitesLoader()
@@ -69,12 +79,12 @@ export function ProjectSessionsTable(props: Props) {
       return satelliteNames[session.satelliteId] ?? ''
     }
     function stateLabel(session: CodingSession) {
-      return t(threadStateLabelKeys[session.thread?.state ?? 'unknown'], { ns: 'coding' })
+      return t(threadStateLabelKeys[session.thread?.state ?? 'unknown'])
     }
     function lastActivityText(session: CodingSession) {
       const lastActivityAt = session.thread?.lastActivityAt
       if (!lastActivityAt) {
-        return t('coding:sessions.never')
+        return t('sessions.never')
       }
       return dateFormatter.format(new Date(lastActivityAt))
     }
@@ -134,17 +144,14 @@ export function ProjectSessionsTable(props: Props) {
 
   if (!props.sessions.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
-      t('page.sessionsEmpty')
+      props.emptyMessage
     }</p>
   }
 
   return <SmartTable
-    ids={{
-      tableElementId: 'project-sessions-table',
-      tableLocalStorageId: 'elysium.projects.sessions.table.v2',
-    }}
+    ids={props.ids}
     className='[&_tbody_tr]:cursor-pointer'
-    tableAriaLabel={t('page.sessionsHeading')}
+    tableAriaLabel={props.ariaLabel}
     data={props.sessions}
     managedColumns={managedColumns}
     getRowId={(session) => String(session.id)}

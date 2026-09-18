@@ -16,6 +16,7 @@ import {
   LuHourglass,
   LuMessageSquare,
   LuSkipForward,
+  LuSquareTerminal,
 } from 'react-icons/lu'
 import { ActionItemBadges } from './ActionItemBadges'
 import { ActionItemComments } from './ActionItemComments'
@@ -25,7 +26,7 @@ import { ShortcutHint } from './ShortcutHint'
 import { SnoozeMenu } from './SnoozeMenu'
 
 // Misc
-import { getActionItemViewUrl } from '../../urls'
+import { getActionItemViewUrl, getNewCodingSessionUrl } from '../../urls'
 import { useActionItemActions } from './useActionItemActions'
 import { useQuickActionHotkey } from './useQuickActionHotkey'
 
@@ -36,6 +37,8 @@ const SHORTCUTS = {
   snooze: 's',
   wait: 'w',
   comment: 'c',
+  // G for "go": put an agent on it.
+  code: 'g',
   skip: 'j',
   open: 'o',
 } as const
@@ -80,12 +83,14 @@ export function NextItemCard(props: Props) {
   const waitOn = () => actions.waitOn(item)
   const focusComposer = () => composerRef.current?.focus()
   const open = () => navigate(getActionItemViewUrl(item.id))
+  const startSession = () => navigate(getNewCodingSessionUrl(item.id))
 
   useQuickActionHotkey(SHORTCUTS.resolve, resolve, !isActing)
   useQuickActionHotkey(SHORTCUTS.dismiss, dismiss, !isActing)
   useQuickActionHotkey(SHORTCUTS.snooze, () => setIsSnoozeOpen(true), !isActing)
   useQuickActionHotkey(SHORTCUTS.wait, waitOn, !isActing)
   useQuickActionHotkey(SHORTCUTS.comment, focusComposer, true)
+  useQuickActionHotkey(SHORTCUTS.code, startSession, true)
   useQuickActionHotkey(SHORTCUTS.skip, props.onSkip, props.total > 1)
   useQuickActionHotkey(SHORTCUTS.open, open, true)
 
@@ -138,6 +143,11 @@ export function NextItemCard(props: Props) {
           <LuMessageSquare className='size-4' aria-hidden />
           <span>{t('comments.action')}</span>
           <ShortcutHint shortcut={SHORTCUTS.comment} />
+        </Button>
+        <Button variant='ghost' onPress={startSession}>
+          <LuSquareTerminal className='size-4' aria-hidden />
+          <span>{t('sessions.start')}</span>
+          <ShortcutHint shortcut={SHORTCUTS.code} />
         </Button>
         <Button variant='ghost' onPress={props.onSkip} isDisabled={props.total < 2} className='ml-auto'>
           <LuSkipForward className='size-4' aria-hidden />

@@ -259,7 +259,8 @@ equals `createdAt` until the comment is edited. `POST` and `PATCH` take `{ body 
 someone else wrote answers `409`.
 
 A `HistoryEntry` has `id`, `actionItemId`, `initiativeId`, `kind`, `actor`, `data`, and `createdAt`; kinds and their
-`data` are listed in `docs/action-items.md`. Every write is recorded with the actor `user`.
+`data` are listed in `docs/action-items.md`. Every write over HTTP is recorded with the actor `user`; a comment a
+coding agent writes through `elysium_work` carries `session:<number>`.
 
 ### `/api/v1/initiatives`
 
@@ -276,7 +277,8 @@ initiative's creation, one at every moment either count changed, and one now.
 
 ### `/api/v1/coding-sessions`
 
-A `CodingSession` has `id` (the session's number, 1, 2, 3, ...), `projectId`, `satelliteId`, `threadId`, `title`, `createdAt`, `updatedAt`, and
+A `CodingSession` has `id` (the session's number, 1, 2, 3, ...), `projectId`, `satelliteId`, `threadId`, `title`,
+`actionItemId` (the item it was started from, or null), `createdAt`, `updatedAt`, and
 `thread`: the thread as of the latest poll, or null until the first poll sees it. `thread` holds `state`,
 `queueDepth`, `currentTurnId`, `latestSequence`, `lastActivityAt`, and `expiresAt`. `state` is one of `unknown`,
 `provisioning`, `idle`, `running`, `awaiting-input`, `watching`, `paused`, `expired`, or `destroyed`.
@@ -284,7 +286,11 @@ A `CodingSession` has `id` (the session's number, 1, 2, 3, ...), `projectId`, `s
 `POST` requires `projectId`, `satelliteId`, and `title` (1 to 200 characters), and accepts `repositories`, up to 16
 `{ url, baseBranch? }` cloned in order, and `githubCredentialId` (absent follows the project, `null` asks for no token, and an id names one;
 an unknown id answers `400`). Two repositories that would clone into the same directory, ignoring case, answer `400`
-naming both URLs; see `docs/coding.md`. Sessions carry `githubCredentialId`, the token their thread started with. The satellite must be active (`409` otherwise). `turns` requires `prompt` (1 to 100,000 characters)
+naming both URLs; see `docs/coding.md`. Sessions carry `githubCredentialId`, the token their thread started with.
+`prompt` (1 to 100,000 characters) is queued as the thread's first turn. `actionItemId` starts the session from that
+item: `prompt` is then required (`400` without it), the project must be one of the item's projects when it has any
+(`400` otherwise), an unknown item answers `404`, and a deleted one `409`. The first turn carries the item's context
+ahead of the prompt; see `docs/action-items.md`. The satellite must be active (`409` otherwise). `turns` requires `prompt` (1 to 100,000 characters)
 and answers `{ turnId, status, prompt, queuedAt }`; the turn's progress arrives on the event stream.
 
 A `SessionEvent` has `sessionId` (the session's number), `sequence`, `turnId`, `occurredAt`, `type` (the satellite's wire name, such as
@@ -370,7 +376,8 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
-| `src/action_items/`      | Action item rules: actors, state transitions, Next's order, and initiative progress |
+| `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, and a session's first turn from an item |
+| `src/tools/`             | The relayed MCP servers agents call: `elysium_storage` and `elysium_work`, see `docs/coding.md` |
 
 ## Logging
 
@@ -381,7 +388,8 @@ client-supplied or a generated UUID. The id is echoed on the response and attach
 ## Testing
 
 `cargo test` runs the hermetic unit tests: encryption, request parsing and validation, refused environment variable
-keys, event envelopes, the Arsox view conversions, and the action item rules: transitions, Next's order, and progress.
+keys, event envelopes, the Arsox view conversions, the action item rules (transitions, Next's order, progress, and a
+session's first turn from an item), and the agent tools' schemas.
 `api/scripts/verify-migrations.sh` also runs the database-backed tests against a disposable Postgres.
 
 ## Roadmap

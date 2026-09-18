@@ -47,6 +47,12 @@ export const {
   selectById: selectCodingSessionById,
 } = codingSessionsAdapter.getSelectors((state: RootState) => state.codingSessions)
 
+// The sessions started from one action item, newest first.
+export const selectCodingSessionsByActionItemId = createSelector(
+  [ selectAllCodingSessions, (_state: RootState, actionItemId: string) => actionItemId ],
+  (sessions, actionItemId) => sessions.filter((session) => session.actionItemId === actionItemId),
+)
+
 // How many sessions each project holds; projects without one are absent. Pair with
 // shallowEqual, since thread state changes replace the session entities constantly.
 export const selectSessionCountsByProjectId = createSelector(

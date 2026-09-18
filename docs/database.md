@@ -48,7 +48,8 @@ Guarantees:
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
 redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, storage location, GitHub
-credential, environment variable, coding session, action item, initiative, comment, and history query. Plain `cargo test` skips them because they need
+credential, environment variable, coding session, action item, initiative, comment, and history query, and every
+`elysium_work` tool against its project scope. Plain `cargo test` skips them because they need
 `TEST_DATABASE_URL`.
 
 ## Conventions
@@ -243,11 +244,13 @@ A pointer to an Arsox thread. The thread's state and history live on the satelli
 | `thread_id`    | `TEXT`        | The satellite's thread id; unique per satellite                       |
 | `title`        | `TEXT`        | 1 to 200 characters                                                   |
 | `github_credential_id` | `UUID` | The GitHub token the thread started with; `ON DELETE SET NULL`     |
+| `action_item_id` | `UUID`      | The action item the session was started from; `ON DELETE SET NULL`   |
 | `created_at`   | `TIMESTAMPTZ` | Set on insert                                                         |
 | `updated_at`   | `TIMESTAMPTZ` | Maintained by trigger                                                 |
 
-`coding_sessions_created_at_idx` serves the newest-first overview, and `coding_sessions_project_id_idx` the
-project lookups, including the delete check.
+`coding_sessions_created_at_idx` serves the newest-first overview, `coding_sessions_project_id_idx` the project
+lookups, including the delete check, and `coding_sessions_action_item_id_idx` an item's sessions. Items are deleted
+softly, so a session keeps its item while the item is hidden.
 
 The `project_id` foreign key is `ON DELETE NO ACTION` rather than `RESTRICT`. Both refuse the delete, but only
 `NO ACTION` reports SQLSTATE `23503`, which Diesel surfaces as a foreign key violation; `RESTRICT` reports

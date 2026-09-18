@@ -10,7 +10,8 @@ import { createContext, useContext } from 'react'
 // owns the layout and the dialogs, and panels reach them through this context.
 export type CodingActions = {
   openSession: (session: CodingSession) => void
-  createSession: () => void
+  // Opens New session, started from an action item when one is given.
+  createSession: (actionItemId?: string) => void
   renameSession: (session: CodingSession) => void
   deleteSession: (session: CodingSession) => void
 }

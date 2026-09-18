@@ -92,7 +92,18 @@
     "prompt": "First prompt",
     "promptHint": "Optional. Sent as soon as the session starts.",
     "untitled": "Untitled session",
+    "fromItem": {
+      "title": "Start a coding session",
+      "label": "Started from the action item",
+      "hint": "The first prompt carries this item, its comments, initiatives, and project, ahead of what you write below.",
+      "projectFixed": "The item's project.",
+      "projectChoices": "One of the item's projects.",
+      "promptHint": "What the agent should do about the item.",
+      "missing": "This action item could not be found.",
+      "deleted": "This action item is deleted. Restore it before starting a session from it."
+    },
     "errors": {
+      "promptRequired": "Say what the agent should do about the item.",
       "projectRequired": "Choose a project.",
       "satelliteRequired": "Choose a satellite.",
       "titleTooLong": "Use 200 characters or fewer.",
@@ -129,6 +140,8 @@
     "body": "The session's thread is destroyed on its satellite, along with its workspace. This cannot be undone."
   },
   "conversation": {
+    "fromItem": "From {{title}}",
+    "fromItemUnavailable": "From an action item that could not be loaded",
     "missing": "This session no longer exists.",
     "loading": "Loading conversation…",
     "loadError": "The conversation could not be loaded from its satellite.",
