@@ -53,7 +53,7 @@
       "emailRequired": "Enter the account email.",
       "emailShape": "Enter a valid email address.",
       "tokenRequired": "Enter the API token.",
-      "tokenTooLong": "Use 255 characters or fewer."
+      "tokenTooLong": "Use 512 characters or fewer."
     }
   },
   "steps": {
@@ -64,6 +64,7 @@
     "continue": "Continue",
     "back": "Back",
     "connectedAs": "Jira signed this token in as {{name}} ({{email}}).",
+    "connectedAsHidden": "Jira signed this token in as {{name}}.",
     "reachable_one": "It reaches {{count}} project.",
     "reachable_other": "It reaches {{count}} projects.",
     "reachableBoards_one": "It reaches {{count}} board.",
@@ -84,6 +85,7 @@
     "noProjects": "This token reaches no projects.",
     "noBoards": "This token reaches no boards.",
     "loading": "Loading what this token reaches.",
+    "truncated": "Jira reported more than Elysium lists, so a few may be missing.",
     "loadError": "What this token reaches could not be loaded.",
     "siteChanged": "Save the new site and token first, then choose its projects and boards.",
     "unreachable_one": "{{count}} allowed item is no longer reachable with this token: {{names}}",

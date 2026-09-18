@@ -13,6 +13,7 @@ import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { JiraCredentialRowActions } from './JiraCredentialRowActions'
 
 // Misc
+import { ALL_JIRA_ITEMS } from '../../../api/routes/jiraRoutes'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { summarizeScope } from './jiraPresentation'
 
@@ -68,8 +69,9 @@ export function JiraCredentialTable(props: Props) {
     })
 
     // Searching an allowlist matches every name in it, not only the few a cell shows.
-    function scopeText(isAll: boolean, names: string[]) {
-      if (isAll) {
+    // `names` is null for an allowlist of everything, which names nothing in particular.
+    function scopeText(names: string[] | null) {
+      if (!names) {
         return t('table.all')
       }
       if (!names.length) {
@@ -78,15 +80,15 @@ export function JiraCredentialTable(props: Props) {
       return names.join(', ')
     }
 
-    function scopeCell(isAll: boolean, names: string[], countLabel: string): ReactNode {
-      if (isAll) {
+    function scopeCell(names: string[] | null, countLabel: string): ReactNode {
+      if (!names) {
         return <Chip size='sm' variant='soft' color='accent'>{t('table.all')}</Chip>
       }
       if (!names.length) {
         return <span className='opacity-70'>{t('table.none')}</span>
       }
 
-      const summary = summarizeScope(isAll, names)
+      const summary = summarizeScope(names)
       return <div className='flex flex-col'>
         <span>{countLabel}</span>
         <span className='truncate text-xs opacity-70'>{
@@ -108,14 +110,24 @@ export function JiraCredentialTable(props: Props) {
         <span className='truncate text-xs opacity-70'>{credential.accountEmail}</span>
       </div>,
       projects: (credential: JiraCredential) => scopeCell(
-        credential.allProjects,
-        credential.projects.map((project) => project.projectKey),
-        t('table.projectCount', { count: credential.projects.length }),
+        credential.projects === ALL_JIRA_ITEMS
+          ? null
+          : credential.projects.map((project) => project.key),
+        t('table.projectCount', {
+          count: credential.projects === ALL_JIRA_ITEMS
+            ? 0
+            : credential.projects.length,
+        }),
       ),
       boards: (credential: JiraCredential) => scopeCell(
-        credential.allBoards,
-        credential.boards.map((board) => board.name),
-        t('table.boardCount', { count: credential.boards.length }),
+        credential.boards === ALL_JIRA_ITEMS
+          ? null
+          : credential.boards.map((board) => board.name),
+        t('table.boardCount', {
+          count: credential.boards === ALL_JIRA_ITEMS
+            ? 0
+            : credential.boards.length,
+        }),
       ),
       checked: (credential: JiraCredential) => dateFormatter.format(new Date(credential.checkedAt)),
       rowActions: (credential: JiraCredential) => <JiraCredentialRowActions
@@ -132,12 +144,14 @@ export function JiraCredentialTable(props: Props) {
       site: (credential: JiraCredential) => credential.siteUrl,
       account: (credential: JiraCredential) => `${credential.displayName} ${credential.accountEmail}`,
       projects: (credential: JiraCredential) => scopeText(
-        credential.allProjects,
-        credential.projects.map((project) => `${project.projectKey} ${project.name}`),
+        credential.projects === ALL_JIRA_ITEMS
+          ? null
+          : credential.projects.map((project) => `${project.key} ${project.name}`),
       ),
       boards: (credential: JiraCredential) => scopeText(
-        credential.allBoards,
-        credential.boards.map((board) => board.name),
+        credential.boards === ALL_JIRA_ITEMS
+          ? null
+          : credential.boards.map((board) => board.name),
       ),
       checked: (credential: JiraCredential) => dateFormatter.format(new Date(credential.checkedAt)),
       rowActions: null,

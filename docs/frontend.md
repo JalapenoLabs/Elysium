@@ -163,8 +163,10 @@ comes from what Jira said the token reaches.
 - `JiraConnectionFields` is the connection half both forms render. The token field is optional while editing and turns
   required as soon as the site or the account email changes, mirroring the API.
 - `JiraScopeFields` is the allowlist half both forms render: an All projects switch over `JiraScopePicker`, and the
-  same for boards. `jiraPresentation.ts` holds the site URL rule, `keepsStoredJiraToken`, and the table's scope
-  summary. `JiraSetupChecklist` renders `src/components/SetupChecklist.tsx`, as GitHub's and Storage's do.
+  same for boards. A board's id is a number over the API and a key in the picker, and this is the one place the two
+  spellings meet. `jiraPresentation.ts` holds the site URL rule, `keepsStoredJiraToken`, `toJiraScopeSelection`, and
+  the table's scope summary. `JiraSetupChecklist` renders `src/components/SetupChecklist.tsx`, as GitHub's and
+  Storage's do. See `docs/jira.md`.
 
 Environment variables under `src/pages/Settings/Environment/` follow GitHub's shape: a table (key in monospace, value,
 description) whose row menu edits or deletes one, and add and edit as their own pages built from

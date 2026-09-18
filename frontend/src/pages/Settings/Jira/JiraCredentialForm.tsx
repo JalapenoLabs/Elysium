@@ -2,7 +2,7 @@
 
 import type { JiraCredential } from '../../../api/routes/jiraRoutes'
 import type { JiraFormInput, JiraFormValues } from './jiraFormSchema'
-import type { JiraScopeSelection } from './JiraScopeFields'
+import type { JiraScopeSelection } from './jiraPresentation'
 
 // Core
 import { useMemo, useState } from 'react'
@@ -33,7 +33,12 @@ import {
   updateJiraCredential,
 } from '../../../api/routes/jiraRoutes'
 import { createJiraFormSchema } from './jiraFormSchema'
-import { findUnreachableNames, keepsStoredJiraToken, normalizeJiraSiteUrl } from './jiraPresentation'
+import {
+  findUnreachableNames,
+  keepsStoredJiraToken,
+  normalizeJiraSiteUrl,
+  toJiraScopeSelection,
+} from './jiraPresentation'
 
 type Props = {
   credential: JiraCredential
@@ -62,12 +67,7 @@ export function JiraCredentialForm(props: Props) {
     },
   })
 
-  const [ scope, setScope ] = useState<JiraScopeSelection>({
-    allProjects: stored.allProjects,
-    projectIds: stored.projects.map((project) => project.projectId),
-    allBoards: stored.allBoards,
-    boardIds: stored.boards.map((board) => board.boardId),
-  })
+  const [ scope, setScope ] = useState<JiraScopeSelection>(() => toJiraScopeSelection(stored))
 
   const projects = useSWR(
     [ 'jira-credential-projects', stored.id ],
@@ -162,6 +162,8 @@ export function JiraCredentialForm(props: Props) {
       {!isLoadingScope && !hasScopeFailed && <JiraScopeFields
         projectOptions={reachableProjects}
         boardOptions={reachableBoards}
+        projectsTruncated={projects.data?.truncated ?? false}
+        boardsTruncated={boards.data?.truncated ?? false}
         value={scope}
         onChange={setScope}
         isDisabled={isMovingSite}

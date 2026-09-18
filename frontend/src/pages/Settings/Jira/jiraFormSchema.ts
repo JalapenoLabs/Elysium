@@ -11,7 +11,8 @@ import { JIRA_SITE_URL_PATTERN, keepsStoredJiraToken, normalizeJiraSiteUrl } fro
 
 // Mirrors the API's limits so most mistakes are caught before a round trip.
 const NAME_MAX_CHARACTERS = 120
-const TOKEN_MAX_CHARACTERS = 255
+const EMAIL_MAX_CHARACTERS = 320
+const TOKEN_MAX_CHARACTERS = 512
 
 // The connection half of a Jira credential: who Elysium signs in as, and where. The
 // projects and boards it may read are picked from what Jira reports, so they carry no
@@ -36,6 +37,7 @@ export function createJiraFormSchema(t: TFunction<'jira'>, stored: JiraCredentia
       .string()
       .trim()
       .min(1, { error: t('form.errors.emailRequired') })
+      .max(EMAIL_MAX_CHARACTERS, { error: t('form.errors.emailShape') })
       .pipe(z.email({ error: t('form.errors.emailShape') })),
     token: z
       .string()

@@ -3,7 +3,7 @@
 import type { FormEvent } from 'react'
 import type { JiraDiscovery } from '../../../api/routes/jiraRoutes'
 import type { JiraFormValues } from './jiraFormSchema'
-import type { JiraScopeSelection } from './JiraScopeFields'
+import type { JiraScopeSelection } from './jiraPresentation'
 
 // Core
 import { useState } from 'react'
@@ -86,10 +86,13 @@ export function JiraScopeForm(props: Props) {
       <Card.Header>
         <Card.Title>{props.connection.name}</Card.Title>
         <Card.Description>{
-          t('steps.connectedAs', {
-            name: props.discovery.account.displayName,
-            email: props.discovery.account.email,
-          })
+          // Atlassian lets an account hide its address, so the name stands alone then.
+          props.discovery.account.email
+            ? t('steps.connectedAs', {
+              name: props.discovery.account.displayName,
+              email: props.discovery.account.email,
+            })
+            : t('steps.connectedAsHidden', { name: props.discovery.account.displayName })
         }</Card.Description>
       </Card.Header>
       <Card.Content className='flex flex-col gap-1 text-sm opacity-70'>
@@ -104,6 +107,8 @@ export function JiraScopeForm(props: Props) {
     <JiraScopeFields
       projectOptions={props.discovery.projects}
       boardOptions={props.discovery.boards}
+      projectsTruncated={props.discovery.projectsTruncated}
+      boardsTruncated={props.discovery.boardsTruncated}
       value={scope}
       onChange={setScope}
       isDisabled={isSubmitting}

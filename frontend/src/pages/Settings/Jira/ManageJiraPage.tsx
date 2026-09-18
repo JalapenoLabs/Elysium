@@ -8,7 +8,11 @@ import { useNavigate } from 'react-router'
 
 // Redux
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
-import { jiraCredentialDeleted, selectAllJiraCredentials } from '../../../store/jiraCredentialsSlice'
+import {
+  jiraCredentialDeleted,
+  jiraCredentialUpserted,
+  selectAllJiraCredentials,
+} from '../../../store/jiraCredentialsSlice'
 
 // User interface
 import { Breadcrumbs, Button, Spinner, toast } from '@heroui/react'
@@ -33,13 +37,24 @@ export function ManageJiraPage() {
 
   async function runConnectionTest(credential: JiraCredential) {
     try {
-      const { result } = await testJiraCredential(credential.id)
+      const { credential: checked, result } = await testJiraCredential(credential.id)
+      // The test records a fresh account and check time, which the row shows at once
+      // rather than waiting for the same credential to arrive on the event stream.
+      dispatch(jiraCredentialUpserted(checked))
+
       // An allowed project or board Jira no longer hands over is the whole reason to
       // test, so it is said out loud rather than left to the edit page.
-      const unreachable = [
-        ...(result.unreachableProjects ?? []).map((project) => project.projectKey),
-        ...(result.unreachableBoards ?? []).map((board) => board.name),
-      ]
+      const unreachable: string[] = []
+      for (const project of result.projects) {
+        if (!project.reachable) {
+          unreachable.push(project.key)
+        }
+      }
+      for (const board of result.boards) {
+        if (!board.reachable) {
+          unreachable.push(board.name)
+        }
+      }
 
       if (unreachable.length) {
         toast.warning(t('toasts.testUnreachable', { name: credential.name, count: unreachable.length }), {

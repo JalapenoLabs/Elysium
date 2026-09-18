@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { JiraBoard, JiraBoardId, JiraProject, JiraProjectId } from '../../../api/routes/jiraRoutes'
+import type { JiraBoard, JiraProject } from '../../../api/routes/jiraRoutes'
 import type { JiraScopeOption } from './JiraScopePicker'
+import type { JiraScopeSelection } from './jiraPresentation'
 
 // Core
 import { useMemo } from 'react'
@@ -11,27 +12,21 @@ import { useTranslation } from 'react-i18next'
 import { Description, Label, Switch } from '@heroui/react'
 import { JiraScopePicker } from './JiraScopePicker'
 
-// What Elysium may read on a site: everything the token reaches, including projects and
-// boards added later, or the ids picked one by one.
-export type JiraScopeSelection = {
-  allProjects: boolean
-  projectIds: JiraProjectId[]
-  allBoards: boolean
-  boardIds: JiraBoardId[]
-}
-
 type Props = {
   // Everything the token reaches, as Jira reported it.
   projectOptions: JiraProject[]
   boardOptions: JiraBoard[]
+  // True when Jira held more than Elysium reads, so the list below is not the whole of it.
+  projectsTruncated: boolean
+  boardsTruncated: boolean
   value: JiraScopeSelection
   onChange: (value: JiraScopeSelection) => void
   isDisabled: boolean
 }
 
 // Splits picked ids into the ones the token still reaches, which the picker shows as
-// tags, and the ones it no longer does, which are kept so that a pick made about
-// something else never quietly drops them. The page above says which those are.
+// tags, and the ones it no longer does, which are kept so a pick made about something
+// else never quietly drops them. The page above says which those are.
 function splitByReach(pickedIds: string[], options: JiraScopeOption[]) {
   const offeredIds = new Set(options.map((option) => option.id))
   const offered: string[] = []
@@ -55,16 +50,18 @@ export function JiraScopeFields(props: Props) {
 
   const projectOptions = useMemo(
     () => props.projectOptions.map((project) => ({
-      id: project.projectId,
+      id: project.id,
       label: project.name,
-      detail: project.projectKey,
+      detail: project.key,
     })),
     [ props.projectOptions ],
   )
 
+  // A board's id is a number over the API and a key in the picker, so this is the one
+  // place the two spellings meet.
   const boardOptions = useMemo(
     () => props.boardOptions.map((board) => ({
-      id: board.boardId,
+      id: String(board.id),
       label: board.name,
       detail: board.projectKey,
     })),
@@ -72,7 +69,7 @@ export function JiraScopeFields(props: Props) {
   )
 
   const pickedProjects = splitByReach(props.value.projectIds, projectOptions)
-  const pickedBoards = splitByReach(props.value.boardIds, boardOptions)
+  const pickedBoards = splitByReach(props.value.boardIds.map(String), boardOptions)
 
   return <div className='flex flex-col gap-4'>
     {/* Projects */}
@@ -104,6 +101,10 @@ export function JiraScopeFields(props: Props) {
       />
       : <p className='text-sm opacity-70'>{t('scope.noProjects')}</p>)}
 
+    {!props.value.allProjects && props.projectsTruncated && <p className='text-sm opacity-70'>{
+      t('scope.truncated')
+    }</p>}
+
     {/* Boards */}
     <Switch
       isSelected={props.value.allBoards}
@@ -127,10 +128,14 @@ export function JiraScopeFields(props: Props) {
         selectedIds={pickedBoards.offered}
         onChange={(ids) => props.onChange({
           ...props.value,
-          boardIds: [ ...pickedBoards.unreachable, ...ids ],
+          boardIds: [ ...pickedBoards.unreachable, ...ids ].map(Number),
         })}
         isDisabled={props.isDisabled}
       />
       : <p className='text-sm opacity-70'>{t('scope.noBoards')}</p>)}
+
+    {!props.value.allBoards && props.boardsTruncated && <p className='text-sm opacity-70'>{
+      t('scope.truncated')
+    }</p>}
   </div>
 }
