@@ -1021,6 +1021,7 @@ dependencies = [
  "instant-xml",
  "lettre",
  "mimalloc",
+ "percent-encoding",
  "prost",
  "prost-types",
  "redis",

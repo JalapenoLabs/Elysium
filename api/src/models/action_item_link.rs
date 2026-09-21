@@ -810,3 +810,268 @@ pub async fn record_on_item(
     )
     .await
 }
+
+#[cfg(test)]
+mod tests {
+    use secrecy::SecretString;
+
+    use super::*;
+    use crate::models::action_item::ActionItemState;
+    use crate::models::github_credential::{self, GithubTokenKind, NewGithubCredential};
+    use crate::test_support::{cipher, migrated_database};
+
+    async fn github_token(connection: &mut AsyncPgConnection) -> LinkCredential {
+        let credential = github_credential::create(
+            connection,
+            &cipher(),
+            &NewGithubCredential {
+                name: "Personal".to_owned(),
+                verified: github_credential::VerifiedToken {
+                    kind: GithubTokenKind::Classic,
+                    token: SecretString::from("ghp_token"),
+                    account: crate::github::Account {
+                        login: "alex".to_owned(),
+                        scopes: Vec::new(),
+                        token_expires_at: None,
+                    },
+                },
+            },
+        )
+        .await
+        .expect("a token");
+        LinkCredential {
+            provider: LinkProvider::Github,
+            id: credential.id,
+        }
+    }
+
+    fn new_link(credential: LinkCredential, number: u64, owner: Owner) -> NewLink {
+        let key = format!("JalapenoLabs/Elysium#{number}");
+        NewLink {
+            credential,
+            kind: LinkKind::Issue,
+            external_id: key.clone(),
+            observation: Observation {
+                url: format!("https://github.com/JalapenoLabs/Elysium/issues/{number}"),
+                external_key: key,
+                title: format!("Issue {number}"),
+                state: LinkState::Open,
+                owner,
+            },
+        }
+    }
+
+    async fn item(connection: &mut AsyncPgConnection) -> Uuid {
+        let new_item = NewActionItem {
+            title: "Fix the login bug".to_owned(),
+            notes: String::new(),
+            state: ActionItemState::Open,
+            priority: action_item::ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::User,
+            project_ids: Vec::new(),
+            initiative_ids: Vec::new(),
+        };
+        action_item::create(connection, new_item, Actor::User, Utc::now())
+            .await
+            .expect("an item")
+            .record
+            .id
+    }
+
+    fn sam() -> Owner {
+        Owner::Other {
+            name: "sam".to_owned(),
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn the_users_first_link_is_primary_and_the_owner_follows_it() {
+        let (_url, mut connection) = migrated_database().await;
+        let credential = github_token(&mut connection).await;
+        let id = item(&mut connection).await;
+
+        let agents = add(
+            &mut connection,
+            id,
+            new_link(credential, 15, Owner::Nobody),
+            false,
+            Actor::Session(4),
+            Utc::now(),
+        )
+        .await
+        .expect("linked");
+        assert!(
+            !agents.links[0].is_primary,
+            "an agent's link never claims the primary"
+        );
+        assert_eq!(agents.item.record.owner(), Owner::User);
+
+        let users = add(
+            &mut connection,
+            id,
+            new_link(credential, 12, sam()),
+            true,
+            Actor::User,
+            Utc::now(),
+        )
+        .await
+        .expect("linked");
+        assert!(users.links[0].is_primary);
+        assert_eq!(
+            users.item.record.owner(),
+            sam(),
+            "the owner follows the primary"
+        );
+        let kinds: Vec<String> = users
+            .item
+            .history
+            .iter()
+            .map(|entry| entry.kind.clone())
+            .collect();
+        assert_eq!(kinds, ["link_added", "updated"]);
+
+        let again = add(
+            &mut connection,
+            id,
+            new_link(credential, 12, sam()),
+            true,
+            Actor::User,
+            Utc::now(),
+        )
+        .await
+        .expect("the same link again");
+        assert!(
+            again.item.history.is_empty(),
+            "linking twice changes nothing"
+        );
+
+        let other = item(&mut connection).await;
+        let refused = add(
+            &mut connection,
+            other,
+            new_link(credential, 12, sam()),
+            true,
+            Actor::User,
+            Utc::now(),
+        )
+        .await;
+        assert!(
+            matches!(refused, Err(WorkError::Conflict(_))),
+            "one external thing is one item"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn the_primary_moves_only_when_the_user_moves_it() {
+        let (_url, mut connection) = migrated_database().await;
+        let credential = github_token(&mut connection).await;
+        let id = item(&mut connection).await;
+        let first = add(
+            &mut connection,
+            id,
+            new_link(credential, 1, sam()),
+            true,
+            Actor::User,
+            Utc::now(),
+        )
+        .await
+        .expect("linked")
+        .links
+        .remove(0);
+        let second = add(
+            &mut connection,
+            id,
+            new_link(credential, 2, Owner::User),
+            true,
+            Actor::User,
+            Utc::now(),
+        )
+        .await
+        .expect("linked")
+        .links
+        .remove(0);
+        assert!(!second.is_primary, "the item already had a primary");
+
+        let promoted = make_primary(&mut connection, id, second.id, Actor::User, Utc::now())
+            .await
+            .expect("promoted");
+        assert_eq!(promoted.item.record.owner(), Owner::User);
+        let primaries: Vec<Uuid> = list_for_item(&mut connection, id)
+            .await
+            .expect("links")
+            .into_iter()
+            .filter(|link| link.is_primary)
+            .map(|link| link.id)
+            .collect();
+        assert_eq!(primaries, [second.id], "one primary at a time");
+
+        let removed = remove(&mut connection, id, second.id, Actor::User, Utc::now())
+            .await
+            .expect("removed");
+        assert_eq!(
+            removed.links[0].id, first.id,
+            "the oldest link left takes its place"
+        );
+        assert_eq!(removed.item.record.owner(), sam());
+
+        remove(&mut connection, id, first.id, Actor::User, Utc::now())
+            .await
+            .expect("removed");
+        let history: Vec<String> = action_item_event::list_for_item(&mut connection, id)
+            .await
+            .expect("history")
+            .into_iter()
+            .map(|entry| entry.kind)
+            .collect();
+        assert_eq!(
+            history
+                .iter()
+                .filter(|kind| *kind == "primary_link_changed")
+                .count(),
+            3,
+            "promoted, moved on removal, and gone with the last link: {history:?}"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn the_database_refuses_a_link_its_provider_cannot_hold() {
+        let (_url, mut connection) = migrated_database().await;
+        let credential = github_token(&mut connection).await;
+        let id = item(&mut connection).await;
+
+        // A Jira link through a GitHub credential, which the credential check refuses.
+        let mismatched = NewLink {
+            credential: LinkCredential {
+                provider: LinkProvider::Jira,
+                id: credential.id,
+            },
+            ..new_link(credential, 1, Owner::Nobody)
+        };
+        let refused = insert(&mut connection, id, mismatched, false, Utc::now()).await;
+        assert!(refused.is_err(), "a Jira link names a Jira credential");
+
+        let pull_request = NewLink {
+            kind: LinkKind::PullRequest,
+            ..new_link(credential, 2, Owner::Nobody)
+        };
+        insert(&mut connection, id, pull_request, false, Utc::now())
+            .await
+            .expect("GitHub links pull requests");
+
+        let unnamed = NewLink {
+            observation: Observation {
+                owner: Owner::Other {
+                    name: String::new(),
+                },
+                ..new_link(credential, 3, Owner::Nobody).observation
+            },
+            ..new_link(credential, 3, Owner::Nobody)
+        };
+        let refused = insert(&mut connection, id, unnamed, false, Utc::now()).await;
+        assert!(refused.is_err(), "someone else is named");
+    }
+}

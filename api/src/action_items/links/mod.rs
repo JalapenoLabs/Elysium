@@ -22,7 +22,7 @@ pub mod jira;
 pub mod rules;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use std::sync::Arc;
 
