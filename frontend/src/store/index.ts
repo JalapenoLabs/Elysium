@@ -8,6 +8,7 @@ import { actionItemCommentsSlice } from './actionItemCommentsSlice'
 import { actionItemHistorySlice } from './actionItemHistorySlice'
 import { actionItemLinksSlice } from './actionItemLinksSlice'
 import { actionItemsSlice } from './actionItemsSlice'
+import { changesetsSlice } from './changesetsSlice'
 import { codingSessionsSlice } from './codingSessionsSlice'
 import { environmentVariablesSlice } from './environmentVariablesSlice'
 import { githubCredentialsSlice } from './githubCredentialsSlice'
@@ -40,6 +41,7 @@ export function createAppStore() {
       [actionItemHistorySlice.name]: actionItemHistorySlice.reducer,
       [actionItemLinksSlice.name]: actionItemLinksSlice.reducer,
       [actionItemsSlice.name]: actionItemsSlice.reducer,
+      [changesetsSlice.name]: changesetsSlice.reducer,
       [codingSessionsSlice.name]: codingSessionsSlice.reducer,
       [environmentVariablesSlice.name]: environmentVariablesSlice.reducer,
       [githubCredentialsSlice.name]: githubCredentialsSlice.reducer,

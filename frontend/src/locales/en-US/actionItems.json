@@ -6,7 +6,8 @@
     "next": "Next",
     "inbox": "Inbox",
     "all": "All items",
-    "initiatives": "Initiatives"
+    "initiatives": "Initiatives",
+    "changesets": "Changesets"
   },
   "states": {
     "inbox": "Inbox",
@@ -118,6 +119,7 @@
   "history": {
     "heading": "History",
     "loadError": "History could not be loaded.",
+    "fromChangeset": "From a changeset",
     "createdItem": "created this item",
     "createdInitiative": "created this initiative",
     "updated": "edited",

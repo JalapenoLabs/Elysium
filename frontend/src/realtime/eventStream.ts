@@ -12,6 +12,7 @@ import { historyAppended } from '../store/actionItemHistorySlice'
 import { actionItemLinkDeleted, actionItemLinkUpserted } from '../store/actionItemLinksSlice'
 import { initiativeLinkDeleted, initiativeLinkUpserted } from '../store/initiativeLinksSlice'
 import { actionItemDeleted, actionItemUpserted } from '../store/actionItemsSlice'
+import { changesetUpserted } from '../store/changesetsSlice'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
 import { environmentVariableDeleted, environmentVariableUpserted } from '../store/environmentVariablesSlice'
 import { githubCredentialDeleted, githubCredentialUpserted } from '../store/githubCredentialsSlice'
@@ -80,6 +81,7 @@ const handlers: Handlers = {
     void mutate(`v1/initiatives/${event.data.id}`)
   },
   'history.appended': (event) => store.dispatch(historyAppended(event.data)),
+  'changeset.upserted': (event) => store.dispatch(changesetUpserted(event.data)),
   'environmentVariable.upserted': (event) => store.dispatch(environmentVariableUpserted(event.data)),
   'environmentVariable.deleted': (event) => store.dispatch(environmentVariableDeleted(event.data.id)),
   'githubCredential.upserted': (event) => store.dispatch(githubCredentialUpserted(event.data)),

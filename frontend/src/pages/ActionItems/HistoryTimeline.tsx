@@ -14,10 +14,11 @@ import { selectInitiativeNamesById } from '../../store/initiativesSlice'
 import { selectProjectNamesById } from '../../store/projectsSlice'
 
 // User interface
-import { Spinner } from '@heroui/react'
+import { Link, Spinner } from '@heroui/react'
 
 // Misc
 import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
+import { getChangesetViewUrl } from '../../urls'
 import { describeActor } from './actionItemPresentation'
 import { describeHistoryEntry } from './historyPresentation'
 
@@ -28,7 +29,7 @@ type Props = {
 }
 
 // An item's or initiative's history, newest first: who did what, and when, with each field
-// an edit changed.
+// an edit changed. An entry a changeset's applying or undoing recorded links to its review.
 export function HistoryTimeline(props: Props) {
   const { t, i18n } = useTranslation([ 'actionItems', 'initiatives' ])
   useProjectsLoader()
@@ -68,7 +69,15 @@ export function HistoryTimeline(props: Props) {
           key={index}
           className='mt-1 line-clamp-3 text-xs whitespace-pre-line opacity-70'
         >{detail}</p>)}
-        <p className='mt-1 text-xs opacity-50'>{context.formatInstant(entry.createdAt)}</p>
+        <p className='mt-1 text-xs opacity-50'>
+          <span>{context.formatInstant(entry.createdAt)}</span>
+          {entry.changesetId && <Link
+            href={getChangesetViewUrl(entry.changesetId)}
+            className='ml-2 text-xs text-link'
+          >{
+            t('history.fromChangeset')
+          }</Link>}
+        </p>
       </li>
     })
   }</ol>

@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ActionItem, ActionItemComment, ActionItemLink, HistoryEntry } from '../api/routes/actionItemRoutes'
+import type { Changeset } from '../api/routes/changesetRoutes'
 import type { Initiative, InitiativeLink } from '../api/routes/initiativeRoutes'
 import type { CodingSession, SessionEvent } from '../api/routes/codingSessionRoutes'
 import type { EnvironmentVariable } from '../api/routes/environmentRoutes'
@@ -37,6 +38,8 @@ export type ServerEvent =
   | { type: 'initiative.deleted', data: { id: string } }
   // An entry an item's or an initiative's write recorded.
   | { type: 'history.appended', data: HistoryEntry }
+  // A changeset was proposed, decided on, applied, or undone.
+  | { type: 'changeset.upserted', data: Changeset }
   | { type: 'environmentVariable.upserted', data: EnvironmentVariable }
   | { type: 'environmentVariable.deleted', data: { id: string } }
   | { type: 'githubCredential.upserted', data: GithubCredential }

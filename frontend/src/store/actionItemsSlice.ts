@@ -83,6 +83,11 @@ export const {
   selectAll: selectDeletedActionItems,
 } = actionItemsAdapter.getSelectors((state: RootState) => state.actionItems.deleted)
 
+// Every live item by id, as the adapter keeps them, so its reference changes only with them.
+export function selectLiveActionItemsById(state: RootState) {
+  return state.actionItems.live.entities
+}
+
 // Live or deleted, whichever holds it.
 export function selectActionItemById(state: RootState, itemId: string) {
   return state.actionItems.live.entities[itemId] ?? state.actionItems.deleted.entities[itemId]

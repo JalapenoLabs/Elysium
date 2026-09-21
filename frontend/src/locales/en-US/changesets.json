@@ -1,0 +1,107 @@
+{
+  "title": "Changesets",
+  "proposedBy": "Proposed by {{proposer}} on {{date}}",
+  "changeCount_one": "{{count}} change",
+  "changeCount_other": "{{count}} changes",
+  "states": {
+    "pending": "Waiting for review",
+    "applied": "Applied",
+    "rejected": "Rejected",
+    "undone": "Undone"
+  },
+  "decisions": {
+    "pending": "Undecided",
+    "approved": "Approved",
+    "rejected": "Rejected"
+  },
+  "outcomes": {
+    "pending": "Not applied yet",
+    "applied": "Applied",
+    "failed": "Failed",
+    "skipped": "Skipped",
+    "undone": "Undone"
+  },
+  "kinds": {
+    "create-item": "New item",
+    "update-item": "Edit item",
+    "resolve-item": "Resolve item",
+    "dismiss-item": "Dismiss item",
+    "comment": "Comment",
+    "link": "Link",
+    "add-to-initiative": "Add to initiative",
+    "remove-from-initiative": "Remove from initiative",
+    "create-initiative": "New initiative"
+  },
+  "list": {
+    "loadError": "Changesets could not be loaded.",
+    "emptyTitle": "Nothing to review",
+    "emptyBody": "When Elysia or a coding session proposes changes to your items, they wait here until you decide.",
+    "pendingHeading": "Waiting for review",
+    "reviewedHeading": "Reviewed",
+    "review": "Review",
+    "open": "Open"
+  },
+  "lead": {
+    "title_one": "{{count}} changeset waits for your review",
+    "title_other": "{{count}} changesets wait for your review",
+    "body": "Changes Elysia and coding sessions proposed. Nothing is written until you approve them.",
+    "action": "Review"
+  },
+  "describe": {
+    "createItem": "Create {{title}}",
+    "updateItem": "Edit {{item}}",
+    "resolveItem": "Resolve {{item}}",
+    "dismissItem": "Dismiss {{item}}",
+    "comment": "Comment on {{item}}",
+    "link": "Link {{item}} to {{provider}} {{reference}}",
+    "addToInitiative": "Add {{item}} to {{initiative}}",
+    "removeFromInitiative": "Remove {{item}} from {{initiative}}",
+    "createInitiative": "Create the initiative {{name}}",
+    "proposedRecord": "{{name}} (from change {{position}})",
+    "proposedUnnamed": "what change {{position}} creates",
+    "missingItem": "an item that is gone",
+    "missingInitiative": "an initiative that is gone",
+    "fieldTo": "{{field}}: {{to}}",
+    "fieldFromTo": "{{field}}: {{from}} → {{to}}",
+    "inProjects": "In {{names}}",
+    "joinsInitiatives": "Joins {{names}}",
+    "none": "none"
+  },
+  "review": {
+    "breadcrumb": "Changesets",
+    "loadError": "This changeset could not be loaded.",
+    "change": "Change {{position}}",
+    "reason": "Why",
+    "source": "Source: {{source}}",
+    "dependsOn": "Acts on what change {{positions}} creates",
+    "rejectsWith": "Rejecting it also rejects change {{positions}}",
+    "approve": "Approve",
+    "reject": "Reject",
+    "approveAll": "Approve all",
+    "rejectAll": "Reject all",
+    "apply": "Apply",
+    "applyBlocked": "Approve or reject every change first.",
+    "tally": "{{approved}} approved, {{rejected}} rejected, {{pending}} undecided",
+    "pendingBody": "Nothing is written in Elysium, Jira, or GitHub until you apply the changes you approve.",
+    "providerWaiting": "Waiting to reach {{provider}}",
+    "providerFailed": "{{provider}} has not taken it yet: {{error}}",
+    "undo": "Undo",
+    "undoTitle": "Undo this changeset?",
+    "undoBody": "Every applied change is reversed, last first: new items and initiatives are deleted (they can be restored), edits and states go back, and comments and links are taken back.",
+    "undoLimits": "Undo cannot take back what already reached Jira or GitHub: a posted comment stays posted, and a closed issue stays closed. A field or item you changed since keeps your change.",
+    "undoneAt": "Undone on {{date}}"
+  },
+  "undo": {
+    "kept": "Kept your later change to {{fields}}.",
+    "movedSince": "You moved the item since, so it stays where you put it.",
+    "stillPosted": "Already posted to {{provider}} {{key}}; it stays there.",
+    "stillClosed": "Already closed in {{provider}}: {{keys}}. They stay closed.",
+    "refusal": "Not undone: {{reason}}"
+  },
+  "toasts": {
+    "applied": "Changes applied.",
+    "rejected": "Every change was rejected; nothing was written.",
+    "undone": "Changes undone.",
+    "conflict": "This changeset changed elsewhere; the page shows it as it is now."
+  }
+}
