@@ -24,7 +24,7 @@ use uuid::Uuid;
 use super::{Children, LinkError, Provider, Remote, RemoteContainer, WriteOutcome};
 use crate::crypto::Cipher;
 use crate::database::Pool;
-use crate::github::issues::{Issue, IssueQuery, IssueRef};
+use crate::github::issues::{Issue, IssueQuery, IssueRef, PullRequest};
 use crate::github::{Github, Repository};
 use crate::models::action_item::Owner;
 use crate::models::action_item_link::{ActionItemLink, LinkKind, LinkState};
@@ -180,6 +180,7 @@ impl GithubProvider {
                         );
                         continue;
                     };
+                    let issue = self.settle_merge(&opened, issue).await?;
                     remotes.push(remote(&opened, issue));
                 }
                 continue;
@@ -193,6 +194,7 @@ impl GithubProvider {
                         ))
                 });
                 if is_linked {
+                    let issue = self.settle_merge(&opened, issue).await?;
                     remotes.push(remote(&opened, issue));
                 }
             }
@@ -207,6 +209,16 @@ impl GithubProvider {
         reference: &str,
     ) -> Result<RemoteContainer, LinkError> {
         let opened = self.open(credential_id).await?;
+        self.find_container_with(&opened, kind, reference).await
+    }
+
+    /// The container `reference` names, read with a token already opened.
+    async fn find_container_with(
+        &self,
+        opened: &OpenToken,
+        kind: ContainerKind,
+        reference: &str,
+    ) -> Result<RemoteContainer, LinkError> {
         match kind {
             ContainerKind::Milestone => {
                 let milestone_ref = parse_issue(reference)?;
@@ -256,33 +268,32 @@ impl GithubProvider {
 
     /// A milestone's or a label's issues, open and closed. Pull requests in them are left
     /// out: the issues they fix are the work.
+    ///
+    /// The container itself is read first, so one that is gone, such as a label renamed on
+    /// GitHub, answers [`LinkError::NotFound`] and the watcher keeps its children. Listing
+    /// by a label GitHub no longer has answers an empty page, which would take every child
+    /// out.
     async fn children(&self, container: &InitiativeLink) -> Result<Children, LinkError> {
         let opened = self.open(container.credential().id).await?;
-        let (repository, title, query) = match container.kind {
+        let found = self
+            .find_container_with(&opened, container.kind, &container.external_id)
+            .await?;
+        let (repository, issue_query) = match container.kind {
             ContainerKind::Milestone => {
                 let milestone_ref = parse_issue(&container.external_id)?;
-                let milestone = self
-                    .github
-                    .milestone(
-                        &opened.token,
-                        &milestone_ref.repository,
-                        milestone_ref.number,
-                    )
-                    .await?
-                    .ok_or_else(|| {
-                        LinkError::NotFound(format!(
-                            "{milestone_ref} is not a milestone the token can see"
-                        ))
-                    })?;
-                (
-                    milestone_ref.repository,
-                    milestone.title,
-                    Some(milestone_ref.number),
-                )
+                let query = IssueQuery {
+                    milestone: Some(milestone_ref.number),
+                    ..IssueQuery::default()
+                };
+                (milestone_ref.repository, query)
             }
             ContainerKind::Label => {
-                let (repository, name) = parse_label(&container.external_id)?;
-                (repository, name, None)
+                let (repository, _name) = parse_label(&container.external_id)?;
+                let query = IssueQuery {
+                    label: Some(found.title.as_str()),
+                    ..IssueQuery::default()
+                };
+                (repository, query)
             }
             ContainerKind::Epic | ContainerKind::Filter => {
                 return Err(LinkError::Invalid(
@@ -290,15 +301,11 @@ impl GithubProvider {
                 ));
             }
         };
-        let issue_query = IssueQuery {
-            milestone: query,
-            label: query.is_none().then_some(title.as_str()),
-            ..IssueQuery::default()
-        };
         let listing = self
             .github
             .list_issues(&opened.token, &repository, &issue_query, CHILD_PAGE_LIMIT)
             .await?;
+        let title = found.title.clone();
         let items = listing
             .items
             .into_iter()
@@ -336,14 +343,36 @@ impl GithubProvider {
     }
 
     async fn issue(&self, opened: &OpenToken, issue_ref: &IssueRef) -> Result<Issue, LinkError> {
-        self.github
+        let issue = self
+            .github
             .issue(&opened.token, issue_ref)
             .await?
             .ok_or_else(|| {
                 LinkError::NotFound(format!(
                     "{issue_ref} does not exist or the token cannot see it"
                 ))
-            })
+            })?;
+        self.settle_merge(opened, issue).await
+    }
+
+    /// Confirms whether a closed pull request merged, from the pull request itself, when
+    /// the issue payload does not say it did. An open pull request, a merged one, and an
+    /// issue pass through unread.
+    async fn settle_merge(&self, opened: &OpenToken, mut issue: Issue) -> Result<Issue, LinkError> {
+        let needs_asking = !issue.is_open
+            && issue
+                .pull_request
+                .is_some_and(|pull_request| !pull_request.merged);
+        if !needs_asking {
+            return Ok(issue);
+        }
+        let pull_request_ref = parse_issue(&issue.reference())?;
+        let merged = self
+            .github
+            .pull_request_merged(&opened.token, &pull_request_ref)
+            .await?;
+        issue.pull_request = Some(PullRequest { merged });
+        Ok(issue)
     }
 }
 
@@ -477,7 +506,6 @@ impl Provider for GithubProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::github::issues::PullRequest;
 
     fn issue(is_open: bool, reason: Option<&str>, pull_request: Option<bool>) -> Issue {
         Issue {

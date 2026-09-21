@@ -165,13 +165,18 @@ pub async fn for_links(
         .await
 }
 
-/// Every owed write, oldest first, up to `limit`.
+/// Up to `limit` owed writes: never-tried ones first, then the ones tried longest ago.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn owed(connection: &mut AsyncPgConnection, limit: i64) -> QueryResult<Vec<LinkWrite>> {
+    // Untried writes first, then the ones tried longest ago, so writes that keep failing or
+    // waiting take turns behind new ones instead of holding the front of the queue.
     action_item_link_writes::table
-        .order(action_item_link_writes::id)
+        .order((
+            action_item_link_writes::last_attempt_at.asc().nulls_first(),
+            action_item_link_writes::id,
+        ))
         .limit(limit)
         .select(LinkWrite::as_select())
         .load(connection)

@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use uuid::Uuid;
 
 use super::allowlist::ensure_allowed;
-use super::open;
+use super::{open, project_key_of};
 use crate::errors::ApiError;
 use crate::models::jira_done_transition;
 use crate::state::AppState;
@@ -21,11 +21,12 @@ pub async fn handle(
     path: Result<Path<(Uuid, String)>, PathRejection>,
 ) -> Result<StatusCode, ApiError> {
     let Path((id, project_key)) = path?;
+    let project_key = project_key_of(&project_key)?;
     let stored = open(&state, id).await?;
     ensure_allowed(
         &stored.allowed.projects,
         &stored.credential.name,
-        &project_key,
+        project_key,
     )?;
 
     let mut connection = state
@@ -33,6 +34,6 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    jira_done_transition::forget(&mut connection, id, &project_key).await?;
+    jira_done_transition::forget(&mut connection, id, project_key).await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::{DoneTransitionChoice, open};
+use super::{DoneTransitionChoice, open, project_key_of};
 use crate::action_items::links::jira::done_statuses;
 use crate::errors::ApiError;
 use crate::models::jira_done_transition;
@@ -35,11 +35,12 @@ pub async fn handle(
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path((id, project_key)) = path?;
+    let project_key = project_key_of(&project_key)?;
     let Json(body) = body?;
     body.validate()?;
 
     let stored = open(&state, id).await?;
-    let statuses = done_statuses(&state.jira, &stored, &project_key).await?;
+    let statuses = done_statuses(&state.jira, &stored, project_key).await?;
     let Some(status) = statuses
         .into_iter()
         .find(|status| status.id == body.status_id)
@@ -56,7 +57,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let chosen =
-        jira_done_transition::choose(&mut connection, id, &project_key, &status.id, &status.name)
+        jira_done_transition::choose(&mut connection, id, project_key, &status.id, &status.name)
             .await?;
     state.links.wake_watcher();
 

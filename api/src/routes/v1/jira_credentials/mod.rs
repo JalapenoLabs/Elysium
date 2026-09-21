@@ -86,6 +86,28 @@ pub fn router() -> Router<AppState> {
         )
 }
 
+/// A project key from a path, refused unless it is spelled as Jira writes keys: an
+/// uppercase letter, then uppercase letters, digits, and underscores. A done transition is
+/// stored and later looked up under the key Jira answers with, so any other spelling would
+/// be a choice nothing ever finds.
+///
+/// # Errors
+/// Returns [`ApiError::BadRequest`] for anything else.
+fn project_key_of(key: &str) -> Result<&str, ApiError> {
+    let is_key = (2..=255).contains(&key.len())
+        && key.starts_with(|first: char| first.is_ascii_uppercase())
+        && key.chars().all(|character| {
+            character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_'
+        });
+    if !is_key {
+        return Err(ApiError::BadRequest(format!(
+            "{key} is not a project key; one is written in uppercase letters, digits, and \
+             underscores, such as ELY"
+        )));
+    }
+    Ok(key)
+}
+
 /// A project's chosen done transition, as clients see it: the `done` status it leads into.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -610,6 +632,18 @@ pub mod tests {
         serde_json::from_value::<JiraToken>(json!("   ")).expect_err("a blank token");
         serde_json::from_value::<JiraToken>(json!("t".repeat(513)))
             .expect_err("an oversized token");
+    }
+
+    #[test]
+    fn a_project_key_in_a_path_is_spelled_as_jira_writes_it() {
+        assert_eq!(project_key_of("ELY").expect("a key"), "ELY");
+        assert_eq!(project_key_of("OPS_2").expect("a key"), "OPS_2");
+        for refused in ["ely", "Ely", "E", "2ELY", "ELY-12", "ELY KEY", ""] {
+            assert!(
+                matches!(project_key_of(refused), Err(ApiError::BadRequest(_))),
+                "{refused}"
+            );
+        }
     }
 
     #[test]

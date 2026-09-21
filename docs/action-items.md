@@ -191,6 +191,8 @@ How containers behave in detail:
   the container leaves the initiative, an item also added by hand stays, and a child the user takes out by hand joins
   again on the next pass while the container still holds it.
 - Unlinking a container takes out every item it brought in. The items themselves stay, with their links.
+- Every read reads the container itself first. One that is gone, such as a GitHub label renamed or an epic deleted,
+  records why on the container and takes nobody out until the user unlinks it.
 - The watcher reads up to 1,000 children per container. A container past that is marked `truncated`, and while it is,
   no child is taken out, since one missing from a cut short read may still be there.
 - A GitHub milestone or label contributes its issues. Pull requests in it are left out: the issues they fix are the

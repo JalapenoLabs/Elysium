@@ -14,7 +14,7 @@ use axum::extract::{Path, State};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{DoneTransitionChoice, open};
+use super::{DoneTransitionChoice, open, project_key_of};
 use crate::action_items::links::jira::done_statuses;
 use crate::errors::ApiError;
 use crate::models::jira_done_transition;
@@ -25,15 +25,16 @@ pub async fn handle(
     path: Result<Path<(Uuid, String)>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path((id, project_key)) = path?;
+    let project_key = project_key_of(&project_key)?;
     let stored = open(&state, id).await?;
-    let statuses = done_statuses(&state.jira, &stored, &project_key).await?;
+    let statuses = done_statuses(&state.jira, &stored, project_key).await?;
 
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
-    let chosen = jira_done_transition::find(&mut connection, id, &project_key).await?;
+    let chosen = jira_done_transition::find(&mut connection, id, project_key).await?;
     let statuses: Vec<Value> = statuses
         .into_iter()
         .map(|status| json!({ "id": status.id, "name": status.name }))

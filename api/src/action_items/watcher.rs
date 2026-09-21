@@ -57,8 +57,10 @@ use crate::routes::v1::initiatives::InitiativeLinkResponse;
 /// container, well inside both providers' rate limits.
 pub const WATCH_INTERVAL: Duration = Duration::from_secs(60);
 
-/// The most owed writes one pass tries. Writes wait in order, so the rest are tried on the
-/// next pass; this keeps a long outage's backlog from holding one pass for minutes.
+/// The most owed writes one pass tries. Untried writes go first and the rest take turns by
+/// when they were last tried, so a backlog of writes that keep failing or waiting never
+/// holds back a new one; this keeps a long outage's backlog from holding one pass for
+/// minutes.
 const WRITES_PER_PASS: i64 = 100;
 
 /// The longest title an item created for a container's child starts with, matching the

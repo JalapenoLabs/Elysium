@@ -219,6 +219,32 @@ impl Github {
         })
     }
 
+    /// Whether a pull request merged, from the pull request itself.
+    ///
+    /// The issues API marks a pull request with `pull_request.merged_at`, but GitHub does not
+    /// promise that field on every issue payload, so a closed pull request that does not
+    /// say it merged is asked here before it is read as closed without merging.
+    ///
+    /// # Errors
+    /// Returns [`GithubError::Refused`] for a pull request GitHub does not have or will not
+    /// show, and otherwise as [`Github::issue`].
+    pub async fn pull_request_merged(
+        &self,
+        token: &SecretString,
+        pull_request: &IssueRef,
+    ) -> Result<bool, GithubError> {
+        let url = self.repository_url(
+            &pull_request.repository,
+            &["pulls", &pull_request.number.to_string()],
+        );
+        let reply = self.get(&url, token).await?;
+        if !reply.status.is_success() {
+            return Err(reply.refusal());
+        }
+        let body: MergedBody = reply.read("a pull request")?;
+        Ok(body.merged)
+    }
+
     /// Closes an issue as completed.
     ///
     /// # Errors
@@ -436,6 +462,13 @@ impl IssueBody {
             updated_at: self.updated_at,
         }
     }
+}
+
+/// The part of `GET /repos/{owner}/{repo}/pulls/{number}` Elysium reads.
+#[derive(Deserialize)]
+struct MergedBody {
+    #[serde(default)]
+    merged: bool,
 }
 
 #[derive(Deserialize)]

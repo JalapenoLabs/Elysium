@@ -173,13 +173,15 @@ Action items link to GitHub issues and pull requests, and initiatives to a repos
 |-----------------------------------------------------|-------------------------------------------------------|
 | `GET /repos/{owner}/{repo}/issues/{number}`         | One issue or pull request: its state, reason, assignee, and whether it merged |
 | `GET /repos/{owner}/{repo}/issues`                  | A repository's issues, by `state`, `since`, `milestone`, or `labels`, paged |
+| `GET /repos/{owner}/{repo}/pulls/{number}`          | Whether a closed pull request merged                  |
 | `PATCH /repos/{owner}/{repo}/issues/{number}`       | Closing an issue as completed                         |
 | `POST /repos/{owner}/{repo}/issues/{number}/comments` | Posting an item's comment                          |
 | `GET /repos/{owner}/{repo}/milestones`, `.../milestones/{number}` | Picking and reading a milestone          |
 | `GET /repos/{owner}/{repo}/labels`, `.../labels/{name}` | Picking and reading a label                       |
 
-A pull request is an issue that carries `pull_request.merged_at`, so one listing reads a repository's changes of both
-kinds. An issue closed with `state_reason: not_planned` dismisses its item; any other close resolves it. Path segments
+A pull request is an issue that carries a `pull_request` object, so one listing reads a repository's changes of both
+kinds. GitHub does not promise `merged_at` in that object, so a closed pull request that does not say it merged is read
+from the pull request itself before it counts as closed without merging. An issue closed with `state_reason: not_planned` dismisses its item; any other close resolves it. Path segments
 are percent-encoded, so a label with a space or a slash stays one segment, and owner and name are checked against
 GitHub's alphabets before they reach a path.
 

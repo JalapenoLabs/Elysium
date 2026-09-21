@@ -4,7 +4,8 @@
 //!
 //! It answers the way GitHub does for the calls Elysium makes: a bearer token or `401` with
 //! `Bad credentials`, issues and pull requests through the issues API (a pull request is an
-//! issue carrying `pull_request.merged_at`), `state_reason` on closed issues, filtering by
+//! issue carrying a `pull_request` object, without `merged_at`, so whether it merged is read
+//! from `GET /pulls/{number}`), `state_reason` on closed issues, filtering by
 //! `state`, `since`, `milestone`, and `labels`, and `404` for anything it does not hold.
 //! Every request is recorded, so a test asserts on what left the process, and a test can
 //! change an issue the way someone on GitHub would, which moves its `updated_at`.
@@ -172,6 +173,27 @@ impl FakeGithub {
         });
     }
 
+    /// Renames a label, on the repository and on every issue carrying it, as GitHub does.
+    pub(crate) fn rename_label(&self, repository: &str, from: &str, to: &str) {
+        self.with_state(|state| {
+            for label in state.labels.entry(repository.to_owned()).or_default() {
+                if label == from {
+                    to.clone_into(label);
+                }
+            }
+            for ((held, _number), issue) in &mut state.issues {
+                if held != repository {
+                    continue;
+                }
+                for label in &mut issue.labels {
+                    if label == from {
+                        to.clone_into(label);
+                    }
+                }
+            }
+        });
+    }
+
     /// Makes every write fail, as it does for a token without write access, or stop failing.
     pub(crate) fn refuse_writes(&self, refuse: bool) {
         self.with_state(|state| state.refuse_writes = refuse);
@@ -211,10 +233,11 @@ fn issue_json(origin: &str, repository: &str, number: u64, issue: &FakeIssue) ->
         "assignee": issue.assignee.as_ref().map(|login| json!({ "login": login })),
         "updated_at": issue.updated_at,
     });
-    if let Some(merged) = issue.pull_request {
+    // Only the links: whether it merged is asked of the pull request itself, since GitHub
+    // does not promise `merged_at` here.
+    if issue.pull_request.is_some() {
         body["pull_request"] = json!({
             "url": format!("{origin}/repos/{repository}/pulls/{number}"),
-            "merged_at": merged.then_some(issue.updated_at),
         });
     }
     body
@@ -331,6 +354,20 @@ async fn answer(
                 }
             }
             axum::Json(issue_json(&origin, &repository, number, issue)).into_response()
+        }
+
+        (Method::GET, ["repos", owner, name, "pulls", number]) => {
+            let repository = format!("{owner}/{name}");
+            let merged = number.parse::<u64>().ok().and_then(|number| {
+                state
+                    .issues
+                    .get(&(repository, number))
+                    .and_then(|issue| issue.pull_request)
+            });
+            let Some(merged) = merged else {
+                return github_error(StatusCode::NOT_FOUND, "Not Found");
+            };
+            axum::Json(json!({ "number": number, "merged": merged })).into_response()
         }
 
         (Method::POST, ["repos", owner, name, "issues", number, "comments"]) => {
@@ -472,15 +509,22 @@ mod tests {
             "https://github.com/JalapenoLabs/Elysium/issues/12"
         );
 
-        let merged = fake
+        let pull_request = fake
             .github
             .issue(&token(), &issue_ref(15))
             .await
             .expect("read")
             .expect("held");
-        assert_eq!(
-            merged.pull_request.map(|pull_request| pull_request.merged),
-            Some(true)
+        assert!(
+            pull_request.pull_request.is_some(),
+            "a pull request is marked"
+        );
+        assert!(
+            fake.github
+                .pull_request_merged(&token(), &issue_ref(15))
+                .await
+                .expect("read"),
+            "whether it merged comes from the pull request itself"
         );
 
         assert_eq!(

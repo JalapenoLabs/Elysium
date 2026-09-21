@@ -735,6 +735,78 @@ async fn a_child_leaves_with_the_container_and_an_item_already_tracked_joins_onc
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_label_renamed_on_github_is_a_failed_read_that_keeps_its_children() {
+    let mut fixture = LinkFixture::start().await;
+    let initiative_id = crate::models::initiative::create(
+        &mut fixture.connection,
+        NewInitiative {
+            name: "Bugs".to_owned(),
+            description: String::new(),
+            target_at: None,
+            project_ids: Vec::new(),
+        },
+        Actor::User,
+        Utc::now(),
+    )
+    .await
+    .expect("initiative")
+    .record
+    .id;
+    fixture.github.put_label(REPOSITORY, "bug");
+    fixture.github.put_issue(
+        REPOSITORY,
+        1,
+        FakeIssue {
+            labels: vec!["bug".to_owned()],
+            ..FakeIssue::open("A bug")
+        },
+    );
+    let container = fixture
+        .links
+        .provider(LinkProvider::Github)
+        .find_container(
+            fixture.github_credential.id,
+            ContainerKind::Label,
+            "JalapenoLabs/Elysium:bug",
+        )
+        .await
+        .expect("a label");
+    initiative_link::add(
+        &mut fixture.connection,
+        initiative_id,
+        NewContainer {
+            credential: fixture.github_credential,
+            kind: ContainerKind::Label,
+            external_id: container.external_id,
+            external_key: container.key,
+            url: container.url,
+            title: container.title,
+        },
+        Actor::User,
+        Utc::now(),
+    )
+    .await
+    .expect("linked");
+    let context = fixture.context();
+    pass(&context).await;
+    assert_eq!(members(&mut fixture, initiative_id).await.len(), 1);
+
+    fixture.github.rename_label(REPOSITORY, "bug", "type: bug");
+    pass(&context).await;
+    assert_eq!(
+        members(&mut fixture, initiative_id).await.len(),
+        1,
+        "a label GitHub no longer has takes nobody out"
+    );
+    let container = initiative_link::list_for_initiative(&mut fixture.connection, initiative_id)
+        .await
+        .expect("containers")
+        .remove(0);
+    assert!(container.sync_error.is_some(), "the failed read says why");
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn the_cursor_survives_a_restart() {
     let mut fixture = LinkFixture::start().await;
     fixture

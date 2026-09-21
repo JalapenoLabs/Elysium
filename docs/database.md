@@ -419,7 +419,11 @@ What an item links to: a Jira issue, a GitHub issue, or a GitHub pull request; s
 | `updated_at`           | `TIMESTAMPTZ`            | Maintained by trigger                                        |
 
 `action_item_links_jira_unique` and `action_item_links_github_unique` make one external thing, through one credential,
-one link, so it is one item; they also serve the watcher's reads by credential.
+one link, so it is one item; they also serve the watcher's reads by credential. `action_item_links_action_item_id_idx`
+serves an item's links, read on nearly every item write.
+
+Owed writes are tried untried first, then by `last_attempt_at`, so writes that keep failing or waiting take turns
+behind new ones rather than holding the front of the queue.
 
 ### `action_item_link_writes`
 
