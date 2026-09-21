@@ -11,6 +11,8 @@ export const UrlTree = {
   initiatives: '/action-items/initiatives',
   initiativesNew: '/action-items/initiatives/new',
   initiativeView: '/action-items/initiatives/:initiativeId',
+  changesets: '/action-items/changesets',
+  changesetView: '/action-items/changesets/:changesetId',
   studio: '/studio',
   projects: '/projects',
   projectsNew: '/projects/new',
@@ -66,6 +68,10 @@ export function getActionItemViewUrl(itemId: string) {
 
 export function getInitiativeViewUrl(initiativeId: string) {
   return UrlTree.initiativeView.replace(':initiativeId', initiativeId)
+}
+
+export function getChangesetViewUrl(changesetId: string) {
+  return UrlTree.changesetView.replace(':changesetId', changesetId)
 }
 
 // New items can start in a project or an initiative, from that project's or initiative's page.

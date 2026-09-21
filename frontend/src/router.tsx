@@ -11,6 +11,8 @@ import { ActionItemsLayout } from './pages/ActionItems/ActionItemsLayout'
 import { CreateActionItemPage } from './pages/ActionItems/CreateActionItemPage'
 import { InboxPage } from './pages/ActionItems/InboxPage'
 import { NextPage } from './pages/ActionItems/NextPage'
+import { ChangesetPage } from './pages/Changesets/ChangesetPage'
+import { ChangesetsPage } from './pages/Changesets/ChangesetsPage'
 import { CodingPage } from './pages/Coding/CodingPage'
 import { CreateInitiativePage } from './pages/Initiatives/CreateInitiativePage'
 import { InitiativePage } from './pages/Initiatives/InitiativePage'
@@ -82,6 +84,10 @@ export const router = createBrowserRouter([
             path: UrlTree.initiatives,
             element: <InitiativesPage />,
           },
+          {
+            path: UrlTree.changesets,
+            element: <ChangesetsPage />,
+          },
         ],
       },
       {
@@ -99,6 +105,10 @@ export const router = createBrowserRouter([
       {
         path: UrlTree.initiativeView,
         element: <InitiativePage />,
+      },
+      {
+        path: UrlTree.changesetView,
+        element: <ChangesetPage />,
       },
       {
         path: UrlTree.studio,

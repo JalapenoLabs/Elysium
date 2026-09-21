@@ -10,6 +10,7 @@ import { historyLoaded } from '../store/actionItemHistorySlice'
 import { actionItemLinksLoaded } from '../store/actionItemLinksSlice'
 import { initiativeLinksLoaded } from '../store/initiativeLinksSlice'
 import { actionItemsLoaded, actionItemUpserted, deletedActionItemsLoaded } from '../store/actionItemsSlice'
+import { changesetsLoaded, changesetUpserted } from '../store/changesetsSlice'
 import { codingSessionsLoaded } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
 import { environmentVariablesLoaded } from '../store/environmentVariablesSlice'
@@ -41,6 +42,7 @@ import {
   listInitiativeLinks,
   listInitiatives,
 } from '../api/routes/initiativeRoutes'
+import { getChangeset, listChangesets } from '../api/routes/changesetRoutes'
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
 import { listGithubCredentials } from '../api/routes/githubRoutes'
@@ -274,6 +276,28 @@ export function useActionItemHistoryLoader(itemId: string): LoadStatus {
   const { data, error } = useSWR(`v1/action-items/${itemId}/history`, async () => {
     const response = await listActionItemHistory(itemId)
     dispatch(historyLoaded(response.history))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Every changeset, newest first. The Action items area loads it for the pending count on its
+// tab and on Next; `changeset.upserted` keeps it current.
+export function useChangesetsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/changesets', async () => {
+    const response = await listChangesets()
+    dispatch(changesetsLoaded(response.changesets))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useChangesetLoader(changesetId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/changesets/${changesetId}`, async () => {
+    const response = await getChangeset(changesetId)
+    dispatch(changesetUpserted(response.changeset))
     return response
   })
   return toLoadStatus(data !== undefined, error)

@@ -7,6 +7,7 @@ import type {
   HistoryEntry,
   PendingWrite,
 } from './api/routes/actionItemRoutes'
+import type { Changeset, ChangesetOperation } from './api/routes/changesetRoutes'
 import type { CodingSession } from './api/routes/codingSessionRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
 import type { Project } from './api/routes/projectRoutes'
@@ -72,6 +73,39 @@ export function makeHistoryEntry(overrides: Partial<HistoryEntry> & Pick<History
     actor: 'user',
     data: {},
     createdAt: CREATED_AT,
+    changesetId: null,
+    ...overrides,
+  }
+}
+
+export function makeChangesetOperation(
+  overrides: Partial<ChangesetOperation> & Pick<ChangesetOperation, 'id' | 'position' | 'operation'>,
+): ChangesetOperation {
+  return {
+    reason: 'Sam asked for it',
+    quote: null,
+    source: null,
+    dependsOn: [],
+    decision: 'pending',
+    outcome: 'pending',
+    error: null,
+    result: {},
+    undo: null,
+    ...overrides,
+  }
+}
+
+export function makeChangeset(overrides: Partial<Changeset> & Pick<Changeset, 'id'>): Changeset {
+  return {
+    proposer: 'elysia',
+    projectId: null,
+    summary: 'Follow-ups from the planning meeting',
+    state: 'pending',
+    decidedAt: null,
+    undoneAt: null,
+    operations: [],
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
     ...overrides,
   }
 }

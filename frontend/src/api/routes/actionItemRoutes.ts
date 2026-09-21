@@ -95,6 +95,8 @@ export type HistoryEntry = {
   // What changed; its shape follows `kind`, as docs/action-items.md lists.
   data: unknown
   createdAt: string
+  // The changeset whose applying or undoing made the change, if one did.
+  changesetId: string | null
 }
 
 // The API filters by state, project, initiative, waiting, and snoozed as well, but the

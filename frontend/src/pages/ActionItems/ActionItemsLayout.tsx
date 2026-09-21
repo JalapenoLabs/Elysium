@@ -9,16 +9,17 @@ import { Outlet, useLocation, useNavigate } from 'react-router'
 // Redux
 import { useAppSelector } from '../../store/hooks'
 import { selectInboxActionItems } from '../../store/actionItemsSlice'
+import { selectPendingChangesets } from '../../store/changesetsSlice'
 
 // User interface
 import { Button, Chip, Tabs } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 
 // Misc
-import { useActionItemsLoader } from '../../hooks/useServerData'
+import { useActionItemsLoader, useChangesetsLoader } from '../../hooks/useServerData'
 import { UrlTree } from '../../urls'
 
-const SECTIONS = [ 'next', 'inbox', 'all', 'initiatives' ] as const
+const SECTIONS = [ 'next', 'inbox', 'all', 'initiatives', 'changesets' ] as const
 type Section = typeof SECTIONS[number]
 
 const sectionUrls = {
@@ -26,6 +27,7 @@ const sectionUrls = {
   inbox: UrlTree.actionItemsInbox,
   all: UrlTree.actionItemsAll,
   initiatives: UrlTree.initiatives,
+  changesets: UrlTree.changesets,
 } as const satisfies Record<Section, string>
 
 const sectionLabelKeys = {
@@ -33,17 +35,25 @@ const sectionLabelKeys = {
   inbox: 'nav.inbox',
   all: 'nav.all',
   initiatives: 'nav.initiatives',
+  changesets: 'nav.changesets',
 } as const satisfies Record<Section, ParseKeys<'actionItems'>>
 
-// The frame of the Action items area's four views: Next (the default), the inbox, every
-// item, and initiatives, as tabs under one heading. Item and initiative pages, and the
+// The frame of the Action items area's five views: Next (the default), the inbox, every
+// item, initiatives, and the changesets waiting for review, as tabs under one heading. The
+// inbox and changesets tabs count what waits in them. Item and initiative pages, and the
 // create pages, stand on their own with breadcrumbs back here.
 export function ActionItemsLayout() {
   const { t } = useTranslation([ 'actionItems', 'initiatives' ])
   const navigate = useNavigate()
   const location = useLocation()
   useActionItemsLoader()
+  useChangesetsLoader()
   const inboxCount = useAppSelector(selectInboxActionItems).length
+  const pendingChangesetCount = useAppSelector(selectPendingChangesets).length
+  const waitingBySection: Partial<Record<Section, number>> = {
+    inbox: inboxCount,
+    changesets: pendingChangesetCount,
+  }
 
   const selectedSection = SECTIONS.find((section) => sectionUrls[section] === location.pathname) ?? 'next'
   const isInitiatives = selectedSection === 'initiatives'
@@ -73,8 +83,8 @@ export function ActionItemsLayout() {
         <Tabs.List aria-label={t('nav.label')}>{
           SECTIONS.map((section) => <Tabs.Tab key={section} id={section} href={sectionUrls[section]}>
             <span>{t(sectionLabelKeys[section])}</span>
-            {section === 'inbox' && inboxCount > 0 && <Chip size='sm' variant='soft' color='accent' className='ml-2'>{
-              inboxCount
+            {Boolean(waitingBySection[section]) && <Chip size='sm' variant='soft' color='accent' className='ml-2'>{
+              waitingBySection[section]
             }</Chip>}
             <Tabs.Indicator />
           </Tabs.Tab>)

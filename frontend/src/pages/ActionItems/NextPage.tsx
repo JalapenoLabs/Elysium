@@ -7,9 +7,11 @@ import { useTranslation } from 'react-i18next'
 // Redux
 import { useAppSelector } from '../../store/hooks'
 import { selectInboxActionItems, selectNextActionItems } from '../../store/actionItemsSlice'
+import { selectPendingChangesets } from '../../store/changesetsSlice'
 
 // User interface
 import { Spinner } from '@heroui/react'
+import { ChangesetsLeadCard } from '../Changesets/ChangesetsLeadCard'
 import { InboxLeadCard } from './InboxLeadCard'
 import { NextEmptyState } from './NextEmptyState'
 import { NextItemCard } from './NextItemCard'
@@ -29,6 +31,7 @@ export function NextPage() {
   const now = useNow()
   const nextItems = useAppSelector((state) => selectNextActionItems(state, now))
   const inboxCount = useAppSelector(selectInboxActionItems).length
+  const pendingChangesetCount = useAppSelector(selectPendingChangesets).length
   const [ skippedIds, setSkippedIds ] = useState<string[]>([])
 
   if (status === 'loading') {
@@ -43,6 +46,7 @@ export function NextPage() {
   const current = pickCurrentItem(nextItems, skippedIds)
 
   return <div>
+    {pendingChangesetCount > 0 && <ChangesetsLeadCard count={pendingChangesetCount} />}
     {inboxCount > 0 && <InboxLeadCard count={inboxCount} />}
     {current
       ? <NextItemCard

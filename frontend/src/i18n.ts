@@ -6,6 +6,7 @@ import { initReactI18next } from 'react-i18next'
 
 // Misc
 import actionItems from './locales/en-US/actionItems.json'
+import changesets from './locales/en-US/changesets.json'
 import coding from './locales/en-US/coding.json'
 import common from './locales/en-US/common.json'
 import email from './locales/en-US/email.json'
@@ -29,6 +30,7 @@ export const DEFAULT_NAMESPACE = 'common'
 export const resources = {
   [DEFAULT_LOCALE]: {
     actionItems,
+    changesets,
     coding,
     common,
     email,

@@ -62,7 +62,7 @@ whose `initiativeIds` leave deleted initiatives out. A write that changed nothin
 every action item event to Redux; `actionItem.deleted` and `initiative.deleted` also revalidate the deleted lists,
 `initiative.upserted` the initiative's burnup, and `actionItemLink.upserted` the item's live provider reads, each only
 while a view shows it (`docs/frontend.md`). The link and container events land in the `actionItemLinks` and
-`initiativeLinks` slices.
+`initiativeLinks` slices, and `changeset.upserted` in the `changesets` slice.
 
 The stream sends a comment every 15 seconds so proxies never see it idle. nginx serves `/api/v1/events` from its
 own location with buffering off and a one-hour read timeout.

@@ -101,7 +101,7 @@ Everything else follows these rules:
 The core and its frontend are built: items, initiatives, memberships, comments, history, Next, and progress, under
 `/api/v1/action-items` and `/api/v1/initiatives`, and the Action items area that uses them. So are the `elysium_work`
 tools, coding sessions started from an item, and links to Jira and GitHub with the watcher and their frontend. So are
-changesets under `/api/v1/changesets` and the `work_propose_changes` tool; their review screen in the frontend is next.
+changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and their review in the Action items area.
 
 - Action items are the one list of what the user owes attention to, from Jira, GitHub, email, meetings, or typed by
   hand. Initiatives group items toward a goal that ends and carry the progress bar; projects never end and have
