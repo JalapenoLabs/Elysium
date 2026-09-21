@@ -12,7 +12,7 @@ sessions started from an item ([Coding sessions](#coding-sessions)), and links t
 keeps them current ([Links and the watcher](#links-and-the-watcher)), with their frontend: links on the item page,
 containers on the initiative page, and the Jira done status choice under Settings. So are changesets
 ([Changesets](#changesets)): proposing, deciding, applying, and undoing them under `/api/v1/changesets`, and the
-`work_propose_changes` tool coding agents propose them with. Their review screen in the frontend is on the roadmap.
+`work_propose_changes` tool coding agents propose them with, and their review in the Action items area.
 
 The design goal is that work arrives from anywhere, is triaged and managed in one place, and every change made here
 reaches the system it came from. The user approves; Elysium and Elysia, Elysium's AI assistant, do the bookkeeping.
@@ -428,7 +428,16 @@ What undo cannot reverse, and says so on the operation (`undo`) for the review t
 - An operation the records refuse, such as returning an item deleted since, keeps its effect with the reason
   (`refusal`). The rest are still reversed.
 
-An operation reversed ends `undone`; one that could not be stays `applied` with its `undo` saying why.
+An operation reversed ends `undone`; one that could not be stays `applied` with its `undo` saying why. A membership
+change is reversed only while the span it opened or closed is still the item's latest in that initiative, counting a
+span the undo itself wrote as the state it restored, so several changes to one membership in a changeset all reverse.
+
+### Reviewing
+
+Changesets are a tab of the Action items area, which counts the ones waiting, and Next leads with a card while any
+wait. The review shows each operation as a sentence, an edit field by field from what it holds to what it would hold,
+with its reason, quote, and source, and what rejecting it would also reject. After applying, each operation shows
+how it ended and any provider write it still owes; after undoing, what undo kept. See `docs/frontend.md`.
 
 ## Coding sessions
 
@@ -484,9 +493,6 @@ Every call is scoped to the session's project and re-checked against the databas
 
 ## Roadmap
 
-- The changeset review screen in the frontend: an inbox of changesets with the pending count on the Action items area
-  and Next, and a page showing each operation as a readable change with its reason and quote, per-operation approve
-  and reject, apply, each outcome, and undo with what it cannot reverse.
 - Email: completing an item that came from an email marks the thread read, then archives or deletes it; which of the
   two is not decided.
 - Email triage: Elysia reads new mail and proposes items as changesets.

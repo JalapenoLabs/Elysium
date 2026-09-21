@@ -53,6 +53,8 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/action-items/initiatives`   | `InitiativesPage`        | Initiatives with their progress                          |
 | `/action-items/initiatives/new` | `CreateInitiativePage` | Start an initiative; `?project=` presets it              |
 | `/action-items/initiatives/:initiativeId` | `InitiativePage` | One initiative: progress, burnup, items, history  |
+| `/action-items/changesets`    | `ChangesetsPage`         | Changesets, those waiting for review first               |
+| `/action-items/changesets/:changesetId` | `ChangesetPage` | One changeset's review, outcome, and undo         |
 | `/studio`                     | `StudioPage`             | Placeholder                                              |
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
@@ -215,8 +217,8 @@ forgotten (OAuth).
 
 ### Action items
 
-`src/pages/ActionItems/` and `src/pages/Initiatives/` build the area `docs/action-items.md` designs. Next, Inbox, All
-items, and Initiatives are tabs under one heading (`ActionItemsLayout`, a parent route with an `Outlet`); the item,
+`src/pages/ActionItems/`, `src/pages/Initiatives/`, and `src/pages/Changesets/` build the area `docs/action-items.md`
+designs. Next, Inbox, All items, Initiatives, and Changesets are tabs under one heading (`ActionItemsLayout`, a parent route with an `Outlet`); the item,
 initiative, and create pages stand on their own with breadcrumbs. The sidebar keeps its one Action items entry.
 
 - **Next** (`NextPage`, `NextItemCard`) shows one item from Next with its badges, notes, projects and initiatives,
@@ -225,7 +227,8 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   `useQuickActionHotkey` so they are ignored while typing, while a dialog, menu, or list box has focus, and with a
   modifier held. Acting takes the item out of Next, so the next one takes its place without a request. Skip sets an
   item aside for the visit only, and skipping the last one starts the round again (`nextRotation.ts`). While the inbox
-  holds anything, `InboxLeadCard` leads the page. An empty Next says how many items wait on someone or are snoozed.
+  holds anything, `InboxLeadCard` leads the page, and while changesets wait for review, `ChangesetsLeadCard` leads it
+  above that. The Inbox and Changesets tabs each carry a count of what waits in them. An empty Next says how many items wait on someone or are snoozed.
 - **Next is computed in the browser.** `src/store/nextOrder.ts` mirrors the API's Next (which items, and
   `api/src/action_items/next.rs`'s order) and is tested against the same cases, the way `environmentPresentation.ts`
   mirrors the API's key rules; keep the two in step. `selectNextActionItems(state, now)` applies it to every live
@@ -280,6 +283,18 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   `AddContainerModal` picks one through `ContainerTargetPicker`: a Jira epic by search, a saved filter from
   `JiraFilterList`, or a repository's milestone or label from `GithubContainerList`. `containerPresentation.ts` holds
   which kinds each provider has.
+- **Changesets** (`ChangesetsPage`, `ChangesetListItem`) lists the changesets waiting for review, then the reviewed
+  ones, each with its summary, proposer, when it was proposed, its decisions so far, and its state.
+- **Changeset review** (`ChangesetPage`, `ChangesetOperationCard`) shows each operation as a sentence and, for an edit,
+  each field from what it holds to what it would hold (after applying, from what the operation replaced), with its
+  reason, quote, and source, and which earlier change it acts on. While the changeset is pending, each change has
+  Approve and Reject, the page has Approve all and Reject all, and a change says which others rejecting it also
+  rejects (`dependentsOf` mirrors the API's rule). Apply is enabled once every change is decided. After, each change
+  shows its decision and outcome with the reason it failed or was skipped; an applied comment or resolve lists the
+  provider writes it still owes from the item's links (`OperationProviderWrites`), with the provider's last answer.
+  Undo confirms first, saying that a posted comment and a closed issue stay; afterwards each change says what undo
+  kept. `changesetPresentation.ts` holds the sentences, labels, and rules, tested beside it, and
+  `useChangesetActions` the writes. A history entry a changeset made links to its review (`HistoryTimeline`).
 - **Project page** (`ProjectWork`) lists the project's inbox and open items and its initiatives, each with a New
   button that presets the project, and a link to every item of the project in All items.
 - **Start a coding session**, on the item page and in Next, goes to `/coding?item=<id>` (`getNewCodingSessionUrl`). The
@@ -416,6 +431,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `actionItemComments` | Comments of the items viewed, oldest first                          |
 | `actionItemHistory` | Item and initiative history entries, oldest first                    |
 | `actionItemLinks` | Links of the items viewed, the primary first, then oldest first         |
+| `changesets`     | Every changeset, newest first                                           |
 | `initiativeLinks` | Containers of the initiatives viewed, oldest first                     |
 | `initiatives`    | Live and deleted initiatives in separate halves, by name                |
 | `llms`           | LLM credentials, sorted by priority                                     |
@@ -443,7 +459,8 @@ Server collections use entity adapters. Redux is the source of truth components 
    `useEnvironmentVariablesLoader`, `useCodingSessionsLoader`,
    `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,
    `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,
-   `useInitiativeLoader`, `useInitiativeHistoryLoader`, `useActionItemLinksLoader`, `useInitiativeLinksLoader`). SWR
+   `useInitiativeLoader`, `useInitiativeHistoryLoader`, `useActionItemLinksLoader`, `useInitiativeLinksLoader`,
+   `useChangesetsLoader`, `useChangesetLoader`). SWR
    fetches the key once, deduplicates every component asking for it, and buffers the response so a remounted page
    renders at once while it revalidates.
 2. **Redux holds it.** The loader puts the response in Redux (`llmsLoaded`, `sessionHistoryLoaded`, ...).
@@ -557,7 +574,7 @@ first render.
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
   `satellites`, `email`, `storage`, `github`, `jira`, `environment`, `projects`, `coding`, `studio`,
-  `actionItems`, `initiatives`.
+  `actionItems`, `initiatives`, `changesets`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.
