@@ -810,6 +810,69 @@ pub async fn transition(
         .await
 }
 
+/// Takes a resolved or dismissed item back to `state`, the inbox or open, where it was
+/// before: what undoing a changeset's resolve or dismiss does. Unlike reopening, which
+/// always lands on `open`, this returns an item that was resolved straight from the inbox to
+/// the inbox.
+///
+/// A close the resolve owed and the watcher has not landed yet is dropped by the watcher,
+/// as for any item no longer resolved. One it already landed stays in the provider.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] for an unknown id, [`WorkError::Conflict`]
+/// for a deleted item or one that is not resolved or dismissed, [`WorkError::Invalid`] for a
+/// `state` other than the inbox or open, and any other database error.
+pub async fn return_to(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    state: ActionItemState,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> Result<Recorded<ActionItem>, WorkError> {
+    if !matches!(state, ActionItemState::Inbox | ActionItemState::Open) {
+        return Err(WorkError::Invalid(
+            "an item returns only to the inbox or to open",
+        ));
+    }
+    connection
+        .transaction(async move |connection| {
+            let item = lock_live(connection, id).await?;
+            if !matches!(
+                item.state,
+                ActionItemState::Resolved | ActionItemState::Dismissed
+            ) {
+                return Err(WorkError::Conflict(
+                    "only a resolved or dismissed item can return to where it was",
+                ));
+            }
+            let record = diesel::update(action_items::table.find(id))
+                .set((
+                    action_items::state.eq(state),
+                    action_items::resolved_at.eq(None::<DateTime<Utc>>),
+                    action_items::dismissed_at.eq(None::<DateTime<Utc>>),
+                ))
+                .returning(ActionItem::as_returning())
+                .get_result(connection)
+                .await?;
+            let entry = action_item_event::record(
+                connection,
+                Change {
+                    subject: Subject::Item(id),
+                    kind: HistoryKind::StateChanged,
+                    actor,
+                    data: replaced(item.state, state),
+                    at: now,
+                },
+            )
+            .await?;
+            Ok(Recorded {
+                record,
+                history: vec![entry],
+            })
+        })
+        .await
+}
+
 /// Deletes an item softly: it is hidden everywhere until restored.
 ///
 /// # Errors

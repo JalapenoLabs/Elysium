@@ -9,6 +9,10 @@
 //!
 //! `data` holds what changed, shaped by [`HistoryKind`], with before and after values
 //! wherever a value was replaced, so a later change can be shown and undone from its entry.
+//!
+//! An entry a changeset's operation recorded, or its undo, names the changeset as its source
+//! ([`attribute`]), so every change a changeset made can be found from any history it shows
+//! in.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -105,6 +109,8 @@ pub struct HistoryEntry {
     pub actor: String,
     pub data: Value,
     pub created_at: DateTime<Utc>,
+    /// The changeset whose applying or undoing made the change, if one did.
+    pub changeset_id: Option<Uuid>,
 }
 
 /// What an entry is about. An item joining or leaving an initiative is about both.
@@ -176,6 +182,35 @@ pub async fn record(
         .returning(HistoryEntry::as_returning())
         .get_result(connection)
         .await
+}
+
+/// Names `changeset_id` as the source of `entries`, which a changeset's operation just
+/// recorded. Call it inside the transaction that recorded them. Answers the entries as
+/// stored, in the order given.
+///
+/// The writes a changeset applies are the same model functions the user's own writes call,
+/// so they record their entries first and the changeset claims them here, rather than every
+/// write taking a source it would almost always leave empty.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn attribute(
+    connection: &mut AsyncPgConnection,
+    entries: Vec<HistoryEntry>,
+    changeset_id: Uuid,
+) -> QueryResult<Vec<HistoryEntry>> {
+    let ids: Vec<Uuid> = entries.iter().map(|entry| entry.id).collect();
+    diesel::update(action_item_events::table.filter(action_item_events::id.eq_any(&ids)))
+        .set(action_item_events::changeset_id.eq(changeset_id))
+        .execute(connection)
+        .await?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| HistoryEntry {
+            changeset_id: Some(changeset_id),
+            ..entry
+        })
+        .collect())
 }
 
 /// An item's history, oldest first, including its joining and leaving initiatives.

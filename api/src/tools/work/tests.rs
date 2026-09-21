@@ -39,6 +39,18 @@ fn every_schema_property_is_an_argument_the_tool_reads() {
             "work_link_pull_request",
             json!({ "url": "https://github.com/JalapenoLabs/Elysium/pull/12" }),
         ),
+        (
+            "work_propose_changes",
+            json!({
+                "summary": "Follow-ups from fixing the login bug",
+                "operations": [{
+                    "change": { "kind": "resolve-item", "item": { "id": id } },
+                    "reason": "The fix is merged.",
+                    "quote": "Closes the login bug",
+                    "source": "src/auth.rs:12",
+                }],
+            }),
+        ),
     ];
     assert_eq!(everything.len(), TOOLS.len(), "every tool has an example");
     for (name, arguments) in everything {
@@ -64,6 +76,9 @@ fn every_schema_property_is_an_argument_the_tool_reads() {
             "work_initiative" => parse_arguments::<InitiativeArguments>(&text).map(|_parsed| ()),
             "work_link_pull_request" => {
                 parse_arguments::<LinkPullRequestArguments>(&text).map(|_parsed| ())
+            }
+            "work_propose_changes" => {
+                parse_arguments::<propose::ProposeArguments>(&text).map(|_parsed| ())
             }
             _ => parse_arguments::<CommentArguments>(&text).map(|_parsed| ()),
         };

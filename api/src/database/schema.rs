@@ -18,6 +18,18 @@ pub mod sql_types {
     pub struct BunnyStorageRegion;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "changeset_decision"))]
+    pub struct ChangesetDecision;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "changeset_outcome"))]
+    pub struct ChangesetOutcome;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "changeset_state"))]
+    pub struct ChangesetState;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "container_kind"))]
     pub struct ContainerKind;
 
@@ -94,6 +106,7 @@ diesel::table! {
         actor -> Text,
         data -> Jsonb,
         created_at -> Timestamptz,
+        changeset_id -> Nullable<Uuid>,
     }
 }
 
@@ -170,6 +183,44 @@ diesel::table! {
         resolved_at -> Nullable<Timestamptz>,
         dismissed_at -> Nullable<Timestamptz>,
         deleted_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ChangesetDecision;
+    use super::sql_types::ChangesetOutcome;
+
+    changeset_operations (id) {
+        id -> Uuid,
+        changeset_id -> Uuid,
+        position -> Int4,
+        operation -> Jsonb,
+        reason -> Text,
+        quote -> Nullable<Text>,
+        source -> Nullable<Text>,
+        decision -> ChangesetDecision,
+        outcome -> ChangesetOutcome,
+        error -> Nullable<Text>,
+        result -> Jsonb,
+        undo -> Nullable<Jsonb>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ChangesetState;
+
+    changesets (id) {
+        id -> Uuid,
+        proposer -> Text,
+        project_id -> Nullable<Uuid>,
+        summary -> Text,
+        state -> ChangesetState,
+        decided_at -> Nullable<Timestamptz>,
+        undone_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
     }
@@ -490,6 +541,7 @@ diesel::table! {
 
 diesel::joinable!(action_item_comments -> action_items (action_item_id));
 diesel::joinable!(action_item_events -> action_items (action_item_id));
+diesel::joinable!(action_item_events -> changesets (changeset_id));
 diesel::joinable!(action_item_events -> initiatives (initiative_id));
 diesel::joinable!(action_item_link_writes -> action_item_comments (comment_id));
 diesel::joinable!(action_item_link_writes -> action_item_links (link_id));
@@ -498,6 +550,8 @@ diesel::joinable!(action_item_links -> github_credentials (github_credential_id)
 diesel::joinable!(action_item_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(action_item_projects -> action_items (action_item_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
+diesel::joinable!(changeset_operations -> changesets (changeset_id));
+diesel::joinable!(changesets -> projects (project_id));
 diesel::joinable!(coding_sessions -> action_items (action_item_id));
 diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
@@ -527,6 +581,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     action_item_links,
     action_item_projects,
     action_items,
+    changeset_operations,
+    changesets,
     coding_sessions,
     environment_variables,
     github_credentials,

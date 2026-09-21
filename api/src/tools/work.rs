@@ -10,10 +10,10 @@
 //! The agent reads freely and writes two things, both recorded with the actor
 //! `session:<number>`: comments, which are also posted to the item's primary link, and a
 //! link from its session's item to the pull request it opened, which resolves the item when
-//! it merges. Anything else it wants changed (creating, resolving, dismissing, deleting) is
-//! proposed to the user as a changeset instead, which is a later stage: a
-//! `work_propose_changes` tool joins [`TOOLS`] then, and the instructions below already tell
-//! the agent to ask the user in the meantime. See `docs/action-items.md`.
+//! it merges. Anything else it wants changed (creating, updating, resolving, dismissing,
+//! moving between initiatives) it proposes to the user as a changeset with
+//! `work_propose_changes` ([`propose`]), which nothing applies until the user approves it. It
+//! cannot delete anything. See `docs/action-items.md`.
 //!
 //! Each tool's database work is a function of a connection and a [`WorkScope`], so it is
 //! tested against Postgres without a satellite; the `run_*` wrappers only parse, connect,
@@ -58,12 +58,15 @@ pub const SERVER: ToolServer = ToolServer {
         found or what you changed; it is also posted to the item's linked issue. When you \
         open a pull request for the item this session was started from, link it with \
         work_link_pull_request: the item resolves when it merges. \
-        You cannot create, resolve, dismiss, or delete items or initiatives; when one \
-        should change, say so to the user in your reply, and they will make the change.",
+        You cannot change items or initiatives directly. When items should be created, \
+        updated, resolved, dismissed, or moved between initiatives, or an initiative \
+        created, propose it with work_propose_changes, giving each change its reason: the \
+        user reviews the proposal and applies what they approve. Propose only what the \
+        work in this session shows, and tell the user in your reply what you proposed.",
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 7] = [
+const TOOLS: [Tool; 8] = [
     Tool {
         name: "work_project",
         description: "Shows this session's project: its name and description, its active \
@@ -120,6 +123,18 @@ const TOOLS: [Tool; 7] = [
             never changes who owns the item.",
         input_schema: link_pull_request_schema,
         run: |context, scope, arguments| run_link_pull_request(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "work_propose_changes",
+        description: "Proposes changes to this project's action items and initiatives for \
+            the user to review: creating, updating, resolving, dismissing, or commenting on \
+            items, linking a pull request, moving items into or out of initiatives, and \
+            creating initiatives. Nothing changes until the user approves; they may approve \
+            some operations and reject others. An operation can act on what an earlier one \
+            creates by naming {\"operation\": n}; rejecting that one rejects it too. Answers \
+            the staged changeset.",
+        input_schema: propose::schema,
+        run: |context, scope, arguments| propose::run(context, scope, arguments).boxed(),
     },
 ];
 
@@ -187,6 +202,7 @@ impl From<WorkError> for Failure {
             WorkError::Conflict(message) | WorkError::Invalid(message) => {
                 Self::Refused(ToolError::Invalid(message.to_owned()))
             }
+            WorkError::Refused(message) => Self::Refused(ToolError::Invalid(message)),
         }
     }
 }
@@ -599,16 +615,25 @@ async fn pull_request_target(
         .into());
     };
     find_item(connection, scope, item_id).await?;
+    let credential_id = pull_request_credential(connection, scope).await?;
+    Ok((item_id, credential_id))
+}
+
+/// The GitHub token the session started with, which reads the pull requests its agent
+/// names.
+async fn pull_request_credential(
+    connection: &mut AsyncPgConnection,
+    scope: WorkScope,
+) -> Result<Uuid, Failure> {
     let session = coding_session::find(connection, scope.session_id).await?;
-    let Some(credential_id) = session.github_credential_id else {
-        return Err(ToolError::Invalid(
+    session.github_credential_id.ok_or_else(|| {
+        ToolError::Invalid(
             "this session has no GitHub token, so Elysium cannot read the pull request; \
              mention it in a work_comment instead"
                 .to_owned(),
         )
-        .into());
-    };
-    Ok((item_id, credential_id))
+        .into()
+    })
 }
 
 /// The project with its active initiatives and its items in the inbox or open.
@@ -936,6 +961,8 @@ fn history_view(entry: &HistoryEntry) -> Value {
         "at": entry.created_at,
     })
 }
+
+mod propose;
 
 #[cfg(test)]
 mod tests;

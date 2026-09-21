@@ -14,9 +14,12 @@
 //! - [`links`]: the external things items and initiatives point at, behind one provider
 //!   trait, with the rules for what a provider's change does to an item.
 //! - [`watcher`]: the poller that keeps links current and lands the writes Elysium owes.
+//! - [`changesets`]: the changes anyone but the user proposes, how they depend on each
+//!   other, and how the user's decisions on them cascade.
 //!
 //! The queries live in `crate::models::action_item` and its siblings, and call into these.
 
+pub mod changesets;
 pub mod links;
 pub mod next;
 pub mod progress;
@@ -32,10 +35,13 @@ use crate::models::action_item_link::LinkProvider;
 ///
 /// The user acts over HTTP, a coding session's agent through the `elysium_work` tools
 /// (`crate::tools::work`), and the watcher as it records what a provider reports. Elysia
-/// arrives in a later stage as `elysia`; the database already accepts that form.
+/// and a session's agent also act when the user applies a changeset they proposed
+/// ([`changesets`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Actor {
     User,
+    /// Elysium's AI assistant.
+    Elysia,
     /// The agent of the coding session with this number.
     Session(i64),
     /// The watcher, recording a change it read from this provider.
@@ -50,6 +56,7 @@ impl fmt::Display for Actor {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::User => formatter.write_str("user"),
+            Self::Elysia => formatter.write_str("elysia"),
             Self::Session(number) => write!(formatter, "session:{number}"),
             Self::Watcher(provider) => write!(formatter, "watcher:{}", provider.as_str()),
         }
@@ -128,6 +135,10 @@ pub enum WorkError {
     /// The request names something that cannot take part, such as a deleted initiative.
     #[error("{0}")]
     Invalid(&'static str),
+    /// The request cannot be used as given, in words that name what is wrong, such as the
+    /// operation of a proposed changeset that names a deleted item.
+    #[error("{0}")]
+    Refused(String),
 }
 
 #[cfg(test)]
@@ -198,6 +209,7 @@ mod tests {
     #[test]
     fn actors_are_recorded_in_the_form_the_database_checks() {
         assert_eq!(Actor::User.to_string(), "user");
+        assert_eq!(Actor::Elysia.to_string(), "elysia");
         assert_eq!(Actor::Session(12).to_string(), "session:12");
         assert_eq!(
             Actor::Watcher(LinkProvider::Jira).to_string(),

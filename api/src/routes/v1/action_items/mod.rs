@@ -232,8 +232,9 @@ pub struct ActionItemLinkResponse {
 }
 
 /// What a request links to: a thing a picker listed, named the way the provider names it,
-/// and the credential that reaches it. See `crate::action_items::links::Provider`.
-#[derive(Debug, Deserialize, Validate)]
+/// and the credential that reaches it. See `crate::action_items::links::Provider`. A
+/// changeset's link operation stores one too (`crate::action_items::changesets`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LinkTarget {
     pub provider: LinkProvider,
@@ -353,6 +354,8 @@ pub struct HistoryEntryResponse {
     actor: String,
     data: Value,
     created_at: DateTime<Utc>,
+    /// The changeset whose applying or undoing made the change, if one did.
+    changeset_id: Option<Uuid>,
 }
 
 impl From<HistoryEntry> for HistoryEntryResponse {
@@ -365,6 +368,7 @@ impl From<HistoryEntry> for HistoryEntryResponse {
             actor: entry.actor,
             data: entry.data,
             created_at: entry.created_at,
+            changeset_id: entry.changeset_id,
         }
     }
 }
