@@ -8,8 +8,9 @@ The core is built: items, initiatives, their projects and memberships, comments,
 under `/api/v1/action-items` and `/api/v1/initiatives` (`docs/api.md`) and kept current on the event stream
 (`docs/realtime.md`). So is the frontend for them: Next, inbox triage, the item list and pages, initiatives with their
 burnup, and the project page's items and initiatives (`docs/frontend.md`). So are the `elysium_work` tools and coding
-sessions started from an item ([Coding sessions](#coding-sessions)). Links, the watcher, and changesets are still a
-design; the sections about them are the plan, and each stops being one as it lands.
+sessions started from an item ([Coding sessions](#coding-sessions)), and links to Jira and GitHub with the watcher that
+keeps them current ([Links and the watcher](#links-and-the-watcher)), served by the API; their pages in the frontend are
+next. Changesets are still a design; that section is the plan.
 
 The design goal is that work arrives from anywhere, is triaged and managed in one place, and every change made here
 reaches the system it came from. The user approves; Elysium and Elysia, Elysium's AI assistant, do the bookkeeping.
@@ -180,14 +181,52 @@ children owned by someone else stay out of Next by their owner alone. A child ad
 child removed leaves it. The user never enters the same work twice, and progress stays true to the tool the team
 actually works in.
 
+How containers behave in detail:
+
+- A child's item is created with the child's title, priority, and due date, in the initiative's projects, and linked to
+  the child as its primary. A child already done when first read is created `open` and resolved at once by the
+  watcher, so history shows who resolved it and progress counts it.
+- A child that already has an item, through the same credential, joins with that item; nothing is created twice.
+- Membership a container brought is its own: `initiative_items.via_link_id` names the container. A child that leaves
+  the container leaves the initiative, an item also added by hand stays, and a child the user takes out by hand joins
+  again on the next pass while the container still holds it.
+- Unlinking a container takes out every item it brought in. The items themselves stay, with their links.
+- The watcher reads up to 1,000 children per container. A container past that is marked `truncated`, and while it is,
+  no child is taken out, since one missing from a cut short read may still be there.
+- A GitHub milestone or label contributes its issues. Pull requests in it are left out: the issues they fix are the
+  work.
+- An epic is any Jira issue with children: its children are the issues whose parent it is. A saved filter's children
+  are the issues its JQL finds, bounded by the credential's allowlist like every search.
+
 ## Links and the watcher
 
 A link is a provider, an external id, a URL, and the credential that reaches it. One link on an item is its primary
 link, where comments are posted and whose assignee is the item's owner. The primary link is the one the item was
-created from, or the first one added, and only the user changes it, so adding a link (such as the pull request an
-agent opened) never moves an item's ownership. Links go through a provider trait with one implementation per
-provider under the action items module, so routes and tools never match on the provider, the same way
-`api/src/storage/` works.
+created from, or the first one the user added, and only the user changes it, so adding a link (such as the pull request
+an agent opened) never moves an item's ownership. Removing the primary makes the oldest link left the primary, since
+the user moved it by removing it. Links go through a provider trait with one implementation per provider under the
+action items module, so routes and tools never match on the provider, the same way `api/src/storage/` works.
+
+The code lives in `api/src/action_items/links/`: the `Provider` trait and the `Links` handle in `mod.rs` (its
+`provider` function is the one place a provider is picked), `jira.rs` and `github.rs`, and `rules.rs`, the pure
+decisions below. The watcher is `api/src/action_items/watcher.rs`.
+
+A link names its thing in two ways. `externalId` is what the thing is, for good: Jira's issue id, which survives a move
+to another project, or `owner/name#12` on GitHub. `key` is what a person reads and a call names: `ELY-12`, which the
+watcher updates when an issue moves. One external thing is one item: linking something already linked to another item
+answers `409`, and a container's child already tracked joins with its item.
+
+Items are linked from what the credential can reach, never from a typed id, the spirit of the Jira doc's "No
+freeform entry": a picker lists issues (a Jira search, or a GitHub repository's open issues and pull requests), and
+the link request names the one picked. The API reads it through the credential before anything is stored, so the
+allowlist and the token bound every link. Creating an item from an issue starts its title, priority, and due date
+from the issue, owned as the issue's assignee says. Jira's priority names map to an item's (`Highest`, `Blocker`, and
+`Critical` are `urgent`; `High` and `Major` are `high`; `Medium` is `normal`; `Low`, `Minor`, `Lowest`, and `Trivial`
+are `low`; anything else is `normal`), and a Jira due date, a day, becomes the last millisecond of that day in UTC.
+GitHub has neither, so an item from GitHub starts `normal` with no due date.
+
+Deleting a credential deletes the links and containers that went through it: Elysium can no longer reach what they
+point at. The items and initiatives stay.
 
 | Provider | Linkable                  | Resolved by the provider when   | Resolving the item does          |
 |----------|---------------------------|---------------------------------|----------------------------------|
@@ -199,14 +238,30 @@ Mail threads become linkable with email triage, on the roadmap.
 
 A Jira project's done transition is chosen once per project the credential reaches. When the project's workflow has
 exactly one transition into a `done` status category, it is used without asking; otherwise the user picks one, and
-until then the move waits. Jira is reached through a Jira Cloud credential, sealed in Postgres and bounded by the
-projects it names (`docs/jira.md`); GitHub through a personal access token against the fixed `api.github.com`
-(`docs/github.md`). Links never reach past what their credential allows.
+until then the move waits. The choice is stored as the `done` status the transition leads into
+(`jira_done_transitions`), because a workflow names a different transition into the same status from each status an
+issue can be in: a close takes whichever transition available right now leads there. A project with exactly one status
+in the `done` category needs no choice. See `docs/jira.md`. Jira is reached through a Jira Cloud credential, sealed in
+Postgres and bounded by the projects it names (`docs/jira.md`); GitHub through a personal access token against the
+fixed `api.github.com` (`docs/github.md`). Links never reach past what their credential allows.
 
 A provider write that has not succeeded, because it failed or is waiting on a done transition, leaves its link
 `pending` with the provider's last answer, shown on the item. The item's own change stands, and the watcher retries
 the write on every pass until it succeeds or the user cancels it, so Elysium and the provider never disagree
 silently.
+
+Writes are owed in the same transaction as the change that owes them (`action_item_link_writes`), so a crash between
+the two never loses one:
+
+- Resolving an item, by anyone, owes a close to every linked issue still open as last read. A pull request never owes
+  one.
+- Writing a comment on an item, by the user or an agent, owes it to the item's primary link. An item with no primary
+  link owes nothing. Editing or deleting a comment afterwards changes nothing in the provider; deleting one before it
+  is posted drops the write.
+- The watcher lands every owed write at the start of each pass, and the change that owed one wakes it at once, so a
+  write usually lands within a second. A link owing a write is pending until it lands; one that failed shows how many
+  times it was tried and the provider's last answer. Cancelling a write records `link_write_cancelled` on the item.
+- A close owed by an item that has since been reopened or deleted is dropped rather than sent.
 
 The watcher polls. For each credential it asks the provider for everything updated since its last cursor, applies what
 changed to linked items and containers, and publishes the result on the event stream. Applying is idempotent: a change
@@ -214,14 +269,50 @@ the watcher sees twice, or one that Elysium itself caused, finds the item alread
 every provider write checks the provider's current state first, so a retried write never moves an issue twice. Polling
 works behind NAT and needs no public address; webhooks are a later upgrade for installs that can receive them.
 
+How the watcher reads:
+
+- A pass runs at startup, every 60 seconds (`WATCH_INTERVAL`), and whenever a write wakes it. It is a constant in code,
+  not configuration.
+- Each credential's cursor (`link_watch_cursors`) is the moment its last successful pass began, so a restart resumes
+  there. A credential never read before is read from its oldest link. Every read reaches five minutes further back than
+  the cursor, so a change made in the moment the cursor was taken, or under a small clock difference, is read again
+  rather than missed.
+- Jira: the linked issues' ids, fifty to a search, `AND updated >= -<minutes>m`, bounded by the allowlist. A search
+  Jira refuses, which is what naming a deleted issue looks like, is read one issue at a time instead.
+- GitHub: each linked repository's issues and pull requests `since` the cursor, three pages at most. A busier
+  repository, or a credential never read before, is read link by link.
+- The watcher acts on a change of what a link last recorded, never on the provider's state alone (`rules.rs`). So an
+  item the user reopened stays open while its issue stays done, and a close Elysium made, recorded as done when it
+  landed, is not read as news.
+- A primary link's assignee changing moves the item's owner, with the watcher as the actor. Only a change moves it, so
+  an owner the user set by hand stays until the assignee changes again.
+- A credential that cannot be read records why on its cursor and is read again from the same point next pass; a
+  container that cannot be read records why on itself. Neither stops the rest of the pass.
+- The watcher stops with the process's shutdown token, and the API awaits it before closing the database.
+
 The watcher is not a proposer and needs no changeset: it records what already happened in a provider. Besides
 retrying pending writes that were already approved, the only provider write it causes is the one the user chose for
 every resolve: an item it resolves moves its other linked issues.
 
 A GitHub issue closed as not planned dismisses its item, with the watcher as the actor, and moves nothing else.
 
+The rules as the watcher applies them, for a link whose state changed from what it last recorded:
+
+| The link now      | The item                                                                          |
+|-------------------|-----------------------------------------------------------------------------------|
+| Done or merged    | Resolves when it is in the inbox or open; a resolved or dismissed item stays       |
+| Not planned       | Is dismissed when it is in the inbox or open                                       |
+| Open again, after done or not planned | Returns to `open` when it is resolved; a dismissed item stays dismissed |
+| Closed unmerged   | Stays as it is; `pull_request_closed` is recorded in its history                   |
+
+History records links too: `link_added`, `link_removed`, and `primary_link_changed` on items, `container_linked` and
+`container_unlinked` on initiatives, with the link's provider, kind, key, and URL.
+
+The frontend for links, containers, pending writes, and the done transition picker is the next step; the API serves all
+of it (`docs/api.md`).
+
 Notification emails from Jira and GitHub about a linked issue are matched to that issue's item rather than becoming
-items of their own.
+items of their own. That is on the roadmap.
 
 ## Changesets
 
@@ -258,6 +349,7 @@ Every call is scoped to the session's project and re-checked against the databas
 | `work_initiatives` | optional `states`                                          | `{ initiatives }` with progress, by name                    |
 | `work_initiative`  | `initiativeId`                                             | The initiative with its description and the project's items in it, up to 200 with `moreItems` |
 | `work_comment`     | `itemId`, `body`                                           | `{ comment }`                                               |
+| `work_link_pull_request` | `url` of a pull request on github.com                | `{ link }`: its item, key, URL, title, and state             |
 
 - An item or initiative is reachable while it is live and in the session's project, as the database says at the
   moment of the call. Anything else is refused the same way, deleted or elsewhere, pointing the agent at the list
@@ -266,10 +358,15 @@ Every call is scoped to the session's project and re-checked against the databas
 - `work_items` lists items in the inbox or open unless asked for other states, at most 50 unless `limit` says
   otherwise, up to 200. `search` matches the title or notes, ignoring case.
 - The agent reads items and initiatives in its project and comments on its project's items. A comment is written as
-  `session:<number>`, recorded in the item's history, and published on the event stream like the user's; only its
-  author may change it, so the user cannot rewrite it either. Linking the pull request it opened and proposing
-  changes as a changeset arrive with links and changesets; the server's instructions tell the agent to ask the user
-  for any other change until then. It cannot resolve or delete anything directly.
+  `session:<number>`, recorded in the item's history, published on the event stream, and posted to the item's primary
+  link like the user's; only its author may change it, so the user cannot rewrite it either. Proposing changes as a
+  changeset arrives with changesets; the server's instructions tell the agent to ask the user for any other change
+  until then. It cannot resolve or delete anything directly.
+- `work_link_pull_request` links a pull request the agent opened to the item its session was started from, and only
+  that item, live and in the project as the database says at the moment of the call. The pull request is read through
+  the GitHub token the session started with (`coding_sessions.github_credential_id`), so a session without an item or
+  without a token is refused and told to mention the pull request in a comment instead. The link is recorded as
+  `session:<number>` and never becomes the item's primary, so it never moves the item's owner.
 - A session can be started from an item. It belongs to the item's project when the item has exactly one, and
   otherwise the user picks: one of the item's projects, or any project when it has none. The session records the item
   (`coding_sessions.action_item_id`), the item's page lists the sessions started from it, and a session's
@@ -277,8 +374,9 @@ Every call is scoped to the session's project and re-checked against the databas
 - The first turn of a session started from an item carries the item, its latest 10 comments, its initiatives with
   their progress, and its project, then the user's prompt, which such a session requires. It is compact Markdown built
   by `api/src/action_items/session_context.rs`: notes, descriptions, and comments longer than a fixed length are cut
-  short and marked, since `work_item` reads them in full. Links' descriptions join it once links exist.
-- A pull request linked to an item resolves it when it merges, through the watcher.
+  short and marked, since `work_item` reads them in full. The linked issues' descriptions are not in it yet.
+- A pull request linked to an item resolves it when it merges, through the watcher, and the resolve then moves the
+  item's other linked issues.
 
 ## Roadmap
 
@@ -291,3 +389,9 @@ Every call is scoped to the session's project and re-checked against the databas
 - Project memory that coding agents and Elysia read and write, so a session starts with what earlier sessions learned.
 - Users and authentication, turning `owner`, `waitingOn`, and actors into references and making Next per user.
 - Webhooks for Jira and GitHub, beside polling.
+- The frontend for links: provider fields beside the item's own, adding and removing links, creating items from
+  issues, linking containers to initiatives, pending writes with their retry state and cancel, and the Jira done
+  transition picker.
+- Notification emails from Jira and GitHub folded into the linked issue's item.
+- The linked issues' descriptions in the first turn of a session started from an item.
+- Editing or deleting a comment carried to the comment already posted to the provider.

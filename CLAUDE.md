@@ -100,8 +100,8 @@ Everything else follows these rules:
 
 The core and its frontend are built: items, initiatives, memberships, comments, history, Next, and progress, under
 `/api/v1/action-items` and `/api/v1/initiatives`, and the Action items area that uses them. So are the `elysium_work`
-tools and coding sessions started from an item. Links, the watcher, and changesets are designed, not yet built; do not
-build against them until their implementation lands.
+tools, coding sessions started from an item, and links to Jira and GitHub with the watcher, in the API; the frontend
+for links is next. Changesets are designed, not yet built; do not build against them until their implementation lands.
 
 - Action items are the one list of what the user owes attention to, from Jira, GitHub, email, meetings, or typed by
   hand. Initiatives group items toward a goal that ends and carry the progress bar; projects never end and have
@@ -115,10 +115,19 @@ build against them until their implementation lands.
 - Anything the user did not do directly (Elysia, Elysium's AI assistant; email triage; coding agents) proposes a
   changeset. Nothing is written in Elysium or any provider until the user approves it, wholly or in part. The
   watcher only records what already happened in a provider, so it needs no changeset.
-- The watcher polls providers for changes; webhooks come later. Link providers sit behind one trait, so routes and
-  tools never match on the provider.
+- The watcher polls providers for changes; webhooks come later. Link providers sit behind one trait
+  (`api/src/action_items/links/`), so routes and tools never match on the provider. Every Jira call goes through the
+  credential's allowlist, as the Jira routes' calls do.
+- The watcher acts on a change of what a link last recorded, never on the provider's state alone, and its interval is a
+  constant in code. Its cursor per credential is persisted, and it stops with the shutdown token.
+- Provider writes (closing a resolved item's issues, posting a comment to the primary link) are owed in the same
+  transaction as the change and landed by the watcher. One that fails stays pending on its link, retried every pass,
+  until it lands or the user cancels it. The item's own change always stands.
+- A Jira project's done transition is stored as the `done` status it leads into, chosen by the user only when the
+  project has more than one.
 - Coding agents use one relayed MCP server, `elysium_work`, declared on every thread, in Elysium's terms and scoped to
-  the session's project, re-checked on every call. Until changesets exist, commenting is the only write it offers.
+  the session's project, re-checked on every call. Until changesets exist, its writes are comments and linking the
+  pull request the agent opened to its session's item; an agent's link never becomes the primary.
 - A session started from an item records it, and its first turn carries the item's context ahead of the user's
   prompt.
 - There is no users table yet. Ownership and actors are recorded as text and become references when users land.

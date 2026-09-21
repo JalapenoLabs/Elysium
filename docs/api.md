@@ -30,6 +30,13 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/action-items/{id}/projects/{projectId}` | `200` `{ item }`                         |
 | PUT    | `/api/v1/action-items/{id}/initiatives/{initiativeId}` | `200` `{ item }`                   |
 | DELETE | `/api/v1/action-items/{id}/initiatives/{initiativeId}` | `200` `{ item }`                   |
+| POST   | `/api/v1/action-items/from-link`      | `201` `{ item, link }`; an item for a linked thing  |
+| GET    | `/api/v1/action-items/{id}/links`     | `200` `{ links: ActionItemLink[] }`, the primary first |
+| POST   | `/api/v1/action-items/{id}/links`     | `201` `{ link }`                                    |
+| GET    | `/api/v1/action-items/{id}/links/remote` | `200` `{ remotes }`, each link read live         |
+| DELETE | `/api/v1/action-items/{id}/links/{linkId}` | `204`                                          |
+| PUT    | `/api/v1/action-items/{id}/links/{linkId}/primary` | `200` `{ links }`                      |
+| DELETE | `/api/v1/action-items/{id}/links/{linkId}/writes/{writeId}` | `204`; cancels a pending write |
 | GET    | `/api/v1/initiatives`                 | `200` `{ initiatives: Initiative[] }`, by name      |
 | POST   | `/api/v1/initiatives`                 | `201` `{ initiative }`                              |
 | GET    | `/api/v1/initiatives/{id}`            | `200` `{ initiative }`, deleted or not              |
@@ -40,6 +47,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/initiatives/{id}/history`    | `200` `{ history: HistoryEntry[] }`, oldest first   |
 | PUT    | `/api/v1/initiatives/{id}/projects/{projectId}` | `200` `{ initiative }`                    |
 | DELETE | `/api/v1/initiatives/{id}/projects/{projectId}` | `200` `{ initiative }`                    |
+| GET    | `/api/v1/initiatives/{id}/links`      | `200` `{ links: InitiativeLink[] }`, oldest first   |
+| POST   | `/api/v1/initiatives/{id}/links`      | `201` `{ link }`; links a container                 |
+| DELETE | `/api/v1/initiatives/{id}/links/{linkId}` | `204`; its items leave the initiative           |
 | GET    | `/api/v1/llms`                        | `200` `{ llms: Llm[] }`, in priority order          |
 | POST   | `/api/v1/llms`                        | `201` `{ llm }`                                     |
 | GET    | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
@@ -73,6 +83,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/github-credentials/{id}/test` | `200` `{ result }` from asking GitHub now          |
 | POST   | `/api/v1/github-credentials/{id}/repository-access` | `200` `{ result }` for one repository |
 | GET    | `/api/v1/github-credentials/{id}/repositories` | `200` `{ repositories, truncated }` the token can see |
+| GET    | `/api/v1/github-credentials/{id}/repositories/{owner}/{name}/issues` | `200` `{ issues, truncated }`, open ones |
+| GET    | `/api/v1/github-credentials/{id}/repositories/{owner}/{name}/milestones` | `200` `{ milestones, truncated }` |
+| GET    | `/api/v1/github-credentials/{id}/repositories/{owner}/{name}/labels` | `200` `{ labels, truncated }` |
 | GET    | `/api/v1/jira-credentials`            | `200` `{ credentials: JiraCredential[] }`, by name  |
 | POST   | `/api/v1/jira-credentials`            | `201` `{ credential }`; checked with Jira first     |
 | POST   | `/api/v1/jira-credentials/discover`   | `200` what a token can reach; stores nothing        |
@@ -89,6 +102,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/jira-credentials/{id}/issues/{key}/transitions` | `200` `{ transitions }`          |
 | POST   | `/api/v1/jira-credentials/{id}/issues/{key}/transitions` | `200` `{ issue }` after the move |
 | POST   | `/api/v1/jira-credentials/{id}/issues/{key}/comments`    | `201` `{ comment }`              |
+| GET    | `/api/v1/jira-credentials/{id}/filters`  | `200` `{ filters, truncated }` it can see        |
+| GET    | `/api/v1/jira-credentials/{id}/projects/{key}/done-transition` | `200` the project's done statuses and choice |
+| PUT    | `/api/v1/jira-credentials/{id}/projects/{key}/done-transition` | `200` `{ chosen }`         |
+| DELETE | `/api/v1/jira-credentials/{id}/projects/{key}/done-transition` | `204`                      |
 | GET    | `/api/v1/projects`                    | `200` `{ projects: Project[] }`, by name            |
 | POST   | `/api/v1/projects`                    | `201` `{ project }`                                 |
 | PATCH  | `/api/v1/projects/{id}`               | `200` `{ project }`                                 |
@@ -235,7 +252,11 @@ transaction, and both credentials go out on the event stream; `false` leaves no 
 `repository-access` takes `{ repositoryUrl }` for a github.com remote and answers
 `{ repository, canRead, canPush, isPrivate }`, with `canPush` null when unknown. `repositories` answers
 `{ repositories, truncated }`, each repository `{ fullName, owner, name, private, archived, defaultBranch, cloneUrl,
-pushedAt, canPush }`, most recently pushed first, up to 1,000. See `docs/github.md`.
+pushedAt, canPush }`, most recently pushed first, up to 1,000. For linking, a repository's `issues` answers its open
+issues, or its open pull requests with `kind=pull-request`, up to a hundred most recently updated, each
+`{ reference, number, title, url, assignee }`; `milestones` answers its open milestones `{ reference, number, title,
+url }` and `labels` its labels `{ reference, name, url }`, up to 500 of each. `reference` is what a link request
+names. See `docs/github.md`.
 
 ### `/api/v1/jira-credentials`
 
@@ -250,7 +271,9 @@ does not report answers `400` naming it.
 
 Issue routes are bounded by the credential's projects: a search's JQL is rewritten rather than its results
 filtered, and a project outside the list answers `403` naming the project and the credential. Paging is by
-`nextPageToken`, not an offset. Every shape, rule, and page cap is in `docs/jira.md`.
+`nextPageToken`, not an offset. `filters` lists the saved filters the token can see, for linking one to an initiative,
+and `done-transition` reads, chooses, or forgets the `done` status a project's issues move into when their item
+resolves. Every shape, rule, and page cap is in `docs/jira.md`.
 
 ### `/api/v1/environment-variables`
 
@@ -291,7 +314,43 @@ someone else wrote answers `409`.
 
 A `HistoryEntry` has `id`, `actionItemId`, `initiativeId`, `kind`, `actor`, `data`, and `createdAt`; kinds and their
 `data` are listed in `docs/action-items.md`. Every write over HTTP is recorded with the actor `user`; a comment a
-coding agent writes through `elysium_work` carries `session:<number>`.
+coding agent writes through `elysium_work` carries `session:<number>`, and a change the watcher reads from a provider
+`watcher:jira` or `watcher:github`.
+
+Resolving an item owes a close to every linked issue still open, and writing a comment owes it to the item's primary
+link; the watcher lands both (`docs/action-items.md`), so the response does not wait on the provider.
+
+#### Links
+
+An `ActionItemLink` has `id`, `actionItemId`, `provider` (`jira`, `github`), `kind` (`issue`, `pull-request`),
+`credentialId`, `key` (`ELY-12`, `owner/name#12`), `url`, `title` (as last read), `isPrimary`, `state` (`open`,
+`done`, `not-planned`, `merged`, `closed-unmerged`, as last read), `owner` (whose it was when last read, shaped like
+an item's), `pendingWrites`, `createdAt`, and `updatedAt`. Each pending write has `id`, `kind` (`close`, `comment`),
+`commentId`, `attempts`, `lastError`, `lastAttemptAt`, and `createdAt`; a link with any is pending.
+
+`POST /{id}/links` takes `{ provider, credentialId, kind, reference }`, where `reference` names what a picker listed:
+an issue key for Jira, `owner/name#12` for GitHub. The thing is read through the credential first: outside a Jira
+credential's allowlist answers `403`, a thing the credential cannot see `404`, the wrong `kind` `400`, and a thing
+already linked to another item `409`. Linking the same thing again answers it unchanged. The item's first link becomes
+its primary and its owner follows the thing's assignee. `POST /from-link` takes the same fields plus optional
+`projectIds` and `initiativeIds`, and creates the item from the thing: title, priority, due date, and owner, starting
+`open`.
+
+`GET /{id}/links/remote` reads every link live and answers `{ remotes: [{ linkId, remote, error }] }`, one entry per
+link, `remote` null with an `error` for one that could not be read. A `remote` has `key`, `url`, `title`, `state`,
+`status` (the provider's own word: a Jira status, or `open`, `closed`, `merged`), `owner`, `assignee` (the name the
+provider shows), `priority` (the provider's own), and `dueDate` (a day, Jira only).
+
+`PUT /{id}/links/{linkId}/primary` makes that link primary and answers every link of the item. Removing the primary
+promotes the oldest link left. `DELETE .../writes/{writeId}` cancels a write that has not landed.
+
+#### Containers
+
+An `InitiativeLink` has `id`, `initiativeId`, `provider`, `kind` (`epic`, `filter`, `milestone`, `label`),
+`credentialId`, `key`, `url`, `title`, `syncedAt`, `syncError`, `truncated`, `createdAt`, and `updatedAt`. `POST
+/initiatives/{id}/links` takes `{ provider, credentialId, kind, reference }`: an epic's key or a saved filter's id for
+Jira, `owner/name#3` for a milestone, or `owner/name:label`. The container is read through the credential first, and
+its children join on the watcher's next pass, which the link wakes at once. Unlinking takes out the items it brought in.
 
 ### `/api/v1/initiatives`
 
@@ -359,14 +418,14 @@ With no subcommand the binary serves HTTP.
 
 On start, the server loads an environment file if one is present, installs tracing, and parses `Config` from the
 environment. It then validates the encryption key, connects to Postgres, refuses to continue if any migration is
-pending, connects to Redis, starts the fleet watchers (see `docs/coding.md`), binds, and serves. Both store
-connections retry with exponential backoff, 8 attempts over roughly a minute, and prove themselves with `SELECT 1`
-and `PING`.
+pending, connects to Redis, starts the fleet watchers (see `docs/coding.md`) and the link watcher (see
+`docs/action-items.md`), binds, and serves. Both store connections retry with exponential backoff, 8 attempts over
+roughly a minute, and prove themselves with `SELECT 1` and `PING`.
 
-On `SIGTERM` or `SIGINT`, a shutdown token is cancelled first. That ends every open event stream and fleet
-watcher, which would otherwise keep the drain waiting forever. The listener stops accepting, in-flight requests
-drain, the watchers are awaited, then the Postgres pool closes and the Redis connection drops. Compose allows 30
-seconds for this before `SIGKILL`.
+On `SIGTERM` or `SIGINT`, a shutdown token is cancelled first. That ends every open event stream, fleet watcher, and
+the link watcher, which would otherwise keep the drain waiting forever. The listener stops accepting, in-flight
+requests drain, the watchers are awaited, then the Postgres pool closes and the Redis connection drops. Compose allows
+30 seconds for this before `SIGKILL`.
 
 ## Configuration
 
@@ -402,14 +461,14 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/database/`          | Pool type, migration runner, generated schema    |
 | `src/crypto.rs`          | Secret sealing                                   |
 | `src/errors.rs`          | `ApiError` and its mapping to HTTP responses     |
-| `src/state.rs`           | `AppState`: pool, Redis, cipher, version, bus, fleet, mail, storage, shutdown token |
+| `src/state.rs`           | `AppState`: pool, Redis, cipher, version, bus, fleet, GitHub, Jira, links, mail, storage, shutdown token |
 | `src/realtime.rs`        | Event bus and the `ServerEvent` envelope          |
 | `src/fleet/`             | Satellite clients and watchers; JSON views of Arsox types |
 | `src/jira/`              | Jira Cloud's REST API and Atlassian Document Format |
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
-| `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, and a session's first turn from an item |
+| `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), and the link watcher |
 | `src/tools/`             | The relayed MCP servers agents call: `elysium_storage` and `elysium_work`, see `docs/coding.md` |
 
 ## Logging
@@ -421,8 +480,9 @@ client-supplied or a generated UUID. The id is echoed on the response and attach
 ## Testing
 
 `cargo test` runs the hermetic unit tests: encryption, request parsing and validation, refused environment variable
-keys, event envelopes, the Arsox view conversions, the action item rules (transitions, Next's order, progress, and a
-session's first turn from an item), and the agent tools' schemas.
+keys, event envelopes, the Arsox view conversions, the action item rules (transitions, Next's order, progress, a
+session's first turn from an item, and what a provider's change does to a linked item), GitHub's client against a
+local fake, and the agent tools' schemas.
 `api/scripts/verify-migrations.sh` also runs the database-backed tests against a disposable Postgres.
 
 ## Roadmap
