@@ -515,6 +515,27 @@ pub async fn current_initiative_ids(
         .await
 }
 
+/// The item's latest span in the initiative, if it was ever in it: the span's id, and when
+/// it ended, `None` while it is current. Undoing a changeset's membership change compares it
+/// with the span that change opened or closed, to tell whether the user moved the item since.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn latest_span(
+    connection: &mut AsyncPgConnection,
+    action_item_id: Uuid,
+    initiative_id: Uuid,
+) -> QueryResult<Option<(Uuid, Option<DateTime<Utc>>)>> {
+    initiative_items::table
+        .filter(initiative_items::action_item_id.eq(action_item_id))
+        .filter(initiative_items::initiative_id.eq(initiative_id))
+        .order(initiative_items::id.desc())
+        .select((initiative_items::id, initiative_items::left_at))
+        .first(connection)
+        .await
+        .optional()
+}
+
 /// Refuses initiative ids that name no initiative, or a deleted one. The rows stay
 /// share-locked until the transaction ends, so none can be deleted before the item joins.
 async fn require_live_initiatives(
