@@ -265,6 +265,9 @@ pub async fn apply_change(
     let actor = Actor::Watcher(link.provider);
     let written = connection
         .transaction(async |connection| {
+            // Recorded first, so a resolve below owes no close to the issue that just
+            // reached done; the rules read the state the link had before, from `link`.
+            action_item_link::record_observation(connection, link.id, &observation).await?;
             let item = action_item::find(connection, link.action_item_id).await?;
             let mut written = Recorded {
                 record: item,
@@ -292,7 +295,6 @@ pub async fn apply_change(
                     merge(&mut written, updated);
                 }
             }
-            action_item_link::record_observation(connection, link.id, &observation).await?;
             Ok::<_, WorkError>(written)
         })
         .await?;

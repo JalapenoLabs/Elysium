@@ -386,6 +386,10 @@ async fn a_providers_changes_move_the_item_by_the_rules() {
             .contains(&"state_changed by watcher:github".to_owned()),
         "the watcher is the actor"
     );
+    assert!(
+        owed(&mut fixture, resolved).await.is_empty(),
+        "the issue that resolved the item is not owed a close of its own"
+    );
 
     // The user reopens an item the watcher resolved, and its issue stays closed: nothing
     // moves it back, since the issue did not change again.
