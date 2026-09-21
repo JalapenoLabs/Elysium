@@ -20,7 +20,8 @@ import { applyChangeset, decideChangeset, undoChangeset } from '../../api/routes
 import { useConfirm } from '../../hooks/useConfirm'
 
 // The writes the review page makes. Each dispatches the changeset the API answers, so this
-// tab updates before the event arrives, and reports its own failure.
+// tab updates before the event arrives, reports its own failure, and answers whether it
+// succeeded, so the page can hold its buttons while one runs.
 export function useChangesetActions() {
   const { t } = useTranslation([ 'changesets', 'common' ])
   const dispatch = useAppDispatch()
@@ -46,9 +47,11 @@ export function useChangesetActions() {
     try {
       const response = await decideChangeset(changeset.id, { decision, operationIds })
       dispatch(changesetUpserted(response.changeset))
+      return true
     }
     catch (error) {
       reportFailure(error, 'decide', changeset)
+      return false
     }
   }
 
@@ -58,12 +61,14 @@ export function useChangesetActions() {
       dispatch(changesetUpserted(response.changeset))
       if (response.changeset.state === 'rejected') {
         toast.success(t('toasts.rejected'))
-        return
+        return true
       }
       toast.success(t('toasts.applied'))
+      return true
     }
     catch (error) {
       reportFailure(error, 'apply', changeset)
+      return false
     }
   }
 

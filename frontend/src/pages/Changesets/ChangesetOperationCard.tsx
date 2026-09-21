@@ -27,6 +27,10 @@ type Props = {
   context: DescribeContext
   // Whether the changeset still takes decisions: it is pending.
   isDeciding: boolean
+  // Whether any write of the page is running, which holds the decision buttons.
+  isWriting: boolean
+  // The page's write in flight; `<operation id>:<decision>` for a decision on one change.
+  pendingWrite: string | null
   onDecide: (decision: ChangesetDecision) => void
 }
 
@@ -76,6 +80,8 @@ export function ChangesetOperationCard(props: Props) {
               variant={operation.decision === 'approved'
                 ? 'primary'
                 : 'outline'}
+              isDisabled={props.isWriting}
+              isPending={props.pendingWrite === `${operation.id}:approved`}
               onPress={() => props.onDecide('approved')}
             >
               <LuCheck className='size-4' aria-hidden />
@@ -86,6 +92,8 @@ export function ChangesetOperationCard(props: Props) {
               variant={operation.decision === 'rejected'
                 ? 'danger'
                 : 'outline'}
+              isDisabled={props.isWriting}
+              isPending={props.pendingWrite === `${operation.id}:rejected`}
               onPress={() => props.onDecide('rejected')}
             >
               <LuX className='size-4' aria-hidden />
@@ -114,10 +122,13 @@ export function ChangesetOperationCard(props: Props) {
       </div>
 
       {operation.dependsOn.length > 0 && <p className='text-xs opacity-60'>{
-        t('review.dependsOn', { positions: operation.dependsOn.join(', ') })
+        t('review.dependsOn', {
+          positions: operation.dependsOn.join(', '),
+          count: operation.dependsOn.length,
+        })
       }</p>}
       {props.isDeciding && dependents.length > 0 && <p className='text-xs opacity-60'>{
-        t('review.rejectsWith', { positions: dependents.join(', ') })
+        t('review.rejectsWith', { positions: dependents.join(', '), count: dependents.length })
       }</p>}
 
       {operation.error && <p className='mt-2 text-sm text-danger'>{operation.error}</p>}

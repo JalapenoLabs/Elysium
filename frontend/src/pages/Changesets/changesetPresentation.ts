@@ -6,6 +6,7 @@ import type {
   Changeset,
   ChangesetDecision,
   ChangesetOperation,
+  ChangesetOperationChange,
   ChangesetOperationKind,
   ChangesetOutcome,
   ChangesetState,
@@ -204,14 +205,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+// Each kind of change, by its `kind`, so a describer receives its own kind already narrowed.
+type ChangeByKind = {
+  [Change in ChangesetOperationChange as Change['kind']]: Change
+}
+
+type Describe<Kind extends ChangesetOperationKind> = (
+  change: ChangeByKind[Kind],
+  operation: ChangesetOperation,
+  context: DescribeContext,
+  t: ChangesetTranslate,
+) => OperationDescription
+
 // The lines of an edit: each field it sets, from what it held to what it will hold. Once
 // applied, the value it replaced comes from the operation's result; before, from the item
 // as it is now.
-function describeUpdate(operation: ChangesetOperation, context: DescribeContext, t: ChangesetTranslate) {
-  const change = operation.operation
-  if (change.kind !== 'update-item') {
-    return []
-  }
+function describeUpdate(
+  change: ChangeByKind['update-item'],
+  operation: ChangesetOperation,
+  context: DescribeContext,
+  t: ChangesetTranslate,
+) {
   const current = 'id' in change.item
     ? context.itemsById[change.item.id]
     : undefined
@@ -247,18 +261,8 @@ function joinNames(ids: string[], names: Record<string, string>) {
     .join(', ')
 }
 
-type Describe = (
-  operation: ChangesetOperation,
-  context: DescribeContext,
-  t: ChangesetTranslate,
-) => OperationDescription
-
-const describeByKind = {
-  'create-item': (operation, context, t) => {
-    const change = operation.operation
-    if (change.kind !== 'create-item') {
-      return { summary: '', details: []}
-    }
+const describeByKind: { [Kind in ChangesetOperationKind]: Describe<Kind> } = {
+  'create-item': (change, _operation, context, t) => {
     const details: string[] = []
     if (change.priority !== 'normal') {
       details.push(t('describe.fieldTo', {
@@ -287,79 +291,45 @@ const describeByKind = {
     }
     return { summary: t('describe.createItem', { title: change.title }), details }
   },
-  'update-item': (operation, context, t) => ({
-    summary: 'item' in operation.operation
-      ? t('describe.updateItem', { item: describeTarget(operation.operation.item, 'item', context, t) })
-      : '',
-    details: describeUpdate(operation, context, t),
+  'update-item': (change, operation, context, t) => ({
+    summary: t('describe.updateItem', { item: describeTarget(change.item, 'item', context, t) }),
+    details: describeUpdate(change, operation, context, t),
   }),
-  'resolve-item': (operation, context, t) => ({
-    summary: 'item' in operation.operation
-      ? t('describe.resolveItem', { item: describeTarget(operation.operation.item, 'item', context, t) })
-      : '',
+  'resolve-item': (change, _operation, context, t) => ({
+    summary: t('describe.resolveItem', { item: describeTarget(change.item, 'item', context, t) }),
     details: [],
   }),
-  'dismiss-item': (operation, context, t) => ({
-    summary: 'item' in operation.operation
-      ? t('describe.dismissItem', { item: describeTarget(operation.operation.item, 'item', context, t) })
-      : '',
+  'dismiss-item': (change, _operation, context, t) => ({
+    summary: t('describe.dismissItem', { item: describeTarget(change.item, 'item', context, t) }),
     details: [],
   }),
-  'comment': (operation, context, t) => {
-    const change = operation.operation
-    if (change.kind !== 'comment') {
-      return { summary: '', details: []}
-    }
-    return {
-      summary: t('describe.comment', { item: describeTarget(change.item, 'item', context, t) }),
-      details: [ change.body ],
-    }
-  },
-  'link': (operation, context, t) => {
-    const change = operation.operation
-    if (change.kind !== 'link') {
-      return { summary: '', details: []}
-    }
-    return {
-      summary: t('describe.link', {
-        item: describeTarget(change.item, 'item', context, t),
-        provider: t(providerLabelKeys[change.target.provider], { ns: 'actionItems' }),
-        reference: change.target.reference,
-      }),
-      details: [],
-    }
-  },
-  'add-to-initiative': (operation, context, t) => {
-    const change = operation.operation
-    if (change.kind !== 'add-to-initiative') {
-      return { summary: '', details: []}
-    }
-    return {
-      summary: t('describe.addToInitiative', {
-        item: describeTarget(change.item, 'item', context, t),
-        initiative: describeTarget(change.initiative, 'initiative', context, t),
-      }),
-      details: [],
-    }
-  },
-  'remove-from-initiative': (operation, context, t) => {
-    const change = operation.operation
-    if (change.kind !== 'remove-from-initiative') {
-      return { summary: '', details: []}
-    }
-    return {
-      summary: t('describe.removeFromInitiative', {
-        item: describeTarget(change.item, 'item', context, t),
-        initiative: describeTarget(change.initiative, 'initiative', context, t),
-      }),
-      details: [],
-    }
-  },
-  'create-initiative': (operation, context, t) => {
-    const change = operation.operation
-    if (change.kind !== 'create-initiative') {
-      return { summary: '', details: []}
-    }
+  'comment': (change, _operation, context, t) => ({
+    summary: t('describe.comment', { item: describeTarget(change.item, 'item', context, t) }),
+    details: [ change.body ],
+  }),
+  'link': (change, _operation, context, t) => ({
+    summary: t('describe.link', {
+      item: describeTarget(change.item, 'item', context, t),
+      provider: t(providerLabelKeys[change.target.provider], { ns: 'actionItems' }),
+      reference: change.target.reference,
+    }),
+    details: [],
+  }),
+  'add-to-initiative': (change, _operation, context, t) => ({
+    summary: t('describe.addToInitiative', {
+      item: describeTarget(change.item, 'item', context, t),
+      initiative: describeTarget(change.initiative, 'initiative', context, t),
+    }),
+    details: [],
+  }),
+  'remove-from-initiative': (change, _operation, context, t) => ({
+    summary: t('describe.removeFromInitiative', {
+      item: describeTarget(change.item, 'item', context, t),
+      initiative: describeTarget(change.initiative, 'initiative', context, t),
+    }),
+    details: [],
+  }),
+  'create-initiative': (change, _operation, context, t) => {
     const details: string[] = []
     if (change.targetAt) {
       details.push(t('describe.fieldTo', {
@@ -376,21 +346,34 @@ const describeByKind = {
     }
     return { summary: t('describe.createInitiative', { name: change.name }), details }
   },
-} as const satisfies Record<ChangesetOperationKind, Describe>
+}
+
+// Calls the describer of the change's own kind. Taking the kind as its own argument lets
+// TypeScript pair the describer with the change it narrows to.
+function describeChange<Kind extends ChangesetOperationKind>(
+  kind: Kind,
+  change: ChangeByKind[Kind],
+  operation: ChangesetOperation,
+  context: DescribeContext,
+  t: ChangesetTranslate,
+) {
+  const describe: Describe<Kind> | undefined = describeByKind[kind]
+  if (!describe) {
+    console.debug('describeOperation received a kind this build does not know', { operation })
+    return { summary: kind, details: []}
+  }
+  return describe(change, operation, context, t)
+}
 
 // What an operation does, as a sentence and the lines worth showing under it. A kind this
-// build does not know is named as sent.
+// build does not know, from a newer API, is named as sent.
 export function describeOperation(
   operation: ChangesetOperation,
   context: DescribeContext,
   t: ChangesetTranslate,
 ): OperationDescription {
-  const describe: Describe | undefined = describeByKind[operation.operation.kind]
-  if (!describe) {
-    console.debug('describeOperation received a kind this build does not know', { operation })
-    return { summary: operation.operation.kind, details: []}
-  }
-  return describe(operation, context, t)
+  const change = operation.operation
+  return describeChange(change.kind, change, operation, context, t)
 }
 
 // What an undo did not reverse, as sentences, from the operation's `undo`.
@@ -405,7 +388,7 @@ export function describeUndo(undo: OperationUndo, t: ChangesetTranslate) {
         ? t(updateFieldLabelKeys[field])
         : field)
       .join(', ')
-    lines.push(t('undo.kept', { fields }))
+    lines.push(t('undo.kept', { fields, count: undo.kept.length }))
   }
   if (undo.movedSince) {
     lines.push(t('undo.movedSince'))
@@ -427,6 +410,7 @@ export function describeUndo(undo: OperationUndo, t: ChangesetTranslate) {
     lines.push(t('undo.stillClosed', {
       provider: t(providerLabelKeys[provider], { ns: 'actionItems' }),
       keys: keys.join(', '),
+      count: keys.length,
     }))
   }
   return lines

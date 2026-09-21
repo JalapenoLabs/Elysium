@@ -3,6 +3,7 @@
 import type { DescribeContext } from './changesetPresentation'
 
 // Core
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import { shallowEqual } from 'react-redux'
@@ -46,6 +47,9 @@ export function ChangesetPage() {
   const itemsById = useAppSelector(selectLiveActionItemsById)
   const initiativeNames = useAppSelector(selectInitiativeNamesById, shallowEqual)
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
+  // The write in flight: 'apply', 'approved' or 'rejected' for all, or `<operation id>:<decision>`.
+  // Every write button waits while one runs, so a second press cannot race the first.
+  const [ pendingWrite, setPendingWrite ] = useState<string | null>(null)
 
   if (!changeset) {
     return <div className='container'>{
@@ -71,6 +75,17 @@ export function ChangesetPage() {
   const proposer = describeActor(changeset.proposer)
   const tally = tallyDecisions(changeset)
   const isPending = changeset.state === 'pending'
+  const isWriting = pendingWrite !== null
+
+  async function write(key: string, run: () => Promise<boolean>) {
+    setPendingWrite(key)
+    try {
+      await run()
+    }
+    finally {
+      setPendingWrite(null)
+    }
+  }
 
   return <div className='container'>
     <Breadcrumbs className='compact'>
@@ -105,11 +120,23 @@ export function ChangesetPage() {
         </Alert.Content>
       </Alert>
       <div className='flex flex-wrap items-center gap-2'>
-        <Button size='sm' variant='outline' onPress={() => actions.decide(changeset, 'approved')}>
+        <Button
+          size='sm'
+          variant='outline'
+          isDisabled={isWriting}
+          isPending={pendingWrite === 'approved'}
+          onPress={() => write('approved', () => actions.decide(changeset, 'approved'))}
+        >
           <LuCheckCheck className='size-4' aria-hidden />
           <span>{t('review.approveAll')}</span>
         </Button>
-        <Button size='sm' variant='outline' onPress={() => actions.decide(changeset, 'rejected')}>
+        <Button
+          size='sm'
+          variant='outline'
+          isDisabled={isWriting}
+          isPending={pendingWrite === 'rejected'}
+          onPress={() => write('rejected', () => actions.decide(changeset, 'rejected'))}
+        >
           <LuX className='size-4' aria-hidden />
           <span>{t('review.rejectAll')}</span>
         </Button>
@@ -117,7 +144,12 @@ export function ChangesetPage() {
         <Tooltip delay={300} isDisabled={tally.canApply}>
           <Tooltip.Trigger>
             <div>
-              <Button size='sm' isDisabled={!tally.canApply} onPress={() => actions.apply(changeset)}>
+              <Button
+                size='sm'
+                isDisabled={!tally.canApply || isWriting}
+                isPending={pendingWrite === 'apply'}
+                onPress={() => write('apply', () => actions.apply(changeset))}
+              >
                 <span>{t('review.apply')}</span>
               </Button>
             </div>
@@ -143,7 +175,12 @@ export function ChangesetPage() {
         operation={operation}
         context={context}
         isDeciding={isPending}
-        onDecide={(decision) => actions.decide(changeset, decision, [ operation.id ])}
+        isWriting={isWriting}
+        pendingWrite={pendingWrite}
+        onDecide={(decision) => write(
+          `${operation.id}:${decision}`,
+          () => actions.decide(changeset, decision, [ operation.id ]),
+        )}
       />)
     }</div>
   </div>

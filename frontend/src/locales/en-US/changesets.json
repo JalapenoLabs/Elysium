@@ -73,8 +73,10 @@
     "change": "Change {{position}}",
     "reason": "Why",
     "source": "Source: {{source}}",
-    "dependsOn": "Acts on what change {{positions}} creates",
-    "rejectsWith": "Rejecting it also rejects change {{positions}}",
+    "dependsOn_one": "Acts on what change {{positions}} creates",
+    "dependsOn_other": "Acts on what changes {{positions}} create",
+    "rejectsWith_one": "Rejecting it also rejects change {{positions}}",
+    "rejectsWith_other": "Rejecting it also rejects changes {{positions}}",
     "approve": "Approve",
     "reject": "Reject",
     "approveAll": "Approve all",
@@ -92,10 +94,12 @@
     "undoneAt": "Undone on {{date}}"
   },
   "undo": {
-    "kept": "Kept your later change to {{fields}}.",
+    "kept_one": "Kept your later change to {{fields}}.",
+    "kept_other": "Kept your later changes to {{fields}}.",
     "movedSince": "You moved the item since, so it stays where you put it.",
     "stillPosted": "Already posted to {{provider}} {{key}}; it stays there.",
-    "stillClosed": "Already closed in {{provider}}: {{keys}}. They stay closed.",
+    "stillClosed_one": "Already closed in {{provider}}: {{keys}}. It stays closed.",
+    "stillClosed_other": "Already closed in {{provider}}: {{keys}}. They stay closed.",
     "refusal": "Not undone: {{reason}}"
   },
   "toasts": {

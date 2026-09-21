@@ -152,4 +152,15 @@ describe('describeUndo', () => {
     ])
     expect(describeUndo({}, t)).toEqual([])
   })
+
+  it('reads as English for one entry and for several', () => {
+    const lines = describeUndo({
+      kept: [ 'title', 'priority' ],
+      stillClosed: [{ provider: 'jira', key: 'ELY-12' }],
+    }, t)
+    expect(lines).toEqual([
+      'Kept your later changes to Title, Priority.',
+      'Already closed in Jira: ELY-12. It stays closed.',
+    ])
+  })
 })
