@@ -27,6 +27,8 @@
 //! so one the records refuse (its item deleted since) is kept, with the reason, and the rest
 //! are reversed.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::result::Error as DieselError;
@@ -85,7 +87,18 @@ struct Reversed {
     /// What could not be reversed, for the review: see [`undo`].
     details: Map<String, Value>,
     touched: Touched,
+    /// A span this reversal made the latest, with the span whose state it restored.
+    stands_for: Option<(Uuid, Option<Uuid>)>,
 }
+
+/// The spans this undo made an item's latest in an initiative, each with the span whose
+/// state it restored (`None` for never having been in it).
+///
+/// Undo checks that a membership change still stands by the item's latest span, but its own
+/// reversals write spans too. With an add and a remove of the same item and initiative in
+/// one changeset, reversing the remove opens a new span, which must read as the add's span
+/// or the add would look moved by the user.
+type StandsFor = HashMap<Uuid, Option<Uuid>>;
 
 impl Reversed {
     fn done() -> Self {
@@ -122,15 +135,18 @@ pub async fn undo(
                 .unwrap_or_default();
 
             let mut touched = Touched::default();
+            let mut stands_for = StandsFor::new();
             for row in operations.iter().rev() {
                 if row.outcome != ChangesetOutcome::Applied {
                     continue;
                 }
                 let operation = row.parsed();
                 let result = row.result.clone();
+                let restored = &stands_for;
                 let attempt = connection
                     .transaction(async move |connection| {
-                        let mut reversed = reverse(connection, &operation, &result, now).await?;
+                        let mut reversed =
+                            reverse(connection, &operation, &result, restored, now).await?;
                         let history = std::mem::take(&mut reversed.touched.history);
                         reversed.touched.history =
                             action_item_event::attribute(connection, history, id).await?;
@@ -139,6 +155,7 @@ pub async fn undo(
                     .await;
                 let (outcome, details) = match attempt {
                     Ok(reversed) => {
+                        stands_for.extend(reversed.stands_for);
                         touched.absorb(reversed.touched);
                         let outcome = if reversed.undone {
                             ChangesetOutcome::Undone
@@ -193,6 +210,7 @@ async fn reverse(
     connection: &mut AsyncPgConnection,
     operation: &Operation,
     result: &Value,
+    stands_for: &StandsFor,
     now: DateTime<Utc>,
 ) -> Result<Reversed, Failure> {
     match operation {
@@ -206,9 +224,11 @@ async fn reverse(
         }
         Operation::Comment(_) => withdraw_comment(connection, result, now).await,
         Operation::Link(_) => remove_link(connection, result, now).await,
-        Operation::AddToInitiative(_) => reverse_membership(connection, result, false, now).await,
+        Operation::AddToInitiative(_) => {
+            reverse_membership(connection, result, false, stands_for, now).await
+        }
         Operation::RemoveFromInitiative(_) => {
-            reverse_membership(connection, result, true, now).await
+            reverse_membership(connection, result, true, stands_for, now).await
         }
         Operation::CreateInitiative(_) => delete_initiative(connection, result, now).await,
     }
@@ -423,12 +443,27 @@ async fn remove_link(
     Ok(reversed)
 }
 
+/// The span an item's latest span stands for, following what this undo's own reversals
+/// restored: see [`StandsFor`].
+fn standing_for(stands_for: &StandsFor, span_id: Uuid) -> Option<Uuid> {
+    let mut current = Some(span_id);
+    // Each entry points at an earlier state, so the walk ends; the bound only guards it.
+    for _step in 0..=stands_for.len() {
+        match current.and_then(|span| stands_for.get(&span)) {
+            Some(&earlier) => current = earlier,
+            None => break,
+        }
+    }
+    current
+}
+
 /// Takes an item back out of the initiative the changeset put it in (`joins` false), or
 /// puts it back into one the changeset took it out of, when the changeset changed anything.
 async fn reverse_membership(
     connection: &mut AsyncPgConnection,
     result: &Value,
     joins: bool,
+    stands_for: &StandsFor,
     now: DateTime<Utc>,
 ) -> Result<Reversed, Failure> {
     let mut reversed = Reversed::done();
@@ -438,17 +473,20 @@ async fn reverse_membership(
     let id = result_id(result, "itemId");
     let initiative_id = result_id(result, "initiativeId");
     let span_id = result_id(result, "spanId");
+    let span_before: Option<Uuid> = serde_json::from_value(result["spanBefore"].clone())
+        .expect("a membership change's result holds the span it replaced, or null");
     // The span the changeset opened must still be the latest and current, or the one it
-    // closed the latest and still closed; otherwise the user moved the item since, and it
-    // stays where the user put it.
+    // closed the latest and still closed, counting a span this undo wrote as the one it
+    // restored; otherwise the user moved the item since, and it stays where the user put it.
     let latest = action_item::latest_span(connection, id, initiative_id).await?;
-    let is_unmoved = latest
-        .is_some_and(|(latest_id, left_at)| latest_id == span_id && left_at.is_some() == joins);
+    let is_unmoved = latest.is_some_and(|(latest_id, left_at)| {
+        standing_for(stands_for, latest_id) == Some(span_id) && left_at.is_some() == joins
+    });
     if !is_unmoved {
         return Ok(Reversed {
             undone: false,
             details: Map::from_iter([("movedSince".to_owned(), json!(true))]),
-            touched: Touched::default(),
+            ..Reversed::default()
         });
     }
     let written = if joins {
@@ -456,6 +494,13 @@ async fn reverse_membership(
     } else {
         action_item::leave_initiative(connection, id, initiative_id, Actor::User, now).await?
     };
+    // The latest span now restores what the changeset replaced, so an earlier operation on
+    // the same pair reads it as that.
+    if let Some((restoring, _left_at)) =
+        action_item::latest_span(connection, id, initiative_id).await?
+    {
+        reversed.stands_for = Some((restoring, span_before));
+    }
     reversed.touched.history.extend(written.history);
     reversed.touched.item_ids.insert(id);
     reversed.touched.initiative_ids.insert(initiative_id);
