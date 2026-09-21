@@ -88,6 +88,8 @@ struct FakeState {
     labels: BTreeMap<String, Vec<String>>,
     /// When set, every write is refused as a token without write access would be.
     refuse_writes: bool,
+    /// When set, pull requests are refused as a token without Pull requests read would be.
+    refuse_pull_requests: bool,
     received: Vec<Received>,
 }
 
@@ -192,6 +194,11 @@ impl FakeGithub {
                 }
             }
         });
+    }
+
+    /// Refuses `GET /pulls/{number}`, as for a token without Pull requests read.
+    pub(crate) fn refuse_pull_requests(&self) {
+        self.with_state(|state| state.refuse_pull_requests = true);
     }
 
     /// Makes every write fail, as it does for a token without write access, or stop failing.
@@ -357,6 +364,12 @@ async fn answer(
         }
 
         (Method::GET, ["repos", owner, name, "pulls", number]) => {
+            if state.refuse_pull_requests {
+                return github_error(
+                    StatusCode::FORBIDDEN,
+                    "Resource not accessible by personal access token",
+                );
+            }
             let repository = format!("{owner}/{name}");
             let merged = number.parse::<u64>().ok().and_then(|number| {
                 state

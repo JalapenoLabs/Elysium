@@ -180,8 +180,7 @@ impl GithubProvider {
                         );
                         continue;
                     };
-                    let issue = self.settle_merge(&opened, issue).await?;
-                    remotes.push(remote(&opened, issue));
+                    remotes.extend(self.settled_remote(&opened, issue).await);
                 }
                 continue;
             };
@@ -194,12 +193,32 @@ impl GithubProvider {
                         ))
                 });
                 if is_linked {
-                    let issue = self.settle_merge(&opened, issue).await?;
-                    remotes.push(remote(&opened, issue));
+                    remotes.extend(self.settled_remote(&opened, issue).await);
                 }
             }
         }
         Ok(remotes)
+    }
+
+    /// A linked issue read by the watcher, with a closed pull request's merge settled, or
+    /// `None` when GitHub will not say whether it merged, such as for a token without Pull
+    /// requests read. That link is left as it was, so one pull request never stops the rest
+    /// of the credential's links and containers.
+    async fn settled_remote(&self, opened: &OpenToken, issue: Issue) -> Option<Remote> {
+        let reference = issue.reference();
+        match self.settle_merge(opened, issue).await {
+            Ok(issue) => Some(remote(opened, issue)),
+            Err(error) => {
+                event!(
+                    name: "links.github.merge.unreadable",
+                    Level::INFO,
+                    github.issue = %reference,
+                    error.message = %error,
+                    "whether a linked pull request merged cannot be read; it is left as it was",
+                );
+                None
+            }
+        }
     }
 
     async fn find_container(

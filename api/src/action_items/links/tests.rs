@@ -889,3 +889,50 @@ async fn github_changes_since_a_cursor_are_only_what_changed() {
         .expect("changes");
     assert_eq!(everything.len(), 2, "with no cursor, every link is read");
 }
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_pull_request_whose_merge_cannot_be_read_holds_back_only_itself() {
+    let mut fixture = LinkFixture::start().await;
+    fixture
+        .github
+        .put_issue(REPOSITORY, 1, FakeIssue::open("An issue"));
+    fixture
+        .github
+        .put_issue(REPOSITORY, 2, FakeIssue::pull_request("A fix"));
+    let credential = fixture.github_credential;
+    let mut links = Vec::new();
+    for (reference, kind) in [
+        ("JalapenoLabs/Elysium#1", LinkKind::Issue),
+        ("JalapenoLabs/Elysium#2", LinkKind::PullRequest),
+    ] {
+        let remote = fixture
+            .github_provider()
+            .find(credential.id, kind, reference)
+            .await
+            .expect("found");
+        links.push(linked(&mut fixture, credential, &remote, kind).await);
+    }
+
+    fixture.github.refuse_pull_requests();
+    for number in [1, 2] {
+        fixture
+            .github
+            .change_issue(REPOSITORY, number, |issue| issue.is_open = false);
+    }
+    let changed = fixture
+        .github_provider()
+        .changes(
+            credential.id,
+            &links,
+            Some(Utc::now() - TimeDelta::minutes(30)),
+        )
+        .await
+        .expect("the credential is still read");
+    let keys: Vec<&str> = changed.iter().map(|remote| remote.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        ["JalapenoLabs/Elysium#1"],
+        "the pull request is left as it was, and the issue is read"
+    );
+}

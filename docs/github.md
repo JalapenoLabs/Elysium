@@ -192,7 +192,9 @@ issues, or its open pull requests with `kind=pull-request`, from one page of the
 
 Closing an issue and commenting need write access to issues: `repo` on a classic token (`public_repo` for public
 repositories only), or Issues read and write on a fine-grained one. A token without it leaves the close or the comment
-pending on its link with GitHub's answer.
+pending on its link with GitHub's answer. Reading whether a linked pull request merged needs Pull requests read on a
+fine-grained token; without it, the watcher leaves that pull request's link as it was and logs why, and the rest of the
+token's links are read as usual.
 
 ## Which permissions a token needs
 
