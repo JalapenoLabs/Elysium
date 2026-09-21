@@ -9,6 +9,8 @@ import { mutate } from 'swr'
 import { store } from '../store'
 import { actionItemCommentDeleted, actionItemCommentUpserted } from '../store/actionItemCommentsSlice'
 import { historyAppended } from '../store/actionItemHistorySlice'
+import { actionItemLinkDeleted, actionItemLinkUpserted } from '../store/actionItemLinksSlice'
+import { initiativeLinkDeleted, initiativeLinkUpserted } from '../store/initiativeLinksSlice'
 import { actionItemDeleted, actionItemUpserted } from '../store/actionItemsSlice'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
 import { environmentVariableDeleted, environmentVariableUpserted } from '../store/environmentVariablesSlice'
@@ -55,6 +57,15 @@ const handlers: Handlers = {
     void mutate('v1/action-items?deleted=true')
     void mutate(`v1/action-items/${event.data.id}`)
   },
+  // What the provider says about the item's links is read live, so a changed link rereads
+  // it, if a page shows it.
+  'actionItemLink.upserted': (event) => {
+    store.dispatch(actionItemLinkUpserted(event.data))
+    void mutate(`v1/action-items/${event.data.actionItemId}/links/remote`)
+  },
+  'actionItemLink.deleted': (event) => store.dispatch(actionItemLinkDeleted(event.data.id)),
+  'initiativeLink.upserted': (event) => store.dispatch(initiativeLinkUpserted(event.data)),
+  'initiativeLink.deleted': (event) => store.dispatch(initiativeLinkDeleted(event.data.id)),
   'actionItemComment.upserted': (event) => store.dispatch(actionItemCommentUpserted(event.data)),
   'actionItemComment.deleted': (event) => store.dispatch(actionItemCommentDeleted(event.data.id)),
   // Progress moved or the initiative changed; its burnup, if a page draws it, reloads.

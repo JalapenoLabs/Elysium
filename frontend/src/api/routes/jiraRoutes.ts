@@ -198,3 +198,87 @@ export function listJiraCredentialBoards(credentialId: string) {
     .get(`v1/jira-credentials/${credentialId}/boards`)
     .json<ListJiraBoardsResponse>()
 }
+
+// The parts of `Issue` in docs/jira.md a picker shows.
+export type JiraIssue = {
+  id: string
+  key: string
+  projectKey: string
+  summary: string
+  status: { id: string, name: string, category: string } | null
+  issueType: string | null
+  assignee: { accountId: string, displayName: string } | null
+  url: string
+}
+
+type SearchJiraIssuesResponse = {
+  issues: JiraIssue[]
+  nextPageToken: string | null
+  isLast: boolean
+}
+
+// One page of a search, bounded by the credential's allowlist on the server. JQL that cannot
+// be bounded answers 400.
+export function searchJiraIssues(credentialId: string, jql: string, maxResults: number) {
+  return apiClient
+    .get(`v1/jira-credentials/${credentialId}/issues`, {
+      searchParams: { jql, maxResults },
+    })
+    .json<SearchJiraIssuesResponse>()
+}
+
+export type JiraFilter = {
+  id: string
+  name: string
+  url: string
+}
+
+type ListJiraFiltersResponse = {
+  filters: JiraFilter[]
+  truncated: boolean
+}
+
+// The saved filters the token can see.
+export function listJiraFilters(credentialId: string) {
+  return apiClient
+    .get(`v1/jira-credentials/${credentialId}/filters`)
+    .json<ListJiraFiltersResponse>()
+}
+
+export type JiraDoneTransitionChoice = {
+  statusId: string
+  statusName: string
+}
+
+export type JiraDoneTransition = {
+  projectKey: string
+  // More than one done status: resolving an item waits until one is chosen.
+  needsChoice: boolean
+  // The project's done statuses, read from Jira now.
+  statuses: { id: string, name: string }[]
+  chosen: JiraDoneTransitionChoice | null
+}
+
+// Which done status resolving an item moves the project's issues into.
+export function getJiraDoneTransition(credentialId: string, projectKey: string) {
+  return apiClient
+    .get(`v1/jira-credentials/${credentialId}/projects/${projectKey}/done-transition`)
+    .json<JiraDoneTransition>()
+}
+
+type ChooseJiraDoneTransitionResponse = {
+  chosen: JiraDoneTransitionChoice
+}
+
+export function chooseJiraDoneTransition(credentialId: string, projectKey: string, statusId: string) {
+  return apiClient
+    .put(`v1/jira-credentials/${credentialId}/projects/${projectKey}/done-transition`, {
+      json: { statusId },
+    })
+    .json<ChooseJiraDoneTransitionResponse>()
+}
+
+export function forgetJiraDoneTransition(credentialId: string, projectKey: string) {
+  return apiClient
+    .delete(`v1/jira-credentials/${credentialId}/projects/${projectKey}/done-transition`)
+}

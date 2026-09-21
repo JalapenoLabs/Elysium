@@ -72,6 +72,13 @@ export const HISTORY_KINDS = [
   'project_removed',
   'initiative_joined',
   'initiative_left',
+  'link_added',
+  'link_removed',
+  'primary_link_changed',
+  'link_write_cancelled',
+  'pull_request_closed',
+  'container_linked',
+  'container_unlinked',
 ] as const
 export type HistoryKind = typeof HISTORY_KINDS[number]
 
@@ -259,4 +266,161 @@ export function leaveInitiative(itemId: string, initiativeId: string) {
   return apiClient
     .delete(`v1/action-items/${itemId}/initiatives/${initiativeId}`)
     .json<ActionItemResponse>()
+}
+
+// Mirrors `LinkProvider` in api/src/models/action_item_link.rs.
+export const LINK_PROVIDERS = [ 'jira', 'github' ] as const
+export type LinkProvider = typeof LINK_PROVIDERS[number]
+
+// Mirrors `LinkKind`: what an item links to. Jira links issues only.
+export const LINK_KINDS = [ 'issue', 'pull-request' ] as const
+export type LinkKind = typeof LINK_KINDS[number]
+
+// Mirrors `LinkState`: the linked thing's state as its provider last reported it.
+export const LINK_STATES = [ 'open', 'done', 'not-planned', 'merged', 'closed-unmerged' ] as const
+export type LinkState = typeof LINK_STATES[number]
+
+// Mirrors `LinkWriteKind`: a provider write a link owes.
+export const LINK_WRITE_KINDS = [ 'close', 'comment' ] as const
+export type LinkWriteKind = typeof LINK_WRITE_KINDS[number]
+
+// Mirrors `PendingWriteResponse` in api/src/routes/v1/action_items/mod.rs.
+export type PendingWrite = {
+  id: string
+  kind: LinkWriteKind
+  // The comment it posts, for a comment.
+  commentId: string | null
+  // Zero until the watcher first tries it.
+  attempts: number
+  // The provider's last answer, or why the write waits.
+  lastError: string | null
+  lastAttemptAt: string | null
+  createdAt: string
+}
+
+// Mirrors `ActionItemLinkResponse` in api/src/routes/v1/action_items/mod.rs.
+export type ActionItemLink = {
+  id: string
+  actionItemId: string
+  provider: LinkProvider
+  kind: LinkKind
+  credentialId: string
+  // What a person reads: ELY-12, or owner/name#12.
+  key: string
+  url: string
+  // As last read; the item page reads the provider live.
+  title: string
+  // Where comments are posted, and whose assignee owns the item.
+  isPrimary: boolean
+  state: LinkState
+  // Whose it was when last read.
+  owner: ActionItemOwner
+  // Writes that have not landed, oldest first. A link with any is pending.
+  pendingWrites: PendingWrite[]
+  createdAt: string
+  updatedAt: string
+}
+
+// Mirrors `Remote` in api/src/action_items/links/mod.rs: a linked thing as its provider
+// reports it now.
+export type LinkRemote = {
+  key: string
+  url: string
+  title: string
+  state: LinkState
+  // The provider's own word: a Jira status, or open, closed, merged.
+  status: string
+  owner: ActionItemOwner
+  // The assignee as the provider names them.
+  assignee: string | null
+  // The provider's own priority, such as Jira's High; GitHub has none.
+  priority: string | null
+  // A day, Jira only.
+  dueDate: string | null
+}
+
+// One link read live: the remote, or why it could not be read.
+export type LinkRemoteRead = {
+  linkId: string
+  remote: LinkRemote | null
+  error: string | null
+}
+
+// What a link request names: a thing a picker listed and the credential that reaches it.
+export type LinkTarget = {
+  provider: LinkProvider
+  credentialId: string
+  kind: LinkKind
+  // ELY-12, or owner/name#12.
+  reference: string
+}
+
+type ListActionItemLinksResponse = {
+  links: ActionItemLink[]
+}
+
+// The primary first, then oldest first.
+export function listActionItemLinks(itemId: string) {
+  return apiClient
+    .get(`v1/action-items/${itemId}/links`)
+    .json<ListActionItemLinksResponse>()
+}
+
+type ReadActionItemLinksResponse = {
+  remotes: LinkRemoteRead[]
+}
+
+// Reads every link live, through its provider.
+export function readActionItemLinkRemotes(itemId: string) {
+  return apiClient
+    .get(`v1/action-items/${itemId}/links/remote`)
+    .json<ReadActionItemLinksResponse>()
+}
+
+type ActionItemLinkResponse = {
+  link: ActionItemLink
+}
+
+// The thing is read through the credential first: outside a Jira allowlist answers 403, and
+// a thing already linked to another item 409. The item's first link becomes its primary.
+export function addActionItemLink(itemId: string, target: LinkTarget) {
+  return apiClient
+    .post(`v1/action-items/${itemId}/links`, { json: target })
+    .json<ActionItemLinkResponse>()
+}
+
+// Removing the primary makes the oldest link left the primary.
+export function removeActionItemLink(itemId: string, linkId: string) {
+  return apiClient
+    .delete(`v1/action-items/${itemId}/links/${linkId}`)
+}
+
+// Answers every link of the item, since the primary moved from one to another.
+export function makePrimaryActionItemLink(itemId: string, linkId: string) {
+  return apiClient
+    .put(`v1/action-items/${itemId}/links/${linkId}/primary`)
+    .json<ListActionItemLinksResponse>()
+}
+
+export function cancelActionItemLinkWrite(itemId: string, linkId: string, writeId: string) {
+  return apiClient
+    .delete(`v1/action-items/${itemId}/links/${linkId}/writes/${writeId}`)
+}
+
+type CreateActionItemFromLinkRequest = LinkTarget & {
+  projectIds?: string[]
+  initiativeIds?: string[]
+}
+
+type CreateActionItemFromLinkResponse = {
+  item: ActionItem
+  link: ActionItemLink
+}
+
+// Creates an item from a linked thing: its title, priority, due date, and owner come from
+// the provider, and it starts open with the link as its primary.
+export function createActionItemFromLink(body: CreateActionItemFromLinkRequest) {
+  return apiClient
+    .post('v1/action-items/from-link', { json: body })
+    .json<CreateActionItemFromLinkResponse>()
 }

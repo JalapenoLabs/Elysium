@@ -14,6 +14,7 @@ import { Alert, Breadcrumbs, Button, Chip, Link, Spinner, toast } from '@heroui/
 import { LuTrash2 } from 'react-icons/lu'
 import { InlineEditableText } from '../../components/InlineEditableText'
 import { HistoryTimeline } from '../ActionItems/HistoryTimeline'
+import { InitiativeContainers } from './InitiativeContainers'
 import { InitiativeDetailsPanel } from './InitiativeDetailsPanel'
 import { InitiativeMembers } from './InitiativeMembers'
 import { InitiativeProgressSection } from './InitiativeProgressSection'
@@ -32,7 +33,8 @@ import {
 import { useInitiativeActions } from './useInitiativeActions'
 
 // `/action-items/initiatives/:initiativeId`: one initiative, edited in place. Progress leads,
-// as resolved and total with the burnup beneath; its items, and its history, follow. A
+// as resolved and total with the burnup beneath; its items, the Jira and GitHub containers it
+// follows, and its history, follow. A
 // deleted initiative is shown read-only, with Restore.
 export function InitiativePage() {
   const { t } = useTranslation([ 'initiatives', 'actionItems', 'common' ])
@@ -144,6 +146,7 @@ export function InitiativePage() {
           <h2 className='compact text-lg font-semibold'>{t('members.heading')}</h2>
           <InitiativeMembers initiative={initiative} />
         </section>
+        <InitiativeContainers initiative={initiative} />
         <section>
           <h2 className='compact text-lg font-semibold'>{t('actionItems:history.heading')}</h2>
           <HistoryTimeline entries={history} subject='initiative' status={historyStatus} />

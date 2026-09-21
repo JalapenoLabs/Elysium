@@ -75,6 +75,7 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/jira`              | `ManageJiraPage`         | Jira Cloud sites, their account, projects, and boards    |
 | `/settings/jira/new`          | `AddJiraCredentialPage`  | Add a Jira site, in two steps                            |
 | `/settings/jira/:credentialId/edit` | `EditJiraCredentialPage` | Edit a Jira site                                   |
+| `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
 | `/settings/storage`           | `ManageStoragePage`      | Storage locations Elysium saves files to                 |
 | `/settings/storage/new`       | `AddStorageLocationPage` | Add a storage location                                   |
 | `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
@@ -155,8 +156,8 @@ site with the projects and boards Elysium may read. Nothing about a project or a
 comes from what Jira said the token reaches.
 
 - `ManageJiraPage` renders `JiraCredentialTable` (name, site, account, projects, boards, last checked) whose row menu
-  edits, tests, or deletes one; delete confirms through `useConfirm`. Testing toasts the account Jira answered with, or
-  a warning naming every allowed project and board the token can no longer reach.
+  edits, tests, opens Done statuses, or deletes one; delete confirms through `useConfirm`. Testing toasts the account
+  Jira answered with, or a warning naming every allowed project and board the token can no longer reach.
 - Adding a site is two steps in `AddJiraCredentialPage`, which holds the whole flow's state as one discriminated
   value, so the second step exists only once Jira has answered. `JiraConnectionForm` takes the name, site URL, account
   email, and API token, and submits to `POST /jira-credentials/discover`, which stores nothing and answers the account
@@ -172,6 +173,9 @@ comes from what Jira said the token reaches.
   URL disables the pickers and saves both allowlists open, since an id from the old site names nothing on the new one
   and the API refuses a move that brings neither. A `400` from the save sits above the whole form, because it can name
   the token, the site, or a project lost since the page opened.
+- `JiraDoneTransitionsPage` picks one of the site's allowed projects (the same `['jira-credential-projects', id]`
+  listing) into `?project=`, and `JiraDoneTransitionPanel` reads that project's done statuses and choice from the API
+  each time it opens: the one chosen, the only one, or a warning to choose among several, with a select and Forget.
 - `JiraConnectionFields` is the connection half both forms render. The token field is optional while editing and turns
   required as soon as the site or the account email changes, mirroring the API.
 - `JiraScopeFields` is the allowlist half both forms render: an All projects switch over `JiraScopePicker`, and the
@@ -236,9 +240,24 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
 - **Item page** (`ActionItemPage`) edits the title and notes in place with `InlineEditableText`. `ActionItemActionBar`
   offers the state changes the state allows (`transitionsByState` mirrors the API's table), Snooze, Wait on someone,
   Start a coding session, and a menu to stop waiting or delete. `ActionItemSessions` lists the coding sessions started
-  from the item, from the `codingSessions` slice, below its comments. `ActionItemDetailsPanel` saves priority, due date, projects, and initiatives
-  as they change; projects and initiatives go through their per-id routes, one request per one joined or left
-  (`membershipChanges.ts`). A deleted item is read-only under a banner with Restore.
+  from the item, from the `codingSessions` slice, below its comments. `ActionItemDetailsPanel` saves priority, due date,
+  projects, and initiatives as they change; projects and initiatives go through their per-id routes, one request per
+  one joined or left (`membershipChanges.ts`). A deleted item is read-only under a banner with Restore.
+- **Links** (`ActionItemLinks`, under the item's notes) lists the item's links from the `actionItemLinks` slice, the
+  primary first, each with its provider, kind, key (opening it in the provider), and state. What the provider says now
+  (title, status, assignee, priority, due date) comes from `useActionItemLinkRemotes`, which reads every link live
+  through SWR and never enters Redux, since an item holds none of those fields; the recorded title and state show until
+  it answers, and a link it could not read says why. A row menu makes a link primary or unlinks it. `PendingWrites`
+  lists what a link still owes, with its tries, the provider's last answer, and Stop trying; a Jira close that failed
+  links to the project's done status choice.
+- **Link pickers** (`LinkTargetPicker`) choose one Jira issue, GitHub issue, or pull request: `LinkCredentialSelect`
+  lists every Jira site and GitHub token in one select, keyed `provider:id`. Jira is searched by `JiraIssueSearch`,
+  which builds JQL from the words or key typed (`buildIssueSearchJql` in `linkPresentation.ts`) once typing rests
+  (`useDebouncedValue`, `LINK_SEARCH_DELAY_MS`). GitHub is a kind, a repository (`GithubRepositorySelect`, sharing the
+  coding form's `['github-repositories', id]` listing), and that repository's open issues or pull requests narrowed by
+  typing (`GithubIssueList`). Every list is a `ChoiceList`, which shows loading, the provider's refusal, emptiness, and
+  a cut short answer. `LinkTargetModal` wraps the picker for Link on the item page and for From Jira or GitHub on New
+  item, which creates the item from the pick with the page's preset project and initiative.
 - **Snooze** (`SnoozeMenu`) offers later today (three hours), tomorrow morning, next Monday morning, or a day picked
   from a calendar; a day snooze wakes at 09:00 in the viewer's zone (`SNOOZE_WAKE_HOUR`). **Due and target dates** are
   picked as days and stored as the last millisecond of that day in the viewer's zone, so an item due today is overdue
@@ -256,6 +275,11 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   direct end labels, a crosshair and tooltip that snap to the nearest change (by pointer or arrow keys), and the same
   numbers in a table beneath; its geometry is `burnup.ts`. `InitiativeMembers` lists the items with a button to take
   one out, adds existing items from a search, and links to a new item started in the initiative.
+  `InitiativeContainers` lists the epics, saved filters, milestones, and labels it follows from the `initiativeLinks`
+  slice, each with when the watcher last read it or why it could not, and whether it held more than the watcher reads.
+  `AddContainerModal` picks one through `ContainerTargetPicker`: a Jira epic by search, a saved filter from
+  `JiraFilterList`, or a repository's milestone or label from `GithubContainerList`. `containerPresentation.ts` holds
+  which kinds each provider has.
 - **Project page** (`ProjectWork`) lists the project's inbox and open items and its initiatives, each with a New
   button that presets the project, and a link to every item of the project in All items.
 - **Start a coding session**, on the item page and in Next, goes to `/coding?item=<id>` (`getNewCodingSessionUrl`). The
@@ -391,6 +415,8 @@ Selectors return existing references; never build objects or strings inside one.
 | `actionItems`    | Live and deleted items in separate halves, newest first                 |
 | `actionItemComments` | Comments of the items viewed, oldest first                          |
 | `actionItemHistory` | Item and initiative history entries, oldest first                    |
+| `actionItemLinks` | Links of the items viewed, the primary first, then oldest first         |
+| `initiativeLinks` | Containers of the initiatives viewed, oldest first                     |
 | `initiatives`    | Live and deleted initiatives in separate halves, by name                |
 | `llms`           | LLM credentials, sorted by priority                                     |
 | `mailAccounts`   | Connected mailboxes, sorted by address                                  |
@@ -417,7 +443,7 @@ Server collections use entity adapters. Redux is the source of truth components 
    `useEnvironmentVariablesLoader`, `useCodingSessionsLoader`,
    `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,
    `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,
-   `useInitiativeLoader`, `useInitiativeHistoryLoader`). SWR
+   `useInitiativeLoader`, `useInitiativeHistoryLoader`, `useActionItemLinksLoader`, `useInitiativeLinksLoader`). SWR
    fetches the key once, deduplicates every component asking for it, and buffers the response so a remounted page
    renders at once while it revalidates.
 2. **Redux holds it.** The loader puts the response in Redux (`llmsLoaded`, `sessionHistoryLoaded`, ...).

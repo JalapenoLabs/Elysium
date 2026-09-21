@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { HistoryEntry } from './actionItemRoutes'
+import type { HistoryEntry, LinkProvider } from './actionItemRoutes'
 
 // Misc
 import { apiClient } from '../index'
@@ -143,4 +143,69 @@ export function removeInitiativeProject(initiativeId: string, projectId: string)
   return apiClient
     .delete(`v1/initiatives/${initiativeId}/projects/${projectId}`)
     .json<InitiativeResponse>()
+}
+
+// Mirrors `ContainerKind` in api/src/models/initiative_link.rs: an epic or saved filter on
+// Jira, a milestone or label on GitHub.
+export const CONTAINER_KINDS = [ 'epic', 'filter', 'milestone', 'label' ] as const
+export type ContainerKind = typeof CONTAINER_KINDS[number]
+
+// Mirrors `InitiativeLinkResponse` in api/src/routes/v1/initiatives/mod.rs.
+export type InitiativeLink = {
+  id: string
+  initiativeId: string
+  provider: LinkProvider
+  kind: ContainerKind
+  credentialId: string
+  // ELY-7 for an epic, a filter's id, owner/name#3, or owner/name:label.
+  key: string
+  url: string
+  // The container's name as last read.
+  title: string
+  // When the watcher last read every child; null until it first has.
+  syncedAt: string | null
+  // Why the latest read failed; null when it succeeded.
+  syncError: string | null
+  // The container held more children than the watcher reads.
+  truncated: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+// What a container request names: a container a picker listed.
+export type ContainerTarget = {
+  provider: LinkProvider
+  credentialId: string
+  kind: ContainerKind
+  // An epic's key, a filter's id, owner/name#3, or owner/name:label.
+  reference: string
+}
+
+type ListInitiativeLinksResponse = {
+  links: InitiativeLink[]
+}
+
+// Oldest first.
+export function listInitiativeLinks(initiativeId: string) {
+  return apiClient
+    .get(`v1/initiatives/${initiativeId}/links`)
+    .json<ListInitiativeLinksResponse>()
+}
+
+type InitiativeLinkResponse = {
+  link: InitiativeLink
+}
+
+// The container is read through the credential first; its children join on the watcher's
+// next pass, which this wakes at once.
+export function addInitiativeLink(initiativeId: string, target: ContainerTarget) {
+  return apiClient
+    .post(`v1/initiatives/${initiativeId}/links`, { json: target })
+    .json<InitiativeLinkResponse>()
+}
+
+// The items the container brought in leave the initiative; the items themselves stay.
+export function removeInitiativeLink(initiativeId: string, linkId: string) {
+  return apiClient
+    .delete(`v1/initiatives/${initiativeId}/links/${linkId}`)
 }

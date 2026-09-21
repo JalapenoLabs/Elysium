@@ -139,3 +139,69 @@ export function listGithubRepositories(credentialId: string) {
     .get(`v1/github-credentials/${credentialId}/repositories`)
     .json<ListGithubRepositoriesResponse>()
 }
+
+// Every picker entry carries the reference a link request names it by.
+export type GithubIssueChoice = {
+  // owner/name#12
+  reference: string
+  number: number
+  title: string
+  url: string
+  assignee: string | null
+}
+
+type ListRepositoryIssuesResponse = {
+  issues: GithubIssueChoice[]
+  truncated: boolean
+}
+
+// A repository's open issues, or its open pull requests, from the hundred most recently
+// updated.
+export function listGithubRepositoryIssues(
+  credentialId: string,
+  repository: { owner: string, name: string },
+  kind: 'issue' | 'pull-request',
+) {
+  return apiClient
+    .get(`v1/github-credentials/${credentialId}/repositories/${repository.owner}/${repository.name}/issues`, {
+      searchParams: { kind },
+    })
+    .json<ListRepositoryIssuesResponse>()
+}
+
+export type GithubMilestoneChoice = {
+  // owner/name#3
+  reference: string
+  number: number
+  title: string
+  url: string
+}
+
+type ListRepositoryMilestonesResponse = {
+  milestones: GithubMilestoneChoice[]
+  truncated: boolean
+}
+
+export function listGithubRepositoryMilestones(credentialId: string, repository: { owner: string, name: string }) {
+  return apiClient
+    .get(`v1/github-credentials/${credentialId}/repositories/${repository.owner}/${repository.name}/milestones`)
+    .json<ListRepositoryMilestonesResponse>()
+}
+
+export type GithubLabelChoice = {
+  // owner/name:label
+  reference: string
+  name: string
+  url: string
+}
+
+type ListRepositoryLabelsResponse = {
+  labels: GithubLabelChoice[]
+  truncated: boolean
+}
+
+export function listGithubRepositoryLabels(credentialId: string, repository: { owner: string, name: string }) {
+  return apiClient
+    .get(`v1/github-credentials/${credentialId}/repositories/${repository.owner}/${repository.name}/labels`)
+    .json<ListRepositoryLabelsResponse>()
+}

@@ -134,6 +134,15 @@
     "leftInitiative": "took it out of the initiative {{name}}",
     "itemJoined": "added {{title}}",
     "itemLeft": "took out {{title}}",
+    "linkAdded": "linked {{key}}",
+    "linkRemoved": "unlinked {{key}}",
+    "primaryLinkChanged": "changed its primary link",
+    "primaryLinkCleared": "left it with no primary link",
+    "closeWriteCancelled": "stopped trying to move {{key}} to done",
+    "commentWriteCancelled": "stopped trying to post a comment to {{key}}",
+    "pullRequestClosed": "{{key}} closed without merging",
+    "containerLinked": "linked {{key}}",
+    "containerUnlinked": "unlinked {{key}}",
     "unknownKind": "recorded {{kind}}",
     "fieldChanged": "{{field}} changed",
     "fieldChangedFromTo": "{{field}}: {{from}} to {{to}}",
@@ -154,7 +163,75 @@
       "none": "none",
       "deletedProject": "a deleted project",
       "unknownInitiative": "a deleted initiative",
-      "unknownItem": "an item"
+      "unknownItem": "an item",
+      "unknownLink": "a link"
+    }
+  },
+  "links": {
+    "heading": "Linked in Jira and GitHub",
+    "empty": "Not linked to anything in Jira or GitHub.",
+    "loadError": "Links could not be loaded.",
+    "add": "Link",
+    "primary": "Primary",
+    "primaryHint": "Comments are posted here, and its assignee owns the item.",
+    "makePrimary": "Make primary",
+    "remove": "Unlink",
+    "openExternal": "Open in {{provider}}",
+    "reading": "Reading from {{provider}}",
+    "readError": "{{provider}} could not be read: {{error}}",
+    "assignee": "Assigned to {{name}}",
+    "unassigned": "Unassigned",
+    "providerPriority": "{{provider}} priority: {{priority}}",
+    "providerDue": "Due in {{provider}}: {{date}}",
+    "removeTitle": "Unlink {{key}}?",
+    "removeBody": "The item stops following it, and writes it still owes are dropped. Nothing changes in {{provider}}.",
+    "providers": {
+      "jira": "Jira",
+      "github": "GitHub"
+    },
+    "kinds": {
+      "issue": "Issue",
+      "pull-request": "Pull request"
+    },
+    "states": {
+      "open": "Open",
+      "done": "Done",
+      "not-planned": "Not planned",
+      "merged": "Merged",
+      "closed-unmerged": "Closed without merging"
+    },
+    "pending": {
+      "close": "Moving it to done",
+      "comment": "Posting a comment",
+      "queued": "On its way",
+      "tried_one": "Tried {{count}} time",
+      "tried_other": "Tried {{count}} times",
+      "lastError": "Last answer: {{error}}",
+      "chooseDone": "Choose the project's done status",
+      "cancel": "Stop trying",
+      "cancelTitle": "Stop trying to send this?",
+      "cancelBody": "The item stays as it is. {{provider}} is left as it is too, and the item's history records that you stopped."
+    },
+    "picker": {
+      "linkTitle": "Link to Jira or GitHub",
+      "linkDescription": "Pick what the item stands for. Resolving the item moves a linked issue to done, and the provider closing it resolves the item.",
+      "createTitle": "New item from Jira or GitHub",
+      "createDescription": "The item starts from its title, priority, due date, and assignee, and follows it from then on.",
+      "credential": "Account",
+      "noCredentials": "Add a Jira site or a GitHub token first.",
+      "openSettings": "Open Settings",
+      "kind": "Kind",
+      "repository": "Repository",
+      "search": "Search",
+      "searchPlaceholder": "Words in the title, or a key such as ELY-12",
+      "filter": "Filter the list",
+      "results": "Results",
+      "noResults": "Nothing matches.",
+      "truncated": "Only the most recently updated are listed.",
+      "loadError": "The list could not be loaded: {{error}}",
+      "linkSubmit": "Link",
+      "createSubmit": "Create item",
+      "chooseFirst": "Pick one from the list first."
     }
   },
   "list": {
@@ -218,6 +295,7 @@
   },
   "form": {
     "createTitle": "New item",
+    "fromLink": "From Jira or GitHub",
     "title": "Title",
     "notes": "Notes",
     "dueDateHint": "Due until the end of that day.",
@@ -244,6 +322,11 @@
     "stoppedWaiting": "“{{title}}” is no longer waiting.",
     "deleted": "Deleted “{{title}}”.",
     "restored": "Restored “{{title}}”.",
-    "conflict": "“{{title}}” changed elsewhere, so that could not be done."
+    "conflict": "“{{title}}” changed elsewhere, so that could not be done.",
+    "linked": "Linked {{key}}.",
+    "unlinked": "Unlinked {{key}}.",
+    "primaryChanged": "{{key}} is now the primary link.",
+    "writeCancelled": "Stopped trying.",
+    "alreadyLinked": "That is already linked to another item."
   }
 }

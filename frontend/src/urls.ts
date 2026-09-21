@@ -34,6 +34,7 @@ export const UrlTree = {
   settingsJira: '/settings/jira',
   settingsJiraNew: '/settings/jira/new',
   settingsJiraEdit: '/settings/jira/:credentialId/edit',
+  settingsJiraDoneTransitions: '/settings/jira/:credentialId/done-transitions',
   settingsSatellites: '/settings/satellites',
   settingsEmail: '/settings/email',
   settingsStorage: '/settings/storage',
@@ -45,6 +46,10 @@ export type UrlValue = typeof UrlTree[keyof typeof UrlTree]
 // The query parameters that preset a new item's or initiative's project and initiative.
 export const NEW_ITEM_PROJECT_PARAM = 'project'
 export const NEW_ITEM_INITIATIVE_PARAM = 'initiative'
+
+// The query parameter that opens a Jira site's done transitions on one project, such as from
+// a close still waiting on the choice.
+export const DONE_TRANSITION_PROJECT_PARAM = 'project'
 
 // The query parameter that opens the Coding page's New session dialog started from an item.
 export const NEW_SESSION_ITEM_PARAM = 'item'
@@ -98,6 +103,14 @@ export function getGithubCredentialEditUrl(credentialId: string) {
 
 export function getJiraCredentialEditUrl(credentialId: string) {
   return UrlTree.settingsJiraEdit.replace(':credentialId', credentialId)
+}
+
+export function getJiraDoneTransitionsUrl(credentialId: string, projectKey?: string) {
+  const url = UrlTree.settingsJiraDoneTransitions.replace(':credentialId', credentialId)
+  if (!projectKey) {
+    return url
+  }
+  return `${url}?${DONE_TRANSITION_PROJECT_PARAM}=${encodeURIComponent(projectKey)}`
 }
 
 export function getStorageLocationEditUrl(locationId: string) {

@@ -55,6 +55,31 @@
     "empty": "No items yet. Add existing ones, or create one here.",
     "hiddenWhileDeleted": "This initiative keeps its items while deleted. They show here again once it is restored."
   },
+  "containers": {
+    "heading": "Followed in Jira and GitHub",
+    "empty": "Follow a Jira epic or saved filter, or a GitHub milestone or label, and its open issues join this initiative as items.",
+    "loadError": "What this initiative follows could not be loaded.",
+    "add": "Follow",
+    "addTitle": "Follow a Jira epic, filter, milestone, or label",
+    "addDescription": "Its open issues join the initiative as items, and so does every issue added to it later.",
+    "addSubmit": "Follow",
+    "kind": "What to follow",
+    "kinds": {
+      "epic": "Epic",
+      "filter": "Saved filter",
+      "milestone": "Milestone",
+      "label": "Label"
+    },
+    "waiting": "Its issues join on the next read.",
+    "synced": "Read {{date}}",
+    "syncError": "The latest read failed: {{error}}",
+    "truncated": "It holds more issues than Elysium follows, so only the first thousand joined.",
+    "remove": "Stop following",
+    "removeTitle": "Stop following {{name}}?",
+    "removeBody": "The items it brought leave this initiative. The items themselves stay, and nothing changes in Jira or GitHub.",
+    "linked": "Following {{name}}.",
+    "unlinked": "Stopped following {{name}}."
+  },
   "page": {
     "notFound": "This initiative does not exist.",
     "backToList": "Back to initiatives",

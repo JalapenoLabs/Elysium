@@ -24,7 +24,7 @@ import { getApiErrorMessage } from '../../../api/errors'
 import { deleteJiraCredential, testJiraCredential } from '../../../api/routes/jiraRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useJiraCredentialsLoader } from '../../../hooks/useServerData'
-import { getJiraCredentialEditUrl, UrlTree } from '../../../urls'
+import { getJiraCredentialEditUrl, getJiraDoneTransitionsUrl, UrlTree } from '../../../urls'
 
 // `/settings/jira`: the Jira Cloud sites Elysium reads.
 export function ManageJiraPage() {
@@ -138,6 +138,7 @@ export function ManageJiraPage() {
         credentials={credentials}
         onEdit={(credential) => navigate(getJiraCredentialEditUrl(credential.id))}
         onTest={runConnectionTest}
+        onDoneTransitions={(credential) => navigate(getJiraDoneTransitionsUrl(credential.id))}
         onDelete={confirmDelete}
       />}
     </section>

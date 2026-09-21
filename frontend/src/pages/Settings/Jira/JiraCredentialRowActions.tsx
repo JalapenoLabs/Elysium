@@ -14,16 +14,18 @@ type Props = {
   credential: JiraCredential
   onEdit: (credential: JiraCredential) => void
   onTest: (credential: JiraCredential) => void
+  onDoneTransitions: (credential: JiraCredential) => void
   onDelete: (credential: JiraCredential) => void
 }
 
-// The per-row "..." menu: edit, test the connection, or delete.
+// The per-row "..." menu: edit, test the connection, choose done statuses, or delete.
 export function JiraCredentialRowActions(props: Props) {
   const { t } = useTranslation([ 'jira', 'common' ])
 
   const actions: Record<string, () => void> = {
     edit: () => props.onEdit(props.credential),
     test: () => props.onTest(props.credential),
+    doneTransitions: () => props.onDoneTransitions(props.credential),
     delete: () => props.onDelete(props.credential),
   }
 
@@ -43,6 +45,9 @@ export function JiraCredentialRowActions(props: Props) {
         </Dropdown.Item>
         <Dropdown.Item id='test' textValue={t('actions.test')}>
           <Label>{t('actions.test')}</Label>
+        </Dropdown.Item>
+        <Dropdown.Item id='doneTransitions' textValue={t('actions.doneTransitions')}>
+          <Label>{t('actions.doneTransitions')}</Label>
         </Dropdown.Item>
         <Dropdown.Item id='delete' textValue={t('common:actions.delete')} variant='danger'>
           <Label>{t('common:actions.delete')}</Label>
