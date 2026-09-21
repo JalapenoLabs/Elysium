@@ -10,13 +10,17 @@
 mod add_comment;
 pub mod allowlist;
 mod apply_transition;
+mod choose_done_transition;
 mod create_issue;
 mod create_jira_credential;
 mod delete_jira_credential;
 mod discover_jira_site;
+mod forget_done_transition;
+mod get_done_transition;
 mod get_issue;
 mod get_jira_credential;
 mod list_boards;
+mod list_filters;
 mod list_jira_credentials;
 mod list_projects;
 mod list_transitions;
@@ -29,16 +33,19 @@ use anyhow::Context;
 use axum::Router;
 use axum::routing::{get, post};
 use chrono::{DateTime, Utc};
+use diesel_async::AsyncPgConnection;
 use secrecy::SecretString;
 use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 use validator::ValidationError;
 
+use crate::crypto::Cipher;
 use crate::errors::ApiError;
 use crate::jira::{Account, Board, Issue, Jira, JiraError, Project, Site};
 use crate::models::jira_credential::{
     self, Allowed, AllowedBoard, AllowedProject, Allowlist, JiraCredential,
 };
+use crate::models::jira_done_transition::JiraDoneTransition;
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
@@ -70,6 +77,52 @@ pub fn router() -> Router<AppState> {
             get(list_transitions::handle).post(apply_transition::handle),
         )
         .route("/{id}/issues/{key}/comments", post(add_comment::handle))
+        .route("/{id}/filters", get(list_filters::handle))
+        .route(
+            "/{id}/projects/{key}/done-transition",
+            get(get_done_transition::handle)
+                .put(choose_done_transition::handle)
+                .delete(forget_done_transition::handle),
+        )
+}
+
+/// A project key from a path, refused unless it is spelled as Jira writes keys: an
+/// uppercase letter, then uppercase letters, digits, and underscores. A done transition is
+/// stored and later looked up under the key Jira answers with, so any other spelling would
+/// be a choice nothing ever finds.
+///
+/// # Errors
+/// Returns [`ApiError::BadRequest`] for anything else.
+fn project_key_of(key: &str) -> Result<&str, ApiError> {
+    let is_key = (2..=255).contains(&key.len())
+        && key.starts_with(|first: char| first.is_ascii_uppercase())
+        && key.chars().all(|character| {
+            character.is_ascii_uppercase() || character.is_ascii_digit() || character == '_'
+        });
+    if !is_key {
+        return Err(ApiError::BadRequest(format!(
+            "{key} is not a project key; one is written in uppercase letters, digits, and \
+             underscores, such as ELY"
+        )));
+    }
+    Ok(key)
+}
+
+/// A project's chosen done transition, as clients see it: the `done` status it leads into.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoneTransitionChoice {
+    status_id: String,
+    status_name: String,
+}
+
+impl From<JiraDoneTransition> for DoneTransitionChoice {
+    fn from(choice: JiraDoneTransition) -> Self {
+        Self {
+            status_id: choice.status_id,
+            status_name: choice.status_name,
+        }
+    }
 }
 
 /// Upper bound on a stored token. An Atlassian API token is about 200 characters today;
@@ -346,12 +399,24 @@ pub async fn open(state: &AppState, id: Uuid) -> Result<OpenCredential, ApiError
         .get()
         .await
         .context("no database connection available")?;
-    let credential = jira_credential::find(&mut connection, id).await?;
-    let allowed = jira_credential::allowed_of(&mut connection, &credential).await?;
-    drop(connection);
+    open_with(&mut connection, &state.cipher, id).await
+}
+
+/// [`open`] on a connection the caller holds, for callers without the app's state, such as
+/// the link watcher.
+///
+/// # Errors
+/// As [`open`].
+pub async fn open_with(
+    connection: &mut AsyncPgConnection,
+    cipher: &Cipher,
+    id: Uuid,
+) -> Result<OpenCredential, ApiError> {
+    let credential = jira_credential::find(connection, id).await?;
+    let allowed = jira_credential::allowed_of(connection, &credential).await?;
 
     let token = credential
-        .token(&state.cipher)
+        .token(cipher)
         .context("the stored token cannot be decrypted")?;
     Ok(OpenCredential {
         credential,
@@ -567,6 +632,18 @@ pub mod tests {
         serde_json::from_value::<JiraToken>(json!("   ")).expect_err("a blank token");
         serde_json::from_value::<JiraToken>(json!("t".repeat(513)))
             .expect_err("an oversized token");
+    }
+
+    #[test]
+    fn a_project_key_in_a_path_is_spelled_as_jira_writes_it() {
+        assert_eq!(project_key_of("ELY").expect("a key"), "ELY");
+        assert_eq!(project_key_of("OPS_2").expect("a key"), "OPS_2");
+        for refused in ["ely", "Ely", "E", "2ELY", "ELY-12", "ELY KEY", ""] {
+            assert!(
+                matches!(project_key_of(refused), Err(ApiError::BadRequest(_))),
+                "{refused}"
+            );
+        }
     }
 
     #[test]

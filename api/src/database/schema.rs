@@ -18,6 +18,10 @@ pub mod sql_types {
     pub struct BunnyStorageRegion;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "container_kind"))]
+    pub struct ContainerKind;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "github_access"))]
     pub struct GithubAccess;
 
@@ -28,6 +32,22 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "initiative_state"))]
     pub struct InitiativeState;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "link_kind"))]
+    pub struct LinkKind;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "link_provider"))]
+    pub struct LinkProvider;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "link_state"))]
+    pub struct LinkState;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "link_write_kind"))]
+    pub struct LinkWriteKind;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "llm_type"))]
@@ -74,6 +94,49 @@ diesel::table! {
         actor -> Text,
         data -> Jsonb,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::LinkWriteKind;
+
+    action_item_link_writes (id) {
+        id -> Uuid,
+        link_id -> Uuid,
+        kind -> LinkWriteKind,
+        comment_id -> Nullable<Uuid>,
+        attempts -> Int4,
+        last_error -> Nullable<Text>,
+        last_attempt_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::LinkProvider;
+    use super::sql_types::LinkKind;
+    use super::sql_types::LinkState;
+    use super::sql_types::ActionItemOwnerKind;
+
+    action_item_links (id) {
+        id -> Uuid,
+        action_item_id -> Uuid,
+        provider -> LinkProvider,
+        kind -> LinkKind,
+        jira_credential_id -> Nullable<Uuid>,
+        github_credential_id -> Nullable<Uuid>,
+        external_id -> Text,
+        external_key -> Text,
+        url -> Text,
+        title -> Text,
+        is_primary -> Bool,
+        observed_state -> LinkState,
+        observed_owner_kind -> ActionItemOwnerKind,
+        observed_owner_name -> Nullable<Text>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -170,6 +233,31 @@ diesel::table! {
         action_item_id -> Uuid,
         joined_at -> Timestamptz,
         left_at -> Nullable<Timestamptz>,
+        via_link_id -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::LinkProvider;
+    use super::sql_types::ContainerKind;
+
+    initiative_links (id) {
+        id -> Uuid,
+        initiative_id -> Uuid,
+        provider -> LinkProvider,
+        kind -> ContainerKind,
+        jira_credential_id -> Nullable<Uuid>,
+        github_credential_id -> Nullable<Uuid>,
+        external_id -> Text,
+        external_key -> Text,
+        url -> Text,
+        title -> Text,
+        synced_at -> Nullable<Timestamptz>,
+        sync_error -> Nullable<Text>,
+        truncated -> Bool,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -238,6 +326,32 @@ diesel::table! {
         all_boards -> Bool,
         checked_at -> Timestamptz,
         created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    jira_done_transitions (jira_credential_id, project_key) {
+        jira_credential_id -> Uuid,
+        project_key -> Text,
+        status_id -> Text,
+        status_name -> Text,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    link_watch_cursors (id) {
+        id -> Uuid,
+        jira_credential_id -> Nullable<Uuid>,
+        github_credential_id -> Nullable<Uuid>,
+        watched_through -> Timestamptz,
+        last_error -> Nullable<Text>,
         updated_at -> Timestamptz,
     }
 }
@@ -377,6 +491,11 @@ diesel::table! {
 diesel::joinable!(action_item_comments -> action_items (action_item_id));
 diesel::joinable!(action_item_events -> action_items (action_item_id));
 diesel::joinable!(action_item_events -> initiatives (initiative_id));
+diesel::joinable!(action_item_link_writes -> action_item_comments (comment_id));
+diesel::joinable!(action_item_link_writes -> action_item_links (link_id));
+diesel::joinable!(action_item_links -> action_items (action_item_id));
+diesel::joinable!(action_item_links -> github_credentials (github_credential_id));
+diesel::joinable!(action_item_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(action_item_projects -> action_items (action_item_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
 diesel::joinable!(coding_sessions -> action_items (action_item_id));
@@ -384,11 +503,18 @@ diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
 diesel::joinable!(initiative_items -> action_items (action_item_id));
+diesel::joinable!(initiative_items -> initiative_links (via_link_id));
 diesel::joinable!(initiative_items -> initiatives (initiative_id));
+diesel::joinable!(initiative_links -> github_credentials (github_credential_id));
+diesel::joinable!(initiative_links -> initiatives (initiative_id));
+diesel::joinable!(initiative_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(initiative_projects -> initiatives (initiative_id));
 diesel::joinable!(initiative_projects -> projects (project_id));
 diesel::joinable!(jira_credential_boards -> jira_credentials (jira_credential_id));
 diesel::joinable!(jira_credential_projects -> jira_credentials (jira_credential_id));
+diesel::joinable!(jira_done_transitions -> jira_credentials (jira_credential_id));
+diesel::joinable!(link_watch_cursors -> github_credentials (github_credential_id));
+diesel::joinable!(link_watch_cursors -> jira_credentials (jira_credential_id));
 diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
 diesel::joinable!(storage_location_projects -> projects (project_id));
@@ -397,17 +523,22 @@ diesel::joinable!(storage_location_projects -> storage_locations (storage_locati
 diesel::allow_tables_to_appear_in_same_query!(
     action_item_comments,
     action_item_events,
+    action_item_link_writes,
+    action_item_links,
     action_item_projects,
     action_items,
     coding_sessions,
     environment_variables,
     github_credentials,
     initiative_items,
+    initiative_links,
     initiative_projects,
     initiatives,
     jira_credential_boards,
     jira_credential_projects,
     jira_credentials,
+    jira_done_transitions,
+    link_watch_cursors,
     llms,
     mail_accounts,
     mail_domains,

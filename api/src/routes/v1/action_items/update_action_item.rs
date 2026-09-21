@@ -68,7 +68,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let updated = action_item::update(&mut connection, id, changes, Actor::User, now).await?;
-    let item = publish_item_write(&state, &mut connection, updated, &[], now).await?;
+    let item = publish_item_write(&state.events, &mut connection, updated, &[], now).await?;
 
     Ok(Json(json!({ "item": item })))
 }

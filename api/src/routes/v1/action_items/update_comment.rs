@@ -48,7 +48,7 @@ pub async fn handle(
 
     let comment = CommentResponse::from(record);
     if !history.is_empty() {
-        publish_history(&state, history);
+        publish_history(&state.events, history);
         state
             .events
             .publish(&ServerEvent::ActionItemCommentUpserted(comment.clone()));

@@ -56,7 +56,7 @@ pub async fn handle(
     let created = initiative::create(&mut connection, new_initiative, Actor::User, now)
         .await
         .map_err(refuse_unknown_projects)?;
-    let initiative = publish_initiative_write(&state, &mut connection, created, now).await?;
+    let initiative = publish_initiative_write(&state.events, &mut connection, created, now).await?;
 
     Ok((
         StatusCode::CREATED,

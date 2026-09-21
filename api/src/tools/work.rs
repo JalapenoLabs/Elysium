@@ -7,11 +7,13 @@
 //! database as it is now: an item or initiative taken out of the project or deleted after
 //! the session started is refused, and one added later is reachable.
 //!
-//! The agent reads freely and writes only comments, recorded with the actor
-//! `session:<number>`. Anything else it wants changed (creating, resolving, dismissing,
-//! deleting, linking) is proposed to the user as a changeset instead, which is a later
-//! stage: a `work_propose_changes` tool joins [`TOOLS`] then, and the instructions below
-//! already tell the agent to ask the user in the meantime. See `docs/action-items.md`.
+//! The agent reads freely and writes two things, both recorded with the actor
+//! `session:<number>`: comments, which are also posted to the item's primary link, and a
+//! link from its session's item to the pull request it opened, which resolves the item when
+//! it merges. Anything else it wants changed (creating, resolving, dismissing, deleting) is
+//! proposed to the user as a changeset instead, which is a later stage: a
+//! `work_propose_changes` tool joins [`TOOLS`] then, and the instructions below already tell
+//! the agent to ask the user in the meantime. See `docs/action-items.md`.
 //!
 //! Each tool's database work is a function of a connection and a [`WorkScope`], so it is
 //! tested against Postgres without a satellite; the `run_*` wrappers only parse, connect,
@@ -26,17 +28,22 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{CallScope, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments};
+use crate::action_items::links::LinkError;
 use crate::action_items::progress::{self, Progress};
 use crate::action_items::{Actor, WorkError};
+use crate::github::issues::IssueRef;
 use crate::models::action_item::{
     self, ActionItem, ActionItemFilter, ActionItemState, Memberships, ProjectFilter,
 };
 use crate::models::action_item_comment::{self, Comment};
 use crate::models::action_item_event::{self, HistoryEntry, Recorded};
+use crate::models::action_item_link::{self, LinkCredential, LinkKind, LinkProvider, NewLink};
+use crate::models::coding_session;
 use crate::models::initiative::{self, Initiative, InitiativeFilter, InitiativeState};
 use crate::models::project;
 use crate::realtime::ServerEvent;
 use crate::routes::v1::action_items::{CommentResponse, HistoryEntryResponse};
+use crate::routes::v1::action_items::{publish_item_links, publish_item_write};
 
 pub const SERVER: ToolServer = ToolServer {
     name: "elysium_work",
@@ -47,14 +54,16 @@ pub const SERVER: ToolServer = ToolServer {
         shows the project, its open initiatives and items, and the item this session was \
         started from, if any. Use work_item and work_initiative for the full record, and \
         work_items to search. Every id you pass must belong to this project. \
-        work_comment is the only write: use it to leave the user a short, useful note on an \
-        item, such as what you found, what you changed, or the pull request you opened. \
+        work_comment leaves the user a short, useful note on an item, such as what you \
+        found or what you changed; it is also posted to the item's linked issue. When you \
+        open a pull request for the item this session was started from, link it with \
+        work_link_pull_request: the item resolves when it merges. \
         You cannot create, resolve, dismiss, or delete items or initiatives; when one \
         should change, say so to the user in your reply, and they will make the change.",
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 6] = [
+const TOOLS: [Tool; 7] = [
     Tool {
         name: "work_project",
         description: "Shows this session's project: its name and description, its active \
@@ -97,10 +106,20 @@ const TOOLS: [Tool; 6] = [
     Tool {
         name: "work_comment",
         description: "Writes a comment on an action item, shown to the user in the item's \
-            comments and history as written by this session. Comments cannot be edited or \
-            deleted afterwards, so write each one complete.",
+            comments and history as written by this session, and posted to the item's \
+            primary linked issue. Comments cannot be edited or deleted afterwards, so write \
+            each one complete.",
         input_schema: comment_schema,
         run: |context, scope, arguments| run_comment(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "work_link_pull_request",
+        description: "Links a GitHub pull request you opened to the action item this \
+            session was started from, read through this session's GitHub token. When the \
+            pull request merges, the item resolves. Linking never merges or closes it, and \
+            never changes who owns the item.",
+        input_schema: link_pull_request_schema,
+        run: |context, scope, arguments| run_link_pull_request(context, scope, arguments).boxed(),
     },
 ];
 
@@ -275,6 +294,23 @@ fn comment_schema() -> Value {
     })
 }
 
+fn link_pull_request_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "description": "The pull request's URL, such as \
+                    https://github.com/owner/name/pull/12.",
+            },
+        },
+        "required": ["url"],
+        "additionalProperties": false,
+    })
+}
+
 #[expect(
     clippy::empty_structs_with_brackets,
     reason = "serde reads {} only into a braced struct; a unit struct takes null"
@@ -282,6 +318,12 @@ fn comment_schema() -> Value {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct NoArguments {}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LinkPullRequestArguments {
+    url: String,
+}
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -438,7 +480,7 @@ async fn run_comment(
     )
     .await
     .map_err(|failure| failure.into_tool_error(scope, "work.comment"))?;
-    drop(connection);
+    let item_id = record.action_item_id;
 
     for entry in history {
         context
@@ -451,7 +493,122 @@ async fn run_comment(
     context
         .events
         .publish(&ServerEvent::ActionItemCommentUpserted(comment.clone()));
+    // The comment is owed to the item's primary link, if it has one; the watcher posts it.
+    publish_item_links(&context.events, &mut connection, item_id)
+        .await
+        .map_err(|error| internal(scope, "work.comment", &error))?;
+    context.links.wake_watcher();
     Ok(json!({ "comment": comment }))
+}
+
+/// Links the pull request at `arguments.url` to the session's item, read through the
+/// session's GitHub token, then tells every client, as the link route does.
+async fn run_link_pull_request(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    const OPERATION: &str = "work.link_pull_request";
+
+    let arguments: LinkPullRequestArguments = parse_arguments(arguments)?;
+    let reference = IssueRef::from_pull_request_url(&arguments.url).ok_or_else(|| {
+        ToolError::Invalid(
+            "url is not a GitHub pull request; one reads https://github.com/owner/name/pull/12"
+                .to_owned(),
+        )
+    })?;
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let (item_id, credential_id) = pull_request_target(&mut connection, WorkScope::from(scope))
+        .await
+        .map_err(|failure| failure.into_tool_error(scope, OPERATION))?;
+    drop(connection);
+
+    let remote = context
+        .links
+        .provider(LinkProvider::Github)
+        .find(credential_id, LinkKind::PullRequest, &reference.to_string())
+        .await
+        .map_err(|error| match error {
+            LinkError::Invalid(message) | LinkError::Forbidden(message) => {
+                ToolError::Invalid(message)
+            }
+            LinkError::NotFound(message) => ToolError::NotFound(message),
+            LinkError::Upstream(message) => ToolError::Provider(message),
+            LinkError::Internal(error) => internal(scope, OPERATION, &error),
+        })?;
+    let new_link = NewLink {
+        credential: LinkCredential {
+            provider: LinkProvider::Github,
+            id: credential_id,
+        },
+        kind: LinkKind::PullRequest,
+        external_id: remote.external_id.clone(),
+        observation: remote.observation(),
+    };
+
+    let now = Utc::now();
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let linked = action_item_link::add(
+        &mut connection,
+        item_id,
+        new_link,
+        false,
+        Actor::Session(scope.session_id),
+        now,
+    )
+    .await
+    .map_err(|error| Failure::from(error).into_tool_error(scope, OPERATION))?;
+    publish_item_write(&context.events, &mut connection, linked.item, &[], now)
+        .await
+        .map_err(|error| internal(scope, OPERATION, &error))?;
+    publish_item_links(&context.events, &mut connection, item_id)
+        .await
+        .map_err(|error| internal(scope, OPERATION, &error))?;
+
+    Ok(json!({
+        "link": {
+            "itemId": item_id,
+            "key": remote.key,
+            "url": remote.url,
+            "title": remote.title,
+            "state": remote.state,
+        },
+    }))
+}
+
+/// The item a session's pull request links to, live and in the session's project, and the
+/// GitHub token the session started with, which reads it.
+async fn pull_request_target(
+    connection: &mut AsyncPgConnection,
+    scope: WorkScope,
+) -> Result<(Uuid, Uuid), Failure> {
+    let Some(item_id) = scope.action_item_id else {
+        return Err(ToolError::Invalid(
+            "this session was not started from an action item, so it has none to link a pull \
+             request to; mention the pull request in a work_comment instead"
+                .to_owned(),
+        )
+        .into());
+    };
+    find_item(connection, scope, item_id).await?;
+    let session = coding_session::find(connection, scope.session_id).await?;
+    let Some(credential_id) = session.github_credential_id else {
+        return Err(ToolError::Invalid(
+            "this session has no GitHub token, so Elysium cannot read the pull request; \
+             mention it in a work_comment instead"
+                .to_owned(),
+        )
+        .into());
+    };
+    Ok((item_id, credential_id))
 }
 
 /// The project with its active initiatives and its items in the inbox or open.

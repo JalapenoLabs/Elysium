@@ -35,6 +35,10 @@ fn every_schema_property_is_an_argument_the_tool_reads() {
             "work_comment",
             json!({ "itemId": id, "body": "Opened #12." }),
         ),
+        (
+            "work_link_pull_request",
+            json!({ "url": "https://github.com/JalapenoLabs/Elysium/pull/12" }),
+        ),
     ];
     assert_eq!(everything.len(), TOOLS.len(), "every tool has an example");
     for (name, arguments) in everything {
@@ -58,6 +62,9 @@ fn every_schema_property_is_an_argument_the_tool_reads() {
             "work_item" => parse_arguments::<ItemArguments>(&text).map(|_parsed| ()),
             "work_initiatives" => parse_arguments::<InitiativesArguments>(&text).map(|_parsed| ()),
             "work_initiative" => parse_arguments::<InitiativeArguments>(&text).map(|_parsed| ()),
+            "work_link_pull_request" => {
+                parse_arguments::<LinkPullRequestArguments>(&text).map(|_parsed| ())
+            }
             _ => parse_arguments::<CommentArguments>(&text).map(|_parsed| ()),
         };
         parsed.unwrap_or_else(|error| panic!("{name}: {error}"));
@@ -666,4 +673,127 @@ async fn items_cannot_be_filtered_on_another_projects_initiative() {
         refusal(refused),
         ToolError::InitiativeUnavailable(elsewhere.id)
     );
+}
+
+/// Records a session of `scope.project_id` on a new satellite, with `github_credential_id`
+/// as its token, and answers the scope with the session's number.
+async fn session_with(
+    connection: &mut AsyncPgConnection,
+    scope: WorkScope,
+    github_credential_id: Option<Uuid>,
+) -> WorkScope {
+    use secrecy::SecretString;
+
+    use crate::models::coding_session::NewCodingSession;
+    use crate::models::satellite::{self, NewSatellite};
+    use crate::test_support::cipher;
+
+    let satellite = satellite::create(
+        connection,
+        &cipher(),
+        &NewSatellite {
+            name: format!("Satellite {}", Uuid::now_v7()),
+            description: String::new(),
+            url: "http://arsox:8080".to_owned(),
+            secret: SecretString::from("bearer"),
+            is_active: true,
+        },
+    )
+    .await
+    .expect("satellite");
+    let id = coding_session::reserve_id(connection)
+        .await
+        .expect("a number");
+    let session = coding_session::create(
+        connection,
+        &NewCodingSession {
+            id,
+            project_id: scope.project_id,
+            satellite_id: satellite.id,
+            thread_id: format!("thread-{}", Uuid::now_v7()),
+            title: "Fix it".to_owned(),
+            github_credential_id,
+            action_item_id: scope.action_item_id,
+        },
+    )
+    .await
+    .expect("session");
+    WorkScope {
+        session_id: session.id,
+        ..scope
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_pull_request_links_only_to_the_sessions_own_item_through_its_token() {
+    use secrecy::SecretString;
+
+    use crate::models::github_credential::{self, GithubTokenKind, NewGithubCredential};
+    use crate::test_support::cipher;
+
+    let (_url, mut connection) = migrated_database().await;
+    let Fixture { scope, .. } = fixture(&mut connection).await;
+    let item = item_in(
+        &mut connection,
+        "Fix the login bug",
+        vec![scope.project_id],
+        vec![],
+    )
+    .await;
+    let token = github_credential::create(
+        &mut connection,
+        &cipher(),
+        &NewGithubCredential {
+            name: "Personal".to_owned(),
+            verified: github_credential::VerifiedToken {
+                kind: GithubTokenKind::Classic,
+                token: SecretString::from("ghp_token"),
+                account: crate::github::Account {
+                    login: "alex".to_owned(),
+                    scopes: Vec::new(),
+                    token_expires_at: None,
+                },
+            },
+        },
+    )
+    .await
+    .expect("a token")
+    .id;
+
+    let without_item = session_with(&mut connection, scope, Some(token)).await;
+    let refused = pull_request_target(&mut connection, without_item)
+        .await
+        .expect_err("no item to link to");
+    let ToolError::Invalid(message) = refusal(refused) else {
+        panic!("a session without an item is told why");
+    };
+    assert!(message.contains("work_comment"), "{message}");
+
+    let from_item = WorkScope {
+        action_item_id: Some(item.id),
+        ..scope
+    };
+    let without_token = session_with(&mut connection, from_item, None).await;
+    let refused = pull_request_target(&mut connection, without_token)
+        .await
+        .expect_err("no token to read the pull request with");
+    let ToolError::Invalid(message) = refusal(refused) else {
+        panic!("a session without a token is told why");
+    };
+    assert!(message.contains("GitHub token"), "{message}");
+
+    let linked = session_with(&mut connection, from_item, Some(token)).await;
+    let target = pull_request_target(&mut connection, linked)
+        .await
+        .expect("a target");
+    assert_eq!(target, (item.id, token));
+
+    action_item::soft_delete(&mut connection, item.id, Actor::User, Utc::now())
+        .await
+        .expect("deleted");
+    let refused = pull_request_target(&mut connection, linked)
+        .await
+        .expect_err("a deleted item");
+    assert_eq!(refusal(refused), ToolError::ItemUnavailable(item.id));
 }

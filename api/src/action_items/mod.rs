@@ -11,27 +11,35 @@
 //! - [`next`]: which items are in Next, and in what order.
 //! - [`progress`]: an initiative's resolved and total, now and over time.
 //! - [`session_context`]: what a coding session started from an item is told about it.
+//! - [`links`]: the external things items and initiatives point at, behind one provider
+//!   trait, with the rules for what a provider's change does to an item.
+//! - [`watcher`]: the poller that keeps links current and lands the writes Elysium owes.
 //!
 //! The queries live in `crate::models::action_item` and its siblings, and call into these.
 
+pub mod links;
 pub mod next;
 pub mod progress;
 pub mod session_context;
+pub mod watcher;
 
 use std::fmt;
 
 use crate::models::action_item::ActionItemState;
+use crate::models::action_item_link::LinkProvider;
 
 /// Who made a change. Every history entry and comment names one.
 ///
-/// The user acts over HTTP, and a coding session's agent through the `elysium_work` tools
-/// (`crate::tools::work`). Elysia and the provider watcher arrive in later stages as
-/// `elysia` and `watcher:<provider>`; the database already accepts those forms.
+/// The user acts over HTTP, a coding session's agent through the `elysium_work` tools
+/// (`crate::tools::work`), and the watcher as it records what a provider reports. Elysia
+/// arrives in a later stage as `elysia`; the database already accepts that form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Actor {
     User,
     /// The agent of the coding session with this number.
     Session(i64),
+    /// The watcher, recording a change it read from this provider.
+    Watcher(LinkProvider),
 }
 
 impl fmt::Display for Actor {
@@ -43,6 +51,7 @@ impl fmt::Display for Actor {
         match self {
             Self::User => formatter.write_str("user"),
             Self::Session(number) => write!(formatter, "session:{number}"),
+            Self::Watcher(provider) => write!(formatter, "watcher:{}", provider.as_str()),
         }
     }
 }
@@ -190,5 +199,13 @@ mod tests {
     fn actors_are_recorded_in_the_form_the_database_checks() {
         assert_eq!(Actor::User.to_string(), "user");
         assert_eq!(Actor::Session(12).to_string(), "session:12");
+        assert_eq!(
+            Actor::Watcher(LinkProvider::Jira).to_string(),
+            "watcher:jira"
+        );
+        assert_eq!(
+            Actor::Watcher(LinkProvider::Github).to_string(),
+            "watcher:github"
+        );
     }
 }

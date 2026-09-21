@@ -48,9 +48,9 @@ Guarantees:
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
 redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, storage location, GitHub
-credential, Jira credential, environment variable, coding session, action item, initiative, comment, and history
-query, and every `elysium_work` tool against its project scope. Plain `cargo test` skips them because they need
-`TEST_DATABASE_URL`.
+credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
+query, every `elysium_work` tool against its project scope, each link provider against a faked provider, and the
+watcher's passes. Plain `cargo test` skips them because they need `TEST_DATABASE_URL`.
 
 ## Conventions
 
@@ -361,6 +361,7 @@ a new one, so progress can be counted at any moment.
 | `action_item_id` | `UUID`        | References `action_items`; deleted with it               |
 | `joined_at`      | `TIMESTAMPTZ` | When the span began                                      |
 | `left_at`        | `TIMESTAMPTZ` | When it ended, not before `joined_at`; NULL while current |
+| `via_link_id`    | `UUID`        | The container that brought the item in; NULL for one added by hand |
 
 The partial unique index `initiative_items_current_unique` on `(initiative_id, action_item_id)` where `left_at` is
 NULL keeps an item in an initiative at most once at a time.
@@ -393,3 +394,83 @@ The history of items and initiatives, one row per change; see `docs/action-items
 At least one of `action_item_id` and `initiative_id` is set; both are for an item joining or leaving an initiative.
 `kind` and `actor` are text with shape checks rather than enums, because later stages add kinds, and Postgres refuses
 a new enum value in the transaction that added it.
+
+### `action_item_links`
+
+What an item links to: a Jira issue, a GitHub issue, or a GitHub pull request; see `docs/action-items.md`.
+
+| Column                 | Type                     | Notes                                                        |
+|------------------------|--------------------------|--------------------------------------------------------------|
+| `id`                   | `UUID`                   | UUIDv7, primary key                                          |
+| `action_item_id`       | `UUID`                   | References `action_items`; deleted with it                   |
+| `provider`             | `link_provider`          | `jira` or `github`                                           |
+| `kind`                 | `link_kind`              | `issue` or `pull_request`; Jira links issues only            |
+| `jira_credential_id`   | `UUID`                   | Set exactly for `jira`; deleted with the credential          |
+| `github_credential_id` | `UUID`                   | Set exactly for `github`; deleted with the credential        |
+| `external_id`          | `TEXT`                   | What the thing is, for good: Jira's issue id, or `owner/name#12` |
+| `external_key`         | `TEXT`                   | What a person reads and a call names: `ELY-12`, or `owner/name#12` |
+| `url`                  | `TEXT`                   | `https://`, up to 2048 characters                            |
+| `title`                | `TEXT`                   | As last read, up to 1000 characters                          |
+| `is_primary`           | `BOOLEAN`                | At most one per item, by the partial unique index `action_item_links_primary_unique` |
+| `observed_state`       | `link_state`             | `open`, `done`, `not_planned`, `merged`, or `closed_unmerged`, as last read |
+| `observed_owner_kind`  | `action_item_owner_kind` | Whose it was when last read, in the item's terms             |
+| `observed_owner_name`  | `TEXT`                   | Set exactly when `observed_owner_kind` is `other`            |
+| `created_at`           | `TIMESTAMPTZ`            | Written by the API                                           |
+| `updated_at`           | `TIMESTAMPTZ`            | Maintained by trigger                                        |
+
+`action_item_links_jira_unique` and `action_item_links_github_unique` make one external thing, through one credential,
+one link, so it is one item; they also serve the watcher's reads by credential. `action_item_links_action_item_id_idx`
+serves an item's links, read on nearly every item write.
+
+Owed writes are tried untried first, then by `last_attempt_at`, so writes that keep failing or waiting take turns
+behind new ones rather than holding the front of the queue.
+
+### `action_item_link_writes`
+
+Provider writes an item owes and that have not landed: a close when it resolves, a comment for its primary link.
+
+| Column            | Type              | Notes                                                        |
+|-------------------|-------------------|--------------------------------------------------------------|
+| `id`              | `UUID`            | UUIDv7, primary key; orders writes the way they were owed    |
+| `link_id`         | `UUID`            | References `action_item_links`; deleted with it              |
+| `kind`            | `link_write_kind` | `close` or `comment`; a link owes one close at most          |
+| `comment_id`      | `UUID`            | Set exactly for `comment`; deleting the comment drops the write |
+| `attempts`        | `INTEGER`         | How many times it was tried                                  |
+| `last_error`      | `TEXT`            | The provider's last answer, or why it waits; up to 2000 characters |
+| `last_attempt_at` | `TIMESTAMPTZ`     | When it was last tried                                       |
+| `created_at`      | `TIMESTAMPTZ`     | Written by the API, in the transaction that owed it          |
+
+### `initiative_links`
+
+The containers an initiative links to; see `docs/action-items.md`.
+
+| Column                 | Type             | Notes                                                        |
+|------------------------|------------------|--------------------------------------------------------------|
+| `id`                   | `UUID`           | UUIDv7, primary key                                          |
+| `initiative_id`        | `UUID`           | References `initiatives`; deleted with it                    |
+| `provider`             | `link_provider`  | `jira` or `github`                                           |
+| `kind`                 | `container_kind` | `epic` or `filter` for Jira, `milestone` or `label` for GitHub |
+| `jira_credential_id`, `github_credential_id` | `UUID` | Exactly the provider's one set; deleted with the credential |
+| `external_id`          | `TEXT`           | An epic's issue id, a filter's id, `owner/name#3`, or `owner/name:label` |
+| `external_key`         | `TEXT`           | `ELY-7` for an epic; otherwise the same as `external_id`     |
+| `url`, `title`         | `TEXT`           | As last read                                                 |
+| `synced_at`            | `TIMESTAMPTZ`    | When the watcher last read every child                       |
+| `sync_error`           | `TEXT`           | Why the latest read failed; NULL when it succeeded           |
+| `truncated`            | `BOOLEAN`        | It held more children than the watcher reads                 |
+| `created_at`           | `TIMESTAMPTZ`    | Written by the API                                           |
+| `updated_at`           | `TIMESTAMPTZ`    | Maintained by trigger                                        |
+
+A container is linked to an initiative once. `initiative_items.via_link_id` references it, `ON DELETE SET NULL`, and
+names the container that brought an item in.
+
+### `link_watch_cursors`
+
+How far the watcher has read each credential: everything updated before `watched_through` has been applied. One row
+per credential, `jira_credential_id` or `github_credential_id` (each unique, deleted with its credential), with
+`last_error` holding why the latest pass over it failed.
+
+### `jira_done_transitions`
+
+The done transition chosen for a Jira project, stored as the `done` status it leads into. The primary key is
+`(jira_credential_id, project_key)`, deleted with the credential; `status_id` and `status_name` are what Jira reported
+when it was chosen. A project with exactly one `done` status has no row.

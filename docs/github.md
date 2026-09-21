@@ -33,7 +33,7 @@ Lengths are GitHub's to change, so only the prefix and the alphabet are checked.
 
 ## Every write is checked with GitHub
 
-`api/src/github/mod.rs` is the only place that calls GitHub. It holds Elysium's shared HTTP client and sends every call
+`api/src/github/` is the only place that calls GitHub. It holds Elysium's shared HTTP client and sends every call
 with the token, `Accept: application/vnd.github+json`, and `X-GitHub-Api-Version: 2022-11-28`. `verify` is
 `GET https://api.github.com/user`. GitHub refuses a request without a `User-Agent`, and the shared client sets
 Elysium's.
@@ -164,6 +164,38 @@ modal runs the check for each github.com repository added by URL that the token'
 the chosen token can do. It also warns about a token that has expired or expires within a week. A warning never blocks
 the session.
 
+## Issues, pull requests, milestones, and labels
+
+Action items link to GitHub issues and pull requests, and initiatives to a repository's milestones and labels
+(`docs/action-items.md`). The client reads and writes them in `api/src/github/issues.rs`:
+
+| Call                                                | Used for                                              |
+|-----------------------------------------------------|-------------------------------------------------------|
+| `GET /repos/{owner}/{repo}/issues/{number}`         | One issue or pull request: its state, reason, assignee, and whether it merged |
+| `GET /repos/{owner}/{repo}/issues`                  | A repository's issues, by `state`, `since`, `milestone`, or `labels`, paged |
+| `GET /repos/{owner}/{repo}/pulls/{number}`          | Whether a closed pull request merged                  |
+| `PATCH /repos/{owner}/{repo}/issues/{number}`       | Closing an issue as completed                         |
+| `POST /repos/{owner}/{repo}/issues/{number}/comments` | Posting an item's comment                          |
+| `GET /repos/{owner}/{repo}/milestones`, `.../milestones/{number}` | Picking and reading a milestone          |
+| `GET /repos/{owner}/{repo}/labels`, `.../labels/{name}` | Picking and reading a label                       |
+
+A pull request is an issue that carries a `pull_request` object, so one listing reads a repository's changes of both
+kinds. GitHub does not promise `merged_at` in that object, so a closed pull request that does not say it merged is read
+from the pull request itself before it counts as closed without merging. An issue closed with `state_reason: not_planned` dismisses its item; any other close resolves it. Path segments
+are percent-encoded, so a label with a space or a slash stays one segment, and owner and name are checked against
+GitHub's alphabets before they reach a path.
+
+For picking, `GET /api/v1/github-credentials/{id}/repositories/{owner}/{name}/issues` answers a repository's open
+issues, or its open pull requests with `kind=pull-request`, from one page of the hundred most recently updated;
+`.../milestones` and `.../labels` answer up to 500 of each. Each entry carries the `reference` a link request names:
+`owner/name#12`, `owner/name#3` for a milestone, `owner/name:label`.
+
+Closing an issue and commenting need write access to issues: `repo` on a classic token (`public_repo` for public
+repositories only), or Issues read and write on a fine-grained one. A token without it leaves the close or the comment
+pending on its link with GitHub's answer. Reading whether a linked pull request merged needs Pull requests read on a
+fine-grained token; without it, the watcher leaves that pull request's link as it was and logs why, and the rest of the
+token's links are read as usual.
+
 ## Which permissions a token needs
 
 The setup checklist beside the form describes what a coding session needs: `repo` on a classic token, and Contents,
@@ -176,5 +208,5 @@ for agents that read or change GitHub Actions.
   satellite to accept a fresh token per turn.
 - More than one token per session, chosen per repository owner, if sessions spanning owners with fine-grained tokens
   become common.
-- Repository, pull request, and issue views built on the stored tokens.
+- Repository, pull request, and issue views built on the stored tokens, beyond the pickers and links above.
 - GitHub Enterprise Server, which needs a host per credential and a validated allowlist.

@@ -40,9 +40,29 @@ pub enum HistoryKind {
     /// `data` is `{ projectId }`.
     ProjectAdded,
     ProjectRemoved,
-    /// An item joined an initiative; the entry's subject is both.
+    /// An item joined an initiative; the entry's subject is both. `data` is empty, or
+    /// `{ linkId }` naming the container that brought it in.
     InitiativeJoined,
     InitiativeLeft,
+    /// An item was linked to an external thing. `data` is the link: `{ linkId, provider,
+    /// kind, key, url }`.
+    LinkAdded,
+    /// `data` is the link as it was, shaped like [`HistoryKind::LinkAdded`]'s.
+    LinkRemoved,
+    /// Another link became the item's primary. `data` is `{ from, to }`, each a link id or
+    /// null.
+    PrimaryLinkChanged,
+    /// The user cancelled a provider write that had not landed. `data` is `{ linkId, key,
+    /// write }`, where `write` is `close` or `comment`.
+    LinkWriteCancelled,
+    /// A linked pull request closed without merging, which resolves nothing. `data` is
+    /// `{ linkId, key, url }`.
+    PullRequestClosed,
+    /// An initiative was linked to a container. `data` is `{ linkId, provider, kind, key,
+    /// url }`.
+    ContainerLinked,
+    /// `data` is the container as it was, shaped like [`HistoryKind::ContainerLinked`]'s.
+    ContainerUnlinked,
 }
 
 impl HistoryKind {
@@ -61,6 +81,13 @@ impl HistoryKind {
             Self::ProjectRemoved => "project_removed",
             Self::InitiativeJoined => "initiative_joined",
             Self::InitiativeLeft => "initiative_left",
+            Self::LinkAdded => "link_added",
+            Self::LinkRemoved => "link_removed",
+            Self::PrimaryLinkChanged => "primary_link_changed",
+            Self::LinkWriteCancelled => "link_write_cancelled",
+            Self::PullRequestClosed => "pull_request_closed",
+            Self::ContainerLinked => "container_linked",
+            Self::ContainerUnlinked => "container_unlinked",
         }
     }
 }

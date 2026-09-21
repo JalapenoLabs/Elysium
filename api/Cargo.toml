@@ -59,6 +59,8 @@ webpki-roots = "1.0.9"
 zeroize = "1.9.0"
 
 [dev-dependencies]
+# Decodes the path segments the fake GitHub receives, such as a label with a space in it.
+percent-encoding = "2.3.2"
 # Encodes the protobuf answers of the fake satellite that tests drive the SDK against.
 prost = "0.14.4"
 

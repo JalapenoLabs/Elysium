@@ -6,6 +6,7 @@
 //! write here is the user acting, recorded in the initiative's history as `user`, and
 //! published on the event stream with its progress. See `docs/action-items.md`.
 
+mod add_link;
 mod add_project;
 mod create_initiative;
 mod delete_initiative;
@@ -13,13 +14,15 @@ mod get_initiative;
 mod get_progress;
 mod list_history;
 mod list_initiatives;
+mod list_links;
+mod remove_link;
 mod remove_project;
 mod restore_initiative;
 mod update_initiative;
 
 use anyhow::Context;
 use axum::Router;
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
 use serde::Serialize;
@@ -29,8 +32,10 @@ use crate::action_items::progress::{self, Progress};
 use crate::errors::ApiError;
 use crate::models::action_item::{self, ActionItemFilter};
 use crate::models::action_item_event::Recorded;
+use crate::models::action_item_link::LinkProvider;
 use crate::models::initiative::{self, Initiative, InitiativeState};
-use crate::realtime::ServerEvent;
+use crate::models::initiative_link::{ContainerKind, InitiativeLink};
+use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::action_items::{item_responses, publish_history};
 use crate::state::AppState;
 
@@ -53,6 +58,11 @@ pub fn router() -> Router<AppState> {
             "/{id}/projects/{project_id}",
             put(add_project::handle).delete(remove_project::handle),
         )
+        .route(
+            "/{id}/links",
+            get(list_links::handle).post(add_link::handle),
+        )
+        .route("/{id}/links/{link_id}", delete(remove_link::handle))
 }
 
 /// An initiative as clients see it, with its progress now.
@@ -69,6 +79,52 @@ pub struct InitiativeResponse {
     deleted_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+}
+
+/// A container linked to an initiative, as clients see it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitiativeLinkResponse {
+    id: Uuid,
+    initiative_id: Uuid,
+    provider: LinkProvider,
+    kind: ContainerKind,
+    /// The credential the container is read through.
+    credential_id: Uuid,
+    /// `ELY-7` for an epic, a saved filter's id, `owner/name#3` for a milestone, or
+    /// `owner/name:label`.
+    key: String,
+    url: String,
+    /// The container's name as last read.
+    title: String,
+    /// When the watcher last read every child; `null` until it first has.
+    synced_at: Option<DateTime<Utc>>,
+    /// Why the latest read failed; `null` when it succeeded.
+    sync_error: Option<String>,
+    /// The container held more children than the watcher reads.
+    truncated: bool,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+impl From<InitiativeLink> for InitiativeLinkResponse {
+    fn from(link: InitiativeLink) -> Self {
+        Self {
+            credential_id: link.credential().id,
+            id: link.id,
+            initiative_id: link.initiative_id,
+            provider: link.provider,
+            kind: link.kind,
+            key: link.external_key,
+            url: link.url,
+            title: link.title,
+            synced_at: link.synced_at,
+            sync_error: link.sync_error,
+            truncated: link.truncated,
+            created_at: link.created_at,
+            updated_at: link.updated_at,
+        }
+    }
 }
 
 /// `initiatives` as clients see them, each with its projects and its progress at `now`.
@@ -113,7 +169,7 @@ pub async fn initiative_responses(
 /// # Errors
 /// Propagates any database error.
 pub async fn publish_initiative_write(
-    state: &AppState,
+    events: &EventBus,
     connection: &mut AsyncPgConnection,
     written: Recorded<Initiative>,
     now: DateTime<Utc>,
@@ -129,13 +185,11 @@ pub async fn publish_initiative_write(
         return Ok(response);
     }
 
-    publish_history(state, history);
+    publish_history(events, history);
     if is_deleted {
-        state.events.publish(&ServerEvent::InitiativeDeleted { id });
+        events.publish(&ServerEvent::InitiativeDeleted { id });
     } else {
-        state
-            .events
-            .publish(&ServerEvent::InitiativeUpserted(response.clone()));
+        events.publish(&ServerEvent::InitiativeUpserted(response.clone()));
     }
     Ok(response)
 }
@@ -146,7 +200,7 @@ pub async fn publish_initiative_write(
 /// # Errors
 /// Propagates any database error.
 pub async fn publish_member_items(
-    state: &AppState,
+    events: &EventBus,
     connection: &mut AsyncPgConnection,
     initiative_id: Uuid,
     now: DateTime<Utc>,
@@ -157,7 +211,7 @@ pub async fn publish_member_items(
     };
     let items = action_item::list(connection, &filter, now).await?;
     for item in item_responses(connection, items).await? {
-        state.events.publish(&ServerEvent::ActionItemUpserted(item));
+        events.publish(&ServerEvent::ActionItemUpserted(item));
     }
     Ok(())
 }

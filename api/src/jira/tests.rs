@@ -82,7 +82,11 @@ fn board_page(start_at: u32) -> Value {
 fn issue(key: &str, project_key: &str, with_details: bool) -> Value {
     let mut fields = json!({
         "summary": "Bound every search to the allowlist",
-        "status": { "name": "In Progress", "statusCategory": { "key": "indeterminate" } },
+        "status": {
+            "id": "3",
+            "name": "In Progress",
+            "statusCategory": { "key": "indeterminate" },
+        },
         "issuetype": { "name": "Task" },
         "priority": { "name": "High" },
         "assignee": { "accountId": "5b10a2844c20165700ede21g", "displayName": "Alex Navarro" },
@@ -90,6 +94,7 @@ fn issue(key: &str, project_key: &str, with_details: bool) -> Value {
         "labels": ["backend"],
         "created": "2026-09-17T12:00:00.000+0000",
         "updated": "2026-09-17T12:30:00.000+0000",
+        "duedate": "2026-09-30",
         "project": { "id": "10002", "key": project_key, "name": "Elysium" },
     });
     if with_details {
@@ -241,7 +246,7 @@ async fn fake_jira(
             "transitions": [{
                 "id": "31",
                 "name": "Done",
-                "to": { "name": "Done", "statusCategory": { "key": "done" } },
+                "to": { "id": "10001", "name": "Done", "statusCategory": { "key": "done" } },
             }],
         }))
         .into_response(),
@@ -462,9 +467,15 @@ async fn an_issue_reads_its_fields_its_text_and_where_a_person_opens_it() {
     assert_eq!(
         issue.status,
         Some(Status {
+            id: "3".to_owned(),
             name: "In Progress".to_owned(),
             category: "indeterminate".to_owned(),
         })
+    );
+    assert_eq!(
+        issue.due_date,
+        chrono::NaiveDate::from_ymd_opt(2026, 9, 30),
+        "a due date is a day, not a moment"
     );
     assert_eq!(issue.issue_type.as_deref(), Some("Task"));
     assert_eq!(issue.priority.as_deref(), Some("High"));
@@ -635,6 +646,7 @@ async fn transitions_are_listed_and_applied_with_an_optional_comment() {
             id: "31".to_owned(),
             name: "Done".to_owned(),
             to: Some(Status {
+                id: "10001".to_owned(),
                 name: "Done".to_owned(),
                 category: "done".to_owned(),
             }),

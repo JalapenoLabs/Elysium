@@ -66,7 +66,7 @@ pub async fn handle(
 
     let mut live_items = Vec::new();
     for Recorded { record, history } in items {
-        publish_history(&state, history);
+        publish_history(&state.events, history);
         if record.deleted_at.is_none() {
             live_items.push(record);
         }
@@ -75,7 +75,7 @@ pub async fn handle(
         state.events.publish(&ServerEvent::ActionItemUpserted(item));
     }
     for initiative in initiatives {
-        publish_initiative_write(&state, &mut connection, initiative, now).await?;
+        publish_initiative_write(&state.events, &mut connection, initiative, now).await?;
     }
 
     Ok(StatusCode::NO_CONTENT)

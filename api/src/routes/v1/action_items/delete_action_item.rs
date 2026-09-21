@@ -31,7 +31,7 @@ pub async fn handle(
         .context("no database connection available")?;
 
     let deleted = action_item::soft_delete(&mut connection, id, Actor::User, now).await?;
-    publish_item_write(&state, &mut connection, deleted, &[], now).await?;
+    publish_item_write(&state.events, &mut connection, deleted, &[], now).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

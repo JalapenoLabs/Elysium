@@ -26,11 +26,13 @@ use uuid::Uuid;
 
 use crate::fleet::views::{SatelliteStatus, SessionEvent};
 use crate::mail::hosting::MailServerStatus;
-use crate::routes::v1::action_items::{ActionItemResponse, CommentResponse, HistoryEntryResponse};
+use crate::routes::v1::action_items::{
+    ActionItemLinkResponse, ActionItemResponse, CommentResponse, HistoryEntryResponse,
+};
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
 use crate::routes::v1::environment_variables::EnvironmentVariableResponse;
 use crate::routes::v1::github_credentials::GithubCredentialResponse;
-use crate::routes::v1::initiatives::InitiativeResponse;
+use crate::routes::v1::initiatives::{InitiativeLinkResponse, InitiativeResponse};
 use crate::routes::v1::jira_credentials::JiraCredentialResponse;
 use crate::routes::v1::llms::LlmResponse;
 use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
@@ -58,6 +60,17 @@ pub enum ServerEvent {
     /// The item was deleted or, softly, hidden until restored.
     #[serde(rename = "actionItem.deleted")]
     ActionItemDeleted { id: Uuid },
+    /// A link was added or changed: its primary flag, what the provider reported, or the
+    /// writes it owes.
+    #[serde(rename = "actionItemLink.upserted")]
+    ActionItemLinkUpserted(ActionItemLinkResponse),
+    #[serde(rename = "actionItemLink.deleted")]
+    ActionItemLinkDeleted { id: Uuid, action_item_id: Uuid },
+    /// A container was linked to an initiative, or the watcher read it.
+    #[serde(rename = "initiativeLink.upserted")]
+    InitiativeLinkUpserted(InitiativeLinkResponse),
+    #[serde(rename = "initiativeLink.deleted")]
+    InitiativeLinkDeleted { id: Uuid, initiative_id: Uuid },
     #[serde(rename = "actionItemComment.upserted")]
     ActionItemCommentUpserted(CommentResponse),
     #[serde(rename = "actionItemComment.deleted")]

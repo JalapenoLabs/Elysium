@@ -11,25 +11,34 @@
 //! GitHub Enterprise Server, which lives on a customer's own host, is not supported.
 //!
 //! GitHub refuses any request without a `User-Agent`; the shared client sets Elysium's.
+//!
+//! Issues and pull requests, with the milestones and labels that group them, are in
+//! [`issues`]: what action item links read and write.
+
+#[cfg(test)]
+pub(crate) mod fake;
+pub mod issues;
 
 use std::time::Duration;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
-use reqwest::StatusCode;
 use reqwest::header::ACCEPT;
+use reqwest::{Method, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tracing::{Level, event};
 
 /// The authenticated user, the one call that proves a token works and says whose it is.
-const USER_URL: &str = "https://api.github.com/user";
+const USER_PATH: &str = "/user";
 
 /// The first page of the repositories a token can see, most recently pushed first.
 ///
 /// With no `type`, GitHub already lists the account's own repositories, the ones it
 /// collaborates on, and its organizations' repositories; an `affiliation` naming all three
 /// changed nothing when measured. A hundred is the most GitHub sends per page.
-const USER_REPOSITORIES_URL: &str = "https://api.github.com/user/repos?per_page=100&sort=pushed";
+const USER_REPOSITORIES_PATH: &str = "/user/repos?per_page=100&sort=pushed";
 
 /// How many pages of repositories a listing follows, so 1,000 repositories at most.
 ///
@@ -40,9 +49,9 @@ const USER_REPOSITORIES_URL: &str = "https://api.github.com/user/repos?per_page=
 /// repository by its URL.
 const REPOSITORY_PAGE_LIMIT: usize = 10;
 
-/// Where every next page must point: GitHub's `Link` header is followed only on the host
-/// fixed here, so the token is never sent anywhere else.
-const API_ORIGIN: &str = "https://api.github.com/";
+/// Where every call goes. GitHub's `Link` header is followed only on this host, so the token
+/// is never sent anywhere else.
+const API_ORIGIN: &str = "https://api.github.com";
 
 /// The REST API version these calls are written against. GitHub keeps older versions
 /// working, so pinning one means a new default never changes an answer under Elysium.
@@ -269,15 +278,42 @@ fn next_page_url(header: &str) -> Option<&str> {
     })
 }
 
+/// A page-capped listing, with the scopes GitHub reported on its last page.
+#[derive(Debug, Clone)]
+pub struct Paged<Item> {
+    pub items: Vec<Item>,
+    /// Whether GitHub had more pages than the cap allowed.
+    pub truncated: bool,
+    /// A classic token's scopes; empty for a fine-grained token.
+    pub scopes: Vec<String>,
+}
+
 /// GitHub's API client. Cheap to clone; clones share one HTTP client.
 #[derive(Debug, Clone)]
 pub struct Github {
     http: reqwest::Client,
+    /// Where calls go: [`API_ORIGIN`], which only a test's fake replaces. Production code
+    /// has no way to set it.
+    origin: String,
 }
 
 impl Github {
-    pub const fn new(http: reqwest::Client) -> Self {
-        Self { http }
+    pub fn new(http: reqwest::Client) -> Self {
+        Self {
+            http,
+            origin: API_ORIGIN.to_owned(),
+        }
+    }
+
+    /// A client that sends every call to `origin`, such as a local fake.
+    #[cfg(test)]
+    pub const fn with_test_origin(http: reqwest::Client, origin: String) -> Self {
+        Self { http, origin }
+    }
+
+    /// The URL of an API path, such as `/user`.
+    fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.origin)
     }
 
     /// Checks a token with GitHub and reports whose it is, what it may do, and when it
@@ -288,14 +324,12 @@ impl Github {
     /// [`GithubError::Refused`] when it cannot be reached or refuses the call, such as
     /// for a token an organization has blocked.
     pub async fn verify(&self, token: &SecretString) -> Result<Account, GithubError> {
-        let reply = self.get(USER_URL, token).await?;
+        let reply = self.get(&self.url(USER_PATH), token).await?;
         if !reply.status.is_success() {
             return Err(reply.refusal());
         }
 
-        let user: UserBody = serde_json::from_str(&reply.body).map_err(|error| {
-            GithubError::Refused(format!("GitHub sent an unreadable account: {error}"))
-        })?;
+        let user: UserBody = reply.read("an account")?;
         Ok(Account {
             login: user.login,
             scopes: reply.scopes,
@@ -316,11 +350,8 @@ impl Github {
         token: &SecretString,
         repository: &Repository,
     ) -> Result<Option<RepositoryAccess>, GithubError> {
-        let url = format!(
-            "https://api.github.com/repos/{}/{}",
-            repository.owner, repository.name
-        );
-        let reply = self.get(&url, token).await?;
+        let path = format!("/repos/{}/{}", repository.owner, repository.name);
+        let reply = self.get(&self.url(&path), token).await?;
         if reply.status == StatusCode::NOT_FOUND {
             return Ok(None);
         }
@@ -328,9 +359,7 @@ impl Github {
             return Err(reply.refusal());
         }
 
-        let body: RepositoryBody = serde_json::from_str(&reply.body).map_err(|error| {
-            GithubError::Refused(format!("GitHub sent an unreadable repository: {error}"))
-        })?;
+        let body: RepositoryBody = reply.read("a repository")?;
         Ok(Some(RepositoryAccess {
             full_name: body.full_name,
             is_private: body.private,
@@ -354,46 +383,77 @@ impl Github {
         &self,
         token: &SecretString,
     ) -> Result<RepositoryListing, GithubError> {
-        let mut repositories = Vec::new();
-        let mut scopes = Vec::new();
-        let mut next = Some(USER_REPOSITORIES_URL.to_owned());
+        let listing: Paged<ListedRepositoryBody> = self
+            .paged(
+                token,
+                USER_REPOSITORIES_PATH,
+                REPOSITORY_PAGE_LIMIT,
+                "repositories",
+            )
+            .await?;
 
-        for _page in 0..REPOSITORY_PAGE_LIMIT {
+        Ok(RepositoryListing {
+            repositories: listing
+                .items
+                .into_iter()
+                .map(|body| ListedRepository {
+                    full_name: body.full_name,
+                    owner: body.owner.login,
+                    name: body.name,
+                    is_private: body.private,
+                    is_archived: body.archived,
+                    default_branch: body.default_branch,
+                    clone_url: body.clone_url,
+                    pushed_at: body.pushed_at,
+                    role_can_push: body.permissions.is_some_and(|permissions| permissions.push),
+                })
+                .collect(),
+            truncated: listing.truncated,
+            scopes: listing.scopes,
+        })
+    }
+
+    /// Follows a listing's pages from `first_path` up to `page_limit` of them, reporting
+    /// whether GitHub had more. `what` names the items for an error message.
+    ///
+    /// # Errors
+    /// Returns [`GithubError::Unauthorized`] when GitHub rejects the token, and
+    /// [`GithubError::Refused`] when it cannot be reached, refuses a page, sends one that
+    /// cannot be read, or points the next page at another host.
+    async fn paged<Item: DeserializeOwned>(
+        &self,
+        token: &SecretString,
+        first_path: &str,
+        page_limit: usize,
+        what: &'static str,
+    ) -> Result<Paged<Item>, GithubError> {
+        let mut items = Vec::new();
+        let mut scopes = Vec::new();
+        let mut next = Some(self.url(first_path));
+        let origin = self.url("/");
+
+        for _page in 0..page_limit {
             let Some(url) = next.take() else {
                 break;
             };
-            if !url.starts_with(API_ORIGIN) {
-                return Err(GithubError::Refused(
-                    "GitHub pointed the next page of repositories at another host".to_owned(),
-                ));
+            if !url.starts_with(&origin) {
+                return Err(GithubError::Refused(format!(
+                    "GitHub pointed the next page of {what} at another host"
+                )));
             }
 
             let reply = self.get(&url, token).await?;
             if !reply.status.is_success() {
                 return Err(reply.refusal());
             }
-            let page: Vec<ListedRepositoryBody> =
-                serde_json::from_str(&reply.body).map_err(|error| {
-                    GithubError::Refused(format!("GitHub sent unreadable repositories: {error}"))
-                })?;
-
-            repositories.extend(page.into_iter().map(|body| ListedRepository {
-                full_name: body.full_name,
-                owner: body.owner.login,
-                name: body.name,
-                is_private: body.private,
-                is_archived: body.archived,
-                default_branch: body.default_branch,
-                clone_url: body.clone_url,
-                pushed_at: body.pushed_at,
-                role_can_push: body.permissions.is_some_and(|permissions| permissions.push),
-            }));
+            let mut page: Vec<Item> = reply.read(what)?;
+            items.append(&mut page);
             scopes = reply.scopes;
             next = reply.next_page;
         }
 
-        Ok(RepositoryListing {
-            repositories,
+        Ok(Paged {
+            items,
             truncated: next.is_some(),
             scopes,
         })
@@ -401,13 +461,34 @@ impl Github {
 
     /// Sends one authenticated `GET` and reads everything a caller may need from it.
     async fn get(&self, url: &str, token: &SecretString) -> Result<Reply, GithubError> {
-        let response = self
+        self.send(Method::GET, url, token, None).await
+    }
+
+    /// Sends one authenticated call, with a JSON body when there is one, and reads
+    /// everything a caller may need from the answer.
+    ///
+    /// # Errors
+    /// Returns [`GithubError::Unauthorized`] when GitHub rejects the token, and
+    /// [`GithubError::Refused`] when it cannot be reached. Any other status comes back in
+    /// the [`Reply`] for the caller to judge.
+    async fn send(
+        &self,
+        method: Method,
+        url: &str,
+        token: &SecretString,
+        body: Option<&Value>,
+    ) -> Result<Reply, GithubError> {
+        let mut request = self
             .http
-            .get(url)
+            .request(method, url)
             .bearer_auth(token.expose_secret())
             .header(ACCEPT, "application/vnd.github+json")
             .header("X-GitHub-Api-Version", API_VERSION)
-            .timeout(REQUEST_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT);
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        let response = request
             .send()
             .await
             .map_err(|error| GithubError::Refused(format!("GitHub: {error}")))?;
@@ -462,6 +543,13 @@ struct Reply {
 }
 
 impl Reply {
+    /// The answer parsed as `Shape`, or a refusal naming what could not be read.
+    fn read<Shape: DeserializeOwned>(&self, what: &'static str) -> Result<Shape, GithubError> {
+        serde_json::from_str(&self.body).map_err(|error| {
+            GithubError::Refused(format!("GitHub sent {what} that cannot be read: {error}"))
+        })
+    }
+
     /// An unsuccessful answer as an error carrying GitHub's own message.
     fn refusal(&self) -> GithubError {
         let message = serde_json::from_str::<ErrorBody>(&self.body)

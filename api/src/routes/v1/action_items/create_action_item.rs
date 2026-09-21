@@ -78,7 +78,7 @@ pub async fn handle(
     let created = action_item::create(&mut connection, new_item, Actor::User, now)
         .await
         .map_err(refuse_unknown_projects)?;
-    let item = publish_item_write(&state, &mut connection, created, &[], now).await?;
+    let item = publish_item_write(&state.events, &mut connection, created, &[], now).await?;
 
     Ok((StatusCode::CREATED, Json(json!({ "item": item }))))
 }

@@ -31,8 +31,8 @@ pub async fn handle(
         .context("no database connection available")?;
 
     let deleted = initiative::soft_delete(&mut connection, id, Actor::User, now).await?;
-    publish_initiative_write(&state, &mut connection, deleted, now).await?;
-    publish_member_items(&state, &mut connection, id, now).await?;
+    publish_initiative_write(&state.events, &mut connection, deleted, now).await?;
+    publish_member_items(&state.events, &mut connection, id, now).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

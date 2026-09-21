@@ -3,10 +3,11 @@
 //! The HTTP server: startup, middleware stack, and graceful shutdown.
 //!
 //! Startup order: configuration, encryption key, schema check, store connections
-//! (with retry), fleet watchers, router, listener. Shutdown order is the reverse: a
-//! signal cancels the shutdown token, which ends every event stream and fleet
-//! watcher; the server stops accepting and drains in-flight requests; the watchers
-//! are awaited; then the Postgres pool closes and the Redis connection drops.
+//! (with retry), fleet watchers, the link watcher, router, listener. Shutdown order is the
+//! reverse: a signal cancels the shutdown token, which ends every event stream, fleet
+//! watcher, and the link watcher; the server stops accepting and drains in-flight
+//! requests; the watchers are awaited; then the Postgres pool closes and the Redis
+//! connection drops.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -23,6 +24,8 @@ use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::timeout::TimeoutLayer;
 use tracing::{Level, event};
 
+use crate::action_items::links::Links;
+use crate::action_items::watcher::{WatchContext, Watcher};
 use crate::config::Config;
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -85,6 +88,11 @@ pub async fn serve() -> Result<()> {
     // tool calls with it.
     let storage = Storage::new(http.clone());
 
+    let github = Github::new(http.clone());
+    let jira = Jira::new(http.clone());
+    // Built before the fleet too: an agent links its pull request through it.
+    let links = Links::new(database.clone(), Arc::clone(&cipher), &jira, &github);
+
     let shutdown = CancellationToken::new();
     let events = EventBus::new();
     let fleet = Fleet::new(
@@ -92,9 +100,16 @@ pub async fn serve() -> Result<()> {
         Arc::clone(&cipher),
         events.clone(),
         storage.clone(),
+        links.clone(),
         shutdown.clone(),
     );
     fleet.start().await?;
+    let watch = WatchContext {
+        database: database.clone(),
+        events: events.clone(),
+        links: links.clone(),
+    };
+    let watcher = Watcher::start(watch, shutdown.clone());
     let mail = build_mail(
         &config,
         http.clone(),
@@ -114,8 +129,9 @@ pub async fn serve() -> Result<()> {
         version,
         events,
         fleet: fleet.clone(),
-        github: Github::new(http.clone()),
-        jira: Jira::new(http),
+        github,
+        jira,
+        links,
         mail,
         storage,
         shutdown: shutdown.clone(),
@@ -148,6 +164,7 @@ pub async fn serve() -> Result<()> {
 
     fleet.shutdown().await;
     event!(name: "fleet.shutdown.complete", Level::INFO, "fleet watchers stopped");
+    watcher.stopped().await;
 
     // serve() returning means every in-flight request has finished and the router,
     // with its copies of the handles, is gone. Closing the pool drops its idle

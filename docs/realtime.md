@@ -17,6 +17,10 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `resync`             | none                     | This client fell behind and missed events                  |
 | `actionItem.upserted` | `ActionItem`            | An item was created, changed, restored, or joined or left a project or initiative |
 | `actionItem.deleted` | `{ id }`                 | An item was deleted (softly; it may be restored)           |
+| `actionItemLink.upserted` | `ActionItemLink`    | A link was added or promoted, the watcher read a change, or a write it owes was owed, tried, landed, or cancelled |
+| `actionItemLink.deleted` | `{ id, actionItemId }` | A link was removed                                     |
+| `initiativeLink.upserted` | `InitiativeLink`    | A container was linked, or the watcher read it             |
+| `initiativeLink.deleted` | `{ id, initiativeId }` | A container was unlinked                               |
 | `actionItemComment.upserted` | `Comment`        | A comment was written or edited                            |
 | `actionItemComment.deleted`  | `{ id, actionItemId }` | A comment was deleted                                |
 | `initiative.upserted` | `Initiative`            | An initiative was created, changed, or restored, or its progress moved |
@@ -50,7 +54,9 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 Payload shapes are the same JSON the REST routes return; see `docs/api.md` and `docs/coding.md`.
 
 A write to an item also sends `initiative.upserted` for every initiative it is in, and for one it just left, since
-their progress may have moved. Deleting or restoring an initiative sends `actionItem.upserted` for each of its items,
+their progress may have moved. Anything that changes a link or what it owes sends `actionItemLink.upserted` for every
+link of its item, so a client replaces an item's links whole. The link watcher publishes what it applies the same way
+the routes do, with the watcher as the history's actor. Deleting or restoring an initiative sends `actionItem.upserted` for each of its items,
 whose `initiativeIds` leave deleted initiatives out. A write that changed nothing sends nothing. The frontend applies
 every action item event to Redux; `actionItem.deleted` and `initiative.deleted` also revalidate the deleted lists, and
 `initiative.upserted` the initiative's burnup, each only while a view shows it (`docs/frontend.md`).
@@ -71,8 +77,8 @@ process never reaches clients of another, so the API runs as a single replica.
 
 ## Shutdown
 
-Streams end when shutdown begins. The shutdown signal cancels a token that every stream and fleet watcher
-observes, so open streams do not hold up the graceful drain. Browsers reconnect on their own and receive `hello`
+Streams end when shutdown begins. The shutdown signal cancels a token that every stream, fleet watcher, and the link
+watcher observes, so open streams do not hold up the graceful drain. Browsers reconnect on their own and receive `hello`
 from the next process.
 
 ## Frontend

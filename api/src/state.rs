@@ -7,6 +7,7 @@ use std::sync::Arc;
 use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;
 
+use crate::action_items::links::Links;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::fleet::Fleet;
@@ -29,6 +30,8 @@ pub struct AppState {
     pub fleet: Fleet,
     pub github: Github,
     pub jira: Jira,
+    /// Action item links, through one provider trait, and the watcher's wake signal.
+    pub links: Links,
     pub mail: Mail,
     pub storage: Storage,
     /// Cancelled when shutdown begins; long-lived responses end on it.

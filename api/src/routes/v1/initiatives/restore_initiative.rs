@@ -29,8 +29,9 @@ pub async fn handle(
         .context("no database connection available")?;
 
     let restored = initiative::restore(&mut connection, id, Actor::User, now).await?;
-    let initiative = publish_initiative_write(&state, &mut connection, restored, now).await?;
-    publish_member_items(&state, &mut connection, id, now).await?;
+    let initiative =
+        publish_initiative_write(&state.events, &mut connection, restored, now).await?;
+    publish_member_items(&state.events, &mut connection, id, now).await?;
 
     Ok(Json(json!({ "initiative": initiative })))
 }

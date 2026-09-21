@@ -90,8 +90,11 @@ boundary. It is what keeps a token given to Elysium for two of its thirty projec
 commenting on the other twenty-eight, by accident or by a careless query. A token whose reach must be smaller than
 that is a token Atlassian should be issuing with a smaller scope in the first place.
 
-The Jira routes are not exposed to coding agents today. A session's agent gets the `elysium_storage` tools and
-nothing else (`api/src/tools/`), so the only caller writing JQL is the user's own browser.
+The Jira routes are not exposed to coding agents today. A session's agent gets the `elysium_storage` and
+`elysium_work` tools (`api/src/tools/`), neither of which takes JQL or names a Jira issue, so the only caller writing
+JQL is the user's own browser. Action item links and the watcher (`docs/action-items.md`) go through the same checks:
+an issue by key through `allowed_issue`, and every search through the same bounding, including the watcher's reads of
+linked issues and of an epic's or a saved filter's children.
 
 ## No freeform entry
 
@@ -131,6 +134,10 @@ every timestamp is UTC with a `Z` suffix.
 | GET    | `/{id}/issues/{key}/transitions` | `{ transitions }`                                         |
 | POST   | `/{id}/issues/{key}/transitions` | `{ issue }` as it is after the transition                 |
 | POST   | `/{id}/issues/{key}/comments`    | `201 { comment }`                                         |
+| GET    | `/{id}/filters`                  | `{ filters, truncated }`: the saved filters it can see    |
+| GET    | `/{id}/projects/{key}/done-transition` | `{ projectKey, needsChoice, statuses, chosen }`     |
+| PUT    | `/{id}/projects/{key}/done-transition` | `{ chosen }`                                        |
+| DELETE | `/{id}/projects/{key}/done-transition` | `204`                                               |
 
 ### `JiraCredential`
 
@@ -260,7 +267,7 @@ An `Issue` is the same shape everywhere it appears:
   "key": "ELY-12",
   "projectKey": "ELY",
   "summary": "Bound every search to the allowlist",
-  "status": { "name": "In Progress", "category": "indeterminate" },
+  "status": { "id": "3", "name": "In Progress", "category": "indeterminate" },
   "issueType": "Task",
   "priority": "High",
   "assignee": { "accountId": "5b10…", "displayName": "Alex Navarro" },
@@ -268,6 +275,7 @@ An `Issue` is the same shape everywhere it appears:
   "labels": ["backend"],
   "createdAt": "2026-09-17T12:00:00Z",
   "updatedAt": "2026-09-17T12:30:00Z",
+  "dueDate": "2026-09-30",
   "url": "https://acme.atlassian.net/browse/ELY-12",
   "description": null,
   "comments": []
@@ -290,9 +298,38 @@ with it, and answers `403` instead. `PATCH /{id}/issues/{key}` takes any subset 
 `{ summary, description, labels, priority, assigneeAccountId }` and answers the issue as it is afterwards;
 `assigneeAccountId: null` unassigns it, and an empty body is refused.
 
-`GET /{id}/issues/{key}/transitions` answers `{ transitions: [{ id, name, to: { name, category } }] }`, the moves
-this issue can make right now, for whoever the token is. `POST` to the same path takes `{ transitionId, comment? }`
-and answers the issue after the move.
+`dueDate` is the day the issue is due, as Jira keeps it, with no time; null when the project has no due date or the
+issue none. A status's `id` is Jira's own, the same in every workflow that uses the status.
+
+`GET /{id}/issues/{key}/transitions` answers `{ transitions: [{ id, name, to: { id, name, category } }] }`, the
+moves this issue can make right now, for whoever the token is. `POST` to the same path takes
+`{ transitionId, comment? }` and answers the issue after the move.
+
+### Saved filters
+
+`GET /{id}/filters` answers `{ filters: [{ id, name, url }], truncated }`, the saved filters the token can see, paged
+like projects and boards. A filter belongs to no project, so the list is not bounded by the allowlist; an initiative
+linked to one reads its issues through a search bounded like every other (`filter = <id> AND project IN (...)`).
+
+### Done transitions
+
+Resolving an action item moves each linked Jira issue still open along its project's done transition
+(`docs/action-items.md`). The transition is chosen per credential and project, and stored as the `done` status it
+leads into (`jira_done_transitions`): a workflow names a different transition into the same status from each status an
+issue can be in, so a stored transition id would miss from most of them. Moving an issue takes whichever transition
+available right now leads into the chosen status.
+
+- A project with exactly one status in the `done` category needs no choice: its issues move into it.
+- A project with several waits for the user. Until then, a close owed to one of its issues stays pending with a message
+  naming the statuses and pointing here.
+- A close finds no transition into the chosen status from where the issue is, such as a workflow that only reaches
+  `Done` from `In Review`, and stays pending saying so, tried again every pass.
+
+`GET /{id}/projects/{key}/done-transition` answers
+`{ projectKey, needsChoice, statuses: [{ id, name }], chosen: { statusId, statusName } | null }`, reading the
+project's `done` statuses from `GET /rest/api/3/project/{key}/statuses` now. `PUT` with `{ statusId }` chooses one of
+them, refused with `400` for any other, and wakes the watcher so waiting closes are tried at once. `DELETE` forgets the
+choice. The project must be one the credential may touch, or `403`.
 
 `POST /{id}/issues/{key}/comments` takes `{ body }` and answers
 `201 { comment: { id, author, body, createdAt, updatedAt } }`.
@@ -348,6 +385,9 @@ request is built from the stored origin.
 | `GET /rest/api/3/issue/{key}/transitions`         | The transitions that apply now            |
 | `POST /rest/api/3/issue/{key}/transitions`        | Applying one                              |
 | `POST /rest/api/3/issue/{key}/comment`            | Adding a comment                          |
+| `GET /rest/api/3/filter/search`                   | The saved filters a token can see, paged  |
+| `GET /rest/api/3/filter/{id}`                     | One saved filter                          |
+| `GET /rest/api/3/project/{key}/statuses`          | A project's statuses, for its done transition |
 
 Searches always name the fields they want, so the answer never depends on what Jira returns by default, and they
 always ask for `project` so the allowlist can be checked against the answer.
@@ -380,12 +420,13 @@ always saves.
 | `jiraCredential.upserted` | `JiraCredential` | A credential was added, changed, or checked      |
 | `jiraCredential.deleted`  | `{ id }`         | A credential was deleted                         |
 
-Issues are not pushed. Jira has no stream Elysium listens to, so an issue view refetches.
+Issues are not pushed. Jira has no stream Elysium listens to, so an issue view refetches. A linked issue reaches
+its item through the link watcher's poll instead (`docs/action-items.md`).
 
 ## Roadmap
 
-- Action items: work Elysium tracks itself, created from and synced to Jira issues, built on these credentials and
-  bounded by the same allowlist.
+- A done transition picker on the Jira settings page, for projects with several `done` statuses; the API above serves
+  it.
 - Board contents: sprints and their issues, which the stored boards already name.
 - A remembered reachability per selection, so the credentials list can mark a project the token has lost access to
   without anyone pressing Test. A `JiraCredential` is built from stored rows and costs no Jira call today, and the
