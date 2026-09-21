@@ -451,7 +451,21 @@ async fn change_membership(
         action_item::leave_initiative(connection, id, initiative_id, run.actor, run.now).await?
     };
     let changed = !written.history.is_empty();
-    let result = json!({ "itemId": id, "initiativeId": initiative_id, "changed": changed });
+    // The span this opened or closed. An undo reverses the change only while that span is
+    // still the item's latest in the initiative, so a move the user made since stands.
+    let span_id = if changed {
+        action_item::latest_span(connection, id, initiative_id)
+            .await?
+            .map(|(span_id, _left_at)| span_id)
+    } else {
+        None
+    };
+    let result = json!({
+        "itemId": id,
+        "initiativeId": initiative_id,
+        "changed": changed,
+        "spanId": span_id,
+    });
     let mut done = Done::on_item(result, id, written.history);
     done.touched.initiative_ids.insert(initiative_id);
     Ok(done)

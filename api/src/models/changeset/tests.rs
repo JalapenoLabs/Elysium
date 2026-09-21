@@ -631,6 +631,90 @@ async fn undo_reverses_what_was_applied_and_keeps_what_the_user_changed_since() 
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn undo_leaves_a_membership_the_user_changed_since() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = initiative_named(&mut connection, "Launch").await;
+    let archive = initiative_named(&mut connection, "Archive").await;
+    let rejoined = item_titled(&mut connection, "Rejoined", ActionItemState::Open).await;
+    let taken_out = item_titled(&mut connection, "Taken out", ActionItemState::Open).await;
+    action_item::join_initiative(
+        &mut connection,
+        taken_out.id,
+        archive,
+        Actor::User,
+        minute(0),
+    )
+    .await
+    .expect("joined");
+    let staged = propose(
+        &mut connection,
+        from_elysia(vec![
+            Operation::AddToInitiative(Membership {
+                item: existing(rejoined.id),
+                initiative: existing(launch),
+            }),
+            Operation::RemoveFromInitiative(Membership {
+                item: existing(taken_out.id),
+                initiative: existing(archive),
+            }),
+        ]),
+        minute(1),
+    )
+    .await
+    .expect("proposed");
+    let id = staged.changeset.id;
+    decide(&mut connection, id, ChangesetDecision::Approved, None)
+        .await
+        .expect("approved");
+    apply(&mut connection, id, LinkReads::new(), minute(2))
+        .await
+        .expect("applied");
+
+    // The user takes the first item out and puts it back, and puts the second back in: each
+    // membership now stands on a span the changeset did not open or close.
+    action_item::leave_initiative(&mut connection, rejoined.id, launch, Actor::User, minute(3))
+        .await
+        .expect("left");
+    action_item::join_initiative(&mut connection, rejoined.id, launch, Actor::User, minute(4))
+        .await
+        .expect("rejoined");
+    action_item::join_initiative(
+        &mut connection,
+        taken_out.id,
+        archive,
+        Actor::User,
+        minute(4),
+    )
+    .await
+    .expect("put back");
+
+    let undone = undo(&mut connection, id, minute(5)).await.expect("undone");
+    assert_eq!(
+        outcomes(&undone.staged),
+        [ChangesetOutcome::Applied, ChangesetOutcome::Applied],
+        "neither membership is reversed"
+    );
+    for operation in &undone.staged.operations {
+        assert_eq!(operation.undo, Some(json!({ "movedSince": true })));
+    }
+    assert_eq!(
+        action_item::current_initiative_ids(&mut connection, rejoined.id)
+            .await
+            .expect("initiatives"),
+        [launch],
+        "the item the user put back stays in"
+    );
+    assert_eq!(
+        action_item::current_initiative_ids(&mut connection, taken_out.id)
+            .await
+            .expect("initiatives"),
+        [archive],
+        "and is not added twice"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn undo_keeps_an_item_the_user_moved_and_one_deleted_since() {
     let (_url, mut connection) = migrated_database().await;
     let reopened = item_titled(&mut connection, "Reopened", ActionItemState::Open).await;
@@ -739,6 +823,10 @@ fn link_pull_request(fixture: &LinkFixture, item: Target, number: u64) -> Operat
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one scenario end to end: a refusing provider, then landing, then undoing"
+)]
 async fn a_provider_that_refuses_fails_only_its_operation_and_its_writes_stay_owed() {
     let mut fixture = LinkFixture::start().await;
     fixture
@@ -827,6 +915,17 @@ async fn a_provider_that_refuses_fails_only_its_operation_and_its_writes_stay_ow
     // Once the provider takes the writes, undoing cannot take them back, and says so.
     fixture.github.refuse_writes(false);
     watcher::pass(&fixture.context()).await;
+    // A comment the user writes after owes its own post, which says nothing about whether
+    // the issue is closed; the closed issue must still be named.
+    action_item_comment::create(
+        &mut fixture.connection,
+        linked,
+        "Following up.".to_owned(),
+        Actor::User,
+        minute(3),
+    )
+    .await
+    .expect("commented");
     let undone = undo(&mut fixture.connection, id, minute(3))
         .await
         .expect("undone");

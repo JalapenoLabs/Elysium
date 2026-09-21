@@ -44,6 +44,7 @@ use crate::database::schema::changeset_operations;
 use crate::models::action_item::{self, ActionItemChanges, ActionItemState};
 use crate::models::action_item_event;
 use crate::models::action_item_link::{self, LinkKind, LinkState};
+use crate::models::action_item_link_write::LinkWriteKind;
 use crate::models::{action_item_comment, action_item_link_write, initiative};
 
 /// Why one operation could not be reversed.
@@ -342,7 +343,13 @@ async fn closed_issues(
     Ok(links
         .iter()
         .filter(|link| link.kind == LinkKind::Issue && link.observed_state == LinkState::Done)
-        .filter(|link| !owed.iter().any(|write| write.link_id == link.id))
+        // Only a close still owed means the issue has not been closed by Elysium yet; a comment
+        // the same link still owes says nothing about its state.
+        .filter(|link| {
+            !owed
+                .iter()
+                .any(|write| write.link_id == link.id && write.kind == LinkWriteKind::Close)
+        })
         .map(|link| json!({ "provider": link.provider, "key": link.external_key }))
         .collect())
 }
@@ -430,6 +437,20 @@ async fn reverse_membership(
     }
     let id = result_id(result, "itemId");
     let initiative_id = result_id(result, "initiativeId");
+    let span_id = result_id(result, "spanId");
+    // The span the changeset opened must still be the latest and current, or the one it
+    // closed the latest and still closed; otherwise the user moved the item since, and it
+    // stays where the user put it.
+    let latest = action_item::latest_span(connection, id, initiative_id).await?;
+    let is_unmoved = latest
+        .is_some_and(|(latest_id, left_at)| latest_id == span_id && left_at.is_some() == joins);
+    if !is_unmoved {
+        return Ok(Reversed {
+            undone: false,
+            details: Map::from_iter([("movedSince".to_owned(), json!(true))]),
+            touched: Touched::default(),
+        });
+    }
     let written = if joins {
         action_item::join_initiative(connection, id, initiative_id, Actor::User, now).await?
     } else {
