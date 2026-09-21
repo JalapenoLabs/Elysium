@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/action-items/{id}/comments`: the user comments on an item.
+//! `POST /api/v1/action-items/{id}/comments`: the user comments on an item. The comment is
+//! also posted to the item's primary link, as its credential's account, by the watcher.
 
 use anyhow::Context;
 use axum::Json;
@@ -13,7 +14,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::{CommentResponse, publish_history, validate_not_blank};
+use super::{CommentResponse, publish_history, publish_item_links, validate_not_blank};
 use crate::action_items::Actor;
 use crate::errors::ApiError;
 use crate::models::action_item_comment;
@@ -45,13 +46,15 @@ pub async fn handle(
     let Recorded { record, history } =
         action_item_comment::create(&mut connection, id, body.body, Actor::User, Utc::now())
             .await?;
-    drop(connection);
 
     let comment = CommentResponse::from(record);
-    publish_history(&state, history);
+    publish_history(&state.events, history);
     state
         .events
         .publish(&ServerEvent::ActionItemCommentUpserted(comment.clone()));
+    // The comment is owed to the item's primary link, if it has one; the watcher posts it.
+    publish_item_links(&state.events, &mut connection, id).await?;
+    state.links.wake_watcher();
 
     Ok((StatusCode::CREATED, Json(json!({ "comment": comment }))))
 }

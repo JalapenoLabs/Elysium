@@ -9,6 +9,9 @@ mod delete_github_credential;
 mod get_github_credential;
 mod list_github_credentials;
 mod list_repositories;
+mod list_repository_issues;
+mod list_repository_labels;
+mod list_repository_milestones;
 mod test_github_credential;
 mod update_github_credential;
 
@@ -20,6 +23,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 use validator::ValidationError;
 
+use crate::errors::ApiError;
+use crate::github::Repository;
 use crate::models::github_credential::{GithubCredential, GithubTokenKind};
 use crate::state::AppState;
 
@@ -41,6 +46,35 @@ pub fn router() -> Router<AppState> {
             "/{id}/repository-access",
             post(check_repository_access::handle),
         )
+        .route(
+            "/{id}/repositories/{owner}/{name}/issues",
+            get(list_repository_issues::handle),
+        )
+        .route(
+            "/{id}/repositories/{owner}/{name}/milestones",
+            get(list_repository_milestones::handle),
+        )
+        .route(
+            "/{id}/repositories/{owner}/{name}/labels",
+            get(list_repository_labels::handle),
+        )
+}
+
+/// How many pages of milestones or labels a picker reads, so 500 of each. A repository
+/// with more is rare; the listing says when it was cut short.
+const CONTAINER_PAGE_LIMIT: usize = 5;
+
+/// The repository an owner and name in a path name, checked against GitHub's alphabets
+/// before either reaches a URL.
+///
+/// # Errors
+/// Returns [`ApiError::BadRequest`] for an owner or name GitHub would not accept.
+fn repository_of(owner: &str, name: &str) -> Result<Repository, ApiError> {
+    Repository::from_url(&format!("https://github.com/{owner}/{name}")).ok_or_else(|| {
+        ApiError::BadRequest(format!(
+            "{owner}/{name} is not a repository name GitHub accepts"
+        ))
+    })
 }
 
 /// Upper bound on a stored token. A fine-grained token is about 93 characters today;

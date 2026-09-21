@@ -30,6 +30,7 @@ use serde_json::Value;
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use crate::action_items::links::Links;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::realtime::EventBus;
@@ -43,6 +44,8 @@ pub struct ToolContext {
     pub storage: Storage,
     /// Where a call that writes tells every client about the change.
     pub events: EventBus,
+    /// Links to Jira and GitHub, for the tool that links a session's pull request.
+    pub links: Links,
 }
 
 impl std::fmt::Debug for ToolContext {

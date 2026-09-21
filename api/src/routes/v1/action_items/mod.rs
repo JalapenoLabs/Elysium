@@ -6,9 +6,12 @@
 //! write, the history it recorded, the item, and every initiative whose progress it
 //! touches go out on the event stream. See `docs/action-items.md`.
 
+mod add_link;
 mod add_project;
+mod cancel_link_write;
 mod create_action_item;
 mod create_comment;
+mod create_from_link;
 mod delete_action_item;
 mod delete_comment;
 mod get_action_item;
@@ -17,7 +20,11 @@ mod leave_initiative;
 mod list_action_items;
 mod list_comments;
 mod list_history;
+mod list_links;
+mod make_primary_link;
 mod next_action_items;
+mod read_links;
+mod remove_link;
 mod remove_project;
 mod restore_action_item;
 mod snooze_action_item;
@@ -30,7 +37,7 @@ use anyhow::Context;
 use axum::Router;
 use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, State};
-use axum::routing::{get, patch, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use chrono::{DateTime, Utc};
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use diesel_async::AsyncPgConnection;
@@ -38,7 +45,7 @@ use serde::de::IntoDeserializer;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
-use validator::ValidationError;
+use validator::{Validate, ValidationError};
 
 use crate::action_items::{Transition, WorkError};
 use crate::errors::ApiError;
@@ -47,8 +54,12 @@ use crate::models::action_item::{
 };
 use crate::models::action_item_comment::Comment;
 use crate::models::action_item_event::{HistoryEntry, Recorded};
+use crate::models::action_item_link::{
+    self, ActionItemLink, LinkCredential, LinkKind, LinkProvider, LinkState,
+};
+use crate::models::action_item_link_write::{self, LinkWrite, LinkWriteKind};
 use crate::models::initiative;
-use crate::realtime::ServerEvent;
+use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::initiatives::initiative_responses;
 use crate::state::AppState;
 
@@ -67,6 +78,7 @@ pub fn router() -> Router<AppState> {
             get(list_action_items::handle).post(create_action_item::handle),
         )
         .route("/next", get(next_action_items::handle))
+        .route("/from-link", post(create_from_link::handle))
         .route(
             "/{id}",
             get(get_action_item::handle)
@@ -92,6 +104,20 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{id}/initiatives/{initiative_id}",
             put(join_initiative::handle).delete(leave_initiative::handle),
+        )
+        .route(
+            "/{id}/links",
+            get(list_links::handle).post(add_link::handle),
+        )
+        .route("/{id}/links/remote", get(read_links::handle))
+        .route("/{id}/links/{link_id}", delete(remove_link::handle))
+        .route(
+            "/{id}/links/{link_id}/primary",
+            put(make_primary_link::handle),
+        )
+        .route(
+            "/{id}/links/{link_id}/writes/{write_id}",
+            delete(cancel_link_write::handle),
         );
 
     for (path, transition) in TRANSITION_ROUTES {
@@ -179,6 +205,140 @@ impl From<Comment> for CommentResponse {
     }
 }
 
+/// A link as clients see it, with the provider writes it still owes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionItemLinkResponse {
+    id: Uuid,
+    action_item_id: Uuid,
+    provider: LinkProvider,
+    kind: LinkKind,
+    /// The credential the link reaches its provider through.
+    credential_id: Uuid,
+    /// What a person reads: `ELY-12`, or `owner/name#12`.
+    key: String,
+    url: String,
+    /// The title as last read; the item page reads it live.
+    title: String,
+    is_primary: bool,
+    /// The state the provider last reported.
+    state: LinkState,
+    /// Whose it was when last read, in the item's terms.
+    owner: Owner,
+    /// Writes that have not landed, oldest first. A link with any is pending.
+    pending_writes: Vec<PendingWriteResponse>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+}
+
+/// What a request links to: a thing a picker listed, named the way the provider names it,
+/// and the credential that reaches it. See `crate::action_items::links::Provider`.
+#[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LinkTarget {
+    pub provider: LinkProvider,
+    pub credential_id: Uuid,
+    pub kind: LinkKind,
+    /// `ELY-12`, or `owner/name#12`.
+    #[validate(length(min = 1, max = 300), custom(function = "validate_not_blank"))]
+    pub reference: String,
+}
+
+impl LinkTarget {
+    pub const fn credential(&self) -> LinkCredential {
+        LinkCredential {
+            provider: self.provider,
+            id: self.credential_id,
+        }
+    }
+}
+
+/// A provider write a link still owes, as clients see it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingWriteResponse {
+    id: Uuid,
+    kind: LinkWriteKind,
+    /// The comment it posts, for a comment.
+    comment_id: Option<Uuid>,
+    /// How many times it was tried. Zero means it has not been tried yet.
+    attempts: i32,
+    /// The provider's last answer, or why it waits.
+    last_error: Option<String>,
+    last_attempt_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+}
+
+impl From<LinkWrite> for PendingWriteResponse {
+    fn from(write: LinkWrite) -> Self {
+        Self {
+            id: write.id,
+            kind: write.kind,
+            comment_id: write.comment_id,
+            attempts: write.attempts,
+            last_error: write.last_error,
+            last_attempt_at: write.last_attempt_at,
+            created_at: write.created_at,
+        }
+    }
+}
+
+/// `links` as clients see them, each with the writes it owes.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn link_responses(
+    connection: &mut AsyncPgConnection,
+    links: Vec<ActionItemLink>,
+) -> Result<Vec<ActionItemLinkResponse>, ApiError> {
+    let ids: Vec<Uuid> = links.iter().map(|link| link.id).collect();
+    let mut writes = action_item_link_write::for_links(connection, &ids).await?;
+    Ok(links
+        .into_iter()
+        .map(|link| {
+            let pending_writes = writes
+                .extract_if(.., |write| write.link_id == link.id)
+                .map(PendingWriteResponse::from)
+                .collect();
+            ActionItemLinkResponse {
+                credential_id: link.credential().id,
+                owner: link.observed_owner(),
+                id: link.id,
+                action_item_id: link.action_item_id,
+                provider: link.provider,
+                kind: link.kind,
+                key: link.external_key,
+                url: link.url,
+                title: link.title,
+                is_primary: link.is_primary,
+                state: link.observed_state,
+                pending_writes,
+                created_at: link.created_at,
+                updated_at: link.updated_at,
+            }
+        })
+        .collect())
+}
+
+/// Publishes every link of the item, with the writes each owes. Called after anything that
+/// changes a link or what it owes: a link added or promoted, a resolve owing closes, a
+/// comment owing a post, a write landing or failing.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn publish_item_links(
+    events: &EventBus,
+    connection: &mut AsyncPgConnection,
+    action_item_id: Uuid,
+) -> Result<Vec<ActionItemLinkResponse>, ApiError> {
+    let links = action_item_link::list_for_item(connection, action_item_id).await?;
+    let responses = link_responses(connection, links).await?;
+    for response in &responses {
+        events.publish(&ServerEvent::ActionItemLinkUpserted(response.clone()));
+    }
+    Ok(responses)
+}
+
 /// A history entry as clients see it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -226,11 +386,9 @@ pub async fn item_responses(
 }
 
 /// Sends a write's history entries to every client.
-pub fn publish_history(state: &AppState, history: Vec<HistoryEntry>) {
+pub fn publish_history(events: &EventBus, history: Vec<HistoryEntry>) {
     for entry in history {
-        state
-            .events
-            .publish(&ServerEvent::HistoryAppended(entry.into()));
+        events.publish(&ServerEvent::HistoryAppended(entry.into()));
     }
 }
 
@@ -240,16 +398,14 @@ pub fn publish_history(state: &AppState, history: Vec<HistoryEntry>) {
 /// # Errors
 /// Propagates any database error.
 pub async fn publish_initiatives(
-    state: &AppState,
+    events: &EventBus,
     connection: &mut AsyncPgConnection,
     initiative_ids: &[Uuid],
     now: DateTime<Utc>,
 ) -> Result<(), ApiError> {
     let initiatives = initiative::find_live(connection, initiative_ids).await?;
     for response in initiative_responses(connection, initiatives, now).await? {
-        state
-            .events
-            .publish(&ServerEvent::InitiativeUpserted(response));
+        events.publish(&ServerEvent::InitiativeUpserted(response));
     }
     Ok(())
 }
@@ -263,7 +419,7 @@ pub async fn publish_initiatives(
 /// # Errors
 /// Propagates any database error.
 pub async fn publish_item_write(
-    state: &AppState,
+    events: &EventBus,
     connection: &mut AsyncPgConnection,
     written: Recorded<ActionItem>,
     left_initiative_ids: &[Uuid],
@@ -280,18 +436,16 @@ pub async fn publish_item_write(
         return Ok(response);
     }
 
-    publish_history(state, history);
+    publish_history(events, history);
     if is_deleted {
-        state.events.publish(&ServerEvent::ActionItemDeleted { id });
+        events.publish(&ServerEvent::ActionItemDeleted { id });
     } else {
-        state
-            .events
-            .publish(&ServerEvent::ActionItemUpserted(response.clone()));
+        events.publish(&ServerEvent::ActionItemUpserted(response.clone()));
     }
 
     let mut initiative_ids = action_item::current_initiative_ids(connection, id).await?;
     initiative_ids.extend_from_slice(left_initiative_ids);
-    publish_initiatives(state, connection, &initiative_ids, now).await?;
+    publish_initiatives(events, connection, &initiative_ids, now).await?;
     Ok(response)
 }
 

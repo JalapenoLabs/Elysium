@@ -53,6 +53,7 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use self::views::{SatelliteStatus, SessionEvent, ThreadState, ThreadStatus};
+use crate::action_items::links::Links;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::errors::ApiError;
@@ -159,6 +160,7 @@ impl Fleet {
         cipher: Arc<Cipher>,
         events: EventBus,
         storage: Storage,
+        links: Links,
         shutdown: CancellationToken,
     ) -> Self {
         let tools = ToolContext {
@@ -166,6 +168,7 @@ impl Fleet {
             cipher: Arc::clone(&cipher),
             storage,
             events: events.clone(),
+            links,
         };
         Self {
             inner: Arc::new(Inner {

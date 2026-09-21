@@ -14,8 +14,8 @@ use uuid::Uuid;
 
 use crate::action_items::{Actor, WorkError};
 use crate::database::schema::action_item_comments;
-use crate::models::action_item;
 use crate::models::action_item_event::{self, Change, HistoryKind, Recorded, Subject};
+use crate::models::{action_item, action_item_link_write};
 
 /// A stored comment.
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
@@ -82,7 +82,20 @@ pub async fn list(
         .await
 }
 
-/// Writes a comment on a live item.
+/// One comment by id.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] when no comment has that id.
+pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Comment> {
+    action_item_comments::table
+        .find(id)
+        .select(Comment::as_select())
+        .first(connection)
+        .await
+}
+
+/// Writes a comment on a live item, and owes it to the item's primary link, if it has one,
+/// in the same transaction: a comment written on an item is posted to its primary link.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown item, [`WorkError::Conflict`]
@@ -109,6 +122,7 @@ pub async fn create(
                 .returning(Comment::as_returning())
                 .get_result(connection)
                 .await?;
+            action_item_link_write::owe_comment(connection, action_item_id, record.id, now).await?;
             let entry = action_item_event::record(
                 connection,
                 Change {

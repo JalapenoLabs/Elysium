@@ -31,7 +31,7 @@ pub async fn handle(
 
     let removed =
         action_item::remove_project(&mut connection, id, project_id, Actor::User, now).await?;
-    let item = publish_item_write(&state, &mut connection, removed, &[], now).await?;
+    let item = publish_item_write(&state.events, &mut connection, removed, &[], now).await?;
 
     Ok(Json(json!({ "item": item })))
 }

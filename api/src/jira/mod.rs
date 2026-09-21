@@ -23,7 +23,7 @@ pub(crate) mod tests;
 
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use reqwest::{Method, RequestBuilder, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
@@ -68,6 +68,7 @@ const SEARCH_FIELDS: &[&str] = &[
     "labels",
     "created",
     "updated",
+    "duedate",
     "project",
 ];
 
@@ -160,6 +161,8 @@ pub struct User {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
+    /// Jira's id for the status, the same in every workflow that uses it.
+    pub id: String,
     pub name: String,
     /// `new`, `indeterminate`, or `done`, as Jira groups statuses.
     pub category: String,
@@ -200,6 +203,9 @@ pub struct Issue {
     pub labels: Vec<String>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
+    /// The day the issue is due, when the project uses due dates. Jira keeps a date, not a
+    /// moment.
+    pub due_date: Option<NaiveDate>,
     /// Where a person reads this issue, on the credential's own site.
     pub url: String,
     pub description: Option<RichText>,
@@ -214,6 +220,16 @@ pub struct Transition {
     pub name: String,
     /// The status the issue lands in.
     pub to: Option<Status>,
+}
+
+/// A saved filter the token can see, whose JQL a search can name as `filter = <id>`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Filter {
+    pub id: String,
+    pub name: String,
+    /// Where a person opens the filter's results, on the credential's own site.
+    pub url: String,
 }
 
 /// One page of a bounded search.
@@ -464,6 +480,61 @@ impl Jira {
                 .collect(),
             truncated: listing.truncated,
         })
+    }
+
+    /// The saved filters a token can see, following Jira's pages up to [`PAGE_LIMIT`].
+    ///
+    /// # Errors
+    /// As [`Jira::list_projects`].
+    pub async fn list_filters(&self, site: &Site<'_>) -> Result<Listing<Filter>, JiraError> {
+        let listing: Listing<FilterBody> = self.paged(site, "/rest/api/3/filter/search").await?;
+        Ok(Listing {
+            items: listing
+                .items
+                .into_iter()
+                .map(|filter| filter.into_filter(site.url))
+                .collect(),
+            truncated: listing.truncated,
+        })
+    }
+
+    /// One saved filter by id.
+    ///
+    /// # Errors
+    /// Returns [`JiraError::NotFound`] for a filter that does not exist or that the token
+    /// cannot see, and otherwise as [`Jira::list_projects`].
+    pub async fn filter(&self, site: &Site<'_>, id: &str) -> Result<Filter, JiraError> {
+        let path = format!("/rest/api/3/filter/{id}");
+        let reply = self.send(self.request(Method::GET, site, &path)).await?;
+        let body: FilterBody = reply.read("a filter")?;
+        Ok(body.into_filter(site.url))
+    }
+
+    /// Every status a project's issues can be in, once each, across its issue types.
+    ///
+    /// # Errors
+    /// Returns [`JiraError::NotFound`] for a project the token cannot see, and otherwise as
+    /// [`Jira::list_projects`].
+    pub async fn project_statuses(
+        &self,
+        site: &Site<'_>,
+        project_key: &str,
+    ) -> Result<Vec<Status>, JiraError> {
+        let path = format!("/rest/api/3/project/{project_key}/statuses");
+        let reply = self.send(self.request(Method::GET, site, &path)).await?;
+        let issue_types: Vec<IssueTypeStatusesBody> = reply.read("a project's statuses")?;
+
+        let mut statuses: Vec<Status> = Vec::new();
+        for status in issue_types
+            .into_iter()
+            .flat_map(|issue_type| issue_type.statuses)
+        {
+            let status = status.into_status();
+            if !statuses.iter().any(|known| known.id == status.id) {
+                statuses.push(status);
+            }
+        }
+        Ok(statuses)
     }
 
     /// One page of a JQL search, in Jira's own order unless the JQL says otherwise.
@@ -862,6 +933,8 @@ struct TransitionBody {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StatusBody {
+    #[serde(default)]
+    id: String,
     name: Option<String>,
     status_category: Option<StatusCategoryBody>,
 }
@@ -869,6 +942,7 @@ struct StatusBody {
 impl StatusBody {
     fn into_status(self) -> Status {
         Status {
+            id: self.id,
             name: self.name.unwrap_or_default(),
             category: self
                 .status_category
@@ -881,6 +955,29 @@ impl StatusBody {
 #[derive(Deserialize)]
 struct StatusCategoryBody {
     key: Option<String>,
+}
+
+/// One issue type's statuses, as `GET /rest/api/3/project/{key}/statuses` lists them.
+#[derive(Deserialize)]
+struct IssueTypeStatusesBody {
+    #[serde(default)]
+    statuses: Vec<StatusBody>,
+}
+
+#[derive(Deserialize)]
+struct FilterBody {
+    id: String,
+    name: Option<String>,
+}
+
+impl FilterBody {
+    fn into_filter(self, site_url: &str) -> Filter {
+        Filter {
+            url: format!("{site_url}/issues/?filter={}", self.id),
+            id: self.id,
+            name: self.name.unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -952,6 +1049,8 @@ struct IssueFieldsBody {
     labels: Vec<String>,
     created: Option<String>,
     updated: Option<String>,
+    /// A date alone, such as `2026-09-30`.
+    duedate: Option<String>,
     project: Option<ProjectRefBody>,
     description: Option<Value>,
     comment: Option<CommentsBody>,
@@ -989,6 +1088,10 @@ impl IssueBody {
             labels: fields.labels,
             created_at: fields.created.as_deref().and_then(parse_timestamp),
             updated_at: fields.updated.as_deref().and_then(parse_timestamp),
+            due_date: fields
+                .duedate
+                .as_deref()
+                .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()),
             description: fields.description.map(RichText::from_document),
             comments: fields
                 .comment

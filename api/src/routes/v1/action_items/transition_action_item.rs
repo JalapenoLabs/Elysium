@@ -4,7 +4,8 @@
 //! item to another state.
 //!
 //! A transition the item's state does not allow answers `409`; the rules are
-//! `crate::action_items::Transition`.
+//! `crate::action_items::Transition`. Resolving also moves every linked issue still open,
+//! through the watcher, which lands the closes it owes.
 
 use anyhow::Context;
 use axum::Json;
@@ -14,7 +15,7 @@ use chrono::Utc;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::publish_item_write;
+use super::{publish_item_links, publish_item_write};
 use crate::action_items::{Actor, Transition};
 use crate::errors::ApiError;
 use crate::models::action_item;
@@ -34,7 +35,12 @@ pub async fn handle(
         .context("no database connection available")?;
 
     let moved = action_item::transition(&mut connection, id, transition, Actor::User, now).await?;
-    let item = publish_item_write(&state, &mut connection, moved, &[], now).await?;
+    let item = publish_item_write(&state.events, &mut connection, moved, &[], now).await?;
+    if transition == Transition::Resolve {
+        // Resolving owed a close to every linked issue still open; the watcher lands them.
+        publish_item_links(&state.events, &mut connection, id).await?;
+        state.links.wake_watcher();
+    }
 
     Ok(Json(json!({ "item": item })))
 }

@@ -30,7 +30,7 @@ pub async fn handle(
         .context("no database connection available")?;
 
     let added = action_item::add_project(&mut connection, id, project_id, Actor::User, now).await?;
-    let item = publish_item_write(&state, &mut connection, added, &[], now).await?;
+    let item = publish_item_write(&state.events, &mut connection, added, &[], now).await?;
 
     Ok(Json(json!({ "item": item })))
 }

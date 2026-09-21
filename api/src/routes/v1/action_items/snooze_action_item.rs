@@ -54,7 +54,7 @@ pub async fn handle(
         ..ActionItemChanges::default()
     };
     let snoozed = action_item::update(&mut connection, id, changes, Actor::User, now).await?;
-    let item = publish_item_write(&state, &mut connection, snoozed, &[], now).await?;
+    let item = publish_item_write(&state.events, &mut connection, snoozed, &[], now).await?;
 
     Ok(Json(json!({ "item": item })))
 }

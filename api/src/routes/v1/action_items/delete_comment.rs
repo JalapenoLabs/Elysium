@@ -34,7 +34,7 @@ pub async fn handle(
             .await?;
     drop(connection);
 
-    publish_history(&state, history);
+    publish_history(&state.events, history);
     state
         .events
         .publish(&ServerEvent::ActionItemCommentDeleted {

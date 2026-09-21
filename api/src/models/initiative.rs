@@ -131,8 +131,15 @@ async fn lock(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Initi
         .await
 }
 
-/// [`lock`], refusing a deleted initiative.
-async fn lock_live(connection: &mut AsyncPgConnection, id: Uuid) -> Result<Initiative, WorkError> {
+/// Loads a live initiative for a write, locking its row until the transaction ends.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] for an unknown id and
+/// [`WorkError::Conflict`] for a deleted initiative.
+pub async fn lock_live(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+) -> Result<Initiative, WorkError> {
     let initiative = lock(connection, id).await?;
     if initiative.deleted_at.is_some() {
         return Err(WorkError::Conflict(

@@ -24,7 +24,7 @@ use crate::database::schema::{action_item_projects, action_items, initiative_ite
 use crate::models::action_item_event::{
     self, Change, HistoryEntry, HistoryKind, Recorded, Subject, replaced,
 };
-use crate::models::project;
+use crate::models::{action_item_link_write, project};
 
 /// Where an item stands. See `docs/action-items.md`.
 #[derive(
@@ -283,6 +283,8 @@ struct InitiativeSpanRow {
     initiative_id: Uuid,
     action_item_id: Uuid,
     joined_at: DateTime<Utc>,
+    /// The container that brought the item in; `None` for an item added by hand.
+    via_link_id: Option<Uuid>,
 }
 
 /// Loads an item for a write, locking its row until the transaction ends.
@@ -534,11 +536,13 @@ async fn require_live_initiatives(
     Ok(())
 }
 
-/// Opens a span of the item in the initiative, and records it on both.
+/// Opens a span of the item in the initiative, and records it on both. `via_link_id` names
+/// the container that brought it in, if one did.
 async fn join(
     connection: &mut AsyncPgConnection,
     action_item_id: Uuid,
     initiative_id: Uuid,
+    via_link_id: Option<Uuid>,
     actor: Actor,
     now: DateTime<Utc>,
 ) -> QueryResult<HistoryEntry> {
@@ -548,9 +552,11 @@ async fn join(
             initiative_id,
             action_item_id,
             joined_at: now,
+            via_link_id,
         })
         .execute(connection)
         .await?;
+    let data = via_link_id.map_or_else(|| json!({}), |link_id| json!({ "linkId": link_id }));
     action_item_event::record(
         connection,
         Change {
@@ -560,7 +566,7 @@ async fn join(
             },
             kind: HistoryKind::InitiativeJoined,
             actor,
-            data: json!({}),
+            data,
             at: now,
         },
     )
@@ -640,7 +646,7 @@ pub async fn create(
                 .await?,
             ];
             for initiative_id in initiative_ids {
-                history.push(join(connection, id, initiative_id, actor, now).await?);
+                history.push(join(connection, id, initiative_id, None, actor, now).await?);
             }
 
             Ok(Recorded { record, history })
@@ -751,6 +757,10 @@ pub async fn update(
 
 /// Moves a live item to another state, stamping when it was resolved or dismissed.
 ///
+/// Resolving an item also owes a close for every linked issue still open, in the same
+/// transaction, whoever resolved it: the watcher lands those writes
+/// (`crate::models::action_item_link_write`).
+///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown id, [`WorkError::Conflict`]
 /// for a deleted item or a transition its state does not allow, and any other database
@@ -778,6 +788,9 @@ pub async fn transition(
                 .returning(ActionItem::as_returning())
                 .get_result(connection)
                 .await?;
+            if state == ActionItemState::Resolved {
+                action_item_link_write::owe_closes(connection, id, now).await?;
+            }
             let entry = action_item_event::record(
                 connection,
                 Change {
@@ -1043,12 +1056,113 @@ pub async fn join_initiative(
                     history: Vec::new(),
                 });
             }
-            let entry = join(connection, id, initiative_id, actor, now).await?;
+            let entry = join(connection, id, initiative_id, None, actor, now).await?;
             Ok(Recorded {
                 record: item,
                 history: vec![entry],
             })
         })
+        .await
+}
+
+/// Puts a live item into an initiative because a container linked to it holds the item.
+/// An item already in the initiative, by hand or through another container, stays as it
+/// is. Call it inside the transaction that reads the container.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] for an unknown item, [`WorkError::Conflict`]
+/// for a deleted item, and any other database error.
+pub async fn join_initiative_via(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    initiative_id: Uuid,
+    via_link_id: Uuid,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> Result<Recorded<ActionItem>, WorkError> {
+    let item = lock_live(connection, id).await?;
+    if current_initiative_ids(connection, id)
+        .await?
+        .contains(&initiative_id)
+    {
+        return Ok(Recorded {
+            record: item,
+            history: Vec::new(),
+        });
+    }
+    let entry = join(connection, id, initiative_id, Some(via_link_id), actor, now).await?;
+    Ok(Recorded {
+        record: item,
+        history: vec![entry],
+    })
+}
+
+/// Takes an item out of an initiative that a container brought it into, because the
+/// container no longer holds it or was unlinked. Only a span the container opened closes,
+/// so an item also added by hand stays. The item may be deleted: the span still closes.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] for an unknown item, and any other database
+/// error.
+pub async fn leave_initiative_via(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    initiative_id: Uuid,
+    via_link_id: Uuid,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> QueryResult<Recorded<ActionItem>> {
+    let item = lock(connection, id).await?;
+    let closed = diesel::update(
+        initiative_items::table
+            .filter(initiative_items::action_item_id.eq(id))
+            .filter(initiative_items::initiative_id.eq(initiative_id))
+            .filter(initiative_items::via_link_id.eq(via_link_id))
+            .filter(initiative_items::left_at.is_null()),
+    )
+    .set(initiative_items::left_at.eq(now))
+    .execute(connection)
+    .await?;
+    if closed == 0 {
+        return Ok(Recorded {
+            record: item,
+            history: Vec::new(),
+        });
+    }
+    let entry = action_item_event::record(
+        connection,
+        Change {
+            subject: Subject::Membership {
+                item: id,
+                initiative: initiative_id,
+            },
+            kind: HistoryKind::InitiativeLeft,
+            actor,
+            data: json!({ "linkId": via_link_id }),
+            at: now,
+        },
+    )
+    .await?;
+    Ok(Recorded {
+        record: item,
+        history: vec![entry],
+    })
+}
+
+/// The items a container holds in its initiative now, the ones it brought in.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn ids_via_container(
+    connection: &mut AsyncPgConnection,
+    via_link_id: Uuid,
+) -> QueryResult<Vec<Uuid>> {
+    initiative_items::table
+        .filter(initiative_items::via_link_id.eq(via_link_id))
+        .filter(initiative_items::left_at.is_null())
+        .order(initiative_items::action_item_id)
+        .select(initiative_items::action_item_id)
+        .load(connection)
         .await
 }
 

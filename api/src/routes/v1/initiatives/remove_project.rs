@@ -31,7 +31,7 @@ pub async fn handle(
 
     let removed =
         initiative::remove_project(&mut connection, id, project_id, Actor::User, now).await?;
-    let initiative = publish_initiative_write(&state, &mut connection, removed, now).await?;
+    let initiative = publish_initiative_write(&state.events, &mut connection, removed, now).await?;
 
     Ok(Json(json!({ "initiative": initiative })))
 }

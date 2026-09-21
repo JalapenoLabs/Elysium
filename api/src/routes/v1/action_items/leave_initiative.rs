@@ -32,7 +32,8 @@ pub async fn handle(
 
     let left =
         action_item::leave_initiative(&mut connection, id, initiative_id, Actor::User, now).await?;
-    let item = publish_item_write(&state, &mut connection, left, &[initiative_id], now).await?;
+    let item =
+        publish_item_write(&state.events, &mut connection, left, &[initiative_id], now).await?;
 
     Ok(Json(json!({ "item": item })))
 }

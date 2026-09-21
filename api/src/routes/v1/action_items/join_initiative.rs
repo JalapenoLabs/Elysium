@@ -32,7 +32,7 @@ pub async fn handle(
 
     let joined =
         action_item::join_initiative(&mut connection, id, initiative_id, Actor::User, now).await?;
-    let item = publish_item_write(&state, &mut connection, joined, &[], now).await?;
+    let item = publish_item_write(&state.events, &mut connection, joined, &[], now).await?;
 
     Ok(Json(json!({ "item": item })))
 }
