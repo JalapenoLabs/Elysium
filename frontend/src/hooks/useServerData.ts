@@ -7,6 +7,8 @@ import useSWR from 'swr'
 // Redux
 import { actionItemCommentsLoaded } from '../store/actionItemCommentsSlice'
 import { historyLoaded } from '../store/actionItemHistorySlice'
+import { actionItemLinksLoaded } from '../store/actionItemLinksSlice'
+import { initiativeLinksLoaded } from '../store/initiativeLinksSlice'
 import { actionItemsLoaded, actionItemUpserted, deletedActionItemsLoaded } from '../store/actionItemsSlice'
 import { codingSessionsLoaded } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
@@ -28,13 +30,16 @@ import {
   getActionItem,
   listActionItemComments,
   listActionItemHistory,
+  listActionItemLinks,
   listActionItems,
+  readActionItemLinkRemotes,
 } from '../api/routes/actionItemRoutes'
 import {
   getInitiative,
   getInitiativeProgress,
-  listInitiatives,
   listInitiativeHistory,
+  listInitiativeLinks,
+  listInitiatives,
 } from '../api/routes/initiativeRoutes'
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
@@ -56,11 +61,11 @@ import { listStorageLocations } from '../api/routes/storageRoutes'
 //
 // The hooks return only where the load stands. Components select the data from Redux.
 
-type LoadStatus = 'loading' | 'loaded' | 'failed'
+export type LoadStatus = 'loading' | 'loaded' | 'failed'
 
 // `loaded` holds through revalidation and failed refetches: data already on screen
 // stays there rather than flashing back to a spinner or an error.
-function toLoadStatus(hasData: boolean, error: unknown): LoadStatus {
+export function toLoadStatus(hasData: boolean, error: unknown): LoadStatus {
   if (hasData) {
     return 'loaded'
   }
@@ -332,4 +337,39 @@ export function useInitiativeProgress(initiativeId: string) {
     progress: data,
     status: toLoadStatus(data !== undefined, error),
   } as const
+}
+
+export function useActionItemLinksLoader(itemId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/action-items/${itemId}/links`, async () => {
+    const response = await listActionItemLinks(itemId)
+    dispatch(actionItemLinksLoaded({ actionItemId: itemId, links: response.links }))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// What each linked thing looks like in its provider now, read live. Like the burnup, it is
+// read from SWR rather than Redux: an item holds no provider field, and only the item's page
+// shows them. `actionItemLink.upserted` revalidates the key, so a change the watcher read
+// shows at once.
+export function useActionItemLinkRemotes(itemId: string) {
+  const { data, error } = useSWR(
+    `v1/action-items/${itemId}/links/remote`,
+    () => readActionItemLinkRemotes(itemId),
+  )
+  return {
+    remotes: data?.remotes,
+    status: toLoadStatus(data !== undefined, error),
+  } as const
+}
+
+export function useInitiativeLinksLoader(initiativeId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/initiatives/${initiativeId}/links`, async () => {
+    const response = await listInitiativeLinks(initiativeId)
+    dispatch(initiativeLinksLoaded({ initiativeId, links: response.links }))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
 }

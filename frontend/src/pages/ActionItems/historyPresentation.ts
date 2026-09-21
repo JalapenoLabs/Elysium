@@ -227,6 +227,43 @@ const describeByKind = {
       }),
     details: [],
   }),
+  link_added: (entry, _context, t) => ({
+    summary: t('history.linkAdded', { key: readString(entry.data, 'key') ?? t('history.values.unknownLink') }),
+    details: [],
+  }),
+  link_removed: (entry, _context, t) => ({
+    summary: t('history.linkRemoved', { key: readString(entry.data, 'key') ?? t('history.values.unknownLink') }),
+    details: [],
+  }),
+  // The entry names links by id alone, which a removed link no longer has a key for.
+  primary_link_changed: (entry, _context, t) => ({
+    summary: readString(entry.data, 'to')
+      ? t('history.primaryLinkChanged')
+      : t('history.primaryLinkCleared'),
+    details: [],
+  }),
+  link_write_cancelled: (entry, _context, t) => ({
+    summary: readString(entry.data, 'write') === 'comment'
+      ? t('history.commentWriteCancelled', { key: readString(entry.data, 'key') ?? t('history.values.unknownLink') })
+      : t('history.closeWriteCancelled', { key: readString(entry.data, 'key') ?? t('history.values.unknownLink') }),
+    details: [],
+  }),
+  pull_request_closed: (entry, _context, t) => ({
+    summary: t('history.pullRequestClosed', {
+      key: readString(entry.data, 'key') ?? t('history.values.unknownLink'),
+    }),
+    details: [],
+  }),
+  container_linked: (entry, _context, t) => ({
+    summary: t('history.containerLinked', { key: readString(entry.data, 'key') ?? t('history.values.unknownLink') }),
+    details: [],
+  }),
+  container_unlinked: (entry, _context, t) => ({
+    summary: t('history.containerUnlinked', {
+      key: readString(entry.data, 'key') ?? t('history.values.unknownLink'),
+    }),
+    details: [],
+  }),
 } as const satisfies Record<HistoryKind, Describe>
 
 export function describeHistoryEntry(

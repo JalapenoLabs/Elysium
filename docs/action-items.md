@@ -9,8 +9,9 @@ under `/api/v1/action-items` and `/api/v1/initiatives` (`docs/api.md`) and kept 
 (`docs/realtime.md`). So is the frontend for them: Next, inbox triage, the item list and pages, initiatives with their
 burnup, and the project page's items and initiatives (`docs/frontend.md`). So are the `elysium_work` tools and coding
 sessions started from an item ([Coding sessions](#coding-sessions)), and links to Jira and GitHub with the watcher that
-keeps them current ([Links and the watcher](#links-and-the-watcher)), served by the API; their pages in the frontend are
-next. Changesets are still a design; that section is the plan.
+keeps them current ([Links and the watcher](#links-and-the-watcher)), with their frontend: links on the item page,
+containers on the initiative page, and the Jira done status choice under Settings. Changesets are still a design; that
+section is the plan.
 
 The design goal is that work arrives from anywhere, is triaged and managed in one place, and every change made here
 reaches the system it came from. The user approves; Elysium and Elysia, Elysium's AI assistant, do the bookkeeping.
@@ -312,8 +313,12 @@ The rules as the watcher applies them, for a link whose state changed from what 
 History records links too: `link_added`, `link_removed`, and `primary_link_changed` on items, `container_linked` and
 `container_unlinked` on initiatives, with the link's provider, kind, key, and URL.
 
-The frontend for links, containers, pending writes, and the done transition picker is the next step; the API serves all
-of it (`docs/api.md`).
+The frontend shows an item's links on its page, each with its provider's fields read live (status, assignee,
+priority, due date) beside what the link last recorded, and the writes it still owes with their tries and a way to
+stop. Links are added from a picker (a Jira search, or a GitHub repository's open issues or pull requests), and New
+item can start from one. The initiative page lists the containers it follows with when each was last read, and adds
+them from a picker of epics, saved filters, milestones, and labels. A close waiting on a Jira project's done status
+links to that choice under Settings, Jira (`docs/frontend.md`).
 
 Notification emails from Jira and GitHub about a linked issue are matched to that issue's item rather than becoming
 items of their own. That is on the roadmap.
@@ -393,9 +398,6 @@ Every call is scoped to the session's project and re-checked against the databas
 - Project memory that coding agents and Elysia read and write, so a session starts with what earlier sessions learned.
 - Users and authentication, turning `owner`, `waitingOn`, and actors into references and making Next per user.
 - Webhooks for Jira and GitHub, beside polling.
-- The frontend for links: provider fields beside the item's own, adding and removing links, creating items from
-  issues, linking containers to initiatives, pending writes with their retry state and cancel, and the Jira done
-  transition picker.
 - Notification emails from Jira and GitHub folded into the linked issue's item.
 - The linked issues' descriptions in the first turn of a session started from an item.
 - Editing or deleting a comment carried to the comment already posted to the provider.

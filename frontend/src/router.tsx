@@ -30,6 +30,7 @@ import { EditGithubCredentialPage } from './pages/Settings/Github/EditGithubCred
 import { ManageGithubPage } from './pages/Settings/Github/ManageGithubPage'
 import { AddJiraCredentialPage } from './pages/Settings/Jira/AddJiraCredentialPage'
 import { EditJiraCredentialPage } from './pages/Settings/Jira/EditJiraCredentialPage'
+import { JiraDoneTransitionsPage } from './pages/Settings/Jira/JiraDoneTransitionsPage'
 import { ManageJiraPage } from './pages/Settings/Jira/ManageJiraPage'
 import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
@@ -180,6 +181,10 @@ export const router = createBrowserRouter([
       {
         path: UrlTree.settingsJiraEdit,
         element: <EditJiraCredentialPage />,
+      },
+      {
+        path: UrlTree.settingsJiraDoneTransitions,
+        element: <JiraDoneTransitionsPage />,
       },
       {
         path: UrlTree.settingsSatellites,

@@ -28,7 +28,24 @@
     "loadError": "Jira sites could not be loaded."
   },
   "actions": {
-    "test": "Test connection"
+    "test": "Test connection",
+    "doneTransitions": "Done statuses"
+  },
+  "doneTransitions": {
+    "title": "Done statuses on {{name}}",
+    "hint": "Resolving an action item moves its linked issues to done. A project with one done status uses it; pick one here for a project with several.",
+    "project": "Project",
+    "projectPlaceholder": "Pick a project",
+    "status": "Done status",
+    "automatic": "Resolving an item moves this project's issues to {{status}}, its only done status.",
+    "current": "Resolving an item moves this project's issues to {{status}}.",
+    "needsChoiceTitle": "Choose a done status",
+    "needsChoiceBody": "This project has several. Until one is chosen, its issues wait when their items are resolved.",
+    "noneTitle": "No done status",
+    "noneBody": "{{project}} has no status in Jira's done category, so its issues cannot be moved to done.",
+    "forget": "Forget the choice",
+    "chosen": "{{project}} now moves to {{status}}.",
+    "forgotten": "{{project}} has no chosen done status."
   },
   "form": {
     "createTitle": "Add Jira site",

@@ -86,6 +86,43 @@ describe('describeHistoryEntry', () => {
     })
   })
 
+  it<Context>('names links by key, and says which write was cancelled', ({ t, context }) => {
+    const added = makeHistoryEntry({ id: 'e1', kind: 'link_added', data: { key: 'ELY-12' }})
+    const closeCancelled = makeHistoryEntry({
+      id: 'e2',
+      kind: 'link_write_cancelled',
+      data: { key: 'ELY-12', write: 'close' },
+    })
+    const commentCancelled = makeHistoryEntry({
+      id: 'e3',
+      kind: 'link_write_cancelled',
+      data: { key: 'acme/elysium#4', write: 'comment' },
+    })
+    const unnamed = makeHistoryEntry({ id: 'e4', kind: 'link_removed', data: {}})
+
+    expect(describeHistoryEntry(added, context, t).summary).toBe('linked ELY-12')
+    expect(describeHistoryEntry(closeCancelled, context, t).summary).toBe('stopped trying to move ELY-12 to done')
+    expect(describeHistoryEntry(commentCancelled, context, t).summary)
+      .toBe('stopped trying to post a comment to acme/elysium#4')
+    expect(describeHistoryEntry(unnamed, context, t).summary).toBe('unlinked a link')
+  })
+
+  it<Context>('tells a new primary link from none left', ({ t, context }) => {
+    const changed = makeHistoryEntry({ id: 'e1', kind: 'primary_link_changed', data: { from: 'l1', to: 'l2' }})
+    const cleared = makeHistoryEntry({ id: 'e2', kind: 'primary_link_changed', data: { from: 'l1', to: null }})
+
+    expect(describeHistoryEntry(changed, context, t).summary).toBe('changed its primary link')
+    expect(describeHistoryEntry(cleared, context, t).summary).toBe('left it with no primary link')
+  })
+
+  it<Context>('names containers and pull requests closed without merging', ({ t, context }) => {
+    const container = makeHistoryEntry({ id: 'e1', kind: 'container_linked', data: { key: 'ELY-7' }})
+    const closed = makeHistoryEntry({ id: 'e2', kind: 'pull_request_closed', data: { key: 'acme/elysium#9' }})
+
+    expect(describeHistoryEntry(container, context, t).summary).toBe('linked ELY-7')
+    expect(describeHistoryEntry(closed, context, t).summary).toBe('acme/elysium#9 closed without merging')
+  })
+
   it<Context>('still says something for a kind or a shape it does not know', ({ t, context }) => {
     const future = makeHistoryEntry({ id: 'e1', kind: 'linked' })
     const malformed = makeHistoryEntry({ id: 'e2', kind: 'state_changed', data: null })

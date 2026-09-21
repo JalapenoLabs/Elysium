@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ActionItem, ActionItemComment, HistoryEntry } from '../api/routes/actionItemRoutes'
-import type { Initiative } from '../api/routes/initiativeRoutes'
+import type { ActionItem, ActionItemComment, ActionItemLink, HistoryEntry } from '../api/routes/actionItemRoutes'
+import type { Initiative, InitiativeLink } from '../api/routes/initiativeRoutes'
 import type { CodingSession, SessionEvent } from '../api/routes/codingSessionRoutes'
 import type { EnvironmentVariable } from '../api/routes/environmentRoutes'
 import type { GithubCredential } from '../api/routes/githubRoutes'
@@ -23,6 +23,12 @@ export type ServerEvent =
   | { type: 'actionItem.upserted', data: ActionItem }
   // Soft: the item can be restored.
   | { type: 'actionItem.deleted', data: { id: string } }
+  // Sent for every link of an item whenever one of them, or a write it owes, changes.
+  | { type: 'actionItemLink.upserted', data: ActionItemLink }
+  | { type: 'actionItemLink.deleted', data: { id: string, actionItemId: string } }
+  // A container was linked, or the watcher read it.
+  | { type: 'initiativeLink.upserted', data: InitiativeLink }
+  | { type: 'initiativeLink.deleted', data: { id: string, initiativeId: string } }
   | { type: 'actionItemComment.upserted', data: ActionItemComment }
   | { type: 'actionItemComment.deleted', data: { id: string, actionItemId: string } }
   // Also sent whenever the initiative's progress moves.

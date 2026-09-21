@@ -21,6 +21,7 @@ type Props = {
   credentials: JiraCredential[]
   onEdit: (credential: JiraCredential) => void
   onTest: (credential: JiraCredential) => void
+  onDoneTransitions: (credential: JiraCredential) => void
   onDelete: (credential: JiraCredential) => void
 }
 
@@ -135,6 +136,7 @@ export function JiraCredentialTable(props: Props) {
         credential={credential}
         onEdit={props.onEdit}
         onTest={props.onTest}
+        onDoneTransitions={props.onDoneTransitions}
         onDelete={props.onDelete}
       />,
     } satisfies Record<JiraColumnKey, (credential: JiraCredential) => ReactNode>
@@ -197,7 +199,7 @@ export function JiraCredentialTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, props.onEdit, props.onTest, props.onDelete ])
+  }, [ t, i18n.language, props.onEdit, props.onTest, props.onDoneTransitions, props.onDelete ])
 
   if (!props.credentials.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

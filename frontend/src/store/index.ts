@@ -6,10 +6,12 @@ import { configureStore, createListenerMiddleware } from '@reduxjs/toolkit'
 // Redux
 import { actionItemCommentsSlice } from './actionItemCommentsSlice'
 import { actionItemHistorySlice } from './actionItemHistorySlice'
+import { actionItemLinksSlice } from './actionItemLinksSlice'
 import { actionItemsSlice } from './actionItemsSlice'
 import { codingSessionsSlice } from './codingSessionsSlice'
 import { environmentVariablesSlice } from './environmentVariablesSlice'
 import { githubCredentialsSlice } from './githubCredentialsSlice'
+import { initiativeLinksSlice } from './initiativeLinksSlice'
 import { initiativesSlice } from './initiativesSlice'
 import { jiraCredentialsSlice } from './jiraCredentialsSlice'
 import { llmsSlice } from './llmsSlice'
@@ -36,10 +38,12 @@ export function createAppStore() {
     reducer: {
       [actionItemCommentsSlice.name]: actionItemCommentsSlice.reducer,
       [actionItemHistorySlice.name]: actionItemHistorySlice.reducer,
+      [actionItemLinksSlice.name]: actionItemLinksSlice.reducer,
       [actionItemsSlice.name]: actionItemsSlice.reducer,
       [codingSessionsSlice.name]: codingSessionsSlice.reducer,
       [environmentVariablesSlice.name]: environmentVariablesSlice.reducer,
       [githubCredentialsSlice.name]: githubCredentialsSlice.reducer,
+      [initiativeLinksSlice.name]: initiativeLinksSlice.reducer,
       [initiativesSlice.name]: initiativesSlice.reducer,
       [jiraCredentialsSlice.name]: jiraCredentialsSlice.reducer,
       [llmsSlice.name]: llmsSlice.reducer,
