@@ -445,14 +445,18 @@ async fn change_membership(
 ) -> Result<Done, Failure> {
     let id = run.resolve(membership.item);
     let initiative_id = run.resolve(membership.initiative);
+    let span_before = action_item::latest_span(connection, id, initiative_id)
+        .await?
+        .map(|(span_id, _left_at)| span_id);
     let written = if joins {
         action_item::join_initiative(connection, id, initiative_id, run.actor, run.now).await?
     } else {
         action_item::leave_initiative(connection, id, initiative_id, run.actor, run.now).await?
     };
     let changed = !written.history.is_empty();
-    // The span this opened or closed. An undo reverses the change only while that span is
-    // still the item's latest in the initiative, so a move the user made since stands.
+    // The item's latest span before and after: the one this opened or closed, and the one it
+    // replaced. An undo reverses the change only while the span after is still the latest, so a
+    // move the user made since stands; see `crate::models::changeset::undo`.
     let span_id = if changed {
         action_item::latest_span(connection, id, initiative_id)
             .await?
@@ -465,6 +469,7 @@ async fn change_membership(
         "initiativeId": initiative_id,
         "changed": changed,
         "spanId": span_id,
+        "spanBefore": span_before,
     });
     let mut done = Done::on_item(result, id, written.history);
     done.touched.initiative_ids.insert(initiative_id);

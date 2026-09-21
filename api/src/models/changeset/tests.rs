@@ -715,6 +715,60 @@ async fn undo_leaves_a_membership_the_user_changed_since() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn undo_reverses_several_membership_changes_to_one_initiative() {
+    let (_url, mut connection) = migrated_database().await;
+    let launch = initiative_named(&mut connection, "Launch").await;
+    let outside = item_titled(&mut connection, "Starts outside", ActionItemState::Open).await;
+    let inside = item_titled(&mut connection, "Starts inside", ActionItemState::Open).await;
+    action_item::join_initiative(&mut connection, inside.id, launch, Actor::User, minute(0))
+        .await
+        .expect("joined");
+    let membership = |item: Uuid| Membership {
+        item: existing(item),
+        initiative: existing(launch),
+    };
+    let staged = propose(
+        &mut connection,
+        from_elysia(vec![
+            Operation::AddToInitiative(membership(outside.id)),
+            Operation::RemoveFromInitiative(membership(outside.id)),
+            Operation::RemoveFromInitiative(membership(inside.id)),
+            Operation::AddToInitiative(membership(inside.id)),
+        ]),
+        minute(1),
+    )
+    .await
+    .expect("proposed");
+    let id = staged.changeset.id;
+    decide(&mut connection, id, ChangesetDecision::Approved, None)
+        .await
+        .expect("approved");
+    apply(&mut connection, id, LinkReads::new(), minute(2))
+        .await
+        .expect("applied");
+
+    // Reversing the later change of each pair writes a span; the earlier change must read it
+    // as the state it restored, not as the user moving the item.
+    let undone = undo(&mut connection, id, minute(3)).await.expect("undone");
+    assert_eq!(outcomes(&undone.staged), [ChangesetOutcome::Undone; 4]);
+    assert!(
+        action_item::current_initiative_ids(&mut connection, outside.id)
+            .await
+            .expect("initiatives")
+            .is_empty(),
+        "the item that started outside ends outside"
+    );
+    assert_eq!(
+        action_item::current_initiative_ids(&mut connection, inside.id)
+            .await
+            .expect("initiatives"),
+        [launch],
+        "the item that started inside ends inside"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
 async fn undo_keeps_an_item_the_user_moved_and_one_deleted_since() {
     let (_url, mut connection) = migrated_database().await;
     let reopened = item_titled(&mut connection, "Reopened", ActionItemState::Open).await;
