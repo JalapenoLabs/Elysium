@@ -52,7 +52,15 @@ export function GithubIssueList(props: Props) {
   }
 
   return <div className='flex flex-col gap-3'>
-    <TextField value={filter} autoComplete='off' onChange={setFilter}>
+    <TextField
+      value={filter}
+      autoComplete='off'
+      onChange={(value) => {
+        setFilter(value)
+        // What was picked may not be in the narrower list, and must not be linked unseen.
+        props.onSelect(null)
+      }}
+    >
       <Label>{t('links.picker.filter')}</Label>
       <Input />
     </TextField>

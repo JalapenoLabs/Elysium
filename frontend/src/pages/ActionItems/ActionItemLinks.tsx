@@ -92,6 +92,10 @@ export function ActionItemLinks(props: Props) {
     </div>}
     {status === 'failed' && <p className='text-sm text-danger'>{t('links.loadError')}</p>}
     {status === 'loaded' && !links.length && <p className='text-sm opacity-70'>{t('links.empty')}</p>}
+    {/* Without this, recorded titles and states would read as what the providers say now. */}
+    {remoteStatus === 'failed' && links.length > 0 && <p className='compact text-xs text-warning'>{
+      t('links.readAllError')
+    }</p>}
 
     <ul className='flex flex-col gap-3'>{
       links.map((link) => <LinkRow

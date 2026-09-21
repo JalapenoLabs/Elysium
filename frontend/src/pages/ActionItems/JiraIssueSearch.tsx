@@ -67,7 +67,9 @@ export function JiraIssueSearch(props: Props) {
     <ChoiceList
       label={t('links.picker.results')}
       choices={choices}
-      status={toLoadStatus(search.data !== undefined, search.error)}
+      // The previous answer stays on screen while the next loads, but a failed search must
+      // not pass it off as the answer to the new one.
+      status={toLoadStatus(search.data !== undefined && !search.error, search.error)}
       error={search.error}
       truncated={search.data
         ? !search.data.isLast

@@ -38,6 +38,12 @@ export function LinkCredentialSelect(props: Props) {
     </div>
   }
 
+  // Both failing leaves nothing to pick; saying so keeps it from reading as having no
+  // credentials. One failing narrows the list to the provider that answered.
+  if (jiraStatus === 'failed' && githubStatus === 'failed') {
+    return <p className='text-sm text-danger'>{t('links.picker.credentialsError')}</p>
+  }
+
   const options = credentialOptions(jiraCredentials, githubCredentials, {
     jira: t('links.providers.jira'),
     github: t('links.providers.github'),
