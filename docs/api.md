@@ -50,6 +50,11 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/initiatives/{id}/links`      | `200` `{ links: InitiativeLink[] }`, oldest first   |
 | POST   | `/api/v1/initiatives/{id}/links`      | `201` `{ link }`; links a container                 |
 | DELETE | `/api/v1/initiatives/{id}/links/{linkId}` | `204`; its items leave the initiative           |
+| GET    | `/api/v1/changesets`                  | `200` `{ changesets: Changeset[] }`, newest first    |
+| GET    | `/api/v1/changesets/{id}`             | `200` `{ changeset }`                               |
+| POST   | `/api/v1/changesets/{id}/decide`      | `200` `{ changeset }`; approves or rejects operations |
+| POST   | `/api/v1/changesets/{id}/apply`       | `200` `{ changeset }` with each operation's outcome |
+| POST   | `/api/v1/changesets/{id}/undo`        | `200` `{ changeset }` with what each undo did       |
 | GET    | `/api/v1/llms`                        | `200` `{ llms: Llm[] }`, in priority order          |
 | POST   | `/api/v1/llms`                        | `201` `{ llm }`                                     |
 | GET    | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
@@ -312,10 +317,11 @@ A `Comment` has `id`, `actionItemId`, `author`, `body` (1 to 20,000 characters),
 equals `createdAt` until the comment is edited. `POST` and `PATCH` take `{ body }`. Editing or deleting a comment
 someone else wrote answers `409`.
 
-A `HistoryEntry` has `id`, `actionItemId`, `initiativeId`, `kind`, `actor`, `data`, and `createdAt`; kinds and their
-`data` are listed in `docs/action-items.md`. Every write over HTTP is recorded with the actor `user`; a comment a
-coding agent writes through `elysium_work` carries `session:<number>`, and a change the watcher reads from a provider
-`watcher:jira` or `watcher:github`.
+A `HistoryEntry` has `id`, `actionItemId`, `initiativeId`, `kind`, `actor`, `data`, `createdAt`, and `changesetId`
+(the changeset whose applying or undoing made the change, or null); kinds and their `data` are listed in
+`docs/action-items.md`. Every write over HTTP is recorded with the actor `user`; a comment a coding agent writes through
+`elysium_work` carries `session:<number>`, a change the watcher reads from a provider `watcher:jira` or
+`watcher:github`, and an applied changeset's changes its proposer, `elysia` or `session:<number>`.
 
 Resolving an item owes a close to every linked issue still open, and writing a comment owes it to the item's primary
 link; the watcher lands both (`docs/action-items.md`), so the response does not wait on the provider.
@@ -351,6 +357,29 @@ An `InitiativeLink` has `id`, `initiativeId`, `provider`, `kind` (`epic`, `filte
 /initiatives/{id}/links` takes `{ provider, credentialId, kind, reference }`: an epic's key or a saved filter's id for
 Jira, `owner/name#3` for a milestone, or `owner/name:label`. The container is read through the credential first, and
 its children join on the watcher's next pass, which the link wakes at once. Unlinking takes out the items it brought in.
+
+### `/api/v1/changesets`
+
+A `Changeset` has `id`, `proposer` (`elysia` or `session:<number>`), `projectId` (the project a coding session proposed
+it in, or null), `summary`, `state` (`pending`, `applied`, `rejected`, `undone`), `decidedAt`, `undoneAt`,
+`operations`, `createdAt`, and `updatedAt`. An operation has `id`, `position` (from 1), `operation` (an object whose
+`kind` says what it does, shaped as `docs/action-items.md` lists), `reason`, `quote`, `source`, `dependsOn` (the
+positions of the earlier operations it acts on), `decision` (`pending`, `approved`, `rejected`), `outcome` (`pending`,
+`applied`, `failed`, `skipped`, `undone`), `error` (why it failed or was skipped), `result` (the ids it acted on or
+created, and the values it replaced), and `undo` (null until the changeset is undone; then any of `kept`,
+`movedSince`, `stillPosted`, `stillClosed`, and `refusal`).
+
+Nothing creates a changeset over HTTP; proposers stage them in-process (`work_propose_changes` today). `GET /` takes
+`state`, one or more, comma separated.
+
+`decide` takes `{ decision, operationIds }`, where `decision` is `approved`, `rejected`, or `pending`, and
+`operationIds` names the operations, or every one when it is left out. Rejecting an operation rejects every operation
+that depends on it; approving one whose dependency stays rejected answers `400` naming both, as does an operation that
+is not in the changeset. `apply` answers `400` while any operation is undecided, then applies the approved ones as
+`docs/action-items.md` describes: one that fails is marked with the reason and the rest apply, so the answer is `200`
+with each outcome. `undo` reverses an applied changeset once. `decide` and `apply` on a changeset that is no longer
+pending, and `undo` on one that is not applied, answer `409`. Every write publishes `changeset.upserted`, and applying
+and undoing publish every item, initiative, comment, link, and history entry they changed.
 
 ### `/api/v1/initiatives`
 
@@ -468,7 +497,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
-| `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), and the link watcher |
+| `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), the link watcher, and changesets' operations, dependencies, and decisions |
 | `src/tools/`             | The relayed MCP servers agents call: `elysium_storage` and `elysium_work`, see `docs/coding.md` |
 
 ## Logging

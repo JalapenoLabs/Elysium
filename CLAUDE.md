@@ -100,8 +100,8 @@ Everything else follows these rules:
 
 The core and its frontend are built: items, initiatives, memberships, comments, history, Next, and progress, under
 `/api/v1/action-items` and `/api/v1/initiatives`, and the Action items area that uses them. So are the `elysium_work`
-tools, coding sessions started from an item, and links to Jira and GitHub with the watcher and their frontend.
-Changesets are designed, not yet built; do not build against them until their implementation lands.
+tools, coding sessions started from an item, and links to Jira and GitHub with the watcher and their frontend. So are
+changesets under `/api/v1/changesets` and the `work_propose_changes` tool; their review screen in the frontend is next.
 
 - Action items are the one list of what the user owes attention to, from Jira, GitHub, email, meetings, or typed by
   hand. Initiatives group items toward a goal that ends and carry the progress bar; projects never end and have
@@ -115,6 +115,12 @@ Changesets are designed, not yet built; do not build against them until their im
 - Anything the user did not do directly (Elysia, Elysium's AI assistant; email triage; coding agents) proposes a
   changeset. Nothing is written in Elysium or any provider until the user approves it, wholly or in part. The
   watcher only records what already happened in a provider, so it needs no changeset.
+- A changeset's operations are decided one by one; rejecting one rejects what depends on it. Applying runs the
+  approved ones in order as the proposer, each in its own savepoint, so one that fails is marked with the reason and
+  the rest apply; provider writes go through the same outbox as the user's. The history it records names the
+  changeset, so it can be undone as a whole, never overwriting what the user changed since. What already left Elysium
+  (a posted comment, a closed issue) is not reversed, and the review says so. Rules and queries:
+  `api/src/action_items/changesets.rs` and `api/src/models/changeset.rs`.
 - The watcher polls providers for changes; webhooks come later. Link providers sit behind one trait
   (`api/src/action_items/links/`), so routes and tools never match on the provider. Every Jira call goes through the
   credential's allowlist, as the Jira routes' calls do.
@@ -126,8 +132,9 @@ Changesets are designed, not yet built; do not build against them until their im
 - A Jira project's done transition is stored as the `done` status it leads into, chosen by the user only when the
   project has more than one.
 - Coding agents use one relayed MCP server, `elysium_work`, declared on every thread, in Elysium's terms and scoped to
-  the session's project, re-checked on every call. Until changesets exist, its writes are comments and linking the
-  pull request the agent opened to its session's item; an agent's link never becomes the primary.
+  the session's project, re-checked on every call. Its direct writes are comments and linking the pull request the
+  agent opened to its session's item; an agent's link never becomes the primary. Every other change it proposes as a
+  changeset with `work_propose_changes`.
 - A session started from an item records it, and its first turn carries the item's context ahead of the user's
   prompt.
 - There is no users table yet. Ownership and actors are recorded as text and become references when users land.
