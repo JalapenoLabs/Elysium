@@ -229,6 +229,53 @@ pub async fn delete(
         .await
 }
 
+/// Takes back a comment a changeset wrote, as part of undoing that changeset, whoever wrote
+/// it: the user approved it, and the undo is the user's. Everywhere else only a comment's
+/// author deletes it. The body stays in the history, and a post to the provider that has
+/// not landed is dropped with it.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] for an unknown item or a comment that is not
+/// on it, [`WorkError::Conflict`] for a deleted item, and any other database error.
+pub async fn withdraw(
+    connection: &mut AsyncPgConnection,
+    action_item_id: Uuid,
+    comment_id: Uuid,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> Result<Recorded<Comment>, WorkError> {
+    connection
+        .transaction(async move |connection| {
+            action_item::lock_live(connection, action_item_id).await?;
+            let record: Comment = action_item_comments::table
+                .find(comment_id)
+                .filter(action_item_comments::action_item_id.eq(action_item_id))
+                .for_update()
+                .select(Comment::as_select())
+                .first(connection)
+                .await?;
+            diesel::delete(action_item_comments::table.find(comment_id))
+                .execute(connection)
+                .await?;
+            let entry = action_item_event::record(
+                connection,
+                Change {
+                    subject: Subject::Item(action_item_id),
+                    kind: HistoryKind::CommentDeleted,
+                    actor,
+                    data: json!({ "commentId": comment_id, "body": record.body }),
+                    at: now,
+                },
+            )
+            .await?;
+            Ok(Recorded {
+                record,
+                history: vec![entry],
+            })
+        })
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::TimeDelta;

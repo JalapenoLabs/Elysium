@@ -10,8 +10,9 @@ under `/api/v1/action-items` and `/api/v1/initiatives` (`docs/api.md`) and kept 
 burnup, and the project page's items and initiatives (`docs/frontend.md`). So are the `elysium_work` tools and coding
 sessions started from an item ([Coding sessions](#coding-sessions)), and links to Jira and GitHub with the watcher that
 keeps them current ([Links and the watcher](#links-and-the-watcher)), with their frontend: links on the item page,
-containers on the initiative page, and the Jira done status choice under Settings. Changesets are still a design; that
-section is the plan.
+containers on the initiative page, and the Jira done status choice under Settings. So are changesets
+([Changesets](#changesets)): proposing, deciding, applying, and undoing them under `/api/v1/changesets`, and the
+`work_propose_changes` tool coding agents propose them with. Their review screen in the frontend is on the roadmap.
 
 The design goal is that work arrives from anywhere, is triaged and managed in one place, and every change made here
 reaches the system it came from. The user approves; Elysium and Elysia, Elysium's AI assistant, do the bookkeeping.
@@ -126,7 +127,11 @@ joining or leaving one, and then shows in both histories. A write that changes n
 | `initiative_joined`, `initiative_left` | Empty; the entry names both      |
 
 Kinds and actors are stored as text rather than enums, so later stages add kinds without an enum migration. Only a
-comment's author edits or deletes it: the user cannot rewrite what Elysia or an agent said.
+comment's author edits or deletes it: the user cannot rewrite what Elysia or an agent said. The one exception is undoing
+the changeset that wrote it, which the user approved.
+
+An entry recorded by applying a changeset, with the proposer as its actor, or by undoing one, with the user as its
+actor, names that changeset as its source (`changesetId`).
 
 ## Next
 
@@ -341,6 +346,90 @@ the quote and source it came from. Nothing is written, in Elysium or anywhere el
 
 Rules that apply trusted kinds of operations without review are on the roadmap. Until then everything is reviewed.
 
+The rules are `api/src/action_items/changesets.rs`, and the queries that store, apply, and undo changesets are
+`api/src/models/changeset.rs` with `apply.rs` and `undo.rs` beside it.
+
+### Proposing
+
+A changeset has a proposer (`elysia` or `session:<number>`; email triage and meetings propose as Elysia), a one-line
+summary, the project a coding session proposed it in, and up to 50 operations. Each operation is an object whose
+`kind` says what it does, with the reason for it and, optionally, the quote and source it came from:
+
+| `kind`                   | Fields                                                                       |
+|--------------------------|------------------------------------------------------------------------------|
+| `create-item`            | `title`, and optional `notes`, `priority`, `dueAt`, `projectIds`, `initiatives` |
+| `update-item`            | `item`, and any of `title`, `notes`, `priority`, `dueAt` (`null` removes it)  |
+| `resolve-item`, `dismiss-item` | `item`                                                                 |
+| `comment`                | `item`, `body`                                                               |
+| `link`                   | `item`, `target`: `{ provider, credentialId, kind, reference }`, as a link the user adds |
+| `add-to-initiative`, `remove-from-initiative` | `item`, `initiative`                                    |
+| `create-initiative`      | `name`, and optional `description`, `targetAt`, `projectIds`                 |
+
+An `item` or `initiative` is `{ "id": ... }` for one that exists, or `{ "operation": n }` for the one operation `n` of
+the same changeset creates, counting from 1. An operation can only name an earlier create of the right kind, and it
+depends on every operation it names. A proposal is checked whole before anything is stored: every field fits its
+column, every name points backwards at the right kind, and every existing item and initiative it names is live. One
+that fails is refused naming the operation, and nothing is stored.
+
+Items and initiatives a changeset creates start the way the user's own do: an item `open` and owned by the user, since
+approving it is accepting it, and an initiative `active`. Nothing creates a changeset over HTTP: Elysia, email triage,
+and meetings will call the model's `propose` in-process, as `work_propose_changes` does today.
+
+### Deciding
+
+While a changeset is `pending`, each operation's decision is `pending`, `approved`, or `rejected`, and the user changes
+any number at once, or all of them. Rejecting an operation rejects every operation that depends on it, directly or
+through another, and approving one whose dependency stays rejected is refused. Decisions are stored, so every open
+page shows the same review, and they are final once the changeset is applied.
+
+### Applying
+
+Applying needs every operation decided. Approved operations run in order as the proposer, through the same writes the
+user's own changes use, each in its own savepoint of one transaction:
+
+- An operation the records refuse, such as resolving an item deleted since it was proposed, is `failed` with the
+  reason, and writes nothing. Every operation depending on it is `skipped`, and the rest apply.
+- A `link` operation's target is read through its credential before the transaction starts, as a link the user adds
+  is. A target that cannot be read fails its operation with the provider's answer.
+- Provider writes that follow (closing a resolved item's issues, posting a comment to its primary link) are owed in
+  the same transaction and landed by the watcher, which applying wakes. One that fails leaves its link pending with the
+  provider's last answer, retried as above; the operation's own change stands. The review reads that from the link's
+  owed writes.
+- Elysia's link becomes the item's primary when it has none, as the user's first link does. A coding agent's never
+  does, so its pull request never moves whose list an item is on.
+- A changeset with any operation approved ends `applied`; one with every operation rejected ends `rejected` and wrote
+  nothing.
+
+Each operation keeps what it did (`result`): the ids it created or acted on, and for an update each field's value
+before and after. Every history entry an operation recorded names the changeset (`action_item_events.changeset_id`).
+
+### Undoing
+
+An applied changeset can be undone once, as a whole. Its applied operations are reversed last first, as the user,
+and the history entries the undo records name the changeset too:
+
+| Operation            | Undo                                                                               |
+|----------------------|------------------------------------------------------------------------------------|
+| Create an item       | Deletes it softly, so it can still be restored                                     |
+| Update an item       | Puts back each field that still holds what the update wrote                        |
+| Resolve or dismiss   | Returns the item to the state it left, the inbox or open, if it has not moved since |
+| Comment              | Takes the comment back, whoever wrote it                                           |
+| Link                 | Removes the link, if the operation added it                                        |
+| Add to or remove from an initiative | Reverses the membership, if the operation changed it                |
+| Create an initiative | Deletes it softly                                                                  |
+
+What undo cannot reverse, and says so on the operation (`undo`) for the review to show:
+
+- A comment the watcher already posted to Jira or GitHub stays there (`stillPosted`). One not posted yet is dropped.
+- An issue the watcher already closed stays closed when its item returns (`stillClosed`); a pull request was never
+  touched. A close not landed yet is dropped, as for any item no longer resolved.
+- A field the user changed after the changeset keeps the user's value (`kept`), and an item the user moved since stays
+  where the user put it (`movedSince`).
+- An operation the records refuse, such as returning an item deleted since, keeps its effect with the reason
+  (`refusal`). The rest are still reversed.
+
+An operation reversed ends `undone`; one that could not be stays `applied` with its `undo` saying why.
+
 ## Coding sessions
 
 Coding agents reach action items through one relayed MCP server, `elysium_work` (`api/src/tools/work.rs`). It is
@@ -359,6 +448,7 @@ Every call is scoped to the session's project and re-checked against the databas
 | `work_initiative`  | `initiativeId`                                             | The initiative with its description and the project's items in it, up to 200 with `moreItems` |
 | `work_comment`     | `itemId`, `body`                                           | `{ comment }`                                               |
 | `work_link_pull_request` | `url` of a pull request on github.com                | `{ link }`: its item, key, URL, title, and state             |
+| `work_propose_changes` | `summary`, `operations`: each a `change` with its `reason`, `quote`, `source` | `{ changeset, message }`: the staged changeset's id and each operation's position, kind, and dependencies |
 
 - An item or initiative is reachable while it is live and in the session's project, as the database says at the
   moment of the call. Anything else is refused the same way, deleted or elsewhere, pointing the agent at the list
@@ -368,9 +458,14 @@ Every call is scoped to the session's project and re-checked against the databas
   otherwise, up to 200. `search` matches the title or notes, ignoring case.
 - The agent reads items and initiatives in its project and comments on its project's items. A comment is written as
   `session:<number>`, recorded in the item's history, published on the event stream, and posted to the item's primary
-  link like the user's; only its author may change it, so the user cannot rewrite it either. Proposing changes as a
-  changeset arrives with changesets; the server's instructions tell the agent to ask the user for any other change
-  until then. It cannot resolve or delete anything directly.
+  link like the user's; only its author may change it, so the user cannot rewrite it either. It cannot resolve or
+  delete anything directly.
+- Any other change the agent wants it proposes with `work_propose_changes`, as a changeset proposed by
+  `session:<number>` for the user's review ([Changesets](#changesets)). The operations are the changeset's own, in
+  Elysium's terms, with one difference: a pull request is linked by its URL (`link-pull-request`), read through the
+  session's GitHub token when proposed and stored as a `link`, and no other link can be proposed. Everything it names
+  must be live and in the session's project, and what it creates joins that project; `projectIds` are refused. The
+  answer tells the agent that nothing changes until the user approves, and it is not told when they do.
 - `work_link_pull_request` links a pull request the agent opened to the item its session was started from, and only
   that item, live and in the project as the database says at the moment of the call. The pull request is read through
   the GitHub token the session started with (`coding_sessions.github_credential_id`), so a session without an item or
@@ -389,6 +484,9 @@ Every call is scoped to the session's project and re-checked against the databas
 
 ## Roadmap
 
+- The changeset review screen in the frontend: an inbox of changesets with the pending count on the Action items area
+  and Next, and a page showing each operation as a readable change with its reason and quote, per-operation approve
+  and reject, apply, each outcome, and undo with what it cannot reverse.
 - Email: completing an item that came from an email marks the thread read, then archives or deletes it; which of the
   two is not decided.
 - Email triage: Elysia reads new mail and proposes items as changesets.

@@ -26,6 +26,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `initiative.upserted` | `Initiative`            | An initiative was created, changed, or restored, or its progress moved |
 | `initiative.deleted` | `{ id }`                 | An initiative was deleted (softly; it may be restored)     |
 | `history.appended`   | `HistoryEntry`           | A write recorded an entry in an item's or initiative's history |
+| `changeset.upserted` | `Changeset`              | A changeset was proposed, decided on, applied, or undone   |
 | `llm.upserted`       | `Llm`                    | An LLM credential was created or changed                   |
 | `llm.deleted`        | `{ id }`                 | An LLM credential was deleted                              |
 | `mailbox.upserted`   | `MailAccount`            | A mailbox was connected, changed, or checked               |

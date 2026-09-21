@@ -29,6 +29,7 @@ use crate::mail::hosting::MailServerStatus;
 use crate::routes::v1::action_items::{
     ActionItemLinkResponse, ActionItemResponse, CommentResponse, HistoryEntryResponse,
 };
+use crate::routes::v1::changesets::ChangesetResponse;
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
 use crate::routes::v1::environment_variables::EnvironmentVariableResponse;
 use crate::routes::v1::github_credentials::GithubCredentialResponse;
@@ -78,6 +79,9 @@ pub enum ServerEvent {
     /// A write to an item or initiative recorded this in its history.
     #[serde(rename = "history.appended")]
     HistoryAppended(HistoryEntryResponse),
+    /// A changeset was proposed, decided on, applied, or undone.
+    #[serde(rename = "changeset.upserted")]
+    ChangesetUpserted(ChangesetResponse),
     #[serde(rename = "environmentVariable.upserted")]
     EnvironmentVariableUpserted(EnvironmentVariableResponse),
     #[serde(rename = "environmentVariable.deleted")]

@@ -165,6 +165,22 @@ pub async fn for_links(
         .await
 }
 
+/// The post a comment still owes its link, if it has not landed.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn for_comment(
+    connection: &mut AsyncPgConnection,
+    comment_id: Uuid,
+) -> QueryResult<Option<LinkWrite>> {
+    action_item_link_writes::table
+        .filter(action_item_link_writes::comment_id.eq(comment_id))
+        .select(LinkWrite::as_select())
+        .first(connection)
+        .await
+        .optional()
+}
+
 /// Up to `limit` owed writes: never-tried ones first, then the ones tried longest ago.
 ///
 /// # Errors

@@ -515,6 +515,27 @@ pub async fn current_initiative_ids(
         .await
 }
 
+/// The item's latest span in the initiative, if it was ever in it: the span's id, and when
+/// it ended, `None` while it is current. Undoing a changeset's membership change compares it
+/// with the span that change opened or closed, to tell whether the user moved the item since.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn latest_span(
+    connection: &mut AsyncPgConnection,
+    action_item_id: Uuid,
+    initiative_id: Uuid,
+) -> QueryResult<Option<(Uuid, Option<DateTime<Utc>>)>> {
+    initiative_items::table
+        .filter(initiative_items::action_item_id.eq(action_item_id))
+        .filter(initiative_items::initiative_id.eq(initiative_id))
+        .order(initiative_items::id.desc())
+        .select((initiative_items::id, initiative_items::left_at))
+        .first(connection)
+        .await
+        .optional()
+}
+
 /// Refuses initiative ids that name no initiative, or a deleted one. The rows stay
 /// share-locked until the transaction ends, so none can be deleted before the item joins.
 async fn require_live_initiatives(
@@ -791,6 +812,69 @@ pub async fn transition(
             if state == ActionItemState::Resolved {
                 action_item_link_write::owe_closes(connection, id, now).await?;
             }
+            let entry = action_item_event::record(
+                connection,
+                Change {
+                    subject: Subject::Item(id),
+                    kind: HistoryKind::StateChanged,
+                    actor,
+                    data: replaced(item.state, state),
+                    at: now,
+                },
+            )
+            .await?;
+            Ok(Recorded {
+                record,
+                history: vec![entry],
+            })
+        })
+        .await
+}
+
+/// Takes a resolved or dismissed item back to `state`, the inbox or open, where it was
+/// before: what undoing a changeset's resolve or dismiss does. Unlike reopening, which
+/// always lands on `open`, this returns an item that was resolved straight from the inbox to
+/// the inbox.
+///
+/// A close the resolve owed and the watcher has not landed yet is dropped by the watcher,
+/// as for any item no longer resolved. One it already landed stays in the provider.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] for an unknown id, [`WorkError::Conflict`]
+/// for a deleted item or one that is not resolved or dismissed, [`WorkError::Invalid`] for a
+/// `state` other than the inbox or open, and any other database error.
+pub async fn return_to(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    state: ActionItemState,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> Result<Recorded<ActionItem>, WorkError> {
+    if !matches!(state, ActionItemState::Inbox | ActionItemState::Open) {
+        return Err(WorkError::Invalid(
+            "an item returns only to the inbox or to open",
+        ));
+    }
+    connection
+        .transaction(async move |connection| {
+            let item = lock_live(connection, id).await?;
+            if !matches!(
+                item.state,
+                ActionItemState::Resolved | ActionItemState::Dismissed
+            ) {
+                return Err(WorkError::Conflict(
+                    "only a resolved or dismissed item can return to where it was",
+                ));
+            }
+            let record = diesel::update(action_items::table.find(id))
+                .set((
+                    action_items::state.eq(state),
+                    action_items::resolved_at.eq(None::<DateTime<Utc>>),
+                    action_items::dismissed_at.eq(None::<DateTime<Utc>>),
+                ))
+                .returning(ActionItem::as_returning())
+                .get_result(connection)
+                .await?;
             let entry = action_item_event::record(
                 connection,
                 Change {

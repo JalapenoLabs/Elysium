@@ -79,6 +79,7 @@ impl From<crate::action_items::WorkError> for ApiError {
             WorkError::Database(database) => database.into(),
             WorkError::Conflict(message) => Self::Conflict(message),
             WorkError::Invalid(message) => Self::BadRequest(message.to_owned()),
+            WorkError::Refused(message) => Self::BadRequest(message),
         }
     }
 }

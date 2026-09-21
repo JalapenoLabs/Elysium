@@ -49,8 +49,9 @@ Guarantees:
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
 redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
-query, every `elysium_work` tool against its project scope, each link provider against a faked provider, and the
-watcher's passes. Plain `cargo test` skips them because they need `TEST_DATABASE_URL`.
+query, every `elysium_work` tool against its project scope, each link provider against a faked provider, the
+watcher's passes, and changesets proposed, decided, applied in part, and undone. Plain `cargo test` skips them because
+they need `TEST_DATABASE_URL`.
 
 ## Conventions
 
@@ -390,8 +391,10 @@ The history of items and initiatives, one row per change; see `docs/action-items
 | `actor`          | `TEXT`        | `user`, `elysia`, `session:<n>`, or `watcher:<provider>`     |
 | `data`           | `JSONB`       | A JSON object shaped by `kind`                               |
 | `created_at`     | `TIMESTAMPTZ` | Written by the API, the moment of the change                 |
+| `changeset_id`   | `UUID`        | The changeset whose applying or undoing made the change; `ON DELETE SET NULL` |
 
 At least one of `action_item_id` and `initiative_id` is set; both are for an item joining or leaving an initiative.
+The partial index `action_item_events_changeset_id_idx` finds a changeset's entries.
 `kind` and `actor` are text with shape checks rather than enums, because later stages add kinds, and Postgres refuses
 a new enum value in the transaction that added it.
 
@@ -474,3 +477,43 @@ per credential, `jira_credential_id` or `github_credential_id` (each unique, del
 The done transition chosen for a Jira project, stored as the `done` status it leads into. The primary key is
 `(jira_credential_id, project_key)`, deleted with the credential; `status_id` and `status_name` are what Jira reported
 when it was chosen. A project with exactly one `done` status has no row.
+
+### `changesets`
+
+Changes anyone but the user proposes, waiting for the user's review; see `docs/action-items.md`.
+
+| Column       | Type              | Notes                                                              |
+|--------------|-------------------|--------------------------------------------------------------------|
+| `id`         | `UUID`            | UUIDv7, primary key; orders changesets as they were proposed       |
+| `proposer`   | `TEXT`            | `elysia` or `session:<n>`, in the actor form history records       |
+| `project_id` | `UUID`            | The project a coding session proposed it in; `ON DELETE SET NULL`  |
+| `summary`    | `TEXT`            | 1 to 500 characters                                                |
+| `state`      | `changeset_state` | `pending`, `applied`, `rejected`, or `undone`                      |
+| `decided_at` | `TIMESTAMPTZ`     | When it was applied or rejected; set exactly once it leaves `pending` |
+| `undone_at`  | `TIMESTAMPTZ`     | Set exactly while `state` is `undone`                              |
+| `created_at` | `TIMESTAMPTZ`     | Written by the API                                                 |
+| `updated_at` | `TIMESTAMPTZ`     | Maintained by trigger                                              |
+
+`changesets_state_idx` on `(state, id)` serves the list of pending changesets, newest first.
+
+### `changeset_operations`
+
+A changeset's operations, in order. `(changeset_id, position)` is unique, and the rows are deleted with the changeset.
+
+| Column         | Type                 | Notes                                                           |
+|----------------|----------------------|-----------------------------------------------------------------|
+| `id`           | `UUID`               | UUIDv7, primary key                                             |
+| `changeset_id` | `UUID`               | References `changesets`                                         |
+| `position`     | `INTEGER`            | From 1; the order operations apply in, and how a later one names an earlier one |
+| `operation`    | `JSONB`              | The change as validated: an object whose `kind` says what it does |
+| `reason`       | `TEXT`               | 1 to 2000 characters                                            |
+| `quote`        | `TEXT`               | What it came from, 1 to 2000 characters; optional               |
+| `source`       | `TEXT`               | Where that is, 1 to 500 characters; optional                    |
+| `decision`     | `changeset_decision` | `pending`, `approved`, or `rejected`                            |
+| `outcome`      | `changeset_outcome`  | `pending`, `applied`, `failed`, `skipped`, or `undone`; only an approved operation is applied, fails, or is undone |
+| `error`        | `TEXT`               | Why it failed or was skipped, up to 2000 characters             |
+| `result`       | `JSONB`              | What applying it did: the ids it acted on or created, and the values it replaced |
+| `undo`         | `JSONB`              | What undoing it did and could not do; NULL until it is undone   |
+
+Operations are JSON rather than a table per kind, so a kind is added without a migration; the API validates each one
+before it is stored.
