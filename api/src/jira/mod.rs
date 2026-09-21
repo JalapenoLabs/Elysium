@@ -501,9 +501,15 @@ impl Jira {
     /// One saved filter by id.
     ///
     /// # Errors
-    /// Returns [`JiraError::NotFound`] for a filter that does not exist or that the token
-    /// cannot see, and otherwise as [`Jira::list_projects`].
+    /// Returns [`JiraError::Invalid`] for an id that is not a number, before any call, since
+    /// it becomes part of the path; [`JiraError::NotFound`] for a filter that does not exist
+    /// or that the token cannot see; and otherwise as [`Jira::list_projects`].
     pub async fn filter(&self, site: &Site<'_>, id: &str) -> Result<Filter, JiraError> {
+        if id.is_empty() || !id.chars().all(|digit| digit.is_ascii_digit()) {
+            return Err(JiraError::Invalid(format!(
+                "{id} is not a saved filter's id; one is a number"
+            )));
+        }
         let path = format!("/rest/api/3/filter/{id}");
         let reply = self.send(self.request(Method::GET, site, &path)).await?;
         let body: FilterBody = reply.read("a filter")?;

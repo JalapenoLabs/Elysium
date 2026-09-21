@@ -23,6 +23,7 @@
 //! recorded is read as already done on the next start, since every write reads the
 //! provider's state first.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -392,7 +393,7 @@ pub async fn sync_container(
         .remove(&container.initiative_id)
         .unwrap_or_default();
 
-    let mut held = Vec::with_capacity(children.items.len());
+    let mut held = HashSet::with_capacity(children.items.len());
     for remote in &children.items {
         if let Some(item_id) = adopt_child(
             context,
@@ -404,7 +405,7 @@ pub async fn sync_container(
         )
         .await?
         {
-            held.push(item_id);
+            held.insert(item_id);
         }
     }
 
@@ -470,9 +471,11 @@ async fn adopt_child(
         item.id
     } else {
         let created = create_child(connection, credential, remote, project_ids, actor, now).await?;
-        let Some(link) = created.links.first().cloned() else {
-            return Ok(None);
-        };
+        let link = created
+            .links
+            .first()
+            .cloned()
+            .context("an item created for a child has the child's link")?;
         publish_item_write(&context.events, connection, created.item, &[], now).await?;
         publish_item_links(&context.events, connection, link.action_item_id).await?;
         // The child was recorded open, so a child already done resolves now, through the

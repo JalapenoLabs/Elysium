@@ -51,20 +51,18 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let credential = new_link.credential;
     let linked =
         action_item_link::add(&mut connection, id, new_link, true, Actor::User, now).await?;
+    let link = linked
+        .links
+        .into_iter()
+        .next()
+        .context("a link write answers the link")?;
     publish_item_write(&state.events, &mut connection, linked.item, &[], now).await?;
     publish_item_links(&state.events, &mut connection, id).await?;
 
-    let link = action_item_link::find_by_external(
-        &mut connection,
-        credential,
-        target.kind,
-        &remote.external_id,
-    )
-    .await?
-    .context("the link just made can be read back")?;
+    // Read again, so the answer carries the primary flag and writes as they are now.
+    let link = action_item_link::find(&mut connection, link.id).await?;
     let link = link_responses(&mut connection, vec![link])
         .await?
         .pop()

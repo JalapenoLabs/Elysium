@@ -228,7 +228,9 @@ are `low`; anything else is `normal`), and a Jira due date, a day, becomes the l
 GitHub has neither, so an item from GitHub starts `normal` with no due date.
 
 Deleting a credential deletes the links and containers that went through it: Elysium can no longer reach what they
-point at. The items and initiatives stay.
+point at. The items and initiatives stay, and so do the memberships a deleted container brought in, which then count as
+added by hand: the work was accepted, and only the way of watching it is gone. Unlinking a container is the user
+saying the work no longer belongs, so that takes its items out.
 
 | Provider | Linkable                  | Resolved by the provider when   | Resolving the item does          |
 |----------|---------------------------|---------------------------------|----------------------------------|

@@ -203,7 +203,8 @@ pub struct NewLink {
     pub observation: Observation,
 }
 
-/// An item as a link write left it, with the links whose rows the write changed.
+/// An item as a link write left it, with the links whose rows the write changed. Adding a
+/// link answers that link, also when it was there already.
 #[derive(Debug)]
 pub struct Linked {
     pub item: Recorded<ActionItem>,
@@ -468,7 +469,7 @@ pub async fn add(
                         record: item,
                         history: Vec::new(),
                     },
-                    links: Vec::new(),
+                    links: vec![existing],
                 });
             }
 
