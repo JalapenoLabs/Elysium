@@ -49,6 +49,21 @@ satellite changes or stops answering. Two kinds of watcher run under it.
 Polling stands in for the satellite's control stream, which the Rust SDK does not expose yet. Watchers start at
 boot for every active satellite, restart when a satellite is saved, and stop when it is deactivated or deleted.
 
+## Blender
+
+Every thread declares one MCP server of its own, `blender` at `http://127.0.0.1:9877/`, so an agent can model, render,
+and inspect `.blend` files whenever its task calls for one. The server runs inside the satellite, on loopback, in
+satellites built from Arsox's Blender image (`docker/blender/` in `arsox-satellites`, documented in its
+`docs/blender.md`): headless Blender with Blender Lab's MCP extension, and the MCP server beside it, both as the agent
+account. The name and URL are constants in `api/src/routes/v1/coding_sessions/mod.rs`, and the port is a contract with
+that image's entrypoint.
+
+- A satellite built from the plain image has no server on that port. The connection fails, and the turn carries on
+  without Blender.
+- One Blender session serves every thread on a satellite, so concurrent threads modelling at once share a scene.
+  Work saved to a `.blend` in the thread's workspace is unaffected.
+- There is no window, so the screenshot and navigation tools fail. Rendering works.
+
 ## Tool relay
 
 Some of an agent's tools answer from Elysium's own data: `elysium_work` for the project's action items and
@@ -218,14 +233,21 @@ so the workspace follows light and dark mode.
 
 ## Running a satellite locally
 
-The satellite image is not published. Build it from a clone of `JalapenoLabs/arsox-satellites` (`develop`) with
-`docker build --tag arsox-satellite:<commit> .`, then run it from its own compose file outside this repository,
-published only on the `docker0` bridge address:
+The satellite image is not published. Build it from a clone of `JalapenoLabs/arsox-satellites` (`develop`), with
+Blender on top so threads have the `blender` server:
+
+```sh
+docker build --tag arsox-satellite:<commit> .
+docker build --file docker/blender/Dockerfile \
+  --build-arg BASE_IMAGE=arsox-satellite:<commit> --tag arsox-satellite:<commit>-blender .
+```
+
+Then run it from its own compose file outside this repository, published only on the `docker0` bridge address:
 
 ```yaml
 services:
   arsox-local:
-    image: arsox-satellite:<commit>
+    image: arsox-satellite:<commit>-blender
     restart: unless-stopped
     ports: [ "172.17.0.1:8090:8080" ]
     env_file:

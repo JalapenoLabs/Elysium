@@ -595,6 +595,18 @@ mod tests {
     }
 
     #[test]
+    fn every_thread_declares_the_satellites_blender_server() {
+        let settings = thread_settings(Vec::new(), None, &[], None, false);
+        let declared: Vec<(&str, &str)> = settings
+            .mcp_servers
+            .iter()
+            .map(|server| (server.name.as_str(), server.url.as_str()))
+            .collect();
+        assert_eq!(declared, [("blender", "http://127.0.0.1:9877/")]);
+        assert!(settings.mcp_servers[0].headers.is_empty());
+    }
+
+    #[test]
     fn workspace_variables_come_before_the_ones_elysium_sets() {
         use crate::models::environment_variable::ThreadVariable;
 

@@ -28,6 +28,8 @@ Everything else follows these rules:
 - Thread policy (idle TTL, budget ceilings) is code constants, not configuration. See `docs/coding.md`.
 - A thread is opened with Elysium's active LLM credentials as an ordered failover stack, highest priority first,
   so a credential that runs out hands the turn to the next one.
+- Every thread declares the satellite's Blender MCP server (`blender`, `http://127.0.0.1:9877/`), which satellites
+  built from Arsox's Blender image run on loopback, so agents can 3D model whenever they need. See `docs/coding.md`.
 
 ## Mail
 

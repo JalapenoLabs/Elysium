@@ -15,6 +15,8 @@ mod model_stack;
 mod rename_coding_session;
 mod start_turn;
 
+use std::collections::HashMap;
+
 use arsox_sdk::proto::common::v1::Secret;
 use arsox_sdk::proto::common::v1::{
     CostCeiling, Duration, DurationCeiling, Money, TokenCeiling, Unlimited, cost_ceiling,
@@ -22,7 +24,7 @@ use arsox_sdk::proto::common::v1::{
 };
 use arsox_sdk::proto::harness::v1::Harness;
 use arsox_sdk::proto::settings::v1::EnvVar;
-use arsox_sdk::proto::settings::v1::{Budget, Repo, ThreadSettings};
+use arsox_sdk::proto::settings::v1::{Budget, McpServer, Repo, ThreadSettings};
 use axum::Router;
 use axum::routing::{get, patch, post};
 use chrono::{DateTime, Utc};
@@ -64,6 +66,13 @@ const THREAD_COST_CEILING_DOLLARS: i64 = 25;
 /// Longest a single turn may run before the satellite stops it.
 const TURN_WALL_CLOCK_CEILING_SECONDS: i64 = 60 * 60;
 
+/// The Blender MCP server a satellite built from Arsox's Blender image runs on loopback, so an
+/// agent can model, render, and inspect `.blend` files whenever its task calls for one. Its
+/// port is a contract with that image's entrypoint (`docker/blender/` in `arsox-satellites`).
+/// A satellite without Blender fails the connection and the turn carries on without it.
+const BLENDER_MCP_SERVER_NAME: &str = "blender";
+const BLENDER_MCP_SERVER_URL: &str = "http://127.0.0.1:9877/";
+
 /// A session as clients see it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -104,8 +113,9 @@ impl CodingSessionResponse {
 
 /// Settings for a new thread: Elysium's policy ceilings, the repositories to clone, the
 /// credentials the thread fails over through, the workspace's environment variables, the
-/// GitHub token its agent works with, and the tools Elysium relays: the work tools always,
-/// and the storage tools when the project has a storage location to use them on.
+/// GitHub token its agent works with, the Blender server the satellite runs, and the tools
+/// Elysium relays: the work tools always, and the storage tools when the project has a
+/// storage location to use them on.
 ///
 /// Without a stack the thread declares no endpoint, and the satellite falls back to
 /// whatever credential it holds itself.
@@ -153,6 +163,11 @@ fn thread_settings(
         repos: repositories,
         github: github_token.map(github_token::integration),
         env: thread_environment(variables, github_token),
+        mcp_servers: vec![McpServer {
+            name: BLENDER_MCP_SERVER_NAME.to_owned(),
+            url: BLENDER_MCP_SERVER_URL.to_owned(),
+            headers: HashMap::new(),
+        }],
         // A thread takes its tools once. A project without a location yet has nothing to
         // call the storage tools on; each call re-checks the project's locations anyway.
         // Every project has its work to read, so every thread declares the work tools.
