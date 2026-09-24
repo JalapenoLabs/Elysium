@@ -55,7 +55,6 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/action-items/initiatives/:initiativeId` | `InitiativePage` | One initiative: progress, burnup, items, history  |
 | `/action-items/changesets`    | `ChangesetsPage`         | Changesets, those waiting for review first               |
 | `/action-items/changesets/:changesetId` | `ChangesetPage` | One changeset's review, outcome, and undo         |
-| `/studio`                     | `StudioPage`             | Placeholder                                              |
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
 | `/projects/:projectId`        | `ProjectPage`            | One project, edited in place, with its sessions          |
@@ -573,7 +572,7 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
-  `satellites`, `email`, `storage`, `github`, `jira`, `environment`, `projects`, `coding`, `studio`,
+  `satellites`, `email`, `storage`, `github`, `jira`, `environment`, `projects`, `coding`,
   `actionItems`, `initiatives`, `changesets`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with

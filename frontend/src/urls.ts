@@ -13,7 +13,6 @@ export const UrlTree = {
   initiativeView: '/action-items/initiatives/:initiativeId',
   changesets: '/action-items/changesets',
   changesetView: '/action-items/changesets/:changesetId',
-  studio: '/studio',
   projects: '/projects',
   projectsNew: '/projects/new',
   projectView: '/projects/:projectId',
