@@ -29,6 +29,9 @@ export const SESSION_EVENTS_LIMIT = 5_000
 // Versioned so an incompatible layout from an older build is ignored, not restored.
 export const CODING_LAYOUT_STORAGE_KEY = 'elysium.coding.layout.v2'
 
+// Whether the Coding page's Sessions panel shows a table or tiles, remembered per browser.
+export const CODING_SESSIONS_VIEW_STORAGE_KEY = 'elysium.coding.sessions.view.v1'
+
 // Project cover uploads: the API refuses anything larger, and reads the format from the
 // bytes. These let the form refuse early and the file picker offer only images.
 export const PROJECT_COVER_MAX_BYTES = 10_000_000

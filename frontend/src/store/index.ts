@@ -23,6 +23,7 @@ import { projectsSlice } from './projectsSlice'
 import { realtimeSlice } from './realtimeSlice'
 import { satellitesSlice } from './satellitesSlice'
 import { sessionEventsSlice } from './sessionEventsSlice'
+import { sessionsViewSlice } from './sessionsViewSlice'
 import { storageLocationsSlice } from './storageLocationsSlice'
 import { themeSlice } from './themeSlice'
 
@@ -56,6 +57,7 @@ export function createAppStore() {
       [realtimeSlice.name]: realtimeSlice.reducer,
       [satellitesSlice.name]: satellitesSlice.reducer,
       [sessionEventsSlice.name]: sessionEventsSlice.reducer,
+      [sessionsViewSlice.name]: sessionsViewSlice.reducer,
       [storageLocationsSlice.name]: storageLocationsSlice.reducer,
       [themeSlice.name]: themeSlice.reducer,
     },

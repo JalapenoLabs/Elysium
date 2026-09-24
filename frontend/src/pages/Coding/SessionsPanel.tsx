@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { CodingSession } from '../../api/routes/codingSessionRoutes'
+import type { SessionSummary } from './sessionPresentation'
 
 // Core
 import { useMemo, useState } from 'react'
@@ -9,22 +9,30 @@ import { useTranslation } from 'react-i18next'
 // Redux
 import { shallowEqual } from 'react-redux'
 import { selectAllCodingSessions } from '../../store/codingSessionsSlice'
-import { useAppSelector } from '../../store/hooks'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { selectProjectNamesById } from '../../store/projectsSlice'
 import { selectSatelliteNamesById } from '../../store/satellitesSlice'
+import { selectSessionsView, sessionsViewChanged } from '../../store/sessionsViewSlice'
 
 // User interface
 import { Button, Chip, Link, Spinner } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { LuPlus } from 'react-icons/lu'
 import { SessionRowActions } from './SessionRowActions'
+import { SessionsToolbar } from './SessionsToolbar'
+import { SessionTiles } from './SessionTiles'
 
 // Misc
 import { useCodingSessionsLoader, useProjectsLoader, useSatellitesLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { UrlTree } from '../../urls'
 import { useCodingActions } from './codingActionsContext'
-import { SESSION_NUMBER_COLUMN_SIZING, threadStateChipColors, threadStateLabelKeys } from './sessionPresentation'
+import {
+  describeSession,
+  searchSessionSummaries,
+  SESSION_NUMBER_COLUMN_SIZING,
+  threadStateChipColors,
+} from './sessionPresentation'
 
 const SESSION_COLUMN_KEYS = [
   'number',
@@ -58,90 +66,88 @@ const columnSizes = {
   rowActions: 56,
 } as const satisfies Record<SessionColumnKey, number>
 
+// What each sortable column sorts by. Last activity sorts by the instant, not the words
+// shown, so an August session never follows a September one.
+const sortValue = {
+  number: (summary: SessionSummary) => String(summary.session.id),
+  title: (summary: SessionSummary) => summary.session.title,
+  project: (summary: SessionSummary) => summary.projectName,
+  satellite: (summary: SessionSummary) => summary.satelliteName,
+  state: (summary: SessionSummary) => summary.stateLabel,
+  lastActivity: (summary: SessionSummary) => summary.session.thread?.lastActivityAt ?? '',
+  rowActions: null,
+} as const satisfies Record<SessionColumnKey, ((summary: SessionSummary) => string) | null>
+
 // The overview panel: every coding session across every satellite, with its live
-// thread state. Opening one focuses its conversation panel.
+// thread state, as a table or as tiles. Opening one focuses its conversation panel.
 export function SessionsPanel() {
   const { t, i18n } = useTranslation([ 'coding', 'common' ])
   const actions = useCodingActions()
   const labels = useSmartTableLabels()
+  const dispatch = useAppDispatch()
   const [ search, setSearch ] = useState('')
+  const view = useAppSelector(selectSessionsView)
 
   const sessions = useAppSelector(selectAllCodingSessions)
   const sessionsStatus = useCodingSessionsLoader()
-  // Satellite status polls must not rebuild the columns, which would reset the table's sorting.
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
   const projectsStatus = useProjectsLoader()
   const satelliteNames = useAppSelector(selectSatelliteNamesById, shallowEqual)
   const satellitesStatus = useSatellitesLoader()
 
-  const managedColumns = useMemo(() => {
+  // Both views and the search read the same summaries, derived once per change.
+  const summaries = useMemo(() => {
     // Timestamps arrive as UTC; this is where they become the viewer's local time.
     const dateFormatter = new Intl.DateTimeFormat(i18n.language, {
       dateStyle: 'medium',
       timeStyle: 'short',
     })
+    const context = {
+      projectNames,
+      satelliteNames,
+      formatInstant: (instant: string) => dateFormatter.format(new Date(instant)),
+    }
+    return sessions.map((session) => describeSession(session, t, context))
+  }, [ sessions, projectNames, satelliteNames, t, i18n.language ])
 
-    function projectName(session: CodingSession) {
-      return projectNames[session.projectId] ?? ''
-    }
-    function satelliteName(session: CodingSession) {
-      return satelliteNames[session.satelliteId] ?? ''
-    }
-    function stateLabel(session: CodingSession) {
-      return t(threadStateLabelKeys[session.thread?.state ?? 'unknown'])
-    }
-    function lastActivityText(session: CodingSession) {
-      const lastActivityAt = session.thread?.lastActivityAt
-      if (!lastActivityAt) {
-        return t('sessions.never')
-      }
-      return dateFormatter.format(new Date(lastActivityAt))
-    }
+  const listedSummaries = useMemo(
+    () => searchSessionSummaries(summaries, search),
+    [ summaries, search ],
+  )
 
+  // The columns read only the summaries, so satellite status polls never rebuild them,
+  // which would reset the table's sorting.
+  const managedColumns = useMemo(() => {
     const renderCell = {
-      number: (session: CodingSession) => <span className='block text-right tabular-nums'>{
-        session.id
+      number: (summary: SessionSummary) => <span className='block text-right tabular-nums'>{
+        summary.session.id
       }</span>,
-      title: (session: CodingSession) => <Link
+      title: (summary: SessionSummary) => <Link
         className='cursor-pointer font-medium text-link no-underline hover:underline'
-        onPress={() => actions.openSession(session)}
+        onPress={() => actions.openSession(summary.session)}
       >{
-        session.title
+        summary.session.title
       }</Link>,
-      project: projectName,
-      satellite: satelliteName,
-      state: (session: CodingSession) => {
-        const state = session.thread?.state ?? 'unknown'
-        return <Chip size='sm' variant='soft' color={threadStateChipColors[state]}>{
-          t(threadStateLabelKeys[state])
-        }</Chip>
-      },
-      lastActivity: lastActivityText,
-      rowActions: (session: CodingSession) => <SessionRowActions
-        session={session}
+      project: (summary: SessionSummary) => summary.projectName,
+      satellite: (summary: SessionSummary) => summary.satelliteName,
+      state: (summary: SessionSummary) => <Chip size='sm' variant='soft' color={threadStateChipColors[summary.state]}>{
+        summary.stateLabel
+      }</Chip>,
+      lastActivity: (summary: SessionSummary) => summary.lastActivity,
+      rowActions: (summary: SessionSummary) => <SessionRowActions
+        session={summary.session}
       />,
-    } satisfies Record<SessionColumnKey, (session: CodingSession) => unknown>
+    } satisfies Record<SessionColumnKey, (summary: SessionSummary) => unknown>
 
-    const searchValue = {
-      number: (session: CodingSession) => String(session.id),
-      title: (session: CodingSession) => session.title,
-      project: projectName,
-      satellite: satelliteName,
-      state: stateLabel,
-      lastActivity: lastActivityText,
-      rowActions: null,
-    } satisfies Record<SessionColumnKey, ((session: CodingSession) => string) | null>
-
-    return createManagedColumns<CodingSession, SessionColumnKey>({
+    return createManagedColumns<SessionSummary, SessionColumnKey>({
       columnKeys: SESSION_COLUMN_KEYS,
       getColumnLabel: (columnKey) => t(columnLabelKeys[columnKey]),
-      getSearchKey: (columnKey) => searchValue[columnKey]
-        ? columnKey
-        : null,
-      getSearchValue: (columnKey) => searchValue[columnKey],
+      // The panel's toolbar searches, for both views; the table's own search is hidden.
+      getSearchKey: () => null,
+      getSearchValue: (columnKey) => sortValue[columnKey],
       createColumnDef: ({ columnKey, columnId, columnLabel }) => {
-        const toSearchText = searchValue[columnKey]
-        if (!toSearchText) {
+        const toSortValue = sortValue[columnKey]
+        if (!toSortValue) {
           return {
             id: columnId,
             header: () => <span className='sr-only'>{columnLabel}</span>,
@@ -154,7 +160,7 @@ export function SessionsPanel() {
         return {
           id: columnId,
           header: columnLabel,
-          accessorFn: toSearchText,
+          accessorFn: toSortValue,
           size: columnSizes[columnKey],
           cell: ({ row }) => renderCell[columnKey](row.original),
         }
@@ -164,13 +170,13 @@ export function SessionsPanel() {
           id: columnId,
           header: () => <span className='numeric-column-header'>{columnLabel}</span>,
           // Sorted as a number, so session 10 follows session 9.
-          accessorFn: (session) => session.id,
+          accessorFn: (summary) => summary.session.id,
           ...SESSION_NUMBER_COLUMN_SIZING,
           cell: ({ row }) => renderCell.number(row.original),
         }),
       },
     })
-  }, [ t, i18n.language, projectNames, satelliteNames, actions ])
+  }, [ t, actions ])
 
   if (sessionsStatus === 'loading') {
     return <div className='grid h-full place-items-center'>
@@ -196,24 +202,38 @@ export function SessionsPanel() {
     </div>
   }
 
-  return <div className='h-full overflow-auto p-4'>
-    <SmartTable
+  // A container, so the toolbar and tiles fit the panel's width rather than the window's.
+  return <div className='@container h-full overflow-auto p-4'>
+    <SessionsToolbar
+      search={search}
+      onSearchChange={setSearch}
+      resultsCount={listedSummaries.length}
+      view={view}
+      onViewChange={(nextView) => dispatch(sessionsViewChanged(nextView))}
+    />
+
+    {!listedSummaries.length && <p className='py-10 text-center text-sm opacity-70'>{
+      t('sessions.noMatches')
+    }</p>}
+
+    {listedSummaries.length > 0 && view === 'table' && <SmartTable
       ids={{
         tableElementId: 'coding-sessions-table',
         tableLocalStorageId: 'elysium.coding.sessions.table.v2',
       }}
       tableAriaLabel={t('sessions.label')}
-      data={sessions}
+      data={listedSummaries}
       managedColumns={managedColumns}
-      getRowId={(session) => String(session.id)}
+      getRowId={(summary) => String(summary.session.id)}
       labels={labels}
-      search={{
-        value: search,
-        onChange: setSearch,
-      }}
+      toolbar={{ show: false }}
       enableSorting
       stickyHeader={false}
-    />
+    />}
+
+    {listedSummaries.length > 0 && view === 'tiles' && <SessionTiles
+      summaries={listedSummaries}
+    />}
   </div>
 }
 

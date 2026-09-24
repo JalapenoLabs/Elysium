@@ -200,7 +200,8 @@ events. It gives up after 10 seconds with a 502. Clients merge history with live
 `frontend/src/pages/Coding/` holds the page. It is a Dockview workspace (`dockview-react`) with two panel types:
 
 - **Sessions** is the overview: every session, its number, project and satellite, live thread state, and last
-  activity, in uikit's `SmartTable`. A title opens that session's conversation.
+  activity, as a table (uikit's `SmartTable`) or as tiles, switched from the panel's toolbar and remembered per
+  browser. A title, or anywhere on a tile, opens that session's conversation. See `docs/frontend.md`.
 - **Conversation** is one session, headed by its title, satellite, and number ("Local · Thread 12"), and by a link to
   the action item it was started from, if any. It loads history through SWR when it opens and drops its events from
   Redux when it closes; a reopened panel shows SWR's buffered history while the fresh copy loads. Prompts and agent messages

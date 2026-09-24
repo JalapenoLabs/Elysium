@@ -22,7 +22,17 @@
     "noSatellites": "Add a satellite in settings before starting a session.",
     "openSatelliteSettings": "Manage satellites",
     "loadError": "Coding sessions could not be loaded.",
-    "open": "Open"
+    "open": "Open",
+    "numbered": "#{{number}}",
+    "noMatches": "No sessions match your search.",
+    "toolbar": {
+      "search": "Search sessions",
+      "results_one": "{{count}} session",
+      "results_other": "{{count}} sessions",
+      "view": "View",
+      "table": "Table",
+      "tiles": "Tiles"
+    }
   },
   "threadStates": {
     "unknown": "Unknown",

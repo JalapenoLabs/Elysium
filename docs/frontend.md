@@ -307,7 +307,7 @@ table).
 ### Coding
 
 `src/pages/Coding/` is a Dockview workspace with a Sessions overview panel and one conversation panel per open
-session. `docs/coding.md` describes the panels, the conversation rendering, and layout persistence. Two details
+session. `docs/coding.md` describes the panels, the conversation rendering, and layout persistence. These details
 matter when changing it:
 
 - Dockview renders panels through portals, so panels share the page's React tree (Redux, i18n, router) but not its
@@ -315,6 +315,23 @@ matter when changing it:
 - `/coding/<number>` (`getCodingSessionUrl`) opens that session's conversation once Dockview and the sessions are both
   loaded, then replaces the address with `/coding`; a number no session has goes straight to `/coding`. The project
   page links sessions this way.
+- The Sessions panel shows its sessions as a table or as tiles. `SessionsToolbar` heads both: a search field, the
+  result count, and, on the right, a Table and Tiles switch (HeroUI's `ToggleButtonGroup`, as on the Projects page).
+  Search matches the number, title, project, satellite, state, and last activity as shown, so the table's own search
+  and toolbar are hidden. Both views read one `SessionSummary` per session, built by `describeSession` in
+  `sessionPresentation.ts` (project and satellite names, state and its label, last activity in the viewer's zone), and
+  `searchSessionSummaries` filters them once for either view. The table's columns render and sort from those
+  summaries; last activity sorts by the instant rather than the words shown.
+- `SessionTiles` is a grid that fits as many 16rem columns as the panel is wide, down to one at phone width. Each
+  tile shows the number, title, state chip, project, satellite, and last activity, with `SessionRowActions` in its
+  corner. The title's link stretches over the whole card, so clicking a tile opens the session as clicking the title
+  in the table does; the menu sits above it. The panel is a Tailwind `@container`, so the toolbar and grid follow the
+  panel's width, not the window's.
+- The chosen view is saved per browser under `elysium.coding.sessions.view.v1` and defaults to Table. It is held the
+  way the theme is: the `sessionsView` slice starts from the stored value (`readStoredSessionsView` in
+  `sessionsView.ts`, which falls back to Table for anything unknown or unreadable), and `startSessionsViewSync`, run
+  once from `main.tsx`, saves every `sessionsViewChanged` and follows a choice made in another tab. Search resets on
+  each visit.
 - Every table of sessions (Sessions here, and `CodingSessionsTable` on the project and item pages) opens with a thin
   `#` column: the
   session number, right aligned in tabular numerals, sorted as a number, sized by `SESSION_NUMBER_COLUMN_SIZING`.
@@ -445,6 +462,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `storageLocations` | Storage locations, sorted by name                                     |
 | `codingSessions` | Coding sessions with their thread state, newest first                   |
 | `sessionEvents`  | Events for conversations that are open, merged by sequence              |
+| `sessionsView`   | Whether the Coding page's Sessions panel shows a table or tiles         |
 | `realtime`       | Event stream connection: `connecting`, `open`, or `reconnecting`        |
 | `theme`          | Theme preference and what it resolves to                                |
 
