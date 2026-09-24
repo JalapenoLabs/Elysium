@@ -124,8 +124,9 @@ Manage LLMs is split into these files:
   the viewer's zone. One year from now picks the date 365 days after today.
 
 Manage satellites follows the same split under `src/pages/Settings/Satellites/`. Its table shows each satellite's
-live status (online, unreachable with the reason on hover, checking, or inactive), version, and thread load, and
-its row menu adds Test connection.
+live status (online, unreachable with the reason on hover, checking, or inactive), version, thread load, and its
+Blender setup (pending, installing, ready, or failed with the end of the script's output on hover; see
+`docs/coding.md`), and its row menu adds Test connection.
 
 Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone or
 bucket with directory, projects, limit) whose row menu edits, tests, or deletes one; delete confirms through

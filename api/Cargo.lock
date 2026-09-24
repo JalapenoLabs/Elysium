@@ -116,7 +116,7 @@ checksum = "03918c3dbd7701a85c6b9887732e2921175f26c350b4563841d0958c21d57e6d"
 [[package]]
 name = "arsox-sdk"
 version = "0.1.0"
-source = "git+https://github.com/JalapenoLabs/arsox-satellites?rev=0fbf6e98a6d08202fbea63f071613a4156cf79c6#0fbf6e98a6d08202fbea63f071613a4156cf79c6"
+source = "git+https://github.com/JalapenoLabs/arsox-satellites?rev=5c5252f2009804a70b04022f495d21af6a7c46e7#5c5252f2009804a70b04022f495d21af6a7c46e7"
 dependencies = [
  "bytes",
  "futures-util",
@@ -1016,6 +1016,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "governor",
+ "hex",
  "hickory-resolver",
  "image",
  "instant-xml",

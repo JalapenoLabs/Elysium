@@ -15,7 +15,7 @@ use arsox_sdk::proto::error::v1::ErrorCode;
 use arsox_sdk::proto::event::v1::{Author, AuthorKind, ThreadEvent, thread_event};
 use arsox_sdk::proto::thread::v1::ThreadSummary;
 use arsox_sdk::proto::turn::v1::TurnStatus;
-use arsox_sdk::proto::{interaction, thread};
+use arsox_sdk::proto::{interaction, satellite, thread};
 use chrono::{DateTime, Utc};
 use prost_types::value::Kind;
 use serde::Serialize;
@@ -33,6 +33,50 @@ pub struct SatelliteStatus {
     pub max_concurrent_threads: Option<u32>,
     /// Why the satellite is unreachable. Never contains the secret.
     pub error: Option<String>,
+    /// How the satellite's setup script last went; `None` while it is unreachable.
+    pub setup: Option<SetupStatus>,
+}
+
+/// Where a satellite stands with its setup script, which installs Blender (`crate::blender`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupStatus {
+    pub state: SetupState,
+    /// Whether the satellite holds the script this build of Elysium hands out. `false` means
+    /// Elysium is replacing it, or the satellite refused the replacement.
+    pub is_current: bool,
+    /// The end of the script's output, kept only when it failed, which is when it is read.
+    pub failure_output: Option<String>,
+}
+
+/// A setup script's state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SetupState {
+    /// The satellite reported a state this build does not know.
+    Unknown,
+    /// No script is set.
+    None,
+    Running,
+    Succeeded,
+    Failed,
+}
+
+impl From<&satellite::v1::SetupStatus> for SetupStatus {
+    fn from(status: &satellite::v1::SetupStatus) -> Self {
+        let state = match satellite::v1::SetupState::try_from(status.state) {
+            Ok(satellite::v1::SetupState::None) => SetupState::None,
+            Ok(satellite::v1::SetupState::Running) => SetupState::Running,
+            Ok(satellite::v1::SetupState::Succeeded) => SetupState::Succeeded,
+            Ok(satellite::v1::SetupState::Failed) => SetupState::Failed,
+            Ok(satellite::v1::SetupState::Unspecified) | Err(_) => SetupState::Unknown,
+        };
+        Self {
+            state,
+            is_current: status.script_sha256 == *crate::blender::SETUP_SCRIPT_SHA256,
+            failure_output: (state == SetupState::Failed).then(|| status.output_tail.clone()),
+        }
+    }
 }
 
 /// A thread's lifecycle state.

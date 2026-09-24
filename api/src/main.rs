@@ -6,6 +6,7 @@
 //! and generate encryption keys. See `elysium-api --help`.
 
 mod action_items;
+mod blender;
 mod cli;
 mod config;
 mod connections;

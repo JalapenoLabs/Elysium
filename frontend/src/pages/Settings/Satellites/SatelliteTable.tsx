@@ -13,7 +13,14 @@ import { SatelliteRowActions } from './SatelliteRowActions'
 
 // Misc
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
-import { getSatelliteHealth, satelliteHealthChipColors, satelliteHealthLabelKeys } from './satellitePresentation'
+import {
+  getSatelliteHealth,
+  getSatelliteSetupDisplay,
+  satelliteHealthChipColors,
+  satelliteHealthLabelKeys,
+  satelliteSetupChipColors,
+  satelliteSetupLabelKeys,
+} from './satellitePresentation'
 
 type Props = {
   satellites: Satellite[]
@@ -23,7 +30,7 @@ type Props = {
   onDelete: (satellite: Satellite) => void
 }
 
-const SATELLITE_COLUMN_KEYS = [ 'name', 'url', 'status', 'version', 'threads', 'rowActions' ] as const
+const SATELLITE_COLUMN_KEYS = [ 'name', 'url', 'status', 'version', 'threads', 'setup', 'rowActions' ] as const
 type SatelliteColumnKey = typeof SATELLITE_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
@@ -32,6 +39,7 @@ const columnLabelKeys = {
   status: 'table.status',
   version: 'table.version',
   threads: 'table.threads',
+  setup: 'table.setup',
   rowActions: 'common:actions.moreActions',
 } as const satisfies Record<SatelliteColumnKey, string>
 
@@ -42,6 +50,7 @@ const columnSizes = {
   status: 150,
   version: 120,
   threads: 170,
+  setup: 130,
   rowActions: 64,
 } as const satisfies Record<SatelliteColumnKey, number>
 
@@ -86,6 +95,28 @@ export function SatelliteTable(props: Props) {
       },
       version: (satellite: Satellite) => satellite.status?.version ?? t('table.unknown'),
       threads: threadsText,
+      setup: (satellite: Satellite) => {
+        const display = getSatelliteSetupDisplay(satellite)
+        if (!display) {
+          return t('table.unknown')
+        }
+        const chip = <Chip size='sm' variant='soft' color={satelliteSetupChipColors[display]}>{
+          t(satelliteSetupLabelKeys[display])
+        }</Chip>
+
+        // A failed install explains itself on hover with the end of its output.
+        const failureOutput = satellite.status?.setup?.failureOutput
+        if (display !== 'failed' || !failureOutput) {
+          return chip
+        }
+        return <Tooltip delay={200}>
+          <Tooltip.Trigger>{chip}</Tooltip.Trigger>
+          <Tooltip.Content className='max-w-lg'>
+            <p className='compact'>{t('setup.failedHint')}</p>
+            <pre className='max-h-64 overflow-auto whitespace-pre-wrap text-xs'>{failureOutput}</pre>
+          </Tooltip.Content>
+        </Tooltip>
+      },
       rowActions: (satellite: Satellite) => <SatelliteRowActions
         satellite={satellite}
         onEdit={props.onEdit}
@@ -102,6 +133,12 @@ export function SatelliteTable(props: Props) {
       status: (satellite: Satellite) => t(satelliteHealthLabelKeys[getSatelliteHealth(satellite)]),
       version: (satellite: Satellite) => satellite.status?.version ?? '',
       threads: threadsText,
+      setup: (satellite: Satellite) => {
+        const display = getSatelliteSetupDisplay(satellite)
+        return display
+          ? t(satelliteSetupLabelKeys[display])
+          : ''
+      },
       rowActions: null,
     } satisfies Record<SatelliteColumnKey, ((satellite: Satellite) => string) | null>
 

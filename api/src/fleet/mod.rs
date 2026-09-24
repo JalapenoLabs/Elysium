@@ -52,7 +52,7 @@ use tokio_util::task::TaskTracker;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use self::views::{SatelliteStatus, SessionEvent, ThreadState, ThreadStatus};
+use self::views::{SatelliteStatus, SessionEvent, SetupStatus, ThreadState, ThreadStatus};
 use crate::action_items::links::Links;
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -437,6 +437,10 @@ impl Fleet {
                 return;
             }
         };
+        let setup = status.setup.as_ref().map(SetupStatus::from);
+        if !setup.as_ref().is_some_and(|setup| setup.is_current) {
+            hand_out_setup_script(&client, satellite_id).await;
+        }
         self.record_satellite_status(SatelliteStatus {
             satellite_id,
             reachable: true,
@@ -444,6 +448,7 @@ impl Fleet {
             running_threads: Some(status.running_threads),
             max_concurrent_threads: Some(status.max_concurrent_threads),
             error: None,
+            setup,
         });
 
         if let Err(error) = self.poll_threads(&client, satellite_id).await {
@@ -724,5 +729,29 @@ fn unreachable(satellite_id: Uuid, error: &impl ToString) -> SatelliteStatus {
         running_threads: None,
         max_concurrent_threads: None,
         error: Some(error.to_string()),
+        setup: None,
+    }
+}
+
+/// Hands a satellite Elysium's setup script, which it runs as root now and at every container
+/// start. Only called when the satellite reports a different script, so a replaced container,
+/// or a new Elysium build with a new script, is caught up by the next poll. A failure is logged
+/// and retried on the next poll.
+async fn hand_out_setup_script(client: &SatelliteClient, satellite_id: Uuid) {
+    match client.set_setup_script(crate::blender::SETUP_SCRIPT).await {
+        Ok(_) => event!(
+            name: "fleet.satellite.setup.handed_out",
+            Level::INFO,
+            satellite.id = %satellite_id,
+            setup.script_sha256 = %*crate::blender::SETUP_SCRIPT_SHA256,
+            "handed the satellite Elysium's setup script",
+        ),
+        Err(error) => event!(
+            name: "fleet.satellite.setup.failure",
+            Level::WARN,
+            satellite.id = %satellite_id,
+            error.message = %error,
+            "could not hand the satellite Elysium's setup script",
+        ),
     }
 }

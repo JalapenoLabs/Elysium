@@ -595,6 +595,27 @@ mod tests {
     }
 
     #[test]
+    fn every_thread_declares_its_own_blender_and_the_mcp_server_that_reaches_it() {
+        let settings = thread_settings(Vec::new(), None, &[], None, false);
+        let services: Vec<&str> = settings
+            .services
+            .iter()
+            .map(|service| service.name.as_str())
+            .collect();
+        assert_eq!(services, ["blender-bridge", "blender-mcp"]);
+
+        let [server] = settings.mcp_servers.as_slice() else {
+            panic!("one MCP server is declared: {:?}", settings.mcp_servers);
+        };
+        assert_eq!(server.name, "blender");
+        let endpoint = server
+            .service
+            .as_ref()
+            .expect("the server targets a service");
+        assert_eq!(endpoint.service, "blender-mcp");
+    }
+
+    #[test]
     fn workspace_variables_come_before_the_ones_elysium_sets() {
         use crate::models::environment_variable::ThreadVariable;
 

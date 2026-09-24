@@ -13,6 +13,17 @@ export type SatelliteStatus = {
   maxConcurrentThreads: number | null
   // Why the satellite is unreachable.
   error: string | null
+  // How the satellite's setup script last went, null while it is unreachable.
+  setup: SatelliteSetupStatus | null
+}
+
+// Mirrors `SetupStatus` in api/src/fleet/views.rs. The setup script installs Blender.
+export type SatelliteSetupStatus = {
+  state: 'unknown' | 'none' | 'running' | 'succeeded' | 'failed'
+  // False while Elysium is replacing the satellite's script with its own.
+  isCurrent: boolean
+  // The end of the script's output, only when it failed.
+  failureOutput: string | null
 }
 
 // The API never returns the bearer secret. `status` is null for an inactive

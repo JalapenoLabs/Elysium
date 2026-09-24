@@ -49,6 +49,36 @@ satellite changes or stops answering. Two kinds of watcher run under it.
 Polling stands in for the satellite's control stream, which the Rust SDK does not expose yet. Watchers start at
 boot for every active satellite, restart when a satellite is saved, and stop when it is deactivated or deleted.
 
+## Blender
+
+Every coding agent can 3D model: model, render, and inspect `.blend` files through Blender's MCP tools
+(`mcp__blender__*`). Nothing about Blender is in the satellite image; Elysium supplies it through two Arsox features.
+The code is `api/src/blender/`.
+
+- **The setup script** (`api/src/blender/setup.sh`, with the MCP server's hash-locked dependencies in
+  `requirements.txt` beside it) installs Blender 5.2.2, Blender Lab's MCP server, and its bridge extension, every
+  download pinned and checksum- or commit-verified. The satellite watcher compares the script hash each satellite
+  reports with Elysium's and hands the script over (`PUT /v1/setup`) when they differ, so a new satellite, a replaced
+  container, or a new Elysium build is caught up within one poll. The satellite runs it as root at every container
+  start and whenever it changes, and holds turns until it finishes. The script is idempotent: each piece records the
+  version it installed and skips a matching one, so a restart that kept `/opt` costs nothing and a replaced container
+  downloads everything again (about 45 seconds).
+- **Two thread services** start with every turn, on loopback ports the satellite assigns, and stop when the turn ends:
+  `blender-bridge` (headless Blender with the extension listening) and `blender-mcp` (the MCP server, handed the
+  bridge's port through `ARSOX_SERVICE_BLENDER_BRIDGE_PORT`). The thread's `blender` MCP server targets
+  `blender-mcp`, so every turn models in a Blender of its own and no two threads share a scene.
+
+What that means for agents and operators:
+
+- A scene lives only as long as its turn. Work that must outlast the turn is saved to a `.blend` in the workspace.
+- Services separate processes and scenes, not privileges. Every thread's agent runs as the same account, so one could
+  dial another concurrently running turn's loopback port. Arsox's roadmap has per-member network namespaces for that.
+- There is no window, so the screenshot and navigation tools fail. Rendering works.
+- A satellite whose setup failed, or that is still installing, starts turns without Blender: the services fail their
+  readiness probe (a degraded incident), the MCP server fails to connect, and the turn carries on. Settings,
+  Satellites shows each satellite's setup as Pending, Installing, Ready, or Failed, with the end of a failed script's
+  output on hover. A failed script runs again when the container restarts or the script changes.
+
 ## Tool relay
 
 Some of an agent's tools answer from Elysium's own data: `elysium_work` for the project's action items and
@@ -220,7 +250,8 @@ so the workspace follows light and dark mode.
 
 The satellite image is not published. Build it from a clone of `JalapenoLabs/arsox-satellites` (`develop`) with
 `docker build --tag arsox-satellite:<commit> .`, then run it from its own compose file outside this repository,
-published only on the `docker0` bridge address:
+published only on the `docker0` bridge address. Elysium installs Blender on it at runtime, so the plain image is the
+right one:
 
 ```yaml
 services:
