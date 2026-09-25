@@ -28,6 +28,9 @@ Everything else follows these rules:
 - Thread policy (idle TTL, budget ceilings) is code constants, not configuration. See `docs/coding.md`.
 - A thread is opened with Elysium's active LLM credentials as an ordered failover stack, highest priority first,
   so a credential that runs out hands the turn to the next one.
+- Every coding agent can 3D model. Blender is never baked into the satellite image: Elysium hands every satellite a
+  setup script (Arsox runs it as root at each container start) and declares per-turn Blender services on every
+  thread, so no two threads share a scene. See `docs/coding.md`.
 
 ## Mail
 

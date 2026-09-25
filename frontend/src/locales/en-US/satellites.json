@@ -13,6 +13,7 @@
     "version": "Version",
     "threads": "Running threads",
     "threadsValue": "{{running}} of {{max}}",
+    "setup": "Blender",
     "unknown": "—",
     "empty": "No satellites yet. Add one to start coding sessions.",
     "loadError": "Satellites could not be loaded."
@@ -22,6 +23,13 @@
     "offline": "Unreachable",
     "checking": "Checking",
     "inactive": "Inactive"
+  },
+  "setup": {
+    "pending": "Pending",
+    "installing": "Installing",
+    "ready": "Ready",
+    "failed": "Failed",
+    "failedHint": "The install failed, so sessions here have no 3D modeling tools. The end of its output:"
   },
   "actions": {
     "activate": "Activate",

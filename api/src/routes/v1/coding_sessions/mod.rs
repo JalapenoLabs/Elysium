@@ -32,6 +32,7 @@ use uuid::Uuid;
 use validator::ValidationError;
 
 use self::model_stack::ModelStack;
+use crate::blender;
 use crate::fleet::views::ThreadStatus;
 use crate::models::coding_session::CodingSession;
 use crate::models::environment_variable::ThreadVariable;
@@ -104,8 +105,9 @@ impl CodingSessionResponse {
 
 /// Settings for a new thread: Elysium's policy ceilings, the repositories to clone, the
 /// credentials the thread fails over through, the workspace's environment variables, the
-/// GitHub token its agent works with, and the tools Elysium relays: the work tools always,
-/// and the storage tools when the project has a storage location to use them on.
+/// GitHub token its agent works with, the Blender services and the MCP server that reaches them,
+/// and the tools Elysium relays: the work tools always, and the storage tools when the project has
+/// a storage location to use them on.
 ///
 /// Without a stack the thread declares no endpoint, and the satellite falls back to
 /// whatever credential it holds itself.
@@ -153,6 +155,9 @@ fn thread_settings(
         repos: repositories,
         github: github_token.map(github_token::integration),
         env: thread_environment(variables, github_token),
+        // Every thread models in a Blender of its own; see `crate::blender`.
+        services: blender::services(),
+        mcp_servers: vec![blender::mcp_server()],
         // A thread takes its tools once. A project without a location yet has nothing to
         // call the storage tools on; each call re-checks the project's locations anyway.
         // Every project has its work to read, so every thread declares the work tools.
