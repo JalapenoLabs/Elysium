@@ -17,13 +17,15 @@ import { PromptGate } from './gates/PromptGate'
 // Misc
 import './i18n'
 import './index.css'
+import { startSessionsViewSync } from './pages/Coding/startSessionsViewSync'
 import { startEventStream } from './realtime/eventStream'
 import { router } from './router'
 import { startThemeSync } from './theme/startThemeSync'
 
-// Both run once, outside React, so StrictMode's double effects never open a second
+// These run once, outside React, so StrictMode's double effects never open a second
 // event stream or register listeners twice.
 startThemeSync()
+startSessionsViewSync()
 startEventStream()
 
 // The event stream refetches on reconnection and pushes every change, so SWR's own

@@ -20,7 +20,6 @@ import { InitiativesPage } from './pages/Initiatives/InitiativesPage'
 import { CreateProjectPage } from './pages/Projects/CreateProjectPage'
 import { ProjectPage } from './pages/Projects/ProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
-import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
 import { PersonalDetailsPage } from './pages/Settings/PersonalDetails/PersonalDetailsPage'
 import { ManageEmailPage } from './pages/Settings/Email/ManageEmailPage'
@@ -109,10 +108,6 @@ export const router = createBrowserRouter([
       {
         path: UrlTree.changesetView,
         element: <ChangesetPage />,
-      },
-      {
-        path: UrlTree.studio,
-        element: <StudioPage />,
       },
       {
         path: UrlTree.projects,

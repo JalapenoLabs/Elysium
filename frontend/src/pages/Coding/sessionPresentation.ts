@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ParseKeys } from 'i18next'
-import type { ThreadState, TurnState } from '../../api/routes/codingSessionRoutes'
+import type { ParseKeys, TFunction } from 'i18next'
+import type { CodingSession, ThreadState, TurnState } from '../../api/routes/codingSessionRoutes'
 
 type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
 
@@ -50,3 +50,67 @@ export const turnStateLabelKeys = {
   interrupted: 'turnStates.interrupted',
   watching: 'turnStates.watching',
 } as const satisfies Record<TurnState, ParseKeys<'coding'>>
+
+export type SessionTranslate = TFunction<'coding'>
+
+export type SessionContext = {
+  projectNames: Record<string, string>
+  satelliteNames: Record<string, string>
+  // Renders a UTC instant in the viewer's locale and time zone.
+  formatInstant: (instant: string) => string
+}
+
+// What a list of sessions shows for one session. The Sessions panel's table, its tiles,
+// and its search all read this, so the two views can never word a session differently.
+export type SessionSummary = {
+  session: CodingSession
+  projectName: string
+  satelliteName: string
+  state: ThreadState
+  stateLabel: string
+  lastActivity: string
+}
+
+export function describeSession(
+  session: CodingSession,
+  t: SessionTranslate,
+  context: SessionContext,
+): SessionSummary {
+  // The thread is null until the API's first poll sees it.
+  const state = session.thread?.state ?? 'unknown'
+  const lastActivityAt = session.thread?.lastActivityAt
+  const lastActivity = lastActivityAt
+    ? context.formatInstant(lastActivityAt)
+    : t('sessions.never')
+
+  return {
+    session,
+    projectName: context.projectNames[session.projectId] ?? '',
+    satelliteName: context.satelliteNames[session.satelliteId] ?? '',
+    state,
+    stateLabel: t(threadStateLabelKeys[state]),
+    lastActivity,
+  }
+}
+
+// The summaries whose number, title, project, satellite, state, or last activity contains
+// `search`, case-insensitively and in their given order: what either view shows, as the
+// viewer reads it.
+export function searchSessionSummaries(summaries: SessionSummary[], search: string): SessionSummary[] {
+  const needle = search.trim().toLocaleLowerCase()
+  if (!needle) {
+    return summaries
+  }
+
+  return summaries.filter((summary) => {
+    const haystack = [
+      String(summary.session.id),
+      summary.session.title,
+      summary.projectName,
+      summary.satelliteName,
+      summary.stateLabel,
+      summary.lastActivity,
+    ].join('\n')
+    return haystack.toLocaleLowerCase().includes(needle)
+  })
+}
