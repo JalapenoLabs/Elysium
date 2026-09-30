@@ -9,10 +9,18 @@
 
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use secrecy::{ExposeSecret, SecretString};
-use uuid::Uuid;
+use uuid::{Uuid, uuid};
 
+use crate::action_items::Actor;
 use crate::crypto::{Cipher, generate_key};
 use crate::database::migrations::{self, MigrationCommand};
+
+/// The person tests act as. [`migrated_database`] creates their account, so rows naming
+/// them as creator satisfy `created_by`'s foreign key.
+pub const TEST_PERSON_ID: Uuid = uuid!("0199a3c4-0000-7000-8000-00000000beef");
+
+/// [`TEST_PERSON_ID`] as the actor history records.
+pub const TEST_PERSON: Actor = Actor::User(TEST_PERSON_ID);
 
 /// Creates an empty database and returns its URL. Nothing drops it: the Postgres
 /// these tests run against is thrown away when the script exits.
@@ -45,9 +53,18 @@ pub async fn migrated_database() -> (SecretString, AsyncPgConnection) {
     migrations::execute(url.clone(), MigrationCommand::Run)
         .await
         .expect("migrations apply to an empty database");
-    let connection = AsyncPgConnection::establish(url.expose_secret())
+    let mut connection = AsyncPgConnection::establish(url.expose_secret())
         .await
         .expect("migrated database accepts connections");
+    diesel::sql_query(
+        "INSERT INTO users (id, kratos_identity_id, email, name, role, status, approved_at) \
+         VALUES ($1, $2, 'tester@example.com', 'Tester', 'admin', 'active', now())",
+    )
+    .bind::<diesel::sql_types::Uuid, _>(TEST_PERSON_ID)
+    .bind::<diesel::sql_types::Uuid, _>(Uuid::now_v7())
+    .execute(&mut connection)
+    .await
+    .expect("the test person is created");
     (url, connection)
 }
 

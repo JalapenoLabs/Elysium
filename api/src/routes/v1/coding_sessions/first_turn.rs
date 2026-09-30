@@ -7,12 +7,12 @@ use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
 use uuid::Uuid;
 
-use crate::action_items::progress;
 use crate::action_items::session_context::{self, ItemContext};
+use crate::action_items::{actor_label, progress};
 use crate::errors::ApiError;
 use crate::models::action_item_comment;
 use crate::models::project::Project;
-use crate::models::{action_item, initiative};
+use crate::models::{action_item, initiative, user};
 
 /// The first turn of a session in `project`, or `None` when it starts without a prompt.
 ///
@@ -71,7 +71,16 @@ async fn item_context(
         ));
     }
 
-    let comments = action_item_comment::list(connection, item.id).await?;
+    // Agents read who wrote each comment by name, not by the recorded `user:<id>`.
+    let names = user::names(connection).await?;
+    let comments: Vec<_> = action_item_comment::list(connection, item.id)
+        .await?
+        .into_iter()
+        .map(|mut comment| {
+            comment.author = actor_label(&comment.author, &names);
+            comment
+        })
+        .collect();
     let initiatives =
         initiative::find_live(connection, &memberships.initiative_ids(item.id)).await?;
     let initiative_ids: Vec<Uuid> = initiatives.iter().map(|found| found.id).collect();

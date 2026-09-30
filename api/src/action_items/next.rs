@@ -41,6 +41,7 @@ mod tests {
 
     use super::*;
     use crate::models::action_item::{ActionItemPriority, ActionItemState, OwnerKind};
+    use crate::test_support::TEST_PERSON_ID;
 
     fn item(
         title: &str,
@@ -51,6 +52,7 @@ mod tests {
             .expect("a valid instant")
             .with_timezone(&Utc);
         ActionItem {
+            created_by: TEST_PERSON_ID,
             id: Uuid::now_v7(),
             title: title.to_owned(),
             notes: String::new(),

@@ -15,6 +15,7 @@ use super::{
     STORAGE_LIMIT_MAX_BYTES, StorageAccessKey, StorageLocationResponse, refuse_unknown_projects,
     validate_not_blank, validate_path_prefix, validate_provider,
 };
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::project::ProjectScope;
 use crate::models::storage_location::{self, NewStorageLocation, StorageProvider};
@@ -47,12 +48,14 @@ const fn no_projects() -> ProjectScope {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
     body.validate()?;
 
     let new_location = NewStorageLocation {
+        created_by: current.id(),
         name: body.name,
         provider: body.provider,
         path_prefix: body.path_prefix.trim_matches('/').to_owned(),

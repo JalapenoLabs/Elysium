@@ -202,9 +202,11 @@ mod tests {
 
     use super::*;
     use crate::models::project::{GithubAccess, ProjectCoverFit};
+    use crate::test_support::TEST_PERSON_ID;
 
     fn project(github_access: GithubAccess, github_credential_id: Option<Uuid>) -> Project {
         Project {
+            created_by: TEST_PERSON_ID,
             id: Uuid::nil(),
             name: "Elysium".to_owned(),
             description: String::new(),

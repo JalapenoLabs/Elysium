@@ -12,7 +12,7 @@ use crate::action_items::changesets::{
     Proposer, UpdateItem, read_link_targets,
 };
 use crate::action_items::links::tests::{LinkFixture, REPOSITORY};
-use crate::action_items::{Actor, Transition, watcher};
+use crate::action_items::{Transition, watcher};
 use crate::github::fake::FakeIssue;
 use crate::models::action_item::{
     ActionItem, ActionItemChanges, ActionItemFilter, ActionItemPriority, ActionItemState,
@@ -24,7 +24,7 @@ use crate::models::initiative::NewInitiative;
 use crate::models::project::NewProject;
 use crate::models::{action_item_comment, action_item_link, action_item_link_write};
 use crate::routes::v1::action_items::LinkTarget;
-use crate::test_support::migrated_database;
+use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, migrated_database};
 
 fn minute(offset: i64) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339("2026-09-21T12:00:00Z")
@@ -111,7 +111,7 @@ async fn item_titled(
         project_ids: Vec::new(),
         initiative_ids: Vec::new(),
     };
-    action_item::create(connection, new_item, Actor::User, minute(0))
+    action_item::create(connection, new_item, TEST_PERSON, minute(0))
         .await
         .expect("item")
         .record
@@ -124,7 +124,7 @@ async fn initiative_named(connection: &mut AsyncPgConnection, name: &str) -> Uui
         target_at: None,
         project_ids: Vec::new(),
     };
-    initiative::create(connection, new_initiative, Actor::User, minute(0))
+    initiative::create(connection, new_initiative, TEST_PERSON, minute(0))
         .await
         .expect("initiative")
         .record
@@ -216,7 +216,7 @@ async fn a_proposal_is_stored_pending_and_writes_nothing_until_it_is_applied() {
 async fn a_proposal_naming_what_is_not_there_is_refused_whole() {
     let (_url, mut connection) = migrated_database().await;
     let deleted = item_titled(&mut connection, "Gone", ActionItemState::Open).await;
-    action_item::soft_delete(&mut connection, deleted.id, Actor::User, minute(1))
+    action_item::soft_delete(&mut connection, deleted.id, TEST_PERSON, minute(1))
         .await
         .expect("deleted");
 
@@ -268,6 +268,10 @@ async fn a_proposal_naming_what_is_not_there_is_refused_whole() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one scenario: decide, apply, and check every dependent in turn"
+)]
 async fn rejecting_an_operation_rejects_its_dependents_and_none_of_them_apply() {
     let (_url, mut connection) = migrated_database().await;
     let launch = initiative_named(&mut connection, "Launch").await;
@@ -320,7 +324,14 @@ async fn rejecting_an_operation_rejects_its_dependents_and_none_of_them_apply() 
         "{refused:?}"
     );
 
-    let undecided = apply(&mut connection, id, LinkReads::new(), minute(2)).await;
+    let undecided = apply(
+        &mut connection,
+        id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        minute(2),
+    )
+    .await;
     assert!(
         matches!(&undecided, Err(WorkError::Refused(message)) if message.ends_with("undecided: 4")),
         "{undecided:?}"
@@ -334,9 +345,15 @@ async fn rejecting_an_operation_rejects_its_dependents_and_none_of_them_apply() 
     )
     .await
     .expect("approved");
-    let applied = apply(&mut connection, id, LinkReads::new(), minute(3))
-        .await
-        .expect("applied");
+    let applied = apply(
+        &mut connection,
+        id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        minute(3),
+    )
+    .await
+    .expect("applied");
 
     assert_eq!(applied.staged.changeset.state, ChangesetState::Applied);
     assert_eq!(
@@ -366,7 +383,14 @@ async fn rejecting_an_operation_rejects_its_dependents_and_none_of_them_apply() 
         matches!(again, Err(WorkError::Conflict(_))),
         "decisions are final once applied"
     );
-    let reapplied = apply(&mut connection, id, LinkReads::new(), minute(4)).await;
+    let reapplied = apply(
+        &mut connection,
+        id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        minute(4),
+    )
+    .await;
     assert!(matches!(reapplied, Err(WorkError::Conflict(_))));
 }
 
@@ -400,15 +424,21 @@ async fn a_failing_operation_rolls_back_alone_and_the_rest_still_apply() {
     let id = staged.changeset.id;
 
     // The initiative the first operation joins is deleted after it was proposed.
-    initiative::soft_delete(&mut connection, archived, Actor::User, minute(2))
+    initiative::soft_delete(&mut connection, archived, TEST_PERSON, minute(2))
         .await
         .expect("deleted");
     decide(&mut connection, id, ChangesetDecision::Approved, None)
         .await
         .expect("approved");
-    let applied = apply(&mut connection, id, LinkReads::new(), minute(3))
-        .await
-        .expect("applied");
+    let applied = apply(
+        &mut connection,
+        id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        minute(3),
+    )
+    .await
+    .expect("applied");
 
     assert_eq!(
         outcomes(&applied.staged),
@@ -478,13 +508,19 @@ async fn rejecting_everything_applies_nothing_and_marks_it_rejected() {
     decide(&mut connection, id, ChangesetDecision::Rejected, None)
         .await
         .expect("rejected");
-    let written = apply(&mut connection, id, LinkReads::new(), minute(2))
-        .await
-        .expect("settled");
+    let written = apply(
+        &mut connection,
+        id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        minute(2),
+    )
+    .await
+    .expect("settled");
     assert_eq!(written.staged.changeset.state, ChangesetState::Rejected);
     assert_eq!(written.staged.changeset.decided_at, Some(minute(2)));
     assert!(live_titles(&mut connection).await.is_empty());
-    let undo_rejected = undo(&mut connection, id, minute(3)).await;
+    let undo_rejected = undo(&mut connection, id, TEST_PERSON, minute(3)).await;
     assert!(matches!(undo_rejected, Err(WorkError::Conflict(_))));
 }
 
@@ -499,6 +535,7 @@ async fn undo_reverses_what_was_applied_and_keeps_what_the_user_changed_since() 
     let project = project::create(
         &mut connection,
         &NewProject {
+            created_by: TEST_PERSON_ID,
             name: "Elysium".to_owned(),
             description: String::new(),
         },
@@ -540,9 +577,15 @@ async fn undo_reverses_what_was_applied_and_keeps_what_the_user_changed_since() 
     decide(&mut connection, id, ChangesetDecision::Approved, None)
         .await
         .expect("approved");
-    let applied = apply(&mut connection, id, LinkReads::new(), minute(2))
-        .await
-        .expect("applied");
+    let applied = apply(
+        &mut connection,
+        id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        minute(2),
+    )
+    .await
+    .expect("applied");
     assert_eq!(outcomes(&applied.staged), [ChangesetOutcome::Applied; 6]);
     let post_id: Uuid =
         serde_json::from_value(applied.staged.operations[0].result["itemId"].clone())
@@ -559,13 +602,15 @@ async fn undo_reverses_what_was_applied_and_keeps_what_the_user_changed_since() 
             priority: Some(ActionItemPriority::Urgent),
             ..ActionItemChanges::default()
         },
-        Actor::User,
+        TEST_PERSON,
         minute(3),
     )
     .await
     .expect("edited");
 
-    let undone = undo(&mut connection, id, minute(4)).await.expect("undone");
+    let undone = undo(&mut connection, id, TEST_PERSON, minute(4))
+        .await
+        .expect("undone");
     assert_eq!(undone.staged.changeset.state, ChangesetState::Undone);
     assert_eq!(undone.staged.changeset.undone_at, Some(minute(4)));
     assert_eq!(outcomes(&undone.staged), [ChangesetOutcome::Undone; 6]);
@@ -616,7 +661,7 @@ async fn undo_reverses_what_was_applied_and_keeps_what_the_user_changed_since() 
     let undo_entries: Vec<(String, String)> = history(&mut connection, reply.id)
         .await
         .into_iter()
-        .filter(|entry| entry.changeset_id == Some(id) && entry.actor == "user")
+        .filter(|entry| entry.changeset_id == Some(id) && entry.actor == TEST_PERSON.to_string())
         .map(|entry| (entry.kind, entry.actor))
         .collect();
     assert_eq!(
@@ -625,7 +670,7 @@ async fn undo_reverses_what_was_applied_and_keeps_what_the_user_changed_since() 
         "the title, the comment, and the membership each record the undo: {undo_entries:?}"
     );
 
-    let twice = undo(&mut connection, id, minute(5)).await;
+    let twice = undo(&mut connection, id, TEST_PERSON, minute(5)).await;
     assert!(matches!(twice, Err(WorkError::Conflict(_))), "undone once");
 }
 
@@ -641,7 +686,7 @@ async fn undo_leaves_a_membership_the_user_changed_since() {
         &mut connection,
         taken_out.id,
         archive,
-        Actor::User,
+        TEST_PERSON,
         minute(0),
     )
     .await
@@ -666,29 +711,37 @@ async fn undo_leaves_a_membership_the_user_changed_since() {
     decide(&mut connection, id, ChangesetDecision::Approved, None)
         .await
         .expect("approved");
-    apply(&mut connection, id, LinkReads::new(), minute(2))
-        .await
-        .expect("applied");
+    apply(
+        &mut connection,
+        id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        minute(2),
+    )
+    .await
+    .expect("applied");
 
     // The user takes the first item out and puts it back, and puts the second back in: each
     // membership now stands on a span the changeset did not open or close.
-    action_item::leave_initiative(&mut connection, rejoined.id, launch, Actor::User, minute(3))
+    action_item::leave_initiative(&mut connection, rejoined.id, launch, TEST_PERSON, minute(3))
         .await
         .expect("left");
-    action_item::join_initiative(&mut connection, rejoined.id, launch, Actor::User, minute(4))
+    action_item::join_initiative(&mut connection, rejoined.id, launch, TEST_PERSON, minute(4))
         .await
         .expect("rejoined");
     action_item::join_initiative(
         &mut connection,
         taken_out.id,
         archive,
-        Actor::User,
+        TEST_PERSON,
         minute(4),
     )
     .await
     .expect("put back");
 
-    let undone = undo(&mut connection, id, minute(5)).await.expect("undone");
+    let undone = undo(&mut connection, id, TEST_PERSON, minute(5))
+        .await
+        .expect("undone");
     assert_eq!(
         outcomes(&undone.staged),
         [ChangesetOutcome::Applied, ChangesetOutcome::Applied],
@@ -720,7 +773,7 @@ async fn undo_reverses_several_membership_changes_to_one_initiative() {
     let launch = initiative_named(&mut connection, "Launch").await;
     let outside = item_titled(&mut connection, "Starts outside", ActionItemState::Open).await;
     let inside = item_titled(&mut connection, "Starts inside", ActionItemState::Open).await;
-    action_item::join_initiative(&mut connection, inside.id, launch, Actor::User, minute(0))
+    action_item::join_initiative(&mut connection, inside.id, launch, TEST_PERSON, minute(0))
         .await
         .expect("joined");
     let membership = |item: Uuid| Membership {
@@ -743,13 +796,21 @@ async fn undo_reverses_several_membership_changes_to_one_initiative() {
     decide(&mut connection, id, ChangesetDecision::Approved, None)
         .await
         .expect("approved");
-    apply(&mut connection, id, LinkReads::new(), minute(2))
-        .await
-        .expect("applied");
+    apply(
+        &mut connection,
+        id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        minute(2),
+    )
+    .await
+    .expect("applied");
 
     // Reversing the later change of each pair writes a span; the earlier change must read it
     // as the state it restored, not as the user moving the item.
-    let undone = undo(&mut connection, id, minute(3)).await.expect("undone");
+    let undone = undo(&mut connection, id, TEST_PERSON, minute(3))
+        .await
+        .expect("undone");
     assert_eq!(outcomes(&undone.staged), [ChangesetOutcome::Undone; 4]);
     assert!(
         action_item::current_initiative_ids(&mut connection, outside.id)
@@ -791,24 +852,32 @@ async fn undo_keeps_an_item_the_user_moved_and_one_deleted_since() {
     decide(&mut connection, id, ChangesetDecision::Approved, None)
         .await
         .expect("approved");
-    apply(&mut connection, id, LinkReads::new(), minute(2))
-        .await
-        .expect("applied");
+    apply(
+        &mut connection,
+        id,
+        LinkReads::new(),
+        TEST_PERSON_ID,
+        minute(2),
+    )
+    .await
+    .expect("applied");
 
     action_item::transition(
         &mut connection,
         reopened.id,
         Transition::Reopen,
-        Actor::User,
+        TEST_PERSON,
         minute(3),
     )
     .await
     .expect("reopened");
-    action_item::soft_delete(&mut connection, deleted.id, Actor::User, minute(3))
+    action_item::soft_delete(&mut connection, deleted.id, TEST_PERSON, minute(3))
         .await
         .expect("deleted");
 
-    let undone = undo(&mut connection, id, minute(4)).await.expect("undone");
+    let undone = undo(&mut connection, id, TEST_PERSON, minute(4))
+        .await
+        .expect("undone");
     assert_eq!(
         outcomes(&undone.staged),
         [ChangesetOutcome::Applied, ChangesetOutcome::Applied],
@@ -853,7 +922,7 @@ async fn item_linked_to_issue(fixture: &mut LinkFixture, number: u64) -> Uuid {
         &mut fixture.connection,
         new_item,
         new_link,
-        Actor::User,
+        TEST_PERSON,
         minute(0),
     )
     .await
@@ -921,9 +990,15 @@ async fn a_provider_that_refuses_fails_only_its_operation_and_its_writes_stay_ow
 
     let reads = read_link_targets(&fixture.links, &decided.operations).await;
     fixture.github.refuse_writes(true);
-    let applied = apply(&mut fixture.connection, id, reads, minute(2))
-        .await
-        .expect("applied");
+    let applied = apply(
+        &mut fixture.connection,
+        id,
+        reads,
+        TEST_PERSON_ID,
+        minute(2),
+    )
+    .await
+    .expect("applied");
     assert_eq!(
         outcomes(&applied.staged),
         [
@@ -975,12 +1050,12 @@ async fn a_provider_that_refuses_fails_only_its_operation_and_its_writes_stay_ow
         &mut fixture.connection,
         linked,
         "Following up.".to_owned(),
-        Actor::User,
+        TEST_PERSON,
         minute(3),
     )
     .await
     .expect("commented");
-    let undone = undo(&mut fixture.connection, id, minute(3))
+    let undone = undo(&mut fixture.connection, id, TEST_PERSON, minute(3))
         .await
         .expect("undone");
     let key = format!("{REPOSITORY}#12");

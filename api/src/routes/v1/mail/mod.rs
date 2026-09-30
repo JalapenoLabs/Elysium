@@ -104,6 +104,8 @@ pub struct MailAccountResponse {
     /// Why the latest check failed; `None` when it succeeded or none has run.
     last_error: Option<String>,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
     /// The mail domain of a self-hosted mailbox; `None` for OAuth accounts.
     mail_domain_id: Option<Uuid>,
@@ -120,6 +122,7 @@ impl From<MailAccount> for MailAccountResponse {
             last_checked_at: account.last_checked_at,
             last_error: account.last_error,
             created_at: account.created_at,
+            created_by: account.created_by,
             updated_at: account.updated_at,
             mail_domain_id: account.mail_domain_id,
         }
@@ -135,6 +138,8 @@ pub struct MailDomainResponse {
     /// The domain the server was created with, which cannot be removed.
     is_default: bool,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
 }
 
 impl From<MailDomain> for MailDomainResponse {
@@ -144,6 +149,7 @@ impl From<MailDomain> for MailDomainResponse {
             name: domain.name,
             is_default: domain.is_default,
             created_at: domain.created_at,
+            created_by: domain.created_by,
         }
     }
 }

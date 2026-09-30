@@ -25,6 +25,10 @@ pub enum ApiError {
     /// a Jira project outside its allowlist. The message names what and whose.
     #[error("{0}")]
     Forbidden(String),
+    /// Who is asking may not: nobody is signed in, or this person may not do this. The body
+    /// carries a stable `code` the frontend acts on.
+    #[error("{}", .0.message())]
+    AccessRefused(crate::auth::AccessRefusal),
     #[error("resource not found")]
     NotFound,
     #[error("{0}")]
@@ -80,6 +84,31 @@ impl From<crate::action_items::WorkError> for ApiError {
             WorkError::Conflict(message) => Self::Conflict(message),
             WorkError::Invalid(message) => Self::BadRequest(message.to_owned()),
             WorkError::Refused(message) => Self::BadRequest(message),
+        }
+    }
+}
+
+impl From<crate::models::user::AccountError> for ApiError {
+    fn from(error: crate::models::user::AccountError) -> Self {
+        use crate::models::user::AccountError;
+
+        match error {
+            AccountError::Database(database) => database.into(),
+            AccountError::LastAdmin => {
+                Self::Conflict("the workspace must keep at least one active admin")
+            }
+            AccountError::Invalid(message) => Self::Conflict(message),
+        }
+    }
+}
+
+impl From<crate::auth::kratos::KratosError> for ApiError {
+    fn from(error: crate::auth::kratos::KratosError) -> Self {
+        use crate::auth::kratos::KratosError;
+
+        match error {
+            KratosError::NotFound => Self::NotFound,
+            other => Self::BadGateway(other.to_string()),
         }
     }
 }
@@ -194,6 +223,10 @@ impl IntoResponse for ApiError {
                 json!({ "message": "request failed validation", "fields": errors }),
             ),
             Self::Forbidden(message) => (StatusCode::FORBIDDEN, json!({ "message": message })),
+            Self::AccessRefused(refusal) => (
+                refusal.status(),
+                json!({ "message": refusal.message(), "code": refusal.code() }),
+            ),
             Self::NotFound => (
                 StatusCode::NOT_FOUND,
                 json!({ "message": "resource not found" }),

@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::publish_item_write;
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item::{self, ActionItemChanges};
 use crate::state::AppState;
@@ -31,6 +31,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
@@ -53,7 +54,7 @@ pub async fn handle(
         snoozed_until: Some(body.until),
         ..ActionItemChanges::default()
     };
-    let snoozed = action_item::update(&mut connection, id, changes, Actor::User, now).await?;
+    let snoozed = action_item::update(&mut connection, id, changes, current.actor(), now).await?;
     let item = publish_item_write(&state.events, &mut connection, snoozed, &[], now).await?;
 
     Ok(Json(json!({ "item": item })))

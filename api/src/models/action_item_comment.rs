@@ -283,7 +283,7 @@ mod tests {
     use super::*;
     use crate::models::action_item::{ActionItemPriority, ActionItemState, NewActionItem, Owner};
     use crate::models::action_item_event::list_for_item;
-    use crate::test_support::migrated_database;
+    use crate::test_support::{TEST_PERSON, migrated_database};
 
     fn minute(offset: i64) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339("2026-09-18T12:00:00Z")
@@ -303,7 +303,7 @@ mod tests {
             project_ids: Vec::new(),
             initiative_ids: Vec::new(),
         };
-        action_item::create(connection, new_item, Actor::User, minute(0))
+        action_item::create(connection, new_item, TEST_PERSON, minute(0))
             .await
             .expect("item")
             .record
@@ -320,7 +320,7 @@ mod tests {
             &mut connection,
             item,
             "Looks close".to_owned(),
-            Actor::User,
+            TEST_PERSON,
             minute(1),
         )
         .await
@@ -330,12 +330,12 @@ mod tests {
             &mut connection,
             item,
             "Asked for tests".to_owned(),
-            Actor::User,
+            TEST_PERSON,
             minute(2),
         )
         .await
         .expect("comment");
-        assert_eq!(first.author, "user");
+        assert_eq!(first.author, TEST_PERSON.to_string());
         assert_eq!(
             first.updated_at, first.created_at,
             "a comment never edited was last updated when it was written"
@@ -353,7 +353,7 @@ mod tests {
             item,
             first.id,
             "Looks close".to_owned(),
-            Actor::User,
+            TEST_PERSON,
             minute(3),
         )
         .await
@@ -364,7 +364,7 @@ mod tests {
             item,
             first.id,
             "Looks good".to_owned(),
-            Actor::User,
+            TEST_PERSON,
             minute(3),
         )
         .await
@@ -379,7 +379,7 @@ mod tests {
             json!({ "commentId": first.id, "from": "Looks close", "to": "Looks good" })
         );
 
-        delete(&mut connection, item, first.id, Actor::User, minute(4))
+        delete(&mut connection, item, first.id, TEST_PERSON, minute(4))
             .await
             .expect("delete");
         assert_eq!(list(&mut connection, item).await.expect("list").len(), 1);
@@ -429,7 +429,7 @@ mod tests {
             item,
             elysia_comment,
             "No".to_owned(),
-            Actor::User,
+            TEST_PERSON,
             minute(2),
         )
         .await;
@@ -438,7 +438,7 @@ mod tests {
             &mut connection,
             item,
             elysia_comment,
-            Actor::User,
+            TEST_PERSON,
             minute(2),
         )
         .await;
@@ -448,7 +448,7 @@ mod tests {
             &mut connection,
             other_item,
             elysia_comment,
-            Actor::User,
+            TEST_PERSON,
             minute(2),
         )
         .await;
@@ -457,14 +457,14 @@ mod tests {
             Err(WorkError::Database(diesel::result::Error::NotFound))
         ));
 
-        action_item::soft_delete(&mut connection, item, Actor::User, minute(3))
+        action_item::soft_delete(&mut connection, item, TEST_PERSON, minute(3))
             .await
             .expect("delete item");
         let on_deleted = create(
             &mut connection,
             item,
             "Hello?".to_owned(),
-            Actor::User,
+            TEST_PERSON,
             minute(4),
         )
         .await;

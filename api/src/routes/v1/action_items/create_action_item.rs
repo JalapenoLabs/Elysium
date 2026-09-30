@@ -18,7 +18,7 @@ use validator::Validate;
 use super::{
     publish_item_write, refuse_unknown_projects, unique_ids, validate_not_blank, validate_owner,
 };
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item::{self, ActionItemPriority, ActionItemState, NewActionItem, Owner};
 use crate::state::AppState;
@@ -53,6 +53,7 @@ const fn the_user() -> Owner {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -75,7 +76,7 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let created = action_item::create(&mut connection, new_item, Actor::User, now)
+    let created = action_item::create(&mut connection, new_item, current.actor(), now)
         .await
         .map_err(refuse_unknown_projects)?;
     let item = publish_item_write(&state.events, &mut connection, created, &[], now).await?;

@@ -78,6 +78,8 @@ pub struct InitiativeResponse {
     progress: Progress,
     deleted_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
 }
 
@@ -156,6 +158,7 @@ pub async fn initiative_responses(
                 target_at: initiative.target_at,
                 deleted_at: initiative.deleted_at,
                 created_at: initiative.created_at,
+                created_by: initiative.created_by,
                 updated_at: initiative.updated_at,
             }
         })

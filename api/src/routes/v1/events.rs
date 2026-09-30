@@ -6,19 +6,24 @@
 //! arrives as an unnamed SSE message. A client that falls more than the bus capacity
 //! behind receives `resync` in place of what it missed. The stream ends when the
 //! process begins shutting down, so open streams never hold up the graceful drain.
+//!
+//! It also ends when its session does: every [`ACCESS_CHECK_INTERVAL`] it checks the
+//! session and the person again, the way a request would, so a person who is signed out
+//! or disabled stops receiving events. The browser then reconnects and is refused.
 
 use std::convert::Infallible;
 use std::time::Duration;
 
 use axum::extract::State;
-use axum::http::{HeaderName, HeaderValue};
+use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use axum::response::IntoResponse;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::StreamExt as _;
-use futures_util::stream;
+use futures_util::{future, stream};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{Level, event};
 
+use crate::auth::middleware::still_allowed;
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -26,7 +31,12 @@ use crate::state::AppState;
 /// front of the API, so an idle connection is never mistaken for a dead one.
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(15);
 
-pub async fn handle(State(state): State<AppState>) -> impl IntoResponse {
+/// How often an open stream checks that its session and person may still receive events.
+/// The session cache (`crate::auth::sessions`) answers most checks, so this costs a Redis
+/// read and a row lookup.
+const ACCESS_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+
+pub async fn handle(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     let receiver = state.events.subscribe();
 
     let hello = stream::once(async { ServerEvent::Hello.to_json() });
@@ -46,10 +56,12 @@ pub async fn handle(State(state): State<AppState>) -> impl IntoResponse {
         }
     });
 
+    let shutdown = Box::pin(state.shutdown.clone().cancelled_owned());
+    let revoked = Box::pin(access_revoked(state, headers));
     let messages = hello
         .chain(published)
         .map(|payload| Ok::<Event, Infallible>(Event::default().data(&*payload)))
-        .take_until(state.shutdown.cancelled_owned());
+        .take_until(future::select(shutdown, revoked));
 
     (
         // Tells nginx not to buffer the stream, which would hold events back.
@@ -59,4 +71,22 @@ pub async fn handle(State(state): State<AppState>) -> impl IntoResponse {
         )],
         Sse::new(messages).keep_alive(KeepAlive::new().interval(KEEP_ALIVE_INTERVAL)),
     )
+}
+
+/// Finishes once the stream's session or person may no longer receive events.
+async fn access_revoked(state: AppState, headers: HeaderMap) {
+    let mut interval = tokio::time::interval(ACCESS_CHECK_INTERVAL);
+    // The first tick is immediate, and the request was just checked.
+    interval.tick().await;
+    loop {
+        interval.tick().await;
+        if !still_allowed(&state, &headers).await {
+            event!(
+                name: "realtime.client.revoked",
+                Level::INFO,
+                "closed an event stream whose session or person lost access",
+            );
+            return;
+        }
+    }
 }

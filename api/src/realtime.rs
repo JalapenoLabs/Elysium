@@ -40,6 +40,8 @@ use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
 use crate::routes::v1::projects::ProjectResponse;
 use crate::routes::v1::satellites::SatelliteResponse;
 use crate::routes::v1::storage_locations::StorageLocationResponse;
+use crate::routes::v1::users::UserResponse;
+use crate::routes::v1::workspace_settings::WorkspaceSettingsResponse;
 
 /// How many serialized events a slow client may fall behind before it is told to
 /// resync. Thread event bursts (streamed agent output) are the largest source; this
@@ -139,6 +141,14 @@ pub enum ServerEvent {
     /// Live events for the session may have been missed; refetch its history.
     #[serde(rename = "session.resync")]
     SessionResync { id: i64 },
+    /// A person signed up, was approved, changed role, or was disabled or enabled.
+    #[serde(rename = "user.upserted")]
+    UserUpserted(UserResponse),
+    /// A pending sign-up was rejected.
+    #[serde(rename = "user.deleted")]
+    UserDeleted { id: Uuid },
+    #[serde(rename = "workspaceSettings.updated")]
+    WorkspaceSettingsUpdated(WorkspaceSettingsResponse),
 }
 
 impl ServerEvent {

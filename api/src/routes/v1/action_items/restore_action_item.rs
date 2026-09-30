@@ -11,13 +11,14 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::publish_item_write;
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item;
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
@@ -28,7 +29,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
 
-    let restored = action_item::restore(&mut connection, id, Actor::User, now).await?;
+    let restored = action_item::restore(&mut connection, id, current.actor(), now).await?;
     let item = publish_item_write(&state.events, &mut connection, restored, &[], now).await?;
 
     Ok(Json(json!({ "item": item })))

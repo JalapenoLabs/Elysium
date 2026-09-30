@@ -819,13 +819,14 @@ mod tests {
     use super::*;
     use crate::models::action_item::ActionItemState;
     use crate::models::github_credential::{self, GithubTokenKind, NewGithubCredential};
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, cipher, migrated_database};
 
     async fn github_token(connection: &mut AsyncPgConnection) -> LinkCredential {
         let credential = github_credential::create(
             connection,
             &cipher(),
             &NewGithubCredential {
+                created_by: TEST_PERSON_ID,
                 name: "Personal".to_owned(),
                 verified: github_credential::VerifiedToken {
                     kind: GithubTokenKind::Classic,
@@ -873,7 +874,7 @@ mod tests {
             project_ids: Vec::new(),
             initiative_ids: Vec::new(),
         };
-        action_item::create(connection, new_item, Actor::User, Utc::now())
+        action_item::create(connection, new_item, TEST_PERSON, Utc::now())
             .await
             .expect("an item")
             .record
@@ -914,7 +915,7 @@ mod tests {
             id,
             new_link(credential, 12, sam()),
             true,
-            Actor::User,
+            TEST_PERSON,
             Utc::now(),
         )
         .await
@@ -938,7 +939,7 @@ mod tests {
             id,
             new_link(credential, 12, sam()),
             true,
-            Actor::User,
+            TEST_PERSON,
             Utc::now(),
         )
         .await
@@ -954,7 +955,7 @@ mod tests {
             other,
             new_link(credential, 12, sam()),
             true,
-            Actor::User,
+            TEST_PERSON,
             Utc::now(),
         )
         .await;
@@ -975,7 +976,7 @@ mod tests {
             id,
             new_link(credential, 1, sam()),
             true,
-            Actor::User,
+            TEST_PERSON,
             Utc::now(),
         )
         .await
@@ -987,7 +988,7 @@ mod tests {
             id,
             new_link(credential, 2, Owner::User),
             true,
-            Actor::User,
+            TEST_PERSON,
             Utc::now(),
         )
         .await
@@ -996,7 +997,7 @@ mod tests {
         .remove(0);
         assert!(!second.is_primary, "the item already had a primary");
 
-        let promoted = make_primary(&mut connection, id, second.id, Actor::User, Utc::now())
+        let promoted = make_primary(&mut connection, id, second.id, TEST_PERSON, Utc::now())
             .await
             .expect("promoted");
         assert_eq!(promoted.item.record.owner(), Owner::User);
@@ -1009,7 +1010,7 @@ mod tests {
             .collect();
         assert_eq!(primaries, [second.id], "one primary at a time");
 
-        let removed = remove(&mut connection, id, second.id, Actor::User, Utc::now())
+        let removed = remove(&mut connection, id, second.id, TEST_PERSON, Utc::now())
             .await
             .expect("removed");
         assert_eq!(
@@ -1018,7 +1019,7 @@ mod tests {
         );
         assert_eq!(removed.item.record.owner(), sam());
 
-        remove(&mut connection, id, first.id, Actor::User, Utc::now())
+        remove(&mut connection, id, first.id, TEST_PERSON, Utc::now())
             .await
             .expect("removed");
         let history: Vec<String> = action_item_event::list_for_item(&mut connection, id)

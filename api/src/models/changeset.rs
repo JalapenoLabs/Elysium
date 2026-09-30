@@ -100,6 +100,10 @@ pub struct Changeset {
     pub undone_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The machine that proposed it: Elysia, or the coding agent.
+    pub created_by: Uuid,
+    /// The person who applied or rejected it.
+    pub decided_by: Option<Uuid>,
 }
 
 /// A stored operation.
@@ -197,6 +201,7 @@ struct ChangesetRow {
     project_id: Option<Uuid>,
     summary: String,
     created_at: DateTime<Utc>,
+    created_by: Uuid,
 }
 
 #[derive(Insertable)]
@@ -234,6 +239,7 @@ pub async fn propose(
         project_id: proposal.project_id,
         summary: proposal.summary,
         created_at: now,
+        created_by: proposal.proposer.actor().user_id(),
     };
     let rows = proposal
         .operations
@@ -476,11 +482,13 @@ pub async fn decide(
 }
 
 /// Moves a changeset on from pending or applied, stamping when: `decided_at` for applied
-/// or rejected, `undone_at` for undone.
+/// or rejected, `undone_at` for undone. `decided_by` is the person who applied or rejected
+/// it, and is not recorded for an undo, which history attributes instead.
 async fn conclude(
     connection: &mut AsyncPgConnection,
     id: Uuid,
     state: ChangesetState,
+    decided_by: Uuid,
     now: DateTime<Utc>,
 ) -> QueryResult<Changeset> {
     let update = diesel::update(changesets_table::table.find(id));
@@ -498,6 +506,7 @@ async fn conclude(
         .set((
             changesets_table::state.eq(state),
             changesets_table::decided_at.eq(now),
+            changesets_table::decided_by.eq(decided_by),
         ))
         .returning(Changeset::as_returning())
         .get_result(connection)

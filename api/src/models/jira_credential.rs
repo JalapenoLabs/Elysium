@@ -125,6 +125,8 @@ pub struct JiraCredential {
     pub checked_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Who created it.
+    pub created_by: Uuid,
 }
 
 /// A token Jira has just accepted, with the site and account it was checked against.
@@ -145,6 +147,8 @@ pub struct NewJiraCredential {
     pub name: String,
     pub verified: VerifiedToken,
     pub allowed: Allowed,
+    /// Who is creating it.
+    pub created_by: Uuid,
 }
 
 /// A partial update. `None` leaves a column or a selection untouched. A token always
@@ -182,6 +186,7 @@ struct JiraCredentialRow<'a> {
     all_projects: bool,
     all_boards: bool,
     checked_at: DateTime<Utc>,
+    created_by: Uuid,
 }
 
 /// Row-shaped update. The token's columns move together, or not at all.
@@ -445,6 +450,7 @@ pub async fn create(
     let verified = &new_credential.verified;
     let allowed = &new_credential.allowed;
     let row = JiraCredentialRow {
+        created_by: new_credential.created_by,
         id,
         name: &new_credential.name,
         site_url: &verified.site_url,
@@ -576,7 +582,7 @@ pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult
 mod tests {
     use super::*;
     use crate::errors::ApiError;
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 
     fn project(id: &str, key: &str) -> AllowedProject {
         AllowedProject {
@@ -609,6 +615,7 @@ mod tests {
 
     fn new_credential(name: &str, allowed: Allowed) -> NewJiraCredential {
         NewJiraCredential {
+            created_by: TEST_PERSON_ID,
             name: name.to_owned(),
             verified: verified("5b10a2844c20165700ede21g"),
             allowed,

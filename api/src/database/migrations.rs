@@ -159,18 +159,20 @@ struct DatabaseExists {
 /// transaction, which is why this runs on the migration connection directly, under its
 /// lock, rather than as a migration.
 fn ensure_identity_database(connection: &mut MigrationConnection) -> Result<()> {
-    let found: DatabaseExists =
-        diesel::sql_query("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS exists")
-            .bind::<Text, _>(IDENTITY_DATABASE)
-            .get_result(connection)
-            .context("cannot look up the identity database")?;
-    if found.exists {
+    if identity_database_exists(connection)? {
         return Ok(());
     }
 
-    diesel::sql_query(format!("CREATE DATABASE {IDENTITY_DATABASE}"))
-        .execute(connection)
-        .context("cannot create the identity database")?;
+    // The migration lock is per database, so a migrator for another database on this server
+    // can create it first. Finding it afterwards means that happened.
+    if let Err(error) =
+        diesel::sql_query(format!("CREATE DATABASE {IDENTITY_DATABASE}")).execute(connection)
+    {
+        if identity_database_exists(connection)? {
+            return Ok(());
+        }
+        return Err(error).context("cannot create the identity database");
+    }
     event!(
         name: "migration.identity_database.created",
         Level::INFO,
@@ -178,6 +180,15 @@ fn ensure_identity_database(connection: &mut MigrationConnection) -> Result<()> 
         "created the identity database",
     );
     Ok(())
+}
+
+fn identity_database_exists(connection: &mut MigrationConnection) -> Result<bool> {
+    let found: DatabaseExists =
+        diesel::sql_query("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS exists")
+            .bind::<Text, _>(IDENTITY_DATABASE)
+            .get_result(connection)
+            .context("cannot look up the identity database")?;
+    Ok(found.exists)
 }
 
 fn run_pending(connection: &mut MigrationConnection) -> Result<()> {

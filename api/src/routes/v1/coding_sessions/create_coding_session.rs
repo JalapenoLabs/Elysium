@@ -47,6 +47,7 @@ use validator::{Validate, ValidationError};
 use super::github_token::{self, SessionChoice, SessionToken};
 use super::{CodingSessionResponse, thread_settings, validate_not_blank};
 use super::{first_turn, model_stack};
+use crate::auth::CurrentUser;
 use crate::crypto::Cipher;
 use crate::errors::ApiError;
 use crate::fleet::views::ThreadStatus;
@@ -111,6 +112,7 @@ pub struct RepositoryRequest {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -188,6 +190,7 @@ pub async fn handle(
         .await?;
 
     let new_session = NewCodingSession {
+        created_by: current.id(),
         id: session_id,
         project_id: project.id,
         satellite_id: satellite.id,

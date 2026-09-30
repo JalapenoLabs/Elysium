@@ -12,13 +12,14 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::{publish_item_links, publish_item_write};
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item_link_write;
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<(Uuid, Uuid, Uuid)>, PathRejection>,
 ) -> Result<StatusCode, ApiError> {
     let Path((id, link_id, write_id)) = path?;
@@ -29,9 +30,15 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
 
-    let cancelled =
-        action_item_link_write::cancel(&mut connection, id, link_id, write_id, Actor::User, now)
-            .await?;
+    let cancelled = action_item_link_write::cancel(
+        &mut connection,
+        id,
+        link_id,
+        write_id,
+        current.actor(),
+        now,
+    )
+    .await?;
     publish_item_write(&state.events, &mut connection, cancelled, &[], now).await?;
     publish_item_links(&state.events, &mut connection, id).await?;
 

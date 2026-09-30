@@ -3,6 +3,7 @@
 //! Version 1 resource routes, mounted at `/api/v1`.
 
 pub mod action_items;
+mod auth_status;
 pub mod changesets;
 pub mod coding_sessions;
 pub mod environment_variables;
@@ -12,16 +13,37 @@ pub mod initiatives;
 pub mod jira_credentials;
 pub mod llms;
 pub mod mail;
+mod me;
 pub mod projects;
 pub mod satellites;
 pub mod storage_locations;
+pub mod users;
+pub mod workspace_settings;
 
 use axum::Router;
+use axum::middleware::from_fn_with_state;
 use axum::routing::get;
 
+use crate::auth::middleware::{authenticate, require_access, require_same_origin};
 use crate::state::AppState;
 
-pub fn router() -> Router<AppState> {
+/// Every route but `/auth/status` needs a session; every route but that and `/me` needs an
+/// active person with whatever the workspace requires of them. See `crate::auth`.
+pub fn router(state: &AppState) -> Router<AppState> {
+    let workspace =
+        workspace_router().route_layer(from_fn_with_state(state.clone(), require_access));
+    let signed_in = Router::new()
+        .route("/me", get(me::handle))
+        .merge(workspace)
+        .route_layer(from_fn_with_state(state.clone(), authenticate))
+        .route_layer(from_fn_with_state(state.clone(), require_same_origin));
+
+    Router::new()
+        .route("/auth/status", get(auth_status::handle))
+        .merge(signed_in)
+}
+
+fn workspace_router() -> Router<AppState> {
     Router::new()
         .route("/events", get(events::handle))
         .nest("/action-items", action_items::router())
@@ -36,4 +58,6 @@ pub fn router() -> Router<AppState> {
         .nest("/satellites", satellites::router())
         .nest("/storage-locations", storage_locations::router())
         .nest("/coding-sessions", coding_sessions::router())
+        .nest("/users", users::router())
+        .nest("/workspace-settings", workspace_settings::router())
 }

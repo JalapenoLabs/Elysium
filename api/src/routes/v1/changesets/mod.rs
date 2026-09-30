@@ -59,6 +59,10 @@ pub struct ChangesetResponse {
     undone_at: Option<DateTime<Utc>>,
     operations: Vec<OperationResponse>,
     created_at: DateTime<Utc>,
+    /// The machine that proposed it.
+    created_by: Uuid,
+    /// The person who applied or rejected it.
+    decided_by: Option<Uuid>,
     updated_at: DateTime<Utc>,
 }
 
@@ -121,6 +125,8 @@ impl From<Staged> for ChangesetResponse {
             decided_at: changeset.decided_at,
             undone_at: changeset.undone_at,
             created_at: changeset.created_at,
+            created_by: changeset.created_by,
+            decided_by: changeset.decided_by,
             updated_at: changeset.updated_at,
         }
     }

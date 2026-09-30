@@ -34,6 +34,8 @@ pub struct EnvironmentVariable {
     pub description: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Who created it.
+    pub created_by: Uuid,
 }
 
 /// Fields for a new variable, with the value still in plaintext.
@@ -43,6 +45,8 @@ pub struct NewEnvironmentVariable {
     pub value: SecretString,
     pub is_secret: bool,
     pub description: String,
+    /// Who is creating it.
+    pub created_by: Uuid,
 }
 
 /// A partial update. `None` leaves a column untouched.
@@ -85,6 +89,7 @@ struct EnvironmentVariableRow<'a> {
     value_encrypted: Vec<u8>,
     is_secret: bool,
     description: &'a str,
+    created_by: Uuid,
 }
 
 /// Row-shaped update.
@@ -192,6 +197,7 @@ pub async fn create(
 ) -> QueryResult<EnvironmentVariable> {
     let id = Uuid::now_v7();
     let row = EnvironmentVariableRow {
+        created_by: new_variable.created_by,
         id,
         key: &new_variable.key,
         value_encrypted: cipher.seal(
@@ -256,10 +262,11 @@ pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult
 mod tests {
     use super::*;
     use crate::errors::ApiError;
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 
     fn new_variable(key: &str, value: &str, is_secret: bool) -> NewEnvironmentVariable {
         NewEnvironmentVariable {
+            created_by: TEST_PERSON_ID,
             key: key.to_owned(),
             value: SecretString::from(value),
             is_secret,

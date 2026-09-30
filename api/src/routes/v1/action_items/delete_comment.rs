@@ -11,7 +11,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::publish_history;
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item_comment;
 use crate::models::action_item_event::Recorded;
@@ -20,6 +20,7 @@ use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<StatusCode, ApiError> {
     let Path((id, comment_id)) = path?;
@@ -30,7 +31,7 @@ pub async fn handle(
         .context("no database connection available")?;
 
     let Recorded { history, .. } =
-        action_item_comment::delete(&mut connection, id, comment_id, Actor::User, Utc::now())
+        action_item_comment::delete(&mut connection, id, comment_id, current.actor(), Utc::now())
             .await?;
     drop(connection);
 

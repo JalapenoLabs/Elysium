@@ -104,6 +104,8 @@ pub struct GithubCredentialResponse {
     /// session chooses otherwise.
     is_default: bool,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
 }
 
@@ -124,6 +126,7 @@ impl GithubCredentialResponse {
             checked_at: credential.checked_at,
             is_default: credential.is_default,
             created_at: credential.created_at,
+            created_by: credential.created_by,
             updated_at: credential.updated_at,
         }
     }

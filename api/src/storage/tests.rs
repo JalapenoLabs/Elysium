@@ -24,6 +24,7 @@ use uuid::Uuid;
 use super::*;
 use crate::errors::ApiError;
 use crate::models::storage_location::{BunnyStorageRegion, S3Service, StorageLocationKind};
+use crate::test_support::TEST_PERSON_ID;
 
 const ZONE: &str = "files";
 pub const PASSWORD: &str = "zone-password";
@@ -188,6 +189,7 @@ fn location(
     let s3_bucket = is_s3.then(|| "elysium-probe-bucket-that-does-not-exist".to_owned());
     let s3_region = (s3_service == Some(S3Service::Aws)).then(|| "us-east-1".to_owned());
     StorageLocation {
+        created_by: TEST_PERSON_ID,
         id: Uuid::now_v7(),
         name: "artifacts".to_owned(),
         kind,

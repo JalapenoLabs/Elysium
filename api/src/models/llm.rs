@@ -43,6 +43,8 @@ pub struct Llm {
     pub expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Who created it.
+    pub created_by: Uuid,
 }
 
 /// Fields for a new credential, with the token still in plaintext.
@@ -55,6 +57,8 @@ pub struct NewLlm {
     pub priority: i32,
     pub is_active: bool,
     pub expires_at: Option<DateTime<Utc>>,
+    /// Who is creating it.
+    pub created_by: Uuid,
 }
 
 /// A partial update. `None` leaves a column untouched; for `expires_at`,
@@ -99,6 +103,7 @@ struct LlmRow<'a> {
     priority: i32,
     is_active: bool,
     expires_at: Option<DateTime<Utc>>,
+    created_by: Uuid,
 }
 
 /// Row-shaped update, holding the already sealed token if one was supplied.
@@ -176,6 +181,7 @@ pub async fn create(
 ) -> QueryResult<Llm> {
     let id = Uuid::now_v7();
     let row = LlmRow {
+        created_by: new_llm.created_by,
         id,
         name: &new_llm.name,
         description: &new_llm.description,
@@ -248,10 +254,11 @@ mod tests {
 
     use super::*;
     use crate::errors::ApiError;
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 
     fn new_llm(name: &str, priority: i32) -> NewLlm {
         NewLlm {
+            created_by: TEST_PERSON_ID,
             name: name.to_owned(),
             description: "test credential".to_owned(),
             type_: LlmType::ClaudeApiToken,
