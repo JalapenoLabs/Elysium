@@ -170,7 +170,7 @@ Admins manage people under Settings, Users (`/api/v1/users`).
 - Require an authenticator app of everyone.
 
 **Guardrails and audit:**
-- The workspace always keeps at least one active admin. Demoting or disabling the last one answers `409`, checked
+- The workspace always keeps at least one active admin. Demoting or disabling the last one answers `409` with code `last_admin`, checked
   under row locks so two admins cannot demote each other at once. Anything else about oneself is allowed.
 - Every account change is recorded in `user_events` with its actor, including profile changes a person made in
   Kratos and workspace settings changes. A rejected sign-up's events outlive it, with their user cleared.

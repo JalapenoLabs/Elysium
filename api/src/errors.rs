@@ -33,6 +33,12 @@ pub enum ApiError {
     NotFound,
     #[error("{0}")]
     Conflict(&'static str),
+    /// A conflict the frontend explains in its own words, named by a stable `code`.
+    #[error("{message}")]
+    CodedConflict {
+        code: &'static str,
+        message: &'static str,
+    },
     /// A service this request needs is not configured on this deployment.
     #[error("{0}")]
     Unavailable(&'static str),
@@ -94,10 +100,14 @@ impl From<crate::models::user::AccountError> for ApiError {
 
         match error {
             AccountError::Database(database) => database.into(),
-            AccountError::LastAdmin => {
-                Self::Conflict("the workspace must keep at least one active admin")
-            }
-            AccountError::Invalid(message) => Self::Conflict(message),
+            AccountError::LastAdmin => Self::CodedConflict {
+                code: "last_admin",
+                message: "the workspace must keep at least one active admin",
+            },
+            AccountError::Invalid(message) => Self::CodedConflict {
+                code: "account_state",
+                message,
+            },
         }
     }
 }
@@ -232,6 +242,10 @@ impl IntoResponse for ApiError {
                 json!({ "message": "resource not found" }),
             ),
             Self::Conflict(message) => (StatusCode::CONFLICT, json!({ "message": message })),
+            Self::CodedConflict { code, message } => (
+                StatusCode::CONFLICT,
+                json!({ "message": message, "code": code }),
+            ),
             Self::Unavailable(message) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 json!({ "message": message }),
