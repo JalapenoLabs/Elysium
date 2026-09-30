@@ -114,6 +114,10 @@ export type Changeset = {
   undoneAt: string | null
   operations: ChangesetOperation[]
   createdAt: string
+  // The machine that proposed it: Elysia or the coding agent.
+  createdBy: string
+  // The person who applied or rejected it; null while it is pending.
+  decidedBy: string | null
   updatedAt: string
 }
 

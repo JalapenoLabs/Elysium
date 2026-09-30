@@ -16,6 +16,7 @@ function makeSatellite(setup: SatelliteSetupStatus | null, isActive = true): Sat
     url: 'http://172.17.0.1:8090',
     isActive,
     createdAt: '2026-09-24T00:00:00Z',
+    createdBy: '00000000-0000-0000-0000-000000000001',
     updatedAt: '2026-09-24T00:00:00Z',
     status: {
       satelliteId: 'satellite',

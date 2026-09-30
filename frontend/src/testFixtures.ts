@@ -11,11 +11,15 @@ import type { Changeset, ChangesetOperation } from './api/routes/changesetRoutes
 import type { CodingSession } from './api/routes/codingSessionRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
 import type { Project } from './api/routes/projectRoutes'
+import type { User } from './api/routes/userRoutes'
 
 // Records shaped as the API sends them, for tests. Each starts from plain defaults and
 // takes only the fields a test is about.
 
 const CREATED_AT = '2026-09-01T00:00:00.000Z'
+
+// The system user, which owns what predates accounts.
+const CREATED_BY = '00000000-0000-0000-0000-000000000001'
 
 export function makeActionItem(overrides: Partial<ActionItem> & Pick<ActionItem, 'id'>): ActionItem {
   return {
@@ -33,6 +37,7 @@ export function makeActionItem(overrides: Partial<ActionItem> & Pick<ActionItem,
     projectIds: [],
     initiativeIds: [],
     createdAt: CREATED_AT,
+    createdBy: CREATED_BY,
     updatedAt: CREATED_AT,
     ...overrides,
   }
@@ -48,6 +53,7 @@ export function makeInitiative(overrides: Partial<Initiative> & Pick<Initiative,
     progress: { resolved: 0, total: 0 },
     deletedAt: null,
     createdAt: CREATED_AT,
+    createdBy: CREATED_BY,
     updatedAt: CREATED_AT,
     ...overrides,
   }
@@ -105,6 +111,8 @@ export function makeChangeset(overrides: Partial<Changeset> & Pick<Changeset, 'i
     undoneAt: null,
     operations: [],
     createdAt: CREATED_AT,
+    createdBy: '00000000-0000-0000-0000-000000000002',
+    decidedBy: null,
     updatedAt: CREATED_AT,
     ...overrides,
   }
@@ -119,6 +127,7 @@ export function makeCodingSession(overrides: Partial<CodingSession> & Pick<Codin
     githubCredentialId: null,
     actionItemId: null,
     createdAt: CREATED_AT,
+    createdBy: CREATED_BY,
     updatedAt: CREATED_AT,
     thread: null,
     ...overrides,
@@ -130,6 +139,7 @@ export function makeProject(overrides: Partial<Project> & Pick<Project, 'id'>): 
     name: overrides.id,
     description: '',
     createdAt: CREATED_AT,
+    createdBy: CREATED_BY,
     updatedAt: CREATED_AT,
     coverUpdatedAt: null,
     coverFit: 'fit',
@@ -183,6 +193,22 @@ export function makeInitiativeLink(
     syncedAt: null,
     syncError: null,
     truncated: false,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeUser(overrides: Partial<User> = {}): User {
+  return {
+    id: 'person',
+    kind: 'person',
+    name: 'Ada Lovelace',
+    email: 'ada@example.com',
+    role: 'member',
+    status: 'active',
+    approvedAt: CREATED_AT,
+    lastSeenAt: null,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     ...overrides,

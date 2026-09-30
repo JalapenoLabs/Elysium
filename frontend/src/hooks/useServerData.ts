@@ -25,6 +25,8 @@ import { projectsLoaded } from '../store/projectsSlice'
 import { satellitesLoaded } from '../store/satellitesSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
 import { storageLocationsLoaded } from '../store/storageLocationsSlice'
+import { usersLoaded } from '../store/usersSlice'
+import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
 // Misc
 import {
@@ -52,6 +54,7 @@ import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/
 import { listProjects } from '../api/routes/projectRoutes'
 import { listSatellites } from '../api/routes/satelliteRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
+import { getWorkspaceSettings, listUsers } from '../api/routes/userRoutes'
 
 // How server data reaches a component:
 //
@@ -393,6 +396,29 @@ export function useInitiativeLinksLoader(initiativeId: string): LoadStatus {
   const { data, error } = useSWR(`v1/initiatives/${initiativeId}/links`, async () => {
     const response = await listInitiativeLinks(initiativeId)
     dispatch(initiativeLinksLoaded({ initiativeId, links: response.links }))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Every user, machines included: every view that says who created or did something names
+// them from here, and the Users page manages the people among them.
+export function useUsersLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/users', async () => {
+    const response = await listUsers()
+    dispatch(usersLoaded(response.users))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Admins only; `workspaceSettings.updated` keeps it current.
+export function useWorkspaceSettingsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/workspace-settings', async () => {
+    const response = await getWorkspaceSettings()
+    dispatch(workspaceSettingsUpdated(response.settings))
     return response
   })
   return toLoadStatus(data !== undefined, error)

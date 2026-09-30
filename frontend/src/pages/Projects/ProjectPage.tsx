@@ -25,8 +25,11 @@ import { HTTPError } from 'ky'
 // Misc
 import { updateProject } from '../../api/routes/projectRoutes'
 import { useCodingSessionsLoader, useProjectsLoader } from '../../hooks/useServerData'
+import { useUserNames } from '../../hooks/useUserNames'
 import { UrlTree } from '../../urls'
 import { DESCRIPTION_MAX_CHARACTERS, NAME_MAX_CHARACTERS } from './projectFormSchema'
+
+const createdFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
 
 // `/projects/:projectId`: one project, edited in place. The name and description come
 // first and are edited where they are shown, the cover runs across the page below them, and the Actions menu holds
@@ -40,6 +43,7 @@ export function ProjectPage() {
   const sessionsStatus = useCodingSessionsLoader()
   const project = useAppSelector((state) => selectProjectById(state, projectId))
   const allSessions = useAppSelector(selectAllCodingSessions)
+  const userNames = useUserNames()
 
   const sessions = useMemo(
     () => allSessions.filter((session) => session.projectId === projectId),
@@ -108,6 +112,12 @@ export function ProjectPage() {
             onSave={(description) => saveField({ description })}
           />
         </div>
+        <p className='mt-2 text-xs opacity-60'>{
+          t('page.createdBy', {
+            name: userNames[project.createdBy] ?? t('common:table.someone'),
+            date: createdFormatter.format(new Date(project.createdAt)),
+          })
+        }</p>
       </div>
       <div className='shrink-0'>
         <ProjectActions

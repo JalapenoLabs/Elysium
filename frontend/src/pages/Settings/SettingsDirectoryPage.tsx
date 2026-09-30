@@ -3,6 +3,10 @@
 // Core
 import { useTranslation } from 'react-i18next'
 
+// Redux
+import { selectIsAdmin } from '../../store/authSlice'
+import { useAppSelector } from '../../store/hooks'
+
 // User interface
 import {
   LuBot,
@@ -10,11 +14,13 @@ import {
   LuHardDrive,
   LuMail,
   LuSatellite,
+  LuShieldCheck,
   LuSquareKanban,
   LuUser,
   LuVariable,
 } from 'react-icons/lu'
 import { SettingsDirectoryItem } from './SettingsDirectoryItem'
+import { UsersDirectoryItem } from './UsersDirectoryItem'
 
 // Misc
 import { UrlTree } from '../../urls'
@@ -23,6 +29,7 @@ import { UrlTree } from '../../urls'
 // sections, each a responsive grid of entries.
 export function SettingsDirectoryPage() {
   const { t } = useTranslation('settings')
+  const isAdmin = useAppSelector(selectIsAdmin)
 
   return <div className='container'>
     <section className='relaxed pt-2'>
@@ -36,6 +43,12 @@ export function SettingsDirectoryPage() {
           description={t('items.personalDetails.description')}
           href={UrlTree.settingsPersonalDetails}
         />
+        <SettingsDirectoryItem
+          icon={LuShieldCheck}
+          title={t('items.security.title')}
+          description={t('items.security.description')}
+          href={UrlTree.settingsSecurity}
+        />
       </div>
     </section>
     <section className='relaxed pt-6'>
@@ -43,6 +56,7 @@ export function SettingsDirectoryPage() {
         t('sections.workspace')
       }</h2>
       <div className='grid grid-cols-1 gap-x-10 gap-y-8 md:grid-cols-2 xl:grid-cols-3'>
+        {isAdmin && <UsersDirectoryItem />}
         <SettingsDirectoryItem
           icon={LuBot}
           title={t('items.llms.title')}

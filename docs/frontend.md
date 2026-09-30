@@ -84,6 +84,36 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s.
 New settings pages add an entry to a section and a route under `/settings`.
 
+## Accounts
+
+The account pages sit outside the app shell: `/login`, `/signup`, `/recovery`, `/pending`, and `/auth/error`. They
+render Ory Kratos's self-service flows through its JSON API at `/api/identity/`, using `@ory/client-fetch`
+(`src/api/kratos.ts`, `src/api/kratosFlows.ts`). Passkeys go through `@simplewebauthn/browser`, and the email field
+offers them in autofill. See `docs/auth.md`.
+
+- **The gate.** `src/auth/AuthGate.tsx` wraps every workspace page. It loads `GET /api/v1/me` into `authSlice` and
+  sends people where they must go first: sign-in, the second factor, `/pending`, the disabled notice, or Sign-in &
+  security when the workspace requires an authenticator app.
+  - **Refusals.** Any request's `401` or coded `403` lands in Redux through the ky hook in `src/api/index.ts`, and the
+    gate routes on it the same way.
+  - **Event stream.** The stream opens only once the person may use the workspace, and closes on sign-out.
+- **The waiting page.** `/pending` asks `/me` every 5 seconds. It is the one page that polls: a pending person may not
+  open the event stream.
+- **Sign-in & security** (`/settings/security`). Name and email, password, authenticator app, lookup codes, passkeys,
+  and where the person is signed in. Each is a Kratos settings flow; a change needing a recent sign-in sends the person
+  to `/login` in refresh mode and back.
+- **Users** (`/settings/users`). Admins only. Workspace access settings, then pending sign-ups pinned above everyone
+  approved. Users flow through SWR, then `usersSlice`, then the `user.*` events. The directory entry is hidden from
+  others and badges the pending count.
+- **Password field.** `PasswordInput` is the one password field. It shows a zxcvbn strength meter
+  (`@zxcvbn-ts/core`, with dictionaries loaded only where the field is) and a checklist: 12 or more characters, an
+  uppercase letter, and a symbol. Forms stay disabled until every rule passes and the score is at least 3.
+- **Names.** `UserName` and `useActorNames` turn a user id or a recorded actor into a name: `user:<id>` is the
+  person, and "You" for oneself. A bare `user` is from before accounts. Resources show who created them with
+  `createdBy`.
+- **Kratos's messages.** These show in English as Kratos sends them. Only Elysium's own sign-up refusals (`4190001`
+  and `4190002`) are translated, as are the API's coded refusals.
+
 ## Pages and components
 
 ### Confirm and prompt gates

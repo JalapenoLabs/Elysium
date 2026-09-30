@@ -9,6 +9,7 @@ import { useMatch } from 'react-router'
 import { buttonVariants, Kbd, Link, SearchField, Tooltip } from '@heroui/react'
 import { LuSettings } from 'react-icons/lu'
 import { LiveUpdatesIndicator } from './LiveUpdatesIndicator'
+import { UserMenu } from './UserMenu'
 
 // Misc
 import { UrlTree } from '../urls'
@@ -82,6 +83,7 @@ export function Topbar() {
           }</span>
         </Tooltip.Content>
       </Tooltip>
+      <UserMenu />
     </div>
   </header>
 }

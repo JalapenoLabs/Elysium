@@ -13,6 +13,7 @@ import { SatelliteRowActions } from './SatelliteRowActions'
 
 // Misc
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
+import { useUserNames } from '../../../hooks/useUserNames'
 import {
   getSatelliteHealth,
   getSatelliteSetupDisplay,
@@ -30,7 +31,16 @@ type Props = {
   onDelete: (satellite: Satellite) => void
 }
 
-const SATELLITE_COLUMN_KEYS = [ 'name', 'url', 'status', 'version', 'threads', 'setup', 'rowActions' ] as const
+const SATELLITE_COLUMN_KEYS = [
+  'name',
+  'url',
+  'status',
+  'version',
+  'threads',
+  'setup',
+  'createdBy',
+  'rowActions',
+] as const
 type SatelliteColumnKey = typeof SATELLITE_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
@@ -40,6 +50,7 @@ const columnLabelKeys = {
   version: 'table.version',
   threads: 'table.threads',
   setup: 'table.setup',
+  createdBy: 'common:table.createdBy',
   rowActions: 'common:actions.moreActions',
 } as const satisfies Record<SatelliteColumnKey, string>
 
@@ -51,12 +62,14 @@ const columnSizes = {
   version: 120,
   threads: 170,
   setup: 130,
+  createdBy: 160,
   rowActions: 64,
 } as const satisfies Record<SatelliteColumnKey, number>
 
 export function SatelliteTable(props: Props) {
   const { t } = useTranslation([ 'satellites', 'common' ])
   const labels = useSmartTableLabels()
+  const userNames = useUserNames()
   const [ search, setSearch ] = useState('')
 
   const managedColumns = useMemo(() => {
@@ -117,6 +130,7 @@ export function SatelliteTable(props: Props) {
           </Tooltip.Content>
         </Tooltip>
       },
+      createdBy: (satellite: Satellite) => userNames[satellite.createdBy] ?? t('common:table.someone'),
       rowActions: (satellite: Satellite) => <SatelliteRowActions
         satellite={satellite}
         onEdit={props.onEdit}
@@ -139,6 +153,7 @@ export function SatelliteTable(props: Props) {
           ? t(satelliteSetupLabelKeys[display])
           : ''
       },
+      createdBy: (satellite: Satellite) => userNames[satellite.createdBy] ?? '',
       rowActions: null,
     } satisfies Record<SatelliteColumnKey, ((satellite: Satellite) => string) | null>
 
@@ -170,7 +185,7 @@ export function SatelliteTable(props: Props) {
         }
       },
     })
-  }, [ t, props.onEdit, props.onTest, props.onToggleActive, props.onDelete ])
+  }, [ t, userNames, props.onEdit, props.onTest, props.onToggleActive, props.onDelete ])
 
   if (!props.satellites.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
@@ -181,7 +196,7 @@ export function SatelliteTable(props: Props) {
   return <SmartTable
     ids={{
       tableElementId: 'satellites-table',
-      tableLocalStorageId: 'elysium.settings.satellites.table',
+      tableLocalStorageId: 'elysium.settings.satellites.table.v2',
     }}
     tableAriaLabel={t('table.label')}
     data={props.satellites}

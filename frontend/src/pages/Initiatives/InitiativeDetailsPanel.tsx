@@ -11,6 +11,7 @@ import { initiativeUpserted } from '../../store/initiativesSlice'
 import { selectAllProjects } from '../../store/projectsSlice'
 
 // User interface
+import { UserName } from '../../components/UserName'
 import { Button, Card, toast } from '@heroui/react'
 import { DayPicker } from '../../components/DayPicker'
 import { MultiPicker } from '../../components/MultiPicker'
@@ -132,6 +133,8 @@ export function InitiativeDetailsPanel(props: Props) {
       <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm'>
         <dt className='opacity-60'>{t('fields.created')}</dt>
         <dd>{dateTimeFormatter.format(new Date(initiative.createdAt))}</dd>
+        <dt className='opacity-60'>{t('fields.createdBy')}</dt>
+        <dd><UserName userId={initiative.createdBy} /></dd>
         <dt className='opacity-60'>{t('fields.updated')}</dt>
         <dd>{dateTimeFormatter.format(new Date(initiative.updatedAt))}</dd>
       </dl>
