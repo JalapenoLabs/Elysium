@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use anyhow::Context;
 use axum::Json;
 use axum::extract::State;
+use futures_util::future;
 use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::Uuid;
@@ -35,27 +36,27 @@ pub async fn handle(
         return Ok(Json(json!({ "users": users })));
     }
 
-    let identity_ids: Vec<Uuid> = users
+    // Asked one identity at a time, all at once: only a single identity's answer names its
+    // credential kinds without their secrets. The list still loads when Kratos cannot
+    // answer; it just says nothing about sign-in.
+    let lookups = users
         .iter()
         .filter_map(|user| user.kratos_identity_id)
-        .collect();
-    // The list still loads when Kratos cannot answer; it just says nothing about sign-in.
-    let methods: HashMap<Uuid, Vec<String>> =
-        match state.auth.kratos.identities(&identity_ids).await {
-            Ok(identities) => identities
-                .into_iter()
-                .map(|identity| (identity.id, identity.methods()))
-                .collect(),
-            Err(error) => {
-                event!(
-                    name: "auth.identities.unavailable",
-                    Level::WARN,
-                    error.message = %error,
-                    "listing users without sign-in methods; Kratos did not answer",
-                );
-                HashMap::new()
+        .map(|identity| state.auth.kratos.identity(identity));
+    let mut methods: HashMap<Uuid, Vec<String>> = HashMap::new();
+    for answer in future::join_all(lookups).await {
+        match answer {
+            Ok(identity) => {
+                methods.insert(identity.id, identity.methods());
             }
-        };
+            Err(error) => event!(
+                name: "auth.identity.unavailable",
+                Level::WARN,
+                error.message = %error,
+                "listing a user without sign-in methods; Kratos did not answer",
+            ),
+        }
+    }
 
     let users: Vec<UserResponse> = users
         .into_iter()

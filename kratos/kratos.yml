@@ -155,6 +155,8 @@ session:
   cookie:
     name: elysium_session
     same_site: Lax
+    # The session cookie has its own flag; `cookies.secure` below covers only the CSRF one.
+    secure: "@COOKIE_SECURE@"
     # A browser session cookie outlives a restart, like the session itself.
     persistent: true
 

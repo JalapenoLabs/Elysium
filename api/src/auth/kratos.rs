@@ -171,24 +171,14 @@ impl Kratos {
             .map(drop)
     }
 
-    /// The identities `ids` names, with the kinds of credential each holds. Unknown ids are
-    /// left out.
+    /// One identity with the kinds of credential it holds. Only this call reports them: a
+    /// listing leaves them out unless asked to include each kind's secrets as well.
     ///
     /// # Errors
-    /// Returns [`KratosError::Refused`] when Kratos cannot be reached.
-    pub async fn identities(&self, ids: &[Uuid]) -> Result<Vec<AdminIdentity>, KratosError> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let mut url = join(&self.admin, "admin/identities");
-        {
-            let mut query = url.query_pairs_mut();
-            query.append_pair("page_size", &ids.len().to_string());
-            for id in ids {
-                query.append_pair("ids", &id.to_string());
-            }
-        }
-        self.send(Method::GET, url, None).await
+    /// Returns [`KratosError::NotFound`] for an unknown identity.
+    pub async fn identity(&self, id: Uuid) -> Result<AdminIdentity, KratosError> {
+        self.admin_call(Method::GET, &format!("admin/identities/{id}"), None)
+            .await
     }
 
     /// Lets an identity sign in, or stops it.
