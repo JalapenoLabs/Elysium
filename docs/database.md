@@ -63,6 +63,8 @@ they need `TEST_DATABASE_URL`.
 - Constraints such as length checks and uniqueness are enforced in SQL as well as in request validation.
 - Each model module under `api/src/models/` owns its queries. Handlers call those functions and never build
   queries themselves.
+- Every top-level table has `created_by UUID NOT NULL REFERENCES users`. Join and child tables inherit their parent's.
+  See `docs/auth.md`.
 
 ## Tables
 
@@ -388,7 +390,7 @@ The history of items and initiatives, one row per change; see `docs/action-items
 | `action_item_id` | `UUID`        | The item it is about, if any; deleted with it                |
 | `initiative_id`  | `UUID`        | The initiative it is about, if any; deleted with it          |
 | `kind`           | `TEXT`        | Lowercase with underscores, such as `state_changed`          |
-| `actor`          | `TEXT`        | `user`, `elysia`, `session:<n>`, or `watcher:<provider>`     |
+| `actor`          | `TEXT`        | `user:<id>`, `elysia`, `session:<n>`, or `watcher:<provider>`; `user` before accounts |
 | `data`           | `JSONB`       | A JSON object shaped by `kind`                               |
 | `created_at`     | `TIMESTAMPTZ` | Written by the API, the moment of the change                 |
 | `changeset_id`   | `UUID`        | The changeset whose applying or undoing made the change; `ON DELETE SET NULL` |
@@ -517,3 +519,48 @@ A changeset's operations, in order. `(changeset_id, position)` is unique, and th
 
 Operations are JSON rather than a table per kind, so a kind is added without a migration; the API validates each one
 before it is stored.
+
+### `users`
+
+Every principal that can create something: people, who sign in through Kratos, and machines seeded with fixed ids.
+See `docs/auth.md`.
+
+| Column               | Type          | Notes                                                                 |
+|----------------------|---------------|-----------------------------------------------------------------------|
+| `id`                 | `UUID`        | UUIDv7 for people; fixed for machines                                 |
+| `kratos_identity_id` | `UUID`        | Unique; set exactly for people                                        |
+| `email`              | `TEXT`        | Unique, lowercase, 3 to 320 characters; set exactly for people        |
+| `name`               | `TEXT`        | 1 to 100 characters, copied from Kratos for people                    |
+| `role`               | `user_role`   | `admin`, `member`, `guest` for people; `agent`, `system` for machines; NULL while pending |
+| `status`             | `user_status` | `pending`, `active`, `disabled`; set exactly for people               |
+| `approved_at`        | `TIMESTAMPTZ` | When approved; the first person is approved as they sign up           |
+| `last_seen_at`       | `TIMESTAMPTZ` | Their last request, to within five minutes                            |
+| `created_at`         | `TIMESTAMPTZ` | Set on insert                                                         |
+| `updated_at`         | `TIMESTAMPTZ` | Maintained by trigger                                                 |
+
+`users_person_or_machine` makes a row exactly one of the two, so a machine never holds a Kratos identity and a person
+never holds a machine's role. `users_pending_has_no_role` ties a missing role to being pending.
+
+### `workspace_settings`
+
+One row, always present (`singleton` is its key and must be true).
+
+| Column        | Type          | Notes                                                        |
+|---------------|---------------|--------------------------------------------------------------|
+| `signup_open` | `BOOLEAN`     | Defaults to true; the first person may sign up regardless    |
+| `require_mfa` | `BOOLEAN`     | Defaults to false                                            |
+| `updated_by`  | `UUID`        | References `users`                                           |
+| `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                                        |
+
+### `user_events`
+
+What happened to accounts and workspace settings, one row per change.
+
+| Column       | Type          | Notes                                                                   |
+|--------------|---------------|-------------------------------------------------------------------------|
+| `id`         | `UUID`        | UUIDv7, primary key                                                     |
+| `user_id`    | `UUID`        | Whose account; NULL for a workspace setting; `ON DELETE SET NULL`       |
+| `actor_id`   | `UUID`        | Who made the change; `ON DELETE SET NULL`, for a rejected sign-up's own events |
+| `kind`       | `TEXT`        | Such as `signed_up`, `approved`, `rejected`, `role_changed`, `disabled` |
+| `data`       | `JSONB`       | A JSON object shaped by `kind`, with values before and after            |
+| `created_at` | `TIMESTAMPTZ` | Set on insert                                                           |

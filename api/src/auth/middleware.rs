@@ -3,7 +3,7 @@
 //! The layers every `/api/v1` request passes through. See the module docs in `super`.
 
 use anyhow::Context;
-use axum::extract::{Request, State};
+use axum::extract::{OriginalUri, Request, State};
 use axum::http::{HeaderMap, Method, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -20,6 +20,9 @@ use crate::state::AppState;
 /// and a finer one would cost a write per request.
 const LAST_SEEN_GRANULARITY: chrono::Duration = chrono::Duration::minutes(5);
 
+/// The event stream, which an open tab holds without anyone using it.
+const EVENT_STREAM_PATH: &str = "/api/v1/events";
+
 /// Resolves the session cookie to a person, creating their account the first time, and
 /// hands the handler a [`Principal`]. Refuses requests with no session, or one still
 /// waiting on its second factor.
@@ -28,7 +31,13 @@ pub async fn authenticate(
     mut request: Request,
     next: Next,
 ) -> Response {
-    match principal(&state, request.headers()).await {
+    // Nested routers see their path with the prefix stripped; the original has it whole.
+    let path = request
+        .extensions()
+        .get::<OriginalUri>()
+        .map_or_else(|| request.uri().path(), |original| original.path());
+    let activity = activity_of(path);
+    match principal(&state, request.headers(), activity).await {
         Ok(principal) => {
             request.extensions_mut().insert(principal);
             next.run(request).await
@@ -96,13 +105,33 @@ pub async fn require_same_origin(
 /// workspace. The event stream asks this as it runs, so a revoked session or a disabled
 /// person stops receiving events.
 pub async fn still_allowed(state: &AppState, headers: &HeaderMap) -> bool {
-    let Ok(principal) = principal(state, headers).await else {
+    let Ok(principal) = principal(state, headers, Activity::Passive).await else {
         return false;
     };
     check_access(state, &principal).await.is_ok()
 }
 
-async fn principal(state: &AppState, headers: &HeaderMap) -> Result<Principal, ApiError> {
+/// Whether a request counts as someone using Elysium, which keeps their session alive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Activity {
+    Use,
+    Passive,
+}
+
+/// An open tab's event stream is not someone using Elysium, so it never extends a session;
+/// every other request is.
+fn activity_of(path: &str) -> Activity {
+    if path == EVENT_STREAM_PATH {
+        return Activity::Passive;
+    }
+    Activity::Use
+}
+
+async fn principal(
+    state: &AppState,
+    headers: &HeaderMap,
+    activity: Activity,
+) -> Result<Principal, ApiError> {
     let Some(cookie) = session_cookie(headers) else {
         return Err(ApiError::AccessRefused(AccessRefusal::Unauthenticated));
     };
@@ -136,7 +165,9 @@ async fn principal(state: &AppState, headers: &HeaderMap) -> Result<Principal, A
         LAST_SEEN_GRANULARITY,
     )
     .await?;
-    sessions::extend_if_due(&state.redis, &state.auth.kratos, cookie, &session).await;
+    if activity == Activity::Use {
+        sessions::extend_if_due(&state.redis, &state.auth.kratos, cookie, &session).await;
+    }
 
     Ok(Principal {
         user: person,
@@ -218,6 +249,13 @@ mod tests {
         assert_eq!(session_cookie(&HeaderMap::new()), None);
         assert_eq!(session_cookie(&cookies(&["elysium_session="])), None);
         assert_eq!(session_cookie(&cookies(&["elysium_session_old=x"])), None);
+    }
+
+    #[test]
+    fn only_the_event_stream_leaves_a_session_to_expire() {
+        assert_eq!(activity_of("/api/v1/events"), Activity::Passive);
+        assert_eq!(activity_of("/api/v1/projects"), Activity::Use);
+        assert_eq!(activity_of("/api/v1/me"), Activity::Use);
     }
 
     #[test]
