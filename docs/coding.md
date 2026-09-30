@@ -110,10 +110,11 @@ which can be large.
 
 ## Projects
 
-Every coding session belongs to one project, chosen when the session is created. Projects have a unique name and
+Every Coding session belongs to one project, chosen when the session is created. Projects have a unique name and
 a description, and are managed on the Projects page in the sidebar. A project cannot be deleted while any
 session belongs to it: each session owns a running thread, which is destroyed deliberately by deleting the
-session. Deleting a satellite still forgets its sessions, whatever project they belong to.
+session. A Studio item's sessions have the item's project, which is optional (see `docs/studio.md`); the Coding
+area lists only sessions that belong to no Studio item.
 
 ## Sessions
 
@@ -214,16 +215,34 @@ as `GH_TOKEN` with the git config that lets `git` use it, and that token as the 
 `https://github.com/` repository. Unlike LLM credentials, the agent can read all of it. See `docs/environment.md`
 and `docs/github.md`.
 
-Deleting a session destroys its thread first. A thread that already expired or was destroyed does not block the
-delete; any other satellite failure does, so a session is never forgotten while its thread still runs. Deleting a
-satellite forgets its sessions without destroying their threads, which end on their idle TTL. Otherwise an
-unreachable satellite could never be deleted.
+Deleting a session destroys its thread first. A thread that already expired or was destroyed, or whose satellite
+was deleted, does not block the delete; any other satellite failure does, so a session is never forgotten while its
+thread still runs. Deleting takes the session's kept history with it. A Studio item's sessions are deleted only
+with their item.
+
+Deleting a satellite keeps its sessions: each loses only its `satellite_id`, and clients hear a `session.upserted`
+for it. Their threads are not destroyed and end on their idle TTL, since an unreachable satellite could otherwise
+never be deleted. A session without a satellite has no thread to reach; its history stays readable, and a Studio
+item continues on another satellite with its next prompt.
 
 ## History
 
-The satellite has no paged history call, so `GET /api/v1/coding-sessions/{id}/events` replays the thread's stream
-from the start, stops at the sequence the thread reported when the request began, and returns the latest 5000
-events. It gives up after 10 seconds with a 502. Clients merge history with live events on `sequence`.
+Satellites own no data: they keep a thread's events only while the thread lives, and delete its workspace when it
+ends. Elysium keeps what a thread needs to carry on.
+
+- **Events.** The session watcher records every event it receives in `session_events` before publishing it, as the
+  protobuf `ThreadEvent` the satellite sent, so a later build renders old events with whatever it knows then.
+  `GET /api/v1/coding-sessions/{id}/events` reads the latest 5000 from there, and works after the thread is gone.
+  Clients merge history with live events on `sequence`.
+- **Resuming the stream.** A watcher resumes from the last event kept, so a restart replays only what it missed, and
+  a session never seen before is caught up from its first event. Events up to the thread's latest sequence when the
+  stream opened are recorded without being published one by one; once caught up, the watcher publishes
+  `session.resync` and clients refetch. A resume point the satellite no longer honors leaves a gap in the kept
+  history: the watcher tails from the latest event and publishes `session.resync`.
+- **The harness session.** After every turn, Elysium exports the thread's harness session (Claude's transcript,
+  Codex's rollout) and keeps the latest in `session_transcripts`, compressed with zstd and sealed, because it holds
+  everything the agent read and the satellite does not scrub it. A transcript over 64 MiB sealed is refused and
+  logged rather than cut short. Studio imports it into a new thread to continue an item; see `docs/studio.md`.
 
 ## Frontend
 

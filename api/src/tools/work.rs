@@ -165,13 +165,23 @@ struct WorkScope {
     action_item_id: Option<Uuid>,
 }
 
-impl From<&CallScope> for WorkScope {
-    fn from(scope: &CallScope) -> Self {
-        Self {
+impl TryFrom<&CallScope> for WorkScope {
+    type Error = ToolError;
+
+    /// Work is scoped to a project. A Studio session without one never declares these tools,
+    /// so a call from one is refused rather than answered from no project at all.
+    fn try_from(scope: &CallScope) -> Result<Self, ToolError> {
+        let Some(project_id) = scope.project_id else {
+            return Err(ToolError::Invalid(
+                "this session belongs to no project, so it has no action items or initiatives"
+                    .to_owned(),
+            ));
+        };
+        Ok(Self {
             session_id: scope.session_id,
-            project_id: scope.project_id,
+            project_id,
             action_item_id: scope.action_item_id,
-        }
+        })
     }
 }
 
@@ -387,7 +397,7 @@ async fn run_project(
         .get()
         .await
         .map_err(|error| internal(scope, "database.connect", &error))?;
-    project_overview(&mut connection, WorkScope::from(scope), Utc::now())
+    project_overview(&mut connection, WorkScope::try_from(scope)?, Utc::now())
         .await
         .map_err(|failure| failure.into_tool_error(scope, "work.project"))
 }
@@ -405,7 +415,7 @@ async fn run_items(
         .map_err(|error| internal(scope, "database.connect", &error))?;
     list_items(
         &mut connection,
-        WorkScope::from(scope),
+        WorkScope::try_from(scope)?,
         arguments,
         Utc::now(),
     )
@@ -426,7 +436,7 @@ async fn run_item(
         .map_err(|error| internal(scope, "database.connect", &error))?;
     item_detail(
         &mut connection,
-        WorkScope::from(scope),
+        WorkScope::try_from(scope)?,
         arguments.item_id,
         Utc::now(),
     )
@@ -447,7 +457,7 @@ async fn run_initiatives(
         .map_err(|error| internal(scope, "database.connect", &error))?;
     list_initiatives(
         &mut connection,
-        WorkScope::from(scope),
+        WorkScope::try_from(scope)?,
         arguments,
         Utc::now(),
     )
@@ -468,7 +478,7 @@ async fn run_initiative(
         .map_err(|error| internal(scope, "database.connect", &error))?;
     initiative_detail(
         &mut connection,
-        WorkScope::from(scope),
+        WorkScope::try_from(scope)?,
         arguments.initiative_id,
         Utc::now(),
     )
@@ -490,7 +500,7 @@ async fn run_comment(
         .map_err(|error| internal(scope, "database.connect", &error))?;
     let Recorded { record, history } = comment_on_item(
         &mut connection,
-        WorkScope::from(scope),
+        WorkScope::try_from(scope)?,
         arguments,
         Utc::now(),
     )
@@ -538,7 +548,7 @@ async fn run_link_pull_request(
         .get()
         .await
         .map_err(|error| internal(scope, "database.connect", &error))?;
-    let (item_id, credential_id) = pull_request_target(&mut connection, WorkScope::from(scope))
+    let (item_id, credential_id) = pull_request_target(&mut connection, WorkScope::try_from(scope)?)
         .await
         .map_err(|failure| failure.into_tool_error(scope, OPERATION))?;
     drop(connection);

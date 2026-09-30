@@ -1,27 +1,30 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ReactNode } from 'react'
+
 // Core
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Description, Label, TextArea, TextField, toast } from '@heroui/react'
+import { Button, Description, Label, TextArea, TextField } from '@heroui/react'
 import { LuSendHorizontal } from 'react-icons/lu'
 
-// Misc
-import { getUpstreamErrorMessage } from '../../api/errors'
-import { startTurn } from '../../api/routes/codingSessionRoutes'
-
 type Props = {
-  sessionId: number
+  // Sends the prompt and reports its own failures. Resolves true when the prompt was sent,
+  // which clears the field; false keeps what was typed so it can be sent again.
+  onSend: (prompt: string) => Promise<boolean>
   // The thread has ended and cannot take prompts.
   isClosed: boolean
+  // Shown beside the send button, such as a choice the prompt is sent with.
+  accessory?: ReactNode
+  placeholder?: string
 }
 
 // Sends the next prompt. The turn's progress arrives as live events, so a successful
 // send only clears the field.
 export function PromptComposer(props: Props) {
-  const { t } = useTranslation([ 'coding', 'common' ])
+  const { t } = useTranslation('coding')
   const [ prompt, setPrompt ] = useState('')
   const [ isSending, setIsSending ] = useState(false)
 
@@ -34,17 +37,10 @@ export function PromptComposer(props: Props) {
 
     setIsSending(true)
     try {
-      await startTurn(props.sessionId, prompt)
-      setPrompt('')
-    }
-    catch (error) {
-      const message = getUpstreamErrorMessage(error)
-      if (!message) {
-        console.debug('PromptComposer failed to start a turn', { error, sessionId: props.sessionId })
+      const isSent = await props.onSend(prompt)
+      if (isSent) {
+        setPrompt('')
       }
-      toast.danger(t('toasts.promptFailed'), {
-        description: message ?? t('common:errors.unexpected'),
-      })
     }
     finally {
       setIsSending(false)
@@ -74,7 +70,7 @@ export function PromptComposer(props: Props) {
         <Label className='sr-only'>{t('conversation.composer.label')}</Label>
         <TextArea
           rows={2}
-          placeholder={t('conversation.composer.placeholder')}
+          placeholder={props.placeholder ?? t('conversation.composer.placeholder')}
           onKeyDown={(event) => {
             // Enter sends; Shift+Enter keeps its usual newline. IME composition is left alone.
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -85,6 +81,9 @@ export function PromptComposer(props: Props) {
         />
         <Description className='text-xs'>{t('conversation.composer.hint')}</Description>
       </TextField>
+      {props.accessory && <div className='mb-6 shrink-0'>
+        {props.accessory}
+      </div>}
       <Button
         type='submit'
         className='mb-6'

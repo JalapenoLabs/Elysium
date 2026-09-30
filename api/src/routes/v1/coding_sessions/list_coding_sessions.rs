@@ -19,7 +19,7 @@ pub async fn handle(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
         .await
         .context("no database connection available")?;
 
-    let sessions: Vec<CodingSessionResponse> = coding_session::list(&mut connection)
+    let sessions: Vec<CodingSessionResponse> = coding_session::list_coding(&mut connection)
         .await?
         .into_iter()
         .map(|session| {

@@ -2,61 +2,40 @@
 
 //! `POST /api/v1/coding-sessions`: open a thread on a satellite and record it.
 //!
-//! The session's number is reserved first, so the thread carries it in its metadata from
-//! the moment it exists. A create that fails after the reservation leaves a gap in the
-//! numbering, which is harmless.
-//!
-//! The satellite's idempotency key is a fresh `UUIDv7` per request, never the number: numbers
-//! repeat across Elysium installs sharing a satellite and after a database reset, and a
-//! repeated key would hand back another session's thread. The key makes the SDK's own
-//! retries of this one request safe; a client that posts again opens a second thread.
-//!
-//! A prompt, when given, is queued as the thread's first turn. A session started from an
-//! action item must have one, and its first turn carries the item's context ahead of it (see
-//! `first_turn`). The turn is queued only once the session is recorded and its watcher and
-//! relay are started, so the tools the turn asks the agent to call have a client answering
-//! them as early as Elysium can manage.
-//!
-//! If recording the row or queuing the first turn fails, the thread is destroyed rather than
-//! left running with nothing pointing at it, and a recorded row is removed with it, so a
-//! create either yields a session with its first turn queued or nothing.
+//! How the thread is opened and recorded is shared with Studio (see `open`). A prompt, when
+//! given, is queued as the thread's first turn. A session started from an action item must
+//! have one, and its first turn carries the item's context ahead of it (see `first_turn`).
+//! If the satellite refuses that turn, the session is discarded whole, so a create either
+//! yields a session with its first turn queued or nothing.
 //!
 //! A session clones any number of repositories up to [`MAX_REPOSITORIES`], each into its own
 //! directory under the workspace's `repos/`. The satellite checks that each name is safe but
 //! not that the names differ, so two repositories that would share a directory are refused
 //! here, while the caller is still listening, rather than failing a clone minutes later.
 
-use std::collections::BTreeMap;
 use std::collections::hash_map::{Entry, HashMap};
 
 use anyhow::Context;
-use arsox_sdk::client::ThreadHandle;
 use arsox_sdk::proto::settings::v1::Repo;
 use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use chrono::Utc;
-use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tracing::{Level, event};
 use uuid::Uuid;
 use validator::{Validate, ValidationError};
 
 use super::github_token::{self, SessionChoice, SessionToken};
-use super::{CodingSessionResponse, thread_settings, validate_not_blank};
+use super::open::{self, SessionOpening};
+use super::{CodingSessionResponse, ThreadPlan, thread_settings, validate_not_blank};
 use super::{first_turn, model_stack};
-use crate::crypto::Cipher;
 use crate::errors::ApiError;
-use crate::fleet::views::ThreadStatus;
-use crate::fleet::{MANAGED_METADATA_KEY, SESSION_METADATA_KEY};
 use crate::github::Repository;
-use crate::models::coding_session::{self, CodingSession, NewCodingSession};
 use crate::models::environment_variable;
-use crate::models::llm::{self, Llm};
+use crate::models::llm;
 use crate::models::{project, satellite, storage_location};
-use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize, Validate)]
@@ -127,7 +106,8 @@ pub async fn handle(
     let project = project::find(&mut connection, body.project_id).await?;
     let satellite = satellite::find(&mut connection, body.satellite_id).await?;
     let credentials = llm::list(&mut connection).await?;
-    let storage_locations = storage_location::list_for_project(&mut connection, project.id).await?;
+    let storage_locations =
+        storage_location::list_for_project(&mut connection, Some(project.id)).await?;
     // An item is checked, and its context read, before a thread exists.
     let first_turn = first_turn::build(
         &mut connection,
@@ -154,173 +134,47 @@ pub async fn handle(
         .into_iter()
         .map(|repository| repository_to_clone(repository, github.as_ref()))
         .collect();
+    let stack = model_stack::build(
+        &model_stack::open_credentials(credentials, &state.cipher),
+        Utc::now(),
+    );
+    let settings = thread_settings(ThreadPlan {
+        repositories,
+        stack,
+        variables: &variables,
+        github_token: github.as_ref().map(|github| &github.token),
+        has_storage_locations: !storage_locations.is_empty(),
+        has_project: true,
+        instructions: String::new(),
+    });
 
-    let stack = model_stack::build(&open_credentials(credentials, &state.cipher), Utc::now());
-
-    let client = state.fleet.client(satellite.id).await?;
-    // Reserved once there is a client for the satellite, so a create refused for an
-    // inactive or unreachable satellite costs no number.
-    let session_id = {
-        let mut connection = state
-            .database
-            .get()
-            .await
-            .context("no database connection available")?;
-        coding_session::reserve_id(&mut connection).await?
-    };
-    let metadata = BTreeMap::from([
-        (MANAGED_METADATA_KEY.to_owned(), "true".to_owned()),
-        (SESSION_METADATA_KEY.to_owned(), session_id.to_string()),
-    ]);
-    let created = client
-        .threads()
-        .create_with(
-            thread_settings(
-                repositories,
-                stack,
-                &variables,
-                github.as_ref().map(|github| &github.token),
-                !storage_locations.is_empty(),
-            ),
-            Some(Uuid::now_v7().to_string()),
-            metadata,
-        )
-        .await?;
-
-    let new_session = NewCodingSession {
-        id: session_id,
-        project_id: project.id,
-        satellite_id: satellite.id,
-        thread_id: created.thread.thread_id.clone(),
-        title: body.title,
-        github_credential_id: github.map(|github| github.credential_id),
-        action_item_id: body.action_item_id,
-    };
-    let session = record_or_abandon(&state, &created.handle, &new_session).await?;
-
-    let thread = ThreadStatus::from(&created.thread);
-    state.fleet.watch_session(session.clone());
-    if let Some(first_turn) = first_turn {
-        queue_or_discard(&state, &created.handle, &session, first_turn).await?;
+    let opened = open::open(
+        &state,
+        SessionOpening {
+            satellite_id: satellite.id,
+            settings,
+            title: body.title,
+            project_id: Some(project.id),
+            github_credential_id: github.map(|github| github.credential_id),
+            action_item_id: body.action_item_id,
+            studio_item_id: None,
+        },
+    )
+    .await?;
+    if let Some(first_turn) = first_turn
+        && let Err(turn_error) = opened.handle.start_turn(first_turn).await
+    {
+        open::discard(&state, &opened).await;
+        return Err(turn_error.into());
     }
-    state
-        .events
-        .publish(&ServerEvent::SessionUpserted(CodingSessionResponse::new(
-            session.clone(),
-            Some(thread.clone()),
-        )));
+    open::announce(&state, &opened);
 
     Ok((
         StatusCode::CREATED,
-        Json(json!({ "session": CodingSessionResponse::new(session, Some(thread)) })),
+        Json(json!({
+            "session": CodingSessionResponse::new(opened.session, Some(opened.thread)),
+        })),
     ))
-}
-
-/// Records the session of a thread just opened, destroying the thread when the row cannot be
-/// written, so no thread runs with nothing pointing at it.
-///
-/// # Errors
-/// Propagates the database's refusal.
-async fn record_or_abandon(
-    state: &AppState,
-    handle: &ThreadHandle,
-    new_session: &NewCodingSession,
-) -> Result<CodingSession, ApiError> {
-    let recorded = match state.database.get().await {
-        Ok(mut connection) => coding_session::create(&mut connection, new_session)
-            .await
-            .map_err(ApiError::from),
-        Err(pool_error) => Err(anyhow::Error::from(pool_error)
-            .context("no database connection available")
-            .into()),
-    };
-    if recorded.is_err() {
-        abandon_thread(handle, new_session.satellite_id).await;
-    }
-    recorded
-}
-
-/// Queues a new session's first turn, or, when the satellite refuses it, discards the session
-/// whole: its thread, its row, and its watchers, then announces it gone. This handler has not
-/// announced the session, but the satellite poll reads the row and may have; a
-/// `session.deleted` for a session a client never saw changes nothing.
-///
-/// The row goes before the watchers, so a poll landing in between cannot record a status
-/// for a session nothing would clear.
-///
-/// # Errors
-/// Answers the satellite's refusal of the turn.
-async fn queue_or_discard(
-    state: &AppState,
-    handle: &ThreadHandle,
-    session: &CodingSession,
-    first_turn: String,
-) -> Result<(), ApiError> {
-    let Err(turn_error) = handle.start_turn(first_turn).await else {
-        return Ok(());
-    };
-    abandon_thread(handle, session.satellite_id).await;
-    match state.database.get().await {
-        Ok(mut connection) => {
-            if let Err(database_error) = coding_session::delete(&mut connection, session.id).await {
-                event!(
-                    name: "coding_session.create.orphaned_row",
-                    Level::ERROR,
-                    session.id = %session.id,
-                    error.message = %database_error,
-                    "could not remove a session whose first turn was refused; delete it by hand",
-                );
-            }
-        }
-        Err(pool_error) => event!(
-            name: "coding_session.create.orphaned_row",
-            Level::ERROR,
-            session.id = %session.id,
-            error.message = %pool_error,
-            "could not remove a session whose first turn was refused; delete it by hand",
-        ),
-    }
-    state.fleet.forget_session(session.id);
-    state
-        .events
-        .publish(&ServerEvent::SessionDeleted { id: session.id });
-    Err(turn_error.into())
-}
-
-/// Destroys a thread whose session could not be completed. A thread that will not go is
-/// logged and left to expire on its idle TTL.
-async fn abandon_thread(handle: &ThreadHandle, satellite_id: Uuid) {
-    if let Err(destroy_error) = handle.destroy().await {
-        event!(
-            name: "coding_session.create.orphaned_thread",
-            Level::ERROR,
-            satellite.id = %satellite_id,
-            thread.id = %handle.id(),
-            error.message = %destroy_error,
-            "could not complete the session or destroy its thread; the thread expires on its idle TTL",
-        );
-    }
-}
-
-/// Decrypts the model credentials a thread fails over through.
-///
-/// Decrypting here rather than in the stack keeps the cipher out of the shaping rules. A
-/// credential that cannot be opened is skipped: the rest still run.
-fn open_credentials(credentials: Vec<Llm>, cipher: &Cipher) -> Vec<(Llm, SecretString)> {
-    let mut opened = Vec::with_capacity(credentials.len());
-    for credential in credentials {
-        match credential.secret_token(cipher) {
-            Ok(token) => opened.push((credential, token)),
-            Err(error) => event!(
-                name: "coding_session.credential.unreadable",
-                Level::ERROR,
-                llm.id = %credential.id,
-                error.message = %error,
-                "a stored credential could not be decrypted and was skipped",
-            ),
-        }
-    }
-    opened
 }
 
 /// Refuses a list in which two repositories would clone into the same directory.
@@ -426,6 +280,8 @@ fn validate_repository_url(url: &str) -> Result<(), ValidationError> {
 
 #[cfg(test)]
 mod tests {
+    use secrecy::SecretString;
+
     use super::*;
 
     #[test]
@@ -558,7 +414,7 @@ mod tests {
 
     #[test]
     fn new_threads_declare_the_ceilings_the_satellite_requires() {
-        let settings = thread_settings(Vec::new(), None, &[], None, false);
+        let settings = thread_settings(ThreadPlan { has_project: true, ..ThreadPlan::default() });
         assert!(settings.idle_ttl.is_some());
         let budget = settings.budget.expect("budget is set");
         assert!(budget.max_tokens_per_turn.is_some());
@@ -578,10 +434,14 @@ mod tests {
                 .collect()
         };
 
-        let without = thread_settings(Vec::new(), None, &[], None, false);
+        let without = thread_settings(ThreadPlan { has_project: true, ..ThreadPlan::default() });
         assert_eq!(names(&without), ["elysium_work"]);
 
-        let with = thread_settings(Vec::new(), None, &[], None, true);
+        let with = thread_settings(ThreadPlan {
+            has_storage_locations: true,
+            has_project: true,
+            ..ThreadPlan::default()
+        });
         assert_eq!(names(&with), ["elysium_storage", "elysium_work"]);
         let servers = [crate::tools::storage::SERVER, crate::tools::work::SERVER];
         for (declared, server) in with.relayed_mcp_servers.iter().zip(servers) {
@@ -596,7 +456,7 @@ mod tests {
 
     #[test]
     fn every_thread_declares_its_own_blender_and_the_mcp_server_that_reaches_it() {
-        let settings = thread_settings(Vec::new(), None, &[], None, false);
+        let settings = thread_settings(ThreadPlan { has_project: true, ..ThreadPlan::default() });
         let services: Vec<&str> = settings
             .services
             .iter()
@@ -632,7 +492,12 @@ mod tests {
             },
         ];
         let token = SecretString::from("github_pat_example");
-        let settings = thread_settings(Vec::new(), None, &variables, Some(&token), false);
+        let settings = thread_settings(ThreadPlan {
+            variables: &variables,
+            github_token: Some(&token),
+            has_project: true,
+            ..ThreadPlan::default()
+        });
 
         let keys: Vec<&str> = settings
             .env

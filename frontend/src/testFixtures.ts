@@ -11,6 +11,9 @@ import type { Changeset, ChangesetOperation } from './api/routes/changesetRoutes
 import type { CodingSession } from './api/routes/codingSessionRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
 import type { Project } from './api/routes/projectRoutes'
+import type { Satellite } from './api/routes/satelliteRoutes'
+import type { StorageLocation } from './api/routes/storageRoutes'
+import type { StudioAsset, StudioFeedback, StudioItem } from './api/routes/studioRoutes'
 
 // Records shaped as the API sends them, for tests. Each starts from plain defaults and
 // takes only the fields a test is about.
@@ -118,6 +121,7 @@ export function makeCodingSession(overrides: Partial<CodingSession> & Pick<Codin
     title: `Session ${overrides.id}`,
     githubCredentialId: null,
     actionItemId: null,
+    studioItemId: null,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     thread: null,
@@ -185,6 +189,91 @@ export function makeInitiativeLink(
     truncated: false,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeStudioItem(overrides: Partial<StudioItem> & Pick<StudioItem, 'id'>): StudioItem {
+  return {
+    title: overrides.id,
+    prompt: 'Model a banana',
+    projectId: null,
+    storageLocationId: 'location',
+    thumbnailAssetId: null,
+    pinnedAssetId: null,
+    imageCount: 0,
+    modelCount: 0,
+    pullError: null,
+    deletedAt: null,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeStudioAsset(
+  overrides: Partial<StudioAsset> & Pick<StudioAsset, 'id' | 'artifactPath'>,
+): StudioAsset {
+  return {
+    studioItemId: 'item',
+    sessionId: 1,
+    kind: 'image',
+    name: overrides.artifactPath.split('/').at(-1) ?? overrides.artifactPath,
+    contentType: null,
+    sizeBytes: 1024,
+    sha256: `sha-${overrides.id}`,
+    createdAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeStudioFeedback(overrides: Partial<StudioFeedback> & Pick<StudioFeedback, 'id'>): StudioFeedback {
+  return {
+    studioItemId: 'item',
+    sessionId: 1,
+    turnId: null,
+    prompt: 'Make it yellower',
+    sourceAssetId: null,
+    cameraOrbit: null,
+    hasCapture: true,
+    createdAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeStorageLocation(
+  overrides: Partial<StorageLocation> & Pick<StorageLocation, 'id'>,
+): StorageLocation {
+  return {
+    name: overrides.id,
+    provider: { kind: 'bunny', zone: 'zone', region: 'frankfurt' },
+    pathPrefix: '',
+    storageLimitBytes: null,
+    projects: '*',
+    isStudioDefault: false,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeSatellite(overrides: Partial<Satellite> & Pick<Satellite, 'id'>): Satellite {
+  return {
+    name: overrides.id,
+    description: '',
+    url: 'http://satellite.test',
+    isActive: true,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    status: {
+      satelliteId: overrides.id,
+      reachable: true,
+      version: '1.0.0',
+      runningThreads: 0,
+      maxConcurrentThreads: 4,
+      error: null,
+      setup: { state: 'succeeded', isCurrent: true, failureOutput: null },
+    },
     ...overrides,
   }
 }

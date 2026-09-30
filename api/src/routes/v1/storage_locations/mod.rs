@@ -62,6 +62,8 @@ pub struct StorageLocationResponse {
     storage_limit_bytes: Option<i64>,
     /// `"*"` for every project, or the ids of the projects that save files here.
     projects: ProjectScope,
+    /// Whether Studio's New item form starts on this location.
+    is_studio_default: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -75,6 +77,7 @@ impl StorageLocationResponse {
             path_prefix: location.path_prefix,
             storage_limit_bytes: location.storage_limit_bytes,
             projects,
+            is_studio_default: location.is_studio_default,
             created_at: location.created_at,
             updated_at: location.updated_at,
         }

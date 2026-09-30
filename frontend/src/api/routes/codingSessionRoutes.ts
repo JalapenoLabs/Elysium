@@ -29,14 +29,18 @@ export type ThreadStatus = {
 export type CodingSession = {
   // The session's number: 1, 2, 3, ... in the order sessions were started.
   id: number
-  projectId: string
-  satelliteId: string
+  // Always set for a Coding session; a Studio session has its item's, which may be null.
+  projectId: string | null
+  // Null once the satellite was deleted. The session and its kept history stay.
+  satelliteId: string | null
   threadId: string
   title: string
   // The GitHub token the thread was started with; null for none or a token since deleted.
   githubCredentialId: string | null
   // The action item the session was started from, if any.
   actionItemId: string | null
+  // The Studio item the session belongs to; null for a Coding session.
+  studioItemId: string | null
   createdAt: string
   updatedAt: string
   // The thread as of the API's latest poll; null until the first poll sees it.
@@ -91,6 +95,7 @@ export type SessionEvent = {
   payload: SessionEventPayload | null
 }
 
+// Coding sessions only: Studio's arrive with their items (`studioRoutes.ts`).
 type ListCodingSessionsResponse = {
   sessions: CodingSession[]
 }

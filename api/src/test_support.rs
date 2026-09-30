@@ -55,3 +55,22 @@ pub async fn migrated_database() -> (SecretString, AsyncPgConnection) {
 pub fn cipher() -> Cipher {
     Cipher::from_base64_key(&SecretString::from(generate_key())).expect("generated keys are valid")
 }
+
+/// A Bunny location for every project, for tests that need somewhere to keep files but never
+/// reach the provider.
+pub fn location_for_every_project(name: &str) -> crate::models::storage_location::NewStorageLocation {
+    use crate::models::project::ProjectScope;
+    use crate::models::storage_location::{BunnyStorageRegion, NewStorageLocation, StorageProvider};
+
+    NewStorageLocation {
+        name: name.to_owned(),
+        provider: StorageProvider::Bunny {
+            zone: "elysium-files".to_owned(),
+            region: BunnyStorageRegion::NewYork,
+        },
+        path_prefix: String::new(),
+        storage_limit_bytes: None,
+        access_key: SecretString::from(format!("zone-password-{name}")),
+        projects: ProjectScope::All,
+    }
+}

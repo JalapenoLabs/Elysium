@@ -19,7 +19,18 @@ export const storageLocationsSlice = createSlice({
   initialState: storageLocationsAdapter.getInitialState(),
   reducers: {
     storageLocationsLoaded: storageLocationsAdapter.setAll,
-    storageLocationUpserted: storageLocationsAdapter.upsertOne,
+    // At most one location is Studio's default, so marking one clears any other. The API
+    // announces the previous default too; this keeps the rule while that event is on its way.
+    storageLocationUpserted(state, action: PayloadAction<StorageLocation>) {
+      if (action.payload.isStudioDefault) {
+        for (const location of Object.values(state.entities)) {
+          if (location.id !== action.payload.id) {
+            location.isStudioDefault = false
+          }
+        }
+      }
+      storageLocationsAdapter.upsertOne(state, action.payload)
+    },
     storageLocationDeleted(state, action: PayloadAction<string>) {
       storageLocationsAdapter.removeOne(state, action.payload)
     },

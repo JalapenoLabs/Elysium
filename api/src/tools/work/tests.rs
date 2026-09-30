@@ -723,12 +723,13 @@ async fn session_with(
         connection,
         &NewCodingSession {
             id,
-            project_id: scope.project_id,
+            project_id: Some(scope.project_id),
             satellite_id: satellite.id,
             thread_id: format!("thread-{}", Uuid::now_v7()),
             title: "Fix it".to_owned(),
             github_credential_id,
             action_item_id: scope.action_item_id,
+            studio_item_id: None,
         },
     )
     .await

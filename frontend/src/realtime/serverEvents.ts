@@ -57,7 +57,7 @@ export type ServerEvent =
   | { type: 'project.upserted', data: Project }
   | { type: 'project.deleted', data: { id: string } }
   | { type: 'satellite.upserted', data: Satellite }
-  // Also removes the satellite's sessions.
+  // Its sessions stay; each arrives again as `session.upserted` with no satellite.
   | { type: 'satellite.deleted', data: { id: string } }
   | { type: 'satellite.status', data: SatelliteStatus }
   | { type: 'storageLocation.upserted', data: StorageLocation }

@@ -2,8 +2,9 @@
 
 //! Coding sessions: Elysium's record of an Arsox thread on a satellite.
 //!
-//! Only the pointer is stored. The thread's state, turns, and event history live on
-//! the satellite and are read from it; see `crate::fleet`.
+//! The row points at the thread; the thread's live state and turns are read from the
+//! satellite (see `crate::fleet`). What must outlive the thread, its events and its harness
+//! session, Elysium keeps beside the row (`session_event`, `session_transcript`).
 
 use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
@@ -20,17 +21,22 @@ use crate::database::schema::coding_sessions;
 pub struct CodingSession {
     /// The session's number: 1, 2, 3, ... in the order sessions were started.
     pub id: i64,
-    pub satellite_id: Uuid,
+    /// The satellite the thread runs on, or `None` once that satellite was deleted. The
+    /// session keeps its history and can be continued elsewhere.
+    pub satellite_id: Option<Uuid>,
     pub thread_id: String,
     pub title: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub project_id: Uuid,
+    /// Always set for a Coding session; a Studio session has its item's, which is optional.
+    pub project_id: Option<Uuid>,
     /// The GitHub token the thread was started with, or `None` for no token or one that
     /// has since been deleted.
     pub github_credential_id: Option<Uuid>,
     /// The action item the session was started from, if any.
     pub action_item_id: Option<Uuid>,
+    /// The Studio item the session works on; `None` for a Coding session.
+    pub studio_item_id: Option<Uuid>,
 }
 
 /// Fields for a new session. The id comes from [`reserve_id`], because the thread is
@@ -39,21 +45,52 @@ pub struct CodingSession {
 #[diesel(table_name = coding_sessions)]
 pub struct NewCodingSession {
     pub id: i64,
-    pub project_id: Uuid,
+    pub project_id: Option<Uuid>,
     pub satellite_id: Uuid,
     pub thread_id: String,
     pub title: String,
     pub github_credential_id: Option<Uuid>,
     pub action_item_id: Option<Uuid>,
+    pub studio_item_id: Option<Uuid>,
 }
 
-/// Every session, newest first.
+/// Every session, Coding and Studio alike, newest first.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn list(connection: &mut AsyncPgConnection) -> QueryResult<Vec<CodingSession>> {
     coding_sessions::table
         .order(coding_sessions::created_at.desc())
+        .select(CodingSession::as_select())
+        .load(connection)
+        .await
+}
+
+/// The Coding area's sessions, newest first: every session that is not a Studio item's.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn list_coding(connection: &mut AsyncPgConnection) -> QueryResult<Vec<CodingSession>> {
+    coding_sessions::table
+        .filter(coding_sessions::studio_item_id.is_null())
+        .order(coding_sessions::created_at.desc())
+        .select(CodingSession::as_select())
+        .load(connection)
+        .await
+}
+
+/// The sessions of the given Studio items, oldest first, which is the order an item's
+/// conversation reads in.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn list_for_studio_items(
+    connection: &mut AsyncPgConnection,
+    studio_item_ids: &[Uuid],
+) -> QueryResult<Vec<CodingSession>> {
+    coding_sessions::table
+        .filter(coding_sessions::studio_item_id.eq_any(studio_item_ids))
+        .order((coding_sessions::created_at.asc(), coding_sessions::id.asc()))
         .select(CodingSession::as_select())
         .load(connection)
         .await
@@ -192,12 +229,13 @@ mod tests {
     ) -> QueryResult<CodingSession> {
         let new_session = NewCodingSession {
             id: reserve_id(connection).await?,
-            project_id,
+            project_id: Some(project_id),
             satellite_id,
             thread_id: thread_id.to_owned(),
             title: format!("Session on {thread_id}"),
             github_credential_id: None,
             action_item_id: None,
+            studio_item_id: None,
         };
         create(connection, &new_session).await
     }
@@ -280,7 +318,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn deleting_a_satellite_forgets_its_sessions() {
+    async fn deleting_a_satellite_keeps_its_sessions_without_it() {
         let (_url, mut connection) = migrated_database().await;
         let project = project_named(&mut connection, "Elysium").await;
         let orbit = satellite_named(&mut connection, "orbit").await;
@@ -293,13 +331,71 @@ mod tests {
             .expect("rename");
         assert_eq!(renamed.title, "Renamed");
 
+        // Elysium keeps a session's history; only the pointer to the satellite goes.
         satellite::delete(&mut connection, orbit)
             .await
             .expect("delete satellite");
-        assert!(matches!(
-            ApiError::from(find(&mut connection, session.id).await.unwrap_err()),
-            ApiError::NotFound
-        ));
+        let kept = find(&mut connection, session.id).await.expect("kept");
+        assert_eq!(kept.satellite_id, None);
+        assert_eq!(kept.title, "Renamed");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn only_a_studio_session_may_have_no_project() {
+        use crate::models::studio_item::{self, NewStudioItem};
+
+        let (_url, mut connection) = migrated_database().await;
+        let orbit = satellite_named(&mut connection, "orbit").await;
+        let location = crate::models::storage_location::create(
+            &mut connection,
+            &cipher(),
+            &crate::test_support::location_for_every_project("assets"),
+        )
+        .await
+        .expect("location");
+        let item = studio_item::create(
+            &mut connection,
+            &NewStudioItem {
+                id: Uuid::now_v7(),
+                title: "Banana".to_owned(),
+                prompt: "Model me a banana".to_owned(),
+                project_id: None,
+                storage_location_id: location.id,
+            },
+        )
+        .await
+        .expect("item");
+
+        let mut coding = NewCodingSession {
+            id: reserve_id(&mut connection).await.expect("reserve"),
+            project_id: None,
+            satellite_id: orbit,
+            thread_id: "thread-a".to_owned(),
+            title: "No project".to_owned(),
+            github_credential_id: None,
+            action_item_id: None,
+            studio_item_id: None,
+        };
+        create(&mut connection, &coding)
+            .await
+            .expect_err("a Coding session needs a project");
+
+        coding.id = reserve_id(&mut connection).await.expect("reserve");
+        coding.studio_item_id = Some(item.id);
+        let studio = create(&mut connection, &coding)
+            .await
+            .expect("a Studio session may have none");
+
+        assert!(
+            list_coding(&mut connection).await.expect("list").is_empty(),
+            "Coding lists only its own sessions"
+        );
+        let of_item = list_for_studio_items(&mut connection, &[item.id])
+            .await
+            .expect("list");
+        assert_eq!(of_item.len(), 1);
+        assert_eq!(of_item[0].id, studio.id);
     }
 
     #[tokio::test]
@@ -358,12 +454,13 @@ mod tests {
 
         let new_session = NewCodingSession {
             id: reserve_id(&mut connection).await.expect("reserve"),
-            project_id: project,
+            project_id: Some(project),
             satellite_id: orbit,
             thread_id: "thread-a".to_owned(),
             title: "Fix the login bug".to_owned(),
             github_credential_id: None,
             action_item_id: Some(item.id),
+            studio_item_id: None,
         };
         let session = create(&mut connection, &new_session).await.expect("insert");
         assert_eq!(session.action_item_id, Some(item.id));

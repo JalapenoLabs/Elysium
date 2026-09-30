@@ -15,6 +15,7 @@ limit, the projects that save files to it, and an access key: Bunny's zone passw
 | `pathPrefix`        | The directory Elysium writes under, stored without surrounding slashes; empty is the root |
 | `storageLimitBytes` | Elysium's own cap on what it stores there; `null` for no limit                           |
 | `projects`          | `"*"` for every project, including ones added later, or a list of project ids          |
+| `isStudioDefault`   | Whether Studio's New item form starts on it; at most one location is                     |
 | access key          | Sealed in `storage_locations.access_key_encrypted`; write-only over HTTP                 |
 
 A location's projects are stored as `storage_locations.all_projects` for `*`, or as rows in
@@ -27,7 +28,11 @@ characters. The API checks this, and each segment is percent-encoded when a URL 
 
 Limits are entered and shown in decimal units (1 GB is 10^9 bytes), as storage providers bill them. The largest limit
 is 2^53 - 1 bytes, the largest integer a browser holds exactly. A location with no limit takes as much as the
-provider allows.
+provider allows. Studio checks its own writes against the limit, counting the bytes of every Studio file it keeps
+there (see `docs/studio.md`).
+
+Setting `isStudioDefault: true` on a location moves the mark from any other. A location that Studio items keep files
+in cannot be deleted; delete those items permanently first.
 
 ## Providers
 
@@ -206,7 +211,8 @@ setting ever reaches the agent.
 ### Which locations a session reaches
 
 A thread declares `elysium_storage` only when its project has a location when the session is created: one for every
-project (`*`), or one linked to the project. Every call checks again against the database as it is then
+project (`*`), or one linked to the project. A Studio session without a project reaches only locations for every
+project. Every call checks again against the database as it is then
 (`storage_location::find_for_project`), so a location unlinked from the project or deleted after the session started is
 refused, and one added later is usable by a session that already declares the server.
 
@@ -236,8 +242,9 @@ database and decryption failures are logged under `tools.call.internal_failure` 
 
 ## Roadmap
 
-- Usage limits: Elysium refuses a write that would take its usage past a location's limit. Usage is counted from
-  Elysium's own writes, since a zone's total size is only reachable with the account API key.
+- Usage limits for the agent tools: Elysium refuses a tool's write that would take its usage past a location's limit,
+  as Studio's writes already are. Usage is counted from Elysium's own writes, since a zone's total size is only
+  reachable with the account API key.
 - Multipart uploads for files over 5 GiB: S3's `CreateMultipartUpload` and part uploads, and chunked uploads for Bunny
   if it documents a ceiling.
 - More S3-compatible services, such as Cloudflare R2 or MinIO, as further `service` values, each with its endpoint

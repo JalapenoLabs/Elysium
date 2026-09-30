@@ -1,12 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
-import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 
 // Redux
-import { selectAllCodingSessions } from '../../store/codingSessionsSlice'
+import { selectCodingSessionsByProjectId } from '../../store/codingSessionsSlice'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { projectUpserted, selectProjectById } from '../../store/projectsSlice'
 
@@ -39,12 +38,7 @@ export function ProjectPage() {
   const projectsStatus = useProjectsLoader()
   const sessionsStatus = useCodingSessionsLoader()
   const project = useAppSelector((state) => selectProjectById(state, projectId))
-  const allSessions = useAppSelector(selectAllCodingSessions)
-
-  const sessions = useMemo(
-    () => allSessions.filter((session) => session.projectId === projectId),
-    [ allSessions, projectId ],
-  )
+  const sessions = useAppSelector((state) => selectCodingSessionsByProjectId(state, projectId))
 
   if (!project) {
     return <div className='container'>{

@@ -25,6 +25,9 @@ import { satellitesSlice } from './satellitesSlice'
 import { sessionEventsSlice } from './sessionEventsSlice'
 import { sessionsViewSlice } from './sessionsViewSlice'
 import { storageLocationsSlice } from './storageLocationsSlice'
+import { studioAssetsSlice } from './studioAssetsSlice'
+import { studioFeedbackSlice } from './studioFeedbackSlice'
+import { studioItemsSlice } from './studioItemsSlice'
 import { themeSlice } from './themeSlice'
 
 // The one store for all global state, and the source of truth components render. Server
@@ -59,6 +62,9 @@ export function createAppStore() {
       [sessionEventsSlice.name]: sessionEventsSlice.reducer,
       [sessionsViewSlice.name]: sessionsViewSlice.reducer,
       [storageLocationsSlice.name]: storageLocationsSlice.reducer,
+      [studioAssetsSlice.name]: studioAssetsSlice.reducer,
+      [studioFeedbackSlice.name]: studioFeedbackSlice.reducer,
+      [studioItemsSlice.name]: studioItemsSlice.reducer,
       [themeSlice.name]: themeSlice.reducer,
     },
     middleware: (getDefaultMiddleware) => getDefaultMiddleware()
