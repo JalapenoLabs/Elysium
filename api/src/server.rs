@@ -43,7 +43,7 @@ use crate::realtime::EventBus;
 use crate::state::AppState;
 use crate::storage::Storage;
 use crate::version::VersionInfo;
-use crate::{connections, middleware, routes, shutdown};
+use crate::{connections, middleware, routes, shutdown, web_app};
 
 /// How long one Docker call may take. Pulling the mail server's image is one call, and
 /// can take minutes on a slow connection.
@@ -137,7 +137,7 @@ pub async fn serve() -> Result<()> {
         shutdown: shutdown.clone(),
     };
     let rate_limiter = middleware::rate_limit::build();
-    let app = build_router(&config, Arc::clone(&rate_limiter.limiter)).with_state(state);
+    let app = build_router(&config, Arc::clone(&rate_limiter.limiter))?.with_state(state);
 
     let listener = TcpListener::bind(config.bind_address)
         .await
@@ -232,13 +232,21 @@ fn build_mail(
     })
 }
 
-/// Assembles middleware around the routes. Outermost layers run first on the way
-/// in and last on the way out, so request ids exist before anything logs, and the
-/// security headers cover every response including rate limit rejections.
+/// Assembles middleware around the routes and, when the image carries one, the web
+/// app. Outermost layers run first on the way in and last on the way out, so request
+/// ids exist before anything logs, and the security headers cover every response
+/// including rate limit rejections and the web app's files.
+///
+/// Only `/api` is rate limited. A cold page load fetches several of the web app's files
+/// at once, and serving one costs a file read, so limiting them would spend a visitor's
+/// API budget on its first paint without protecting anything.
+///
+/// # Errors
+/// Fails when `FRONTEND_DIR` names a directory without a build in it.
 fn build_router(
     config: &Config,
     rate_limit: Arc<middleware::rate_limit::Limiter>,
-) -> Router<AppState> {
+) -> Result<Router<AppState>> {
     let layers = ServiceBuilder::new()
         .layer(middleware::trace::set_request_id_layer())
         .layer(middleware::trace::propagate_request_id_layer())
@@ -252,11 +260,28 @@ fn build_router(
         .layer(axum::middleware::from_fn(
             middleware::security_headers::apply,
         ))
-        .layer(middleware::cors::layer(config.cors_allowed_origins.clone()))
-        .layer(axum::middleware::from_fn_with_state(
-            rate_limit,
-            middleware::rate_limit::enforce,
-        ));
+        .layer(middleware::cors::layer(config.cors_allowed_origins.clone()));
 
-    routes::router().layer(layers)
+    let api = routes::router().layer(axum::middleware::from_fn_with_state(
+        rate_limit,
+        middleware::rate_limit::enforce,
+    ));
+
+    let Some(directory) = &config.frontend_dir else {
+        event!(
+            name: "api.web_app.disabled",
+            Level::INFO,
+            "FRONTEND_DIR is unset, so only /api is served",
+        );
+        return Ok(api.layer(layers));
+    };
+
+    let app = api.merge(web_app::router(directory)?);
+    event!(
+        name: "api.web_app.configured",
+        Level::INFO,
+        file.directory = %directory.display(),
+        "serving the web app from {{file.directory}}",
+    );
+    Ok(app.layer(layers))
 }

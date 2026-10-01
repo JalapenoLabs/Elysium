@@ -3,6 +3,17 @@
 Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind one nginx origin, run with
 `docker compose`. Decisions are documented per topic in `docs/`; keep them current as the code changes.
 
+## Images and stacks
+
+- `compose.yml` is the production stack: it runs the published `jalapenolabs/elysium-api` image, which serves both
+  `/api` and the web app's production build, so nginx sends every path to the API. `compose.dev.yml` layers the
+  development stack over it: the API built from source (`api/Dockerfile` stage `server`) and the Vite dev server,
+  with nginx swapped to `nginx/development.conf`. See `docs/infrastructure.md`.
+- `.github/workflows/publish.yml` pushes `jalapenolabs/elysium-api` and `jalapenolabs/elysium-oauth-broker` to Docker
+  Hub on every push to `main` and every `v*` tag. A release is a `vX.Y.Z` tag. See `docs/ci.md`.
+- The web app's pages carry a strict Content Security Policy set by the API: no inline scripts, no eval, nothing
+  from another origin. Frontend code keeps to it. See `docs/security.md`.
+
 ## Application secrets live in Postgres, not environment files
 
 `.env` holds only what is needed to bootstrap the stack:
@@ -11,6 +22,7 @@ Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`
 - `REDIS_PASSWORD`
 - `RUST_LOG`, which is optional
+- `ELYSIUM_VERSION`, which is optional: the published release the production stack runs, `latest` unless set
 
 Everything else follows these rules:
 
@@ -192,8 +204,10 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Job names are the required check names. Keep them short, stable, and unique across workflows, and update the list
   in `docs/ci.md` when one changes.
 - The repository is public: trigger on `pull_request`, never `pull_request_target`; every job skips pull requests
-  from forks; permissions stay `contents: read`; no workflow reads a secret; third-party actions are pinned to a
+  from forks; permissions stay `contents: read`; no check reads a secret; third-party actions are pinned to a
   commit SHA.
+- The one exception is `publish.yml`, which reads the organization's Docker Hub token (`DOCKERHUB_USERNAME`
+  variable, `DOCKERHUB_TOKEN` secret). It never triggers on a pull request, and leaves no login on the runners.
 - Tools are pinned in one place and verified: Rust by each crate's `rust-toolchain.toml`, Node by `frontend/.nvmrc`,
   Yarn by `packageManager`, the Diesel CLI by `DIESEL_VERSION` in `api.yml`. Dockerfiles must use the same Rust and
   Node versions; the image checks fail when they drift.

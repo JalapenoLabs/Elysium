@@ -22,6 +22,24 @@ HeroUI v3 on Tailwind CSS v4 and is modeled on Stripe's dashboard.
 | Translations    | i18next with react-i18next                                     |
 | Tests           | Vitest with jsdom and Testing Library                          |
 
+## Serving
+
+In production the API serves the app. The published image's `frontend` stage runs `yarn build`, and the API answers
+every path outside `/api` from that build: files under `assets/` are fingerprinted and cached for a year, a missing
+one is a `404`, and every other path is `index.html`, revalidated on each load. See `api/src/web_app.rs` and
+`docs/infrastructure.md`.
+
+In development the Vite dev server serves it with hot reload, behind nginx, and `/api` goes to the API.
+
+The production pages carry a strict Content Security Policy (`docs/security.md`): no inline scripts and no eval.
+Code here keeps to it:
+
+- No inline `<script>`. The one script that must run before the first paint is `public/theme.js`.
+- Zod is configured `jitless` in `main.tsx`, before any schema parses. Otherwise it probes for `new Function` once,
+  and the policy reports that probe as a violation even though Zod recovers from it.
+- Images come from the API or are `blob:` or `data:` URLs. Anything from another origin needs the policy widened
+  first.
+
 ## Layout
 
 `src/layout/AppShell.tsx` is the root route's element and renders on every page:
@@ -544,8 +562,9 @@ localStorage under `elysium.theme`, and defaults to System.
 - `src/theme/startThemeSync.ts` connects them at startup. A listener saves and applies every `themeChanged`. The OS
   color scheme and other tabs' storage events dispatch `themeChanged` again.
 - `useThemePreference()` reads the preference from Redux and dispatches changes.
-- An inline script in `index.html` applies the saved theme before the CSS loads, so dark mode never flashes
-  light on load. It duplicates the resolve-and-apply logic in a few lines; keep the two in sync.
+- `public/theme.js`, loaded by `index.html` without `defer`, applies the saved theme before the CSS loads, so dark
+  mode never flashes light on load. It is a file rather than an inline script because the page's Content Security
+  Policy forbids inline scripts. It duplicates the resolve-and-apply logic in a few lines; keep the two in sync.
 - The theme cards use HeroUI's `RadioGroup` with the preview artwork uikit exports. uikit's own `ThemeSelector`
   hardcodes its green brand color for the selected card.
 

@@ -53,7 +53,8 @@ every client on that network.
 
 Token bucket per client IP, on `governor`: 30 requests may be spent at once, refilling at 10 per second. Both are
 constants in `api/src/middleware/rate_limit.rs`, not configuration, so every deployment enforces the same limit.
-The event stream counts as one request per connection. Exceeding the limit answers `429` with a JSON body,
+Only `/api` is limited: the web app's files cost a file read each, and a cold page load fetches several at
+once. The event stream counts as one request per connection. Exceeding the limit answers `429` with a JSON body,
 `Retry-After`, and `x-ratelimit-*` headers. Buckets for idle clients are swept every minute so the key map stays
 bounded.
 
@@ -70,11 +71,11 @@ client out.
 
 ## Response headers
 
-The API sets the helmet-equivalent set on every response, including `429`s:
+The API sets the helmet-equivalent set on every response, including `429`s and the web app's files:
 
 | Header                              | Value                                        |
 |-------------------------------------|----------------------------------------------|
-| `Content-Security-Policy`           | `default-src 'none'; frame-ancestors 'none'` |
+| `Content-Security-Policy`           | By path, below                               |
 | `Cross-Origin-Opener-Policy`        | `same-origin`                                |
 | `Cross-Origin-Resource-Policy`      | `same-origin`                                |
 | `Origin-Agent-Cluster`              | `?1`                                         |
@@ -86,9 +87,23 @@ The API sets the helmet-equivalent set on every response, including `429`s:
 | `X-Frame-Options`                   | `DENY`                                       |
 | `X-Permitted-Cross-Domain-Policies` | `none`                                       |
 
-nginx adds a lighter set on the SPA (`nosniff`, `DENY`, `Referrer-Policy`,
-`Permissions-Policy`) and hides its version. The SPA has no CSP while it is served
-by the Vite dev server, which relies on inline scripts and websockets.
+The Content Security Policy depends on what answers, in `api/src/middleware/security_headers.rs`:
+
+- `/api` answers JSON or plain text only, so its policy is `default-src 'none'; frame-ancestors 'none'`. A browser
+  that somehow renders an API response must not run or embed anything from it.
+- Every other path is the web app the published image serves (see `docs/infrastructure.md`). Its policy allows only
+  its own origin: `script-src 'self'` with no inline scripts and no eval, `connect-src 'self'`, `object-src 'none'`,
+  `base-uri` and `form-action 'self'`, and `frame-ancestors 'none'`. Three allowances are deliberate:
+  `style-src 'unsafe-inline'`, because React Aria and HeroUI write styles at runtime; `img-src data: blob:`, for
+  the cover preview and inlined icons; and `font-src data:`, for fonts bundled CSS inlines.
+
+Keeping the app inside that policy takes two things on the frontend: the pre-paint theme script is the file
+`public/theme.js`, not inline, and Zod runs `jitless`, so it never probes for `new Function`. See
+`docs/frontend.md`.
+
+In the development stack nginx sends the app's paths to the Vite dev server instead, which needs inline scripts and
+websockets, so it gets a lighter set from nginx (`nosniff`, `DENY`, `Referrer-Policy`, `Permissions-Policy`) and
+no CSP. nginx hides its version in both stacks.
 
 ## CORS
 
@@ -112,5 +127,4 @@ Application secrets never go there. They are stored in Postgres, encrypted with 
 ## Roadmap
 
 - Authentication on `/api/v1`, then publishing nginx beyond loopback by default.
-- CSP for the SPA once a production static build replaces the dev server.
 - TLS termination at nginx.

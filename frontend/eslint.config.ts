@@ -34,7 +34,7 @@ export default defineConfig([
   {
     // The shared config spells the owner "JalapenoLabs"; this repository's
     // headers use the company name, matching @jalapenolabs/uikit.
-    files: [ '**/*.{ts,tsx}' ],
+    files: [ '**/*.{js,ts,tsx}' ],
     rules: {
       'license-header/header': [
         'error',

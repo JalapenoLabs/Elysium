@@ -49,7 +49,7 @@ tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "s
 tokio-rustls = { version = "0.26.5", default-features = false, features = ["ring", "tls12"] }
 tokio-util = { version = "0.7.18", features = ["rt"] }
 tower = "0.5.3"
-tower-http = { version = "0.7.1", features = ["catch-panic", "cors", "request-id", "set-header", "timeout", "trace"] }
+tower-http = { version = "0.7.1", features = ["catch-panic", "cors", "fs", "request-id", "set-header", "timeout", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 url = "2.5.8"
@@ -64,6 +64,8 @@ zeroize = "1.9.0"
 percent-encoding = "2.3.2"
 # Encodes the protobuf answers of the fake satellite that tests drive the SDK against.
 prost = "0.14.4"
+# Build directories for the web app tests, shaped like `vite build` output.
+tempfile = "3.27.0"
 
 [build-dependencies]
 serde = { version = "1.0.229", features = ["derive"] }

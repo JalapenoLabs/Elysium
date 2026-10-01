@@ -1,8 +1,9 @@
 # CI
 
 GitHub Actions on the org's self-hosted runners. Every check runs on pull requests to `main`, in the merge queue, on
-pushes to `main`, and on demand through `workflow_dispatch`. `.github/workflows/pull-review.yml` is the automated
-review, described in `docs/infrastructure.md`, and is not part of this.
+pushes to `main`, and on demand through `workflow_dispatch`. `.github/workflows/publish.yml` pushes the images to
+Docker Hub after a change lands; it is not a check (see Publishing below). `.github/workflows/pull-review.yml` is the
+automated review, described in `docs/infrastructure.md`, and is not part of this.
 
 ## Runners
 
@@ -41,7 +42,7 @@ Job names are the check names. Require exactly these in the `main` ruleset:
 | `API clippy`         | `api.yml`                | `cargo clippy --all-targets --locked -- -D warnings`            |
 | `API test`           | `api.yml`                | `cargo test --locked`, the hermetic suite                       |
 | `API migrations`     | `api.yml`                | `api/scripts/verify-migrations.sh`                              |
-| `API image`          | `api.yml`                | `api/Dockerfile` builds and its binary runs                     |
+| `API image`          | `api.yml`                | `api/Dockerfile` builds, its binary runs, and it carries the web app |
 | `Broker format`      | `oauth-broker.yml`       | `cargo fmt --check`                                             |
 | `Broker clippy`      | `oauth-broker.yml`       | `cargo clippy --all-targets --locked -- -D warnings`            |
 | `Broker test`        | `oauth-broker.yml`       | `cargo test --locked`                                           |
@@ -51,7 +52,7 @@ Job names are the check names. Require exactly these in the `main` ruleset:
 | `Frontend test`      | `frontend.yml`           | `yarn test`, the Vitest suite                                   |
 | `Frontend build`     | `frontend.yml`           | `yarn build`, the production bundle                             |
 | `Frontend image`     | `frontend.yml`           | `frontend/Dockerfile` builds and the dev server answers         |
-| `Compose config`     | `compose.yml`            | both compose files parse and interpolate                        |
+| `Compose config`     | `compose.yml`            | the stacks parse and interpolate, the development override merges |
 
 Names are prefixed with their lane because a required check is matched by name alone, and two workflows each
 reporting `Clippy` could not be told apart.
@@ -70,7 +71,9 @@ Elysium is public and the runners are self-hosted, so a workflow run is code exe
   safe because the merge queue runs every check again on the merge group, where nothing is skipped.
 - Every workflow grants `permissions: contents: read` and nothing else, and checkout sets
   `persist-credentials: false`, so no token is left in the workspace or copied into the API image with `.git`.
-- No workflow reads a secret. The placeholder values in the Compose and broker checks are not credentials.
+- No check reads a secret. The placeholder values in the Compose and broker checks are not credentials. The one
+  workflow that does is `publish.yml`, which reads the organization's Docker Hub token; it has no `pull_request`
+  trigger, so neither a fork nor a pull request reaches it.
 - Third-party actions are pinned to a full commit SHA with the version in a comment. `actions/checkout` is the only
   one.
 
@@ -116,7 +119,9 @@ removed by an `always()` step. No `services:` container is used, because the scr
 The Diesel CLI is the release binary rather than `cargo install`. It is built with libpq bundled, so the runners need
 no Postgres client library, and it needs glibc 2.34, which Rocky 9 ships.
 
-`API image` builds `api/Dockerfile` from the repository root, as compose does, and runs `elysium-api --help` in it.
+`API image` builds the default `app` stage of `api/Dockerfile` from the repository root, as the publish workflow
+does, checks its `FROM rust:` and `FROM node:` lines against the pins, checks the image carries the web app's
+`index.html`, and runs `elysium-api --help` in it.
 That proves the runtime stage links. Booting the server would need Postgres, Redis, and an encryption key, which the
 checks above already cover.
 
@@ -131,17 +136,44 @@ Each job installs the pinned Node and Yarn and runs `yarn install --immutable`, 
 would have changed. The org packages install from public GitHub repositories, so no token is needed. Typecheck, lint,
 tests, and build then run as separate jobs.
 
-`Frontend image` builds `frontend/Dockerfile`, the Vite dev server compose runs, boots it, and waits for it to serve
-`/`.
+`Frontend image` builds `frontend/Dockerfile`, the Vite dev server the development stack runs, boots it, and waits
+for it to serve `/`. The production build is checked by `Frontend build` and shipped inside the API image.
 
 ## Compose
 
-`docker compose config --quiet` over `compose.yml` and `oauth-broker/compose.yml`. Compose refuses every command while
+`docker compose config --quiet` over `compose.yml` alone (production), `compose.yml` with `compose.dev.yml`
+(development), and `oauth-broker/compose.yml`. Compose refuses every command while
 a required variable is unset and the checkout has no environment file, so the step sets placeholders for exactly the
 required variables. Nothing is started. The images compose builds are built by the image checks instead of
 `docker compose build`, whose fixed image names would race between concurrent runs on one daemon.
 
+## Publishing
+
+`.github/workflows/publish.yml` builds and pushes the API image (stage `app`, with the web app) and the OAuth broker
+image to Docker Hub, as listed in `docs/infrastructure.md`. It runs on every push to `main` and every `v*` tag, and
+never on a pull request. What it builds already passed every check in the merge queue, so it is not a required check
+and repeats none of them.
+
+| Ref               | Tags pushed                       |
+|-------------------|-----------------------------------|
+| `main`            | `main`, `sha-<12-character commit>` |
+| `vX.Y.Z`          | `X.Y.Z`, `X.Y`, `latest`          |
+| `vX.Y.Z-<suffix>` | `X.Y.Z-<suffix>` only             |
+
+Both jobs use the composite action `.github/actions/docker-publish`:
+
+- Credentials are organization-wide: the variable `DOCKERHUB_USERNAME` and the secret `DOCKERHUB_TOKEN`, an
+  organization access token that may push to both repositories. The job fails before building when either is not
+  shared with this repository.
+- The runners are persistent and share Docker daemons, so the login lives in `DOCKER_CONFIG` under the job's
+  temporary directory, and an `always()` step logs out, removes it, and deletes every local tag.
+- `--pull` refreshes the base images, so a published image carries the latest fixes of its pinned base tags.
+- The image is built once under a tag unique to the run, then tagged and pushed for each published tag. Runs of one
+  ref queue rather than cancel (a cancelled run could leave tags on different builds), and `main` and release tags
+  push disjoint tag sets, so no other run can retag between a tag and its push.
+
+A release is a tag: `git tag v1.2.3 && git push origin v1.2.3`.
+
 ## Roadmap
 
-- A production frontend image (static `vite build` output served by nginx), built and booted in `Frontend image`.
 - A boot check for the API image against a disposable Postgres and Redis.

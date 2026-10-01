@@ -51,6 +51,17 @@ jobs:
           ELYSIUM_ENCRYPTION_KEY: ci-placeholder
         run: docker compose --file compose.yml config --quiet
 
+      # The override must still merge: same-target volumes replace, and its services
+      # and dependencies resolve against the production file.
+      - name: Validate the development stack
+        env:
+          POSTGRES_USER: ci-placeholder
+          POSTGRES_PASSWORD: ci-placeholder
+          POSTGRES_DB: ci-placeholder
+          REDIS_PASSWORD: ci-placeholder
+          ELYSIUM_ENCRYPTION_KEY: ci-placeholder
+        run: docker compose --file compose.yml --file compose.dev.yml config --quiet
+
       - name: Validate the OAuth broker stack
         env:
           BROKER_PUBLIC_URL: http://127.0.0.1
