@@ -42,6 +42,8 @@ export type ActionItem = {
   // The initiatives it is in now, leaving out deleted ones.
   initiativeIds: string[]
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
   updatedAt: string
 }
 

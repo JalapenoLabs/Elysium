@@ -14,7 +14,7 @@ use validator::Validate;
 
 use super::create_comment::RequestBody;
 use super::{CommentResponse, publish_history};
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item_comment;
 use crate::models::action_item_event::Recorded;
@@ -23,6 +23,7 @@ use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
@@ -40,7 +41,7 @@ pub async fn handle(
         id,
         comment_id,
         body.body,
-        Actor::User,
+        current.actor(),
         Utc::now(),
     )
     .await?;

@@ -38,6 +38,8 @@ export type CodingSession = {
   // The action item the session was started from, if any.
   actionItemId: string | null
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
   updatedAt: string
   // The thread as of the API's latest poll; null until the first poll sees it.
   thread: ThreadStatus | null

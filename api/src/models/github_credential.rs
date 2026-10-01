@@ -56,6 +56,8 @@ pub struct GithubCredential {
     /// The workspace default, which sessions start with unless their project or the
     /// session chooses otherwise. At most one token is the default.
     pub is_default: bool,
+    /// Who created it.
+    pub created_by: Uuid,
 }
 
 /// A token GitHub has just accepted, with what it answered about it.
@@ -71,6 +73,8 @@ pub struct VerifiedToken {
 pub struct NewGithubCredential {
     pub name: String,
     pub verified: VerifiedToken,
+    /// Who is creating it.
+    pub created_by: Uuid,
 }
 
 /// A partial update. `None` leaves a column untouched. A token always arrives with what
@@ -100,6 +104,7 @@ struct GithubCredentialRow<'a> {
     scopes: String,
     token_expires_at: Option<DateTime<Utc>>,
     checked_at: DateTime<Utc>,
+    created_by: Uuid,
 }
 
 /// Row-shaped update. The token's columns move together, or not at all.
@@ -177,6 +182,7 @@ pub async fn create(
     let id = Uuid::now_v7();
     let verified = &new_credential.verified;
     let row = GithubCredentialRow {
+        created_by: new_credential.created_by,
         id,
         name: &new_credential.name,
         kind: verified.kind,
@@ -335,7 +341,7 @@ mod tests {
 
     use super::*;
     use crate::errors::ApiError;
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 
     fn verified(login: &str, scopes: &[&str]) -> VerifiedToken {
         VerifiedToken {
@@ -351,6 +357,7 @@ mod tests {
 
     fn new_credential(name: &str, login: &str) -> NewGithubCredential {
         NewGithubCredential {
+            created_by: TEST_PERSON_ID,
             name: name.to_owned(),
             verified: verified(login, &["repo", "read:org"]),
         }
@@ -582,6 +589,7 @@ mod tests {
         let created = project::create(
             &mut connection,
             &NewProject {
+                created_by: TEST_PERSON_ID,
                 name: "Elysium".to_owned(),
                 description: String::new(),
             },

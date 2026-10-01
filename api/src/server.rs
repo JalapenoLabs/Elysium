@@ -26,6 +26,8 @@ use tracing::{Level, event};
 
 use crate::action_items::links::Links;
 use crate::action_items::watcher::{WatchContext, Watcher};
+use crate::auth::kratos::Kratos;
+use crate::auth::{Auth, hook_key};
 use crate::config::Config;
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -54,6 +56,10 @@ const DOCKER_TIMEOUT_SECONDS: u64 = 600;
 /// # Errors
 /// Fails on invalid configuration, an invalid encryption key, pending migrations,
 /// unreachable stores, or a listener that cannot bind.
+#[expect(
+    clippy::too_many_lines,
+    reason = "startup is one ordered sequence, and reads best top to bottom in one place"
+)]
 pub async fn serve() -> Result<()> {
     let config = Config::from_env().context("configuration is invalid")?;
     let version = Arc::new(VersionInfo::from_build()?);
@@ -123,6 +129,7 @@ pub async fn serve() -> Result<()> {
     tokio::spawn(async move { hosting.reconcile().await });
 
     let state = AppState {
+        auth: build_auth(&config, http.clone()),
         database: database.clone(),
         redis: redis.clone(),
         cipher,
@@ -137,7 +144,7 @@ pub async fn serve() -> Result<()> {
         shutdown: shutdown.clone(),
     };
     let rate_limiter = middleware::rate_limit::build();
-    let app = build_router(&config, Arc::clone(&rate_limiter.limiter)).with_state(state);
+    let app = build_router(&config, Arc::clone(&rate_limiter.limiter), &state).with_state(state);
 
     let listener = TcpListener::bind(config.bind_address)
         .await
@@ -180,8 +187,21 @@ pub async fn serve() -> Result<()> {
     Ok(())
 }
 
+/// Kratos, and what requests are checked against. See `crate::auth`.
+pub(crate) fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
+    Auth {
+        kratos: Kratos::new(
+            http,
+            config.kratos_public_url.clone(),
+            config.kratos_admin_url.clone(),
+        ),
+        hook_key: hook_key::derive(&config.encryption_key),
+        public_url: config.public_url.clone(),
+    }
+}
+
 /// The mail services. The broker and Stalwart share `http`.
-fn build_mail(
+pub(crate) fn build_mail(
     config: &Config,
     http: reqwest::Client,
     database: Pool,
@@ -238,6 +258,7 @@ fn build_mail(
 fn build_router(
     config: &Config,
     rate_limit: Arc<middleware::rate_limit::Limiter>,
+    state: &AppState,
 ) -> Router<AppState> {
     let layers = ServiceBuilder::new()
         .layer(middleware::trace::set_request_id_layer())
@@ -258,5 +279,5 @@ fn build_router(
             middleware::rate_limit::enforce,
         ));
 
-    routes::router().layer(layers)
+    routes::router(state).layer(layers)
 }

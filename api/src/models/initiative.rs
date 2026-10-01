@@ -47,6 +47,8 @@ pub struct Initiative {
     pub deleted_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The person or machine that created it: the actor of its `created` history entry.
+    pub created_by: Uuid,
 }
 
 /// Fields for a new initiative. It starts `active`.
@@ -100,6 +102,7 @@ struct InitiativeRow {
     description: String,
     target_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
+    created_by: Uuid,
 }
 
 #[derive(Default, AsChangeset)]
@@ -327,6 +330,7 @@ pub async fn create(
         description: new_initiative.description,
         target_at: new_initiative.target_at,
         created_at: now,
+        created_by: actor.user_id(),
     };
 
     connection
@@ -665,7 +669,7 @@ mod tests {
     };
     use crate::models::action_item_event::list_for_initiative;
     use crate::models::project::NewProject;
-    use crate::test_support::migrated_database;
+    use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, migrated_database};
 
     fn day(offset: i64) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339("2026-09-01T09:00:00Z")
@@ -684,7 +688,7 @@ mod tests {
     }
 
     async fn create_initiative(connection: &mut AsyncPgConnection, name: &str) -> Initiative {
-        create(connection, new_initiative(name), Actor::User, day(0))
+        create(connection, new_initiative(name), TEST_PERSON, day(0))
             .await
             .expect("initiative")
             .record
@@ -707,7 +711,7 @@ mod tests {
             project_ids: Vec::new(),
             initiative_ids,
         };
-        action_item::create(connection, new_item, Actor::User, at)
+        action_item::create(connection, new_item, TEST_PERSON, at)
             .await
             .expect("item")
             .record
@@ -756,7 +760,7 @@ mod tests {
             }),
             ..ActionItemChanges::default()
         };
-        action_item::update(&mut connection, theirs, sam, Actor::User, day(2))
+        action_item::update(&mut connection, theirs, sam, TEST_PERSON, day(2))
             .await
             .expect("hand to Sam");
 
@@ -764,7 +768,7 @@ mod tests {
             &mut connection,
             shared_done,
             Transition::Resolve,
-            Actor::User,
+            TEST_PERSON,
             day(3),
         )
         .await
@@ -773,15 +777,15 @@ mod tests {
             &mut connection,
             dismissed,
             Transition::Dismiss,
-            Actor::User,
+            TEST_PERSON,
             day(4),
         )
         .await
         .expect("dismiss");
-        action_item::soft_delete(&mut connection, deleted, Actor::User, day(4))
+        action_item::soft_delete(&mut connection, deleted, TEST_PERSON, day(4))
             .await
             .expect("delete");
-        action_item::leave_initiative(&mut connection, left, deploy.id, Actor::User, day(5))
+        action_item::leave_initiative(&mut connection, left, deploy.id, TEST_PERSON, day(5))
             .await
             .expect("leave");
 
@@ -825,7 +829,7 @@ mod tests {
             ]
         );
 
-        let restored = action_item::restore(&mut connection, deleted, Actor::User, day(7))
+        let restored = action_item::restore(&mut connection, deleted, TEST_PERSON, day(7))
             .await
             .expect("restore");
         assert!(restored.record.deleted_at.is_none());
@@ -843,7 +847,7 @@ mod tests {
         let launch = create_initiative(&mut connection, "Launch").await;
         let item = create_item(&mut connection, "ship it", vec![launch.id], day(1)).await;
 
-        soft_delete(&mut connection, launch.id, Actor::User, day(2))
+        soft_delete(&mut connection, launch.id, TEST_PERSON, day(2))
             .await
             .expect("delete");
         let listed = list(&mut connection, &InitiativeFilter::default())
@@ -867,10 +871,10 @@ mod tests {
             name: Some("Relaunch".to_owned()),
             ..InitiativeChanges::default()
         };
-        let refused = update(&mut connection, launch.id, rename, Actor::User, day(3)).await;
+        let refused = update(&mut connection, launch.id, rename, TEST_PERSON, day(3)).await;
         assert!(matches!(refused, Err(WorkError::Conflict(_))));
 
-        restore(&mut connection, launch.id, Actor::User, day(3))
+        restore(&mut connection, launch.id, TEST_PERSON, day(3))
             .await
             .expect("restore");
         let item_memberships = action_item::memberships(&mut connection, &[item])
@@ -905,6 +909,7 @@ mod tests {
         let project = project::create(
             &mut connection,
             &NewProject {
+                created_by: TEST_PERSON_ID,
                 name: "Elysium".to_owned(),
                 description: String::new(),
             },
@@ -919,7 +924,7 @@ mod tests {
             name: Some("Launch".to_owned()),
             ..InitiativeChanges::default()
         };
-        let achieved = update(&mut connection, launch.id, achieve, Actor::User, day(1))
+        let achieved = update(&mut connection, launch.id, achieve, TEST_PERSON, day(1))
             .await
             .expect("update");
         assert_eq!(achieved.record.state, InitiativeState::Achieved);
@@ -932,7 +937,7 @@ mod tests {
             "the unchanged name is not recorded"
         );
 
-        add_project(&mut connection, launch.id, project.id, Actor::User, day(2))
+        add_project(&mut connection, launch.id, project.id, TEST_PERSON, day(2))
             .await
             .expect("add");
         let by_project = InitiativeFilter {
@@ -968,7 +973,7 @@ mod tests {
             1
         );
 
-        let removed = remove_project(&mut connection, launch.id, project.id, Actor::User, day(3))
+        let removed = remove_project(&mut connection, launch.id, project.id, TEST_PERSON, day(3))
             .await
             .expect("remove");
         assert_eq!(removed.history.len(), 1);

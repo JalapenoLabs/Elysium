@@ -17,6 +17,10 @@ without it.
 Losing the key makes every stored secret unrecoverable. Leaking it, together with a database dump, exposes them.
 Back it up separately from database backups.
 
+Kratos's own secrets (session cookies, the cipher that seals authenticator secrets, and the key its webhooks carry)
+are derived from this key rather than configured, so changing the key also signs everyone out and invalidates every
+enrolled authenticator app. See `docs/auth.md`.
+
 ## Encryption
 
 `api/src/crypto.rs` seals values with XChaCha20-Poly1305 and a fresh random 24-byte nonce per value. Each sealed

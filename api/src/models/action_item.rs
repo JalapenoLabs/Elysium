@@ -125,6 +125,8 @@ pub struct ActionItem {
     pub deleted_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The person or machine that created it: the actor of its `created` history entry.
+    pub created_by: Uuid,
 }
 
 impl ActionItem {
@@ -250,6 +252,7 @@ struct ActionItemRow {
     owner_kind: OwnerKind,
     owner_name: Option<String>,
     created_at: DateTime<Utc>,
+    created_by: Uuid,
 }
 
 #[derive(Default, AsChangeset)]
@@ -629,6 +632,7 @@ pub async fn create(
         owner_kind,
         owner_name,
         created_at: now,
+        created_by: actor.user_id(),
     };
     let project_links: Vec<ProjectLinkRow> = new_item
         .project_ids
@@ -1311,7 +1315,7 @@ mod tests {
     use crate::models::action_item_event::list_for_item;
     use crate::models::initiative::{self, NewInitiative};
     use crate::models::project::NewProject;
-    use crate::test_support::migrated_database;
+    use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, migrated_database};
 
     /// A fixed moment the tests count from, so ages and due dates are exact.
     fn minute(offset: i64) -> DateTime<Utc> {
@@ -1348,7 +1352,7 @@ mod tests {
         item: NewActionItem,
         at: DateTime<Utc>,
     ) -> ActionItem {
-        create(connection, item, Actor::User, at)
+        create(connection, item, TEST_PERSON, at)
             .await
             .expect("create")
             .record
@@ -1360,7 +1364,7 @@ mod tests {
         changes: ActionItemChanges,
         at: DateTime<Utc>,
     ) {
-        update(connection, id, changes, Actor::User, at)
+        update(connection, id, changes, TEST_PERSON, at)
             .await
             .expect("update");
     }
@@ -1433,13 +1437,13 @@ mod tests {
             &mut connection,
             resolved.id,
             Transition::Resolve,
-            Actor::User,
+            TEST_PERSON,
             minute(12),
         )
         .await
         .expect("resolve");
         let deleted = create_at(&mut connection, new_item("deleted"), minute(13)).await;
-        soft_delete(&mut connection, deleted.id, Actor::User, minute(14))
+        soft_delete(&mut connection, deleted.id, TEST_PERSON, minute(14))
             .await
             .expect("delete");
 
@@ -1474,7 +1478,7 @@ mod tests {
             &mut connection,
             id,
             Transition::Reopen,
-            Actor::User,
+            TEST_PERSON,
             minute(1),
         )
         .await;
@@ -1484,7 +1488,7 @@ mod tests {
             &mut connection,
             id,
             Transition::Accept,
-            Actor::User,
+            TEST_PERSON,
             minute(1),
         )
         .await
@@ -1494,13 +1498,13 @@ mod tests {
             accepted.history[0].data,
             json!({ "from": "inbox", "to": "open" })
         );
-        assert_eq!(accepted.history[0].actor, "user");
+        assert_eq!(accepted.history[0].actor, TEST_PERSON.to_string());
 
         let resolved = transition(
             &mut connection,
             id,
             Transition::Resolve,
-            Actor::User,
+            TEST_PERSON,
             minute(2),
         )
         .await
@@ -1513,7 +1517,7 @@ mod tests {
             &mut connection,
             id,
             Transition::Dismiss,
-            Actor::User,
+            TEST_PERSON,
             minute(3),
         )
         .await;
@@ -1523,7 +1527,7 @@ mod tests {
             &mut connection,
             id,
             Transition::Reopen,
-            Actor::User,
+            TEST_PERSON,
             minute(3),
         )
         .await
@@ -1539,7 +1543,7 @@ mod tests {
             &mut connection,
             id,
             Transition::Dismiss,
-            Actor::User,
+            TEST_PERSON,
             minute(4),
         )
         .await
@@ -1576,7 +1580,7 @@ mod tests {
             ..ActionItemFilter::default()
         };
 
-        let deleted = soft_delete(&mut connection, id, Actor::User, minute(1))
+        let deleted = soft_delete(&mut connection, id, TEST_PERSON, minute(1))
             .await
             .expect("delete")
             .record;
@@ -1594,21 +1598,21 @@ mod tests {
             title: Some("renamed".to_owned()),
             ..ActionItemChanges::default()
         };
-        let refused = update(&mut connection, id, rename, Actor::User, minute(2)).await;
+        let refused = update(&mut connection, id, rename, TEST_PERSON, minute(2)).await;
         assert!(matches!(refused, Err(WorkError::Conflict(_))));
         let resolve = transition(
             &mut connection,
             id,
             Transition::Resolve,
-            Actor::User,
+            TEST_PERSON,
             minute(2),
         )
         .await;
         assert!(matches!(resolve, Err(WorkError::Conflict(_))));
-        let again = soft_delete(&mut connection, id, Actor::User, minute(2)).await;
+        let again = soft_delete(&mut connection, id, TEST_PERSON, minute(2)).await;
         assert!(matches!(again, Err(WorkError::Conflict(_))));
 
-        let restored = restore(&mut connection, id, Actor::User, minute(3))
+        let restored = restore(&mut connection, id, TEST_PERSON, minute(3))
             .await
             .expect("restore")
             .record;
@@ -1618,14 +1622,14 @@ mod tests {
             .await
             .expect("list");
         assert_eq!(titles(&listed), ["tidy up"]);
-        let not_deleted = restore(&mut connection, id, Actor::User, minute(4)).await;
+        let not_deleted = restore(&mut connection, id, TEST_PERSON, minute(4)).await;
         assert!(matches!(not_deleted, Err(WorkError::Conflict(_))));
 
         assert_eq!(
             history_kinds(&mut connection, id).await,
             ["created", "deleted", "restored"]
         );
-        let unknown = restore(&mut connection, Uuid::now_v7(), Actor::User, minute(5)).await;
+        let unknown = restore(&mut connection, Uuid::now_v7(), TEST_PERSON, minute(5)).await;
         assert!(matches!(
             unknown,
             Err(WorkError::Database(diesel::result::Error::NotFound))
@@ -1645,7 +1649,7 @@ mod tests {
             priority: Some(ActionItemPriority::Normal),
             ..ActionItemChanges::default()
         };
-        let unchanged = update(&mut connection, id, same, Actor::User, minute(1))
+        let unchanged = update(&mut connection, id, same, TEST_PERSON, minute(1))
             .await
             .expect("update");
         assert!(unchanged.history.is_empty(), "equal values change nothing");
@@ -1660,7 +1664,7 @@ mod tests {
             notes: Some(String::new()),
             ..ActionItemChanges::default()
         };
-        let edited = update(&mut connection, id, edit, Actor::User, minute(2))
+        let edited = update(&mut connection, id, edit, TEST_PERSON, minute(2))
             .await
             .expect("update");
         assert_eq!(edited.record.priority, ActionItemPriority::High);
@@ -1685,7 +1689,7 @@ mod tests {
             due_at: Some(None),
             ..ActionItemChanges::default()
         };
-        let reclaimed = update(&mut connection, id, back_to_user, Actor::User, minute(3))
+        let reclaimed = update(&mut connection, id, back_to_user, TEST_PERSON, minute(3))
             .await
             .expect("update")
             .record;
@@ -1698,12 +1702,17 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture shared by every filter, checked filter by filter"
+    )]
     async fn lists_filter_by_state_project_initiative_waiting_and_snooze() {
         let (_url, mut connection) = migrated_database().await;
         let now = minute(100);
         let project = project::create(
             &mut connection,
             &NewProject {
+                created_by: TEST_PERSON_ID,
                 name: "Elysium".to_owned(),
                 description: String::new(),
             },
@@ -1713,7 +1722,7 @@ mod tests {
         let launch = initiative::create(
             &mut connection,
             new_initiative("Launch"),
-            Actor::User,
+            TEST_PERSON,
             minute(0),
         )
         .await
@@ -1810,6 +1819,7 @@ mod tests {
         let project = project::create(
             &mut connection,
             &NewProject {
+                created_by: TEST_PERSON_ID,
                 name: "Elysium".to_owned(),
                 description: String::new(),
             },
@@ -1819,7 +1829,7 @@ mod tests {
         let launch = initiative::create(
             &mut connection,
             new_initiative("Launch"),
-            Actor::User,
+            TEST_PERSON,
             minute(0),
         )
         .await
@@ -1829,36 +1839,36 @@ mod tests {
             .await
             .id;
 
-        let added = add_project(&mut connection, id, project.id, Actor::User, minute(1))
+        let added = add_project(&mut connection, id, project.id, TEST_PERSON, minute(1))
             .await
             .expect("add");
         assert_eq!(added.history.len(), 1);
-        let again = add_project(&mut connection, id, project.id, Actor::User, minute(1))
+        let again = add_project(&mut connection, id, project.id, TEST_PERSON, minute(1))
             .await
             .expect("add again");
         assert!(again.history.is_empty(), "adding twice records once");
         let unknown =
-            add_project(&mut connection, id, Uuid::now_v7(), Actor::User, minute(1)).await;
+            add_project(&mut connection, id, Uuid::now_v7(), TEST_PERSON, minute(1)).await;
         assert!(matches!(
             unknown,
             Err(WorkError::Database(diesel::result::Error::NotFound))
         ));
 
-        join_initiative(&mut connection, id, launch.id, Actor::User, minute(2))
+        join_initiative(&mut connection, id, launch.id, TEST_PERSON, minute(2))
             .await
             .expect("join");
-        leave_initiative(&mut connection, id, launch.id, Actor::User, minute(3))
+        leave_initiative(&mut connection, id, launch.id, TEST_PERSON, minute(3))
             .await
             .expect("leave");
-        join_initiative(&mut connection, id, launch.id, Actor::User, minute(4))
+        join_initiative(&mut connection, id, launch.id, TEST_PERSON, minute(4))
             .await
             .expect("rejoin");
-        let joined_twice = join_initiative(&mut connection, id, launch.id, Actor::User, minute(5))
+        let joined_twice = join_initiative(&mut connection, id, launch.id, TEST_PERSON, minute(5))
             .await
             .expect("join again");
         assert!(joined_twice.history.is_empty());
         let left_elsewhere =
-            leave_initiative(&mut connection, id, Uuid::now_v7(), Actor::User, minute(5))
+            leave_initiative(&mut connection, id, Uuid::now_v7(), TEST_PERSON, minute(5))
                 .await
                 .expect("leave one it is not in");
         assert!(left_elsewhere.history.is_empty());
@@ -1885,11 +1895,11 @@ mod tests {
         assert_eq!(current.project_ids(id), [project.id]);
         assert_eq!(current.initiative_ids(id), [launch.id]);
 
-        let removed = remove_project(&mut connection, id, project.id, Actor::User, minute(6))
+        let removed = remove_project(&mut connection, id, project.id, TEST_PERSON, minute(6))
             .await
             .expect("remove");
         assert_eq!(removed.history.len(), 1);
-        let removed_again = remove_project(&mut connection, id, project.id, Actor::User, minute(6))
+        let removed_again = remove_project(&mut connection, id, project.id, TEST_PERSON, minute(6))
             .await
             .expect("remove again");
         assert!(removed_again.history.is_empty());
@@ -1919,13 +1929,13 @@ mod tests {
         let archived = initiative::create(
             &mut connection,
             new_initiative("Archived"),
-            Actor::User,
+            TEST_PERSON,
             minute(0),
         )
         .await
         .expect("initiative")
         .record;
-        initiative::soft_delete(&mut connection, archived.id, Actor::User, minute(1))
+        initiative::soft_delete(&mut connection, archived.id, TEST_PERSON, minute(1))
             .await
             .expect("delete");
 
@@ -1933,14 +1943,14 @@ mod tests {
             initiative_ids: vec![archived.id],
             ..new_item("into a deleted initiative")
         };
-        let refused = create(&mut connection, into_deleted, Actor::User, minute(2)).await;
+        let refused = create(&mut connection, into_deleted, TEST_PERSON, minute(2)).await;
         assert!(matches!(refused, Err(WorkError::Invalid(_))));
 
         let into_unknown = NewActionItem {
             project_ids: vec![Uuid::now_v7()],
             ..new_item("into an unknown project")
         };
-        let refused = create(&mut connection, into_unknown, Actor::User, minute(2)).await;
+        let refused = create(&mut connection, into_unknown, TEST_PERSON, minute(2)).await;
         assert!(matches!(
             refused,
             Err(WorkError::Database(diesel::result::Error::DatabaseError(
@@ -1960,7 +1970,7 @@ mod tests {
             &mut connection,
             fine.id,
             archived.id,
-            Actor::User,
+            TEST_PERSON,
             minute(4),
         )
         .await;
@@ -1999,6 +2009,7 @@ mod tests {
         let project = project::create(
             &mut connection,
             &NewProject {
+                created_by: TEST_PERSON_ID,
                 name: "Retired".to_owned(),
                 description: String::new(),
             },
@@ -2011,7 +2022,7 @@ mod tests {
         };
         let live = create_at(&mut connection, in_project("live"), minute(0)).await;
         let trashed = create_at(&mut connection, in_project("trashed"), minute(0)).await;
-        soft_delete(&mut connection, trashed.id, Actor::User, minute(1))
+        soft_delete(&mut connection, trashed.id, TEST_PERSON, minute(1))
             .await
             .expect("delete");
         let launch = initiative::create(
@@ -2020,7 +2031,7 @@ mod tests {
                 project_ids: vec![project.id],
                 ..new_initiative("Launch")
             },
-            Actor::User,
+            TEST_PERSON,
             minute(0),
         )
         .await
@@ -2031,11 +2042,11 @@ mod tests {
             .transaction(async move |connection| {
                 project::lock_for_delete(connection, project.id).await?;
                 let items =
-                    remove_all_from_project(connection, project.id, Actor::User, minute(2)).await?;
+                    remove_all_from_project(connection, project.id, TEST_PERSON, minute(2)).await?;
                 let initiatives = initiative::remove_all_from_project(
                     connection,
                     project.id,
-                    Actor::User,
+                    TEST_PERSON,
                     minute(2),
                 )
                 .await?;

@@ -34,6 +34,8 @@ export type Initiative = {
   // Set while the initiative is softly deleted; it can be restored.
   deletedAt: string | null
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
   updatedAt: string
 }
 

@@ -48,6 +48,8 @@ pub struct ProjectResponse {
     name: String,
     description: String,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
     /// When the cover last changed, or `None` without one. Clients add it to the cover's
     /// URL, so a changed cover is fetched afresh and an unchanged one comes from cache.
@@ -76,6 +78,7 @@ impl From<Project> for ProjectResponse {
             name: project.name,
             description: project.description,
             created_at: project.created_at,
+            created_by: project.created_by,
             updated_at: project.updated_at,
             cover_updated_at: project.cover_image_updated_at,
             cover_fit: project.cover_fit,

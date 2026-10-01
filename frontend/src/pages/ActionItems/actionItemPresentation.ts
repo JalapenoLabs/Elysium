@@ -54,18 +54,43 @@ export const transitionsByState = {
   dismissed: [ 'reopen' ],
 } as const satisfies Record<ActionItemState, readonly ActionItemTransition[]>
 
-// Actor kinds by the prefix before the colon, in history entries and comment authors.
+// Actor kinds by the prefix before the colon, in history entries and comment authors. A
+// person (`user:<id>`) is named by their name; see `describeActor`.
 const actorKeysByKind = new Map<string, ParseKeys<'actionItems'>>([
-  [ 'user', 'actors.user' ],
   [ 'elysia', 'actors.elysia' ],
   [ 'session', 'actors.session' ],
   [ 'watcher', 'actors.watcher' ],
 ])
 
-// Who did something: `user`, `elysia`, `session:<number>`, or `watcher:<provider>`, with
-// the part after the colon as `detail`. An actor this build does not know is shown as sent.
-export function describeActor(actor: string) {
+// Who is reading, and everyone's names, for naming people in history and comments.
+export type ActorNames = {
+  namesById: Record<string, string>
+  meId: string | null
+}
+
+// For actors that are never people, such as a changeset's proposer.
+const NO_NAMES: ActorNames = { namesById: {}, meId: null }
+
+// Who did something: a person (`user:<id>`), `elysia`, `session:<number>`, or
+// `watcher:<provider>`, with the part after the colon as `detail`. A bare `user` is the one
+// person who used Elysium before accounts. An actor this build does not know is shown as sent.
+export function describeActor(actor: string, names: ActorNames = NO_NAMES) {
   const [ kind, detail = '' ] = actor.split(':', 2)
+
+  if (kind === 'user') {
+    if (!detail) {
+      return { key: 'actors.beforeAccounts', values: { detail: '' }} as const
+    }
+    if (detail === names.meId) {
+      return { key: 'actors.you', values: { detail: '' }} as const
+    }
+    const name = names.namesById[detail]
+    if (!name) {
+      return { key: 'actors.someone', values: { detail: '' }} as const
+    }
+    return { key: 'actors.person', values: { detail: name }} as const
+  }
+
   const key = actorKeysByKind.get(kind)
   if (!key) {
     console.debug('describeActor received an actor this build does not know', { actor })

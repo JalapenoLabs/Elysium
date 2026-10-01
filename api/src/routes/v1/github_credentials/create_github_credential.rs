@@ -14,6 +14,7 @@ use validator::Validate;
 use super::{
     GithubCredentialResponse, GithubToken, matches_kind, token_shape_message, validate_not_blank,
 };
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::github_credential::{self, GithubTokenKind, NewGithubCredential, VerifiedToken};
 use crate::realtime::ServerEvent;
@@ -30,6 +31,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -45,6 +47,7 @@ pub async fn handle(
     // it acts as and says when it expires.
     let account = state.github.verify(&body.token.0).await?;
     let new_credential = NewGithubCredential {
+        created_by: current.id(),
         name: body.name,
         verified: VerifiedToken {
             kind: body.kind,

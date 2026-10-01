@@ -14,7 +14,7 @@ use uuid::Uuid;
 use validator::Validate;
 
 use super::publish_initiative_write;
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::initiative::{self, InitiativeChanges, InitiativeState};
 use crate::routes::v1::action_items::validate_not_blank;
@@ -39,6 +39,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
@@ -64,7 +65,7 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let updated = initiative::update(&mut connection, id, changes, Actor::User, now).await?;
+    let updated = initiative::update(&mut connection, id, changes, current.actor(), now).await?;
     let initiative = publish_initiative_write(&state.events, &mut connection, updated, now).await?;
 
     Ok(Json(json!({ "initiative": initiative })))

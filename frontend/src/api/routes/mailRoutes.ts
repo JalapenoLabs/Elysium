@@ -21,6 +21,8 @@ export type MailAccount = {
   lastCheckedAt: string | null
   lastError: string | null
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
   updatedAt: string
   // The mail domain of a self-hosted mailbox; null for OAuth accounts.
   mailDomainId: string | null
@@ -85,6 +87,8 @@ export type MailDomain = {
   // The domain the server was created with, which cannot be removed.
   isDefault: boolean
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
 }
 
 type ListMailDomainsResponse = {

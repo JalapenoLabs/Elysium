@@ -13,13 +13,14 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{publish_item_links, publish_item_write};
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item_link;
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path((id, link_id)) = path?;
@@ -31,7 +32,7 @@ pub async fn handle(
         .context("no database connection available")?;
 
     let promoted =
-        action_item_link::make_primary(&mut connection, id, link_id, Actor::User, now).await?;
+        action_item_link::make_primary(&mut connection, id, link_id, current.actor(), now).await?;
     publish_item_write(&state.events, &mut connection, promoted.item, &[], now).await?;
     let links = publish_item_links(&state.events, &mut connection, id).await?;
 

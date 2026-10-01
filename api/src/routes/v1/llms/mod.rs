@@ -47,6 +47,8 @@ pub struct LlmResponse {
     is_active: bool,
     expires_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
 }
 
@@ -61,6 +63,7 @@ impl From<Llm> for LlmResponse {
             is_active: llm.is_active,
             expires_at: llm.expires_at,
             created_at: llm.created_at,
+            created_by: llm.created_by,
             updated_at: llm.updated_at,
         }
     }

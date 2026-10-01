@@ -19,13 +19,14 @@ use uuid::Uuid;
 use validator::Validate;
 
 use super::{LinkTarget, link_responses, publish_item_links, publish_item_write};
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item_link::{self, NewLink};
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
     body: Result<Json<LinkTarget>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
@@ -52,7 +53,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let linked =
-        action_item_link::add(&mut connection, id, new_link, true, Actor::User, now).await?;
+        action_item_link::add(&mut connection, id, new_link, true, current.actor(), now).await?;
     let link = linked
         .links
         .into_iter()

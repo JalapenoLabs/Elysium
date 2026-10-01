@@ -1,13 +1,16 @@
 # Infrastructure
 
-`compose.yml` runs the whole stack. Non-secret configuration, such as `CORS_ALLOWED_ORIGINS`, is written inline.
-`.env` supplies the bootstrap credentials: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `REDIS_PASSWORD`,
-and `ELYSIUM_ENCRYPTION_KEY`. It may also supply `RUST_LOG`. Compose refuses to start when a required value is
+`compose.yml` runs the whole stack. Non-secret configuration, such as `CORS_ALLOWED_ORIGINS`, is written inline. `.env`
+supplies the bootstrap credentials: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `REDIS_PASSWORD`, and
+`ELYSIUM_ENCRYPTION_KEY`. It may also supply `RUST_LOG`, and `ELYSIUM_PUBLIC_URL`, the origin browsers reach Elysium at,
+which defaults to `http://localhost:${WEB_PORT}` (see `docs/auth.md`). Compose refuses to start when a required value is
 missing, and `.env.example` is the template.
 
 `WEB_PORT` may be set to move nginx off the default port 4000. `WEB_BIND_ADDRESS` publishes it on an address other
-than the default `127.0.0.1`, such as `0.0.0.0` for a trusted LAN. Until the API has authentication, that hands
-everyone who can reach the address the stored credentials and control of the Docker host; see `docs/security.md`.
+than the default `127.0.0.1`, such as `0.0.0.0` for a LAN. Everyone who signs in shares the workspace, including its
+stored credentials and, through the mail server, control of the Docker host; see `docs/security.md`. A deployment
+reached from other machines also needs `ELYSIUM_PUBLIC_URL` set to an https host name, since browsers hold sessions
+and passkeys only for such an origin.
 `SMTP_PORT`, `SUBMISSIONS_PORT`, and `IMAPS_PORT` move the host side of the mail ports off 25, 465, and 993.
 
 Postgres applies its credentials only when the data volume is first created. After changing them, recreate the
@@ -17,7 +20,9 @@ volume with `docker compose down --volumes`, which destroys the data.
 |------------|----------------------------|--------------------|-----------------------------------------|
 | `nginx`    | `nginx:1.30.4-alpine`      | `elysium-nginx`    | The only published ports: web on `127.0.0.1:4000` by default, mail on 25, 465, 993 |
 | `frontend` | `frontend/Dockerfile`      | `elysium-frontend` | Vite dev server, source bind-mounted    |
-| `migrate`  | `api/Dockerfile`           | `elysium-migrate`  | One-shot `migrate run`, then exits      |
+| `migrate`  | `api/Dockerfile`           | `elysium-migrate`  | One-shot `migrate run`, then exits; creates Kratos's database |
+| `kratos-migrate` | `oryd/kratos:v26.2.0` | `elysium-kratos-migrate` | One-shot: Kratos's own migrations      |
+| `kratos`   | `oryd/kratos:v26.2.0`      | `elysium-kratos`   | Identities and sessions; see `docs/auth.md` |
 | `api`      | `api/Dockerfile`           | none               | One replica; reachable only via nginx   |
 | `postgres` | `postgres:18.6-alpine3.23` | `elysium-postgres` | Volume `postgres-data`, `timezone=UTC`  |
 | `redis`    | `redis:8.10.1-alpine`      | `elysium-redis`    | Password required, AOF on, `redis-data` |
@@ -37,9 +42,11 @@ stack.
 
 ## Routing
 
-nginx proxies `/api/` to `api:8080` unchanged and everything else to `frontend:5173`, including the HMR websocket
-upgrade. `/api/v1/events` has its own location with buffering off and a one-hour read timeout, so server-sent
-events arrive immediately and idle streams stay open.
+nginx proxies `/api/identity/` to Kratos's public API (`kratos:4433`, prefix stripped), the rest of `/api/` to
+`api:8080` unchanged, and everything else to `frontend:5173`, including the HMR websocket upgrade. POSTs to Kratos's
+sign-in, sign-up, and recovery endpoints are throttled per client address (`docs/auth.md`). Nothing outside `/api/`
+reaches the API, which keeps its `/internal` routes for Kratos alone. `/api/v1/events` has its own location with
+buffering off and a one-hour read timeout, so server-sent events arrive immediately and idle streams stay open.
 
 The frontend's HMR client is told nginx's published port through `VITE_HMR_CLIENT_PORT`.
 
@@ -52,9 +59,9 @@ in-process (see `docs/realtime.md`).
 
 ## Startup order
 
-`migrate` waits for `postgres` health. `api` waits for `migrate` to exit successfully and for `redis` health.
-`nginx` waits for `api` health. The API also retries its own connections, so a store restart mid-run does not
-require restarting the API.
+`migrate` waits for `postgres` health. `api` and `kratos-migrate` wait for `migrate` to exit successfully; `api` also
+waits for `redis` health, and `kratos` for `kratos-migrate`. `nginx` waits for `api` and `kratos` health. The API also
+retries its own connections, so a store restart mid-run does not require restarting the API.
 
 `migrate` and `api` share the `elysium-api` image, which has the migrations compiled in.
 

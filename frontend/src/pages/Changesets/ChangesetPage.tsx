@@ -27,6 +27,7 @@ import {
   useInitiativesLoader,
   useProjectsLoader,
 } from '../../hooks/useServerData'
+import { useUserNames } from '../../hooks/useUserNames'
 import { UrlTree } from '../../urls'
 import { describeActor } from '../ActionItems/actionItemPresentation'
 import { changesetStateChipColors, changesetStateLabelKeys, tallyDecisions } from './changesetPresentation'
@@ -36,7 +37,7 @@ import { useChangesetActions } from './useChangesetActions'
 // change is approved or rejected, all at once or one by one, and applied once every change
 // is decided. After, each change shows how it ended, and an applied changeset can be undone.
 export function ChangesetPage() {
-  const { t, i18n } = useTranslation([ 'changesets', 'actionItems' ])
+  const { t, i18n } = useTranslation([ 'changesets', 'actionItems', 'common' ])
   const actions = useChangesetActions()
   const { changesetId = '' } = useParams()
   const status = useChangesetLoader(changesetId)
@@ -47,6 +48,7 @@ export function ChangesetPage() {
   const itemsById = useAppSelector(selectLiveActionItemsById)
   const initiativeNames = useAppSelector(selectInitiativeNamesById, shallowEqual)
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
+  const userNames = useUserNames()
   // The write in flight: 'apply', 'approved' or 'rejected' for all, or `<operation id>:<decision>`.
   // Every write button waits while one runs, so a second press cannot race the first.
   const [ pendingWrite, setPendingWrite ] = useState<string | null>(null)
@@ -103,6 +105,12 @@ export function ChangesetPage() {
             date: context.formatInstant(changeset.createdAt),
           })
         }</p>
+        {changeset.decidedBy && changeset.decidedAt && <p className='text-sm opacity-70'>{
+          t('review.decidedBy', {
+            name: userNames[changeset.decidedBy] ?? t('common:table.someone'),
+            date: context.formatInstant(changeset.decidedAt),
+          })
+        }</p>}
         {changeset.undoneAt && <p className='text-sm opacity-70'>{
           t('review.undoneAt', { date: context.formatInstant(changeset.undoneAt) })
         }</p>}

@@ -24,6 +24,13 @@ pub struct Config {
     pub redis_url: SecretString,
     /// Base64 key sealing secrets stored in Postgres. See `crate::crypto`.
     pub encryption_key: SecretString,
+    /// The origin browsers reach Elysium at: `https://<host>`, or `http://localhost` for
+    /// development. Sessions, passkeys, and recovery links are bound to it.
+    pub public_url: Url,
+    /// Kratos's public API, where sessions are checked.
+    pub kratos_public_url: Url,
+    /// Kratos's admin API, where identities and sessions are managed.
+    pub kratos_admin_url: Url,
     pub database_max_connections: u32,
     /// Origins allowed by CORS. Empty means no cross-origin access, which is the
     /// normal state behind nginx where the frontend shares the API's origin.
@@ -53,8 +60,10 @@ impl Config {
     /// Builds the configuration from environment variables.
     ///
     /// # Errors
-    /// Returns an error when `DATABASE_URL`, `REDIS_URL`, or `ELYSIUM_ENCRYPTION_KEY`
-    /// is missing, or when any numeric variable does not parse.
+    /// Returns an error when `DATABASE_URL`, `REDIS_URL`, `ELYSIUM_ENCRYPTION_KEY`,
+    /// `ELYSIUM_PUBLIC_URL`, `KRATOS_PUBLIC_URL`, or `KRATOS_ADMIN_URL` is missing, when the
+    /// public URL is not one browsers can hold sessions for, or when any numeric variable
+    /// does not parse.
     pub fn from_env() -> Result<Self> {
         let host: IpAddr = env_or("HOST", IpAddr::V4(Ipv4Addr::UNSPECIFIED))?;
         let port: u16 = env_or("PORT", 8080)?;
@@ -64,6 +73,9 @@ impl Config {
             database_url: required_secret("DATABASE_URL")?,
             redis_url: required_secret("REDIS_URL")?,
             encryption_key: required_secret("ELYSIUM_ENCRYPTION_KEY")?,
+            public_url: parse_public_url(&required("ELYSIUM_PUBLIC_URL")?)?,
+            kratos_public_url: required_base_url("KRATOS_PUBLIC_URL")?,
+            kratos_admin_url: required_base_url("KRATOS_ADMIN_URL")?,
             database_max_connections: env_or("DATABASE_MAX_CONNECTIONS", 10)?,
             cors_allowed_origins: parse_cors_origins()?,
             request_timeout: Duration::from_secs(env_or("REQUEST_TIMEOUT_SECONDS", 30)?),
@@ -95,6 +107,43 @@ pub fn required_secret(key: &str) -> Result<SecretString> {
         anyhow::bail!("{key} is set but empty");
     }
     Ok(SecretString::from(value))
+}
+
+/// Reads a variable that must be present and non-empty.
+fn required(key: &str) -> Result<String> {
+    let value = std::env::var(key).with_context(|| format!("{key} is required"))?;
+    if value.trim().is_empty() {
+        anyhow::bail!("{key} is set but empty");
+    }
+    Ok(value.trim().to_owned())
+}
+
+/// Reads a base URL that must be present.
+fn required_base_url(key: &str) -> Result<Url> {
+    optional_base_url(key)?.with_context(|| format!("{key} is required"))
+}
+
+/// Checks `ELYSIUM_PUBLIC_URL`: a bare origin, over https, or over http on `localhost`
+/// alone. Browsers hold passkeys and `Secure` session cookies only for such an origin, and
+/// `WebAuthn` refuses an IP address, so anything else would fail at sign-in instead of here.
+fn parse_public_url(raw: &str) -> Result<Url> {
+    let url =
+        Url::parse(raw).with_context(|| format!("ELYSIUM_PUBLIC_URL is not a URL: {raw:?}"))?;
+    let host = url.host_str().unwrap_or_default();
+    let secure = match url.scheme() {
+        "https" => url.domain().is_some(),
+        "http" => host == "localhost",
+        _ => false,
+    };
+    if !secure {
+        anyhow::bail!(
+            "ELYSIUM_PUBLIC_URL must be https://<host name>, or http://localhost for development: {raw:?}"
+        );
+    }
+    if url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
+        anyhow::bail!("ELYSIUM_PUBLIC_URL must be an origin, with no path: {raw:?}");
+    }
+    Ok(url)
 }
 
 /// Reads `key` from the environment, falling back to `default` when it is unset.
@@ -143,4 +192,36 @@ fn parse_cors_origins() -> Result<Vec<HeaderValue>> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_urls_are_https_hosts_or_localhost() {
+        for accepted in [
+            "https://elysium.example.com",
+            "https://elysium.example.com/",
+            "https://elysium.example.com:8443",
+            "http://localhost:4000",
+        ] {
+            parse_public_url(accepted).unwrap_or_else(|error| panic!("{accepted}: {error}"));
+        }
+    }
+
+    #[test]
+    fn public_urls_refuse_what_browsers_cannot_hold_sessions_for() {
+        for refused in [
+            "http://192.168.2.101:4000",
+            "http://elysium.example.com",
+            "https://192.168.2.101",
+            "https://elysium.example.com/app",
+            "https://elysium.example.com/?x=1",
+            "ftp://localhost",
+            "localhost:4000",
+        ] {
+            assert!(parse_public_url(refused).is_err(), "{refused} is refused");
+        }
+    }
 }

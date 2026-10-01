@@ -16,7 +16,7 @@ use uuid::Uuid;
 use validator::Validate;
 
 use super::{publish_item_write, validate_person};
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item::{self, ActionItemChanges};
 use crate::state::AppState;
@@ -33,6 +33,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
@@ -50,7 +51,7 @@ pub async fn handle(
         waiting_on: Some(body.on),
         ..ActionItemChanges::default()
     };
-    let waiting = action_item::update(&mut connection, id, changes, Actor::User, now).await?;
+    let waiting = action_item::update(&mut connection, id, changes, current.actor(), now).await?;
     let item = publish_item_write(&state.events, &mut connection, waiting, &[], now).await?;
 
     Ok(Json(json!({ "item": item })))

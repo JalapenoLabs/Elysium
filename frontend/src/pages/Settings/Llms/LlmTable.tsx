@@ -13,6 +13,7 @@ import { LlmRowActions } from './LlmRowActions'
 
 // Misc
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
+import { useUserNames } from '../../../hooks/useUserNames'
 import {
   getLlmStatus,
   llmStatusChipColors,
@@ -27,7 +28,7 @@ type Props = {
   onDelete: (llm: Llm) => void
 }
 
-const LLM_COLUMN_KEYS = [ 'name', 'type', 'priority', 'status', 'expiresAt', 'rowActions' ] as const
+const LLM_COLUMN_KEYS = [ 'name', 'type', 'priority', 'status', 'expiresAt', 'createdBy', 'rowActions' ] as const
 type LlmColumnKey = typeof LLM_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
@@ -36,6 +37,7 @@ const columnLabelKeys = {
   priority: 'table.priority',
   status: 'table.status',
   expiresAt: 'table.expires',
+  createdBy: 'common:table.createdBy',
   rowActions: 'common:actions.moreActions',
 } as const satisfies Record<LlmColumnKey, string>
 
@@ -47,12 +49,14 @@ const columnSizes = {
   priority: 110,
   status: 140,
   expiresAt: 220,
+  createdBy: 160,
   rowActions: 64,
 } as const satisfies Record<LlmColumnKey, number>
 
 export function LlmTable(props: Props) {
   const { t, i18n } = useTranslation([ 'llms', 'common' ])
   const labels = useSmartTableLabels()
+  const userNames = useUserNames()
   const [ search, setSearch ] = useState('')
 
   // Captured once per mount so render stays pure; status is "as of when you opened the page".
@@ -81,6 +85,7 @@ export function LlmTable(props: Props) {
       expiresAt: (llm: Llm) => llm.expiresAt
         ? dateFormatter.format(new Date(llm.expiresAt))
         : t('table.never'),
+      createdBy: (llm: Llm) => userNames[llm.createdBy] ?? t('common:table.someone'),
       rowActions: (llm: Llm) => <LlmRowActions
         llm={llm}
         onEdit={props.onEdit}
@@ -98,6 +103,7 @@ export function LlmTable(props: Props) {
       expiresAt: (llm: Llm) => llm.expiresAt
         ? dateFormatter.format(new Date(llm.expiresAt))
         : t('table.never'),
+      createdBy: (llm: Llm) => userNames[llm.createdBy] ?? '',
       rowActions: null,
     } satisfies Record<LlmColumnKey, ((llm: Llm) => string) | null>
 
@@ -129,7 +135,7 @@ export function LlmTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, now, props.onEdit, props.onToggleActive, props.onDelete ])
+  }, [ t, userNames, i18n.language, now, props.onEdit, props.onToggleActive, props.onDelete ])
 
   if (!props.llms.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
@@ -140,7 +146,7 @@ export function LlmTable(props: Props) {
   return <SmartTable
     ids={{
       tableElementId: 'llm-credentials-table',
-      tableLocalStorageId: 'elysium.settings.llms.table',
+      tableLocalStorageId: 'elysium.settings.llms.table.v2',
     }}
     tableAriaLabel={t('table.label')}
     data={props.llms}

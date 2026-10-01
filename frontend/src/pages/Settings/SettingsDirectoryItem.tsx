@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ReactNode } from 'react'
 import type { IconType } from 'react-icons'
 
 // User interface
@@ -10,6 +11,8 @@ type Props = {
   title: string
   description: string
   href: string
+  // Beside the title, such as a count of what waits there.
+  badge?: ReactNode
 }
 
 // One entry in the settings directory: an icon tile beside a linked title and a
@@ -22,12 +25,15 @@ export function SettingsDirectoryItem(props: Props) {
       <Icon className='size-4 text-accent' aria-hidden />
     </div>
     <div className='min-w-0'>
-      <Link
-        href={props.href}
-        className='font-semibold text-link no-underline hover:underline'
-      >
-        {props.title}
-      </Link>
+      <div className='level-left gap-2'>
+        <Link
+          href={props.href}
+          className='font-semibold text-link no-underline hover:underline'
+        >
+          {props.title}
+        </Link>
+        {props.badge}
+      </div>
       <p className='mt-0.5 text-sm opacity-70'>{
         props.description
       }</p>

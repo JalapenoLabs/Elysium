@@ -1,10 +1,19 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { RouteObject } from 'react-router'
+
 // Core
 import { createBrowserRouter, Navigate } from 'react-router'
 
 // User interface
+import { AuthGate } from './auth/AuthGate'
 import { AppShell } from './layout/AppShell'
+import { AuthErrorPage } from './pages/Auth/AuthErrorPage'
+import { AuthLayout } from './pages/Auth/AuthLayout'
+import { LoginPage } from './pages/Auth/LoginPage'
+import { PendingPage } from './pages/Auth/PendingPage'
+import { RecoveryPage } from './pages/Auth/RecoveryPage'
+import { SignupPage } from './pages/Auth/SignupPage'
 import { ActionItemListPage } from './pages/ActionItems/ActionItemListPage'
 import { ActionItemPage } from './pages/ActionItems/ActionItemPage'
 import { ActionItemsLayout } from './pages/ActionItems/ActionItemsLayout'
@@ -37,6 +46,8 @@ import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
 import { ManageSatellitesPage } from './pages/Settings/Satellites/ManageSatellitesPage'
+import { SecurityPage } from './pages/Settings/Security/SecurityPage'
+import { ManageUsersPage } from './pages/Settings/Users/ManageUsersPage'
 import { AddStorageLocationPage } from './pages/Settings/Storage/AddStorageLocationPage'
 import { EditStorageLocationPage } from './pages/Settings/Storage/EditStorageLocationPage'
 import { ManageStoragePage } from './pages/Settings/Storage/ManageStoragePage'
@@ -53,168 +64,209 @@ export type RouteLayoutHandle = {
   layout: 'page' | 'workspace'
 }
 
+// Every workspace page, inside the app's frame.
+const workspaceRoutes: RouteObject = {
+  path: UrlTree.root,
+  element: <AppShell />,
+  children: [
+    {
+      index: true,
+      element: <Navigate to={UNKNOWN_ROUTE_REDIRECT_TO} replace />,
+    },
+    // Next, the inbox, every item, and initiatives share the area's heading and tabs.
+    {
+      path: UrlTree.actionItems,
+      element: <ActionItemsLayout />,
+      children: [
+        {
+          index: true,
+          element: <NextPage />,
+        },
+        {
+          path: UrlTree.actionItemsInbox,
+          element: <InboxPage />,
+        },
+        {
+          path: UrlTree.actionItemsAll,
+          element: <ActionItemListPage />,
+        },
+        {
+          path: UrlTree.initiatives,
+          element: <InitiativesPage />,
+        },
+        {
+          path: UrlTree.changesets,
+          element: <ChangesetsPage />,
+        },
+      ],
+    },
+    {
+      path: UrlTree.actionItemsNew,
+      element: <CreateActionItemPage />,
+    },
+    {
+      path: UrlTree.actionItemView,
+      element: <ActionItemPage />,
+    },
+    {
+      path: UrlTree.initiativesNew,
+      element: <CreateInitiativePage />,
+    },
+    {
+      path: UrlTree.initiativeView,
+      element: <InitiativePage />,
+    },
+    {
+      path: UrlTree.changesetView,
+      element: <ChangesetPage />,
+    },
+    {
+      path: UrlTree.projects,
+      element: <ProjectsPage />,
+    },
+    {
+      path: UrlTree.projectsNew,
+      element: <CreateProjectPage />,
+    },
+    {
+      path: UrlTree.projectView,
+      element: <ProjectPage />,
+    },
+    {
+      path: UrlTree.coding,
+      element: <CodingPage />,
+      handle: { layout: 'workspace' } satisfies RouteLayoutHandle,
+    },
+    {
+      path: UrlTree.codingSession,
+      element: <CodingPage />,
+      handle: { layout: 'workspace' } satisfies RouteLayoutHandle,
+    },
+    {
+      path: UrlTree.settings,
+      element: <SettingsDirectoryPage />,
+    },
+    {
+      path: UrlTree.settingsPersonalDetails,
+      element: <PersonalDetailsPage />,
+    },
+    {
+      path: UrlTree.settingsSecurity,
+      element: <SecurityPage />,
+    },
+    {
+      path: UrlTree.settingsUsers,
+      element: <ManageUsersPage />,
+    },
+    {
+      path: UrlTree.settingsLlms,
+      element: <ManageLlmsPage />,
+    },
+    ...LLM_TYPES.map((type) => ({
+      path: addLlmUrlByType[type],
+      element: <AddLlmPage type={type} />,
+    })),
+    {
+      path: UrlTree.settingsLlmsEdit,
+      element: <EditLlmPage />,
+    },
+    {
+      path: UrlTree.settingsEnvironment,
+      element: <ManageEnvironmentPage />,
+    },
+    {
+      path: UrlTree.settingsEnvironmentNew,
+      element: <AddEnvironmentVariablePage />,
+    },
+    {
+      path: UrlTree.settingsEnvironmentEdit,
+      element: <EditEnvironmentVariablePage />,
+    },
+    {
+      path: UrlTree.settingsGithub,
+      element: <ManageGithubPage />,
+    },
+    {
+      path: UrlTree.settingsGithubNew,
+      element: <AddGithubCredentialPage />,
+    },
+    {
+      path: UrlTree.settingsGithubEdit,
+      element: <EditGithubCredentialPage />,
+    },
+    {
+      path: UrlTree.settingsJira,
+      element: <ManageJiraPage />,
+    },
+    {
+      path: UrlTree.settingsJiraNew,
+      element: <AddJiraCredentialPage />,
+    },
+    {
+      path: UrlTree.settingsJiraEdit,
+      element: <EditJiraCredentialPage />,
+    },
+    {
+      path: UrlTree.settingsJiraDoneTransitions,
+      element: <JiraDoneTransitionsPage />,
+    },
+    {
+      path: UrlTree.settingsSatellites,
+      element: <ManageSatellitesPage />,
+    },
+    {
+      path: UrlTree.settingsEmail,
+      element: <ManageEmailPage />,
+    },
+    {
+      path: UrlTree.settingsStorage,
+      element: <ManageStoragePage />,
+    },
+    {
+      path: UrlTree.settingsStorageNew,
+      element: <AddStorageLocationPage />,
+    },
+    {
+      path: UrlTree.settingsStorageEdit,
+      element: <EditStorageLocationPage />,
+    },
+    {
+      path: '*',
+      element: <Navigate to={UNKNOWN_ROUTE_REDIRECT_TO} replace />,
+    },
+  ],
+}
+
+// Two trees: the pages anyone may open (signing in, signing up, recovery, waiting for
+// approval), and the workspace, which `AuthGate` opens only to people allowed in.
 export const router = createBrowserRouter([
   {
-    path: UrlTree.root,
-    element: <AppShell />,
+    element: <AuthLayout />,
     children: [
       {
-        index: true,
-        element: <Navigate to={UNKNOWN_ROUTE_REDIRECT_TO} replace />,
-      },
-      // Next, the inbox, every item, and initiatives share the area's heading and tabs.
-      {
-        path: UrlTree.actionItems,
-        element: <ActionItemsLayout />,
-        children: [
-          {
-            index: true,
-            element: <NextPage />,
-          },
-          {
-            path: UrlTree.actionItemsInbox,
-            element: <InboxPage />,
-          },
-          {
-            path: UrlTree.actionItemsAll,
-            element: <ActionItemListPage />,
-          },
-          {
-            path: UrlTree.initiatives,
-            element: <InitiativesPage />,
-          },
-          {
-            path: UrlTree.changesets,
-            element: <ChangesetsPage />,
-          },
-        ],
+        path: UrlTree.login,
+        element: <LoginPage />,
       },
       {
-        path: UrlTree.actionItemsNew,
-        element: <CreateActionItemPage />,
+        path: UrlTree.signup,
+        element: <SignupPage />,
       },
       {
-        path: UrlTree.actionItemView,
-        element: <ActionItemPage />,
+        path: UrlTree.recovery,
+        element: <RecoveryPage />,
       },
       {
-        path: UrlTree.initiativesNew,
-        element: <CreateInitiativePage />,
+        path: UrlTree.pending,
+        element: <PendingPage />,
       },
       {
-        path: UrlTree.initiativeView,
-        element: <InitiativePage />,
-      },
-      {
-        path: UrlTree.changesetView,
-        element: <ChangesetPage />,
-      },
-      {
-        path: UrlTree.projects,
-        element: <ProjectsPage />,
-      },
-      {
-        path: UrlTree.projectsNew,
-        element: <CreateProjectPage />,
-      },
-      {
-        path: UrlTree.projectView,
-        element: <ProjectPage />,
-      },
-      {
-        path: UrlTree.coding,
-        element: <CodingPage />,
-        handle: { layout: 'workspace' } satisfies RouteLayoutHandle,
-      },
-      {
-        path: UrlTree.codingSession,
-        element: <CodingPage />,
-        handle: { layout: 'workspace' } satisfies RouteLayoutHandle,
-      },
-      {
-        path: UrlTree.settings,
-        element: <SettingsDirectoryPage />,
-      },
-      {
-        path: UrlTree.settingsPersonalDetails,
-        element: <PersonalDetailsPage />,
-      },
-      {
-        path: UrlTree.settingsLlms,
-        element: <ManageLlmsPage />,
-      },
-      ...LLM_TYPES.map((type) => ({
-        path: addLlmUrlByType[type],
-        element: <AddLlmPage type={type} />,
-      })),
-      {
-        path: UrlTree.settingsLlmsEdit,
-        element: <EditLlmPage />,
-      },
-      {
-        path: UrlTree.settingsEnvironment,
-        element: <ManageEnvironmentPage />,
-      },
-      {
-        path: UrlTree.settingsEnvironmentNew,
-        element: <AddEnvironmentVariablePage />,
-      },
-      {
-        path: UrlTree.settingsEnvironmentEdit,
-        element: <EditEnvironmentVariablePage />,
-      },
-      {
-        path: UrlTree.settingsGithub,
-        element: <ManageGithubPage />,
-      },
-      {
-        path: UrlTree.settingsGithubNew,
-        element: <AddGithubCredentialPage />,
-      },
-      {
-        path: UrlTree.settingsGithubEdit,
-        element: <EditGithubCredentialPage />,
-      },
-      {
-        path: UrlTree.settingsJira,
-        element: <ManageJiraPage />,
-      },
-      {
-        path: UrlTree.settingsJiraNew,
-        element: <AddJiraCredentialPage />,
-      },
-      {
-        path: UrlTree.settingsJiraEdit,
-        element: <EditJiraCredentialPage />,
-      },
-      {
-        path: UrlTree.settingsJiraDoneTransitions,
-        element: <JiraDoneTransitionsPage />,
-      },
-      {
-        path: UrlTree.settingsSatellites,
-        element: <ManageSatellitesPage />,
-      },
-      {
-        path: UrlTree.settingsEmail,
-        element: <ManageEmailPage />,
-      },
-      {
-        path: UrlTree.settingsStorage,
-        element: <ManageStoragePage />,
-      },
-      {
-        path: UrlTree.settingsStorageNew,
-        element: <AddStorageLocationPage />,
-      },
-      {
-        path: UrlTree.settingsStorageEdit,
-        element: <EditStorageLocationPage />,
-      },
-      {
-        path: '*',
-        element: <Navigate to={UNKNOWN_ROUTE_REDIRECT_TO} replace />,
+        path: UrlTree.authError,
+        element: <AuthErrorPage />,
       },
     ],
+  },
+  {
+    element: <AuthGate />,
+    children: [ workspaceRoutes ],
   },
 ])

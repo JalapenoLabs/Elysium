@@ -26,26 +26,47 @@ pub mod progress;
 pub mod session_context;
 pub mod watcher;
 
+use std::collections::HashMap;
 use std::fmt;
+
+use uuid::Uuid;
 
 use crate::models::action_item::ActionItemState;
 use crate::models::action_item_link::LinkProvider;
+use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, SYSTEM_USER_ID};
 
 /// Who made a change. Every history entry and comment names one.
 ///
-/// The user acts over HTTP, a coding session's agent through the `elysium_work` tools
+/// People act over HTTP, a coding session's agent through the `elysium_work` tools
 /// (`crate::tools::work`), and the watcher as it records what a provider reports. Elysia
-/// and a session's agent also act when the user applies a changeset they proposed
+/// and a session's agent also act when a person applies a changeset they proposed
 /// ([`changesets`]).
+///
+/// Written as `user:<id>`, `elysia`, `session:<n>`, or `watcher:<provider>`. Rows written
+/// before accounts existed say `user` alone, meaning the one person there was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Actor {
-    User,
+    /// The person with this user id.
+    User(Uuid),
     /// Elysium's AI assistant.
     Elysia,
     /// The agent of the coding session with this number.
     Session(i64),
     /// The watcher, recording a change it read from this provider.
     Watcher(LinkProvider),
+}
+
+impl Actor {
+    /// The user a row this actor creates names in `created_by`: the person, or the machine
+    /// that stands for Elysia, every coding agent, or the watcher.
+    pub const fn user_id(self) -> Uuid {
+        match self {
+            Self::User(id) => id,
+            Self::Elysia => ELYSIA_USER_ID,
+            Self::Session(_) => CODING_AGENT_USER_ID,
+            Self::Watcher(_) => SYSTEM_USER_ID,
+        }
+    }
 }
 
 impl fmt::Display for Actor {
@@ -55,12 +76,23 @@ impl fmt::Display for Actor {
     )]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::User => formatter.write_str("user"),
+            Self::User(id) => write!(formatter, "user:{id}"),
             Self::Elysia => formatter.write_str("elysia"),
             Self::Session(number) => write!(formatter, "session:{number}"),
             Self::Watcher(provider) => write!(formatter, "watcher:{}", provider.as_str()),
         }
     }
+}
+
+/// How a recorded actor reads to a person or an agent: a person's name for `user:<id>`, and
+/// the recorded form for everyone else (`elysia`, `session:<n>`, `watcher:<provider>`, and
+/// the `user` of rows written before accounts).
+pub fn actor_label(actor: &str, names: &HashMap<Uuid, String>) -> String {
+    actor
+        .strip_prefix("user:")
+        .and_then(|id| Uuid::parse_str(id).ok())
+        .and_then(|id| names.get(&id))
+        .map_or_else(|| actor.to_owned(), Clone::clone)
 }
 
 /// A change of an item's state that the user asks for by name.
@@ -207,8 +239,28 @@ mod tests {
     }
 
     #[test]
+    fn people_read_as_their_names_and_everyone_else_as_recorded() {
+        let person = Uuid::now_v7();
+        let names = HashMap::from([(person, "Sam Rivera".to_owned())]);
+        assert_eq!(actor_label(&format!("user:{person}"), &names), "Sam Rivera");
+        let stranger = format!("user:{}", Uuid::now_v7());
+        assert_eq!(
+            actor_label(&stranger, &names),
+            stranger,
+            "an unknown person keeps the recorded form"
+        );
+        assert_eq!(actor_label("session:4", &names), "session:4");
+        assert_eq!(actor_label("user", &names), "user");
+    }
+
+    #[test]
     fn actors_are_recorded_in_the_form_the_database_checks() {
-        assert_eq!(Actor::User.to_string(), "user");
+        let person = Uuid::parse_str("0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6071").expect("a UUID");
+        assert_eq!(
+            Actor::User(person).to_string(),
+            "user:0199a3c4-5d6e-7f80-9a1b-2c3d4e5f6071"
+        );
+        assert_eq!(Actor::User(person).user_id(), person);
         assert_eq!(Actor::Elysia.to_string(), "elysia");
         assert_eq!(Actor::Session(12).to_string(), "session:12");
         assert_eq!(

@@ -19,6 +19,20 @@ export function getApiErrorMessage(error: unknown): string | null {
   return null
 }
 
+// Some refusals also carry a stable `code`, which the frontend translates rather than
+// showing the English `message`.
+export function getApiErrorCode(error: unknown): string | null {
+  if (!(error instanceof HTTPError)) {
+    return null
+  }
+
+  const data = error.data
+  if (typeof data === 'object' && data !== null && 'code' in data && typeof data.code === 'string') {
+    return data.code
+  }
+  return null
+}
+
 // The API answers 502 when an upstream (a satellite, a mail server, the OAuth broker)
 // refuses or cannot be reached, with the upstream's own message. That message names what
 // went wrong (an unreachable host, a rejected secret, a revoked grant), so it is worth

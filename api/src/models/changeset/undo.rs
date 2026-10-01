@@ -38,7 +38,7 @@ use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use super::{
-    ChangesetOutcome, ChangesetState, Staged, Touched, Written, conclude, lock, operations_of,
+    ChangesetOutcome, ChangesetState, Staged, Touched, Written, lock, mark_undone, operations_of,
 };
 use crate::action_items::changesets::{self, Operation};
 use crate::action_items::{Actor, WorkError};
@@ -109,8 +109,8 @@ impl Reversed {
     }
 }
 
-/// Reverses every applied operation of an applied changeset, last first, and marks it
-/// `undone`. See the module docs for what each operation reverses to and what cannot be.
+/// Reverses every applied operation of an applied changeset, last first, as `actor`, and
+/// marks it `undone`. See the module docs for what each operation reverses to and what cannot be.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown changeset,
@@ -119,6 +119,7 @@ impl Reversed {
 pub async fn undo(
     connection: &mut AsyncPgConnection,
     id: Uuid,
+    actor: Actor,
     now: DateTime<Utc>,
 ) -> Result<Written, WorkError> {
     connection
@@ -146,7 +147,7 @@ pub async fn undo(
                 let attempt = connection
                     .transaction(async move |connection| {
                         let mut reversed =
-                            reverse(connection, &operation, &result, restored, now).await?;
+                            reverse(connection, &operation, &result, restored, actor, now).await?;
                         let history = std::mem::take(&mut reversed.touched.history);
                         reversed.touched.history =
                             action_item_event::attribute(connection, history, id).await?;
@@ -180,7 +181,7 @@ pub async fn undo(
                     .await?;
             }
 
-            let changeset = conclude(connection, id, ChangesetState::Undone, now).await?;
+            let changeset = mark_undone(connection, id, now).await?;
             let operations = operations_of(connection, &[id])
                 .await?
                 .remove(&id)
@@ -205,32 +206,33 @@ fn result_id(result: &Value, key: &str) -> Uuid {
         .expect("an applied operation's result names what it acted on")
 }
 
-/// Reverses one applied operation as the user.
+/// Reverses one applied operation as `actor`, the person undoing the changeset.
 async fn reverse(
     connection: &mut AsyncPgConnection,
     operation: &Operation,
     result: &Value,
     stands_for: &StandsFor,
+    actor: Actor,
     now: DateTime<Utc>,
 ) -> Result<Reversed, Failure> {
     match operation {
-        Operation::CreateItem(_) => delete_item(connection, result, now).await,
-        Operation::UpdateItem(_) => restore_fields(connection, result, now).await,
+        Operation::CreateItem(_) => delete_item(connection, result, actor, now).await,
+        Operation::UpdateItem(_) => restore_fields(connection, result, actor, now).await,
         Operation::ResolveItem(_) => {
-            return_item(connection, result, ActionItemState::Resolved, now).await
+            return_item(connection, result, ActionItemState::Resolved, actor, now).await
         }
         Operation::DismissItem(_) => {
-            return_item(connection, result, ActionItemState::Dismissed, now).await
+            return_item(connection, result, ActionItemState::Dismissed, actor, now).await
         }
-        Operation::Comment(_) => withdraw_comment(connection, result, now).await,
-        Operation::Link(_) => remove_link(connection, result, now).await,
+        Operation::Comment(_) => withdraw_comment(connection, result, actor, now).await,
+        Operation::Link(_) => remove_link(connection, result, actor, now).await,
         Operation::AddToInitiative(_) => {
-            reverse_membership(connection, result, false, stands_for, now).await
+            reverse_membership(connection, result, false, stands_for, actor, now).await
         }
         Operation::RemoveFromInitiative(_) => {
-            reverse_membership(connection, result, true, stands_for, now).await
+            reverse_membership(connection, result, true, stands_for, actor, now).await
         }
-        Operation::CreateInitiative(_) => delete_initiative(connection, result, now).await,
+        Operation::CreateInitiative(_) => delete_initiative(connection, result, actor, now).await,
     }
 }
 
@@ -239,13 +241,14 @@ async fn reverse(
 async fn delete_item(
     connection: &mut AsyncPgConnection,
     result: &Value,
+    actor: Actor,
     now: DateTime<Utc>,
 ) -> Result<Reversed, Failure> {
     let id = result_id(result, "itemId");
     let item = action_item::find(connection, id).await?;
     let mut reversed = Reversed::done();
     if item.deleted_at.is_none() {
-        let deleted = action_item::soft_delete(connection, id, Actor::User, now).await?;
+        let deleted = action_item::soft_delete(connection, id, actor, now).await?;
         reversed.touched.history.extend(deleted.history);
         reversed.touched.item_ids.insert(id);
     }
@@ -257,6 +260,7 @@ async fn delete_item(
 async fn restore_fields(
     connection: &mut AsyncPgConnection,
     result: &Value,
+    actor: Actor,
     now: DateTime<Utc>,
 ) -> Result<Reversed, Failure> {
     let id = result_id(result, "itemId");
@@ -291,7 +295,7 @@ async fn restore_fields(
         due_at: restored(&restorable.restore, "dueAt"),
         ..ActionItemChanges::default()
     };
-    let updated = action_item::update(connection, id, changes, Actor::User, now).await?;
+    let updated = action_item::update(connection, id, changes, actor, now).await?;
     reversed.touched.history.extend(updated.history);
     reversed.touched.item_ids.insert(id);
     Ok(reversed)
@@ -315,6 +319,7 @@ async fn return_item(
     connection: &mut AsyncPgConnection,
     result: &Value,
     reached: ActionItemState,
+    actor: Actor,
     now: DateTime<Utc>,
 ) -> Result<Reversed, Failure> {
     let id = result_id(result, "itemId");
@@ -343,7 +348,7 @@ async fn return_item(
         }
     }
 
-    let returned = action_item::return_to(connection, id, from, Actor::User, now).await?;
+    let returned = action_item::return_to(connection, id, from, actor, now).await?;
     reversed.undone = true;
     reversed.touched.history.extend(returned.history);
     reversed.touched.item_ids.insert(id);
@@ -379,6 +384,7 @@ async fn closed_issues(
 async fn withdraw_comment(
     connection: &mut AsyncPgConnection,
     result: &Value,
+    actor: Actor,
     now: DateTime<Utc>,
 ) -> Result<Reversed, Failure> {
     let id = result_id(result, "itemId");
@@ -408,7 +414,7 @@ async fn withdraw_comment(
     // A comment deleted since is already gone.
     if exists {
         let withdrawn =
-            action_item_comment::withdraw(connection, id, comment_id, Actor::User, now).await?;
+            action_item_comment::withdraw(connection, id, comment_id, actor, now).await?;
         reversed.touched.history.extend(withdrawn.history);
         reversed.touched.withdrawn_comments.push(withdrawn.record);
         reversed.touched.link_item_ids.insert(id);
@@ -421,6 +427,7 @@ async fn withdraw_comment(
 async fn remove_link(
     connection: &mut AsyncPgConnection,
     result: &Value,
+    actor: Actor,
     now: DateTime<Utc>,
 ) -> Result<Reversed, Failure> {
     let mut reversed = Reversed::done();
@@ -435,7 +442,7 @@ async fn remove_link(
     else {
         return Ok(reversed);
     };
-    let removed = action_item_link::remove(connection, id, link_id, Actor::User, now).await?;
+    let removed = action_item_link::remove(connection, id, link_id, actor, now).await?;
     reversed.touched.history.extend(removed.item.history);
     reversed.touched.item_ids.insert(id);
     reversed.touched.link_item_ids.insert(id);
@@ -464,6 +471,7 @@ async fn reverse_membership(
     result: &Value,
     joins: bool,
     stands_for: &StandsFor,
+    actor: Actor,
     now: DateTime<Utc>,
 ) -> Result<Reversed, Failure> {
     let mut reversed = Reversed::done();
@@ -490,9 +498,9 @@ async fn reverse_membership(
         });
     }
     let written = if joins {
-        action_item::join_initiative(connection, id, initiative_id, Actor::User, now).await?
+        action_item::join_initiative(connection, id, initiative_id, actor, now).await?
     } else {
-        action_item::leave_initiative(connection, id, initiative_id, Actor::User, now).await?
+        action_item::leave_initiative(connection, id, initiative_id, actor, now).await?
     };
     // The latest span now restores what the changeset replaced, so an earlier operation on
     // the same pair reads it as that.
@@ -511,13 +519,14 @@ async fn reverse_membership(
 async fn delete_initiative(
     connection: &mut AsyncPgConnection,
     result: &Value,
+    actor: Actor,
     now: DateTime<Utc>,
 ) -> Result<Reversed, Failure> {
     let id = result_id(result, "initiativeId");
     let found = initiative::find(connection, id).await?;
     let mut reversed = Reversed::done();
     if found.deleted_at.is_none() {
-        let deleted = initiative::soft_delete(connection, id, Actor::User, now).await?;
+        let deleted = initiative::soft_delete(connection, id, actor, now).await?;
         reversed.touched.history.extend(deleted.history);
         reversed.touched.initiative_ids.insert(id);
     }

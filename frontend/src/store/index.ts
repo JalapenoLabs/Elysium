@@ -8,6 +8,7 @@ import { actionItemCommentsSlice } from './actionItemCommentsSlice'
 import { actionItemHistorySlice } from './actionItemHistorySlice'
 import { actionItemLinksSlice } from './actionItemLinksSlice'
 import { actionItemsSlice } from './actionItemsSlice'
+import { authSlice } from './authSlice'
 import { changesetsSlice } from './changesetsSlice'
 import { codingSessionsSlice } from './codingSessionsSlice'
 import { environmentVariablesSlice } from './environmentVariablesSlice'
@@ -26,6 +27,8 @@ import { sessionEventsSlice } from './sessionEventsSlice'
 import { sessionsViewSlice } from './sessionsViewSlice'
 import { storageLocationsSlice } from './storageLocationsSlice'
 import { themeSlice } from './themeSlice'
+import { usersSlice } from './usersSlice'
+import { workspaceSettingsSlice } from './workspaceSettingsSlice'
 
 // The one store for all global state, and the source of truth components render. Server
 // data enters it two ways: SWR loaders that fetch it once (`src/hooks/useServerData.ts`),
@@ -42,6 +45,7 @@ export function createAppStore() {
       [actionItemHistorySlice.name]: actionItemHistorySlice.reducer,
       [actionItemLinksSlice.name]: actionItemLinksSlice.reducer,
       [actionItemsSlice.name]: actionItemsSlice.reducer,
+      [authSlice.name]: authSlice.reducer,
       [changesetsSlice.name]: changesetsSlice.reducer,
       [codingSessionsSlice.name]: codingSessionsSlice.reducer,
       [environmentVariablesSlice.name]: environmentVariablesSlice.reducer,
@@ -60,6 +64,8 @@ export function createAppStore() {
       [sessionsViewSlice.name]: sessionsViewSlice.reducer,
       [storageLocationsSlice.name]: storageLocationsSlice.reducer,
       [themeSlice.name]: themeSlice.reducer,
+      [usersSlice.name]: usersSlice.reducer,
+      [workspaceSettingsSlice.name]: workspaceSettingsSlice.reducer,
     },
     middleware: (getDefaultMiddleware) => getDefaultMiddleware()
       .prepend(listenerMiddleware.middleware),

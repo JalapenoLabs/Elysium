@@ -61,6 +61,8 @@ export type StorageLocation = {
   // The projects that save files here.
   projects: ProjectScope
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
   updatedAt: string
 }
 

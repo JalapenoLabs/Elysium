@@ -81,6 +81,8 @@ pub struct CodingSessionResponse {
     /// The action item the session was started from, if any.
     action_item_id: Option<Uuid>,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
     /// The thread as of the fleet's latest poll; `None` until the first poll sees it.
     thread: Option<ThreadStatus>,
@@ -97,6 +99,7 @@ impl CodingSessionResponse {
             github_credential_id: session.github_credential_id,
             action_item_id: session.action_item_id,
             created_at: session.created_at,
+            created_by: session.created_by,
             updated_at: session.updated_at,
             thread,
         }

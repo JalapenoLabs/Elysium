@@ -11,7 +11,7 @@ use crate::action_items::Transition;
 use crate::models::action_item::{ActionItemChanges, ActionItemPriority, NewActionItem, Owner};
 use crate::models::initiative::NewInitiative;
 use crate::models::project::NewProject;
-use crate::test_support::migrated_database;
+use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, migrated_database};
 
 #[test]
 fn every_schema_property_is_an_argument_the_tool_reads() {
@@ -104,6 +104,7 @@ struct Fixture {
 
 async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
     let new_project = NewProject {
+        created_by: TEST_PERSON_ID,
         name: name.to_owned(),
         description: format!("{name}'s description"),
     };
@@ -144,7 +145,7 @@ async fn item_in(
     };
     // Items created a moment apart list newest first in a stable order.
     tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-    action_item::create(connection, new_item, Actor::User, Utc::now())
+    action_item::create(connection, new_item, TEST_PERSON, Utc::now())
         .await
         .expect("item")
         .record
@@ -161,7 +162,7 @@ async fn initiative_in(
         target_at: None,
         project_ids,
     };
-    initiative::create(connection, new_initiative, Actor::User, Utc::now())
+    initiative::create(connection, new_initiative, TEST_PERSON, Utc::now())
         .await
         .expect("initiative")
         .record
@@ -214,7 +215,7 @@ async fn items_list_only_the_projects_own_and_filter_as_asked() {
         &mut connection,
         resolved.id,
         Transition::Resolve,
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -223,7 +224,7 @@ async fn items_list_only_the_projects_own_and_filter_as_asked() {
         waiting_on: Some(Some("sam@example.com".to_owned())),
         ..ActionItemChanges::default()
     };
-    action_item::update(&mut connection, docs.id, waiting, Actor::User, Utc::now())
+    action_item::update(&mut connection, docs.id, waiting, TEST_PERSON, Utc::now())
         .await
         .expect("wait");
 
@@ -341,7 +342,7 @@ async fn an_item_shows_in_full_only_while_it_is_live_and_in_the_project() {
         &mut connection,
         login.id,
         "Seen on Safari.".to_owned(),
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -354,7 +355,8 @@ async fn an_item_shows_in_full_only_while_it_is_live_and_in_the_project() {
     assert_eq!(item["title"], "Fix the login bug");
     assert_eq!(item["notes"], "Notes about Fix the login bug.");
     assert_eq!(item["comments"][0]["body"], "Seen on Safari.");
-    assert_eq!(item["comments"][0]["author"], "user");
+    assert_eq!(item["comments"][0]["author"], TEST_PERSON.to_string());
+    assert_eq!(item["comments"][0]["authorName"], "Tester");
     let project_names: Vec<&str> = item["projects"]
         .as_array()
         .expect("projects")
@@ -383,7 +385,7 @@ async fn an_item_shows_in_full_only_while_it_is_live_and_in_the_project() {
         &mut connection,
         login.id,
         scope.project_id,
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -394,7 +396,7 @@ async fn an_item_shows_in_full_only_while_it_is_live_and_in_the_project() {
     assert_eq!(refusal(moved), ToolError::ItemUnavailable(login.id));
 
     let deleted = item_in(&mut connection, "Gone", vec![scope.project_id], vec![]).await;
-    action_item::soft_delete(&mut connection, deleted.id, Actor::User, Utc::now())
+    action_item::soft_delete(&mut connection, deleted.id, TEST_PERSON, Utc::now())
         .await
         .expect("delete");
     let refused = item_detail(&mut connection, scope, deleted.id, Utc::now())
@@ -427,7 +429,7 @@ async fn initiatives_list_and_show_only_the_projects_own() {
         &mut connection,
         finished.id,
         achieved,
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -452,7 +454,7 @@ async fn initiatives_list_and_show_only_the_projects_own() {
         &mut connection,
         ours.id,
         Transition::Resolve,
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -499,7 +501,7 @@ async fn initiatives_list_and_show_only_the_projects_own() {
         ToolError::InitiativeUnavailable(elsewhere.id)
     );
 
-    initiative::soft_delete(&mut connection, launch.id, Actor::User, Utc::now())
+    initiative::soft_delete(&mut connection, launch.id, TEST_PERSON, Utc::now())
         .await
         .expect("delete");
     let refused = initiative_detail(&mut connection, scope, launch.id, Utc::now())
@@ -614,7 +616,7 @@ async fn comments_are_written_as_the_session_on_the_projects_items_only() {
         login.id,
         written.record.id,
         "Rewritten".to_owned(),
-        Actor::User,
+        TEST_PERSON,
         Utc::now() + TimeDelta::seconds(1),
     )
     .await;
@@ -632,7 +634,7 @@ async fn an_items_history_keeps_its_latest_entries_and_counts_them_all() {
             &mut connection,
             item.id,
             format!("Update {index}"),
-            Actor::User,
+            TEST_PERSON,
             Utc::now(),
         )
         .await
@@ -707,6 +709,7 @@ async fn session_with(
         connection,
         &cipher(),
         &NewSatellite {
+            created_by: TEST_PERSON_ID,
             name: format!("Satellite {}", Uuid::now_v7()),
             description: String::new(),
             url: "http://arsox:8080".to_owned(),
@@ -722,6 +725,7 @@ async fn session_with(
     let session = coding_session::create(
         connection,
         &NewCodingSession {
+            created_by: TEST_PERSON_ID,
             id,
             project_id: scope.project_id,
             satellite_id: satellite.id,
@@ -760,6 +764,7 @@ async fn a_pull_request_links_only_to_the_sessions_own_item_through_its_token() 
         &mut connection,
         &cipher(),
         &NewGithubCredential {
+            created_by: TEST_PERSON_ID,
             name: "Personal".to_owned(),
             verified: github_credential::VerifiedToken {
                 kind: GithubTokenKind::Classic,
@@ -804,7 +809,7 @@ async fn a_pull_request_links_only_to_the_sessions_own_item_through_its_token() 
         .expect("a target");
     assert_eq!(target, (item.id, token));
 
-    action_item::soft_delete(&mut connection, item.id, Actor::User, Utc::now())
+    action_item::soft_delete(&mut connection, item.id, TEST_PERSON, Utc::now())
         .await
         .expect("deleted");
     let refused = pull_request_target(&mut connection, linked)

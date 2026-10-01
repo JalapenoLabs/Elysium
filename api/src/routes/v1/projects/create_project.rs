@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use validator::Validate;
 
 use super::{ProjectResponse, validate_not_blank};
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::project::{self, NewProject};
 use crate::realtime::ServerEvent;
@@ -29,6 +30,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -37,6 +39,7 @@ pub async fn handle(
     let new_project = NewProject {
         name: body.name,
         description: body.description,
+        created_by: current.id(),
     };
 
     let mut connection = state

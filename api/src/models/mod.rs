@@ -23,3 +23,4 @@ pub mod mail_server;
 pub mod project;
 pub mod satellite;
 pub mod storage_location;
+pub mod user;

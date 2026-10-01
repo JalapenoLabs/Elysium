@@ -3,6 +3,11 @@
 // Urls
 export const UrlTree = {
   root: '/',
+  login: '/login',
+  signup: '/signup',
+  recovery: '/recovery',
+  pending: '/pending',
+  authError: '/auth/error',
   actionItems: '/action-items',
   actionItemsInbox: '/action-items/inbox',
   actionItemsAll: '/action-items/all',
@@ -20,6 +25,8 @@ export const UrlTree = {
   codingSession: '/coding/:sessionId',
   settings: '/settings',
   settingsPersonalDetails: '/settings/personal-details',
+  settingsSecurity: '/settings/security',
+  settingsUsers: '/settings/users',
   settingsLlms: '/settings/llms',
   settingsLlmsAddCodexOauth: '/settings/llms/add-codex-oauth',
   settingsLlmsAddClaudeCodeOauth: '/settings/llms/add-claude-code-oauth',
@@ -54,6 +61,16 @@ export const DONE_TRANSITION_PROJECT_PARAM = 'project'
 
 // The query parameter that opens the Coding page's New session dialog started from an item.
 export const NEW_SESSION_ITEM_PARAM = 'item'
+
+// The query parameters the sign-in page reads: where to go afterwards, whether to ask for
+// the second factor or to confirm a recent sign-in, and a notice to show.
+export const LOGIN_RETURN_TO_PARAM = 'return_to'
+export const LOGIN_AAL_PARAM = 'aal'
+export const LOGIN_REFRESH_PARAM = 'refresh'
+export const LOGIN_NOTICE_PARAM = 'notice'
+
+// Kratos names the flow a page continues in this parameter when it sends the browser to one.
+export const KRATOS_FLOW_PARAM = 'flow'
 
 // Settings
 // The first page in the sidebar; the app has no home page.
@@ -130,4 +147,35 @@ export function getCodingSessionUrl(sessionId: number) {
 // The Coding page opens New session started from this item, then returns to its own address.
 export function getNewCodingSessionUrl(actionItemId: string) {
   return `${UrlTree.coding}?${NEW_SESSION_ITEM_PARAM}=${encodeURIComponent(actionItemId)}`
+}
+
+type LoginOptions = {
+  // A path on this origin to open after signing in.
+  returnTo?: string
+  // Ask for the authenticator code or a lookup code, after the password or passkey.
+  secondFactor?: boolean
+  // Confirm a recent sign-in, which changing a password, passkey, or authenticator needs.
+  refresh?: boolean
+  notice?: 'disabled'
+}
+
+export function getLoginUrl(options: LoginOptions = {}) {
+  const params = new URLSearchParams()
+  if (options.returnTo) {
+    params.set(LOGIN_RETURN_TO_PARAM, options.returnTo)
+  }
+  if (options.secondFactor) {
+    params.set(LOGIN_AAL_PARAM, 'aal2')
+  }
+  if (options.refresh) {
+    params.set(LOGIN_REFRESH_PARAM, 'true')
+  }
+  if (options.notice) {
+    params.set(LOGIN_NOTICE_PARAM, options.notice)
+  }
+  const query = params.toString()
+  if (!query) {
+    return UrlTree.login
+  }
+  return `${UrlTree.login}?${query}`
 }

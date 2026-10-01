@@ -3,6 +3,9 @@
 // nginx routes everything under this path to the Rust API on the same origin.
 export const API_BASE_PATH = '/api'
 
+// nginx routes this path to Ory Kratos's public API, on the same origin.
+export const KRATOS_BASE_PATH = `${API_BASE_PATH}/identity`
+
 // Generous enough for cold starts, short enough that a hung request fails visibly.
 export const API_REQUEST_TIMEOUT_MS = 10_000
 
@@ -69,3 +72,13 @@ export const LINK_SEARCH_DELAY_MS = 350
 // How many issues one link picker search lists. A person picks from the first screen; a
 // narrower search finds the rest.
 export const LINK_SEARCH_RESULTS = 25
+
+// How often the waiting page asks whether an admin approved the sign-up. The one view that
+// polls: a pending person may not open the event stream.
+export const PENDING_APPROVAL_POLL_MS = 5_000
+
+// Passwords must be at least this long; Kratos refuses shorter ones too (kratos/kratos.yml).
+export const PASSWORD_MIN_LENGTH = 12
+
+// The zxcvbn score, out of 4, a new password must reach before the form submits.
+export const PASSWORD_MIN_SCORE = 3
