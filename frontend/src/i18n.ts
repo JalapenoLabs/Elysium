@@ -17,6 +17,7 @@ import initiatives from './locales/en-US/initiatives.json'
 import jira from './locales/en-US/jira.json'
 import llms from './locales/en-US/llms.json'
 import navigation from './locales/en-US/navigation.json'
+import oauth from './locales/en-US/oauth.json'
 import projects from './locales/en-US/projects.json'
 import satellites from './locales/en-US/satellites.json'
 import settings from './locales/en-US/settings.json'
@@ -42,6 +43,7 @@ export const resources = {
     jira,
     llms,
     navigation,
+    oauth,
     projects,
     satellites,
     settings,

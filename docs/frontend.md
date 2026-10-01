@@ -114,6 +114,20 @@ offers them in autofill. See `docs/auth.md`.
 - **Kratos's messages.** These show in English as Kratos sends them. Only Elysium's own sign-up refusals (`4190001`
   and `4190002`) are translated, as are the API's coded refusals.
 
+## Connecting MCP clients
+
+- **OAuth pages.** Hydra sends someone connecting an MCP client to `/oauth/login` and `/oauth/consent`. Both sit inside
+  the auth gate, in the account pages' layout, so a person who isn't signed in signs in first and comes back.
+  - `/oauth/login` answers the challenge at once and follows the redirect.
+  - `/oauth/consent` shows the client and the scopes it asks for, then Allow or Deny.
+- **Connected apps** (`/settings/connected-apps`):
+  - The MCP server's URL, with the `claude mcp add` and `codex mcp add` commands.
+  - The person's connected clients, with Disconnect.
+  - For admins, every registered client, with Delete.
+  - This data is loaded with SWR and revalidated after a change; no event stream carries it.
+
+See `docs/mcp.md`.
+
 ## Pages and components
 
 ### Confirm and prompt gates

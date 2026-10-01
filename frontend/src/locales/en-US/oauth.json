@@ -1,0 +1,62 @@
+{
+  "login": {
+    "connecting": "Connecting your app…"
+  },
+  "consent": {
+    "heading": "{{client}} wants to connect to Elysium",
+    "unnamedClient": "An application",
+    "from": "From {{host}}",
+    "actsAs": "It will act as you, {{name}}, and can:",
+    "disconnectAnytime": "You can disconnect it anytime in Settings, Connected apps.",
+    "approve": "Allow",
+    "deny": "Deny",
+    "redirecting": "Returning you to the app…"
+  },
+  "failures": {
+    "expired": "This request expired or was already answered. Start connecting again from your app.",
+    "someoneElse": "This request to connect an app belongs to someone else. Sign in as the right person, then start again from your app.",
+    "unexpected": "Something went wrong. Start connecting again from your app.",
+    "heading": "Couldn't connect the app"
+  },
+  "scopes": {
+    "read": "Read everything in the workspace",
+    "write": "Change things in the workspace",
+    "offline": "Stay connected without asking again"
+  },
+  "connectedApps": {
+    "title": "Connected apps",
+    "unnamed": "Unnamed app",
+    "connect": {
+      "title": "Connect an MCP client",
+      "description": "Claude Code, Codex, and other MCP clients can work with Elysium as you. Give them this server's address:",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "Couldn't copy. Select it and copy it yourself.",
+      "claudeCode": "Claude Code",
+      "codex": "Codex",
+      "browserNote": "The client opens your browser to sign in here and approve the connection."
+    },
+    "grants": {
+      "title": "Your connected apps",
+      "description": "Apps you allowed to act as you. Disconnecting one stops it at once.",
+      "empty": "You haven't connected any apps yet.",
+      "connectedOn": "Connected {{date}}",
+      "disconnect": "Disconnect",
+      "confirmTitle": "Disconnect {{name}}?",
+      "confirmMessage": "It stops working at once, and has to ask you again to reconnect.",
+      "disconnected": "{{name}} disconnected",
+      "loadError": "Couldn't load your connected apps."
+    },
+    "clients": {
+      "title": "All registered clients",
+      "description": "Clients register themselves. Deleting one disconnects it for everyone who connected it; it can register again.",
+      "empty": "No clients have registered yet.",
+      "registeredOn": "Registered {{date}}",
+      "delete": "Delete",
+      "confirmTitle": "Delete {{name}}?",
+      "confirmMessage": "Everyone who connected it is disconnected at once.",
+      "deleted": "{{name}} deleted",
+      "loadError": "Couldn't load the registered clients."
+    }
+  }
+}

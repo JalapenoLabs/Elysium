@@ -8,6 +8,9 @@ export const UrlTree = {
   recovery: '/recovery',
   pending: '/pending',
   authError: '/auth/error',
+  // Where Hydra sends someone connecting an MCP client, with a challenge to answer.
+  oauthLogin: '/oauth/login',
+  oauthConsent: '/oauth/consent',
   actionItems: '/action-items',
   actionItemsInbox: '/action-items/inbox',
   actionItemsAll: '/action-items/all',
@@ -27,6 +30,7 @@ export const UrlTree = {
   settingsPersonalDetails: '/settings/personal-details',
   settingsSecurity: '/settings/security',
   settingsUsers: '/settings/users',
+  settingsConnectedApps: '/settings/connected-apps',
   settingsLlms: '/settings/llms',
   settingsLlmsAddCodexOauth: '/settings/llms/add-codex-oauth',
   settingsLlmsAddClaudeCodeOauth: '/settings/llms/add-claude-code-oauth',
