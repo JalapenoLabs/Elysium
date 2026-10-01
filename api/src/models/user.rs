@@ -112,13 +112,46 @@ impl User {
     }
 }
 
-/// A person as Kratos reports them.
+/// The longest name `users_name_length` allows, in characters.
+const NAME_MAX_CHARACTERS: usize = 100;
+
+/// A person as Kratos reports them, normalized to what `users` stores.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Profile {
     pub kratos_identity_id: Uuid,
-    /// Lowercased.
+    /// Trimmed and lowercased.
     pub email: String,
+    /// Trimmed, never empty.
     pub name: String,
+}
+
+impl Profile {
+    /// Normalizes what Kratos reports for an identity.
+    ///
+    /// Kratos's schema refuses a blank name, but identities can be written through its admin
+    /// API, and one stored before that rule existed would otherwise fail `users_name_length` on
+    /// every request. A blank name falls back to the email's local part, so every identity can
+    /// always be given an account.
+    pub fn new(kratos_identity_id: Uuid, email: &str, name: &str) -> Self {
+        let email = email.trim().to_lowercase();
+        let trimmed: String = name.trim().chars().take(NAME_MAX_CHARACTERS).collect();
+        let name = if trimmed.is_empty() {
+            let local = email.split('@').next().unwrap_or_default();
+            let fallback = if local.is_empty() {
+                email.as_str()
+            } else {
+                local
+            };
+            fallback.chars().take(NAME_MAX_CHARACTERS).collect()
+        } else {
+            trimmed
+        };
+        Self {
+            kratos_identity_id,
+            email,
+            name,
+        }
+    }
 }
 
 /// What happened to an account, as `user_events.kind` records it.
@@ -478,7 +511,7 @@ pub async fn change_role(
 ) -> Result<User, AccountError> {
     connection
         .transaction(async move |connection| {
-            let user = lock(connection, id).await?;
+            let (user, admins) = lock_for_admin_change(connection, id).await?;
             let Some(before) = user.role.filter(|_| user.kratos_identity_id.is_some()) else {
                 return Err(AccountError::Invalid(
                     "only an approved person's role can change",
@@ -488,9 +521,7 @@ pub async fn change_role(
             if before == after {
                 return Ok(user);
             }
-            if user.is_admin() {
-                ensure_another_active_admin(connection, id).await?;
-            }
+            ensure_another_active_admin(&user, &admins)?;
 
             let changed = diesel::update(users::table.find(id))
                 .set(users::role.eq(Some(after)))
@@ -524,7 +555,7 @@ pub async fn set_disabled(
 ) -> Result<User, AccountError> {
     connection
         .transaction(async move |connection| {
-            let user = lock(connection, id).await?;
+            let (user, admins) = lock_for_admin_change(connection, id).await?;
             let status = match (user.status, disabled) {
                 (Some(UserStatus::Active | UserStatus::Disabled), true) => UserStatus::Disabled,
                 (Some(UserStatus::Active | UserStatus::Disabled), false) => UserStatus::Active,
@@ -537,9 +568,7 @@ pub async fn set_disabled(
             if user.status == Some(status) {
                 return Ok(user);
             }
-            if user.is_admin() {
-                ensure_another_active_admin(connection, id).await?;
-            }
+            ensure_another_active_admin(&user, &admins)?;
 
             let changed = diesel::update(users::table.find(id))
                 .set(users::status.eq(Some(status)))
@@ -648,20 +677,30 @@ async fn lock(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<User>
         .await
 }
 
-/// Refuses a change that would leave no active admin but `id`. Locks every active admin's
-/// row, so two admins demoting each other at once cannot both succeed.
-async fn ensure_another_active_admin(
+/// Locks every active admin's row in id order, then the row of `id`, for a change that might
+/// remove an admin. Every such change takes the locks in this one order, so two admins
+/// demoting each other at once queue rather than deadlock, and the second is refused with
+/// [`AccountError::LastAdmin`].
+async fn lock_for_admin_change(
     connection: &mut AsyncPgConnection,
     id: Uuid,
-) -> Result<(), AccountError> {
+) -> QueryResult<(User, Vec<Uuid>)> {
     let admins: Vec<Uuid> = users::table
         .filter(users::role.eq(Some(UserRole::Admin)))
         .filter(users::status.eq(Some(UserStatus::Active)))
+        .order(users::id.asc())
         .select(users::id)
         .for_update()
         .load(connection)
         .await?;
-    if admins.iter().any(|admin| *admin != id) {
+    let user = lock(connection, id).await?;
+    Ok((user, admins))
+}
+
+/// Refuses a change that would leave no active admin but `user`, given the active admins
+/// [`lock_for_admin_change`] locked.
+fn ensure_another_active_admin(user: &User, admins: &[Uuid]) -> Result<(), AccountError> {
+    if !user.is_admin() || admins.iter().any(|admin| *admin != user.id) {
         return Ok(());
     }
     Err(AccountError::LastAdmin)
@@ -688,6 +727,35 @@ async fn record_event(
 }
 
 #[cfg(test)]
+mod profile_tests {
+    use super::*;
+
+    #[test]
+    fn profiles_are_trimmed_and_lowercased() {
+        let profile = Profile::new(Uuid::nil(), "  Ada@Example.COM ", "  Ada Lovelace  ");
+        assert_eq!(profile.email, "ada@example.com");
+        assert_eq!(profile.name, "Ada Lovelace");
+    }
+
+    /// A whitespace-only name once provisioned into `users_name_length` and answered 500 to
+    /// every request its owner made.
+    #[test]
+    fn a_blank_name_falls_back_to_the_email() {
+        let profile = Profile::new(Uuid::nil(), "grace@example.com", "   ");
+        assert_eq!(profile.name, "grace");
+
+        let no_local_part = Profile::new(Uuid::nil(), "@example.com", "\t");
+        assert_eq!(no_local_part.name, "@example.com");
+    }
+
+    #[test]
+    fn long_names_are_cut_to_what_the_table_holds() {
+        let profile = Profile::new(Uuid::nil(), "a@example.com", &"é".repeat(250));
+        assert_eq!(profile.name.chars().count(), NAME_MAX_CHARACTERS);
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use secrecy::{ExposeSecret, SecretString};
 
@@ -708,11 +776,7 @@ mod tests {
     }
 
     fn profile(name: &str) -> Profile {
-        Profile {
-            kratos_identity_id: Uuid::now_v7(),
-            email: format!("{}@example.com", name.to_lowercase()),
-            name: name.to_owned(),
-        }
+        Profile::new(Uuid::now_v7(), &format!("{name}@example.com"), name)
     }
 
     async fn event_kinds(connection: &mut AsyncPgConnection, id: Uuid) -> Vec<String> {
@@ -882,6 +946,51 @@ mod tests {
             event_kinds(&mut connection, ada.id).await,
             ["signed_up", "role_changed", "disabled", "enabled"]
         );
+    }
+
+    /// Two admins demoting each other at once once deadlocked, and Postgres answered one with
+    /// a 500 instead of the last-admin refusal.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn two_admins_demoting_each_other_at_once_leave_one_admin() {
+        let (url, mut connection) = workspace_without_people().await;
+        let ada = provision(&mut connection, &profile("Ada"))
+            .await
+            .expect("ada");
+        let grace = provision(&mut connection, &profile("Grace"))
+            .await
+            .expect("grace");
+        approve(&mut connection, grace.id, PersonRole::Admin, ada.id)
+            .await
+            .expect("a second admin");
+        let mut other = AsyncPgConnection::establish(url.expose_secret())
+            .await
+            .expect("connects");
+
+        for _ in 0..8 {
+            let (left, right) = tokio::join!(
+                change_role(&mut connection, ada.id, PersonRole::Member, grace.id),
+                change_role(&mut other, grace.id, PersonRole::Member, ada.id),
+            );
+            let outcomes = [left.is_ok(), right.is_ok()];
+            assert!(
+                matches!(left, Ok(_) | Err(AccountError::LastAdmin))
+                    && matches!(right, Ok(_) | Err(AccountError::LastAdmin)),
+                "only the last-admin refusal is expected: {outcomes:?}"
+            );
+            assert_eq!(
+                outcomes.iter().filter(|done| **done).count(),
+                1,
+                "exactly one demotion lands"
+            );
+
+            // Make both admins again for the next round.
+            let demoted = if outcomes[0] { ada.id } else { grace.id };
+            let keeper = if outcomes[0] { grace.id } else { ada.id };
+            change_role(&mut connection, demoted, PersonRole::Admin, keeper)
+                .await
+                .expect("promoted back");
+        }
     }
 
     #[tokio::test]

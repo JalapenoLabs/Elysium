@@ -58,7 +58,8 @@ Kratos holds passwords (Argon2id), passkeys, authenticator apps, and sessions; t
 - **Cookie.** The session cookie is `HttpOnly`, `SameSite=Lax`, and host-only, and it is `Secure` over https.
 - **Origin.** Unsafe API requests must carry Elysium's own `Origin`.
 - **Brute force.** nginx throttles sign-in, sign-up, and recovery submissions to 5 a minute per client address.
-  There is no per-account lockout, which would let anyone lock a known person out.
+  There is no per-account lockout, which would let anyone lock a known person out. Behind a proxy, the address is
+  right only when `TRUSTED_PROXY_ADDRESSES` names that proxy (`docs/auth.md`).
 - **Kratos's internal routes.** Kratos calls the API's `/internal` routes. nginx never forwards `/internal`, and the
   routes also check a key derived from the encryption key.
 
@@ -72,7 +73,9 @@ The event stream counts as one request per connection. Exceeding the limit answe
 `Retry-After`, and `x-ratelimit-*` headers. Buckets for idle clients are swept every minute so the key map stays
 bounded.
 
-The client is the first parseable `X-Forwarded-For` address, then `X-Real-IP`, then the peer address.
+The client is the first parseable `X-Forwarded-For` address, then `X-Real-IP`, then the peer address. nginx sets
+`X-Forwarded-For` to the one client address it resolved, replacing whatever the client sent, so a client cannot pick
+its own bucket. Behind a proxy, that address is the client's only when `TRUSTED_PROXY_ADDRESSES` names the proxy.
 
 **Buckets are timed with `std::time::Instant`**, which pauses while the host is suspended. governor's default
 clock reads the CPU's time stamp counter, which does not survive a suspend: after one, every stored bucket sat

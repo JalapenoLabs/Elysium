@@ -159,7 +159,7 @@ jobs:
           echo "${script_pid}" > "${RUNNER_TEMP}/verify-migrations.pid"
           wait "${script_pid}"
 
-      - name: Remove the disposable Postgres
+      - name: Remove the disposable Postgres and Redis
         if: always()
         run: |
           pid_file="${RUNNER_TEMP}/verify-migrations.pid"
@@ -167,7 +167,8 @@ jobs:
             echo "The migrations never started, so there is no container to remove."
             exit 0
           fi
-          docker rm --force "elysium-verify-migrations-$(cat "${pid_file}")" > /dev/null 2>&1 || true
+          pid="$(cat "${pid_file}")"
+          docker rm --force "elysium-verify-migrations-${pid}" "elysium-verify-redis-${pid}" > /dev/null 2>&1 || true
 
   image:
     name: API image

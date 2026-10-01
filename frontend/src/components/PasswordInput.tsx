@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Description, FieldError, InputGroup, Label, TextField } from '@heroui/react'
+import { Button, Description, FieldError, InputGroup, Label, TextField, Tooltip } from '@heroui/react'
 import { LuCheck, LuEye, LuEyeOff, LuX } from 'react-icons/lu'
 
 // Misc
@@ -50,6 +50,10 @@ export function PasswordInput(props: Props) {
   const score = props.assessment.strength?.score ?? null
   const hasValue = props.value.length > 0
 
+  const revealLabel = isVisible
+    ? t('password.hide')
+    : t('password.show')
+
   return <div>
     <TextField
       isRequired
@@ -67,19 +71,26 @@ export function PasswordInput(props: Props) {
       <InputGroup>
         <InputGroup.Input />
         <InputGroup.Suffix>
-          <Button
-            isIconOnly
-            size='sm'
-            variant='ghost'
-            aria-label={isVisible
-              ? t('password.hide')
-              : t('password.show')}
-            onPress={() => setIsVisible((visible) => !visible)}
-          >
-            {isVisible
-              ? <LuEyeOff className='size-4' aria-hidden />
-              : <LuEye className='size-4' aria-hidden />}
-          </Button>
+          <Tooltip delay={200}>
+            <Tooltip.Trigger>
+              <div>
+                <Button
+                  isIconOnly
+                  size='sm'
+                  variant='ghost'
+                  aria-label={revealLabel}
+                  onPress={() => setIsVisible((visible) => !visible)}
+                >
+                  {isVisible
+                    ? <LuEyeOff className='size-4' aria-hidden />
+                    : <LuEye className='size-4' aria-hidden />}
+                </Button>
+              </div>
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              <span>{revealLabel}</span>
+            </Tooltip.Content>
+          </Tooltip>
         </InputGroup.Suffix>
       </InputGroup>
       <FieldError>{props.errorMessage}</FieldError>

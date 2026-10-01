@@ -25,8 +25,6 @@
   background:
     radial-gradient(120% 80% at 50% 120%, color-mix(in srgb, var(--splash-violet) 35%, transparent), transparent 60%),
     linear-gradient(160deg, var(--splash-base) 0%, #0b1220 55%, var(--splash-base) 100%);
-  /* The whole palette walks around the color wheel and back. */
-  animation: auth-splash-hue 24s ease-in-out infinite alternate;
 }
 
 /* Each layer follows the pointer by its own depth (`--depth`, set per layer): the near shards
@@ -63,7 +61,19 @@
     rotateY(calc(var(--pointer-x) * -7deg));
 }
 
-/* Three soft lights, each drifting on its own path. */
+/* Three soft lights, each drifting on its own path. Each fades into a second color and back
+   (`::after`), so the palette shifts over time. Only opacity animates, which the compositor
+   handles; filtering the whole screen instead repainted it every frame while the page idled. */
+.auth-splash-light::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle, var(--light-tint), transparent 65%);
+  opacity: 0;
+  animation: auth-splash-tint 16s ease-in-out infinite alternate;
+}
+
 .auth-splash-light {
   position: absolute;
   width: 60vmax;
@@ -78,6 +88,7 @@
   top: -25vmax;
   left: -15vmax;
   background: radial-gradient(circle, var(--splash-blue), transparent 65%);
+  --light-tint: var(--splash-violet);
   animation: auth-splash-drift-a 18s ease-in-out infinite alternate;
 }
 
@@ -85,6 +96,7 @@
   right: -20vmax;
   bottom: -25vmax;
   background: radial-gradient(circle, var(--splash-magenta), transparent 65%);
+  --light-tint: var(--splash-amber);
   animation: auth-splash-drift-b 22s ease-in-out infinite alternate;
 }
 
@@ -94,6 +106,7 @@
   width: 40vmax;
   height: 40vmax;
   background: radial-gradient(circle, var(--splash-cyan), transparent 65%);
+  --light-tint: var(--splash-magenta);
   opacity: 0.35;
   animation: auth-splash-drift-c 26s ease-in-out infinite alternate;
 }
@@ -220,9 +233,10 @@
   box-shadow: 0 0 24px color-mix(in srgb, var(--splash-violet) 60%, transparent);
 }
 
-@keyframes auth-splash-hue {
-  from { filter: hue-rotate(0deg); }
-  to { filter: hue-rotate(70deg); }
+
+@keyframes auth-splash-tint {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes auth-splash-drift-a {

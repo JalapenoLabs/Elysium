@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Alert, Button, Modal, Spinner, toast } from '@heroui/react'
+import { Alert, Button, Modal, Spinner, Tooltip, toast } from '@heroui/react'
 import { LuCopy } from 'react-icons/lu'
 
 // Misc
@@ -82,15 +82,24 @@ export function RecoveryLinkModal(props: Props) {
               <code className='min-w-0 flex-1 break-all rounded-md bg-surface-secondary px-3 py-2 text-xs'>{
                 link.link
               }</code>
-              <Button
-                isIconOnly
-                size='sm'
-                variant='outline'
-                aria-label={t('recoveryLink.copy')}
-                onPress={() => copy(link.link)}
-              >
-                <LuCopy className='size-4' aria-hidden />
-              </Button>
+              <Tooltip delay={200}>
+                <Tooltip.Trigger>
+                  <div>
+                    <Button
+                      isIconOnly
+                      size='sm'
+                      variant='outline'
+                      aria-label={t('recoveryLink.copy')}
+                      onPress={() => copy(link.link)}
+                    >
+                      <LuCopy className='size-4' aria-hidden />
+                    </Button>
+                  </div>
+                </Tooltip.Trigger>
+                <Tooltip.Content>
+                  <span>{t('recoveryLink.copy')}</span>
+                </Tooltip.Content>
+              </Tooltip>
             </div>
             <Alert status='warning'>
               <Alert.Indicator />

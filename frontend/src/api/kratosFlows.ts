@@ -146,9 +146,20 @@ export function collectMessages(flow: KratosUi) {
 
 // A path on this origin, for a `return_to` taken from the address. Anything else, such as
 // another site, is dropped, so a crafted link can never send someone away after signing in.
+//
+// The value is resolved the way the browser will resolve it, and kept only if it lands on this
+// origin. Checking the text instead misses forms the URL parser normalizes, such as `/\host`,
+// which a browser reads as `//host`.
 export function toLocalPath(value: string | null | undefined): string | null {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) {
+  if (!value?.startsWith('/')) {
+    console.debug('toLocalPath dropped a return_to that is not a path', { value })
     return null
   }
-  return value
+
+  const resolved = new URL(value, window.location.origin)
+  if (resolved.origin !== window.location.origin) {
+    console.debug('toLocalPath dropped a return_to that leaves this origin', { value })
+    return null
+  }
+  return `${resolved.pathname}${resolved.search}${resolved.hash}`
 }

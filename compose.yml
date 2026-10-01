@@ -39,6 +39,10 @@ services:
     container_name: elysium-nginx
     image: nginx:1.30.4-alpine
     restart: unless-stopped
+    environment:
+      # The proxy in front of nginx, such as a TLS terminator, whose X-Forwarded-For names the
+      # client. Loopback by default, which trusts nobody. See nginx/real-ip.conf.template.
+      TRUSTED_PROXY_ADDRESSES: ${TRUSTED_PROXY_ADDRESSES:-127.0.0.1/32}
     ports:
       # Loopback by default. Everyone signed in shares the workspace, which can write
       # credentials and reach the host through Docker, so WEB_BIND_ADDRESS widens it only for
@@ -52,6 +56,8 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # Filled in by the image's entrypoint from TRUSTED_PROXY_ADDRESSES; see the file.
+      - ./nginx/real-ip.conf.template:/etc/nginx/templates/real-ip.conf.template:ro
       - ./nginx/mail.conf:/etc/nginx/stream.d/mail.conf:ro
     networks:
       default:

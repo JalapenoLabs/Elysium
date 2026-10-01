@@ -9,6 +9,9 @@ import { PASSWORD_MIN_LENGTH, PASSWORD_MIN_SCORE } from '../constants'
 export const PASSWORD_RULES = [ 'length', 'uppercase', 'special' ] as const
 export type PasswordRule = typeof PASSWORD_RULES[number]
 
+// Any script's uppercase letter counts.
+const UPPERCASE_LETTER = /\p{Lu}/u
+
 // Anything that is not a letter, a digit, or whitespace counts as special.
 const SPECIAL_CHARACTER = /[^\p{L}\p{N}\s]/u
 
@@ -17,7 +20,7 @@ export function checkPasswordRules(password: string): Record<PasswordRule, boole
   // Counted by code point, as Kratos counts, so an emoji is one character, not two.
   return {
     length: [ ...password ].length >= PASSWORD_MIN_LENGTH,
-    uppercase: password !== password.toLowerCase(),
+    uppercase: UPPERCASE_LETTER.test(password),
     special: SPECIAL_CHARACTER.test(password),
   }
 }

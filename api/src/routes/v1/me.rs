@@ -29,7 +29,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let settings = user::workspace_settings(&mut connection).await?;
-    let has_second_factor = principal.assurance == AssuranceLevel::Aal2;
+    let has_second_factor = principal.assurance >= AssuranceLevel::Aal2;
 
     Ok(Json(json!({
         "user": UserResponse::from(principal.user),

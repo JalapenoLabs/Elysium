@@ -49,8 +49,9 @@ pub struct Session {
     pub identity: Identity,
 }
 
-/// How many factors a session was signed in with.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// How many factors a session was signed in with. Declared weakest first, so comparisons read
+/// as assurance: `level < AssuranceLevel::Aal2`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AssuranceLevel {
     Aal0,

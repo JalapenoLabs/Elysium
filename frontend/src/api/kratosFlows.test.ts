@@ -94,4 +94,17 @@ describe('toLocalPath', () => {
     expect(toLocalPath('')).toBeNull()
     expect(toLocalPath(null)).toBeNull()
   })
+
+  // A backslash reads as a slash in an http URL, so `/\host` leaves the origin although its
+  // text starts with a single slash. This was an open redirect after signing in.
+  it('drops paths the browser would resolve to another host', () => {
+    expect(toLocalPath('/\\evil.example')).toBeNull()
+    expect(toLocalPath('/\\/evil.example/path')).toBeNull()
+    expect(toLocalPath('/\t/evil.example')).toBeNull()
+    expect(toLocalPath('javascript:alert(1)')).toBeNull()
+  })
+
+  it('normalizes what it keeps to the path the browser would open', () => {
+    expect(toLocalPath('/settings/../projects#top')).toBe('/projects#top')
+  })
 })

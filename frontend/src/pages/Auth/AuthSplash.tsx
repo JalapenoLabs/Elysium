@@ -48,17 +48,17 @@ const shards: Shard[] = [
 // Gentle sine-like curves across the full width, offset in height and phase.
 const waves = [
   {
-    path: 'M-**OMITTED**0,560 C200,480 400,640 700,560 S1200,480 1700,580',
+    path: 'M-120,560 C200,480 400,640 700,560 S1200,480 1720,580',
     color: 'var(--splash-cyan)',
     opacity: 0.55,
   },
   {
-    path: 'M-**OMITTED**0,6**OMITTED** C250,540 450,700 800,6**OMITTED** S1**OMITTED**0,520 1700,640',
+    path: 'M-120,620 C250,540 450,700 800,620 S1250,520 1720,640',
     color: 'var(--splash-violet)',
     opacity: 0.45,
   },
   {
-    path: 'M-**OMITTED**0,660 C**OMITTED**0,600 520,740 900,660 S1350,580 1700,700',
+    path: 'M-120,660 C320,600 520,740 900,660 S1350,580 1720,700',
     color: 'var(--splash-magenta)',
     opacity: 0.35,
   },
@@ -172,7 +172,7 @@ export function AuthSplash() {
           y2='1'
         >
           <stop offset='0%' style={{ stopColor: from }} />
-          <stop offset='**OMITTED**0%' style={{ stopColor: to, stopOpacity: 0.15 }} />
+          <stop offset='100%' style={{ stopColor: to, stopOpacity: 0.15 }} />
         </linearGradient>)}
       </defs>
 

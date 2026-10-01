@@ -44,14 +44,15 @@ Guarantees:
 
 1. `diesel migration run --locked-schema` fails if `schema.rs` differs from what the migrations produce.
 2. `diesel migration redo --all --locked-schema` proves every `down.sql` undoes its `up.sql`.
-3. `cargo test -- --include-ignored` runs the database-backed tests.
+3. `cargo test -- --include-ignored` runs the store-backed tests, against that Postgres and a disposable Redis.
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
 redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
 query, every `elysium_work` tool against its project scope, each link provider against a faked provider, the
-watcher's passes, and changesets proposed, decided, applied in part, and undone. Plain `cargo test` skips them because
-they need `TEST_DATABASE_URL`.
+watcher's passes, changesets proposed, decided, applied in part, and undone, accounts and their guardrails, and the
+router itself refusing every workspace route without a session. Plain `cargo test` skips them because they need
+`TEST_DATABASE_URL`, and the router test `TEST_REDIS_URL`.
 
 ## Conventions
 

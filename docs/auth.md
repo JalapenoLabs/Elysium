@@ -67,13 +67,17 @@ The API refuses in two cases:
 A refusal appears on the form under the email field, as Kratos message `4190001` (sign-up closed) or `4190002`
 (password required).
 
-The account itself is created on the person's first request to the API (`api/src/auth/middleware.rs`), not by the
-webhook, so a lost webhook can never leave an identity without an account.
+Once Kratos has stored the identity, a second webhook (`POST /internal/kratos/registered`, post-persist) creates the
+person's account, so accounts are created in the order people finished signing up.
 
 - **The first person** becomes an active admin.
 - **Everyone after** is pending, with no role, until an admin approves them.
-- **Concurrent first sign-ups.** An advisory lock serializes the first sign-up, so two people signing up at once
+- **Concurrent first sign-ups.** An advisory lock serializes account creation, so two people signing up at once
   never both become admin.
+- **A lost webhook.** The API also creates any missing account on the person's first request
+  (`api/src/auth/middleware.rs`), so an identity is never left without one.
+- **Names.** Kratos refuses a blank name. One that reaches the API blank anyway, such as an identity written through
+  Kratos's admin API, takes the email's local part.
 
 Email addresses are stored lowercased. There is no email verification, since there is no mail yet: an admin approving
 the sign-up is the check.
@@ -170,8 +174,11 @@ Admins manage people under Settings, Users (`/api/v1/users`).
 - Require an authenticator app of everyone.
 
 **Guardrails and audit:**
-- The workspace always keeps at least one active admin. Demoting or disabling the last one answers `409` with code `last_admin`, checked
-  under row locks so two admins cannot demote each other at once. Anything else about oneself is allowed.
+- The workspace always keeps at least one active admin. Demoting or disabling the last one answers `409` with code
+  `last_admin`. Every such change locks the active admins in one order, so two admins demoting each other at once
+  queue, and the second is refused. Anything else about oneself is allowed.
+- Changing whether someone may sign in, and rejecting a sign-up, tell Kratos inside the same database transaction. If
+  Kratos refuses, the change rolls back, so Elysium and Kratos never disagree about an account.
 - Every account change is recorded in `user_events` with its actor, including profile changes a person made in
   Kratos and workspace settings changes. A rejected sign-up's events outlive it, with their user cleared.
 
@@ -200,6 +207,12 @@ When Elysium sends mail, the courier's delivery switches to SMTP and the log lin
 
 Self-hosted Kratos has no brute-force protection. nginx throttles POSTs to Kratos's sign-in, sign-up, and recovery
 endpoints to 5 a minute per client address, after a burst of 5, answering `429`. Loading a form is not throttled.
+
+The client address is the one nginx sees connecting, unless a proxy in front of it is trusted. A deployment behind a
+TLS terminator or load balancer must set `TRUSTED_PROXY_ADDRESSES` to that proxy's address or CIDR
+(`nginx/real-ip.conf.template`), so nginx takes the client's address from its `X-Forwarded-For`. Without it, every
+client arrives as the proxy, and the limit is shared by the whole workspace: a few mistyped passwords lock everyone out
+of signing in for a minute. The default trusts nobody, which is right when nginx faces clients directly.
 
 There is no per-account lockout. It would let anyone lock out a known person by guessing at their address, and Kratos
 cannot count failed sign-ins per account without Elysium wrapping its API. The per-address limit, together with a

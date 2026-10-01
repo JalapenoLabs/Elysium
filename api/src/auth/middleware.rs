@@ -147,11 +147,8 @@ async fn principal(
         Err(error) => return Err(ApiError::BadGateway(error.to_string())),
     };
 
-    let profile = Profile {
-        kratos_identity_id: session.identity.id,
-        email: session.identity.traits.email.trim().to_lowercase(),
-        name: session.identity.traits.name.trim().to_owned(),
-    };
+    let traits = &session.identity.traits;
+    let profile = Profile::new(session.identity.id, &traits.email, &traits.name);
     let mut connection = state
         .database
         .get()
@@ -189,7 +186,7 @@ async fn check_access(state: &AppState, principal: &Principal) -> Result<(), Api
     // Kratos already demands the second factor from anyone who has one
     // (`required_aal: highest_available`), so a one-factor session here means the person has
     // no authenticator app at all.
-    if principal.assurance != AssuranceLevel::Aal2 {
+    if principal.assurance < AssuranceLevel::Aal2 {
         let mut connection = state
             .database
             .get()

@@ -4,7 +4,8 @@
 #
 #   1. src/database/schema.rs is exactly what the migrations produce (--locked-schema)
 #   2. every migration's down.sql undoes its up.sql cleanly (redo --all)
-#   3. the database-backed tests pass, including the API's own migration runner
+#   3. the store-backed tests pass, including the API's own migration runner and the router
+#      driven end to end, which also needs a disposable Redis
 #
 # Requires docker and diesel_cli 2.3.13:
 #   cargo install diesel_cli --version 2.3.13 --no-default-features --features postgres --locked
@@ -12,15 +13,18 @@
 set -euo pipefail
 
 readonly POSTGRES_IMAGE="postgres:18.6-alpine3.23"
+# The Redis compose.yml runs.
+readonly REDIS_IMAGE="redis:8.10.1-alpine"
 readonly ROLE="migration_auditor"
 readonly PASSWORD="disposable-verification-only"
 readonly DATABASE="elysium_verify"
 
 api_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 container="elysium-verify-migrations-$$"
+redis_container="elysium-verify-redis-$$"
 
 cleanup() {
-  docker stop "$container" >/dev/null 2>&1 || true
+  docker stop "$container" "$redis_container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -39,6 +43,16 @@ until docker exec "$container" pg_isready --quiet --host 127.0.0.1 --username "$
 done
 
 port="$(docker port "$container" 5432/tcp | head -n 1 | cut -d: -f2)"
+
+echo "==> starting $REDIS_IMAGE"
+docker run --detach --rm --name "$redis_container" \
+  --publish 127.0.0.1::6379 \
+  "$REDIS_IMAGE" >/dev/null
+until docker exec "$redis_container" redis-cli ping 2>/dev/null | grep -q PONG; do
+  sleep 1
+done
+redis_port="$(docker port "$redis_container" 6379/tcp | head -n 1 | cut -d: -f2)"
+export TEST_REDIS_URL="redis://127.0.0.1:$redis_port/0"
 export DATABASE_URL="postgres://$ROLE:$PASSWORD@127.0.0.1:$port/$DATABASE"
 export TEST_DATABASE_URL="$DATABASE_URL"
 
@@ -52,7 +66,7 @@ diesel migration run --locked-schema
 echo "==> rolling back and re-applying every migration"
 diesel migration redo --all --locked-schema
 
-echo "==> running database-backed tests"
+echo "==> running store-backed tests"
 cargo test --locked -- --include-ignored
 
 echo "==> migrations verified"

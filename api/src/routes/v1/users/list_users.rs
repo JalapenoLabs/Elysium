@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use anyhow::Context;
 use axum::Json;
 use axum::extract::State;
-use futures_util::future;
+use futures_util::{StreamExt as _, stream};
 use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::Uuid;
@@ -18,6 +18,10 @@ use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::user;
 use crate::state::AppState;
+
+/// How many identities are asked of Kratos at once. Each is a single-row read; this keeps a
+/// large workspace from opening a connection per person.
+const KRATOS_LOOKUPS_AT_ONCE: usize = 8;
 
 pub async fn handle(
     State(state): State<AppState>,
@@ -36,15 +40,18 @@ pub async fn handle(
         return Ok(Json(json!({ "users": users })));
     }
 
-    // Asked one identity at a time, all at once: only a single identity's answer names its
-    // credential kinds without their secrets. The list still loads when Kratos cannot
+    // Asked per identity: only a single identity's answer names its credential kinds
+    // without their secrets. The list still loads when Kratos cannot
     // answer; it just says nothing about sign-in.
-    let lookups = users
+    let identities: Vec<Uuid> = users
         .iter()
         .filter_map(|user| user.kratos_identity_id)
-        .map(|identity| state.auth.kratos.identity(identity));
+        .collect();
+    let mut answers = stream::iter(identities)
+        .map(|identity| state.auth.kratos.identity(identity))
+        .buffer_unordered(KRATOS_LOOKUPS_AT_ONCE);
     let mut methods: HashMap<Uuid, Vec<String>> = HashMap::new();
-    for answer in future::join_all(lookups).await {
+    while let Some(answer) = answers.next().await {
         match answer {
             Ok(identity) => {
                 methods.insert(identity.id, identity.methods());

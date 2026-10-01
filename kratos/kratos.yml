@@ -104,6 +104,21 @@ selfservice:
                     name: X-Elysium-Hook-Key
                     value: @HOOK_KEY@
                     in: header
+            # Once the identity is stored, Elysium creates the account, so the first person to
+            # finish signing up is the admin whoever reaches the API first. Without `parse`,
+            # Kratos runs this after storing the identity.
+            - hook: web_hook
+              config:
+                id: elysium-provision
+                url: http://api:8080/internal/kratos/registered
+                method: POST
+                body: file:///etc/elysium-kratos/registered.jsonnet
+                auth:
+                  type: api_key
+                  config:
+                    name: X-Elysium-Hook-Key
+                    value: @HOOK_KEY@
+                    in: header
             - hook: session
         # Every account starts with a password; passkeys are added afterwards. The same
         # hook refuses a passkey sign-up, so no passkey-only account can exist.

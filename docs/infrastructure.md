@@ -1,9 +1,9 @@
 # Infrastructure
 
-`compose.yml` runs the whole stack. Non-secret configuration, such as `CORS_ALLOWED_ORIGINS`, is written inline.
-`.env` supplies the bootstrap credentials: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `REDIS_PASSWORD`,
-and `ELYSIUM_ENCRYPTION_KEY`. It may also supply `RUST_LOG`, and `ELYSIUM_PUBLIC_URL`, the origin browsers reach Elysium at, which
-defaults to `http://localhost:${WEB_PORT}` (see `docs/auth.md`). Compose refuses to start when a required value is
+`compose.yml` runs the whole stack. Non-secret configuration, such as `CORS_ALLOWED_ORIGINS`, is written inline. `.env`
+supplies the bootstrap credentials: `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `REDIS_PASSWORD`, and
+`ELYSIUM_ENCRYPTION_KEY`. It may also supply `RUST_LOG`, and `ELYSIUM_PUBLIC_URL`, the origin browsers reach Elysium at,
+which defaults to `http://localhost:${WEB_PORT}` (see `docs/auth.md`). Compose refuses to start when a required value is
 missing, and `.env.example` is the template.
 
 `WEB_PORT` may be set to move nginx off the default port 4000. `WEB_BIND_ADDRESS` publishes it on an address other
@@ -45,8 +45,8 @@ stack.
 nginx proxies `/api/identity/` to Kratos's public API (`kratos:4433`, prefix stripped), the rest of `/api/` to
 `api:8080` unchanged, and everything else to `frontend:5173`, including the HMR websocket upgrade. POSTs to Kratos's
 sign-in, sign-up, and recovery endpoints are throttled per client address (`docs/auth.md`). Nothing outside `/api/`
-reaches the API, which keeps its `/internal` routes for Kratos alone. `/api/v1/events` has its own location with buffering off and a one-hour read timeout, so server-sent
-events arrive immediately and idle streams stay open.
+reaches the API, which keeps its `/internal` routes for Kratos alone. `/api/v1/events` has its own location with
+buffering off and a one-hour read timeout, so server-sent events arrive immediately and idle streams stay open.
 
 The frontend's HMR client is told nginx's published port through `VITE_HMR_CLIENT_PORT`.
 
@@ -59,9 +59,9 @@ in-process (see `docs/realtime.md`).
 
 ## Startup order
 
-`migrate` waits for `postgres` health. `api` and `kratos-migrate` wait for `migrate` to exit successfully; `api`
-also waits for `redis` health, and `kratos` for `kratos-migrate`. `nginx` waits for `api` and `kratos` health. The API also retries its own connections, so a store restart mid-run does not
-require restarting the API.
+`migrate` waits for `postgres` health. `api` and `kratos-migrate` wait for `migrate` to exit successfully; `api` also
+waits for `redis` health, and `kratos` for `kratos-migrate`. `nginx` waits for `api` and `kratos` health. The API also
+retries its own connections, so a store restart mid-run does not require restarting the API.
 
 `migrate` and `api` share the `elysium-api` image, which has the migrations compiled in.
 

@@ -38,7 +38,7 @@ use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use super::{
-    ChangesetOutcome, ChangesetState, Staged, Touched, Written, conclude, lock, operations_of,
+    ChangesetOutcome, ChangesetState, Staged, Touched, Written, lock, mark_undone, operations_of,
 };
 use crate::action_items::changesets::{self, Operation};
 use crate::action_items::{Actor, WorkError};
@@ -181,8 +181,7 @@ pub async fn undo(
                     .await?;
             }
 
-            let changeset =
-                conclude(connection, id, ChangesetState::Undone, actor.user_id(), now).await?;
+            let changeset = mark_undone(connection, id, now).await?;
             let operations = operations_of(connection, &[id])
                 .await?
                 .remove(&id)

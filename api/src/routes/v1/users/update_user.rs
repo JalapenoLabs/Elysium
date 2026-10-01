@@ -4,14 +4,18 @@
 //! them. The workspace always keeps one active admin.
 //!
 //! Disabling stops the Kratos identity from signing in and signs it out everywhere; the
-//! person's own requests are refused at once, since every request reads their row.
+//! person's own requests are refused at once, since every request reads their row. The row and
+//! Kratos change together: Kratos is told inside the transaction, which rolls back if it
+//! refuses.
 
 use anyhow::Context;
 use axum::Json;
 use axum::extract::rejection::{JsonRejection, PathRejection};
 use axum::extract::{Path, State};
+use diesel_async::AsyncConnection;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::{UserResponse, identity_of};
@@ -45,29 +49,48 @@ pub async fn handle(
         ));
     }
 
+    let kratos = &state.auth.kratos;
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
-    let mut changed = user::find(&mut connection, id).await?;
-    if let Some(role) = body.role {
-        changed = user::change_role(&mut connection, id, role, admin.id()).await?;
-    }
-    if let Some(disabled) = body.disabled {
-        changed = user::set_disabled(&mut connection, id, disabled, admin.id()).await?;
-        drop(connection);
+    // One transaction for the whole change, and Kratos last inside it: if Kratos refuses, the
+    // role and status changes roll back with it, so Elysium never shows an account as enabled
+    // while Kratos still refuses its sign-in.
+    let changed = connection
+        .transaction(async |connection| {
+            let mut changed = user::find(connection, id).await?;
+            if let Some(role) = body.role {
+                changed = user::change_role(connection, id, role, admin.id()).await?;
+            }
+            if let Some(disabled) = body.disabled {
+                changed = user::set_disabled(connection, id, disabled, admin.id()).await?;
+                let kratos_state = if disabled {
+                    IdentityState::Inactive
+                } else {
+                    IdentityState::Active
+                };
+                kratos
+                    .set_state(identity_of(&changed)?, kratos_state)
+                    .await?;
+            }
+            Ok::<_, ApiError>(changed)
+        })
+        .await?;
+    drop(connection);
 
-        let identity = identity_of(&changed)?;
-        let kratos_state = if disabled {
-            IdentityState::Inactive
-        } else {
-            IdentityState::Active
-        };
-        state.auth.kratos.set_state(identity, kratos_state).await?;
-        if disabled {
-            state.auth.kratos.revoke_sessions(identity).await?;
-        }
+    // An inactive identity's sessions already fail, and the disabled row refuses every request,
+    // so this is thoroughness rather than the lock: a failure is logged, not answered.
+    if body.disabled == Some(true)
+        && let Err(error) = kratos.revoke_sessions(identity_of(&changed)?).await
+    {
+        event!(
+            name: "auth.sessions.revoke_failure",
+            Level::WARN,
+            error.message = %error,
+            "disabled a person but could not sign their sessions out",
+        );
     }
 
     state

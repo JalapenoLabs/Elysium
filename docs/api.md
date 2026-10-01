@@ -547,7 +547,7 @@ client-supplied or a generated UUID. The id is echoed on the response and attach
 keys, event envelopes, the Arsox view conversions, the action item rules (transitions, Next's order, progress, a
 session's first turn from an item, and what a provider's change does to a linked item), GitHub's client against a
 local fake, and the agent tools' schemas.
-`api/scripts/verify-migrations.sh` also runs the database-backed tests against a disposable Postgres.
+`api/scripts/verify-migrations.sh` also runs the store-backed tests against a disposable Postgres and Redis.
 
 ## Roadmap
 

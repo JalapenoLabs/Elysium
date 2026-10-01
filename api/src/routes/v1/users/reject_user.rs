@@ -8,6 +8,7 @@ use anyhow::Context;
 use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use diesel_async::AsyncConnection;
 use uuid::Uuid;
 
 use super::identity_of;
@@ -24,20 +25,20 @@ pub async fn handle(
 ) -> Result<StatusCode, ApiError> {
     let Path(id) = path?;
 
+    let kratos = &state.auth.kratos;
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
-    let rejected = user::reject(&mut connection, id, admin.id()).await?;
-    drop(connection);
-
-    // The row is gone either way; an identity Kratos failed to delete can sign in again and
-    // lands as a new pending sign-up, which an admin can reject again.
-    state
-        .auth
-        .kratos
-        .delete_identity(identity_of(&rejected)?)
+    // Kratos deletes the identity inside the transaction: if it refuses, the account stays,
+    // and the admin can reject it again.
+    connection
+        .transaction(async |connection| {
+            let rejected = user::reject(connection, id, admin.id()).await?;
+            kratos.delete_identity(identity_of(&rejected)?).await?;
+            Ok::<_, ApiError>(())
+        })
         .await?;
 
     state.events.publish(&ServerEvent::UserDeleted { id });

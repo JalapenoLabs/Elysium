@@ -5,6 +5,7 @@
 //! Kratos carries as well. See `docs/auth.md`.
 
 mod courier;
+mod registered;
 mod registration;
 
 use axum::Router;
@@ -24,6 +25,7 @@ use crate::state::AppState;
 pub fn router(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/kratos/registration", post(registration::handle))
+        .route("/kratos/registered", post(registered::handle))
         .route("/kratos/courier", post(courier::handle))
         .route_layer(from_fn_with_state(state.clone(), require_hook_key))
 }

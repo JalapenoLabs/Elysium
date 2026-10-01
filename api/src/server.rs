@@ -188,7 +188,7 @@ pub async fn serve() -> Result<()> {
 }
 
 /// Kratos, and what requests are checked against. See `crate::auth`.
-fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
+pub(crate) fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
     Auth {
         kratos: Kratos::new(
             http,
@@ -201,7 +201,7 @@ fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
 }
 
 /// The mail services. The broker and Stalwart share `http`.
-fn build_mail(
+pub(crate) fn build_mail(
     config: &Config,
     http: reqwest::Client,
     database: Pool,
