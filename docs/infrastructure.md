@@ -112,8 +112,8 @@ the build inside the API image.
 | `jalapenolabs/elysium-api`             | `api/Dockerfile`, stage `app`      | The API and the web app      |
 | `jalapenolabs/elysium-oauth-broker`    | `oauth-broker/Dockerfile`          | The OAuth broker, standalone |
 
-Every push to `main` publishes `main` and `sha-<commit>`. A tag `vX.Y.Z` publishes `X.Y.Z`, `X.Y`, and `latest`; a
-pre-release tag such as `vX.Y.Z-rc.1` publishes only its own version. Each image is labelled with the commit, the
+Every push to `main` publishes `main` and `sha-<commit>`. A tag `vX.Y.Z` publishes `X.Y.Z`, and moves `X.Y` and
+`latest` when it is the newest release; a pre-release tag such as `vX.Y.Z-rc.1` publishes only its own version. Each image is labelled with the commit, the
 version, and this repository. The workflow is described in `docs/ci.md`.
 
 Postgres, Redis, nginx, and the socket proxy are upstream images pinned in `compose.yml`.

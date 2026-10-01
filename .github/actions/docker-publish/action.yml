@@ -30,8 +30,9 @@ runs:
   using: composite
   steps:
     # main publishes `main` and `sha-<commit>`, so any build that landed can be pulled
-    # by commit. A release tag vX.Y.Z publishes X.Y.Z, X.Y, and latest. A pre-release
-    # (vX.Y.Z-rc.1) publishes only its own version and moves no floating tag.
+    # by commit. A release tag vX.Y.Z publishes X.Y.Z here; the push step adds X.Y and
+    # latest when it is still the newest release. A pre-release (vX.Y.Z-rc.1) publishes
+    # only its own version.
     - name: Choose the tags
       shell: bash
       run: |
@@ -48,9 +49,6 @@ runs:
               exit 1
             fi
             tags="${version}"
-            if [[ "${version}" != *-* ]]; then
-              tags="${tags} ${version%.*} latest"
-            fi
             ;;
           *)
             echo "::error::${GITHUB_REF} publishes nothing; only main and version tags do."
@@ -102,14 +100,39 @@ runs:
           --tag "${PUBLISH_BUILD_TAG}" \
           "${CONTEXT}"
 
-    # Each tag is pushed from the run's own build tag. Runs of one ref never overlap
-    # (the workflow's concurrency group queues them), and main and release tags publish
-    # disjoint tag sets, so no other run can retag the image between tag and push.
+    # Each tag is pushed from the run's own build tag, which no other run uses. Runs of
+    # one ref never overlap (the workflow's concurrency group queues them), and main and
+    # release runs push disjoint tag sets.
+    #
+    # Release runs of different versions do overlap, so X.Y and latest move only for the
+    # newest release, read from the repository's tags after the build rather than
+    # before it. A release tagged while an older one is still building therefore keeps
+    # latest, whichever run finishes last.
     - name: Push the tags
       shell: bash
       run: |
         set -euo pipefail
-        for tag in ${PUBLISH_TAGS}; do
+        tags="${PUBLISH_TAGS}"
+        if [[ "${GITHUB_REF}" == refs/tags/v* && "${PUBLISH_VERSION}" != *-* ]]; then
+          # The repository is public, so listing its tags needs no credentials.
+          releases="$(git ls-remote --tags --refs "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" 'v*' \
+            | sed 's|.*refs/tags/v||' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+          minor="${PUBLISH_VERSION%.*}"
+          newest="$(printf '%s\n%s\n' "${releases}" "${PUBLISH_VERSION}" | sort -V | tail -n 1)"
+          newest_in_minor="$(printf '%s\n%s\n' "${releases}" "${PUBLISH_VERSION}" \
+            | awk -v prefix="${minor}." 'index($0, prefix) == 1' \
+            | sort -V | tail -n 1)"
+          if [ "${PUBLISH_VERSION}" = "${newest_in_minor}" ]; then
+            tags="${tags} ${minor}"
+          fi
+          if [ "${PUBLISH_VERSION}" = "${newest}" ]; then
+            tags="${tags} latest"
+          fi
+        fi
+
+        echo "Pushing ${{ inputs.repository }} as: ${tags}"
+        for tag in ${tags}; do
           docker tag "${PUBLISH_BUILD_TAG}" "${{ inputs.repository }}:${tag}"
           docker push "${{ inputs.repository }}:${tag}"
           docker rmi "${{ inputs.repository }}:${tag}" > /dev/null

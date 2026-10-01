@@ -39,7 +39,7 @@ const WEB_APP_CONTENT_SECURITY_POLICY: HeaderValue = HeaderValue::from_static(co
 ));
 
 /// Headers applied to every response, overriding anything a handler set.
-const SECURITY_HEADERS: [(HeaderName, HeaderValue); 10] = [
+const SECURITY_HEADERS: [(HeaderName, HeaderValue); 11] = [
     (
         HeaderName::from_static("cross-origin-opener-policy"),
         HeaderValue::from_static("same-origin"),
@@ -51,6 +51,12 @@ const SECURITY_HEADERS: [(HeaderName, HeaderValue); 10] = [
     (
         HeaderName::from_static("origin-agent-cluster"),
         HeaderValue::from_static("?1"),
+    ),
+    // Not part of helmet's defaults. The web app uses none of these, so a script that
+    // somehow runs in it cannot ask for them either.
+    (
+        HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("camera=(), geolocation=(), microphone=()"),
     ),
     (
         header::REFERRER_POLICY,

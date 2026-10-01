@@ -71,7 +71,8 @@ client out.
 
 ## Response headers
 
-The API sets the helmet-equivalent set on every response, including `429`s and the web app's files:
+The API sets the helmet-equivalent set, plus `Permissions-Policy`, on every response, including `429`s and the web
+app's files:
 
 | Header                              | Value                                        |
 |-------------------------------------|----------------------------------------------|
@@ -79,6 +80,7 @@ The API sets the helmet-equivalent set on every response, including `429`s and t
 | `Cross-Origin-Opener-Policy`        | `same-origin`                                |
 | `Cross-Origin-Resource-Policy`      | `same-origin`                                |
 | `Origin-Agent-Cluster`              | `?1`                                         |
+| `Permissions-Policy`                | `camera=(), geolocation=(), microphone=()`   |
 | `Referrer-Policy`                   | `no-referrer`                                |
 | `Strict-Transport-Security`         | `max-age=63072000; includeSubDomains`        |
 | `X-Content-Type-Options`            | `nosniff`                                    |
@@ -101,9 +103,10 @@ Keeping the app inside that policy takes two things on the frontend: the pre-pai
 `public/theme.js`, not inline, and Zod runs `jitless`, so it never probes for `new Function`. See
 `docs/frontend.md`.
 
-In the development stack nginx sends the app's paths to the Vite dev server instead, which needs inline scripts and
-websockets, so it gets a lighter set from nginx (`nosniff`, `DENY`, `Referrer-Policy`, `Permissions-Policy`) and
-no CSP. nginx hides its version in both stacks.
+In the development stack nginx sends the app's paths to the Vite dev server instead. The dev server needs inline
+scripts and websockets, so those pages carry no CSP, only the headers nginx adds there (`nosniff`, `DENY`,
+`Referrer-Policy`, `Permissions-Policy`). That stack is for local work, never a deployment. nginx hides its version
+in both stacks.
 
 ## CORS
 

@@ -12,6 +12,10 @@
 //! with `index.html` and revalidated on each load so a deploy reaches browsers at once.
 //! A missing asset is a 404 rather than `index.html`, so a stale reference fails as a
 //! missing file instead of HTML parsed as JavaScript.
+//!
+//! Responses are compressed with Brotli or gzip, whichever the browser accepts, so a
+//! deployment is not slow to load whatever sits in front of it. `/api` is left alone:
+//! its responses are small JSON, and its event stream must never be buffered.
 
 use std::path::Path;
 
@@ -19,6 +23,7 @@ use anyhow::{Result, ensure};
 use axum::Router;
 use axum::http::{HeaderValue, Response, header};
 use tower::ServiceBuilder;
+use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 
@@ -71,7 +76,8 @@ where
 
     Ok(Router::new()
         .nest_service("/assets", assets)
-        .fallback_service(pages))
+        .fallback_service(pages)
+        .layer(CompressionLayer::new()))
 }
 
 #[cfg(test)]
@@ -156,6 +162,31 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(cache_control.as_deref(), Some(ASSET_CACHE_CONTROL));
         assert_eq!(body, SCRIPT);
+    }
+
+    #[tokio::test]
+    async fn assets_are_compressed_for_a_browser_that_accepts_it() {
+        let directory = build_directory();
+        // Long enough to clear the compressor's minimum size.
+        let script = SCRIPT.repeat(64);
+        std::fs::write(directory.path().join("assets/index-3f2a.js"), &script).expect("the script");
+        let app = router::<()>(directory.path()).expect("a valid build");
+
+        let request = Request::get("/assets/index-3f2a.js")
+            .header(header::ACCEPT_ENCODING, "gzip")
+            .body(Body::empty())
+            .expect("request");
+        let response = app.oneshot(request).await.expect("infallible");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_ENCODING),
+            Some(&HeaderValue::from_static("gzip")),
+        );
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("the body");
+        assert!(body.len() < script.len());
     }
 
     #[tokio::test]

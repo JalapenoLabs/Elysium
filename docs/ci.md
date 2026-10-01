@@ -157,7 +157,7 @@ and repeats none of them.
 | Ref               | Tags pushed                       |
 |-------------------|-----------------------------------|
 | `main`            | `main`, `sha-<12-character commit>` |
-| `vX.Y.Z`          | `X.Y.Z`, `X.Y`, `latest`          |
+| `vX.Y.Z`          | `X.Y.Z`; `X.Y` and `latest` when it is the newest release |
 | `vX.Y.Z-<suffix>` | `X.Y.Z-<suffix>` only             |
 
 Both jobs use the composite action `.github/actions/docker-publish`:
@@ -170,7 +170,10 @@ Both jobs use the composite action `.github/actions/docker-publish`:
 - `--pull` refreshes the base images, so a published image carries the latest fixes of its pinned base tags.
 - The image is built once under a tag unique to the run, then tagged and pushed for each published tag. Runs of one
   ref queue rather than cancel (a cancelled run could leave tags on different builds), and `main` and release tags
-  push disjoint tag sets, so no other run can retag between a tag and its push.
+  push disjoint tag sets.
+- Release runs of different versions overlap, so `X.Y` and `latest` move only when the version is the newest stable
+  release of its minor, or of all, judged from the repository's tags after the build rather than before it.
+  Releasing `1.2.4` while `1.2.3` is still building leaves `latest` on `1.2.4` whichever finishes last.
 
 A release is a tag: `git tag v1.2.3 && git push origin v1.2.3`.
 
