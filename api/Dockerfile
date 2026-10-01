@@ -11,9 +11,9 @@
 # alongside the API.
 FROM node:22.23.2-trixie-slim AS frontend
 # git: @jalapenolabs/cli and @jalapenolabs/uikit install from GitHub, and uikit
-# builds itself during install.
+# builds itself during install. brotli: the assets are precompressed below.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates \
+  && apt-get install -y --no-install-recommends git ca-certificates brotli \
   && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare yarn@4.17.0 --activate
 WORKDIR /workspace/frontend
@@ -24,6 +24,11 @@ COPY frontend/tsconfig.json frontend/tsconfig.app.json frontend/tsconfig.node.js
 COPY frontend/public ./public
 COPY frontend/src ./src
 RUN yarn build
+# Fingerprinted assets never change under a name, so they are compressed once here at the
+# highest settings, and the API sends these files rather than compressing per request.
+RUN find dist/assets -type f \( -name '*.js' -o -name '*.css' -o -name '*.svg' -o -name '*.json' \) \
+    -exec brotli --best --keep {} + \
+    -exec gzip --best --keep {} +
 
 FROM rust:1.98.1-slim-trixie AS chef
 RUN apt-get update \

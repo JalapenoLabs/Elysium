@@ -103,7 +103,8 @@ which makes Cargo fetch through the git CLI.
 - `server`, the API alone. The development stack builds this one, so a frontend edit never rebuilds the API.
 - `app`, the default and the published image: `server` plus the web app. A `frontend` stage runs `yarn build` on
   `node:22.23.2-trixie-slim`, the same Node as `frontend/.nvmrc`, alongside the Rust stages, and `app` copies its
-  `dist/` to a fixed directory named by `FRONTEND_DIR`. The API serves it at every path outside `/api`, and refuses
+  `dist/` to a fixed directory named by `FRONTEND_DIR`. The `frontend` stage also writes `.br` and `.gz` copies of
+  every asset at the highest settings, so the API sends compressed assets without compressing per request. The API serves it at every path outside `/api`, and refuses
   to start when that directory has no `index.html`. See `api/src/web_app.rs`.
 
 ## Frontend image

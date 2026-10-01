@@ -173,7 +173,9 @@ Both jobs use the composite action `.github/actions/docker-publish`:
   push disjoint tag sets.
 - Release runs of different versions overlap, so `X.Y` and `latest` move only when the version is the newest stable
   release of its minor, or of all, judged from the repository's tags after the build rather than before it.
-  Releasing `1.2.4` while `1.2.3` is still building leaves `latest` on `1.2.4` whichever finishes last.
+  Releasing `1.2.4` while `1.2.3` is still building leaves `latest` on `1.2.4` whichever finishes last. The exact
+  version is pushed first; a run that cannot list the tags then fails, leaving `X.Y` and `latest` where they were,
+  rather than assume it is the newest.
 
 A release is a tag: `git tag v1.2.3 && git push origin v1.2.3`.
 

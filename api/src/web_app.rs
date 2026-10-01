@@ -13,9 +13,13 @@
 //! A missing asset is a 404 rather than `index.html`, so a stale reference fails as a
 //! missing file instead of HTML parsed as JavaScript.
 //!
-//! Responses are compressed with Brotli or gzip, whichever the browser accepts, so a
-//! deployment is not slow to load whatever sits in front of it. `/api` is left alone:
-//! its responses are small JSON, and its event stream must never be buffered.
+//! Everything is sent compressed with Brotli or gzip, whichever the browser accepts, so a
+//! deployment is not slow to load whatever sits in front of it. The image build writes
+//! `.br` and `.gz` copies beside every asset at the highest settings, and those files are
+//! sent as they are: an asset costs a file read, never an encoder. The few small files
+//! outside `assets/`, `index.html` among them, are compressed per request at a moderate
+//! quality. `/api` is left alone: its responses are small JSON, and its event stream must
+//! never be buffered.
 
 use std::path::Path;
 
@@ -23,7 +27,7 @@ use anyhow::{Result, ensure};
 use axum::Router;
 use axum::http::{HeaderValue, Response, header};
 use tower::ServiceBuilder;
-use tower_http::compression::CompressionLayer;
+use tower_http::compression::{CompressionLayer, CompressionLevel};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 
@@ -33,6 +37,11 @@ const ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
 /// Revalidate on every load; the `ETag` that `ServeDir` sends keeps an unchanged page cheap.
 const PAGE_CACHE_CONTROL: &str = "no-cache";
+
+/// Brotli and gzip quality for the files compressed per request. The encoders' defaults
+/// are their slowest settings (Brotli's is 11), which cost far more CPU than they save
+/// bytes on a page this small; 4 is where on-the-fly compression usually sits.
+const PAGE_COMPRESSION_QUALITY: i32 = 4;
 
 /// Serves the build in `directory`: `assets/` as immutable files, and every other path
 /// as the matching file in the build or else `index.html`.
@@ -65,19 +74,23 @@ where
                     .then_some(HeaderValue::from_static(ASSET_CACHE_CONTROL))
             },
         ))
-        .service(ServeDir::new(directory.join("assets")));
+        .service(
+            ServeDir::new(directory.join("assets"))
+                .precompressed_br()
+                .precompressed_gzip(),
+        );
 
     let pages = ServiceBuilder::new()
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,
             HeaderValue::from_static(PAGE_CACHE_CONTROL),
         ))
+        .layer(CompressionLayer::new().quality(CompressionLevel::Precise(PAGE_COMPRESSION_QUALITY)))
         .service(ServeDir::new(directory).fallback(ServeFile::new(index)));
 
     Ok(Router::new()
         .nest_service("/assets", assets)
-        .fallback_service(pages)
-        .layer(CompressionLayer::new()))
+        .fallback_service(pages))
 }
 
 #[cfg(test)]
@@ -164,29 +177,56 @@ mod tests {
         assert_eq!(body, SCRIPT);
     }
 
-    #[tokio::test]
-    async fn assets_are_compressed_for_a_browser_that_accepts_it() {
-        let directory = build_directory();
-        // Long enough to clear the compressor's minimum size.
-        let script = SCRIPT.repeat(64);
-        std::fs::write(directory.path().join("assets/index-3f2a.js"), &script).expect("the script");
-        let app = router::<()>(directory.path()).expect("a valid build");
+    /// What browsers send. Brotli wins the tie, so it is the encoding real traffic gets.
+    const BROWSER_ACCEPT_ENCODING: &str = "gzip, deflate, br, zstd";
 
-        let request = Request::get("/assets/index-3f2a.js")
-            .header(header::ACCEPT_ENCODING, "gzip")
+    async fn get_encoded(app: Router, path: &str) -> (StatusCode, Option<HeaderValue>, Vec<u8>) {
+        let request = Request::get(path)
+            .header(header::ACCEPT_ENCODING, BROWSER_ACCEPT_ENCODING)
             .body(Body::empty())
             .expect("request");
         let response = app.oneshot(request).await.expect("infallible");
 
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers().get(header::CONTENT_ENCODING),
-            Some(&HeaderValue::from_static("gzip")),
-        );
+        let status = response.status();
+        let encoding = response.headers().get(header::CONTENT_ENCODING).cloned();
         let body = to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("the body");
-        assert!(body.len() < script.len());
+        (status, encoding, body.to_vec())
+    }
+
+    #[tokio::test]
+    async fn an_asset_is_sent_as_the_brotli_copy_the_build_wrote() {
+        let directory = build_directory();
+        let precompressed = b"brotli bytes from the image build";
+        std::fs::write(
+            directory.path().join("assets/index-3f2a.js.br"),
+            precompressed,
+        )
+        .expect("the brotli copy");
+        let app = router::<()>(directory.path()).expect("a valid build");
+
+        let (status, encoding, body) = get_encoded(app, "/assets/index-3f2a.js").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(encoding, Some(HeaderValue::from_static("br")));
+        // The file as written, not an encoder's output: nothing is compressed per request.
+        assert_eq!(body, precompressed);
+    }
+
+    #[tokio::test]
+    async fn a_page_is_compressed_per_request() {
+        let directory = build_directory();
+        // Long enough to clear the compressor's minimum size.
+        let page = INDEX.repeat(64);
+        std::fs::write(directory.path().join("index.html"), &page).expect("index.html");
+        let app = router::<()>(directory.path()).expect("a valid build");
+
+        let (status, encoding, body) = get_encoded(app, "/projects").await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(encoding, Some(HeaderValue::from_static("br")));
+        assert!(body.len() < page.len());
     }
 
     #[tokio::test]

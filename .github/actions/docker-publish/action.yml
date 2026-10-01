@@ -112,31 +112,51 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        tags="${PUBLISH_TAGS}"
-        if [[ "${GITHUB_REF}" == refs/tags/v* && "${PUBLISH_VERSION}" != *-* ]]; then
-          # The repository is public, so listing its tags needs no credentials.
-          releases="$(git ls-remote --tags --refs "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" 'v*' \
-            | sed 's|.*refs/tags/v||' \
-            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true)"
-          minor="${PUBLISH_VERSION%.*}"
-          newest="$(printf '%s\n%s\n' "${releases}" "${PUBLISH_VERSION}" | sort -V | tail -n 1)"
-          newest_in_minor="$(printf '%s\n%s\n' "${releases}" "${PUBLISH_VERSION}" \
-            | awk -v prefix="${minor}." 'index($0, prefix) == 1' \
-            | sort -V | tail -n 1)"
-          if [ "${PUBLISH_VERSION}" = "${newest_in_minor}" ]; then
-            tags="${tags} ${minor}"
-          fi
-          if [ "${PUBLISH_VERSION}" = "${newest}" ]; then
-            tags="${tags} latest"
-          fi
+        push() {
+          for tag in "$@"; do
+            docker tag "${PUBLISH_BUILD_TAG}" "${{ inputs.repository }}:${tag}"
+            docker push "${{ inputs.repository }}:${tag}"
+            docker rmi "${{ inputs.repository }}:${tag}" > /dev/null
+          done
+        }
+
+        echo "Pushing ${{ inputs.repository }} as: ${PUBLISH_TAGS}"
+        push ${PUBLISH_TAGS}
+
+        if [[ "${GITHUB_REF}" != refs/tags/v* || "${PUBLISH_VERSION}" == *-* ]]; then
+          exit 0
         fi
 
-        echo "Pushing ${{ inputs.repository }} as: ${tags}"
-        for tag in ${tags}; do
-          docker tag "${PUBLISH_BUILD_TAG}" "${{ inputs.repository }}:${tag}"
-          docker push "${{ inputs.repository }}:${tag}"
-          docker rmi "${{ inputs.repository }}:${tag}" > /dev/null
-        done
+        # The exact version is out. Moving X.Y or latest needs every release listed: a run
+        # that could not see them must not assume it is the newest, so it fails instead and
+        # leaves both where they were. The repository is public, so listing needs no
+        # credentials.
+        if ! listing="$(git ls-remote --tags --refs "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" 'v*')"; then
+          echo "::error::Cannot list the repository's tags, so ${PUBLISH_VERSION} was published without moving X.Y or latest."
+          exit 1
+        fi
+        # The triggering tag is always listed, so this matches at least one line.
+        releases="$(printf '%s\n' "${listing}" | sed 's|.*refs/tags/v||' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')"
+
+        minor="${PUBLISH_VERSION%.*}"
+        newest="$(printf '%s\n' "${releases}" | sort -V | tail -n 1)"
+        newest_in_minor="$(printf '%s\n' "${releases}" \
+          | awk -v prefix="${minor}." 'index($0, prefix) == 1' \
+          | sort -V | tail -n 1)"
+
+        floating=()
+        if [ "${PUBLISH_VERSION}" = "${newest_in_minor}" ]; then
+          floating+=("${minor}")
+        fi
+        if [ "${PUBLISH_VERSION}" = "${newest}" ]; then
+          floating+=("latest")
+        fi
+        if [ "${#floating[@]}" -eq 0 ]; then
+          echo "${PUBLISH_VERSION} is not the newest release, so X.Y and latest stay where they are."
+          exit 0
+        fi
+        echo "Moving ${{ inputs.repository }}: ${floating[*]}"
+        push "${floating[@]}"
 
     - name: Log out and remove the local build
       if: always()
