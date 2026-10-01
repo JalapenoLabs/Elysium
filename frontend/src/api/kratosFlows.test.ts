@@ -104,6 +104,14 @@ describe('toLocalPath', () => {
     expect(toLocalPath('javascript:alert(1)')).toBeNull()
   })
 
+  // The URL parser throws on a malformed host rather than normalizing it. This once escaped
+  // during render and left the sign-in page blank.
+  it('drops values the URL parser refuses instead of throwing', () => {
+    for (const value of [ '//[', '//%', '//a:b:c', '//:80', '//[::1]x' ]) {
+      expect(toLocalPath(value)).toBeNull()
+    }
+  })
+
   it('normalizes what it keeps to the path the browser would open', () => {
     expect(toLocalPath('/settings/../projects#top')).toBe('/projects#top')
   })

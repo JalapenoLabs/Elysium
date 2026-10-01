@@ -156,7 +156,16 @@ export function toLocalPath(value: string | null | undefined): string | null {
     return null
   }
 
-  const resolved = new URL(value, window.location.origin)
+  // The parser refuses some values outright, such as `//[`, where it would read a malformed
+  // host. Those are dropped like any other unusable value.
+  let resolved: URL
+  try {
+    resolved = new URL(value, window.location.origin)
+  }
+  catch (error) {
+    console.debug('toLocalPath dropped a return_to the URL parser refused', { value, error })
+    return null
+  }
   if (resolved.origin !== window.location.origin) {
     console.debug('toLocalPath dropped a return_to that leaves this origin', { value })
     return null
