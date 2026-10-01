@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/users/{id}/revoke-sessions`: sign a person out everywhere. Pages they have
-//! open stop working within the session cache's lifetime (`crate::auth::sessions`).
+//! `POST /api/v1/users/{id}/revoke-sessions`: sign a person out everywhere, and disconnect every
+//! MCP client they connected. Pages and clients they have open stop working within the session
+//! and token caches' lifetimes (`crate::auth::sessions`, `crate::mcp::bearer`).
 
 use anyhow::Context;
 use axum::extract::rejection::PathRejection;
@@ -33,6 +34,8 @@ pub async fn handle(
         .kratos
         .revoke_sessions(identity_of(&person)?)
         .await?;
+    // Everywhere includes the MCP clients they connected.
+    state.auth.hydra.revoke_consent(person.id, None).await?;
     user::record_account_action(
         &mut connection,
         id,

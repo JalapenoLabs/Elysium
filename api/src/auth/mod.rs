@@ -34,11 +34,14 @@ use self::kratos::{AssuranceLevel, Kratos};
 use crate::action_items::Actor;
 use crate::errors::ApiError;
 use crate::models::user::User;
+use crate::oauth::hydra::Hydra;
 
 /// What the auth layers need. Cloning is cheap.
 #[derive(Debug, Clone)]
 pub struct Auth {
     pub kratos: Kratos,
+    /// OAuth for MCP clients. See `crate::oauth`.
+    pub hydra: Hydra,
     /// The key Kratos's webhooks and courier messages carry. See [`hook_key`].
     pub hook_key: SecretString,
     /// The origin browsers reach Elysium at. Unsafe requests must come from it.

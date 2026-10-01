@@ -37,6 +37,7 @@ prost-types = "0.14.4"
 redis = { version = "1.7.0", default-features = false, features = ["tokio-comp", "connection-manager"] }
 # The TLS stack arsox-sdk already brings in: rustls on ring with webpki roots.
 reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "json", "stream"] }
+rmcp = { version = "3.5.0", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 rusty-s3 = { version = "0.10.2", default-features = false, features = ["rustcrypto", "xml"] }
 secrecy = { version = "0.10.3", features = ["serde"] }

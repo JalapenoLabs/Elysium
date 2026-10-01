@@ -13,6 +13,7 @@ mod version;
 use axum::Router;
 use axum::routing::get;
 
+use crate::mcp;
 use crate::state::AppState;
 
 /// Builds the `/api` router, and `/internal` for Kratos.
@@ -21,9 +22,19 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .route("/ok", get(ok::handle))
         .route("/ping", get(ping::handle))
         .route("/version", get(version::handle))
-        .nest("/v1", v1::router(state));
+        .nest("/v1", v1::router(state))
+        .nest("/mcp", mcp::router(state));
 
     Router::new()
+        // The MCP server's metadata, at the root and under its path, as RFC 9728 places it.
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(mcp::protected_resource_metadata),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource/api/mcp",
+            get(mcp::protected_resource_metadata),
+        )
         .nest("/api", api)
         .nest("/internal", internal::router(state))
 }
@@ -135,6 +146,57 @@ mod tests {
                 StatusCode::UNAUTHORIZED,
                 "{path} needs Kratos's hook key"
             );
+        }
+    }
+
+    /// MCP clients learn where to get a token from the challenge and the metadata it names
+    /// (RFC 9728), so both must answer without a session or a token.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+    async fn the_mcp_server_challenges_and_names_its_authorization_server() {
+        let (url, _connection) = migrated_database().await;
+        let state = app_state(&url).await;
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/api/mcp")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+            ))
+            .expect("a request builds");
+        let response = router(&state)
+            .with_state(state.clone())
+            .oneshot(request)
+            .await
+            .expect("the router answers");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let challenge = response
+            .headers()
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok())
+            .expect("a challenge")
+            .to_owned();
+        assert!(
+            challenge.starts_with("Bearer resource_metadata=\"http://localhost")
+                && challenge.contains("/.well-known/oauth-protected-resource/api/mcp\"")
+                && challenge.contains("scope=\"workspace:read\""),
+            "{challenge}"
+        );
+
+        for path in [
+            "/.well-known/oauth-protected-resource",
+            "/.well-known/oauth-protected-resource/api/mcp",
+        ] {
+            let (status, body) = send(&state, Method::GET, path, None).await;
+            assert_eq!(status, StatusCode::OK, "{path}");
+            let resource = body["resource"].as_str().expect("a resource");
+            assert!(resource.ends_with("/api/mcp"), "{resource}");
+            let issuer = body["authorization_servers"][0]
+                .as_str()
+                .expect("an issuer");
+            assert!(resource.starts_with(issuer), "{issuer} serves {resource}");
+            assert_eq!(body["scopes_supported"][0], "workspace:read");
         }
     }
 }

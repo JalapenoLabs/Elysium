@@ -105,6 +105,7 @@ pub async fn app_state(database_url: &SecretString) -> crate::state::AppState {
         public_url: Url::parse("http://localhost:4000").expect("a static URL parses"),
         kratos_public_url: nowhere.clone(),
         kratos_admin_url: nowhere.clone(),
+        hydra_admin_url: nowhere.clone(),
         database_max_connections: 4,
         cors_allowed_origins: Vec::new(),
         request_timeout: std::time::Duration::from_secs(5),

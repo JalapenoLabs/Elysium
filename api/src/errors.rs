@@ -123,6 +123,17 @@ impl From<crate::auth::kratos::KratosError> for ApiError {
     }
 }
 
+impl From<crate::oauth::hydra::HydraError> for ApiError {
+    fn from(error: crate::oauth::hydra::HydraError) -> Self {
+        use crate::oauth::hydra::HydraError;
+
+        match error {
+            HydraError::NotFound => Self::NotFound,
+            refused @ HydraError::Refused(_) => Self::BadGateway(refused.to_string()),
+        }
+    }
+}
+
 impl From<arsox_sdk::client::Error> for ApiError {
     fn from(error: arsox_sdk::client::Error) -> Self {
         Self::BadGateway(error.to_string())
