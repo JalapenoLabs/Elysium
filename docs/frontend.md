@@ -26,8 +26,9 @@ HeroUI v3 on Tailwind CSS v4 and is modeled on Stripe's dashboard.
 
 In production the API serves the app. The published image's `frontend` stage runs `yarn build`, and the API answers
 every path outside `/api` from that build: files under `assets/` are fingerprinted and cached for a year, a missing
-one is a `404`, and every other path is `index.html`, revalidated on each load. The image build writes Brotli and
-gzip copies beside every asset, which are sent as they are; the few other files are compressed per request. See `api/src/web_app.rs` and `docs/infrastructure.md`.
+one is a `404`, and every other path is `index.html`, revalidated on each load. The image build writes Brotli and gzip
+copies beside every text asset, which are sent as they are; the few other files are compressed per request. See
+`api/src/web_app.rs` and `docs/infrastructure.md`.
 
 In development the Vite dev server serves it with hot reload, behind nginx, and `/api` goes to the API.
 

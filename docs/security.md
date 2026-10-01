@@ -60,8 +60,8 @@ Kratos holds passwords (Argon2id), passkeys, authenticator apps, and sessions; t
 - **Brute force.** nginx throttles sign-in, sign-up, and recovery submissions to 5 a minute per client address.
   There is no per-account lockout, which would let anyone lock a known person out. Behind a proxy, the address is
   right only when `TRUSTED_PROXY_ADDRESSES` names that proxy (`docs/auth.md`).
-- **Kratos's internal routes.** Kratos calls the API's `/internal` routes. nginx never forwards `/internal` (production answers it with a `404`), and the
-  routes also check a key derived from the encryption key.
+- **Kratos's internal routes.** Kratos calls the API's `/internal` routes. nginx never forwards `/internal`
+  (production answers it with a `404`), and the routes also check a key derived from the encryption key.
 
 `docs/auth.md` has the whole design.
 

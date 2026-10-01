@@ -198,9 +198,9 @@ There is no mail yet.
 - **Privacy.** The page answers the same whether or not the address has an account, and Kratos sends nothing for an
   unknown address.
 
-Both internal routes live under `/internal`, which nginx never forwards (in development it proxies `/api/` alone; in production, where every other
-path reaches the API, it answers `/internal` with a `404` itself). Each also checks
-the hook key Kratos sends in `X-Elysium-Hook-Key`.
+Both internal routes live under `/internal`, which nginx never forwards (in development it proxies `/api/` alone; in
+production, where every other path reaches the API, it answers `/internal` with a `404` itself). Each also checks the
+hook key Kratos sends in `X-Elysium-Hook-Key`.
 
 When Elysium sends mail, the courier's delivery switches to SMTP and the log line goes away.
 

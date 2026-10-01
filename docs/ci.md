@@ -162,9 +162,11 @@ and repeats none of them.
 
 Both jobs use the composite action `.github/actions/docker-publish`:
 
-- Credentials are organization-wide: the variable `DOCKERHUB_USERNAME` and the secret `DOCKERHUB_TOKEN`, an
-  organization access token that may push to both repositories. The job fails before building when either is not
-  shared with this repository.
+- Credentials are organization-wide: the variable `DOCKERHUB_USERNAME` (`jalapenolabs`, a personal Docker Hub
+  account) and the secret `DOCKERHUB_TOKEN`, a read and write personal access token of that account. The job fails
+  before building when either is not shared with this repository.
+- Docker Hub creates each repository on its first push, public by the account's default.
+- Each job names the Dockerfile stage it publishes (`app` for the API) and builds `linux/amd64`.
 - The runners are persistent and share Docker daemons, so the login lives in `DOCKER_CONFIG` under the job's
   temporary directory, and an `always()` step logs out, removes it, and deletes every local tag.
 - `--pull` refreshes the base images, so a published image carries the latest fixes of its pinned base tags.
@@ -176,6 +178,9 @@ Both jobs use the composite action `.github/actions/docker-publish`:
   Releasing `1.2.4` while `1.2.3` is still building leaves `latest` on `1.2.4` whichever finishes last. The exact
   version is pushed first; a run that cannot list the tags then fails, leaving `X.Y` and `latest` where they were,
   rather than assume it is the newest.
+- `X.Y` and `latest` are moved on the registry with `docker buildx imagetools create`, pointed at the version just
+  pushed, never through a local tag another run on the same daemon could retag or remove.
+- A commit to `main` that changes only `docs/` or Markdown publishes nothing. Tag pushes are never filtered.
 
 A release is a tag: `git tag v1.2.3 && git push origin v1.2.3`.
 

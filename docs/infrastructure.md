@@ -71,10 +71,11 @@ In both, `/api/v1/events` has its own location with buffering off and a one-hour
 arrive immediately and idle streams stay open, and cover uploads have a larger body limit.
 
 nginx runs its own main configuration, `nginx/nginx.conf`: the image's default plus a `stream` block, since raw TCP
-can only be proxied from the main context. `nginx/default.conf` holds the production HTTP routing and
-`nginx/development.conf` the development routing, which `compose.dev.yml` mounts in its place; their `/api`
-locations are kept identical. `nginx/mail.conf` passes the mail ports to Stalwart with the PROXY protocol; see
-`docs/mail.md`.
+can only be proxied from the main context, and the zone that throttles Kratos submissions. `nginx/default.conf` holds
+the production HTTP routing and `nginx/development.conf` the development routing, which `compose.dev.yml` mounts in
+its place. Both include `nginx/locations.conf`, the locations they route alike (cover uploads, Kratos, the event
+stream), so each file holds only what differs. `nginx/mail.conf` passes the mail ports to Stalwart with the PROXY
+protocol; see `docs/mail.md`.
 
 The API has no container name so it could scale, but it must run as one replica today: its event bus is
 in-process (see `docs/realtime.md`).
@@ -104,8 +105,9 @@ which makes Cargo fetch through the git CLI.
 - `app`, the default and the published image: `server` plus the web app. A `frontend` stage runs `yarn build` on
   `node:22.23.2-trixie-slim`, the same Node as `frontend/.nvmrc`, alongside the Rust stages, and `app` copies its
   `dist/` to a fixed directory named by `FRONTEND_DIR`. The `frontend` stage also writes `.br` and `.gz` copies of
-  every asset at the highest settings, so the API sends compressed assets without compressing per request. The API serves it at every path outside `/api`, and refuses
-  to start when that directory has no `index.html`. See `api/src/web_app.rs`.
+  every text asset at the highest settings, so the API sends compressed assets without compressing per request. The
+  API serves it at every path outside `/api`, and refuses to start when that directory has no `index.html`. See
+  `api/src/web_app.rs`.
 
 ## Frontend image
 
@@ -125,10 +127,11 @@ the build inside the API image.
 | `jalapenolabs/elysium-oauth-broker`    | `oauth-broker/Dockerfile`          | The OAuth broker, standalone |
 
 Every push to `main` publishes `main` and `sha-<commit>`. A tag `vX.Y.Z` publishes `X.Y.Z`, and moves `X.Y` and
-`latest` when it is the newest release; a pre-release tag such as `vX.Y.Z-rc.1` publishes only its own version. Each image is labelled with the commit, the
-version, and this repository. The workflow is described in `docs/ci.md`.
+`latest` when it is the newest release; a pre-release tag such as `vX.Y.Z-rc.1` publishes only its own version. Each
+image is labelled with the commit, the version, and this repository. The workflow is described in `docs/ci.md`.
 
-Postgres, Redis, nginx, and the socket proxy are upstream images pinned in `compose.yml`.
+Both are `linux/amd64` only, since the runners are x86_64; an arm64 host cannot run them. Postgres, Redis, nginx,
+Kratos, and the socket proxy are upstream images pinned in `compose.yml`.
 
 ## Time
 

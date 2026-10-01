@@ -15,7 +15,7 @@
 //!
 //! Everything is sent compressed with Brotli or gzip, whichever the browser accepts, so a
 //! deployment is not slow to load whatever sits in front of it. The image build writes
-//! `.br` and `.gz` copies beside every asset at the highest settings, and those files are
+//! `.br` and `.gz` copies beside every text asset at the highest settings, and those files are
 //! sent as they are: an asset costs a file read, never an encoder. The few small files
 //! outside `assets/`, `index.html` among them, are compressed per request at a moderate
 //! quality. `/api` is left alone: its responses are small JSON, and its event stream must

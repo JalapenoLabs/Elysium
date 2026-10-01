@@ -178,10 +178,9 @@ mod fallback_tests {
             let body = to_bytes(response.into_body(), usize::MAX)
                 .await
                 .expect("the body");
-            assert!(
-                !body.starts_with(b"<!doctype"),
-                "{path} answered with the web app"
-            );
+            let error: serde_json::Value = serde_json::from_slice(&body)
+                .unwrap_or_else(|_| panic!("{path} answered with something other than JSON"));
+            assert_eq!(error["message"], "resource not found", "{path}");
         }
 
         let request = Request::get("/projects")

@@ -19,6 +19,10 @@ inputs:
   dockerfile:
     description: The Dockerfile, relative to the repository root.
     required: true
+  target:
+    description: The Dockerfile stage to publish. Empty publishes the last stage.
+    required: false
+    default: ''
   username:
     description: The Docker Hub account the token belongs to.
     required: true
@@ -35,6 +39,8 @@ runs:
     # only its own version.
     - name: Choose the tags
       shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
       run: |
         set -euo pipefail
         case "${GITHUB_REF}" in
@@ -56,13 +62,13 @@ runs:
             ;;
         esac
 
-        echo "Publishing ${{ inputs.repository }} as: ${tags}"
+        echo "Publishing ${REPOSITORY} as: ${tags}"
         {
           echo "PUBLISH_TAGS=${tags}"
           echo "PUBLISH_VERSION=${version}"
           echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config"
           # Unique per run, because runners in the pool can share one Docker daemon.
-          echo "PUBLISH_BUILD_TAG=${{ inputs.repository }}:build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "PUBLISH_BUILD_TAG=${REPOSITORY}:build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
         } >> "${GITHUB_ENV}"
 
     # Fails before the build when the organization's credentials are not shared with
@@ -82,17 +88,25 @@ runs:
         printf '%s' "${DOCKERHUB_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
 
     # --pull refreshes the base images, so a published image carries the latest
-    # security fixes of its pinned base tags.
+    # security fixes of its pinned base tags. The runners are x86_64, so the image is
+    # linux/amd64 alone.
     - name: Build the image
       shell: bash
       env:
         CONTEXT: ${{ inputs.context }}
         DOCKERFILE: ${{ inputs.dockerfile }}
+        TARGET: ${{ inputs.target }}
       run: |
         set -euo pipefail
+        target=()
+        if [ -n "${TARGET}" ]; then
+          target=(--target "${TARGET}")
+        fi
         docker build \
           --pull \
+          --platform linux/amd64 \
           --file "${DOCKERFILE}" \
+          "${target[@]}" \
           --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
           --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
           --label "org.opencontainers.image.version=${PUBLISH_VERSION}" \
@@ -100,28 +114,26 @@ runs:
           --tag "${PUBLISH_BUILD_TAG}" \
           "${CONTEXT}"
 
-    # Each tag is pushed from the run's own build tag, which no other run uses. Runs of
-    # one ref never overlap (the workflow's concurrency group queues them), and main and
-    # release runs push disjoint tag sets.
+    # The ref's own tags are pushed from the run's build tag. No other run pushes them:
+    # runs of one ref queue (the workflow's concurrency group), and main and release runs
+    # push disjoint tag sets.
     #
     # Release runs of different versions do overlap, so X.Y and latest move only for the
-    # newest release, read from the repository's tags after the build rather than
-    # before it. A release tagged while an older one is still building therefore keeps
-    # latest, whichever run finishes last.
+    # newest release, read from the repository's tags after the build rather than before
+    # it, and they move on the registry, pointed at the version just pushed, never
+    # through a local tag another run on the same daemon could retag or remove.
     - name: Push the tags
       shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
       run: |
         set -euo pipefail
-        push() {
-          for tag in "$@"; do
-            docker tag "${PUBLISH_BUILD_TAG}" "${{ inputs.repository }}:${tag}"
-            docker push "${{ inputs.repository }}:${tag}"
-            docker rmi "${{ inputs.repository }}:${tag}" > /dev/null
-          done
-        }
-
-        echo "Pushing ${{ inputs.repository }} as: ${PUBLISH_TAGS}"
-        push ${PUBLISH_TAGS}
+        echo "Pushing ${REPOSITORY} as: ${PUBLISH_TAGS}"
+        for tag in ${PUBLISH_TAGS}; do
+          docker tag "${PUBLISH_BUILD_TAG}" "${REPOSITORY}:${tag}"
+          docker push "${REPOSITORY}:${tag}"
+          docker rmi "${REPOSITORY}:${tag}" > /dev/null
+        done
 
         if [[ "${GITHUB_REF}" != refs/tags/v* || "${PUBLISH_VERSION}" == *-* ]]; then
           exit 0
@@ -155,8 +167,11 @@ runs:
           echo "${PUBLISH_VERSION} is not the newest release, so X.Y and latest stay where they are."
           exit 0
         fi
-        echo "Moving ${{ inputs.repository }}: ${floating[*]}"
-        push "${floating[@]}"
+
+        echo "Moving ${REPOSITORY}: ${floating[*]}"
+        for tag in "${floating[@]}"; do
+          docker buildx imagetools create --tag "${REPOSITORY}:${tag}" "${REPOSITORY}:${PUBLISH_VERSION}"
+        done
 
     - name: Log out and remove the local build
       if: always()

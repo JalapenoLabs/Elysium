@@ -205,10 +205,10 @@ jobs:
           fi
           echo "api/Dockerfile builds the web app with Node ${node_version}."
 
-      # The default `app` stage, from the repository root, exactly as the publish
+      # The `app` stage, from the repository root, exactly as the publish
       # workflow builds it. Not pushed anywhere.
       - name: Build the image
-        run: docker build --file api/Dockerfile --tag "${IMAGE}" .
+        run: docker build --file api/Dockerfile --target app --tag "${IMAGE}" .
 
       # Booting the server needs Postgres, Redis, and an encryption key. Running
       # the CLI still proves the runtime stage: the binary starts and finds every

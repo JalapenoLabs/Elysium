@@ -60,6 +60,8 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # Outside conf.d: both routing files include it inside their server block.
+      - ./nginx/locations.conf:/etc/nginx/locations.conf:ro
       # Filled in by the image's entrypoint from TRUSTED_PROXY_ADDRESSES; see the file.
       - ./nginx/real-ip.conf.template:/etc/nginx/templates/real-ip.conf.template:ro
       - ./nginx/mail.conf:/etc/nginx/stream.d/mail.conf:ro

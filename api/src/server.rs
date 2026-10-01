@@ -10,6 +10,7 @@
 //! connection drops.
 
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -283,18 +284,42 @@ fn build_router(
         ))
         .layer(middleware::cors::layer(config.cors_allowed_origins.clone()));
 
-    let api = routes::router(state).layer(axum::middleware::from_fn_with_state(
+    let routes = assemble_routes(
+        routes::router(state),
+        rate_limit,
+        config.frontend_dir.as_deref(),
+    )?;
+    Ok(routes.layer(layers))
+}
+
+/// Rate limits `api`, then merges the web app beside it when `frontend_dir` names one.
+///
+/// The order is load-bearing. The limiter layer wraps `api`'s routes and its default
+/// fallback; merging replaces that fallback with the web app's, which therefore never
+/// passes through the limiter.
+///
+/// # Errors
+/// Fails when `frontend_dir` names a directory without a build in it.
+fn assemble_routes<State>(
+    api: Router<State>,
+    rate_limit: Arc<middleware::rate_limit::Limiter>,
+    frontend_dir: Option<&Path>,
+) -> Result<Router<State>>
+where
+    State: Clone + Send + Sync + 'static,
+{
+    let api = api.layer(axum::middleware::from_fn_with_state(
         rate_limit,
         middleware::rate_limit::enforce,
     ));
 
-    let Some(directory) = &config.frontend_dir else {
+    let Some(directory) = frontend_dir else {
         event!(
             name: "api.web_app.disabled",
             Level::INFO,
             "FRONTEND_DIR is unset, so only /api is served",
         );
-        return Ok(api.layer(layers));
+        return Ok(api);
     };
 
     let app = api.merge(web_app::router(directory)?);
@@ -304,5 +329,58 @@ fn build_router(
         file.directory = %directory.display(),
         "serving the web app from {{file.directory}}",
     );
-    Ok(app.layer(layers))
+    Ok(app)
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::Request;
+    use axum::routing::get;
+    use tower::ServiceExt;
+
+    use super::*;
+    use crate::middleware::rate_limit::BURST_SIZE;
+
+    async fn status_of(app: &Router, path: &str) -> StatusCode {
+        let request = Request::get(path)
+            .header("x-real-ip", "203.0.113.7")
+            .body(Body::empty())
+            .expect("request");
+        app.clone()
+            .oneshot(request)
+            .await
+            .expect("infallible")
+            .status()
+    }
+
+    // The web app's files skip the limiter, which is what keeps a cold page load from
+    // spending a visitor's API budget, while /api stays limited. Both follow from the
+    // layer-then-merge order in `assemble_routes`, which nothing else would catch.
+    #[tokio::test]
+    async fn only_api_is_rate_limited_beside_the_web_app() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        std::fs::write(directory.path().join("index.html"), "<!doctype html>").expect("index.html");
+        let api = Router::new().nest("/api", Router::new().route("/ok", get(|| async { "ok" })));
+        let rate_limiter = middleware::rate_limit::build();
+        let app = assemble_routes(
+            api,
+            Arc::clone(&rate_limiter.limiter),
+            Some(directory.path()),
+        )
+        .expect("a valid build");
+
+        for _ in 0..=BURST_SIZE {
+            assert_eq!(status_of(&app, "/projects").await, StatusCode::OK);
+        }
+
+        for _ in 0..BURST_SIZE {
+            assert_eq!(status_of(&app, "/api/ok").await, StatusCode::OK);
+        }
+        assert_eq!(
+            status_of(&app, "/api/ok").await,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        rate_limiter.sweeper.abort();
+    }
 }

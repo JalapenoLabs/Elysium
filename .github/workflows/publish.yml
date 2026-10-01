@@ -7,10 +7,16 @@ name: Publish
 
 # No pull_request trigger, so neither a fork nor a branch of this repository reaches
 # the token through this workflow, and no fork guard is needed.
+#
+# A commit to main that changes only documentation changes neither image, so it publishes
+# nothing. GitHub never applies path filters to tag pushes, so every release publishes.
 on:
   push:
     branches: [ main ]
     tags: [ 'v*' ]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
 
 permissions:
   contents: read
@@ -33,7 +39,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # The default `app` stage: the API and the web app it serves. Built from the
+      # The `app` stage: the API and the web app it serves. Built from the
       # repository root so the builder can read .git and frontend/.
       - name: Publish
         uses: ./.github/actions/docker-publish
@@ -41,6 +47,7 @@ jobs:
           repository: jalapenolabs/elysium-api
           context: .
           dockerfile: api/Dockerfile
+          target: app
           username: ${{ vars.DOCKERHUB_USERNAME }}
           token: ${{ secrets.DOCKERHUB_TOKEN }}
 
