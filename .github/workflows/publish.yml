@@ -1,0 +1,72 @@
+# Copyright © 2026 Jalapeno Labs
+
+# Publishes the images to Docker Hub: every push to main, and every version tag. It is
+# not a check and never required; what it builds already passed every check in the
+# merge queue. The only workflow that reads a secret. See docs/ci.md.
+name: Publish
+
+# No pull_request trigger, so neither a fork nor a branch of this repository reaches
+# the token through this workflow, and no fork guard is needed.
+#
+# A commit to main that changes only documentation changes neither image, so it publishes
+# nothing. GitHub never applies path filters to tag pushes, so every release publishes.
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+
+permissions:
+  contents: read
+
+# Never cancelled: a run stopped between pushes would leave one tag on the new build
+# and another on the old. Runs of one ref queue instead, and when several pile up, only
+# the newest waits.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  api:
+    name: Publish API
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # The `app` stage: the API and the web app it serves. Built from the
+      # repository root so the builder can read .git and frontend/.
+      - name: Publish
+        uses: ./.github/actions/docker-publish
+        with:
+          repository: jalapenolabs/elysium-api
+          context: .
+          dockerfile: api/Dockerfile
+          target: app
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  oauth-broker:
+    name: Publish OAuth broker
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # The broker's own directory is the build context, as its compose file uses.
+      - name: Publish
+        uses: ./.github/actions/docker-publish
+        with:
+          repository: jalapenolabs/elysium-oauth-broker
+          context: oauth-broker
+          dockerfile: oauth-broker/Dockerfile
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}

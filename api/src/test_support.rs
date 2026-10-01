@@ -109,6 +109,7 @@ pub async fn app_state(database_url: &SecretString) -> crate::state::AppState {
         cors_allowed_origins: Vec::new(),
         request_timeout: std::time::Duration::from_secs(5),
         max_request_body_bytes: 1 << 20,
+        frontend_dir: None,
         mail: MailConfig {
             oauth_broker: None,
             oauth_broker_internal: None,

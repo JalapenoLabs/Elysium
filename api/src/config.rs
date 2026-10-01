@@ -8,6 +8,7 @@
 //! `{:?}` cannot print them.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -37,6 +38,9 @@ pub struct Config {
     pub cors_allowed_origins: Vec<HeaderValue>,
     pub request_timeout: Duration,
     pub max_request_body_bytes: usize,
+    /// The web app's production build, served at every path outside `/api`. Set by the
+    /// published image; unset in development, where nginx sends those paths to Vite.
+    pub frontend_dir: Option<PathBuf>,
     pub mail: MailConfig,
 }
 
@@ -80,6 +84,9 @@ impl Config {
             cors_allowed_origins: parse_cors_origins()?,
             request_timeout: Duration::from_secs(env_or("REQUEST_TIMEOUT_SECONDS", 30)?),
             max_request_body_bytes: env_or("MAX_REQUEST_BODY_BYTES", 1_048_576)?,
+            frontend_dir: std::env::var_os("FRONTEND_DIR")
+                .filter(|directory| !directory.is_empty())
+                .map(PathBuf::from),
             mail: MailConfig {
                 oauth_broker: optional_base_url("OAUTH_BROKER_URL")?,
                 oauth_broker_internal: optional_base_url("OAUTH_BROKER_INTERNAL_URL")?,
