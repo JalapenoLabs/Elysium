@@ -21,6 +21,7 @@ use axum::Router;
 use axum::routing::{delete, get, post};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use url::Url;
 
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
@@ -53,10 +54,15 @@ pub struct ChallengeBody {
 #[serde(rename_all = "camelCase")]
 pub struct ClientResponse {
     id: String,
-    /// What the client calls itself; empty when it gave no name.
+    /// What the client calls itself; empty when it gave no name. Chosen by whoever registered
+    /// it, so it proves nothing.
     name: String,
+    /// The website it claims; just as self-chosen.
     uri: String,
-    logo_uri: String,
+    /// Where approving sends the authorization code: the host of each registered redirect URI,
+    /// such as `localhost` for a CLI. The one thing about a self-registered client a person can
+    /// check, since a code only ever goes there.
+    redirect_hosts: Vec<String>,
     created_at: Option<DateTime<Utc>>,
 }
 
@@ -66,7 +72,7 @@ impl From<Client> for ClientResponse {
             id: client.client_id,
             name: client.client_name,
             uri: client.client_uri,
-            logo_uri: client.logo_uri,
+            redirect_hosts: redirect_hosts(&client.redirect_uris),
             created_at: client.created_at,
         }
     }
@@ -88,8 +94,25 @@ async fn own_consent(
     Ok(request)
 }
 
+/// The distinct hosts of `uris`, in order. A URI that does not parse is shown whole, so nothing
+/// a client registered is hidden.
+fn redirect_hosts(uris: &[String]) -> Vec<String> {
+    let mut hosts: Vec<String> = Vec::new();
+    for uri in uris {
+        let host = Url::parse(uri)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_owned))
+            .unwrap_or_else(|| uri.clone());
+        if !hosts.contains(&host) {
+            hosts.push(host);
+        }
+    }
+    hosts
+}
+
 /// What a client asked for that a person can grant, in the order Elysium lists scopes. Anything
-/// else it asked for is left out, rather than refusing the whole request.
+/// else it asked for is left out; when nothing is left, the request is refused with
+/// `invalid_scope` rather than granted a token that can do nothing.
 fn grantable(requested: &[String]) -> Vec<String> {
     GRANTABLE_SCOPES
         .iter()
@@ -116,5 +139,19 @@ mod tests {
             ["workspace:read", "workspace:write", "offline_access"]
         );
         assert!(grantable(&[]).is_empty());
+    }
+
+    #[test]
+    fn redirect_hosts_name_where_codes_go_once_each() {
+        let uris = vec![
+            "http://localhost:33418/callback".to_owned(),
+            "http://localhost:33419/callback".to_owned(),
+            "https://claude.ai/api/mcp/auth_callback".to_owned(),
+            "not a url".to_owned(),
+        ];
+        assert_eq!(
+            redirect_hosts(&uris),
+            ["localhost", "claude.ai", "not a url"]
+        );
     }
 }

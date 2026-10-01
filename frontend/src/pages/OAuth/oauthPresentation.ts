@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ConsentResponse, OAuthClient } from '../../api/routes/oauthRoutes'
+import type { OAuthClient } from '../../api/routes/oauthRoutes'
 
 // Utility
 import { HTTPError } from 'ky'
@@ -58,9 +58,4 @@ export function clientHost(client: Pick<OAuthClient, 'uri'>): string | null {
     console.debug('clientHost could not read a client URI', { uri: client.uri, error })
     return null
   }
-}
-
-// Whether the API already connected the client again, with nothing to ask.
-export function isRedirect(response: ConsentResponse): response is { redirectTo: string } {
-  return 'redirectTo' in response
 }

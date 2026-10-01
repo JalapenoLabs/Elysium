@@ -32,8 +32,7 @@ through Kratos's JSON API.
 - **Database.** Kratos keeps its data in its own database, `kratos`, on the same Postgres server and with the same
   credentials as Elysium's.
   - `elysium-api migrate run` (the `migrate` service) creates it, and Hydra's, when missing. Postgres's init scripts
-    run only
-    for a new data volume, so an existing deployment would otherwise never get one.
+    run only for a new data volume, so an existing deployment would otherwise never get one.
   - `kratos-migrate` then applies Kratos's own schema.
 - **Image.** The image is pinned by tag and digest in `compose.yml`, and the configuration is mounted read-only
   rather than baked into it.

@@ -40,7 +40,7 @@ export function ConnectedGrants() {
         }
         catch (failure) {
           console.debug('ConnectedGrants could not disconnect a client', { failure })
-          toast.danger(t('connectedApps.grants.loadError'))
+          toast.danger(t('connectedApps.grants.disconnectError', { name }))
           throw failure
         }
       },

@@ -29,8 +29,8 @@ pub struct Workspace {
     tool_router: ToolRouter<Self>,
 }
 
-impl Workspace {
-    pub fn new() -> Self {
+impl Default for Workspace {
+    fn default() -> Self {
         Self {
             tool_router: Self::tool_router(),
         }

@@ -49,7 +49,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .with_allowed_hosts([host])
         .with_allowed_origins([public_url.origin().ascii_serialization()]);
     let service = StreamableHttpService::new(
-        || Ok(Workspace::new()),
+        || Ok(Workspace::default()),
         Arc::new(NeverSessionManager::default()),
         config,
     );

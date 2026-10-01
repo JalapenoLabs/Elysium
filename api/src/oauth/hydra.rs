@@ -17,8 +17,13 @@ use reqwest::{Method, StatusCode};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tracing::{Level, event};
 use url::Url;
 use uuid::Uuid;
+
+/// The most clients one listing returns: the largest page Hydra serves. A workspace with more
+/// sees the first ones, and the API logs that it cut the list short.
+const CLIENT_LIST_LIMIT: usize = 500;
 
 /// How long one call may take. Every call is a single row lookup or write on Hydra's side.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
@@ -45,8 +50,6 @@ pub struct Client {
     pub client_name: String,
     #[serde(default)]
     pub client_uri: String,
-    #[serde(default)]
-    pub logo_uri: String,
     #[serde(default)]
     pub redirect_uris: Vec<String>,
     /// Space-separated, as OAuth writes scopes.
@@ -106,6 +109,15 @@ pub struct Introspection {
     pub exp: Option<i64>,
     #[serde(default)]
     pub token_use: Option<String>,
+}
+
+/// Why a consent request was refused, as the client is told (RFC 6749 error codes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConsentRefusal {
+    /// The person declined: `access_denied`.
+    Denied,
+    /// The client asked for nothing a person can grant: `invalid_scope`.
+    NothingGrantable,
 }
 
 /// Where Hydra sends the browser next.
@@ -218,21 +230,32 @@ impl Hydra {
             .map(drop)
     }
 
-    /// Refuses the consent request behind `challenge`, and answers where the browser goes next:
-    /// back to the client, with `access_denied`.
+    /// Refuses the consent request behind `challenge` with `refusal`, and answers where the
+    /// browser goes next: back to the client, told why.
     ///
     /// # Errors
     /// Returns [`HydraError::NotFound`] for an unknown, expired, or used challenge.
-    pub async fn reject_consent(&self, challenge: &str) -> Result<String, HydraError> {
+    pub async fn reject_consent(
+        &self,
+        challenge: &str,
+        refusal: ConsentRefusal,
+    ) -> Result<String, HydraError> {
         let url = self.url(
             "admin/oauth2/auth/requests/consent/reject",
             "consent_challenge",
             challenge,
         );
-        let body = json!({
-            "error": "access_denied",
-            "error_description": "The person declined to connect this application.",
-        });
+        let (error, description) = match refusal {
+            ConsentRefusal::Denied => (
+                "access_denied",
+                "The person declined to connect this application.",
+            ),
+            ConsentRefusal::NothingGrantable => (
+                "invalid_scope",
+                "None of the requested scopes can be granted. Ask for workspace:read.",
+            ),
+        };
+        let body = json!({ "error": error, "error_description": description });
         let answer: RedirectTo = self.send(Method::PUT, url, Some(body)).await?;
         Ok(answer.redirect_to)
     }
@@ -297,14 +320,22 @@ impl Hydra {
         }
     }
 
-    /// Every registered client, oldest first.
+    /// Registered clients, up to [`CLIENT_LIST_LIMIT`], in the order Hydra keeps them.
     ///
     /// # Errors
     /// Returns [`HydraError::Refused`] when Hydra cannot be reached.
     pub async fn clients(&self) -> Result<Vec<Client>, HydraError> {
-        // Hydra caps a page at 500 clients; a workspace with more lists the first 500.
-        let url = self.url("admin/clients", "page_size", "500");
-        self.send(Method::GET, url, None).await
+        let url = self.url("admin/clients", "page_size", &CLIENT_LIST_LIMIT.to_string());
+        let clients: Vec<Client> = self.send(Method::GET, url, None).await?;
+        if clients.len() >= CLIENT_LIST_LIMIT {
+            event!(
+                name: "oauth.clients.truncated",
+                Level::WARN,
+                oauth.clients.limit = CLIENT_LIST_LIMIT,
+                "listed only the first {{oauth.clients.limit}} OAuth clients",
+            );
+        }
+        Ok(clients)
     }
 
     /// Deletes a client, with every grant and token issued to it.

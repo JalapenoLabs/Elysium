@@ -7,13 +7,14 @@ import { apiClient } from '../index'
 // to the web app with a challenge, and these answer it as the person signed in here. See
 // docs/mcp.md.
 
-// Mirrors `ClientResponse` in api/src/routes/v1/oauth/mod.rs. A client names itself, so any
-// field may be empty.
+// Mirrors `ClientResponse` in api/src/routes/v1/oauth/mod.rs. A client registers itself, so its
+// name and website prove nothing and may be empty; `redirectHosts`, where approving sends the
+// code, is the part a person can check.
 export type OAuthClient = {
   id: string
   name: string
   uri: string
-  logoUri: string
+  redirectHosts: string[]
   createdAt: string | null
 }
 
@@ -28,14 +29,14 @@ export function acceptOAuthLogin(challenge: string) {
     .json<RedirectResponse>()
 }
 
-// A client the person already connected, asking for nothing more, is connected again without
-// asking, and the answer is only where to go next.
-export type ConsentResponse =
-  | RedirectResponse
-  | {
-    client: OAuthClient
-    scopes: string[]
-  }
+// What a client asks for. `scopes` is empty when it asked for nothing a person can grant.
+// `alreadyApproved` means the person connected it for these scopes before; the page then accepts
+// at once, through the same POST as pressing Allow.
+export type ConsentResponse = {
+  client: OAuthClient
+  scopes: string[]
+  alreadyApproved: boolean
+}
 
 export function getOAuthConsent(challenge: string) {
   return apiClient

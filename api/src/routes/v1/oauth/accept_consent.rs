@@ -23,6 +23,12 @@ pub async fn handle(
     let Json(body) = body?;
     let request = own_consent(&state, &current, &body.challenge).await?;
     let scopes = grantable(&request.requested_scope);
+    if scopes.is_empty() {
+        return Err(ApiError::BadRequest(
+            "this application asked for nothing Elysium can grant, so it cannot be connected"
+                .to_owned(),
+        ));
+    }
     // Every token is bound to the MCP server, whatever the client asked: Hydra ignores the
     // `resource` parameter MCP clients send, so the audience is set here. See docs/mcp.md.
     let audience = mcp_resource(&state.auth.public_url);

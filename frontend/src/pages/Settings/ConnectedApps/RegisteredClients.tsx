@@ -40,7 +40,7 @@ export function RegisteredClients() {
         }
         catch (failure) {
           console.debug('RegisteredClients could not delete a client', { failure })
-          toast.danger(t('connectedApps.clients.loadError'))
+          toast.danger(t('connectedApps.clients.deleteError', { name }))
           throw failure
         }
       },

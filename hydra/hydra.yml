@@ -46,6 +46,12 @@ webfinger:
       - workspace:read
       - workspace:write
 
+oauth2:
+  # Every client uses PKCE, confidential or not, as OAuth 2.1 and the MCP authorization spec
+  # require. A self-registered client could otherwise declare a secret and skip it.
+  pkce:
+    enforced: true
+
 strategies:
   # Opaque tokens, checked by introspection, so a revoked grant stops working at once.
   access_token: opaque

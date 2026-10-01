@@ -6,11 +6,19 @@
     "heading": "{{client}} wants to connect to Elysium",
     "unnamedClient": "An application",
     "from": "From {{host}}",
+    "sendsTo": "Approving sends access to: {{hosts}}",
+    "checkSendsTo": "The name above is whatever the app registered with. Check this is where you expect, such as localhost for an app on your own computer.",
+    "clientId": "Client ID: {{id}}",
     "actsAs": "It will act as you, {{name}}, and can:",
     "disconnectAnytime": "You can disconnect it anytime in Settings, Connected apps.",
     "approve": "Allow",
     "deny": "Deny",
-    "redirecting": "Returning you to the app…"
+    "redirecting": "Returning you to the app…",
+    "nothingGrantable": {
+      "heading": "{{client}} asked for nothing Elysium can grant",
+      "message": "It didn't ask to read or change the workspace, so there's nothing to approve. Return to the app; it needs to ask for workspace access.",
+      "return": "Return to the app"
+    }
   },
   "failures": {
     "expired": "This request expired or was already answered. Start connecting again from your app.",
@@ -45,7 +53,8 @@
       "confirmTitle": "Disconnect {{name}}?",
       "confirmMessage": "It stops working at once, and has to ask you again to reconnect.",
       "disconnected": "{{name}} disconnected",
-      "loadError": "Couldn't load your connected apps."
+      "loadError": "Couldn't load your connected apps.",
+      "disconnectError": "Couldn't disconnect {{name}}. It is still connected; try again."
     },
     "clients": {
       "title": "All registered clients",
@@ -56,7 +65,8 @@
       "confirmTitle": "Delete {{name}}?",
       "confirmMessage": "Everyone who connected it is disconnected at once.",
       "deleted": "{{name}} deleted",
-      "loadError": "Couldn't load the registered clients."
+      "loadError": "Couldn't load the registered clients.",
+      "deleteError": "Couldn't delete {{name}}. It is still registered; try again."
     }
   }
 }

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 import ky from 'ky'
 
 // Misc
-import { challengeFailure, clientHost, isRedirect, knownScopes } from './oauthPresentation'
+import { challengeFailure, clientHost, knownScopes } from './oauthPresentation'
 
 // The error ky itself throws for a response with this status.
 function httpError(status: number) {
@@ -39,15 +39,5 @@ describe('clientHost', () => {
     expect(clientHost({ uri: 'https://claude.ai/code' })).toBe('claude.ai')
     expect(clientHost({ uri: '' })).toBeNull()
     expect(clientHost({ uri: 'not a url' })).toBeNull()
-  })
-})
-
-describe('isRedirect', () => {
-  it('tells an answer that already connected the client from one that asks', () => {
-    expect(isRedirect({ redirectTo: 'http://localhost/oauth2/auth' })).toBe(true)
-    expect(isRedirect({
-      client: { id: 'a', name: 'Claude Code', uri: '', logoUri: '', createdAt: null },
-      scopes: [ 'workspace:read' ],
-    })).toBe(false)
   })
 })

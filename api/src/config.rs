@@ -68,9 +68,8 @@ impl Config {
     /// # Errors
     /// Returns an error when `DATABASE_URL`, `REDIS_URL`, `ELYSIUM_ENCRYPTION_KEY`,
     /// `ELYSIUM_PUBLIC_URL`, `KRATOS_PUBLIC_URL`, `KRATOS_ADMIN_URL`, or `HYDRA_ADMIN_URL` is
-    /// missing, when the
-    /// public URL is not one browsers can hold sessions for, or when any numeric variable
-    /// does not parse.
+    /// missing, when the public URL is not one browsers can hold sessions for, or when any
+    /// numeric variable does not parse.
     pub fn from_env() -> Result<Self> {
         let host: IpAddr = env_or("HOST", IpAddr::V4(Ipv4Addr::UNSPECIFIED))?;
         let port: u16 = env_or("PORT", 8080)?;

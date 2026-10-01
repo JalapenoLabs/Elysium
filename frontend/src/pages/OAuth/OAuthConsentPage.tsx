@@ -19,7 +19,7 @@ import { ChallengeFailureNotice } from './ChallengeFailureNotice'
 
 // Misc
 import { acceptOAuthConsent, getOAuthConsent, rejectOAuthConsent } from '../../api/routes/oauthRoutes'
-import { challengeFailure, clientHost, isRedirect, knownScopes, scopeLabelKeys } from './oauthPresentation'
+import { challengeFailure, clientHost, knownScopes, scopeLabelKeys } from './oauthPresentation'
 
 // Where Hydra sends someone connecting an MCP client to approve it: what the client is, what it
 // may do as them, and Allow or Deny. Either way the browser goes back to the client.
@@ -38,15 +38,15 @@ export function OAuthConsentPage() {
     ([ , key ]) => getOAuthConsent(key),
   )
 
-  // A client already connected for these scopes is let through without asking.
-  const redirectTo = data && isRedirect(data)
-    ? data.redirectTo
-    : null
+  // A client already connected for these scopes is let through without asking, through the same
+  // POST as pressing Allow, so no change happens on a page load.
+  const alreadyApproved = Boolean(data?.alreadyApproved && data.scopes.length)
   useEffect(() => {
-    if (redirectTo) {
-      window.location.assign(redirectTo)
+    if (alreadyApproved) {
+      void answer('allow')
     }
-  }, [ redirectTo ])
+    // `answer` reads only the challenge, which this page never changes.
+  }, [ alreadyApproved ])
 
   async function answer(choice: 'allow' | 'deny') {
     if (!challenge) {
@@ -72,15 +72,36 @@ export function OAuthConsentPage() {
   if (answerFailure || error) {
     return <ChallengeFailureNotice failure={answerFailure ?? challengeFailure(error)} />
   }
-  if (!data || isRedirect(data)) {
+  if (!data || alreadyApproved) {
     return <div className='grid place-items-center gap-4 py-8 text-center'>
       <Spinner />
-      {redirectTo && <p className='text-sm opacity-70'>{t('consent.redirecting')}</p>}
+      {alreadyApproved && <p className='text-sm opacity-70'>{t('consent.redirecting')}</p>}
     </div>
   }
 
   const clientName = data.client.name || t('consent.unnamedClient')
   const host = clientHost(data.client)
+  const sendsTo = data.client.redirectHosts.join(', ')
+
+  // Asking for nothing a person can grant: nothing to approve, only to send the app back.
+  if (!data.scopes.length) {
+    return <div className='text-center'>
+      <LuPlug className='relaxed mx-auto size-9 opacity-60' aria-hidden />
+      <h1 className='compact text-xl font-bold'>{
+        t('consent.nothingGrantable.heading', { client: clientName })
+      }</h1>
+      <p className='relaxed text-sm opacity-70'>{t('consent.nothingGrantable.message')}</p>
+      <Button
+        className='w-full'
+        variant='outline'
+        isPending={answering === 'deny'}
+        isDisabled={answering !== null}
+        onPress={() => answer('deny')}
+      >
+        <span>{t('consent.nothingGrantable.return')}</span>
+      </Button>
+    </div>
+  }
 
   return <div>
     <div className='relaxed text-center'>
@@ -89,6 +110,13 @@ export function OAuthConsentPage() {
         t('consent.heading', { client: clientName })
       }</h1>
       {host && <p className='mt-1 text-xs opacity-60'>{t('consent.from', { host })}</p>}
+    </div>
+
+    {/* The name and website are whatever the app registered with. Where the code goes is not. */}
+    <div className='relaxed rounded-lg border border-separator px-3 py-2 text-xs'>
+      <p className='font-semibold'>{t('consent.sendsTo', { hosts: sendsTo })}</p>
+      <p className='mt-1 opacity-70'>{t('consent.checkSendsTo')}</p>
+      <p className='mt-1 break-all opacity-50'>{t('consent.clientId', { id: data.client.id })}</p>
     </div>
 
     <p className='compact text-sm'>{

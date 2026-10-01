@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/oauth/grants`: the MCP clients the signed-in person connected, one entry per
-//! client with every scope it holds and when it was last granted.
+//! `GET /api/v1/oauth/grants`: the MCP clients the signed-in person connected, newest first, one
+//! entry per client with every scope it holds and when it was last granted.
 
 use std::collections::BTreeMap;
 
@@ -53,5 +53,8 @@ fn by_client(sessions: Vec<ConsentSession>) -> Vec<GrantResponse> {
         }
         grant.granted_at = grant.granted_at.max(session.handled_at);
     }
-    grants.into_values().collect()
+    // Newest first, so the client just connected leads the list.
+    let mut grants: Vec<GrantResponse> = grants.into_values().collect();
+    grants.sort_by_key(|grant| std::cmp::Reverse(grant.granted_at));
+    grants
 }

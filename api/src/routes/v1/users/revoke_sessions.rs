@@ -34,7 +34,10 @@ pub async fn handle(
         .kratos
         .revoke_sessions(identity_of(&person)?)
         .await?;
-    // Everywhere includes the MCP clients they connected.
+    // Everywhere includes the MCP clients they connected. Signing out is the whole of this
+    // action, so a failure of either fails the request and records nothing, for the admin to
+    // retry. Disabling (`update_user`) only logs one, since the disabled row already refuses
+    // everything.
     state.auth.hydra.revoke_consent(person.id, None).await?;
     user::record_account_action(
         &mut connection,

@@ -89,7 +89,7 @@ async fn caller(state: &AppState, headers: &HeaderMap) -> Result<McpCaller, Refu
         .split_whitespace()
         .map(str::to_owned)
         .collect();
-    let checked = check(&introspection, &audience, &scopes)?;
+    let checked = check(&introspection, &audience, &scopes, Utc::now().timestamp())?;
 
     let mut connection = match state.database.get().await {
         Ok(connection) => connection,
@@ -153,16 +153,22 @@ struct Checked {
     user_id: Uuid,
 }
 
-/// Every check on Hydra's answer: active, an access token, issued for `audience`, granting
-/// `workspace:read`, and naming an Elysium user.
+/// Every check on Hydra's answer: active and unexpired, an access token, issued for `audience`,
+/// granting `workspace:read`, and naming an Elysium user.
+///
+/// `now` is seconds since the epoch. Expiry is checked here as well as by Hydra, because a cached
+/// answer outlives the moment Hydra gave it: without it, a token would keep working past its own
+/// expiry for the rest of the cache window.
 fn check(
     introspection: &Introspection,
     audience: &str,
     scopes: &[String],
+    now: i64,
 ) -> Result<Checked, Refusal> {
     let is_access_token = introspection.token_use.as_deref() == Some("access_token");
     let is_for_this_server = introspection.aud.iter().any(|granted| granted == audience);
-    if !introspection.active || !is_access_token || !is_for_this_server {
+    let is_unexpired = introspection.exp.is_some_and(|expiry| expiry > now);
+    if !introspection.active || !is_access_token || !is_for_this_server || !is_unexpired {
         return Err(Refusal::Invalid);
     }
     if !scopes.iter().any(|scope| scope == SCOPE_READ) {
@@ -272,6 +278,7 @@ mod tests {
     use super::*;
 
     const AUDIENCE: &str = "https://work.example.com/api/mcp";
+    const NOW: i64 = 1_790_000_000;
 
     fn introspection() -> Introspection {
         Introspection {
@@ -280,7 +287,7 @@ mod tests {
             scope: Some("workspace:read offline_access".to_owned()),
             aud: vec![AUDIENCE.to_owned()],
             client_id: Some("client".to_owned()),
-            exp: None,
+            exp: Some(NOW + 60),
             token_use: Some("access_token".to_owned()),
         }
     }
@@ -298,7 +305,7 @@ mod tests {
     #[test]
     fn a_good_token_names_its_user() {
         let good = introspection();
-        let checked = check(&good, AUDIENCE, &scopes(&good)).expect("accepted");
+        let checked = check(&good, AUDIENCE, &scopes(&good), NOW).expect("accepted");
         assert_eq!(
             checked.user_id.to_string(),
             "0199a3c4-0000-7000-8000-00000000beef"
@@ -312,7 +319,7 @@ mod tests {
             ..introspection()
         };
         assert_eq!(
-            check(&elsewhere, AUDIENCE, &scopes(&elsewhere)),
+            check(&elsewhere, AUDIENCE, &scopes(&elsewhere), NOW),
             Err(Refusal::Invalid)
         );
 
@@ -321,7 +328,7 @@ mod tests {
             ..introspection()
         };
         assert_eq!(
-            check(&unbound, AUDIENCE, &scopes(&unbound)),
+            check(&unbound, AUDIENCE, &scopes(&unbound), NOW),
             Err(Refusal::Invalid)
         );
 
@@ -330,7 +337,7 @@ mod tests {
             ..introspection()
         };
         assert_eq!(
-            check(&refresh, AUDIENCE, &scopes(&refresh)),
+            check(&refresh, AUDIENCE, &scopes(&refresh), NOW),
             Err(Refusal::Invalid)
         );
 
@@ -339,7 +346,29 @@ mod tests {
             ..introspection()
         };
         assert_eq!(
-            check(&revoked, AUDIENCE, &scopes(&revoked)),
+            check(&revoked, AUDIENCE, &scopes(&revoked), NOW),
+            Err(Refusal::Invalid)
+        );
+    }
+
+    /// A cached answer once let a token work for up to the cache's lifetime past its own expiry.
+    #[test]
+    fn an_expired_token_is_refused_even_from_a_cached_answer() {
+        let expired = Introspection {
+            exp: Some(NOW - 1),
+            ..introspection()
+        };
+        assert_eq!(
+            check(&expired, AUDIENCE, &scopes(&expired), NOW),
+            Err(Refusal::Invalid)
+        );
+
+        let undated = Introspection {
+            exp: None,
+            ..introspection()
+        };
+        assert_eq!(
+            check(&undated, AUDIENCE, &scopes(&undated), NOW),
             Err(Refusal::Invalid)
         );
     }
@@ -351,7 +380,7 @@ mod tests {
             ..introspection()
         };
         assert_eq!(
-            check(&write_only, AUDIENCE, &scopes(&write_only)),
+            check(&write_only, AUDIENCE, &scopes(&write_only), NOW),
             Err(Refusal::InsufficientScope)
         );
     }
@@ -363,7 +392,7 @@ mod tests {
             ..introspection()
         };
         assert_eq!(
-            check(&foreign, AUDIENCE, &scopes(&foreign)),
+            check(&foreign, AUDIENCE, &scopes(&foreign), NOW),
             Err(Refusal::Invalid)
         );
     }

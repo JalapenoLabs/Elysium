@@ -2,8 +2,10 @@
 
 //! `GET /api/v1/oauth/consent?challenge=`: what an MCP client asks the signed-in person for.
 //!
-//! A client the person already connected, asking for nothing more, is connected again without
-//! asking: the answer then carries `redirectTo` alone.
+//! Reading it changes nothing. A client the person already connected, asking for nothing more,
+//! is answered `alreadyApproved`, and the page accepts it at once through
+//! `POST /consent/accept`. `scopes` is empty when the client asked for nothing a person can
+//! grant, and accepting it is then refused.
 
 use axum::Json;
 use axum::extract::rejection::QueryRejection;
@@ -14,7 +16,6 @@ use serde_json::{Value, json};
 use super::{ClientResponse, grantable, own_consent};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::oauth::mcp_resource;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -31,18 +32,11 @@ pub async fn handle(
     let request = own_consent(&state, &current, &query.challenge).await?;
     let scopes = grantable(&request.requested_scope);
 
-    if request.skip {
-        let audience = mcp_resource(&state.auth.public_url);
-        let hydra = &state.auth.hydra;
-        hydra.allow_audience(&request.client, &audience).await?;
-        let redirect_to = hydra
-            .accept_consent(&query.challenge, &scopes, &audience)
-            .await?;
-        return Ok(Json(json!({ "redirectTo": redirect_to })));
-    }
-
     Ok(Json(json!({
         "client": ClientResponse::from(request.client),
         "scopes": scopes,
+        // Approved before for these scopes: the page answers at once, through the same POST as
+        // pressing Allow, so the one change this feature makes stays behind the origin check.
+        "alreadyApproved": request.skip,
     })))
 }

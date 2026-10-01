@@ -35,6 +35,7 @@ pub async fn handle(
     kratos.delete_credentials(identity, "totp").await?;
     kratos.delete_credentials(identity, "lookup_secret").await?;
     kratos.revoke_sessions(identity).await?;
+    // Part of the reset itself, so a failure fails the request, as in `revoke_sessions`.
     state.auth.hydra.revoke_consent(person.id, None).await?;
     user::record_account_action(&mut connection, id, admin.id(), UserEventKind::MfaReset).await?;
 

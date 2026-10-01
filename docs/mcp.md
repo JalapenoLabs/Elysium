@@ -74,7 +74,14 @@ Revoking happens in three places:
   they connected.
 
 Approving a client is remembered: the same client asking for the same scopes again connects without asking, until the
-person disconnects it.
+person disconnects it. The consent page still answers that through `POST /api/v1/oauth/consent/accept`, so every change
+stays behind the origin check.
+
+A client that asks for none of the scopes above is refused with `invalid_scope`, rather than granted a token that can do
+nothing.
+
+The consent page shows where approving sends the code: the hosts of the client's registered redirect URIs. A client's
+name and website are whatever it registered with, so a look-alike can copy them; where the code goes cannot be faked.
 
 ## The server
 
@@ -109,6 +116,7 @@ Hydra's schema.
   clients use.
 - **Routing.** nginx sends `/oauth2/` and Hydra's discovery documents to Hydra's public API, and the protected resource
   metadata to the API. The admin API (port 4445) is for the API alone.
+- **PKCE.** Every client must use PKCE (`oauth2.pkce.enforced`), confidential or not.
 - **Issuer.** The issuer is Elysium's origin, with no path. Hydra does not add `iss` to the authorization response
   (RFC 9207), which the MCP spec allows; its metadata does not claim it, so clients accept the response without it.
 
