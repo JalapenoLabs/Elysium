@@ -34,6 +34,20 @@ x-kratos: &kratos
   volumes:
     - ./kratos:/etc/elysium-kratos:ro
 
+# Ory Hydra, the OAuth 2.1 authorization server MCP clients connect through. Set up like Kratos:
+# its secrets and URLs are derived from the two variables below. See docs/mcp.md.
+x-hydra: &hydra
+  image: oryd/hydra:v26.2.0@sha256:ff67c7fb5f95074fa53374d41151713554960504b340cd3f95b09e65deaea2a9
+  entrypoint: ["/bin/sh", "/etc/elysium-hydra/entrypoint.sh"]
+  environment:
+    # The same server and credentials as Elysium's database; `migrate` creates `hydra`.
+    DSN: postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/hydra?sslmode=disable
+    ELYSIUM_ENCRYPTION_KEY: ${ELYSIUM_ENCRYPTION_KEY:?ELYSIUM_ENCRYPTION_KEY is not set}
+    ELYSIUM_PUBLIC_URL: *public-url
+    TZ: UTC
+  volumes:
+    - ./hydra:/etc/elysium-hydra:ro
+
 services:
   nginx:
     container_name: elysium-nginx
@@ -67,6 +81,8 @@ services:
       api:
         condition: service_healthy
       kratos:
+        condition: service_healthy
+      hydra:
         condition: service_healthy
       frontend:
         condition: service_started
@@ -133,6 +149,33 @@ services:
       retries: 3
       start_period: 10s
 
+  # One-shot: applies Hydra's own migrations to its database, then exits.
+  hydra-migrate:
+    <<: *hydra
+    container_name: elysium-hydra-migrate
+    command: ["migrate", "sql", "up", "--read-from-env", "--yes"]
+    restart: "no"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # OAuth for MCP clients. Its public API (4444) is reached through nginx at /oauth2/ and its
+  # discovery documents; its admin API (4445) is for the API alone.
+  hydra:
+    <<: *hydra
+    container_name: elysium-hydra
+    command: ["serve", "all", "--sqa-opt-out"]
+    restart: unless-stopped
+    depends_on:
+      hydra-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4445/health/ready"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
   api:
     # No container_name and no host port: it scales, and it must only be reachable through nginx.
     image: elysium-api
@@ -147,6 +190,8 @@ services:
       # managing identities. Browsers never reach the admin API.
       KRATOS_PUBLIC_URL: http://kratos:4433
       KRATOS_ADMIN_URL: http://kratos:4434
+      # Hydra's admin API: sign-in and consent for MCP clients, and token introspection.
+      HYDRA_ADMIN_URL: http://hydra:4445
       RUST_LOG: ${RUST_LOG:-info,tower_http=info}
       LOG_FORMAT: compact
       # Empty: frontend and API share nginx's origin, so no cross-origin grant is needed.

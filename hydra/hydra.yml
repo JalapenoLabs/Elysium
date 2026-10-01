@@ -1,0 +1,71 @@
+# Ory Hydra, Elysium's OAuth 2.1 authorization server for MCP clients. See docs/mcp.md.
+#
+# A template, like kratos/kratos.yml: entrypoint.sh replaces every @PLACEHOLDER@ with a value
+# derived from ELYSIUM_PUBLIC_URL and ELYSIUM_ENCRYPTION_KEY, so no deployment edits this file.
+# The database connection comes from the DSN environment variable.
+#
+# Browsers and MCP clients reach the public API on Elysium's origin, through nginx: /oauth2/
+# and Hydra's /.well-known/ documents. The admin API stays on the compose network, for the API
+# alone. Hydra has no sign-in of its own: it sends people to Elysium's /oauth/login and
+# /oauth/consent pages, which prove who they are through Kratos.
+
+serve:
+  public:
+    request_log:
+      disable_for_health: true
+  admin:
+    request_log:
+      disable_for_health: true
+  cookies:
+    same_site_mode: Lax
+
+urls:
+  self:
+    issuer: @PUBLIC_URL@
+    public: @PUBLIC_URL@
+  login: @PUBLIC_URL@/oauth/login
+  consent: @PUBLIC_URL@/oauth/consent
+  error: @PUBLIC_URL@/auth/error
+
+oidc:
+  # MCP clients such as Claude Code and Codex register themselves. Anyone may register a
+  # client, but a client reaches nothing until an approved person consents to it. See
+  # docs/mcp.md.
+  dynamic_client_registration:
+    enabled: true
+    default_scope:
+      - offline_access
+      - workspace:read
+      - workspace:write
+
+webfinger:
+  oidc_discovery:
+    # Hydra serves registration at /oauth2/register, but advertises it only when told.
+    client_registration_url: @PUBLIC_URL@/oauth2/register
+    supported_scope:
+      - workspace:read
+      - workspace:write
+
+strategies:
+  # Opaque tokens, checked by introspection, so a revoked grant stops working at once.
+  access_token: opaque
+  # A scope grants exactly itself; no wildcard matching.
+  scope: exact
+
+ttl:
+  access_token: 1h
+  # Refresh tokens rotate on every use and expire after a month without one.
+  refresh_token: 720h
+  login_consent_request: 15m
+  auth_code: 5m
+
+secrets:
+  system:
+    - @SYSTEM_SECRET@
+  cookie:
+    - @COOKIE_SECRET@
+
+log:
+  level: info
+  format: text
+  leak_sensitive_values: false
