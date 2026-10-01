@@ -16,12 +16,14 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{publish_changeset, publish_touched};
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::changeset::{self, Written};
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
@@ -31,7 +33,8 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let Written { staged, touched } = changeset::undo(&mut connection, id, now).await?;
+    let Written { staged, touched } =
+        changeset::undo(&mut connection, id, current.actor(), now).await?;
     publish_touched(&state.events, &mut connection, touched, now).await?;
     // Returning a resolved item leaves closes it owed for the watcher to drop.
     state.links.wake_watcher();

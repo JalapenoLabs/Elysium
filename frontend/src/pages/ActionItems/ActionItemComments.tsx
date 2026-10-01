@@ -26,6 +26,7 @@ import {
   deleteActionItemComment,
   updateActionItemComment,
 } from '../../api/routes/actionItemRoutes'
+import { useActorNames } from '../../hooks/useActorNames'
 import { useConfirm } from '../../hooks/useConfirm'
 import { usePrompt } from '../../hooks/usePrompt'
 import { useActionItemCommentsLoader } from '../../hooks/useServerData'
@@ -40,7 +41,7 @@ type Props = {
   composerRef?: Ref<HTMLTextAreaElement>
 }
 
-// An item's conversation, oldest first, with a composer below. Only the user's own
+// An item's conversation, oldest first, with a composer below. Only a person's own
 // comments can be edited or deleted; the API refuses anyone else's.
 export function ActionItemComments(props: Props) {
   const { t, i18n } = useTranslation([ 'actionItems', 'common' ])
@@ -48,6 +49,7 @@ export function ActionItemComments(props: Props) {
   const confirm = useConfirm()
   const prompt = usePrompt()
   const status = useActionItemCommentsLoader(props.item.id)
+  const actorNames = useActorNames()
   const comments = useAppSelector((state) => selectActionItemComments(state, props.item.id))
   const [ draft, setDraft ] = useState('')
   const [ isPosting, setIsPosting ] = useState(false)
@@ -130,8 +132,9 @@ export function ActionItemComments(props: Props) {
     }</p>}
     <ol className='compact flex flex-col gap-3'>{
       comments.map((comment) => {
-        const author = describeActor(comment.author)
-        const isOwn = comment.author === 'user'
+        const author = describeActor(comment.author, actorNames)
+        // Only the author may change a comment, and the API checks it too.
+        const isOwn = comment.author === `user:${actorNames.meId}`
         const isEdited = comment.updatedAt !== comment.createdAt
         return <li key={comment.id} className='rounded-xl bg-surface p-3'>
           <div className='level mb-1 text-xs'>

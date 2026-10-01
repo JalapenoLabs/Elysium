@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use validator::Validate;
 
 use super::{EMPTY_SECRET_MESSAGE, EnvironmentVariableResponse, VariableValue, check_key};
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::environment_variable::{self, NewEnvironmentVariable};
 use crate::realtime::ServerEvent;
@@ -33,6 +34,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -44,6 +46,7 @@ pub async fn handle(
     }
 
     let new_variable = NewEnvironmentVariable {
+        created_by: current.id(),
         key: body.key,
         value: body.value.0,
         is_secret: body.is_secret,

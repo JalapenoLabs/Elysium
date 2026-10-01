@@ -21,6 +21,8 @@ export type Llm = {
   isActive: boolean
   expiresAt: string | null
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
   updatedAt: string
 }
 

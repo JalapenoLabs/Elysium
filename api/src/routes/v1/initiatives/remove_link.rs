@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::initiative_link;
 use crate::realtime::ServerEvent;
@@ -20,6 +20,7 @@ use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<StatusCode, ApiError> {
     let Path((id, link_id)) = path?;
@@ -30,7 +31,8 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
 
-    let unlinked = initiative_link::remove(&mut connection, id, link_id, Actor::User, now).await?;
+    let unlinked =
+        initiative_link::remove(&mut connection, id, link_id, current.actor(), now).await?;
     publish_history(&state.events, unlinked.history);
     state.events.publish(&ServerEvent::InitiativeLinkDeleted {
         id: link_id,

@@ -13,6 +13,7 @@ import { GithubCredentialRowActions } from './GithubCredentialRowActions'
 
 // Misc
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
+import { useUserNames } from '../../../hooks/useUserNames'
 import { githubKindLabelKeys } from './githubPresentation'
 
 type Props = {
@@ -23,7 +24,7 @@ type Props = {
   onDelete: (credential: GithubCredential) => void
 }
 
-const GITHUB_COLUMN_KEYS = [ 'name', 'kind', 'account', 'scopes', 'expires', 'rowActions' ] as const
+const GITHUB_COLUMN_KEYS = [ 'name', 'kind', 'account', 'scopes', 'expires', 'createdBy', 'rowActions' ] as const
 type GithubColumnKey = typeof GITHUB_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
@@ -32,6 +33,7 @@ const columnLabelKeys = {
   account: 'table.account',
   scopes: 'table.scopes',
   expires: 'table.expires',
+  createdBy: 'common:table.createdBy',
   rowActions: 'common:actions.moreActions',
 } as const satisfies Record<GithubColumnKey, string>
 
@@ -42,12 +44,14 @@ const columnSizes = {
   account: 160,
   scopes: 260,
   expires: 150,
+  createdBy: 160,
   rowActions: 64,
 } as const satisfies Record<GithubColumnKey, number>
 
 export function GithubCredentialTable(props: Props) {
   const { t, i18n } = useTranslation([ 'github', 'common' ])
   const labels = useSmartTableLabels()
+  const userNames = useUserNames()
   const [ search, setSearch ] = useState('')
 
   // Captured once per mount so render stays pure; expiry is "as of when you opened the page".
@@ -95,6 +99,7 @@ export function GithubCredentialTable(props: Props) {
         }
         return expiresText(credential)
       },
+      createdBy: (credential: GithubCredential) => userNames[credential.createdBy] ?? t('common:table.someone'),
       rowActions: (credential: GithubCredential) => <GithubCredentialRowActions
         credential={credential}
         onEdit={props.onEdit}
@@ -111,6 +116,7 @@ export function GithubCredentialTable(props: Props) {
       account: (credential: GithubCredential) => credential.login,
       scopes: scopesText,
       expires: expiresText,
+      createdBy: (credential: GithubCredential) => userNames[credential.createdBy] ?? '',
       rowActions: null,
     } satisfies Record<GithubColumnKey, ((credential: GithubCredential) => string) | null>
 
@@ -155,7 +161,7 @@ export function GithubCredentialTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, now, props.onEdit, props.onTest, props.onToggleDefault, props.onDelete ])
+  }, [ t, userNames, i18n.language, now, props.onEdit, props.onTest, props.onToggleDefault, props.onDelete ])
 
   if (!props.credentials.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
@@ -166,7 +172,7 @@ export function GithubCredentialTable(props: Props) {
   return <SmartTable
     ids={{
       tableElementId: 'github-credentials-table',
-      tableLocalStorageId: 'elysium.settings.github.table',
+      tableLocalStorageId: 'elysium.settings.github.table.v2',
     }}
     tableAriaLabel={t('table.label')}
     data={props.credentials}

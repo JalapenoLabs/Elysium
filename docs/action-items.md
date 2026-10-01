@@ -93,8 +93,11 @@ restore refuses a deleted item, and a deleted item counts toward no initiative's
 
 ## Ownership and multiple users
 
-Elysium is used by one person today and is built to be shared by a small team. The API has no authentication yet
-(`docs/security.md`) and there is no users table, so ownership is recorded without one:
+Elysium is one workspace shared by everyone who signs in (`docs/auth.md`). Every item and initiative records who
+created it (`createdBy`), and every history entry names its actor: `user:<id>` for a person, `elysia`,
+`session:<number>`, or `watcher:<provider>`. Entries written before accounts say `user` alone.
+
+Ownership predates accounts and is still recorded as text:
 
 - `owner` is one of three things: the user, someone else by the name or address a provider reports, or nobody,
   for a linked issue with no assignee. It is stored as `owner_kind` (`user`, `other`, `nobody`) with `owner_name`
@@ -102,10 +105,8 @@ Elysium is used by one person today and is built to be shared by a small team. T
   teammate's Jira issue under a linked epic) count toward progress but never appear in Next, and neither do unowned
   items until the user claims one.
 - `waitingOn` is free text: a name or an address.
-- Every history entry names its actor: `user`, `elysia`, `session:<number>`, or `watcher:<provider>`.
 
-When users exist, `owner`, `waitingOn`, and the `user` actor become references to them, and Next becomes per user.
-Nothing else in this design assumes a single user.
+The roadmap is for `owner` and `waitingOn` to reference users, and for Next to be each person's own.
 
 ## History
 

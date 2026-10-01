@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use validator::Validate;
 
 use super::{LlmResponse, SecretToken, validate_not_blank};
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::llm::{self, LlmType, NewLlm};
 use crate::realtime::ServerEvent;
@@ -43,12 +44,14 @@ const fn default_is_active() -> bool {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
     body.validate()?;
 
     let new_llm = NewLlm {
+        created_by: current.id(),
         name: body.name,
         description: body.description,
         type_: body.llm_type,

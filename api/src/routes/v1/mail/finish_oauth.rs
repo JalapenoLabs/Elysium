@@ -19,11 +19,13 @@ use secrecy::SecretString;
 use serde::Deserialize;
 use tracing::{Level, event};
 use url::form_urlencoded;
+use uuid::Uuid;
 
 use super::{
     MAIL_SETTINGS_PATH, OAUTH_CALLBACK_PATH, OAUTH_FLOW_COOKIE, OAUTH_FLOW_KEY_PREFIX,
     PendingOAuthFlow,
 };
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::mail_account::{self, MailAccount, NewMailAccount};
 use crate::realtime::ServerEvent;
@@ -38,10 +40,11 @@ pub struct CallbackQuery {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     Query(query): Query<CallbackQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let outcome = match complete(&state, &query, &headers).await {
+    let outcome = match complete(&state, &query, &headers, current.id()).await {
         Ok(account) => ("mailConnected", account.id.to_string()),
         Err(FlowError::Refused(code)) => ("mailError", code.to_owned()),
         Err(FlowError::Api(error)) => {
@@ -88,6 +91,7 @@ async fn complete(
     state: &AppState,
     query: &CallbackQuery,
     headers: &HeaderMap,
+    created_by: Uuid,
 ) -> Result<MailAccount, FlowError> {
     let Some(flow_state) = query.state.as_deref() else {
         return Err(FlowError::Refused("invalid_request"));
@@ -145,6 +149,7 @@ async fn complete(
         }
         None => {
             let new_account = NewMailAccount {
+                created_by,
                 kind: pending.kind,
                 address: redeemed.address,
                 display_name: String::new(),

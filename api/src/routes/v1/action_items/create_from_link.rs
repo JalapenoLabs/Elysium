@@ -23,7 +23,7 @@ use super::{
     LinkTarget, link_responses, publish_item_links, publish_item_write, refuse_unknown_projects,
     unique_ids, validate_not_blank,
 };
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item::{ActionItemState, NewActionItem};
 use crate::models::action_item_link::{self, LinkKind, LinkProvider, NewLink};
@@ -50,6 +50,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -99,10 +100,15 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let linked =
-        action_item_link::create_linked_item(&mut connection, new_item, new_link, Actor::User, now)
-            .await
-            .map_err(refuse_unknown_projects)?;
+    let linked = action_item_link::create_linked_item(
+        &mut connection,
+        new_item,
+        new_link,
+        current.actor(),
+        now,
+    )
+    .await
+    .map_err(refuse_unknown_projects)?;
     let link = linked
         .links
         .into_iter()

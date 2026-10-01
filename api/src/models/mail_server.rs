@@ -24,6 +24,8 @@ pub struct MailServer {
     pub admin_username: String,
     pub admin_secret_encrypted: Vec<u8>,
     pub created_at: DateTime<Utc>,
+    /// Who created it.
+    pub created_by: Uuid,
 }
 
 /// A freshly issued administrator, with the secret still in plaintext.
@@ -33,6 +35,8 @@ pub struct NewMailServer {
     pub hostname: String,
     pub admin_username: String,
     pub admin_secret: SecretString,
+    /// Who is creating it.
+    pub created_by: Uuid,
 }
 
 #[derive(Insertable)]
@@ -42,6 +46,7 @@ struct MailServerRow<'a> {
     hostname: String,
     admin_username: &'a str,
     admin_secret_encrypted: Vec<u8>,
+    created_by: Uuid,
 }
 
 /// Associated data binding the sealed secret to its row, so a ciphertext copied into
@@ -91,6 +96,7 @@ pub async fn replace(
 ) -> QueryResult<MailServer> {
     let id = Uuid::now_v7();
     let row = MailServerRow {
+        created_by: new_server.created_by,
         id,
         hostname: new_server.hostname.to_lowercase(),
         admin_username: &new_server.admin_username,
@@ -117,10 +123,11 @@ pub async fn replace(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 
     fn administrator(hostname: &str, secret: &str) -> NewMailServer {
         NewMailServer {
+            created_by: TEST_PERSON_ID,
             hostname: hostname.to_owned(),
             admin_username: format!("admin@{hostname}"),
             admin_secret: SecretString::from(secret.to_owned()),
@@ -187,6 +194,7 @@ mod tests {
         let id = Uuid::now_v7();
         let second = diesel::insert_into(mail_servers::table)
             .values(MailServerRow {
+                created_by: TEST_PERSON_ID,
                 id,
                 hostname: "mail.other.local".to_owned(),
                 admin_username: "admin@other.local",

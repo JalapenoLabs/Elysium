@@ -38,7 +38,9 @@
     "rowsPerPage": "Rows per page",
     "pagination": "Pagination",
     "previousPage": "Previous page",
-    "nextPage": "Next page"
+    "nextPage": "Next page",
+    "createdBy": "Created by",
+    "someone": "Someone"
   },
   "picker": {
     "placeholder": "Choose"

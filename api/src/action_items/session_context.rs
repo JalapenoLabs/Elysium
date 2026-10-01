@@ -225,6 +225,7 @@ mod tests {
     use super::*;
     use crate::models::action_item::OwnerKind;
     use crate::models::project::{GithubAccess, ProjectCoverFit};
+    use crate::test_support::TEST_PERSON_ID;
 
     fn moment(offset_minutes: i64) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339("2026-09-18T12:00:00Z")
@@ -235,6 +236,7 @@ mod tests {
 
     fn item() -> ActionItem {
         ActionItem {
+            created_by: TEST_PERSON_ID,
             id: Uuid::nil(),
             title: "Fix the login bug".to_owned(),
             notes: "Users on Safari are logged out after a refresh.".to_owned(),
@@ -255,6 +257,7 @@ mod tests {
 
     fn project() -> Project {
         Project {
+            created_by: TEST_PERSON_ID,
             id: Uuid::nil(),
             name: "Elysium".to_owned(),
             description: "The user's workspace.".to_owned(),
@@ -269,6 +272,7 @@ mod tests {
 
     fn initiative(name: &str, description: &str) -> Initiative {
         Initiative {
+            created_by: TEST_PERSON_ID,
             id: Uuid::now_v7(),
             name: name.to_owned(),
             description: description.to_owned(),

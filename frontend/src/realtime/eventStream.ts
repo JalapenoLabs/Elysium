@@ -27,13 +27,16 @@ import { eventStreamLost, eventStreamOpened } from '../store/realtimeSlice'
 import { satelliteDeleted, satelliteStatusReported, satelliteUpserted } from '../store/satellitesSlice'
 import { sessionEventReceived } from '../store/sessionEventsSlice'
 import { storageLocationDeleted, storageLocationUpserted } from '../store/storageLocationsSlice'
+import { userDeleted, userUpserted } from '../store/usersSlice'
+import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
 // Misc
 import { EVENT_STREAM_PATH, EVENT_STREAM_RETRY_INITIAL_MS, EVENT_STREAM_RETRY_MAX_MS } from '../constants'
 
 // The universal event stream: one EventSource for the whole app, open for as long as
-// the page is. Every change the API announces lands in Redux through here, so no
-// component polls or refetches after another tab's write.
+// someone may use the workspace. Every change the API announces lands in Redux through here,
+// so no component polls or refetches after another tab's write. `AuthGate` starts it once
+// the signed-in person has access, and signing out stops it.
 
 type Handlers = {
   [Type in ServerEventType]: (event: Extract<ServerEvent, { type: Type }>) => void
@@ -107,6 +110,10 @@ const handlers: Handlers = {
   'session.event': (event) => store.dispatch(sessionEventReceived(event.data)),
   // Revalidates only if a conversation panel holds this session's history key.
   'session.resync': (event) => void mutate(`v1/coding-sessions/${event.data.id}/events`),
+  // Also updates the signed-in person's own account, through the auth slice.
+  'user.upserted': (event) => store.dispatch(userUpserted(event.data)),
+  'user.deleted': (event) => store.dispatch(userDeleted(event.data.id)),
+  'workspaceSettings.updated': (event) => store.dispatch(workspaceSettingsUpdated(event.data)),
 }
 
 function dispatchServerEvent(data: string) {
@@ -128,33 +135,50 @@ function dispatchServerEvent(data: string) {
   handler(event)
 }
 
-// Opens the stream and keeps it open. Browsers retry a dropped EventSource by
-// themselves, but close it for good after an HTTP error response, such as a 502 while
-// the API restarts; this reopens it with a backoff in that case.
+// The open stream, and the reopen waiting after an error, while the stream runs.
+let source: EventSource | null = null
+let reopenTimer: number | undefined
+
+// Opens the stream and keeps it open until `stopEventStream`. Browsers retry a dropped
+// EventSource by themselves, but close it for good after an HTTP error response, such as a
+// 502 while the API restarts; this reopens it with a backoff in that case. Starting a stream
+// that already runs does nothing.
 export function startEventStream() {
+  if (source) {
+    return
+  }
+
   let retryDelay = EVENT_STREAM_RETRY_INITIAL_MS
 
   function open() {
-    const source = new EventSource(EVENT_STREAM_PATH)
+    const opened = new EventSource(EVENT_STREAM_PATH)
+    source = opened
 
-    source.addEventListener('open', () => {
+    opened.addEventListener('open', () => {
       retryDelay = EVENT_STREAM_RETRY_INITIAL_MS
       store.dispatch(eventStreamOpened())
     })
 
-    source.addEventListener('message', (message) => dispatchServerEvent(message.data))
+    opened.addEventListener('message', (message) => dispatchServerEvent(message.data))
 
-    source.addEventListener('error', () => {
+    opened.addEventListener('error', () => {
       store.dispatch(eventStreamLost())
-      if (source.readyState !== EventSource.CLOSED) {
+      if (opened.readyState !== EventSource.CLOSED || source !== opened) {
         return
       }
 
       console.debug('Event stream closed by an error response; reopening', { retryDelay })
-      window.setTimeout(open, retryDelay)
+      reopenTimer = window.setTimeout(open, retryDelay)
       retryDelay = Math.min(retryDelay * 2, EVENT_STREAM_RETRY_MAX_MS)
     })
   }
 
   open()
+}
+
+// Closes the stream for good, such as when the person signs out.
+export function stopEventStream() {
+  window.clearTimeout(reopenTimer)
+  source?.close()
+  source = null
 }

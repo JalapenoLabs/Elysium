@@ -31,6 +31,8 @@ pub struct CodingSession {
     pub github_credential_id: Option<Uuid>,
     /// The action item the session was started from, if any.
     pub action_item_id: Option<Uuid>,
+    /// Who created it.
+    pub created_by: Uuid,
 }
 
 /// Fields for a new session. The id comes from [`reserve_id`], because the thread is
@@ -45,6 +47,8 @@ pub struct NewCodingSession {
     pub title: String,
     pub github_credential_id: Option<Uuid>,
     pub action_item_id: Option<Uuid>,
+    /// Who is creating it.
+    pub created_by: Uuid,
 }
 
 /// Every session, newest first.
@@ -156,10 +160,11 @@ mod tests {
     use crate::errors::ApiError;
     use crate::models::project::{self, NewProject};
     use crate::models::satellite::{self, NewSatellite};
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, cipher, migrated_database};
 
     async fn satellite_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
         let new_satellite = NewSatellite {
+            created_by: TEST_PERSON_ID,
             name: name.to_owned(),
             description: String::new(),
             url: "http://arsox:8080".to_owned(),
@@ -174,6 +179,7 @@ mod tests {
 
     async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
         let new_project = NewProject {
+            created_by: TEST_PERSON_ID,
             name: name.to_owned(),
             description: String::new(),
         };
@@ -191,6 +197,7 @@ mod tests {
         thread_id: &str,
     ) -> QueryResult<CodingSession> {
         let new_session = NewCodingSession {
+            created_by: TEST_PERSON_ID,
             id: reserve_id(connection).await?,
             project_id,
             satellite_id,
@@ -332,7 +339,6 @@ mod tests {
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
     async fn a_session_keeps_the_item_it_started_from_and_outlives_the_item_row() {
-        use crate::action_items::Actor;
         use crate::database::schema::action_items;
         use crate::models::action_item::{
             self, ActionItemPriority, ActionItemState, NewActionItem, Owner,
@@ -351,12 +357,13 @@ mod tests {
             project_ids: vec![project],
             initiative_ids: Vec::new(),
         };
-        let item = action_item::create(&mut connection, new_item, Actor::User, chrono::Utc::now())
+        let item = action_item::create(&mut connection, new_item, TEST_PERSON, chrono::Utc::now())
             .await
             .expect("item")
             .record;
 
         let new_session = NewCodingSession {
+            created_by: TEST_PERSON_ID,
             id: reserve_id(&mut connection).await.expect("reserve"),
             project_id: project,
             satellite_id: orbit,

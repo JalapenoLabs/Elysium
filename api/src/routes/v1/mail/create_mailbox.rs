@@ -19,6 +19,7 @@ use uuid::Uuid;
 use validator::{Validate, ValidateEmail, ValidationError};
 
 use super::{MailAccountResponse, require_administrator};
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::mail::broker::random_token;
 use crate::models::mail_account::{self, MailAccountKind, NewMailAccount};
@@ -52,6 +53,7 @@ fn validate_local_part(value: &str) -> Result<(), ValidationError> {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -102,6 +104,7 @@ pub async fn handle(
         .await?;
 
     let new_account = NewMailAccount {
+        created_by: current.id(),
         kind: MailAccountKind::SelfHosted,
         address,
         display_name: body.display_name.trim().to_owned(),

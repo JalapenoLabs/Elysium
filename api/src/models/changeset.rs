@@ -100,6 +100,10 @@ pub struct Changeset {
     pub undone_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The machine that proposed it: Elysia, or the coding agent.
+    pub created_by: Uuid,
+    /// The person who applied or rejected it.
+    pub decided_by: Option<Uuid>,
 }
 
 /// A stored operation.
@@ -197,6 +201,7 @@ struct ChangesetRow {
     project_id: Option<Uuid>,
     summary: String,
     created_at: DateTime<Utc>,
+    created_by: Uuid,
 }
 
 #[derive(Insertable)]
@@ -234,6 +239,7 @@ pub async fn propose(
         project_id: proposal.project_id,
         summary: proposal.summary,
         created_at: now,
+        created_by: proposal.proposer.actor().user_id(),
     };
     let rows = proposal
         .operations
@@ -475,29 +481,36 @@ pub async fn decide(
         .await
 }
 
-/// Moves a changeset on from pending or applied, stamping when: `decided_at` for applied
-/// or rejected, `undone_at` for undone.
+/// Records that a pending changeset was applied or rejected, when, and by whom.
 async fn conclude(
     connection: &mut AsyncPgConnection,
     id: Uuid,
     state: ChangesetState,
+    decided_by: Uuid,
     now: DateTime<Utc>,
 ) -> QueryResult<Changeset> {
-    let update = diesel::update(changesets_table::table.find(id));
-    if state == ChangesetState::Undone {
-        return update
-            .set((
-                changesets_table::state.eq(state),
-                changesets_table::undone_at.eq(now),
-            ))
-            .returning(Changeset::as_returning())
-            .get_result(connection)
-            .await;
-    }
-    update
+    diesel::update(changesets_table::table.find(id))
         .set((
             changesets_table::state.eq(state),
             changesets_table::decided_at.eq(now),
+            changesets_table::decided_by.eq(decided_by),
+        ))
+        .returning(Changeset::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Records that an applied changeset was undone, and when. Who undid it is in the history its
+/// reversals wrote, since each names its actor.
+async fn mark_undone(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    now: DateTime<Utc>,
+) -> QueryResult<Changeset> {
+    diesel::update(changesets_table::table.find(id))
+        .set((
+            changesets_table::state.eq(ChangesetState::Undone),
+            changesets_table::undone_at.eq(now),
         ))
         .returning(Changeset::as_returning())
         .get_result(connection)

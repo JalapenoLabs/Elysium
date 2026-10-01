@@ -2,10 +2,13 @@
 
 ## Trust boundary
 
-nginx publishes the web on `127.0.0.1` by default. The API has no authentication yet, its LLM and satellite routes
-write credentials, and its coding routes drive agents on satellites, so by default nothing outside this machine may
-reach it. `WEB_BIND_ADDRESS` publishes it on another address, which extends that trust to every client able to reach
-the address.
+Every API route but `GET /api/v1/auth/status` requires a Kratos session and an approved account; see
+`docs/auth.md`. Everyone signed in shares one workspace: its LLM and satellite routes write credentials, its coding
+routes drive agents on satellites, and its mail routes reach the Docker host. An account is therefore trusted with all
+of that, which is why admins approve every sign-up and can close sign-up entirely.
+
+nginx publishes the web on `127.0.0.1` by default. `WEB_BIND_ADDRESS` publishes it on another address, for a network
+whose users may all hold accounts, together with an https `ELYSIUM_PUBLIC_URL`.
 
 The mail ports (25, 465, 993) are published on every interface. They reach Stalwart alone, which authenticates
 mailbox access itself and accepts unauthenticated SMTP only as delivery to its own domains, never as a relay.
@@ -18,7 +21,7 @@ would let a client forge them.
 ## Satellites
 
 - The API connects to whatever URL a satellite is registered with. That is intended, since satellites are
-  operator infrastructure, and it is one more reason the API stays on loopback by default until it has authentication.
+  operator infrastructure, and it is one more reason every account is approved by an admin.
 - Satellite secrets never leave the API. Browsers talk only to the API, which holds the one client per satellite.
 - Satellite errors shown to clients (`502` messages, `satellite.status` errors) come from the satellite's contract
   errors and transport failures, which never contain the secret.
@@ -45,9 +48,22 @@ The API creates and runs the mail server through Docker. It never mounts the Doc
 other service joins. Exec, build, swarm, secrets, and system endpoints are refused.
 
 The proxy narrows the surface but does not make it safe: creating a container is enough to control the host. Anyone
-who can send the API requests can therefore reach the host, which is one more reason nginx listens on loopback by
-default until the API has authentication. `WEB_BIND_ADDRESS` publishes it more widely for an operator who trusts
-every client on that network.
+signed in can therefore reach the host through the mail routes, which is one more reason every account is approved
+by an admin.
+
+## Sign-in
+
+Kratos holds passwords (Argon2id), passkeys, authenticator apps, and sessions; the API never sees a password.
+
+- **Cookie.** The session cookie is `HttpOnly`, `SameSite=Lax`, and host-only, and it is `Secure` over https.
+- **Origin.** Unsafe API requests must carry Elysium's own `Origin`.
+- **Brute force.** nginx throttles sign-in, sign-up, and recovery submissions to 5 a minute per client address.
+  There is no per-account lockout, which would let anyone lock a known person out. Behind a proxy, the address is
+  right only when `TRUSTED_PROXY_ADDRESSES` names that proxy (`docs/auth.md`).
+- **Kratos's internal routes.** Kratos calls the API's `/internal` routes. nginx never forwards `/internal` (production answers it with a `404`), and the
+  routes also check a key derived from the encryption key.
+
+`docs/auth.md` has the whole design.
 
 ## Rate limiting
 
@@ -58,7 +74,9 @@ once. The event stream counts as one request per connection. Exceeding the limit
 `Retry-After`, and `x-ratelimit-*` headers. Buckets for idle clients are swept every minute so the key map stays
 bounded.
 
-The client is the first parseable `X-Forwarded-For` address, then `X-Real-IP`, then the peer address.
+The client is the first parseable `X-Forwarded-For` address, then `X-Real-IP`, then the peer address. nginx sets
+`X-Forwarded-For` to the one client address it resolved, replacing whatever the client sent, so a client cannot pick
+its own bucket. Behind a proxy, that address is the client's only when `TRUSTED_PROXY_ADDRESSES` names the proxy.
 
 **Buckets are timed with `std::time::Instant`**, which pauses while the host is suspended. governor's default
 clock reads the CPU's time stamp counter, which does not survive a suspend: after one, every stored bucket sat

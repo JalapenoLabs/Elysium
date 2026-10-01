@@ -22,6 +22,9 @@ pub struct MailDomain {
     /// The domain the server was created with, which cannot be removed.
     pub is_default: bool,
     pub created_at: DateTime<Utc>,
+    /// Who added it, or who created the server for its default domain.
+    pub created_by: Uuid,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Insertable)]
@@ -31,6 +34,7 @@ struct MailDomainRow<'a> {
     name: String,
     stalwart_id: &'a str,
     is_default: bool,
+    created_by: Uuid,
 }
 
 /// Every domain, alphabetically.
@@ -68,6 +72,7 @@ pub async fn create(
     name: &str,
     stalwart_id: &str,
     is_default: bool,
+    created_by: Uuid,
 ) -> QueryResult<MailDomain> {
     diesel::insert_into(mail_domains::table)
         .values(MailDomainRow {
@@ -75,6 +80,7 @@ pub async fn create(
             name: name.to_lowercase(),
             stalwart_id,
             is_default,
+            created_by,
         })
         .returning(MailDomain::as_returning())
         .get_result(connection)
@@ -115,20 +121,20 @@ mod tests {
 
     use super::*;
     use crate::models::mail_account::{self, MailAccountKind, NewMailAccount};
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
     async fn a_domain_with_mailboxes_cannot_be_deleted() {
         let (_url, mut connection) = migrated_database().await;
-        let domain = create(&mut connection, "Alpha.Test", "b", true)
+        let domain = create(&mut connection, "Alpha.Test", "b", true, TEST_PERSON_ID)
             .await
             .expect("insert");
         assert_eq!(domain.name, "alpha.test");
-        create(&mut connection, "alpha.test", "c", false)
+        create(&mut connection, "alpha.test", "c", false, TEST_PERSON_ID)
             .await
             .expect_err("names are unique regardless of case");
-        create(&mut connection, "beta.test", "c", true)
+        create(&mut connection, "beta.test", "c", true, TEST_PERSON_ID)
             .await
             .expect_err("only one domain is the default");
 
@@ -136,6 +142,7 @@ mod tests {
             &mut connection,
             &cipher(),
             &NewMailAccount {
+                created_by: TEST_PERSON_ID,
                 kind: MailAccountKind::SelfHosted,
                 address: "agent@alpha.test".to_owned(),
                 display_name: String::new(),

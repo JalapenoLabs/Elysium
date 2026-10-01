@@ -15,7 +15,7 @@ use uuid::Uuid;
 use validator::Validate;
 
 use super::{CommentResponse, publish_history, publish_item_links, validate_not_blank};
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item_comment;
 use crate::models::action_item_event::Recorded;
@@ -31,6 +31,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
@@ -44,7 +45,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let Recorded { record, history } =
-        action_item_comment::create(&mut connection, id, body.body, Actor::User, Utc::now())
+        action_item_comment::create(&mut connection, id, body.body, current.actor(), Utc::now())
             .await?;
 
     let comment = CommentResponse::from(record);

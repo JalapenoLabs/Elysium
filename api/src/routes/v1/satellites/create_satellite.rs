@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use validator::Validate;
 
 use super::{SatelliteResponse, SatelliteSecret, validate_http_scheme, validate_not_blank};
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::satellite::{self, NewSatellite};
 use crate::realtime::ServerEvent;
@@ -39,12 +40,14 @@ const fn default_is_active() -> bool {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
     body.validate()?;
 
     let new_satellite = NewSatellite {
+        created_by: current.id(),
         name: body.name,
         description: body.description,
         url: body.url,

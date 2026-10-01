@@ -22,6 +22,7 @@ Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`
 - `REDIS_PASSWORD`
 - `RUST_LOG`, which is optional
+- `ELYSIUM_PUBLIC_URL`, which is optional: the origin browsers use, `http://localhost:4000` unless set
 - `ELYSIUM_VERSION`, which is optional: the published release the production stack runs, `latest` unless set
 
 Everything else follows these rules:
@@ -31,6 +32,27 @@ Everything else follows these rules:
 - Non-secret configuration, such as `CORS_ALLOWED_ORIGINS`, is written inline in `compose.yml`.
 - Policy values that must not vary per deployment, such as rate limits, are constants in the code, not
   configuration.
+
+## Accounts live in Ory Kratos
+
+- Kratos (`kratos/`) owns identities: passwords, passkeys, authenticator apps, lookup codes, sessions, and recovery.
+  Elysium never re-implements any of it. The frontend renders Kratos's flows through its JSON API at
+  `/api/identity/`; the API calls Kratos's admin API alone. See `docs/auth.md`.
+- Kratos's configuration is derived from `ELYSIUM_PUBLIC_URL` and `ELYSIUM_ENCRYPTION_KEY` by
+  `kratos/entrypoint.sh`. Nothing for Kratos goes in the bootstrap file. Its database, `kratos`, shares Elysium's
+  Postgres server and credentials.
+- `users` holds every principal: people, mapped to their Kratos identity, and the seeded machines (the system user,
+  Elysia, and the coding agent), which can never sign in. Roles are one enum: `admin`, `member`, `guest`, `agent`,
+  `system`. Guests have a member's access until roles are built out.
+- The first person to sign up becomes the admin; everyone after waits for an admin's approval. Admins can close
+  sign-up and require an authenticator app. The workspace always keeps one active admin. Approved people are never
+  deleted, only disabled.
+- Every `/api/v1` route needs a session, except `/auth/status`; handlers name who they act for with `CurrentUser` or
+  `AdminUser`. Unsafe requests must come from Elysium's own origin.
+- Every top-level table has `created_by NOT NULL REFERENCES users`, and every new one gets it too. Machines create
+  as their seeded user. There is no `updated_by`; history records edits.
+- There is no mail for accounts yet: recovery links are logged by the API (`auth.recovery.issued`), or created by an
+  admin.
 
 ## Satellites are reached only through the API
 
@@ -152,7 +174,8 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   changeset with `work_propose_changes`.
 - A session started from an item records it, and its first turn carries the item's context ahead of the user's
   prompt.
-- There is no users table yet. Ownership and actors are recorded as text and become references when users land.
+- Every row records who created it. Ownership (`owner_kind`, `waiting_on`) is still text; making it reference users
+  is on the roadmap.
 - Every write records a history entry with its actor in the same transaction, with before and after values so it can
   be shown and undone. Deleting items and initiatives is soft. Next's order and the progress rules are pure functions
   in `api/src/action_items/`.

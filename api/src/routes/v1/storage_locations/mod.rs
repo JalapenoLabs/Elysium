@@ -63,6 +63,8 @@ pub struct StorageLocationResponse {
     /// `"*"` for every project, or the ids of the projects that save files here.
     projects: ProjectScope,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
 }
 
@@ -76,6 +78,7 @@ impl StorageLocationResponse {
             storage_limit_bytes: location.storage_limit_bytes,
             projects,
             created_at: location.created_at,
+            created_by: location.created_by,
             updated_at: location.updated_at,
         }
     }

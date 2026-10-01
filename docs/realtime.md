@@ -51,6 +51,9 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `session.deleted`    | `{ id }`                 | A session was deleted; `id` is the session's number        |
 | `session.event`      | `SessionEvent`           | A thread emitted an event                                  |
 | `session.resync`     | `{ id }`                 | Live events for that session may have been missed          |
+| `user.upserted`      | `User`                   | Someone signed up, was approved, changed role, or was disabled or enabled |
+| `user.deleted`       | `{ id }`                 | A pending sign-up was rejected                             |
+| `workspaceSettings.updated` | `WorkspaceSettings` | Sign-up was opened or closed, or the authenticator rule changed |
 
 Payload shapes are the same JSON the REST routes return; see `docs/api.md` and `docs/coding.md`.
 
@@ -63,6 +66,10 @@ every action item event to Redux; `actionItem.deleted` and `initiative.deleted` 
 `initiative.upserted` the initiative's burnup, and `actionItemLink.upserted` the item's live provider reads, each only
 while a view shows it (`docs/frontend.md`). The link and container events land in the `actionItemLinks` and
 `initiativeLinks` slices, and `changeset.upserted` in the `changesets` slice.
+
+Only an active, approved person may open the stream, and every one of them receives every event. Every 30 seconds
+the stream checks its session and person again and closes when either lost access (`docs/auth.md`). The stream never
+extends a session, so an open tab alone does not keep anyone signed in.
 
 The stream sends a comment every 15 seconds so proxies never see it idle. nginx serves `/api/v1/events` from its
 own location with buffering off and a one-hour read timeout.

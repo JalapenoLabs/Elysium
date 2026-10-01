@@ -32,6 +32,8 @@ export type Project = {
   name: string
   description: string
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
   updatedAt: string
   // When the cover last changed; null when the project has none.
   coverUpdatedAt: string | null

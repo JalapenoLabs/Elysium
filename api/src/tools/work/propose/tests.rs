@@ -6,7 +6,6 @@
 use serde_json::json;
 
 use super::*;
-use crate::action_items::Actor;
 use crate::action_items::changesets::{
     AddComment, CreateItem, Existing, FinishItem, Membership, Proposed,
 };
@@ -16,7 +15,7 @@ use crate::models::action_item::{
 use crate::models::changeset::{ChangesetDecision, ChangesetState};
 use crate::models::initiative::{self, NewInitiative};
 use crate::models::project::{self, NewProject};
-use crate::test_support::migrated_database;
+use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, migrated_database};
 
 #[test]
 fn agents_link_only_pull_requests_by_url_and_never_choose_projects() {
@@ -75,6 +74,7 @@ async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
     project::create(
         connection,
         &NewProject {
+            created_by: TEST_PERSON_ID,
             name: name.to_owned(),
             description: String::new(),
         },
@@ -95,7 +95,7 @@ async fn item_in(connection: &mut AsyncPgConnection, title: &str, project_id: Uu
         project_ids: vec![project_id],
         initiative_ids: Vec::new(),
     };
-    action_item::create(connection, new_item, Actor::User, Utc::now())
+    action_item::create(connection, new_item, TEST_PERSON, Utc::now())
         .await
         .expect("item")
         .record
@@ -139,7 +139,7 @@ async fn fixture() -> Fixture {
             target_at: None,
             project_ids: vec![other_project],
         },
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await

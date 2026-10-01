@@ -13,13 +13,14 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::{publish_initiative_write, publish_member_items};
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::initiative;
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<StatusCode, ApiError> {
     let Path(id) = path?;
@@ -30,7 +31,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
 
-    let deleted = initiative::soft_delete(&mut connection, id, Actor::User, now).await?;
+    let deleted = initiative::soft_delete(&mut connection, id, current.actor(), now).await?;
     publish_initiative_write(&state.events, &mut connection, deleted, now).await?;
     publish_member_items(&state.events, &mut connection, id, now).await?;
 

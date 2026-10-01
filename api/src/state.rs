@@ -8,6 +8,7 @@ use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;
 
 use crate::action_items::links::Links;
+use crate::auth::Auth;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::fleet::Fleet;
@@ -21,6 +22,8 @@ use crate::version::VersionInfo;
 /// Everything a request handler can reach. Cloning is cheap: each field is a handle.
 #[derive(Clone)]
 pub struct AppState {
+    /// Kratos, and what the auth layers check requests against.
+    pub auth: Auth,
     pub database: Pool,
     pub redis: ConnectionManager,
     pub cipher: Arc<Cipher>,

@@ -20,7 +20,7 @@ use uuid::Uuid;
 use validator::Validate;
 
 use super::InitiativeLinkResponse;
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item_link::{LinkCredential, LinkProvider};
 use crate::models::initiative_link::{self, ContainerKind, NewContainer};
@@ -42,6 +42,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
@@ -71,8 +72,14 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let (link, history) =
-        initiative_link::add(&mut connection, id, new_container, Actor::User, Utc::now()).await?;
+    let (link, history) = initiative_link::add(
+        &mut connection,
+        id,
+        new_container,
+        current.actor(),
+        Utc::now(),
+    )
+    .await?;
     drop(connection);
 
     let link = InitiativeLinkResponse::from(link);

@@ -14,7 +14,7 @@ use uuid::Uuid;
 use validator::Validate;
 
 use super::{publish_item_write, validate_not_blank, validate_owner};
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item::{self, ActionItemChanges, ActionItemPriority, Owner};
 use crate::state::AppState;
@@ -40,6 +40,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
@@ -67,7 +68,7 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let updated = action_item::update(&mut connection, id, changes, Actor::User, now).await?;
+    let updated = action_item::update(&mut connection, id, changes, current.actor(), now).await?;
     let item = publish_item_write(&state.events, &mut connection, updated, &[], now).await?;
 
     Ok(Json(json!({ "item": item })))

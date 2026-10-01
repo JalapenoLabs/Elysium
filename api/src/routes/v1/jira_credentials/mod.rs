@@ -154,6 +154,8 @@ pub struct JiraCredentialResponse {
     /// When Jira last confirmed the token.
     checked_at: DateTime<Utc>,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
 }
 
@@ -170,6 +172,7 @@ impl JiraCredentialResponse {
             boards: allowed.boards,
             checked_at: credential.checked_at,
             created_at: credential.created_at,
+            created_by: credential.created_by,
             updated_at: credential.updated_at,
         }
     }
@@ -460,6 +463,7 @@ pub mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::test_support::TEST_PERSON_ID;
 
     /// An opened credential for the route tests, which call the fake Jira but no database.
     ///
@@ -480,6 +484,7 @@ pub mod tests {
 
         OpenCredential {
             credential: JiraCredential {
+                created_by: TEST_PERSON_ID,
                 id: Uuid::now_v7(),
                 name: "Work".to_owned(),
                 site_url: SITE_URL.to_owned(),

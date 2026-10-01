@@ -63,6 +63,8 @@ pub struct EnvironmentVariableResponse {
     /// never returned.
     value: Option<String>,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
 }
 
@@ -92,6 +94,7 @@ impl EnvironmentVariableResponse {
             description: variable.description,
             value,
             created_at: variable.created_at,
+            created_by: variable.created_by,
             updated_at: variable.updated_at,
         })
     }

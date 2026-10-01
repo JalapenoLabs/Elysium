@@ -189,7 +189,8 @@ impl Settled {
     }
 }
 
-/// Applies the approved operations of a pending changeset whose operations are all decided.
+/// Applies the approved operations of a pending changeset whose operations are all decided,
+/// for the person `decided_by`. Each operation still acts as the proposer.
 /// `reads` holds what each approved link operation's target read as
 /// ([`changesets::read_link_targets`]). A changeset with none approved is `rejected`.
 ///
@@ -201,6 +202,7 @@ pub async fn apply(
     connection: &mut AsyncPgConnection,
     id: Uuid,
     reads: LinkReads,
+    decided_by: Uuid,
     now: DateTime<Utc>,
 ) -> Result<Written, WorkError> {
     connection
@@ -258,7 +260,7 @@ pub async fn apply(
             } else {
                 ChangesetState::Rejected
             };
-            let changeset = conclude(connection, id, state, now).await?;
+            let changeset = conclude(connection, id, state, decided_by, now).await?;
             Ok(Written {
                 staged: Staged {
                     changeset,

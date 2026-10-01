@@ -1,0 +1,107 @@
+{
+  "title": "Users",
+  "adminOnly": "Only admins manage users.",
+  "roles": {
+    "admin": "Admin",
+    "member": "Member",
+    "guest": "Guest",
+    "agent": "Agent",
+    "system": "System"
+  },
+  "statuses": {
+    "pending": "Waiting",
+    "active": "Active",
+    "disabled": "Disabled"
+  },
+  "methods": {
+    "password": "Password",
+    "passkey": "Passkey",
+    "totp": "Authenticator app",
+    "lookupSecret": "Lookup codes"
+  },
+  "access": {
+    "heading": "Access",
+    "description": "Who may join this workspace, and what everyone must set up.",
+    "signupOpen": "Anyone can sign up",
+    "signupOpenHint": "New accounts still wait for an admin's approval. Off, the sign-up page is closed.",
+    "requireMfa": "Require an authenticator app",
+    "requireMfaHint": "Everyone must set up two-step verification before they can use the workspace.",
+    "requireMfaFirst": "Set up your own authenticator app first, so turning this on does not lock you out.",
+    "setUpYours": "Set it up",
+    "saved": "Access settings saved.",
+    "loadError": "Access settings could not load."
+  },
+  "pending": {
+    "heading_one": "{{count}} sign-up waiting",
+    "heading_other": "{{count}} sign-ups waiting",
+    "signedUp": "{{email}} · signed up {{date}}",
+    "role": "Role",
+    "approve": "Approve",
+    "reject": "Reject"
+  },
+  "people": {
+    "heading": "People"
+  },
+  "table": {
+    "label": "People in this workspace",
+    "name": "Name",
+    "role": "Role",
+    "roleFor": "Role for {{name}}",
+    "status": "Status",
+    "signIn": "Signs in with",
+    "lastSeen": "Last seen",
+    "created": "Joined",
+    "never": "Never",
+    "empty": "Nobody has been approved yet.",
+    "loadError": "People could not load."
+  },
+  "actions": {
+    "disable": "Disable account",
+    "enable": "Enable account",
+    "revokeSessions": "Sign out everywhere",
+    "resetMfa": "Reset authenticator",
+    "recoveryLink": "Create recovery link"
+  },
+  "reject": {
+    "title": "Reject this sign-up?",
+    "message": "{{name}} ({{email}}) will not get access, and their account is deleted. They can sign up again while sign-up is open.",
+    "confirm": "Reject"
+  },
+  "disable": {
+    "title": "Disable this account?",
+    "message": "{{name}} is signed out everywhere and can't sign in until an admin enables the account again.",
+    "confirm": "Disable"
+  },
+  "revokeSessions": {
+    "title": "Sign out everywhere?",
+    "message": "{{name}} is signed out on every device within half a minute, and can sign in again.",
+    "confirm": "Sign out"
+  },
+  "resetMfa": {
+    "title": "Reset this authenticator?",
+    "message": "{{name}}'s authenticator app and lookup codes are removed, and they are signed out. Their next sign-in needs only a password or passkey.",
+    "confirm": "Reset"
+  },
+  "recoveryLink": {
+    "title": "Recovery link for {{name}}",
+    "description": "Send this link to them privately. It signs them in and opens the page to set a new password.",
+    "copy": "Copy link",
+    "copied": "Link copied.",
+    "copyFailed": "The link could not be copied. Select it and copy it by hand.",
+    "expires": "It works once, until {{time}}. Elysium keeps no copy.",
+    "failed": "The link could not be created."
+  },
+  "toasts": {
+    "approved": "Approved {{name}}.",
+    "rejected": "Rejected {{name}}'s sign-up.",
+    "roleChanged": "Changed {{name}}'s role.",
+    "disabled": "Disabled {{name}}'s account.",
+    "enabled": "Enabled {{name}}'s account.",
+    "sessionsRevoked": "Signed {{name}} out everywhere.",
+    "mfaReset": "Reset {{name}}'s authenticator."
+  },
+  "conflicts": {
+    "lastAdmin": "The workspace must keep at least one active admin. Make someone else an admin first.",
+    "accountState": "That account changed in the meantime. Refresh and try again."
+  }
+}

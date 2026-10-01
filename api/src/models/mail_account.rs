@@ -46,6 +46,8 @@ pub struct MailAccount {
     pub updated_at: DateTime<Utc>,
     /// The domain a self-hosted mailbox lives on; `None` for OAuth accounts.
     pub mail_domain_id: Option<Uuid>,
+    /// Who created it.
+    pub created_by: Uuid,
 }
 
 /// Fields for a new mailbox, with the credential still in plaintext.
@@ -60,6 +62,8 @@ pub struct NewMailAccount {
     pub external_id: Option<String>,
     /// The mail domain; required for, and only for, self-hosted mailboxes.
     pub mail_domain_id: Option<Uuid>,
+    /// Who is creating it.
+    pub created_by: Uuid,
 }
 
 /// A partial update. `None` leaves a column untouched.
@@ -86,6 +90,7 @@ struct MailAccountRow<'a> {
     credential_encrypted: Vec<u8>,
     external_id: Option<&'a str>,
     mail_domain_id: Option<Uuid>,
+    created_by: Uuid,
 }
 
 #[derive(AsChangeset)]
@@ -168,6 +173,7 @@ pub async fn create(
 ) -> QueryResult<MailAccount> {
     let id = Uuid::now_v7();
     let row = MailAccountRow {
+        created_by: new_account.created_by,
         id,
         kind: new_account.kind,
         address: new_account.address.to_lowercase(),
@@ -272,10 +278,11 @@ pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult
 mod tests {
     use super::*;
     use crate::errors::ApiError;
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 
     fn gmail(address: &str) -> NewMailAccount {
         NewMailAccount {
+            created_by: TEST_PERSON_ID,
             kind: MailAccountKind::Gmail,
             address: address.to_owned(),
             display_name: "Someone".to_owned(),

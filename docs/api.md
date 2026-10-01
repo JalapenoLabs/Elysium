@@ -136,8 +136,40 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/coding-sessions/{id}`        | `204`; destroys the thread                          |
 | GET    | `/api/v1/coding-sessions/{id}/events` | `200` `{ events: SessionEvent[], truncated }`       |
 | POST   | `/api/v1/coding-sessions/{id}/turns`  | `201` `{ turn }`; queues a prompt                   |
+| GET    | `/api/v1/auth/status`                 | `200` `{ signupOpen, firstSignUp }`; needs no session |
+| GET    | `/api/v1/me`                          | `200` `{ user, hasSecondFactor, mfaEnrollmentRequired }`; pending people too |
+| GET    | `/api/v1/users`                       | `200` `{ users: User[] }`, by name, machines included |
+| PATCH  | `/api/v1/users/{id}`                  | `200` `{ user }`; admins: `role`, `disabled`         |
+| DELETE | `/api/v1/users/{id}`                  | `204`; admins reject a pending sign-up               |
+| POST   | `/api/v1/users/{id}/approve`          | `200` `{ user }`; admins, with a `role`              |
+| POST   | `/api/v1/users/{id}/revoke-sessions`  | `204`; admins                                        |
+| POST   | `/api/v1/users/{id}/reset-mfa`        | `204`; admins                                        |
+| POST   | `/api/v1/users/{id}/recovery-link`    | `200` `{ recoveryLink, expiresAt }`; admins          |
+| GET    | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins                         |
+| PATCH  | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins: `signupOpen`, `requireMfa` |
 
 Each route lives in its own file under `api/src/routes/`, and the directory mirrors the URL.
+
+## Authentication
+
+Every route under `/api/v1` needs a Kratos session cookie, except `GET /api/v1/auth/status`. Every route but that and
+`/me` needs an active, approved person; admin routes need an admin. Unsafe methods must carry Elysium's own `Origin`.
+Refusals carry a stable `code` beside the `message`:
+
+| Status | `code`                     | Meaning                                                        |
+|--------|----------------------------|----------------------------------------------------------------|
+| `401`  | `unauthenticated`          | No session, or one that ended                                  |
+| `403`  | `second_factor_required`   | Signed in with one factor; the authenticator app's code is due |
+| `403`  | `account_pending`          | Waiting for an admin's approval                                |
+| `403`  | `account_disabled`         | Disabled by an admin                                           |
+| `403`  | `mfa_enrollment_required`  | The workspace requires an authenticator app                    |
+| `403`  | `admin_only`               | Only an admin may do this                                      |
+| `403`  | `cross_origin`             | An unsafe request from another origin                          |
+
+`/internal/kratos/registration` and `/internal/kratos/courier` answer Kratos alone, on the compose network, with the
+hook key it carries. nginx never forwards them. See `docs/auth.md`.
+
+Every resource that records its creator returns `createdBy`, a user id; `GET /api/v1/users` names every one.
 
 ### `/api/version`
 
@@ -463,6 +495,9 @@ requests drain, the watchers are awaited, then the Postgres pool closes and the 
 | `DATABASE_URL`             | required         | Postgres connection string                 |
 | `REDIS_URL`                | required         | Redis connection string                    |
 | `ELYSIUM_ENCRYPTION_KEY`   | required         | Base64 32-byte key sealing stored secrets  |
+| `ELYSIUM_PUBLIC_URL`       | required         | The origin browsers use: https, or http on localhost |
+| `KRATOS_PUBLIC_URL`        | required         | Kratos's public API, where sessions are checked |
+| `KRATOS_ADMIN_URL`         | required         | Kratos's admin API, where identities are managed |
 | `HOST` / `PORT`            | `0.0.0.0` / 8080 | Bind address                               |
 | `DATABASE_MAX_CONNECTIONS` | 10               | Pool ceiling                               |
 | `CORS_ALLOWED_ORIGINS`     | empty            | Comma-separated origins; empty allows none |
@@ -512,7 +547,7 @@ client-supplied or a generated UUID. The id is echoed on the response and attach
 keys, event envelopes, the Arsox view conversions, the action item rules (transitions, Next's order, progress, a
 session's first turn from an item, and what a provider's change does to a linked item), GitHub's client against a
 local fake, and the agent tools' schemas.
-`api/scripts/verify-migrations.sh` also runs the database-backed tests against a disposable Postgres.
+`api/scripts/verify-migrations.sh` also runs the store-backed tests against a disposable Postgres and Redis.
 
 ## Roadmap
 

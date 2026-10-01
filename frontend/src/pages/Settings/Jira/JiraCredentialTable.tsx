@@ -15,6 +15,7 @@ import { JiraCredentialRowActions } from './JiraCredentialRowActions'
 // Misc
 import { ALL_JIRA_ITEMS } from '../../../api/routes/jiraRoutes'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
+import { useUserNames } from '../../../hooks/useUserNames'
 import { summarizeScope } from './jiraPresentation'
 
 type Props = {
@@ -32,6 +33,7 @@ const JIRA_COLUMN_KEYS = [
   'projects',
   'boards',
   'checked',
+  'createdBy',
   'rowActions',
 ] as const
 type JiraColumnKey = typeof JIRA_COLUMN_KEYS[number]
@@ -43,6 +45,7 @@ const columnLabelKeys = {
   projects: 'table.projects',
   boards: 'table.boards',
   checked: 'table.checked',
+  createdBy: 'common:table.createdBy',
   rowActions: 'common:actions.moreActions',
 } as const satisfies Record<JiraColumnKey, string>
 
@@ -55,12 +58,14 @@ const columnSizes = {
   projects: 165,
   boards: 165,
   checked: 145,
+  createdBy: 160,
   rowActions: 64,
 } as const satisfies Record<JiraColumnKey, number>
 
 export function JiraCredentialTable(props: Props) {
   const { t, i18n } = useTranslation([ 'jira', 'common' ])
   const labels = useSmartTableLabels()
+  const userNames = useUserNames()
   const [ search, setSearch ] = useState('')
 
   const managedColumns = useMemo(() => {
@@ -132,6 +137,7 @@ export function JiraCredentialTable(props: Props) {
         }),
       ),
       checked: (credential: JiraCredential) => dateFormatter.format(new Date(credential.checkedAt)),
+      createdBy: (credential: JiraCredential) => userNames[credential.createdBy] ?? t('common:table.someone'),
       rowActions: (credential: JiraCredential) => <JiraCredentialRowActions
         credential={credential}
         onEdit={props.onEdit}
@@ -157,6 +163,7 @@ export function JiraCredentialTable(props: Props) {
           : credential.boards.map((board) => board.name),
       ),
       checked: (credential: JiraCredential) => dateFormatter.format(new Date(credential.checkedAt)),
+      createdBy: (credential: JiraCredential) => userNames[credential.createdBy] ?? '',
       rowActions: null,
     } satisfies Record<JiraColumnKey, ((credential: JiraCredential) => string) | null>
 
@@ -199,7 +206,7 @@ export function JiraCredentialTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, props.onEdit, props.onTest, props.onDoneTransitions, props.onDelete ])
+  }, [ t, userNames, i18n.language, props.onEdit, props.onTest, props.onDoneTransitions, props.onDelete ])
 
   if (!props.credentials.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
@@ -210,7 +217,7 @@ export function JiraCredentialTable(props: Props) {
   return <SmartTable
     ids={{
       tableElementId: 'jira-credentials-table',
-      tableLocalStorageId: 'elysium.settings.jira.table',
+      tableLocalStorageId: 'elysium.settings.jira.table.v2',
     }}
     tableAriaLabel={t('table.label')}
     data={props.credentials}

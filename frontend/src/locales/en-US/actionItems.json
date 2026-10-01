@@ -28,7 +28,10 @@
     "reopen": "Reopen"
   },
   "actors": {
-    "user": "You",
+    "you": "You",
+    "person": "{{detail}}",
+    "someone": "Someone",
+    "beforeAccounts": "Before accounts",
     "elysia": "Elysia",
     "session": "Session {{detail}}",
     "watcher": "The {{detail}} watcher",
@@ -279,6 +282,7 @@
     "noInitiativesFound": "No initiatives found.",
     "owner": "Owner",
     "created": "Created",
+    "createdBy": "Created by",
     "updated": "Updated"
   },
   "item": {

@@ -107,6 +107,8 @@ pub struct Project {
     pub github_access: GithubAccess,
     /// The project's own token, for `Specific` access only.
     pub github_credential_id: Option<Uuid>,
+    /// Who created it.
+    pub created_by: Uuid,
 }
 
 impl Project {
@@ -129,6 +131,8 @@ impl Project {
 pub struct NewProject {
     pub name: String,
     pub description: String,
+    /// Who is creating it.
+    pub created_by: Uuid,
 }
 
 /// A partial update. `None` leaves a column untouched.
@@ -164,6 +168,7 @@ struct ProjectRow<'a> {
     id: Uuid,
     name: &'a str,
     description: &'a str,
+    created_by: Uuid,
 }
 
 /// Every project, alphabetically.
@@ -246,6 +251,7 @@ pub async fn create(
         id: Uuid::now_v7(),
         name: &new_project.name,
         description: &new_project.description,
+        created_by: new_project.created_by,
     };
 
     diesel::insert_into(projects::table)
@@ -328,7 +334,7 @@ pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult
 mod tests {
     use super::*;
     use crate::errors::ApiError;
-    use crate::test_support::migrated_database;
+    use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
     #[test]
     fn project_scopes_are_a_wildcard_or_sorted_unique_ids() {
@@ -354,6 +360,7 @@ mod tests {
 
     fn new_project(name: &str) -> NewProject {
         NewProject {
+            created_by: TEST_PERSON_ID,
             name: name.to_owned(),
             description: String::new(),
         }

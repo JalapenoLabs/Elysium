@@ -17,7 +17,7 @@ use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use diesel_async::AsyncConnection;
 use uuid::Uuid;
 
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item_event::Recorded;
 use crate::models::{action_item, initiative, project};
@@ -28,6 +28,7 @@ use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<StatusCode, ApiError> {
     let Path(id) = path?;
@@ -42,9 +43,9 @@ pub async fn handle(
         .transaction(async move |connection| {
             project::lock_for_delete(connection, id).await?;
             let items =
-                action_item::remove_all_from_project(connection, id, Actor::User, now).await?;
+                action_item::remove_all_from_project(connection, id, current.actor(), now).await?;
             let initiatives =
-                initiative::remove_all_from_project(connection, id, Actor::User, now).await?;
+                initiative::remove_all_from_project(connection, id, current.actor(), now).await?;
             project::delete(connection, id).await?;
             Ok::<_, DieselError>((items, initiatives))
         })
