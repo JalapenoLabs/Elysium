@@ -30,7 +30,7 @@
 }
 
 /* Each layer follows the pointer by its own depth (`--depth`, set per layer): the near shards
-   move most and against the pointer, the lights behind them less, so the scene shifts like
+   lean toward the pointer the most, the lights behind them less, so the scene shifts like
    parallax. `--pointer-x` and `--pointer-y` run from -1 to 1 and are eased in AuthSplash.
    Layers are oversized so their edges never show as they move. */
 .auth-splash {
@@ -43,19 +43,20 @@
   position: absolute;
   inset: -6%;
   transform: translate3d(
-    calc(var(--pointer-x) * var(--depth) * -42px),
-    calc(var(--pointer-y) * var(--depth) * -28px),
+    calc(var(--pointer-x) * var(--depth) * 42px),
+    calc(var(--pointer-y) * var(--depth) * 28px),
     0
   );
   will-change: transform;
 }
 
-/* The shards also turn toward the pointer, as if the plane they sit on were tilting. */
+/* The shards also tilt, raising the side nearest the pointer toward the viewer, so the plane
+   they sit on seems drawn to it. */
 .auth-splash-layer-tilt {
   transform:
     translate3d(
-      calc(var(--pointer-x) * var(--depth) * -42px),
-      calc(var(--pointer-y) * var(--depth) * -28px),
+      calc(var(--pointer-x) * var(--depth) * 42px),
+      calc(var(--pointer-y) * var(--depth) * 28px),
       0
     )
     rotateX(calc(var(--pointer-y) * 5deg))

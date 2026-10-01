@@ -129,7 +129,7 @@ function usePointerParallax() {
   return rootRef
 }
 
-// One depth of the scene. Deeper layers move less, nearer ones more and against the pointer.
+// One depth of the scene. Layers lean toward the pointer, nearer ones more than deeper ones.
 type LayerProps = {
   depth: number
   tilt?: boolean
