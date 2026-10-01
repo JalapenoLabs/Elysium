@@ -81,16 +81,25 @@ pub async fn handle(
     drop(connection);
 
     // An inactive identity's sessions already fail, and the disabled row refuses every request,
-    // so this is thoroughness rather than the lock: a failure is logged, not answered.
-    if body.disabled == Some(true)
-        && let Err(error) = kratos.revoke_sessions(identity_of(&changed)?).await
-    {
-        event!(
-            name: "auth.sessions.revoke_failure",
-            Level::WARN,
-            error.message = %error,
-            "disabled a person but could not sign their sessions out",
-        );
+    // the MCP server's included, so this is thoroughness rather than the lock: a failure is
+    // logged, not answered.
+    if body.disabled == Some(true) {
+        if let Err(error) = kratos.revoke_sessions(identity_of(&changed)?).await {
+            event!(
+                name: "auth.sessions.revoke_failure",
+                Level::WARN,
+                error.message = %error,
+                "disabled a person but could not sign their sessions out",
+            );
+        }
+        if let Err(error) = state.auth.hydra.revoke_consent(changed.id, None).await {
+            event!(
+                name: "oauth.grants.revoke_failure",
+                Level::WARN,
+                error.message = %error,
+                "disabled a person but could not disconnect their MCP clients",
+            );
+        }
     }
 
     state

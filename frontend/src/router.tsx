@@ -14,6 +14,8 @@ import { LoginPage } from './pages/Auth/LoginPage'
 import { PendingPage } from './pages/Auth/PendingPage'
 import { RecoveryPage } from './pages/Auth/RecoveryPage'
 import { SignupPage } from './pages/Auth/SignupPage'
+import { OAuthConsentPage } from './pages/OAuth/OAuthConsentPage'
+import { OAuthLoginPage } from './pages/OAuth/OAuthLoginPage'
 import { ActionItemListPage } from './pages/ActionItems/ActionItemListPage'
 import { ActionItemPage } from './pages/ActionItems/ActionItemPage'
 import { ActionItemsLayout } from './pages/ActionItems/ActionItemsLayout'
@@ -46,6 +48,7 @@ import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
 import { ManageSatellitesPage } from './pages/Settings/Satellites/ManageSatellitesPage'
+import { ConnectedAppsPage } from './pages/Settings/ConnectedApps/ConnectedAppsPage'
 import { SecurityPage } from './pages/Settings/Security/SecurityPage'
 import { ManageUsersPage } from './pages/Settings/Users/ManageUsersPage'
 import { AddStorageLocationPage } from './pages/Settings/Storage/AddStorageLocationPage'
@@ -155,6 +158,10 @@ const workspaceRoutes: RouteObject = {
       element: <SecurityPage />,
     },
     {
+      path: UrlTree.settingsConnectedApps,
+      element: <ConnectedAppsPage />,
+    },
+    {
       path: UrlTree.settingsUsers,
       element: <ManageUsersPage />,
     },
@@ -238,7 +245,8 @@ const workspaceRoutes: RouteObject = {
 }
 
 // Two trees: the pages anyone may open (signing in, signing up, recovery, waiting for
-// approval), and the workspace, which `AuthGate` opens only to people allowed in.
+// approval), and what `AuthGate` opens only to people allowed in: the workspace, and the pages
+// that connect an MCP client.
 export const router = createBrowserRouter([
   {
     element: <AuthLayout />,
@@ -267,6 +275,23 @@ export const router = createBrowserRouter([
   },
   {
     element: <AuthGate />,
-    children: [ workspaceRoutes ],
+    children: [
+      // Connecting an MCP client: the account pages' look, behind the gate, so only someone
+      // signed in and approved can answer for it.
+      {
+        element: <AuthLayout />,
+        children: [
+          {
+            path: UrlTree.oauthLogin,
+            element: <OAuthLoginPage />,
+          },
+          {
+            path: UrlTree.oauthConsent,
+            element: <OAuthConsentPage />,
+          },
+        ],
+      },
+      workspaceRoutes,
+    ],
   },
 ])

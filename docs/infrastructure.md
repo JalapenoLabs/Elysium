@@ -34,9 +34,11 @@ volume with `docker compose down --volumes`, which destroys the data.
 |------------|----------------------------|--------------------|-----------------------------------------|
 | `nginx`    | `nginx:1.30.4-alpine`      | `elysium-nginx`    | The only published ports: web on `127.0.0.1:4000` by default, mail on 25, 465, 993 |
 | `frontend` | `frontend/Dockerfile`      | `elysium-frontend` | Development only: Vite dev server       |
-| `migrate`  | the API image              | `elysium-migrate`  | One-shot `migrate run`, then exits; creates Kratos's database |
+| `migrate`  | the API image              | `elysium-migrate`  | One-shot `migrate run`, then exits; creates Kratos's and Hydra's databases |
 | `kratos-migrate` | `oryd/kratos:v26.2.0` | `elysium-kratos-migrate` | One-shot: Kratos's own migrations      |
 | `kratos`   | `oryd/kratos:v26.2.0`      | `elysium-kratos`   | Identities and sessions; see `docs/auth.md` |
+| `hydra-migrate` | `oryd/hydra:v26.2.0` | `elysium-hydra-migrate` | One-shot: Hydra's own migrations        |
+| `hydra`    | `oryd/hydra:v26.2.0`       | `elysium-hydra`    | OAuth for MCP clients; see `docs/mcp.md` |
 | `api`      | the API image              | none               | One replica; reachable only via nginx   |
 | `postgres` | `postgres:18.6-alpine3.23` | `elysium-postgres` | Volume `postgres-data`, `timezone=UTC`  |
 | `redis`    | `redis:8.10.1-alpine`      | `elysium-redis`    | Password required, AOF on, `redis-data` |
@@ -70,10 +72,15 @@ In both, POSTs to Kratos's sign-in, sign-up, and recovery endpoints are throttle
 In both, `/api/v1/events` has its own location with buffering off and a one-hour read timeout, so server-sent events
 arrive immediately and idle streams stay open, and cover uploads have a larger body limit.
 
+In both, `/oauth2/` and Hydra's discovery documents (`/.well-known/openid-configuration`,
+`/.well-known/oauth-authorization-server`, `/.well-known/jwks.json`) go to Hydra's public API (`hydra:4444`) unchanged,
+with client registration throttled per client address. `/.well-known/oauth-protected-resource` goes to the API, which
+describes its MCP server there (`docs/mcp.md`).
+
 nginx runs its own main configuration, `nginx/nginx.conf`: the image's default plus a `stream` block, since raw TCP
-can only be proxied from the main context, and the zone that throttles Kratos submissions. `nginx/default.conf` holds
+can only be proxied from the main context, and the zones that throttle Kratos submissions and OAuth client registration. `nginx/default.conf` holds
 the production HTTP routing and `nginx/development.conf` the development routing, which `compose.dev.yml` mounts in
-its place. Both include `nginx/locations.conf`, the locations they route alike (cover uploads, Kratos, the event
+its place. Both include `nginx/locations.conf`, the locations they route alike (cover uploads, Kratos, Hydra, the event
 stream), so each file holds only what differs. `nginx/mail.conf` passes the mail ports to Stalwart with the PROXY
 protocol; see `docs/mail.md`.
 
@@ -82,9 +89,10 @@ in-process (see `docs/realtime.md`).
 
 ## Startup order
 
-`migrate` waits for `postgres` health. `api` and `kratos-migrate` wait for `migrate` to exit successfully; `api` also
-waits for `redis` health, and `kratos` for `kratos-migrate`. `nginx` waits for `api` and `kratos` health. The API also
-retries its own connections, so a store restart mid-run does not require restarting the API.
+`migrate` waits for `postgres` health. `api`, `kratos-migrate`, and `hydra-migrate` wait for `migrate` to exit
+successfully; `api` also waits for `redis` health, `kratos` for `kratos-migrate`, and `hydra` for `hydra-migrate`.
+`nginx` waits for `api`, `kratos`, and `hydra` health. The API also retries its own connections, so a store restart
+mid-run does not require restarting the API.
 
 `migrate` and `api` share one image, which has the migrations compiled in: `jalapenolabs/elysium-api` in production,
 and `elysium-api`, built from the checkout, in development.

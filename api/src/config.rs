@@ -32,6 +32,8 @@ pub struct Config {
     pub kratos_public_url: Url,
     /// Kratos's admin API, where identities and sessions are managed.
     pub kratos_admin_url: Url,
+    /// Hydra's admin API: sign-in and consent for MCP clients, and token introspection.
+    pub hydra_admin_url: Url,
     pub database_max_connections: u32,
     /// Origins allowed by CORS. Empty means no cross-origin access, which is the
     /// normal state behind nginx where the frontend shares the API's origin.
@@ -65,9 +67,9 @@ impl Config {
     ///
     /// # Errors
     /// Returns an error when `DATABASE_URL`, `REDIS_URL`, `ELYSIUM_ENCRYPTION_KEY`,
-    /// `ELYSIUM_PUBLIC_URL`, `KRATOS_PUBLIC_URL`, or `KRATOS_ADMIN_URL` is missing, when the
-    /// public URL is not one browsers can hold sessions for, or when any numeric variable
-    /// does not parse.
+    /// `ELYSIUM_PUBLIC_URL`, `KRATOS_PUBLIC_URL`, `KRATOS_ADMIN_URL`, or `HYDRA_ADMIN_URL` is
+    /// missing, when the public URL is not one browsers can hold sessions for, or when any
+    /// numeric variable does not parse.
     pub fn from_env() -> Result<Self> {
         let host: IpAddr = env_or("HOST", IpAddr::V4(Ipv4Addr::UNSPECIFIED))?;
         let port: u16 = env_or("PORT", 8080)?;
@@ -80,6 +82,7 @@ impl Config {
             public_url: parse_public_url(&required("ELYSIUM_PUBLIC_URL")?)?,
             kratos_public_url: required_base_url("KRATOS_PUBLIC_URL")?,
             kratos_admin_url: required_base_url("KRATOS_ADMIN_URL")?,
+            hydra_admin_url: required_base_url("HYDRA_ADMIN_URL")?,
             database_max_connections: env_or("DATABASE_MAX_CONNECTIONS", 10)?,
             cors_allowed_origins: parse_cors_origins()?,
             request_timeout: Duration::from_secs(env_or("REQUEST_TIMEOUT_SECONDS", 30)?),

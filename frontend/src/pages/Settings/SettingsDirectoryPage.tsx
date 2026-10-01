@@ -13,6 +13,7 @@ import {
   LuGithub,
   LuHardDrive,
   LuMail,
+  LuPlug,
   LuSatellite,
   LuShieldCheck,
   LuSquareKanban,
@@ -48,6 +49,12 @@ export function SettingsDirectoryPage() {
           title={t('items.security.title')}
           description={t('items.security.description')}
           href={UrlTree.settingsSecurity}
+        />
+        <SettingsDirectoryItem
+          icon={LuPlug}
+          title={t('items.connectedApps.title')}
+          description={t('items.connectedApps.description')}
+          href={UrlTree.settingsConnectedApps}
         />
       </div>
     </section>

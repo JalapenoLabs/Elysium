@@ -13,6 +13,10 @@
       "title": "Sign-in & security",
       "description": "Your name, email, password, passkeys, authenticator app, and where you're signed in."
     },
+    "connectedApps": {
+      "title": "Connected apps",
+      "description": "Connect Claude Code, Codex, and other MCP clients, and disconnect the ones you've allowed."
+    },
     "users": {
       "title": "Users",
       "description": "Approve sign-ups, manage roles and accounts, and choose who may join.",

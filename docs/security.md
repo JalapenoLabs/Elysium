@@ -63,6 +63,10 @@ Kratos holds passwords (Argon2id), passkeys, authenticator apps, and sessions; t
 - **Kratos's internal routes.** Kratos calls the API's `/internal` routes. nginx never forwards `/internal`
   (production answers it with a `404`), and the routes also check a key derived from the encryption key.
 
+- **MCP clients.** External MCP clients reach `/api/mcp` with OAuth access tokens Hydra issues, only after an
+  approved person consents. Tokens are opaque, bound to `/api/mcp` alone, and checked against Hydra and the person's
+  account on every call. Client registration is open and throttled per address. See `docs/mcp.md`.
+
 `docs/auth.md` has the whole design.
 
 ## Rate limiting

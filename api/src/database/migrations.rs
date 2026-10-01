@@ -10,10 +10,10 @@
 //! command here first takes a Postgres advisory lock. A second migrator simply
 //! waits, then finds nothing pending.
 //!
-//! Applying migrations also creates the database Ory Kratos keeps identities in, on the
-//! same server, when it is missing. Kratos migrates its own schema, but cannot create its
-//! database, and Postgres's init scripts only run for a new data volume. See
-//! `docs/auth.md`.
+//! Applying migrations also creates the databases Ory Kratos and Ory Hydra keep their data in,
+//! on the same server, when they are missing. Each migrates its own schema, but cannot create
+//! its database, and Postgres's init scripts only run for a new data volume. See
+//! `docs/auth.md` and `docs/mcp.md`.
 
 use anyhow::{Context, Result, anyhow};
 use diesel::Connection;
@@ -32,8 +32,9 @@ const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 /// must stay constant across releases; it spells "Elysium" in ASCII.
 const MIGRATION_LOCK_ID: i64 = 0x0045_6c79_7369_756d;
 
-/// The database Ory Kratos keeps identities in. `compose.yml` names it in Kratos's DSN.
-const IDENTITY_DATABASE: &str = "kratos";
+/// The databases Ory Kratos (identities) and Ory Hydra (OAuth clients and grants) keep their
+/// data in. `compose.yml` names each in its service's DSN.
+const SERVICE_DATABASES: [&str; 2] = ["kratos", "hydra"];
 
 /// A blocking Diesel connection driven by the async Postgres driver, which is what
 /// Diesel's migration harness requires.
@@ -62,7 +63,9 @@ pub enum MigrationCommand {
 pub async fn execute(database_url: SecretString, command: MigrationCommand) -> Result<()> {
     with_locked_connection(database_url, move |connection| match command {
         MigrationCommand::Run => {
-            ensure_identity_database(connection)?;
+            for database in SERVICE_DATABASES {
+                ensure_database(connection, database)?;
+            }
             run_pending(connection)
         }
         MigrationCommand::Revert { count } => revert(connection, count),
@@ -155,39 +158,37 @@ struct DatabaseExists {
     exists: bool,
 }
 
-/// Creates Kratos's database unless it already exists. `CREATE DATABASE` cannot run in a
-/// transaction, which is why this runs on the migration connection directly, under its
-/// lock, rather than as a migration.
-fn ensure_identity_database(connection: &mut MigrationConnection) -> Result<()> {
-    if identity_database_exists(connection)? {
+/// Creates `name` unless it already exists. `CREATE DATABASE` cannot run in a transaction,
+/// which is why this runs on the migration connection directly, under its lock, rather than as
+/// a migration.
+fn ensure_database(connection: &mut MigrationConnection, name: &str) -> Result<()> {
+    if database_exists(connection, name)? {
         return Ok(());
     }
 
     // The migration lock is per database, so a migrator for another database on this server
     // can create it first. Finding it afterwards means that happened.
-    if let Err(error) =
-        diesel::sql_query(format!("CREATE DATABASE {IDENTITY_DATABASE}")).execute(connection)
-    {
-        if identity_database_exists(connection)? {
+    if let Err(error) = diesel::sql_query(format!("CREATE DATABASE {name}")).execute(connection) {
+        if database_exists(connection, name)? {
             return Ok(());
         }
-        return Err(error).context("cannot create the identity database");
+        return Err(error).with_context(|| format!("cannot create the {name} database"));
     }
     event!(
-        name: "migration.identity_database.created",
+        name: "migration.service_database.created",
         Level::INFO,
-        db.namespace = IDENTITY_DATABASE,
-        "created the identity database",
+        db.namespace = name,
+        "created the {{db.namespace}} database",
     );
     Ok(())
 }
 
-fn identity_database_exists(connection: &mut MigrationConnection) -> Result<bool> {
+fn database_exists(connection: &mut MigrationConnection, name: &str) -> Result<bool> {
     let found: DatabaseExists =
         diesel::sql_query("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS exists")
-            .bind::<Text, _>(IDENTITY_DATABASE)
+            .bind::<Text, _>(name)
             .get_result(connection)
-            .context("cannot look up the identity database")?;
+            .with_context(|| format!("cannot look up the {name} database"))?;
     Ok(found.exists)
 }
 
@@ -302,7 +303,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn running_migrations_creates_the_identity_database_once() {
+    async fn running_migrations_creates_each_service_database_once() {
         let url = empty_database().await;
         execute(url.clone(), MigrationCommand::Run)
             .await
@@ -314,14 +315,16 @@ mod tests {
         let mut connection = AsyncPgConnection::establish(url.expose_secret())
             .await
             .expect("connects");
-        let found: DatabaseExists = diesel::sql_query(
-            "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS exists",
-        )
-        .bind::<Text, _>(IDENTITY_DATABASE)
-        .get_result(&mut connection)
-        .await
-        .expect("catalog query runs");
-        assert!(found.exists, "Kratos's database exists after migrating");
+        for database in SERVICE_DATABASES {
+            let found: DatabaseExists = diesel::sql_query(
+                "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS exists",
+            )
+            .bind::<Text, _>(database)
+            .get_result(&mut connection)
+            .await
+            .expect("catalog query runs");
+            assert!(found.exists, "{database} exists after migrating");
+        }
     }
 
     #[tokio::test]

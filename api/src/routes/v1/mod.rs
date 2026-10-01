@@ -14,6 +14,7 @@ pub mod jira_credentials;
 pub mod llms;
 pub mod mail;
 mod me;
+pub mod oauth;
 pub mod projects;
 pub mod satellites;
 pub mod storage_locations;
@@ -58,6 +59,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/satellites", satellites::router())
         .nest("/storage-locations", storage_locations::router())
         .nest("/coding-sessions", coding_sessions::router())
+        .nest("/oauth", oauth::router())
         .nest("/users", users::router())
         .nest("/workspace-settings", workspace_settings::router())
 }

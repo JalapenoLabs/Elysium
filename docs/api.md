@@ -147,6 +147,16 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/users/{id}/recovery-link`    | `200` `{ recoveryLink, expiresAt }`; admins          |
 | GET    | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins                         |
 | PATCH  | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins: `signupOpen`, `requireMfa` |
+| POST   | `/api/v1/oauth/login/accept`          | `200` `{ redirectTo }`; answers Hydra's sign-in challenge |
+| GET    | `/api/v1/oauth/consent?challenge=`    | `200` `{ client, scopes }`, or `{ redirectTo }` when approved before |
+| POST   | `/api/v1/oauth/consent/accept`        | `200` `{ redirectTo }`                               |
+| POST   | `/api/v1/oauth/consent/reject`        | `200` `{ redirectTo }`                               |
+| GET    | `/api/v1/oauth/grants`                | `200` `{ grants }`: the MCP clients you connected    |
+| DELETE | `/api/v1/oauth/grants/{clientId}`     | `204`; disconnects one                               |
+| GET    | `/api/v1/oauth/clients`               | `200` `{ clients }`; admins                          |
+| DELETE | `/api/v1/oauth/clients/{clientId}`    | `204`; admins, for everyone                          |
+| POST   | `/api/mcp`                            | MCP over Streamable HTTP, with a bearer token; see `docs/mcp.md` |
+| GET    | `/.well-known/oauth-protected-resource` | `200` the MCP server's protected resource metadata; also under `/api/mcp` |
 
 Each route lives in its own file under `api/src/routes/`, and the directory mirrors the URL.
 
@@ -498,6 +508,7 @@ requests drain, the watchers are awaited, then the Postgres pool closes and the 
 | `ELYSIUM_PUBLIC_URL`       | required         | The origin browsers use: https, or http on localhost |
 | `KRATOS_PUBLIC_URL`        | required         | Kratos's public API, where sessions are checked |
 | `KRATOS_ADMIN_URL`         | required         | Kratos's admin API, where identities are managed |
+| `HYDRA_ADMIN_URL`          | required         | Hydra's admin API: OAuth consent and token introspection |
 | `HOST` / `PORT`            | `0.0.0.0` / 8080 | Bind address                               |
 | `DATABASE_MAX_CONNECTIONS` | 10               | Pool ceiling                               |
 | `CORS_ALLOWED_ORIGINS`     | empty            | Comma-separated origins; empty allows none |

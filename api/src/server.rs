@@ -42,6 +42,7 @@ use crate::mail::dns::DnsChecker;
 use crate::mail::hosting::Hosting;
 use crate::mail::stalwart::Stalwart;
 use crate::mail::stalwart::container::StalwartContainer;
+use crate::oauth::hydra::Hydra;
 use crate::realtime::EventBus;
 use crate::state::AppState;
 use crate::storage::Storage;
@@ -192,10 +193,11 @@ pub async fn serve() -> Result<()> {
 pub(crate) fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
     Auth {
         kratos: Kratos::new(
-            http,
+            http.clone(),
             config.kratos_public_url.clone(),
             config.kratos_admin_url.clone(),
         ),
+        hydra: Hydra::new(http, config.hydra_admin_url.clone()),
         hook_key: hook_key::derive(&config.encryption_key),
         public_url: config.public_url.clone(),
     }

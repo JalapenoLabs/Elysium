@@ -54,6 +54,17 @@ Everything else follows these rules:
 - There is no mail for accounts yet: recovery links are logged by the API (`auth.recovery.issued`), or created by an
   admin.
 
+## External MCP clients connect through OAuth
+
+- Elysium's MCP server is at `/api/mcp`, for clients such as Claude Code and Codex. It speaks Streamable HTTP through
+  the official Rust SDK (`rmcp`), statelessly. Its tools are in `api/src/mcp/workspace.rs`. See `docs/mcp.md`.
+- Ory Hydra (`hydra/`) is the OAuth 2.1 authorization server; Kratos still proves who people are, and the web app's
+  `/oauth/login` and `/oauth/consent` pages answer Hydra's challenges. Hydra is configured like Kratos, from
+  `ELYSIUM_PUBLIC_URL` and `ELYSIUM_ENCRYPTION_KEY`, with its database `hydra` on the shared Postgres.
+- Any approved person may connect any client; admins gate sign-up, not OAuth. Clients register themselves.
+- Every token is bound to `/api/mcp` and checked on every call: active, granting `workspace:read`, and naming an active,
+  approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
+
 ## Satellites are reached only through the API
 
 - Arsox satellites run coding sessions. The frontend never contacts one: satellites speak protobuf and hold a

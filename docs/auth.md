@@ -31,8 +31,8 @@ through Kratos's JSON API.
     authenticator apps. The stored-secrets rotation in `docs/secrets.md` must account for that.
 - **Database.** Kratos keeps its data in its own database, `kratos`, on the same Postgres server and with the same
   credentials as Elysium's.
-  - `elysium-api migrate run` (the `migrate` service) creates it when it is missing. Postgres's init scripts run only
-    for a new data volume, so an existing deployment would otherwise never get one.
+  - `elysium-api migrate run` (the `migrate` service) creates it, and Hydra's, when missing. Postgres's init scripts
+    run only for a new data volume, so an existing deployment would otherwise never get one.
   - `kratos-migrate` then applies Kratos's own schema.
 - **Image.** The image is pinned by tag and digest in `compose.yml`, and the configuration is mounted read-only
   rather than baked into it.
@@ -164,9 +164,9 @@ Admins manage people under Settings, Users (`/api/v1/users`).
   refuses their next request.
 
 **Security actions:**
-- **Sign out everywhere.**
-- **Reset authenticator.** This removes a person's authenticator app and lookup codes and signs them out, for
-  someone who lost both.
+- **Sign out everywhere.** This also disconnects every MCP client they connected (`docs/mcp.md`).
+- **Reset authenticator.** This removes a person's authenticator app and lookup codes and signs them out, MCP clients
+  included, for someone who lost both.
 - **Create a recovery link.** The admin hands the one-time link over; it works for 15 minutes.
 
 **Workspace settings:**
