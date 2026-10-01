@@ -1,0 +1,46 @@
+# The development stack, layered over the production one in compose.yml:
+#
+#   docker compose -f compose.yml -f compose.dev.yml up --build --wait
+#
+# The API is built from this checkout instead of pulled, and the web app runs on the
+# Vite dev server with source bind-mounted, so edits hot-reload. nginx swaps in
+# development.conf, which sends every path outside /api to Vite. See
+# docs/infrastructure.md.
+
+# The `server` stage: the API without the web app's production build, which nothing
+# here would serve. It skips the frontend stage, so a frontend edit never rebuilds it.
+x-api-build: &api-build
+  context: .
+  dockerfile: api/Dockerfile
+  target: server
+
+services:
+  nginx:
+    volumes:
+      # Same target as compose.yml's entry, so this one replaces it.
+      - ./nginx/development.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      frontend:
+        condition: service_started
+
+  frontend:
+    container_name: elysium-frontend
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      # The browser reaches Vite's HMR websocket through nginx's published port.
+      VITE_HMR_CLIENT_PORT: ${WEB_PORT:-4000}
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+
+  # A local tag, so a development build never shadows the published image.
+  migrate:
+    image: elysium-api
+    build: *api-build
+
+  api:
+    image: elysium-api
+    build: *api-build

@@ -48,7 +48,7 @@ const REQUESTS_PER_SECOND: u32 = 10;
 
 /// Requests a client may spend at once before the sustained rate applies. Covers a
 /// page load that fires several API calls in parallel.
-const BURST_SIZE: u32 = 30;
+pub(crate) const BURST_SIZE: u32 = 30;
 
 /// Buckets for clients that stopped talking are dropped on this cadence so the
 /// key map cannot grow without bound under a scan.

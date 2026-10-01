@@ -35,6 +35,7 @@ mod storage;
 mod test_support;
 mod tools;
 mod version;
+mod web_app;
 
 use anyhow::Result;
 use clap::Parser;
