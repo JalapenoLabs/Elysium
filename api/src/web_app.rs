@@ -96,7 +96,7 @@ where
 #[cfg(test)]
 mod tests {
     use axum::body::{Body, to_bytes};
-    use axum::http::{Request, StatusCode};
+    use axum::http::{HeaderMap, Request, StatusCode};
     use tempfile::TempDir;
     use tower::ServiceExt;
 
@@ -180,7 +180,7 @@ mod tests {
     /// What browsers send. Brotli wins the tie, so it is the encoding real traffic gets.
     const BROWSER_ACCEPT_ENCODING: &str = "gzip, deflate, br, zstd";
 
-    async fn get_encoded(app: Router, path: &str) -> (StatusCode, Option<HeaderValue>, Vec<u8>) {
+    async fn get_encoded(app: Router, path: &str) -> (StatusCode, HeaderMap, Vec<u8>) {
         let request = Request::get(path)
             .header(header::ACCEPT_ENCODING, BROWSER_ACCEPT_ENCODING)
             .body(Body::empty())
@@ -188,11 +188,11 @@ mod tests {
         let response = app.oneshot(request).await.expect("infallible");
 
         let status = response.status();
-        let encoding = response.headers().get(header::CONTENT_ENCODING).cloned();
+        let headers = response.headers().clone();
         let body = to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("the body");
-        (status, encoding, body.to_vec())
+        (status, headers, body.to_vec())
     }
 
     #[tokio::test]
@@ -206,10 +206,23 @@ mod tests {
         .expect("the brotli copy");
         let app = router::<()>(directory.path()).expect("a valid build");
 
-        let (status, encoding, body) = get_encoded(app, "/assets/index-3f2a.js").await;
+        let (status, headers, body) = get_encoded(app, "/assets/index-3f2a.js").await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(encoding, Some(HeaderValue::from_static("br")));
+        assert_eq!(
+            headers.get(header::CONTENT_ENCODING),
+            Some(&HeaderValue::from_static("br"))
+        );
+        // The type of the original, not of a `.br` file, or the browser refuses to run it.
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE),
+            Some(&HeaderValue::from_static("text/javascript")),
+        );
+        // Without it, a shared cache could hand Brotli bytes to a browser that never asked.
+        assert_eq!(
+            headers.get(header::VARY),
+            Some(&HeaderValue::from_static("accept-encoding")),
+        );
         // The file as written, not an encoder's output: nothing is compressed per request.
         assert_eq!(body, precompressed);
     }
@@ -222,10 +235,13 @@ mod tests {
         std::fs::write(directory.path().join("index.html"), &page).expect("index.html");
         let app = router::<()>(directory.path()).expect("a valid build");
 
-        let (status, encoding, body) = get_encoded(app, "/projects").await;
+        let (status, headers, body) = get_encoded(app, "/projects").await;
 
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(encoding, Some(HeaderValue::from_static("br")));
+        assert_eq!(
+            headers.get(header::CONTENT_ENCODING),
+            Some(&HeaderValue::from_static("br"))
+        );
         assert!(body.len() < page.len());
     }
 
