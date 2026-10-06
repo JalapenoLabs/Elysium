@@ -9,6 +9,11 @@ mod list_satellites;
 mod test_satellite;
 mod update_satellite;
 
+pub use create_satellite::{CreateSatelliteRequest, create};
+pub use get_satellite::find;
+pub use list_satellites::list;
+pub use update_satellite::{UpdateSatelliteRequest, update};
+
 use axum::Router;
 use axum::routing::{get, post};
 use chrono::{DateTime, Utc};
@@ -41,7 +46,7 @@ pub fn router() -> Router<AppState> {
 const SECRET_MAX_BYTES: usize = 1024;
 
 /// A satellite as clients see it. The secret is never included, sealed or not.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SatelliteResponse {
     id: Uuid,

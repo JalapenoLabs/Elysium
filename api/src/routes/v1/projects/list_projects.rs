@@ -13,17 +13,25 @@ use crate::models::project;
 use crate::state::AppState;
 
 pub async fn handle(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let projects = list(&state).await?;
+    Ok(Json(json!({ "projects": projects })))
+}
+
+/// Every project, alphabetically.
+///
+/// # Errors
+/// An internal error when the database cannot be reached.
+pub async fn list(state: &AppState) -> Result<Vec<ProjectResponse>, ApiError> {
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
 
-    let projects: Vec<ProjectResponse> = project::list(&mut connection)
+    let projects = project::list(&mut connection)
         .await?
         .into_iter()
         .map(ProjectResponse::from)
         .collect();
-
-    Ok(Json(json!({ "projects": projects })))
+    Ok(projects)
 }

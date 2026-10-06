@@ -71,8 +71,17 @@ async fn main() -> Result<()> {
 /// Structured logs to stdout. `RUST_LOG` filters; `LOG_FORMAT=json` switches to
 /// one JSON object per line for log shippers.
 fn init_tracing() {
+    // rmcp logs every MCP request in full at debug, arguments included, and a tool's arguments
+    // can carry a secret (a satellite's bearer secret). Its crate is held at info after
+    // `RUST_LOG` is read, so turning on debug logging, even `rmcp=debug`, never writes one to
+    // the logs. Only naming one of rmcp's modules outright still reaches its debug output.
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=info"));
+        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=info"))
+        .add_directive(
+            "rmcp=info"
+                .parse()
+                .expect("the rmcp directive is well formed"),
+        );
     let json = std::env::var("LOG_FORMAT").is_ok_and(|format| format.eq_ignore_ascii_case("json"));
 
     let builder = tracing_subscriber::fmt()

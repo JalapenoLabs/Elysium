@@ -10,6 +10,7 @@ use axum::Json;
 use axum::extract::rejection::{JsonRejection, PathRejection};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use validator::Validate;
@@ -20,24 +21,39 @@ use crate::fleet::views::TurnView;
 use crate::models::coding_session;
 use crate::state::AppState;
 
-#[derive(Debug, Deserialize, Validate)]
+/// A prompt for a session's agent.
+#[derive(Debug, Deserialize, Validate, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RequestBody {
-    /// Large enough for a pasted stack trace or spec, well under the request body limit.
+pub struct StartTurnRequest {
+    /// What to ask the agent. Large enough for a pasted stack trace or spec, well under the
+    /// request body limit.
     #[validate(
         length(min = 1, max = 100_000),
         custom(function = "validate_not_blank")
     )]
-    prompt: String,
+    pub prompt: String,
 }
 
 pub async fn handle(
     State(state): State<AppState>,
     path: Result<Path<i64>, PathRejection>,
-    body: Result<Json<RequestBody>, JsonRejection>,
+    body: Result<Json<StartTurnRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Path(id) = path?;
     let Json(body) = body?;
+    let turn = start_turn(&state, id, body).await?;
+    Ok((StatusCode::CREATED, Json(json!({ "turn": turn }))))
+}
+
+/// Sends a prompt to the session `id`'s thread, which queues it behind any turn running.
+///
+/// # Errors
+/// The request's validation errors, `404` for an unknown session, or the satellite's refusal.
+pub async fn start_turn(
+    state: &AppState,
+    id: i64,
+    body: StartTurnRequest,
+) -> Result<TurnView, ApiError> {
     body.validate()?;
 
     let mut connection = state
@@ -51,9 +67,5 @@ pub async fn handle(
     let client = state.fleet.client(session.satellite_id).await?;
     let handle = client.threads().attach(session.thread_id.as_str()).await?;
     let turn = handle.start_turn(body.prompt).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({ "turn": TurnView::from(turn.queued()) })),
-    ))
+    Ok(TurnView::from(turn.queued()))
 }
