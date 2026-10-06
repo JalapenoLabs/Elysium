@@ -5,7 +5,7 @@
 //! They call the satellite routes' own functions (`routes::v1::satellites`), so a satellite
 //! registered here is sealed, watched, and announced exactly as one added in Settings. A
 //! satellite's bearer secret is accepted when creating or updating one and never answered
-//! back; rmcp's argument logging is capped in `main` so it never reaches the logs either.
+//! back. rmcp logs arguments at debug, so `main` holds its target at info.
 
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;

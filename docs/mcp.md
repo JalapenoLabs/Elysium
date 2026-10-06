@@ -117,8 +117,9 @@ Tools are named for what they act on, then what they do.
   (prompts, messages, thinking, tool calls, plans, questions, finished turns, incidents), the latest 100 unless asked
   for up to 1,000, with the thread's `latestSequence`. Passing that back as `afterSequence` reads what happened since.
 - **Secrets.** A satellite's bearer secret is accepted by `satellites_create` and `satellites_update` and never
-  answered. rmcp logs every request in full at debug, so the API holds its `rmcp` target at info whatever `RUST_LOG`
-  says.
+  answered. rmcp logs every request in full at debug, so the API holds its `rmcp` target at info after reading
+  `RUST_LOG`: `RUST_LOG=debug`, even `rmcp=debug`, never logs one. Only naming one of rmcp's modules outright still
+  does.
 
 ### Adding a tool
 
