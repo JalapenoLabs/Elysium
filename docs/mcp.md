@@ -91,16 +91,52 @@ rebinding out, and refuses a browser `Origin` from another site.
 
 ### Tools
 
-| Tool    | Scope            | Does                                                     |
-|---------|------------------|----------------------------------------------------------|
-| `hello` | `workspace:read` | Says who the connection acts as, and what it was granted |
+Tools are named for what they act on, then what they do.
+
+| Tool                   | Scope             | Does                                                                   |
+|------------------------|-------------------|------------------------------------------------------------------------|
+| `hello`                | `workspace:read`  | Says who the connection acts as, and what it was granted               |
+| `projects_list`        | `workspace:read`  | Lists projects, so a session can name its own                          |
+| `satellites_list`      | `workspace:read`  | Lists satellites with their latest status                              |
+| `satellites_get`       | `workspace:read`  | Shows one satellite                                                    |
+| `satellites_create`    | `workspace:write` | Registers a satellite by URL and bearer secret, and starts watching it |
+| `satellites_update`    | `workspace:write` | Changes a satellite's name, description, URL, secret, or active state  |
+| `sessions_list`        | `workspace:read`  | Lists coding sessions with their thread's latest state                 |
+| `sessions_get`         | `workspace:read`  | Shows one coding session                                               |
+| `sessions_create`      | `workspace:write` | Starts a coding session, with an optional first prompt                 |
+| `sessions_rename`      | `workspace:write` | Renames a coding session                                               |
+| `sessions_send_prompt` | `workspace:write` | Sends a prompt to a session's agent as a new turn                      |
+| `sessions_events`      | `workspace:read`  | Reads a session's conversation, the latest events or those after one   |
+
+- **Results.** A tool answers structured content, the same JSON the route answers in the browser. A failure is a tool
+  result marked as an error, carrying the HTTP status and the message the browser would get, so the model reads why: a
+  `404`, a validation error naming its fields, or a satellite's refusal. An internal error stays as generic as it is
+  over HTTP.
+- **Writes.** A grant without `workspace:write` is answered with a `403` result saying to reconnect and allow changes.
+- **Events.** A thread's history runs to thousands of events. `sessions_events` answers only the ones Elysium renders
+  (prompts, messages, thinking, tool calls, plans, questions, finished turns, incidents), the latest 100 unless asked
+  for up to 1,000, with the thread's `latestSequence`. Passing that back as `afterSequence` reads what happened since.
+- **Secrets.** A satellite's bearer secret is accepted by `satellites_create` and `satellites_update` and never
+  answered. rmcp logs every request in full at debug, so the API holds its `rmcp` target at info whatever `RUST_LOG`
+  says.
 
 ### Adding a tool
 
-A tool is a method in the `#[tool_router]` block in `api/src/mcp/workspace.rs`. It reaches the person calling it
-through `caller(&context)`. A tool that writes also checks that `workspace:write` is in the caller's scopes, and
-records the person as the actor (`Actor::User`) and creator (`created_by`), exactly as the routes do for the browser.
-Add it to the table above.
+Tools are grouped by what they act on, one module each under `api/src/mcp/` (`projects.rs`, `satellites.rs`,
+`sessions.rs`), each a `#[tool_router(router = <group>_router)]` block combined in `Workspace::new`.
+
+1. Expose the route's work as a function: the handler's body moves into a `pub async fn` on the route module that takes
+   `&AppState`, the acting user's id when it creates, and the request struct, and answers the response. The handler
+   and the tool both call it, so validation, history, events, and the creator are the same either way. The request
+   struct derives `JsonSchema` beside `Deserialize`, and its doc comments become the tool's argument descriptions.
+2. Write the tool in its group's module. It reaches the person through `caller(&context)`. A tool that writes returns
+   `refuse_without_write(&caller)`'s answer first when there is one, and passes `caller.user.id` as the actor.
+3. Answer through `answer(...)`, wrapping lists in an object (`{ "sessions": [...] }`): MCP's structured content is
+   always an object.
+4. Arguments a route takes from its path go in an arguments struct beside the request (`{ id, changes }`). Avoid
+   `#[serde(flatten)]`: it silently drops `deny_unknown_fields`, so a mistyped field would be ignored rather than
+   refused.
+5. Add it to the table above.
 
 ## Hydra
 
@@ -122,6 +158,8 @@ Hydra's schema.
 
 ## Roadmap
 
-- Tools beyond `hello`: action items, initiatives, and projects, read and write.
+- Tools for Studio items, once Studio lands: list, get, create, and update, called through the Studio routes' functions
+  as the session tools are.
+- Tools for action items and initiatives, read and write, and for writing projects.
 - Client ID Metadata Documents, the client registration the MCP spec now prefers, once Hydra supports them. Dynamic
   client registration, which Hydra supports, is deprecated but still what Claude Code and Codex use.
