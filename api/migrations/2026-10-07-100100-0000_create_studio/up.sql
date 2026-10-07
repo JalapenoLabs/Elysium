@@ -48,6 +48,18 @@ ALTER TABLE coding_sessions
     ADD CONSTRAINT coding_sessions_project_required
     CHECK (studio_item_id IS NOT NULL OR project_id IS NOT NULL);
 
+-- How a session that continued its item carries the item's past into a new thread: the
+-- harness's own conversation imported, or a brief in its first turn. NULL for a session that
+-- continued nothing, which every Coding session is.
+CREATE TYPE session_continuation AS ENUM (
+    'imported',
+    'brief'
+);
+ALTER TABLE coding_sessions ADD COLUMN continuation session_continuation;
+ALTER TABLE coding_sessions
+    ADD CONSTRAINT coding_sessions_continuation_studio
+    CHECK (continuation IS NULL OR studio_item_id IS NOT NULL);
+
 CREATE TYPE studio_asset_kind AS ENUM (
     'image',
     'model',

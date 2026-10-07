@@ -14,7 +14,7 @@ mod read_asset;
 mod read_feedback_image;
 mod restore_studio_item;
 mod send_turn;
-mod thread;
+pub mod thread;
 mod update_studio_item;
 
 use std::collections::{HashMap, HashSet};

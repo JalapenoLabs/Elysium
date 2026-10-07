@@ -51,6 +51,33 @@ pub async fn create(
         .await
 }
 
+/// Records the turn a drawn prompt started, once the satellite accepted it.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] when no row has that id.
+pub async fn set_turn_id(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    turn_id: &str,
+) -> QueryResult<StudioFeedback> {
+    diesel::update(studio_feedback::table.find(id))
+        .set(studio_feedback::turn_id.eq(Some(turn_id)))
+        .returning(StudioFeedback::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Forgets a drawn prompt whose turn never started.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<()> {
+    diesel::delete(studio_feedback::table.find(id))
+        .execute(connection)
+        .await?;
+    Ok(())
+}
+
 /// Every drawn prompt sent to an item, oldest first.
 ///
 /// # Errors

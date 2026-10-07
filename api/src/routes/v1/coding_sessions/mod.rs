@@ -36,7 +36,7 @@ use self::model_stack::ModelStack;
 use crate::blender;
 use crate::errors::ApiError;
 use crate::fleet::views::ThreadStatus;
-use crate::models::coding_session::CodingSession;
+use crate::models::coding_session::{CodingSession, SessionContinuation};
 use crate::models::environment_variable::ThreadVariable;
 use crate::state::AppState;
 use crate::tools;
@@ -86,6 +86,8 @@ pub struct CodingSessionResponse {
     action_item_id: Option<Uuid>,
     /// The Studio item the session works on; `null` for a Coding session.
     studio_item_id: Option<Uuid>,
+    /// How it continued its Studio item: `imported` or `brief`, or `null`.
+    continuation: Option<SessionContinuation>,
     created_at: DateTime<Utc>,
     /// Who created it.
     created_by: Uuid,
@@ -105,6 +107,7 @@ impl CodingSessionResponse {
             github_credential_id: session.github_credential_id,
             action_item_id: session.action_item_id,
             studio_item_id: session.studio_item_id,
+            continuation: session.continuation,
             created_at: session.created_at,
             created_by: session.created_by,
             updated_at: session.updated_at,

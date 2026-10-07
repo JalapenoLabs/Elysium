@@ -78,6 +78,10 @@ pub mod sql_types {
     pub struct S3Service;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "session_continuation"))]
+    pub struct SessionContinuation;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "storage_location_kind"))]
     pub struct StorageLocationKind;
 
@@ -243,6 +247,7 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::SessionContinuation;
 
     coding_sessions (id) {
         id -> Int8,
@@ -256,6 +261,7 @@ diesel::table! {
         action_item_id -> Nullable<Uuid>,
         created_by -> Uuid,
         studio_item_id -> Nullable<Uuid>,
+        continuation -> Nullable<SessionContinuation>,
     }
 }
 

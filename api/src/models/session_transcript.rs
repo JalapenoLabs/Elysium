@@ -7,6 +7,7 @@
 //! everything the agent read, which the satellite does not scrub, so it is compressed with
 //! zstd and then sealed like any application secret. See `docs/studio.md`, Continuing.
 
+use arsox_sdk::proto::harness::v1::Harness;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -34,6 +35,16 @@ pub enum HarnessFamily {
 }
 
 impl HarnessFamily {
+    /// The family a thread runs, or `None` when the thread names no harness and the satellite
+    /// picks one itself.
+    pub const fn of(harness: Harness) -> Option<Self> {
+        match harness {
+            Harness::Claude => Some(Self::Claude),
+            Harness::Codex => Some(Self::Codex),
+            Harness::Unspecified => None,
+        }
+    }
+
     const fn as_column(self) -> &'static str {
         match self {
             Self::Claude => "claude",

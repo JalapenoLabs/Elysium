@@ -48,6 +48,7 @@ use std::time::Duration;
 use anyhow::Context;
 use arsox_sdk::client::Satellite as SatelliteClient;
 use arsox_sdk::client::ThreadHandle;
+use arsox_sdk::proto::artifact::v1::Artifact;
 use arsox_sdk::proto::error::v1::ErrorCode;
 use arsox_sdk::proto::event::v1::{ThreadEvent, thread_event};
 use arsox_sdk::proto::thread::v1::ThreadOrder;
@@ -69,7 +70,7 @@ use crate::models::session_event;
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
 use crate::storage::Storage;
-use crate::studio::artifacts;
+use crate::studio::{artifacts, transcripts};
 use crate::tools::ToolContext;
 
 /// Metadata key marking a thread as opened by Elysium, so the watcher lists only those.
@@ -718,19 +719,38 @@ impl Fleet {
     ///
     /// - `ArtifactCreated` on a Studio session: keep the file for the item. Keeping is
     ///   idempotent, so an event replayed while catching up costs one lookup.
+    /// - `TurnCompleted` on a Studio session: back up the harness session, so a later thread
+    ///   can resume the item's conversation.
     fn act_on(&self, session: &CodingSession, handle: &ThreadHandle, thread_event: &ThreadEvent) {
-        let Some(thread_event::Payload::ArtifactCreated(created)) = &thread_event.payload else {
+        if session.studio_item_id.is_none() {
             return;
-        };
-        let (Some(studio_item_id), Some(artifact)) = (session.studio_item_id, &created.artifact)
-        else {
-            return;
-        };
+        }
+        match &thread_event.payload {
+            Some(thread_event::Payload::ArtifactCreated(created)) => {
+                if let (Some(studio_item_id), Some(artifact)) =
+                    (session.studio_item_id, &created.artifact)
+                {
+                    self.keep_artifact(session.id, studio_item_id, handle, artifact.clone());
+                }
+            }
+            Some(thread_event::Payload::TurnCompleted(_)) => {
+                self.back_up_transcript(session.id, handle);
+            }
+            _ => {}
+        }
+    }
 
+    /// Keeps one announced file for its item, in a tracked task so a large file never holds up
+    /// the stream.
+    fn keep_artifact(
+        &self,
+        session_id: i64,
+        studio_item_id: Uuid,
+        handle: &ThreadHandle,
+        artifact: Artifact,
+    ) {
         let fleet = self.clone();
-        let session_id = session.id;
         let workspace = handle.clone();
-        let artifact = artifact.clone();
         let cancel = self.inner.shutdown.child_token();
         self.inner.tasks.spawn(async move {
             let services = fleet.studio_services();
@@ -742,6 +762,26 @@ impl Fleet {
             tokio::select! {
                 () = cancel.cancelled() => {}
                 () = artifacts::keep_and_report(services, source, &artifact) => {}
+            }
+        });
+    }
+
+    /// Backs up a Studio thread's harness session, in a tracked task: exporting it can take a
+    /// moment, and the stream carries on meanwhile.
+    fn back_up_transcript(&self, session_id: i64, handle: &ThreadHandle) {
+        let fleet = self.clone();
+        let workspace = handle.clone();
+        let cancel = self.inner.shutdown.child_token();
+        self.inner.tasks.spawn(async move {
+            let backup = transcripts::back_up(
+                &fleet.inner.database,
+                &fleet.inner.cipher,
+                session_id,
+                &workspace,
+            );
+            tokio::select! {
+                () = cancel.cancelled() => {}
+                () = backup => {}
             }
         });
     }

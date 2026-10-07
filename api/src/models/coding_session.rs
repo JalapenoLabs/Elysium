@@ -11,9 +11,23 @@ use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel::sql_types::BigInt;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::database::schema::coding_sessions;
+
+/// How a session that continued its Studio item carries the item's past into its new thread.
+/// See `docs/studio.md`, Continuing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum, Serialize)]
+#[ExistingTypePath = "crate::database::schema::sql_types::SessionContinuation"]
+#[serde(rename_all = "kebab-case")]
+pub enum SessionContinuation {
+    /// The harness's own conversation was imported, so the agent resumes with full context.
+    Imported,
+    /// The first turn carried a brief instead: the first prompt, the feedback so far, and the
+    /// thumbnail.
+    Brief,
+}
 
 /// A stored session.
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable, Insertable)]
@@ -39,6 +53,8 @@ pub struct CodingSession {
     pub studio_item_id: Option<Uuid>,
     /// Who created it.
     pub created_by: Uuid,
+    /// How it continued its item, or `None` for a session that continued nothing.
+    pub continuation: Option<SessionContinuation>,
 }
 
 /// Fields for a new session. The id comes from [`reserve_id`], because the thread is
@@ -170,6 +186,22 @@ pub async fn rename(
 ) -> QueryResult<CodingSession> {
     diesel::update(coding_sessions::table.find(id))
         .set(coding_sessions::title.eq(title))
+        .returning(CodingSession::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Records how a session continued its Studio item.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] when no row has that id.
+pub async fn set_continuation(
+    connection: &mut AsyncPgConnection,
+    id: i64,
+    continuation: SessionContinuation,
+) -> QueryResult<CodingSession> {
+    diesel::update(coding_sessions::table.find(id))
+        .set(coding_sessions::continuation.eq(Some(continuation)))
         .returning(CodingSession::as_returning())
         .get_result(connection)
         .await
