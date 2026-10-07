@@ -171,7 +171,9 @@ that thread may still be running. The harness session is exported after every tu
 (`api/src/studio/transcripts.rs`) and kept sealed; a failed export is logged and only costs a later continue its
 import.
 
-The conversation view reads the item's sessions in order and shows a divider where one continued into the next.
+The conversation view reads the item's sessions in order and shows a divider where one continued into the next. Each
+session in an item's response carries `continuation`: `imported` or `brief` for how it carried on, and `null` for the
+item's first session. The divider names it, and says only that a new thread began when it is absent.
 
 ## Deleting
 
@@ -209,11 +211,83 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
 
 `frontend/src/pages/Studio/` holds the grid and the item page.
 
-- The grid is tiles only: the thumbnail, title, live thread state, and model and image counts, filtered by project and
-  by live or deleted.
-- The item page is two columns split by `react-resizable-panels`: the stage (viewer or image, the filmstrip, Annotate)
-  and the conversation (`ConversationTimeline` and `PromptComposer` from the Coding page). A three-way control in the
-  header shows Both, Preview, or Chat, so both columns can never be hidden; dragging a column past its collapse point
-  switches to the matching mode. The split and mode are saved per browser under `elysium.studio.layout.v1`. Narrow
-  screens stack the columns and the same control switches between them.
-- The 3D viewer is `@google/model-viewer`. Drawing uses a canvas with `perfect-freehand` strokes.
+### Grid
+
+`/studio` (`StudioPage`) is tiles only (`StudioItemTile`):
+
+- **Tile.** The thumbnail, title, live thread state, and image and model counts. The thumbnail is the API's choice
+  (`thumbnailAssetId`); without one, a working placeholder shows while the item's thread runs or waits, else an empty
+  frame (`getTileThumbnail` in `studioListing.ts`).
+- **Filters.** A project (or no project) and a Deleted items switch, kept in the address (`?project=`,
+  `?deleted=true`), so a filtered grid survives opening an item. Deleted tiles offer Restore.
+- **New item** (`CreateStudioItemForm`). The prompt, an optional title and project, a storage location, and a
+  satellite. The location list follows the project as the API does, and starts on Studio's default when it is among
+  them (`studioStorage.ts`).
+- **No storage.** With no storage location at all, the page shows `StudioNoStorage`, which links to Settings,
+  Storage, in place of the grid.
+
+### Item page
+
+`/studio/:itemId` (`StudioItemPage`, then `StudioItemWorkspace`) takes the whole content area.
+
+- **Layout.** Two columns split by `react-resizable-panels` (`StudioSplit`): the stage and the conversation.
+  - A three-way control in the header (`StudioLayoutControl`) shows Both, Preview, or Chat. One mode is always chosen,
+    so both columns can never be hidden.
+  - Neither column narrows below 20% of the width. Dragging one well past that closes it and switches to the other's
+    mode.
+  - The split and mode are saved per browser under `elysium.studio.layout.v1`. Anything unreadable falls back to
+    Both at 60% (`studioLayout.ts`).
+  - Narrower than 900 pixels, the columns stack and the same control switches between them. Hidden columns stay
+    mounted, so the model stays loaded.
+- **Stage** (`StudioStage`). The image or the 3D viewer, with the file's path above and two actions: Pin as thumbnail
+  for an image, and Annotate.
+  - The filmstrip (`StudioFilmstrip`) lists every model and image the item holds, then the versions of the one shown,
+    newest first, to compare turns. The stage follows the newest version until an older one is picked.
+  - Downloads list the newest version of every file, grouped by stem (`groupStudioAssets` in `studioAssets.ts`).
+  - The stage opens on a model the viewer can show, else the image the tile shows, else the newest image, else a
+    model without a `.glb`, which shows its downloads.
+- **Conversation** (`StudioConversation`). One scrolling column of the item's sessions, oldest first, each a
+  `StudioSessionTimeline` built on the Coding page's `TimelineEventList`. A divider sits between sessions. A drawn
+  prompt shows its drawing under the prompt, matched by `turnId`.
+- **Composer** (`StudioComposer`). It wraps the Coding page's `PromptComposer` but never closes, since a prompt to an
+  ended thread is how an item continues. While the latest thread has ended, it offers a satellite (or the previous
+  one) and sends through `sendStudioTurn`.
+- **Deleted items.** A deleted item is read-only under a banner with Restore. A pull error shows as a banner too.
+- **Delete** (`StudioItemActions`). It confirms through `useConfirm`, whose message (`DeleteStudioItemMessage`) holds
+  the unchecked permanent box. A soft delete rereads the item to show it deleted; a permanent one returns to the grid.
+
+### 3D viewer
+
+The viewer is `@google/model-viewer` (`StudioModelViewer`), imported lazily so three.js loads with the first model.
+
+- **Off-origin loads.** It loads nothing from another origin: `ModelViewerElement.mapURLs` passes every URL its
+  loaders ask for through `keepToOwnOrigin` (`modelViewerUrls.ts`), which refuses any URL off the app's origin.
+- **Decoders are off.** model-viewer fetches its Draco and KTX2 decoders from Google's CDN, and Meshopt's only when a
+  location is set. All three run as blob workers with WebAssembly, which the web app's policy does not allow (no
+  `worker-src`, no `'wasm-unsafe-eval'`), so bundling them locally would not make them run either.
+  - Elysium's export (`api/src/blender/export_glb.py`) never compresses, so its models need no decoder.
+  - A compressed `.glb` an agent writes itself fails to preview, in production and development alike, and offers its
+    downloads instead.
+- **Textures.** three.js unpacks a `.glb`'s embedded textures into blob URLs and reads them with `fetch`, which the
+  production policy's `connect-src 'self'` refuses (checked in Chromium). A textured model therefore renders without
+  its textures in production; the development stack sends no policy and shows them. See `docs/security.md`.
+
+### Annotate
+
+`AnnotateModal` draws over a view at its full resolution.
+
+- **Source.** An image opens as it is. A model's view is frozen first with `toBlob()`, and `getCameraOrbit()` is
+  recorded.
+- **Drawing.** Strokes are `perfect-freehand` outlines (or an arrow) in image pixels (`annotation.ts`), painted by
+  `drawAnnotation.ts`. The pen has three colors, the theme's danger, warning, and accent, plus undo and clear.
+- **Sending.** The canvas itself is the flattened PNG. It goes to `sendStudioTurn` with the prompt, the source asset,
+  the orbit, and, for a model, the clean capture.
+
+### Settings
+
+Settings, Storage has a Studio default column whose switch (`StudioDefaultSwitch`) sets `isStudioDefault`.
+
+## Roadmap
+
+- Showing textured models in production, which needs the web app's policy to allow `blob:` in `connect-src`
+  (`docs/security.md`).

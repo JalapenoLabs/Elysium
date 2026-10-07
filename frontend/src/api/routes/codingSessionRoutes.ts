@@ -26,6 +26,8 @@ export type ThreadStatus = {
   expiresAt: string | null
 }
 
+export type StudioContinuation = 'imported' | 'brief'
+
 export type CodingSession = {
   // The session's number: 1, 2, 3, ... in the order sessions were started.
   id: number
@@ -41,6 +43,10 @@ export type CodingSession = {
   actionItemId: string | null
   // The Studio item the session belongs to; null for a Coding session.
   studioItemId: string | null
+  // How a Studio session carried on from the item's previous one: the harness's own
+  // conversation imported, or a brief in its first turn. Null for an item's first session,
+  // and absent from Coding sessions.
+  continuation?: StudioContinuation | null
   createdAt: string
   // The user who created it: a person, or a machine such as the coding agent.
   createdBy: string

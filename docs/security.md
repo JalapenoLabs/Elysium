@@ -126,6 +126,18 @@ Keeping the app inside that policy takes two things on the frontend: the pre-pai
 `public/theme.js`, not inline, and Zod runs `jitless`, so it never probes for `new Function`. See
 `docs/frontend.md`.
 
+Studio's 3D viewer (`@google/model-viewer`, see `docs/studio.md`) runs inside the same policy:
+
+- **Decoders.** Its Draco, KTX2, and Meshopt decoders are off. They load from Google's CDN and run as blob workers
+  with WebAssembly, which would need another origin in `connect-src`, `blob:` in `worker-src`, and
+  `'wasm-unsafe-eval'`. The viewer refuses every URL off the app's own origin, so they never load, in any
+  environment. Elysium's own glTF export never compresses.
+- **Textures.** three.js reads a model's embedded textures by fetching `blob:` URLs, which `connect-src 'self'`
+  refuses. Textured models render without their textures in production until the policy allows `blob:` in
+  `connect-src`.
+- **Studio's files.** Responses carry their own sandboxing policy (`docs/studio.md`). The app shows them only as
+  `<img>` sources and viewer models, all from `/api`.
+
 In the development stack nginx sends the app's paths to the Vite dev server instead. The dev server needs inline
 scripts and websockets, so those pages carry no CSP, only the headers nginx adds there (`nosniff`, `DENY`,
 `Referrer-Policy`, `Permissions-Policy`). That stack is for local work, never a deployment. nginx hides its version
@@ -153,4 +165,6 @@ Application secrets never go there. They are stored in Postgres, encrypted with 
 ## Roadmap
 
 - Authentication on `/api/v1`, then publishing nginx beyond loopback by default.
+- Deciding on `blob:` in the web app's `connect-src`, which Studio's viewer needs to show textured models. It would let
+  the app fetch blob URLs it created itself, and nothing from another origin.
 - TLS termination at nginx.
