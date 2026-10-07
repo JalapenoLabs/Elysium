@@ -223,6 +223,27 @@ mod tests {
     }
 
     #[test]
+    fn every_result_also_carries_its_json_as_text_for_older_clients() {
+        // MCP asks a tool returning structured content to repeat it as text, so a client that
+        // renders only `content` still shows the answer, and above all a failure's reason.
+        let refusal = refuse_without_write(&caller_with(&[SCOPE_READ])).expect("refused");
+        let failure = answer(Err(ApiError::NotFound)).expect("a failure is still a result");
+        let success = answer(Ok(json!({ "sessions": [] }))).expect("a success is a result");
+
+        for result in [refusal, failure, success] {
+            let structured = result.structured_content.clone().expect("structured");
+            let text = result
+                .content
+                .first()
+                .and_then(|block| block.as_text())
+                .map(|text| text.text.clone())
+                .expect("the result carries a text block");
+            let parsed: Value = serde_json::from_str(&text).expect("the text is the JSON");
+            assert_eq!(parsed, structured);
+        }
+    }
+
+    #[test]
     fn a_success_is_answered_as_structured_content() {
         let result = answer(Ok(json!({ "sessions": [] }))).expect("a success is a result");
         assert_eq!(result.is_error, Some(false));

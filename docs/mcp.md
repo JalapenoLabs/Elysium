@@ -108,14 +108,17 @@ Tools are named for what they act on, then what they do.
 | `sessions_send_prompt` | `workspace:write` | Sends a prompt to a session's agent as a new turn                      |
 | `sessions_events`      | `workspace:read`  | Reads a session's conversation, the latest events or those after one   |
 
-- **Results.** A tool answers structured content, the same JSON the route answers in the browser. A failure is a tool
+- **Results.** A tool answers structured content, the same JSON the route answers in the browser, repeated as a text
+  block for clients that render only text. A failure is a tool
   result marked as an error, carrying the HTTP status and the message the browser would get, so the model reads why: a
   `404`, a validation error naming its fields, or a satellite's refusal. An internal error stays as generic as it is
   over HTTP.
 - **Writes.** A grant without `workspace:write` is answered with a `403` result saying to reconnect and allow changes.
 - **Events.** A thread's history runs to thousands of events. `sessions_events` answers only the ones Elysium renders
-  (prompts, messages, thinking, tool calls, plans, questions, finished turns, incidents), the latest 100 unless asked
-  for up to 1,000, with the thread's `latestSequence`. Passing that back as `afterSequence` reads what happened since.
+  (prompts, messages, thinking, tool calls, plans, questions, finished turns, incidents), 100 unless asked for up to
+  1,000. Without `afterSequence` it answers the latest. With it, it pages forward: the earliest events after that
+  sequence, so none is skipped. Every answer carries `nextSequence`, which passed back as `afterSequence` reads on, and
+  `truncated` when more remain.
 - **Secrets.** A satellite's bearer secret is accepted by `satellites_create` and `satellites_update` and never
   answered. rmcp logs every request in full at debug, so the API holds its `rmcp` target at info after reading
   `RUST_LOG`: `RUST_LOG=debug`, even `rmcp=debug`, never logs one. Only naming one of rmcp's modules outright still

@@ -23,7 +23,8 @@ use validator::Validate;
 use super::workspace::{Workspace, answer, caller, refuse_without_write};
 use crate::errors::ApiError;
 use crate::routes::v1::coding_sessions::{
-    self, CreateCodingSessionRequest, EventWindow, RenameCodingSessionRequest, StartTurnRequest,
+    self, CreateCodingSessionRequest, EventWindow, Keep, RenameCodingSessionRequest,
+    StartTurnRequest,
 };
 
 /// Events answered when a client does not say how many. Enough to read a turn's messages and
@@ -64,8 +65,8 @@ pub struct SendPromptArguments {
 pub struct SessionEventsArguments {
     /// The session's number, from `sessions_list`.
     id: i64,
-    /// Only events after this sequence: pass the `latestSequence` of the previous answer to read
-    /// what happened since. Leave it out to read the latest events.
+    /// Only events after this sequence: pass the `nextSequence` of the previous answer to read
+    /// on. Leave it out to read the latest events.
     after_sequence: Option<u64>,
     /// The most events answered, the latest kept when more match. Defaults to 100.
     #[validate(range(min = 1, max = 1000))]
@@ -164,9 +165,10 @@ impl Workspace {
         name = "sessions_events",
         description = "Reads a coding session's conversation, oldest first: prompts, the \
             agent's messages and thinking, tool calls, plans, questions, finished turns, and \
-            incidents. Answers the latest events up to limit, whether earlier ones were left \
-            out, and latestSequence; pass that as afterSequence next time to read only what \
-            happened since."
+            incidents. Without afterSequence it answers the latest events up to limit. With it, \
+            it answers the events after that sequence, the earliest first up to limit, so no \
+            event is skipped. Pass nextSequence back as afterSequence to read on; truncated says \
+            more remain."
     )]
     async fn sessions_events(
         &self,
@@ -175,9 +177,16 @@ impl Workspace {
         if let Err(errors) = arguments.validate() {
             return answer(Err(ApiError::from(errors)));
         }
+        // A first read wants what is happening now; a read from a cursor pages forward, so it
+        // keeps the earliest events and skips none.
+        let keep = match arguments.after_sequence {
+            Some(_) => Keep::Earliest,
+            None => Keep::Latest,
+        };
         let window = EventWindow {
             after_sequence: arguments.after_sequence.unwrap_or(0),
             limit: arguments.limit.unwrap_or(DEFAULT_EVENT_LIMIT) as usize,
+            keep,
             rendered_only: true,
         };
         let page = coding_sessions::read_events(&self.state, arguments.id, window).await;

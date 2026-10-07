@@ -17,7 +17,7 @@ mod start_turn;
 
 pub use create_coding_session::{CreateCodingSessionRequest, create};
 pub use list_coding_sessions::{find, list};
-pub use list_session_events::{EventWindow, read_events};
+pub use list_session_events::{EventWindow, Keep, read_events};
 pub use rename_coding_session::{RenameCodingSessionRequest, rename};
 pub use start_turn::{StartTurnRequest, start_turn};
 
