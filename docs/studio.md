@@ -210,7 +210,8 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
 - **Layout.** Two columns split by `react-resizable-panels` (`StudioSplit`): the stage and the conversation.
   - A three-way control in the header (`StudioLayoutControl`) shows Both, Preview, or Chat. One mode is always chosen,
     so both columns can never be hidden.
-  - Dragging a column past its collapse point (20% of the width) closes it and switches to the other's mode.
+  - Neither column narrows below 20% of the width. Dragging one well past that closes it and switches to the other's
+    mode.
   - The split and mode are saved per browser under `elysium.studio.layout.v1`. Anything unreadable falls back to
     Both at 60% (`studioLayout.ts`).
   - Narrower than 900 pixels, the columns stack and the same control switches between them. Hidden columns stay
