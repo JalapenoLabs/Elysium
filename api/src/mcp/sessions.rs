@@ -68,7 +68,8 @@ pub struct SessionEventsArguments {
     /// Only events after this sequence: pass the `nextSequence` of the previous answer to read
     /// on. Leave it out to read the latest events.
     after_sequence: Option<u64>,
-    /// The most events answered, the latest kept when more match. Defaults to 100.
+    /// The most events answered. Defaults to 100. Without `afterSequence` the latest are kept;
+    /// with it, the earliest, so paging forward skips nothing.
     #[validate(range(min = 1, max = 1000))]
     limit: Option<u32>,
 }
