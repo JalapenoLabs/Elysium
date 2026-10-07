@@ -300,10 +300,12 @@ A pointer to an Arsox thread, and what Elysium keeps of it beside the row (`sess
 | `github_credential_id` | `UUID` | The GitHub token the thread started with; `ON DELETE SET NULL`     |
 | `action_item_id` | `UUID`      | The action item the session was started from; `ON DELETE SET NULL`   |
 | `studio_item_id` | `UUID`      | The Studio item it works on; NULL for a Coding session. Deleted with the item |
+| `continuation` | `session_continuation` | How it continued its Studio item: `imported` or `brief`; NULL otherwise |
 | `created_at`   | `TIMESTAMPTZ` | Set on insert                                                         |
 | `updated_at`   | `TIMESTAMPTZ` | Maintained by trigger                                                 |
 
-`coding_sessions_project_required` holds that only a Studio session may lack a project.
+`coding_sessions_project_required` holds that only a Studio session may lack a project, and
+`coding_sessions_continuation_studio` that only a Studio session records a continuation.
 `coding_sessions_created_at_idx` serves the newest-first overview, `coding_sessions_project_id_idx` the project
 lookups, including the delete check, `coding_sessions_action_item_id_idx` an item's sessions, and
 `coding_sessions_studio_item_id_idx` a Studio item's. Action items are deleted softly, so a session keeps its item
@@ -351,6 +353,7 @@ Studio's single assets; see `docs/studio.md`.
 | `project_id`          | `UUID`        | Optional; references `projects`, `ON DELETE NO ACTION`             |
 | `storage_location_id` | `UUID`        | References `storage_locations`, `ON DELETE NO ACTION`              |
 | `thumbnail_asset_id`  | `UUID`        | The pinned thumbnail; references `studio_assets`, `ON DELETE SET NULL` |
+| `pull_error`          | `TEXT`        | Why the latest file could not be kept; cleared by the next that is |
 | `deleted_at`          | `TIMESTAMPTZ` | Set by a soft delete                                               |
 | `created_at`          | `TIMESTAMPTZ` | Set on insert                                                      |
 | `updated_at`          | `TIMESTAMPTZ` | Maintained by trigger                                              |
@@ -372,7 +375,7 @@ sha256)` makes a pull of a file already kept a no-op.
 | `content_type`   | `TEXT`              | As the satellite reported it, when it could                  |
 | `size_bytes`     | `BIGINT`            | Not negative                                                 |
 | `sha256`         | `TEXT`              | 64 lowercase hex characters                                  |
-| `storage_path`   | `TEXT`              | Where it is kept: `studio/<item>/<sha256>.<extension>`       |
+| `storage_path`   | `TEXT`              | Where it is kept: `studio/<item>/<sha256>.<extension>`, shared by every row with those bytes |
 | `created_at`     | `TIMESTAMPTZ`       | Set on insert                                                |
 
 ### `studio_feedback`
@@ -384,7 +387,7 @@ A prompt sent with a drawing. Both images are kept in the item's storage locatio
 | `id`                     | `UUID`        | UUIDv7, primary key                                      |
 | `studio_item_id`         | `UUID`        | References `studio_items`; deleted with the item         |
 | `session_id`             | `BIGINT`      | The session it was sent to; `ON DELETE SET NULL`         |
-| `turn_id`                | `TEXT`        | The turn it started                                      |
+| `turn_id`                | `TEXT`        | The turn it started; NULL until the satellite accepts it |
 | `prompt`                 | `TEXT`        | 1 to 100,000 characters                                  |
 | `source_asset_id`        | `UUID`        | What was drawn over; `ON DELETE SET NULL`                |
 | `camera_orbit`           | `TEXT`        | The 3D viewer's camera at capture; up to 200 characters  |
