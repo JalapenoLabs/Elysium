@@ -24,7 +24,6 @@ use std::fmt::Write as _;
 
 use anyhow::Context;
 use arsox_sdk::client::ThreadHandle;
-use arsox_sdk::proto::harness::v1::Harness;
 use arsox_sdk::proto::turn::v1::TurnAttachment;
 use futures_util::stream;
 use redis::AsyncCommands as _;

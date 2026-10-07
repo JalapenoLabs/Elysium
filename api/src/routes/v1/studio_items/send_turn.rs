@@ -307,44 +307,13 @@ async fn keep_drawing(
         .as_ref()
         .map(|_capture| format!("{directory}/capture.png"));
     let capture_size = form.capture.as_ref().map(Bytes::len);
-    let new_bytes = annotated.len() + capture_size.unwrap_or_default();
-
-    let mut connection = state
-        .database
-        .get()
-        .await
-        .context("no database connection available")?;
-    let location = storage_location::find(&mut connection, item.storage_location_id).await?;
-    if let Some(limit) = location.storage_limit_bytes {
-        let used = studio_item::bytes_in_location(&mut connection, location.id).await?;
-        let remaining = u64::try_from(limit.saturating_sub(used)).unwrap_or_default();
-        if new_bytes as u64 > remaining {
-            return Err(ApiError::Conflict(
-                "the item's storage location is full; free space or raise its limit",
-            ));
-        }
-    }
-    drop(connection);
-
-    let access_key = location
-        .access_key(&state.cipher)
-        .context("the storage location's access key cannot be decrypted")?;
-    upload(
+    let location = store_images(
         state,
-        &location,
-        &access_key,
-        &annotated_path,
-        annotated.clone(),
+        item,
+        (&annotated_path, &annotated),
+        capture_path.as_deref().zip(form.capture.as_ref()),
     )
     .await?;
-    if let (Some(capture_path), Some(capture)) = (&capture_path, &form.capture) {
-        if let Err(error) =
-            upload(state, &location, &access_key, capture_path, capture.clone()).await
-        {
-            remove_files(state, &location, &[annotated_path.as_str()]).await;
-            return Err(error);
-        }
-    }
 
     let workspace_path = format!("feedback/{feedback_id}/annotated.png");
     let annotated_size = annotated.len() as u64;
@@ -403,6 +372,67 @@ async fn keep_drawing(
         },
         location,
     })
+}
+
+/// Keeps a drawing, and its clean capture when there is one, in the item's storage location,
+/// within the location's limit. A capture that fails takes the drawing with it.
+///
+/// # Errors
+/// `409` when the images would pass the location's storage limit, and the failures of the
+/// provider and the database.
+async fn store_images(
+    state: &AppState,
+    item: &StudioItem,
+    annotated: (&str, &Bytes),
+    capture: Option<(&str, &Bytes)>,
+) -> Result<StorageLocation, ApiError> {
+    let (annotated_path, annotated_bytes) = annotated;
+    let new_bytes = annotated_bytes.len() + capture.map_or(0, |(_path, bytes)| bytes.len());
+
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let location = storage_location::find(&mut connection, item.storage_location_id).await?;
+    if let Some(limit) = location.storage_limit_bytes {
+        let used = studio_item::bytes_in_location(&mut connection, location.id).await?;
+        let remaining = u64::try_from(limit.saturating_sub(used)).unwrap_or_default();
+        if new_bytes as u64 > remaining {
+            return Err(ApiError::Conflict(
+                "the item's storage location is full; free space or raise its limit",
+            ));
+        }
+    }
+    drop(connection);
+
+    let access_key = location
+        .access_key(&state.cipher)
+        .context("the storage location's access key cannot be decrypted")?;
+    upload(
+        state,
+        &location,
+        &access_key,
+        annotated_path,
+        annotated_bytes.clone(),
+    )
+    .await?;
+    let Some((capture_path, capture_bytes)) = capture else {
+        return Ok(location);
+    };
+    if let Err(error) = upload(
+        state,
+        &location,
+        &access_key,
+        capture_path,
+        capture_bytes.clone(),
+    )
+    .await
+    {
+        remove_files(state, &location, &[annotated_path]).await;
+        return Err(error);
+    }
+    Ok(location)
 }
 
 async fn upload(
@@ -619,35 +649,42 @@ mod tests {
 
     #[tokio::test]
     async fn a_blank_or_missing_prompt_is_refused() {
-        assert!(form(&[("prompt", b"   ")]).await.is_err());
-        assert!(form(&[("annotated", &png_bytes())]).await.is_err());
+        form(&[("prompt", b"   ")]).await.expect_err("refused");
+        form(&[("annotated", &png_bytes())])
+            .await
+            .expect_err("refused");
     }
 
     #[tokio::test]
     async fn an_image_that_is_not_a_png_is_refused() {
-        let refused = form(&[("prompt", b"Fix it"), ("annotated", b"GIF89a...")]).await;
-        assert!(refused.is_err());
+        form(&[("prompt", b"Fix it"), ("annotated", b"GIF89a...")])
+            .await
+            .expect_err("a GIF is refused");
     }
 
     #[tokio::test]
     async fn a_drawing_past_its_limit_is_refused_while_it_is_read() {
         let mut huge = png_bytes();
         huge.resize(MAX_ANNOTATED_BYTES + 1, 0);
-        let refused = form(&[("prompt", b"Fix it"), ("annotated", &huge)]).await;
-        assert!(refused.is_err());
+        form(&[("prompt", b"Fix it"), ("annotated", &huge)])
+            .await
+            .expect_err("an oversized drawing is refused");
     }
 
     #[tokio::test]
     async fn drawing_details_without_a_drawing_are_refused() {
-        let refused = form(&[("prompt", b"Fix it"), ("capture", &png_bytes())]).await;
-        assert!(refused.is_err());
-        let refused = form(&[("prompt", b"Fix it"), ("cameraOrbit", b"0deg 0deg 1m")]).await;
-        assert!(refused.is_err());
+        form(&[("prompt", b"Fix it"), ("capture", &png_bytes())])
+            .await
+            .expect_err("a capture needs a drawing");
+        form(&[("prompt", b"Fix it"), ("cameraOrbit", b"0deg 0deg 1m")])
+            .await
+            .expect_err("an orbit needs a drawing");
     }
 
     #[tokio::test]
     async fn an_unknown_field_is_refused() {
-        let refused = form(&[("prompt", b"Fix it"), ("satelite", b"typo")]).await;
-        assert!(refused.is_err());
+        form(&[("prompt", b"Fix it"), ("satelite", b"typo")])
+            .await
+            .expect_err("a misspelled field is refused");
     }
 }

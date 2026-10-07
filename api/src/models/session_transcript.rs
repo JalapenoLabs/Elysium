@@ -8,7 +8,6 @@
 //! zstd and then sealed like any application secret. See `docs/studio.md`, Continuing.
 
 use arsox_sdk::proto::harness::v1::Harness;
-use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::Serialize;
@@ -67,11 +66,7 @@ impl HarnessFamily {
 pub struct SessionTranscript {
     pub session_id: i64,
     harness: String,
-    pub harness_session_id: String,
     transcript_sealed: Vec<u8>,
-    /// The export's size before compression.
-    pub size_bytes: i64,
-    pub updated_at: DateTime<Utc>,
 }
 
 /// Why a transcript could not be kept or read back.

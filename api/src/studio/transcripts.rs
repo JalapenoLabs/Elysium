@@ -55,7 +55,7 @@ async fn export(
 ) -> Result<Option<(HarnessFamily, String, Vec<u8>)>, String> {
     let export = match workspace.export_session().await {
         Ok(export) => export,
-        Err(error) if error.is_not_found() => return Ok(None),
+        Err(error) if error.is_session_not_found() => return Ok(None),
         Err(error) => return Err(error.to_string()),
     };
     let Some(family) = HarnessFamily::of(export.harness) else {

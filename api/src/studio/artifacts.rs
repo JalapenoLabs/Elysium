@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 use crate::crypto::Cipher;
 use crate::database::Pool;
-use crate::models::storage_location;
+use crate::models::storage_location::{self, StorageLocation};
 use crate::models::studio_asset::{self, NewStudioAsset, StudioAsset};
 use crate::models::studio_item;
 use crate::realtime::{EventBus, ServerEvent};
@@ -75,7 +75,7 @@ pub enum Kept {
     /// Stored and recorded.
     New(StudioAsset),
     /// The item already holds this version of this path.
-    AlreadyKept,
+    AlreadyHeld,
     /// The file changed after the satellite announced it, so it was not kept.
     ChangedSinceAnnounced,
 }
@@ -115,7 +115,7 @@ pub async fn keep_and_report(services: Services<'_>, source: Source<'_>, artifac
     let outcome = keep(services, source, artifact).await;
     let pull_error = match &outcome {
         Ok(Kept::New(_)) => None,
-        Ok(Kept::AlreadyKept | Kept::ChangedSinceAnnounced) => return,
+        Ok(Kept::AlreadyHeld | Kept::ChangedSinceAnnounced) => return,
         Err(error) => {
             event!(
                 name: "studio.artifact.keep_failure",
@@ -167,27 +167,21 @@ pub async fn keep(
     source: Source<'_>,
     artifact: &Artifact,
 ) -> Result<Kept, KeepError> {
-    let path = artifact.path.clone();
-    let internal = |cause: anyhow::Error| KeepError::Internal {
-        path: path.clone(),
-        source: cause,
-    };
-
     let mut connection = services
         .database
         .get()
         .await
-        .map_err(|error| internal(error.into()))?;
-    let already_kept = studio_asset::has_version(
+        .map_err(|error| internal(artifact, error.into()))?;
+    let already_held = studio_asset::has_version(
         &mut connection,
         source.studio_item_id,
         &artifact.path,
         &artifact.sha256,
     )
     .await
-    .map_err(|error| internal(error.into()))?;
-    if already_kept {
-        return Ok(Kept::AlreadyKept);
+    .map_err(|error| internal(artifact, error.into()))?;
+    if already_held {
+        return Ok(Kept::AlreadyHeld);
     }
 
     // Another path or version already holds these bytes: the object is kept and verified, so it
@@ -198,57 +192,94 @@ pub async fn keep(
     let bytes_stored =
         studio_asset::is_stored(&mut connection, source.studio_item_id, &storage_path)
             .await
-            .map_err(|error| internal(error.into()))?;
+            .map_err(|error| internal(artifact, error.into()))?;
+    drop(connection);
     if bytes_stored {
-        let new_asset = NewStudioAsset {
-            id: Uuid::now_v7(),
-            studio_item_id: source.studio_item_id,
-            session_id: Some(source.session_id),
-            kind: studio_asset::kind_of(&artifact.path),
-            artifact_path: artifact.path.clone(),
-            content_type: artifact.content_type.clone(),
-            size_bytes: i64::try_from(artifact.size_bytes).unwrap_or(i64::MAX),
-            sha256: artifact.sha256.clone(),
+        let stored = Stored {
             storage_path,
+            size_bytes: artifact.size_bytes,
+            content_type: artifact.content_type.clone(),
         };
-        let recorded = studio_asset::create(&mut connection, &new_asset)
-            .await
-            .map_err(|error| internal(error.into()))?;
-        return Ok(recorded.map_or(Kept::AlreadyKept, Kept::New));
+        return record(services, source, artifact, stored).await;
     }
 
+    let location = location_with_room(services, source, artifact).await?;
+    match stream_into_storage(services, source, artifact, &location, storage_path).await? {
+        Some(stored) => record(services, source, artifact, stored).await,
+        None => Ok(Kept::ChangedSinceAnnounced),
+    }
+}
+
+/// Where a file's bytes are kept, as recorded on its row.
+#[derive(Debug)]
+struct Stored {
+    storage_path: String,
+    size_bytes: u64,
+    content_type: Option<String>,
+}
+
+fn internal(artifact: &Artifact, cause: anyhow::Error) -> KeepError {
+    KeepError::Internal {
+        path: artifact.path.clone(),
+        source: cause,
+    }
+}
+
+/// The item's storage location, once it is known to have room for the file.
+async fn location_with_room(
+    services: Services<'_>,
+    source: Source<'_>,
+    artifact: &Artifact,
+) -> Result<StorageLocation, KeepError> {
+    let mut connection = services
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(artifact, error.into()))?;
     let item = studio_item::find(&mut connection, source.studio_item_id)
         .await
-        .map_err(|error| internal(error.into()))?;
+        .map_err(|error| internal(artifact, error.into()))?;
     let location = storage_location::find(&mut connection, item.storage_location_id)
         .await
-        .map_err(|error| internal(error.into()))?;
+        .map_err(|error| internal(artifact, error.into()))?;
     if let Some(limit) = location.storage_limit_bytes {
         let used = studio_item::bytes_in_location(&mut connection, location.id)
             .await
-            .map_err(|error| internal(error.into()))?;
+            .map_err(|error| internal(artifact, error.into()))?;
         let remaining = u64::try_from(limit.saturating_sub(used)).unwrap_or_default();
         if artifact.size_bytes > remaining {
             return Err(KeepError::OverLimit {
-                path,
+                path: artifact.path.clone(),
                 size_bytes: artifact.size_bytes,
                 remaining_bytes: remaining,
             });
         }
     }
-    drop(connection);
+    Ok(location)
+}
 
+/// Streams the file from the workspace into storage at `storage_path`, hashing it as it
+/// passes. Answers `None`, with nothing left in storage, when the bytes are not the ones
+/// announced.
+async fn stream_into_storage(
+    services: Services<'_>,
+    source: Source<'_>,
+    artifact: &Artifact,
+    location: &StorageLocation,
+    storage_path: String,
+) -> Result<Option<Stored>, KeepError> {
     let access_key = location.access_key(services.cipher).map_err(|error| {
-        internal(anyhow::anyhow!(
-            "the access key cannot be decrypted: {error}"
-        ))
+        internal(
+            artifact,
+            anyhow::anyhow!("the access key cannot be decrypted: {error}"),
+        )
     })?;
     let file = source
         .workspace
         .read_file(&format!("artifacts/{}", artifact.path))
         .await
         .map_err(|error| KeepError::Workspace {
-            path: path.clone(),
+            path: artifact.path.clone(),
             message: error.to_string(),
         })?;
     let content_length = file.content_length();
@@ -270,7 +301,7 @@ pub async fn keep(
     services
         .storage
         .upload(
-            &location,
+            location,
             &access_key,
             &storage_path,
             body,
@@ -279,52 +310,66 @@ pub async fn keep(
         )
         .await
         .map_err(|error| KeepError::Storage {
-            path: path.clone(),
+            path: artifact.path.clone(),
             source: error,
         })?;
 
     let digest = hex::encode(hasher.lock().expect(HASHER_POISONED).clone().finalize());
-    if digest != artifact.sha256 {
-        // The object is named by the announced hash but holds other bytes; it must not stay. No
-        // other row names it: an object already kept is never uploaded over, above.
-        if let Err(error) = services
-            .storage
-            .delete(&location, &access_key, &storage_path)
-            .await
-        {
-            event!(
-                name: "studio.artifact.orphaned_file",
-                Level::WARN,
-                file.path = %storage_path,
-                error.message = %error,
-                "could not remove a file that changed while it was stored",
-            );
-        }
-        return Ok(Kept::ChangedSinceAnnounced);
+    if digest == artifact.sha256 {
+        return Ok(Some(Stored {
+            storage_path,
+            size_bytes: content_length,
+            content_type,
+        }));
     }
 
+    // The object is named by the announced hash but holds other bytes; it must not stay. No
+    // other row names it: an object already kept is never uploaded over (see `keep`).
+    if let Err(error) = services
+        .storage
+        .delete(location, &access_key, &storage_path)
+        .await
+    {
+        event!(
+            name: "studio.artifact.orphaned_file",
+            Level::WARN,
+            file.path = %storage_path,
+            error.message = %error,
+            "could not remove a file that changed while it was stored",
+        );
+    }
+    Ok(None)
+}
+
+/// Records a kept file for the item.
+async fn record(
+    services: Services<'_>,
+    source: Source<'_>,
+    artifact: &Artifact,
+    stored: Stored,
+) -> Result<Kept, KeepError> {
     let new_asset = NewStudioAsset {
         id: Uuid::now_v7(),
         studio_item_id: source.studio_item_id,
         session_id: Some(source.session_id),
         kind: studio_asset::kind_of(&artifact.path),
         artifact_path: artifact.path.clone(),
-        content_type,
-        size_bytes: i64::try_from(content_length).unwrap_or(i64::MAX),
+        content_type: stored.content_type,
+        size_bytes: i64::try_from(stored.size_bytes).unwrap_or(i64::MAX),
         sha256: artifact.sha256.clone(),
-        storage_path,
+        storage_path: stored.storage_path,
     };
     let mut connection = services
         .database
         .get()
         .await
-        .map_err(|error| internal(error.into()))?;
+        .map_err(|error| internal(artifact, error.into()))?;
     let recorded = studio_asset::create(&mut connection, &new_asset)
         .await
-        .map_err(|error| internal(error.into()))?;
+        .map_err(|error| internal(artifact, error.into()))?;
     // A concurrent pull of the same version (a replayed event beside a reconcile) recorded it
     // first; the bytes are the same, so nothing more is needed.
-    Ok(recorded.map_or(Kept::AlreadyKept, Kept::New))
+    Ok(recorded.map_or(Kept::AlreadyHeld, Kept::New))
 }
 
 /// Pulls every file the thread's `artifacts/` holds that its item has not kept yet.
