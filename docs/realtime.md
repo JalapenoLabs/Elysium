@@ -69,7 +69,9 @@ whose `initiativeIds` leave deleted initiatives out. A write that changed nothin
 every action item event to Redux; `actionItem.deleted` and `initiative.deleted` also revalidate the deleted lists,
 `initiative.upserted` the initiative's burnup, and `actionItemLink.upserted` the item's live provider reads, each only
 while a view shows it (`docs/frontend.md`). The link and container events land in the `actionItemLinks` and
-`initiativeLinks` slices, and `changeset.upserted` in the `changesets` slice.
+`initiativeLinks` slices, and `changeset.upserted` in the `changesets` slice. The Studio events land in the
+`studioItems`, `studioAssets`, and `studioFeedback` slices; `studioItem.deleted` also revalidates the deleted items and
+the item's own page, which then shows a soft-deleted item as deleted and a permanently deleted one as missing.
 
 Only an active, approved person may open the stream, and every one of them receives every event. Every 30 seconds
 the stream checks its session and person again and closes when either lost access (`docs/auth.md`). The stream never

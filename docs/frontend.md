@@ -79,6 +79,8 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/projects/:projectId`        | `ProjectPage`            | One project, edited in place, with its sessions          |
 | `/coding`                     | `CodingPage`             | Dockview workspace; `?item=` opens New session started from that item |
 | `/coding/:sessionId`          | `CodingPage`             | Opens session number `sessionId`, then returns to `/coding` |
+| `/studio`                     | `StudioPage`             | Studio items as tiles, filtered from the address         |
+| `/studio/:itemId`             | `StudioItemPage`         | One item: the stage beside its conversation, live or deleted |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
 | `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
@@ -191,8 +193,8 @@ Blender setup (pending, installing, ready, or failed with the end of the script'
 `docs/coding.md`), and its row menu adds Test connection.
 
 Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone or
-bucket with directory, projects, limit) whose row menu edits, tests, or deletes one; delete confirms through
-`useConfirm`. Adding and editing are their own pages: `StorageLocationEditorLayout` holds the breadcrumbs and title,
+bucket with directory, projects, limit, and a Studio default switch, `StudioDefaultSwitch`) whose row menu edits,
+tests, or deletes one; delete confirms through `useConfirm`. Adding and editing are their own pages: `StorageLocationEditorLayout` holds the breadcrumbs and title,
 and `StorageLocationForm` lays out the form beside a `StorageSetupChecklist` for the chosen provider.
 
 The Provider picker offers three options (`STORAGE_OPTIONS`): Bunny Storage, Amazon S3, and Google Cloud Storage. The
@@ -420,6 +422,21 @@ matter when changing it:
 - `DockviewReact` needs a sized parent. The page is a flex column whose Dockview wrapper is `min-h-0 flex-1`,
   inside a workspace-layout `main`.
 
+### Studio
+
+`src/pages/Studio/` is the grid of Studio items and the item page, a stage beside the item's conversation.
+`docs/studio.md` describes both, the 3D viewer, and Annotate.
+
+- **Loading.** The grid's two lists and the item page each have a loader. An item's response fills four slices at
+  once: the item, its assets, its feedback, and its sessions. Sessions join the shared `codingSessions` slice through
+  `codingSessionsUpserted`, which never replaces the Coding page's.
+- **Deletes.** `studioItem.deleted` carries only an id, so, as for action items, it revalidates the deleted list
+  and the item's own page.
+- **Reuse from Coding.** The conversation reuses `TimelineEventList` and `useFollowingScroll`, and the composer
+  reuses `PromptComposer` with `isClosed` always false.
+- **Pure logic.** Grouping files by stem, the stage's default subject, layout modes and the stored layout, tile
+  thumbnails, filters, location choices, and drawing geometry are pure modules with tests beside them.
+
 ### Projects page
 
 `src/pages/Projects/ProjectsPage.tsx` lists projects in a table view (uikit's `SmartTable`) or a tiles view (HeroUI
@@ -524,7 +541,10 @@ Selectors return existing references; never build objects or strings inside one.
 | `jiraCredentials` | Jira Cloud credentials, sorted by name                                 |
 | `environmentVariables` | Environment variables, sorted by key                              |
 | `storageLocations` | Storage locations, sorted by name                                     |
-| `codingSessions` | Coding sessions with their thread state, newest first                   |
+| `studioItems`    | Live and deleted Studio items in separate halves, newest first          |
+| `studioAssets`   | Every version of the files of the Studio items viewed, newest first     |
+| `studioFeedback` | Drawn prompts of the Studio items viewed, oldest first                  |
+| `codingSessions` | Coding and Studio sessions with their thread state, newest first        |
 | `sessionEvents`  | Events for conversations that are open, merged by sequence              |
 | `sessionsView`   | Whether the Coding page's Sessions panel shows a table or tiles         |
 | `realtime`       | Event stream connection: `connecting`, `open`, or `reconnecting`        |
@@ -541,7 +561,8 @@ Server collections use entity adapters. Redux is the source of truth components 
    `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,
    `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,
    `useInitiativeLoader`, `useInitiativeHistoryLoader`, `useActionItemLinksLoader`, `useInitiativeLinksLoader`,
-   `useChangesetsLoader`, `useChangesetLoader`). SWR
+   `useChangesetsLoader`, `useChangesetLoader`, `useStudioItemsLoader`, `useDeletedStudioItemsLoader`,
+   `useStudioItemLoader`). SWR
    fetches the key once, deduplicates every component asking for it, and buffers the response so a remounted page
    renders at once while it revalidates.
 2. **Redux holds it.** The loader puts the response in Redux (`llmsLoaded`, `sessionHistoryLoaded`, ...).
@@ -656,7 +677,7 @@ first render.
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
   `satellites`, `email`, `storage`, `github`, `jira`, `environment`, `projects`, `coding`,
-  `actionItems`, `initiatives`, `changesets`.
+  `actionItems`, `initiatives`, `changesets`, `studio`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.
