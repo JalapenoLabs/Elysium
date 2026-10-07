@@ -137,8 +137,7 @@
     "body": "The item leaves the grid and its thread stops. You can restore it from Deleted items.",
     "permanently": "Also permanently delete its files, conversation, and agent memory",
     "permanentlyWarning": "This cannot be undone.",
-    "confirm": "Delete",
-    "confirmPermanently": "Delete for good"
+    "confirm": "Delete"
   },
   "toasts": {
     "created": "Started {{title}}.",
