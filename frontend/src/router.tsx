@@ -31,6 +31,7 @@ import { InitiativesPage } from './pages/Initiatives/InitiativesPage'
 import { CreateProjectPage } from './pages/Projects/CreateProjectPage'
 import { ProjectPage } from './pages/Projects/ProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
+import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
 import { PersonalDetailsPage } from './pages/Settings/PersonalDetails/PersonalDetailsPage'
 import { ManageEmailPage } from './pages/Settings/Email/ManageEmailPage'
@@ -144,6 +145,10 @@ const workspaceRoutes: RouteObject = {
       path: UrlTree.codingSession,
       element: <CodingPage />,
       handle: { layout: 'workspace' } satisfies RouteLayoutHandle,
+    },
+    {
+      path: UrlTree.studio,
+      element: <StudioPage />,
     },
     {
       path: UrlTree.settings,

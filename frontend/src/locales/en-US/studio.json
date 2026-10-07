@@ -1,0 +1,156 @@
+{
+  "title": "Studio",
+  "description": "Agents make single assets here: a 3D model, a render, or an image, shaped by your feedback.",
+  "add": "New item",
+  "untitled": "Untitled item",
+  "grid": {
+    "label": "Studio items",
+    "loadError": "Studio items could not be loaded.",
+    "empty": "No items yet. Start one with New item.",
+    "emptyDeleted": "No deleted items.",
+    "noMatches": "No items match these filters.",
+    "images_one": "{{count}} image",
+    "images_other": "{{count}} images",
+    "models_one": "{{count}} model",
+    "models_other": "{{count}} models",
+    "working": "Working on the first version…",
+    "noImage": "No image yet",
+    "deletedOn": "Deleted {{date}}",
+    "restore": "Restore"
+  },
+  "filters": {
+    "project": "Project",
+    "anyProject": "Any project",
+    "noProject": "No project",
+    "deleted": "Deleted items"
+  },
+  "noStorage": {
+    "title": "Studio needs a storage location",
+    "body": "Every file an agent makes is kept in a storage location. Add one under Settings, Storage, then come back to start an item.",
+    "action": "Go to Storage settings"
+  },
+  "create": {
+    "title": "New Studio item",
+    "prompt": "What should the agent make?",
+    "promptHint": "Describe the asset. The agent starts on it as soon as the item is created.",
+    "itemTitle": "Title",
+    "itemTitleHint": "Optional. Left blank, the item is named after the start of the prompt.",
+    "project": "Project",
+    "noProject": "No project",
+    "projectHint": "Optional. With a project, the agent can read and propose changes to its action items.",
+    "location": "Storage location",
+    "locationPlaceholder": "Choose a location",
+    "locationHint": "Where every file of the item is kept.",
+    "noLocationForProject": "No storage location saves files for this project or for every project.",
+    "noLocationForEveryProject": "No storage location saves files for every project. Choose a project, or link a location to every project under Settings, Storage.",
+    "satellite": "Satellite",
+    "satellitePlaceholder": "Choose a satellite",
+    "errors": {
+      "promptRequired": "Describe what the agent should make.",
+      "titleTooLong": "Keep the title under {{max}} characters.",
+      "locationRequired": "Choose where the item's files are kept.",
+      "satelliteRequired": "Choose a satellite to run the agent."
+    }
+  },
+  "item": {
+    "missing": "This item does not exist, or was deleted for good.",
+    "loadError": "The item could not be loaded.",
+    "back": "Back to Studio",
+    "renameLabel": "Item title",
+    "deletedTitle": "This item is deleted",
+    "deletedBody": "It stays read-only until it is restored. Its files and conversation are kept.",
+    "pullError": "The latest file could not be kept: {{reason}}",
+    "actions": "Item actions"
+  },
+  "layout": {
+    "label": "Show",
+    "both": "Both",
+    "preview": "Preview",
+    "chat": "Chat",
+    "resize": "Resize the preview and the conversation"
+  },
+  "stage": {
+    "empty": "Nothing to show yet. Files appear here as the agent delivers them.",
+    "emptyWorking": "The agent is working. Files appear here as it delivers them.",
+    "files": "Files",
+    "versions": "Versions",
+    "version": "Version from {{date}}",
+    "latest": "Latest",
+    "model": "3D model",
+    "noPreview": "This model has no preview. Download it below.",
+    "downloads": "Downloads",
+    "download": "Download {{name}}",
+    "pin": "Use as thumbnail",
+    "unpin": "Stop using as thumbnail",
+    "pinned": "Thumbnail",
+    "annotate": "Annotate",
+    "annotateHint": "Draw over this view to show the agent what to change",
+    "toasts": {
+      "pinned": "The tile now shows this image.",
+      "unpinned": "The tile shows its default image again.",
+      "pinFailed": "The thumbnail could not be changed."
+    }
+  },
+  "viewer": {
+    "label": "3D view of {{name}}",
+    "loadError": "This model could not be shown. Download it instead.",
+    "captureFailed": "The current view could not be captured."
+  },
+  "annotate": {
+    "title": "Annotate",
+    "canvasLabel": "Drawing over the view",
+    "tools": "Drawing tools",
+    "pen": "Pen",
+    "arrow": "Arrow",
+    "colors": "Colors",
+    "colorNames": {
+      "red": "Red",
+      "yellow": "Yellow",
+      "blue": "Blue"
+    },
+    "undo": "Undo",
+    "clear": "Clear",
+    "prompt": "What should change?",
+    "promptHint": "The agent sees your drawing over this view, with what you write here.",
+    "send": "Send",
+    "loadError": "The image could not be opened for drawing.",
+    "errors": {
+      "promptRequired": "Say what should change."
+    }
+  },
+  "conversation": {
+    "label": "Conversation",
+    "empty": "The conversation starts once the agent picks up the first prompt.",
+    "loading": "Loading the conversation…",
+    "loadError": "This part of the conversation could not be loaded.",
+    "continued": "Continued in a new thread",
+    "continuedImported": "Continued in a new thread, which resumed the agent's own conversation",
+    "continuedBrief": "Continued in a new thread, which started from a brief of the item so far",
+    "drawing": "Drawing sent with this prompt",
+    "threadEnded": "This item's thread has ended. Sending continues it in a new thread.",
+    "satellite": "Satellite",
+    "satellitePlaceholder": "Previous satellite",
+    "placeholderContinue": "Continue the item…"
+  },
+  "delete": {
+    "action": "Delete",
+    "title": "Delete {{title}}?",
+    "body": "The item leaves the grid and its thread stops. You can restore it from Deleted items.",
+    "permanently": "Also permanently delete its files, conversation, and agent memory",
+    "permanentlyWarning": "This cannot be undone.",
+    "confirm": "Delete",
+    "confirmPermanently": "Delete for good"
+  },
+  "toasts": {
+    "created": "Started {{title}}.",
+    "createFailed": "The item could not be started.",
+    "sent": "Sent to the agent.",
+    "sendFailed": "The prompt could not be sent.",
+    "deleted": "Deleted {{title}}.",
+    "deletedPermanently": "Deleted {{title}} for good.",
+    "deleteFailed": "The item could not be deleted.",
+    "restored": "Restored {{title}}.",
+    "restoreFailed": "The item could not be restored.",
+    "renameFailed": "The title could not be saved."
+  }
+}
