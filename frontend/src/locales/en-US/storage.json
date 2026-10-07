@@ -30,6 +30,8 @@
     "location": "Location",
     "projects": "Projects",
     "limit": "Limit",
+    "studioDefault": "Studio default",
+    "studioDefaultToggle": "Use {{name}} as Studio's default",
     "root": "Root",
     "noLimit": "No limit",
     "allProjects": "All projects",
@@ -107,7 +109,10 @@
     "testPassed_other": "{{name}} is reachable: {{count}} items in its directory",
     "testPassedMore_one": "{{name}} is reachable: more than {{count}} item in its directory",
     "testPassedMore_other": "{{name}} is reachable: more than {{count}} items in its directory",
-    "testFailed": "{{name}} could not be reached"
+    "testFailed": "{{name}} could not be reached",
+    "studioDefaultSet": "New Studio items save to {{name}} by default",
+    "studioDefaultCleared": "{{name}} is no longer Studio's default",
+    "studioDefaultFailed": "Studio's default could not be changed"
   },
   "setup": {
     "title": "Connect the storage",
