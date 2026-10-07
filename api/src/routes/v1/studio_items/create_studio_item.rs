@@ -80,9 +80,10 @@ pub async fn handle(
     drop(connection);
 
     let settings = studio_thread_settings(&state, body.project_id).await?;
-    let title = body
-        .title
-        .map_or_else(|| title_from_prompt(&body.prompt), |title| title.trim().to_owned());
+    let title = body.title.map_or_else(
+        || title_from_prompt(&body.prompt),
+        |title| title.trim().to_owned(),
+    );
     let item = {
         let mut connection = state
             .database

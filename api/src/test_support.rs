@@ -75,9 +75,13 @@ pub fn cipher() -> Cipher {
 
 /// A Bunny location for every project, for tests that need somewhere to keep files but never
 /// reach the provider.
-pub fn location_for_every_project(name: &str) -> crate::models::storage_location::NewStorageLocation {
+pub fn location_for_every_project(
+    name: &str,
+) -> crate::models::storage_location::NewStorageLocation {
     use crate::models::project::ProjectScope;
-    use crate::models::storage_location::{BunnyStorageRegion, NewStorageLocation, StorageProvider};
+    use crate::models::storage_location::{
+        BunnyStorageRegion, NewStorageLocation, StorageProvider,
+    };
 
     NewStorageLocation {
         created_by: crate::test_support::TEST_PERSON_ID,

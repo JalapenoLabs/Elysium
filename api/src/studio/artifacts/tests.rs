@@ -5,7 +5,6 @@
 
 use axum::http::HeaderMap;
 use secrecy::SecretString;
-use sha2::Sha256;
 
 use super::*;
 use crate::fleet::fake_satellite::{WorkspaceFile, fake_workspace};
@@ -68,7 +67,9 @@ async fn item_and_session(
     .await
     .expect("satellite")
     .id;
-    let session_id = coding_session::reserve_id(connection).await.expect("reserve");
+    let session_id = coding_session::reserve_id(connection)
+        .await
+        .expect("reserve");
     let session = coding_session::create(
         connection,
         &NewCodingSession {
@@ -155,7 +156,10 @@ async fn bytes_already_kept_under_another_path_are_never_uploaded_over_or_delete
         panic!("the copy is recorded for its own path: {second:?}");
     };
     assert_eq!(second.artifact_path, "front.png");
-    assert_eq!(second.storage_path, first.storage_path, "both name one stored object");
+    assert_eq!(
+        second.storage_path, first.storage_path,
+        "both name one stored object"
+    );
     let kept = stored
         .lock()
         .expect("lock")
@@ -165,5 +169,66 @@ async fn bytes_already_kept_under_another_path_are_never_uploaded_over_or_delete
         kept,
         Some(render),
         "the kept object still holds the first render's bytes"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn reconciling_keeps_what_was_never_announced_and_nothing_twice() {
+    let (url, mut connection) = migrated_database().await;
+    let database = crate::connections::connect_postgres(&url, 2)
+        .await
+        .expect("pool");
+    let cipher = cipher();
+    let events = EventBus::new();
+    let (storage, _stored) = fake_storage().await;
+    let (workspace, files) = fake_workspace().await;
+    let (studio_item_id, session_id) = item_and_session(&mut connection, &cipher).await;
+    let services = Services {
+        database: &database,
+        cipher: &cipher,
+        storage: &storage,
+        events: &events,
+    };
+    let source = Source {
+        session_id,
+        studio_item_id,
+        workspace: &workspace,
+    };
+
+    // hero.png was announced and kept; banana.glb's announcement was missed.
+    let render = b"the hero render".to_vec();
+    for (path, bytes) in [
+        ("artifacts/hero.png", render.clone()),
+        ("artifacts/banana.glb", b"glTF binary".to_vec()),
+        ("scratch/notes.txt", b"not a deliverable".to_vec()),
+    ] {
+        files.lock().expect("lock").insert(
+            path.to_owned(),
+            WorkspaceFile {
+                headers: HeaderMap::new(),
+                bytes,
+            },
+        );
+    }
+    keep(services, source, &announced("hero.png", &render))
+        .await
+        .expect("hero.png is kept");
+
+    reconcile(services, source).await;
+    reconcile(services, source).await;
+
+    let assets = studio_asset::list_for_items(&mut connection, &[studio_item_id])
+        .await
+        .expect("assets");
+    let mut paths: Vec<&str> = assets
+        .iter()
+        .map(|asset| asset.artifact_path.as_str())
+        .collect();
+    paths.sort_unstable();
+    assert_eq!(
+        paths,
+        ["banana.glb", "hero.png"],
+        "each file once, and only artifacts"
     );
 }

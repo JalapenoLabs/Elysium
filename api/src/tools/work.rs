@@ -550,9 +550,10 @@ async fn run_link_pull_request(
         .get()
         .await
         .map_err(|error| internal(scope, "database.connect", &error))?;
-    let (item_id, credential_id) = pull_request_target(&mut connection, WorkScope::try_from(scope)?)
-        .await
-        .map_err(|failure| failure.into_tool_error(scope, OPERATION))?;
+    let (item_id, credential_id) =
+        pull_request_target(&mut connection, WorkScope::try_from(scope)?)
+            .await
+            .map_err(|failure| failure.into_tool_error(scope, OPERATION))?;
     drop(connection);
 
     let remote = context

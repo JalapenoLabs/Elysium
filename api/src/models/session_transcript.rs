@@ -68,7 +68,9 @@ pub struct SessionTranscript {
 pub enum TranscriptError {
     #[error(transparent)]
     Database(#[from] diesel::result::Error),
-    #[error("the transcript is {sealed_bytes} bytes sealed, over the {MAX_SEALED_BYTES} byte limit")]
+    #[error(
+        "the transcript is {sealed_bytes} bytes sealed, over the {MAX_SEALED_BYTES} byte limit"
+    )]
     TooLarge { sealed_bytes: usize },
     #[error("the transcript could not be compressed or decompressed: {0}")]
     Compression(#[from] std::io::Error),
@@ -98,7 +100,10 @@ impl SessionTranscript {
     pub fn open(&self, cipher: &Cipher) -> Result<Vec<u8>, TranscriptError> {
         use secrecy::ExposeSecret as _;
 
-        let compressed = cipher.open(&self.transcript_sealed, &transcript_context(self.session_id))?;
+        let compressed = cipher.open(
+            &self.transcript_sealed,
+            &transcript_context(self.session_id),
+        )?;
         Ok(zstd::decode_all(compressed.expose_secret())?)
     }
 }
@@ -217,7 +222,9 @@ mod tests {
         .id;
         let new_session = NewCodingSession {
             created_by: crate::test_support::TEST_PERSON_ID,
-            id: coding_session::reserve_id(connection).await.expect("reserve"),
+            id: coding_session::reserve_id(connection)
+                .await
+                .expect("reserve"),
             project_id: Some(project_id),
             satellite_id,
             thread_id: Uuid::now_v7().to_string(),
@@ -249,9 +256,16 @@ mod tests {
         let session_id = session(&mut connection).await;
         let first = br#"{"type":"user","message":"model me a banana"}"#.repeat(200);
 
-        store(&mut connection, &cipher, session_id, HarnessFamily::Claude, "abc", &first)
-            .await
-            .expect("store");
+        store(
+            &mut connection,
+            &cipher,
+            session_id,
+            HarnessFamily::Claude,
+            "abc",
+            &first,
+        )
+        .await
+        .expect("store");
         let kept = stored(&mut connection, session_id).await;
         assert_eq!(kept.harness().expect("known"), HarnessFamily::Claude);
         assert_eq!(kept.open(&cipher).expect("opens"), first);
@@ -268,11 +282,21 @@ mod tests {
         );
 
         let second = b"a later turn".to_vec();
-        store(&mut connection, &cipher, session_id, HarnessFamily::Claude, "abc", &second)
-            .await
-            .expect("replace");
+        store(
+            &mut connection,
+            &cipher,
+            session_id,
+            HarnessFamily::Claude,
+            "abc",
+            &second,
+        )
+        .await
+        .expect("replace");
         assert_eq!(
-            stored(&mut connection, session_id).await.open(&cipher).expect("opens"),
+            stored(&mut connection, session_id)
+                .await
+                .open(&cipher)
+                .expect("opens"),
             second
         );
     }
@@ -283,13 +307,23 @@ mod tests {
         let (_url, mut connection) = migrated_database().await;
         let cipher = cipher();
         let session_id = session(&mut connection).await;
-        store(&mut connection, &cipher, session_id, HarnessFamily::Codex, "r1", b"rollout")
-            .await
-            .expect("store");
+        store(
+            &mut connection,
+            &cipher,
+            session_id,
+            HarnessFamily::Codex,
+            "r1",
+            b"rollout",
+        )
+        .await
+        .expect("store");
 
         let mut moved = stored(&mut connection, session_id).await;
         moved.session_id += 1;
-        assert!(matches!(moved.open(&cipher), Err(TranscriptError::Sealed(_))));
+        assert!(matches!(
+            moved.open(&cipher),
+            Err(TranscriptError::Sealed(_))
+        ));
 
         let kept = stored(&mut connection, session_id).await;
         assert!(matches!(

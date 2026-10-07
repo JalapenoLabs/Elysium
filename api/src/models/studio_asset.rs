@@ -58,7 +58,9 @@ pub fn extension_of(path: &str) -> Option<String> {
     let name = path.rsplit('/').next().unwrap_or(path);
     let (stem, extension) = name.rsplit_once('.')?;
     let is_plain = (1..=10).contains(&extension.len())
-        && extension.chars().all(|character| character.is_ascii_alphanumeric());
+        && extension
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric());
     if stem.is_empty() || !is_plain {
         return None;
     }
@@ -250,7 +252,11 @@ mod tests {
         assert_eq!(kind_of("models/banana.blend"), StudioAssetKind::Model);
         assert_eq!(kind_of("notes.md"), StudioAssetKind::File);
         assert_eq!(kind_of("README"), StudioAssetKind::File);
-        assert_eq!(kind_of(".png"), StudioAssetKind::File, "a dotfile has no extension");
+        assert_eq!(
+            kind_of(".png"),
+            StudioAssetKind::File,
+            "a dotfile has no extension"
+        );
     }
 
     #[test]
@@ -270,7 +276,10 @@ mod tests {
             storage_path(item, &sha, "renders/banana-hero.PNG"),
             format!("studio/{item}/{sha}.png")
         );
-        assert_eq!(storage_path(item, &sha, "LICENSE"), format!("studio/{item}/{sha}"));
+        assert_eq!(
+            storage_path(item, &sha, "LICENSE"),
+            format!("studio/{item}/{sha}")
+        );
         assert!(storage_path(item, &sha, "x.png").starts_with(&item_directory(item)));
     }
 }

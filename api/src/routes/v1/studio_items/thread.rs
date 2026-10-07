@@ -9,6 +9,7 @@ use arsox_sdk::proto::settings::v1::ThreadSettings;
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::blender;
 use crate::errors::ApiError;
 use crate::models::{environment_variable, llm, storage_location};
 use crate::routes::v1::coding_sessions::model_stack;
@@ -45,6 +46,7 @@ pub async fn studio_thread_settings(
         has_storage_locations: !storage_locations.is_empty(),
         has_project: project_id.is_some(),
         instructions: INSTRUCTIONS.to_owned(),
+        turn_end_hooks: vec![blender::export_hook()],
         ..ThreadPlan::default()
     }))
 }

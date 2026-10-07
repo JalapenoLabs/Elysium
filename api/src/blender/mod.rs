@@ -16,7 +16,7 @@
 
 use std::sync::LazyLock;
 
-use arsox_sdk::proto::settings::v1::{McpServer, Service, ServiceEndpoint};
+use arsox_sdk::proto::settings::v1::{McpServer, Service, ServiceEndpoint, TurnEndHook};
 use sha2::{Digest as _, Sha256};
 
 /// The setup script as the satellite receives it.
@@ -36,8 +36,21 @@ pub const SETUP_SCRIPT: &str = concat!(
 );
 
 /// Studio's turn-end hook, which exports every `artifacts/**/*.blend` to a `.glb` beside it. The
-/// setup script installs it; Studio threads declare it (see `docs/studio.md`, Model export).
+/// setup script installs it; Studio threads declare it through [`export_hook`] (see
+/// `docs/studio.md`, Model export).
 pub const EXPORT_HOOK_PATH: &str = "/opt/elysium/bin/export-glb";
+
+/// The export hook as a Studio thread declares it. The satellite runs it after every turn, before
+/// it scans `artifacts/`, so each `.glb` it writes is announced with the turn that changed its
+/// `.blend`. It keeps the satellite's default timeout of ten minutes, which a large scene's
+/// export fits in.
+pub fn export_hook() -> TurnEndHook {
+    TurnEndHook {
+        name: "export-glb".to_owned(),
+        argv: vec![EXPORT_HOOK_PATH.to_owned()],
+        ..TurnEndHook::default()
+    }
+}
 
 /// The script's SHA-256 in lowercase hex, which is how a satellite reports the script it holds.
 /// A satellite reporting anything else is handed [`SETUP_SCRIPT`].

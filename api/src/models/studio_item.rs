@@ -223,4 +223,3 @@ pub async fn bytes_in_location(
     .await?;
     Ok(usage.bytes)
 }
-

@@ -36,7 +36,9 @@ pub fn thumbnail_of(pinned: Option<Uuid>, assets: &[&StudioAsset]) -> Option<Uui
 /// Whether a path names a hero render: its file name, without the extension, ends in `-hero`.
 fn is_hero(artifact_path: &str) -> bool {
     let name = artifact_path.rsplit('/').next().unwrap_or(artifact_path);
-    let stem = name.rsplit_once('.').map_or(name, |(stem, _extension)| stem);
+    let stem = name
+        .rsplit_once('.')
+        .map_or(name, |(stem, _extension)| stem);
     stem.to_ascii_lowercase().ends_with(HERO_SUFFIX)
 }
 
@@ -74,7 +76,10 @@ mod tests {
         let top = asset("renders/banana-top.png", StudioAssetKind::Image);
         let hero = asset("renders/banana-HERO.png", StudioAssetKind::Image);
         let older_hero = asset("renders/banana-hero.png", StudioAssetKind::Image);
-        assert_eq!(thumbnail_of(None, &[&top, &hero, &older_hero]), Some(hero.id));
+        assert_eq!(
+            thumbnail_of(None, &[&top, &hero, &older_hero]),
+            Some(hero.id)
+        );
     }
 
     #[test]
@@ -91,7 +96,10 @@ mod tests {
     fn hero_is_read_from_the_file_name_alone() {
         assert!(is_hero("renders/banana-hero.png"));
         assert!(is_hero("banana-hero"));
-        assert!(!is_hero("hero/banana.png"), "a directory named hero is not a hero render");
+        assert!(
+            !is_hero("hero/banana.png"),
+            "a directory named hero is not a hero render"
+        );
         assert!(!is_hero("superhero-poster.png"));
     }
 }

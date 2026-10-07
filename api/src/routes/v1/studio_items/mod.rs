@@ -104,7 +104,9 @@ impl StudioItemResponse {
                 }
                 StudioAssetKind::Model => {
                     let path = asset.artifact_path.as_str();
-                    let stem = path.rsplit_once('.').map_or(path, |(stem, _extension)| stem);
+                    let stem = path
+                        .rsplit_once('.')
+                        .map_or(path, |(stem, _extension)| stem);
                     model_stems.insert(stem);
                 }
                 StudioAssetKind::File => {}
@@ -228,7 +230,10 @@ impl From<StudioFeedback> for StudioFeedbackResponse {
 }
 
 /// An item's sessions as clients see them, with their threads' last known state.
-pub fn session_responses(state: &AppState, sessions: Vec<CodingSession>) -> Vec<CodingSessionResponse> {
+pub fn session_responses(
+    state: &AppState,
+    sessions: Vec<CodingSession>,
+) -> Vec<CodingSessionResponse> {
     sessions
         .into_iter()
         .map(|session| {

@@ -41,10 +41,9 @@ pub async fn record(
     let row = NewSessionEvent {
         session_id,
         sequence: sequence_to_column(thread_event.sequence),
-        occurred_at: thread_event
-            .occurred_at
-            .as_ref()
-            .and_then(|timestamp| DateTime::from_timestamp(timestamp.epoch_seconds, timestamp.nanos)),
+        occurred_at: thread_event.occurred_at.as_ref().and_then(|timestamp| {
+            DateTime::from_timestamp(timestamp.epoch_seconds, timestamp.nanos)
+        }),
         event: thread_event.encode_to_vec(),
     };
     diesel::insert_into(session_events::table)
@@ -180,7 +179,9 @@ mod tests {
         .id;
         let new_session = NewCodingSession {
             created_by: crate::test_support::TEST_PERSON_ID,
-            id: coding_session::reserve_id(connection).await.expect("reserve"),
+            id: coding_session::reserve_id(connection)
+                .await
+                .expect("reserve"),
             project_id: Some(project_id),
             satellite_id,
             thread_id: Uuid::now_v7().to_string(),
@@ -207,14 +208,20 @@ mod tests {
         let (_url, mut connection) = migrated_database().await;
         let session_id = session(&mut connection).await;
         assert_eq!(
-            latest_sequence(&mut connection, session_id).await.expect("latest"),
+            latest_sequence(&mut connection, session_id)
+                .await
+                .expect("latest"),
             None
         );
 
         for sequence in 1..=5 {
-            record(&mut connection, session_id, &message(sequence, &format!("m{sequence}")))
-                .await
-                .expect("record");
+            record(
+                &mut connection,
+                session_id,
+                &message(sequence, &format!("m{sequence}")),
+            )
+            .await
+            .expect("record");
         }
         // A replay after a reconnect delivers an event again; the first copy stands.
         record(&mut connection, session_id, &message(3, "replayed"))
@@ -222,7 +229,9 @@ mod tests {
             .expect("a duplicate is ignored");
 
         assert_eq!(
-            latest_sequence(&mut connection, session_id).await.expect("latest"),
+            latest_sequence(&mut connection, session_id)
+                .await
+                .expect("latest"),
             Some(5)
         );
 

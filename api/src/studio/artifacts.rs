@@ -138,7 +138,14 @@ pub async fn keep_and_report(services: Services<'_>, source: Source<'_>, artifac
             Some(error.to_string())
         }
     };
-    if let Err(error) = report(services, source.studio_item_id, outcome.as_ref().ok(), pull_error).await {
+    if let Err(error) = report(
+        services,
+        source.studio_item_id,
+        outcome.as_ref().ok(),
+        pull_error,
+    )
+    .await
+    {
         event!(
             name: "studio.artifact.report_failure",
             Level::ERROR,
@@ -231,9 +238,11 @@ pub async fn keep(
     }
     drop(connection);
 
-    let access_key = location
-        .access_key(services.cipher)
-        .map_err(|error| internal(anyhow::anyhow!("the access key cannot be decrypted: {error}")))?;
+    let access_key = location.access_key(services.cipher).map_err(|error| {
+        internal(anyhow::anyhow!(
+            "the access key cannot be decrypted: {error}"
+        ))
+    })?;
     let file = source
         .workspace
         .read_file(&format!("artifacts/{}", artifact.path))
@@ -316,6 +325,32 @@ pub async fn keep(
     // A concurrent pull of the same version (a replayed event beside a reconcile) recorded it
     // first; the bytes are the same, so nothing more is needed.
     Ok(recorded.map_or(Kept::AlreadyKept, Kept::New))
+}
+
+/// Pulls every file the thread's `artifacts/` holds that its item has not kept yet.
+///
+/// Announcements can be missed: a stream that dropped past what the satellite still retains,
+/// or a turn that ended while Elysium was down. So whenever the watcher attaches to a Studio
+/// thread it lists the thread's artifacts and keeps each one. Keeping is idempotent, so a file
+/// already kept costs one lookup. A listing that fails is logged; the next attach tries again.
+pub async fn reconcile(services: Services<'_>, source: Source<'_>) {
+    let artifacts = match source.workspace.artifacts().await {
+        Ok(artifacts) => artifacts,
+        Err(error) => {
+            event!(
+                name: "studio.artifact.reconcile_failure",
+                Level::WARN,
+                session.id = source.session_id,
+                studio_item.id = %source.studio_item_id,
+                error.message = %error,
+                "could not list a Studio thread's artifacts to reconcile them",
+            );
+            return;
+        }
+    };
+    for artifact in &artifacts {
+        keep_and_report(services, source, artifact).await;
+    }
 }
 
 /// Records how keeping a file went on its item, and tells clients: the new file, and the item,

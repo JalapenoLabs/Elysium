@@ -23,7 +23,7 @@ use arsox_sdk::proto::common::v1::{
 };
 use arsox_sdk::proto::harness::v1::Harness;
 use arsox_sdk::proto::settings::v1::EnvVar;
-use arsox_sdk::proto::settings::v1::{Budget, Repo, ThreadSettings};
+use arsox_sdk::proto::settings::v1::{Budget, Repo, ThreadSettings, TurnEndHook};
 use axum::Router;
 use axum::routing::{get, patch, post};
 use chrono::{DateTime, Utc};
@@ -133,6 +133,8 @@ pub struct ThreadPlan<'plan> {
     pub has_project: bool,
     /// Instructions written into the agent's `AGENTS.md`, below the satellite's own.
     pub instructions: String,
+    /// Programs the satellite runs after every turn, before it scans `artifacts/`.
+    pub turn_end_hooks: Vec<TurnEndHook>,
 }
 
 /// Settings for a new thread: Elysium's policy ceilings, the Blender services and the MCP
@@ -185,6 +187,7 @@ pub fn thread_settings(plan: ThreadPlan<'_>) -> ThreadSettings {
         github: plan.github_token.map(github_token::integration),
         env: thread_environment(plan.variables, plan.github_token),
         prompt: plan.instructions,
+        turn_end_hooks: plan.turn_end_hooks,
         // Every thread models in a Blender of its own; see `crate::blender`.
         services: blender::services(),
         mcp_servers: vec![blender::mcp_server()],

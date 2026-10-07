@@ -147,7 +147,7 @@ pub async fn handle(
         github_token: github.as_ref().map(|github| &github.token),
         has_storage_locations: !storage_locations.is_empty(),
         has_project: true,
-        instructions: String::new(),
+        ..ThreadPlan::default()
     });
 
     let opened = open::open(
@@ -417,7 +417,10 @@ mod tests {
 
     #[test]
     fn new_threads_declare_the_ceilings_the_satellite_requires() {
-        let settings = thread_settings(ThreadPlan { has_project: true, ..ThreadPlan::default() });
+        let settings = thread_settings(ThreadPlan {
+            has_project: true,
+            ..ThreadPlan::default()
+        });
         assert!(settings.idle_ttl.is_some());
         let budget = settings.budget.expect("budget is set");
         assert!(budget.max_tokens_per_turn.is_some());
@@ -437,7 +440,10 @@ mod tests {
                 .collect()
         };
 
-        let without = thread_settings(ThreadPlan { has_project: true, ..ThreadPlan::default() });
+        let without = thread_settings(ThreadPlan {
+            has_project: true,
+            ..ThreadPlan::default()
+        });
         assert_eq!(names(&without), ["elysium_work"]);
 
         let with = thread_settings(ThreadPlan {
@@ -459,7 +465,10 @@ mod tests {
 
     #[test]
     fn every_thread_declares_its_own_blender_and_the_mcp_server_that_reaches_it() {
-        let settings = thread_settings(ThreadPlan { has_project: true, ..ThreadPlan::default() });
+        let settings = thread_settings(ThreadPlan {
+            has_project: true,
+            ..ThreadPlan::default()
+        });
         let services: Vec<&str> = settings
             .services
             .iter()

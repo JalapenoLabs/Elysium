@@ -47,8 +47,8 @@ use std::time::Duration;
 
 use anyhow::Context;
 use arsox_sdk::client::Satellite as SatelliteClient;
-use arsox_sdk::proto::error::v1::ErrorCode;
 use arsox_sdk::client::ThreadHandle;
+use arsox_sdk::proto::error::v1::ErrorCode;
 use arsox_sdk::proto::event::v1::{ThreadEvent, thread_event};
 use arsox_sdk::proto::thread::v1::ThreadOrder;
 use futures_util::StreamExt as _;
@@ -649,6 +649,9 @@ impl Fleet {
             }
             Err(error) => return interrupted(error.to_string()),
         };
+        if let Some(studio_item_id) = session.studio_item_id {
+            self.reconcile_artifacts(session.id, studio_item_id, &handle);
+        }
         let latest_at_open = match handle.get().await {
             Ok(thread) => thread.latest_sequence,
             Err(error) => return interrupted(error.to_string()),
@@ -739,6 +742,26 @@ impl Fleet {
             tokio::select! {
                 () = cancel.cancelled() => {}
                 () = artifacts::keep_and_report(services, source, &artifact) => {}
+            }
+        });
+    }
+
+    /// Keeps whatever files a Studio thread holds that its item has not, in a tracked task, so
+    /// an announcement missed while the watcher was away is still kept.
+    fn reconcile_artifacts(&self, session_id: i64, studio_item_id: Uuid, handle: &ThreadHandle) {
+        let fleet = self.clone();
+        let workspace = handle.clone();
+        let cancel = self.inner.shutdown.child_token();
+        self.inner.tasks.spawn(async move {
+            let services = fleet.studio_services();
+            let source = artifacts::Source {
+                session_id,
+                studio_item_id,
+                workspace: &workspace,
+            };
+            tokio::select! {
+                () = cancel.cancelled() => {}
+                () = artifacts::reconcile(services, source) => {}
             }
         });
     }

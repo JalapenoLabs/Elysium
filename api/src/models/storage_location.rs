@@ -439,7 +439,11 @@ pub async fn list_for_project(
     project_id: Option<Uuid>,
 ) -> QueryResult<Vec<StorageLocation>> {
     let linked = storage_location_projects::table
-        .filter(storage_location_projects::project_id.nullable().eq(project_id))
+        .filter(
+            storage_location_projects::project_id
+                .nullable()
+                .eq(project_id),
+        )
         .select(storage_location_projects::storage_location_id);
     storage_locations::table
         .filter(storage_locations::all_projects.or(storage_locations::id.eq_any(linked)))
@@ -461,7 +465,11 @@ pub async fn find_for_project(
     project_id: Option<Uuid>,
 ) -> QueryResult<StorageLocation> {
     let linked = storage_location_projects::table
-        .filter(storage_location_projects::project_id.nullable().eq(project_id))
+        .filter(
+            storage_location_projects::project_id
+                .nullable()
+                .eq(project_id),
+        )
         .select(storage_location_projects::storage_location_id);
     storage_locations::table
         .find(id)

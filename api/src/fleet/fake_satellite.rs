@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! A local fake of a satellite, for tests that drive the real SDK: the version, one thread,
-//! its workspace files, and its artifact listing.
+//! its workspace files, and its artifact listing, which like a satellite's is every file under
+//! `artifacts/` with its size and SHA-256.
 //!
 //! It answers the way a satellite does: protobuf for the version, the thread, and the
 //! listing, the file's bytes with a `Content-Length` for a read, a `WorkspaceFileWritten` for
@@ -11,7 +12,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use arsox_sdk::client::{Satellite as SatelliteClient, ThreadHandle};
-use arsox_sdk::proto::artifact::v1::WorkspaceFileWritten;
+use arsox_sdk::proto::artifact::v1::{Artifact, ListArtifactsResponse, WorkspaceFileWritten};
 use arsox_sdk::proto::error::v1::{Error as ContractError, ErrorCode};
 use arsox_sdk::proto::satellite::v1::GetVersionResponse;
 use arsox_sdk::proto::thread::v1::{GetThreadResponse, Thread};
@@ -22,6 +23,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use futures_util::StreamExt as _;
+use sha2::{Digest as _, Sha256};
 
 pub const THREAD_ID: &str = "thread-1";
 
@@ -101,12 +103,36 @@ async fn write_file(
     protobuf(StatusCode::OK, &written)
 }
 
+async fn list_artifacts(State(workspace): State<Workspace>) -> Response {
+    let artifacts = workspace
+        .lock()
+        .expect("lock")
+        .iter()
+        .filter_map(|(path, file)| {
+            let relative = path.strip_prefix("artifacts/")?;
+            Some(Artifact {
+                name: relative.rsplit('/').next().unwrap_or(relative).to_owned(),
+                path: relative.to_owned(),
+                size_bytes: file.bytes.len() as u64,
+                sha256: hex::encode(Sha256::digest(&file.bytes)),
+                ..Artifact::default()
+            })
+        })
+        .collect();
+    let answer = ListArtifactsResponse {
+        artifacts,
+        page: None,
+    };
+    protobuf(StatusCode::OK, &answer)
+}
+
 /// Starts the fake satellite on a free local port and attaches to its one thread.
 pub async fn fake_workspace() -> (ThreadHandle, Workspace) {
     let workspace = Workspace::default();
     let router = Router::new()
         .route("/v1/version", get(version))
         .route("/v1/threads/{id}", get(thread))
+        .route("/v1/threads/{id}/artifacts", get(list_artifacts))
         .route(
             "/v1/threads/{id}/files/{*path}",
             get(read_file).put(write_file),
