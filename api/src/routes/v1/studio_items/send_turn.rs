@@ -576,36 +576,22 @@ async fn announce_item(state: &AppState, item: &StudioItem) {
 }
 
 #[cfg(test)]
+mod flow_tests;
+
+#[cfg(test)]
 mod tests {
     use axum::body::Body;
     use axum::extract::FromRequest as _;
     use axum::http::Request;
 
     use super::*;
-
-    const BOUNDARY: &str = "studio-test-boundary";
-
-    fn part(name: &str, content: &[u8]) -> Vec<u8> {
-        let mut bytes =
-            format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n")
-                .into_bytes();
-        bytes.extend_from_slice(content);
-        bytes.extend_from_slice(b"\r\n");
-        bytes
-    }
+    use crate::test_support::multipart_form;
 
     async fn form(parts: &[(&str, &[u8])]) -> Result<TurnForm, ApiError> {
-        let mut body = Vec::new();
-        for (name, content) in parts {
-            body.extend(part(name, content));
-        }
-        body.extend_from_slice(format!("--{BOUNDARY}--\r\n").as_bytes());
+        let (content_type, body) = multipart_form(parts);
         let request = Request::builder()
             .method("POST")
-            .header(
-                "content-type",
-                format!("multipart/form-data; boundary={BOUNDARY}"),
-            )
+            .header("content-type", content_type)
             .body(Body::from(body))
             .expect("request");
         let multipart = Multipart::from_request(request, &())

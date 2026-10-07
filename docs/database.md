@@ -51,8 +51,11 @@ redo, concurrent migrators, the pending-migration refusal, and every LLM, satell
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
 query, every `elysium_work` tool against its project scope, each link provider against a faked provider, the
 watcher's passes, changesets proposed, decided, applied in part, and undone, accounts and their guardrails, and the
-router itself refusing every workspace route without a session. Plain `cargo test` skips them because they need
-`TEST_DATABASE_URL`, and the router test `TEST_REDIS_URL`.
+router itself refusing every workspace route without a session. Studio prompts are driven through the router as a
+signed-in person, against a fake satellite (`api/src/fleet/fake_satellite.rs`) and a fake Bunny zone: plain and drawn
+prompts, a refused turn, continuing with a brief or an imported session, a deleted satellite, racing prompts, and the
+transcript backup. Plain `cargo test` skips them because they need `TEST_DATABASE_URL`, and the router tests
+`TEST_REDIS_URL`. A router test signs in by caching a Kratos session in Redis (`test_support::signed_in_cookie`).
 
 ## Conventions
 

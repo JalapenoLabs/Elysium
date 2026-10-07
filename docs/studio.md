@@ -165,7 +165,8 @@ nothing), and the conversation view says so at the divider. Copying files back i
 satellite that refuses a file discards the new session rather than leave a workspace missing some of the item's work.
 
 An item has at most one live session. Continuing takes a Redis lock per item for its duration, so a second prompt sent
-meanwhile answers `409` instead of opening a second thread. While the latest thread is live, `satelliteId` is ignored
+meanwhile answers `409` instead of opening a second thread. Under the lock the latest session is read again, so a
+prompt that found the thread ended just before another continued the item runs in that one's new thread. While the latest thread is live, `satelliteId` is ignored
 and the turn runs there; a latest thread whose satellite cannot be reached answers `502` rather than continuing, since
 that thread may still be running. The harness session is exported after every turn the satellite reports complete
 (`api/src/studio/transcripts.rs`) and kept sealed; a failed export is logged and only costs a later continue its

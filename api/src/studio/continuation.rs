@@ -107,9 +107,25 @@ pub async fn thread_for_turn(
         ))?;
 
     let lock = ContinueLock::take(state, item.id).await?;
-    let continued = continue_on(state, item, actor, satellite_id).await;
+    let thread = continue_unless_live(state, item, actor, satellite_id).await;
     lock.release(state).await;
-    continued
+    thread
+}
+
+/// Continues the item on `satellite_id`, under its lock. Another request may have continued it
+/// after this one found the latest thread ended and before it took the lock, so the latest
+/// session is read again: when it is live, the turn runs there rather than in a second thread.
+async fn continue_unless_live(
+    state: &AppState,
+    item: &StudioItem,
+    actor: Uuid,
+    satellite_id: Uuid,
+) -> Result<ItemThread, ApiError> {
+    let latest = latest_session(state, item.id).await?;
+    if let Some(live) = live_thread(state, latest.as_ref()).await? {
+        return Ok(live);
+    }
+    continue_on(state, item, actor, satellite_id).await
 }
 
 /// The item's newest session.
@@ -380,8 +396,10 @@ async fn brief(
         .map(|feedback| feedback.prompt.as_str())
         .collect();
 
-    let file_references: Vec<&StudioAsset> = files.iter().collect();
-    let thumbnail = thumbnail_of(item.thumbnail_asset_id, &file_references)
+    // `thumbnail_of` reads files newest first, as the tile lists them; `files` is in path order.
+    let mut newest_first: Vec<&StudioAsset> = files.iter().collect();
+    newest_first.sort_by_key(|file| std::cmp::Reverse((file.created_at, file.id)));
+    let thumbnail = thumbnail_of(item.thumbnail_asset_id, &newest_first)
         .and_then(|id| files.iter().find(|file| file.id == id))
         .filter(|file| file.kind == StudioAssetKind::Image)
         .map(|file| TurnAttachment {

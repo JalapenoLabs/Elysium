@@ -92,3 +92,6 @@ fn log_failure(session_id: i64, message: &str) {
         "could not back up a Studio thread's harness session",
     );
 }
+
+#[cfg(test)]
+mod tests;
