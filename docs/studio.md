@@ -218,7 +218,8 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
 - **Tile.** The thumbnail, title, live thread state, and image and model counts. The state chip shows only once the
   item's latest thread has a known state (`getTileThreadState`): an item with no session, or a thread not polled yet,
   has none. The thumbnail is the API's choice (`thumbnailAssetId`); without one, a working placeholder shows while the
-  item's thread runs or waits, else an empty frame (`getTileThumbnail` in `studioListing.ts`).
+  item's thread runs or waits, else an empty frame (`getTileThumbnail` in `studioListing.ts`). A thumbnail whose
+  content fails to load (the provider is down, or the file is gone) shows the empty frame too.
 - **Filters.** A project (or no project) and a Deleted items switch, kept in the address (`?project=`,
   `?deleted=true`), so a filtered grid survives opening an item. Deleted tiles offer Restore.
 - **New item** (`CreateStudioItemForm`). The prompt, an optional title and project, a storage location, and a
@@ -242,6 +243,10 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
     mounted, so the model stays loaded.
 - **Stage** (`StudioStage`). The image or the 3D viewer, with the file's path above and two actions: Pin as thumbnail
   for an image, and Annotate.
+  - Every stored image, on the stage, in the filmstrip, and on the tile, is a `StudioImage`, which shows a placeholder
+    in place of an image whose content fails to load rather than an empty box.
+  - Annotate is disabled, saying why on hover, while the file shown failed to load: an image that errored, or a model
+    the viewer could not show. There is nothing to draw over.
   - The filmstrip (`StudioFilmstrip`) lists every model and image the item holds, then the versions of the one shown,
     newest first, to compare turns. The stage follows the newest version until an older one is picked.
   - Downloads list the newest version of every file, grouped by stem (`groupStudioAssets` in `studioAssets.ts`).

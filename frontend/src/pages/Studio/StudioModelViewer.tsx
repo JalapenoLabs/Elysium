@@ -3,7 +3,7 @@
 import type { RefObject } from 'react'
 
 // Core
-import { useEffect, useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Lib
@@ -25,6 +25,8 @@ type Props = {
   name: string
   // The element, for Annotate to capture the current view and camera orbit.
   viewerRef: RefObject<ModelViewerElement | null>
+  // Told whether the model loaded, since Annotate needs a shown view to freeze.
+  onLoadStateChange?: (state: 'loaded' | 'failed') => void
 }
 
 type LoadState = 'loading' | 'loaded' | 'failed'
@@ -34,6 +36,11 @@ export function StudioModelViewer(props: Props) {
   const { t } = useTranslation('studio')
   const [ loadState, setLoadState ] = useState<LoadState>('loading')
   const viewerRef = props.viewerRef
+  // Read at the time of the event, so a new callback each render does not re-attach the
+  // listeners below.
+  const reportLoadState = useEffectEvent((state: 'loaded' | 'failed') => {
+    props.onLoadStateChange?.(state)
+  })
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -43,10 +50,14 @@ export function StudioModelViewer(props: Props) {
     }
 
     setLoadState('loading')
-    const onLoad = () => setLoadState('loaded')
+    const onLoad = () => {
+      setLoadState('loaded')
+      reportLoadState('loaded')
+    }
     const onError = (event: Event) => {
       console.debug('The 3D viewer could not show a model', { src: props.src, event })
       setLoadState('failed')
+      reportLoadState('failed')
     }
     viewer.addEventListener('load', onLoad)
     viewer.addEventListener('error', onError)

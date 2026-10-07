@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Spinner } from '@heroui/react'
 import { LuImageOff } from 'react-icons/lu'
+import { StudioImage } from './StudioImage'
 
 // Misc
 import { getStudioAssetContentUrl } from '../../api/routes/studioRoutes'
@@ -23,13 +24,20 @@ export function StudioThumbnail(props: Props) {
   const { t } = useTranslation('studio')
   const frameClassName = `grid place-items-center overflow-hidden bg-surface-secondary ${props.className ?? ''}`
 
+  // Also what an image that fails to load gives way to.
+  const noImage = <div className='flex flex-col items-center gap-2 text-xs opacity-50'>
+    <LuImageOff className='size-6' aria-hidden />
+    <span>{t('grid.noImage')}</span>
+  </div>
+
   if (props.thumbnail.kind === 'image') {
     return <div className={frameClassName}>
-      <img
+      <StudioImage
         src={getStudioAssetContentUrl(props.itemId, props.thumbnail.assetId)}
         alt=''
         loading='lazy'
         className='size-full object-contain'
+        fallback={noImage}
       />
     </div>
   }
@@ -44,9 +52,6 @@ export function StudioThumbnail(props: Props) {
   }
 
   return <div className={frameClassName}>
-    <div className='flex flex-col items-center gap-2 text-xs opacity-50'>
-      <LuImageOff className='size-6' aria-hidden />
-      <span>{t('grid.noImage')}</span>
-    </div>
+    {noImage}
   </div>
 }

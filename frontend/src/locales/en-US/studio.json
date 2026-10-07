@@ -84,6 +84,10 @@
     "pinned": "Thumbnail",
     "annotate": "Annotate",
     "annotateHint": "Draw over this view to show the agent what to change",
+    "annotateImageFailed": "This image could not be loaded, so there is nothing to draw over.",
+    "annotateModelFailed": "This model could not be shown, so there is no view to draw over.",
+    "annotateNothingShown": "This file has no view to draw over.",
+    "imageLoadError": "This image could not be loaded.",
     "toasts": {
       "pinned": "The tile now shows this image.",
       "unpinned": "The tile shows its default image again.",
