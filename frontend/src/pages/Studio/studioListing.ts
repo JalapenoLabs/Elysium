@@ -66,28 +66,31 @@ export type TileThumbnail =
 // Thread states in which the agent is, or is about to be, at work.
 const WORKING_THREAD_STATES = [ 'provisioning', 'running' ] as const
 
+// Whether the agent is at work on an item, from its newest session: a turn runs or waits, or
+// the thread was just started and the API has not polled it yet, with its first turn queued.
+export function isSessionWorking(latestSession: CodingSession | undefined) {
+  if (!latestSession) {
+    return false
+  }
+
+  const thread = latestSession.thread
+  if (!thread) {
+    return true
+  }
+  if (CLOSED_THREAD_STATES.includes(thread.state)) {
+    return false
+  }
+  const isRunning = WORKING_THREAD_STATES.some((state) => state === thread.state)
+  return isRunning || thread.queueDepth > 0
+}
+
 // The API already chose the image (`api/src/studio/thumbnail.rs`), so this only decides what
 // stands in for one: a working placeholder while the first turn runs, else an empty frame.
 export function getTileThumbnail(item: StudioItem, latestSession: CodingSession | undefined): TileThumbnail {
   if (item.thumbnailAssetId) {
     return { kind: 'image', assetId: item.thumbnailAssetId }
   }
-
-  if (!latestSession) {
-    return { kind: 'empty' }
-  }
-
-  // A thread the API has not polled yet is one just started, with its first turn queued.
-  const thread = latestSession.thread
-  if (!thread) {
-    return { kind: 'working' }
-  }
-  if (CLOSED_THREAD_STATES.includes(thread.state)) {
-    return { kind: 'empty' }
-  }
-
-  const isWorking = WORKING_THREAD_STATES.some((state) => state === thread.state)
-  if (isWorking || thread.queueDepth > 0) {
+  if (isSessionWorking(latestSession)) {
     return { kind: 'working' }
   }
   return { kind: 'empty' }

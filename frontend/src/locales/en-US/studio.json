@@ -53,8 +53,7 @@
     }
   },
   "item": {
-    "missing": "This item does not exist, or was deleted for good.",
-    "loadError": "The item could not be loaded.",
+    "missing": "This item could not be loaded. It may have been deleted for good.",
     "back": "Back to Studio",
     "renameLabel": "Item title",
     "deletedTitle": "This item is deleted",
