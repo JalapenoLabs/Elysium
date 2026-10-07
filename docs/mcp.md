@@ -120,9 +120,8 @@ Tools are named for what they act on, then what they do.
   sequence, so none is skipped. Every answer carries `nextSequence`, which passed back as `afterSequence` reads on, and
   `truncated` when more remain.
 - **Secrets.** A satellite's bearer secret is accepted by `satellites_create` and `satellites_update` and never
-  answered. rmcp logs every request in full at debug, so the API holds its `rmcp` target at info after reading
-  `RUST_LOG`: `RUST_LOG=debug`, even `rmcp=debug`, never logs one. Only naming one of rmcp's modules outright still
-  does.
+  answered. rmcp logs every request in full at debug, so the API drops every rmcp event past info, from any of its
+  modules, whatever `RUST_LOG` names (`within_rmcp_ceiling` in `api/src/main.rs`).
 
 ### Adding a tool
 
