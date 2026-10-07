@@ -113,8 +113,9 @@ app's files:
 
 The Content Security Policy depends on what answers, in `api/src/middleware/security_headers.rs`:
 
-- `/api` answers JSON or plain text only, so its policy is `default-src 'none'; frame-ancestors 'none'`. A browser
-  that somehow renders an API response must not run or embed anything from it.
+- `/api` answers JSON, plain text, and the files Studio's agents wrote, so its policy is `default-src 'none';
+  frame-ancestors 'none'; sandbox`. A browser that renders an API response directly, such as an agent's SVG opened in
+  a tab, gets a unique origin and runs, loads, and embeds nothing from it; `nosniff` keeps the stored type.
 - Every other path is the web app the published image serves (see `docs/infrastructure.md`). Its policy allows only
   its own origin: `script-src 'self'` with no inline scripts and no eval, `connect-src 'self'`, `object-src 'none'`,
   `base-uri` and `form-action 'self'`, and `frame-ancestors 'none'`. Three allowances are deliberate:

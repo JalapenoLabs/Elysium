@@ -257,8 +257,9 @@ pub struct StoredFile<'file> {
 /// Streams one of an item's files from its storage location. No provider URL or credential
 /// reaches the browser.
 ///
-/// Files are addressed by content, so a response is cached for good. An agent wrote the bytes,
-/// so the response is sandboxed and never sniffed: an SVG opened directly runs no script.
+/// Files are addressed by content, so a response is cached for good. An agent wrote the bytes:
+/// the API's policy (`crate::middleware::security_headers`) sandboxes the response and
+/// `nosniff` keeps its type, so an SVG opened directly runs no script.
 ///
 /// # Errors
 /// Answers `404` when the provider holds no such file, and `502` when it refuses.
@@ -302,14 +303,6 @@ pub async fn stream_stored_file(
     headers.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, max-age=31536000, immutable"),
-    );
-    headers.insert(
-        header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static("sandbox; default-src 'none'; style-src 'unsafe-inline'"),
-    );
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
     );
     if let Some(name) = file.download_as {
         // An agent chose the name, so only plain characters reach the header.

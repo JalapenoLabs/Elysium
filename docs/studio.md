@@ -1,8 +1,8 @@
 # Studio
 
 Studio is where agents make single assets: a 3D model built in Blender, a render, a 2D image. A Studio item is one
-asset and the conversation that shapes it. It is not tied to a git repository; the Coding area is where multi-repository,
-long-lived work with pull requests happens.
+asset and the conversation that shapes it. It is not tied to a git repository; the Coding area is where
+multi-repository, long-lived work with pull requests happens.
 
 | Area   | Unit                     | Workspace                   | Output                                |
 |--------|--------------------------|-----------------------------|---------------------------------------|
@@ -39,7 +39,8 @@ A Studio thread is opened with Elysium's usual policy (idle TTL, cost and wall c
 environment, Blender services; see `docs/coding.md`) and differs in four ways:
 
 - It clones no repositories and gets no GitHub token.
-- Its instructions are Studio's (`api/src/studio/instructions.rs`), a fixed block ahead of the satellite's own.
+- Its instructions are Studio's (`api/src/studio/instructions.rs`), written into the agent's `AGENTS.md` below the
+  satellite's header, which no host can override and which already says deliverables go in `artifacts/`.
 - It declares a turn-end hook, `/opt/elysium/bin/export-glb` (see [Model export](#model-export)).
 - It declares `elysium_work` only with a project, and `elysium_storage` when the item's project, or with no project any
   location for every project, has a location.
@@ -65,11 +66,17 @@ turn-end hooks, then scans `artifacts/` and emits `ArtifactCreated` for every fi
 The session watcher hands each one to `api/src/studio/artifacts.rs`, which:
 
 1. Skips it when the item already holds that path with that sha256, so a re-announced or seeded file costs nothing.
-2. Checks the location's storage limit against the bytes Studio has recorded there.
-3. Streams the file out of the workspace (`read_file("artifacts/<path>")`) into the item's storage location at
-   `studio/<itemId>/<sha256>.<extension>`. Nothing is held in memory.
-4. Records a `studio_assets` row, then publishes `studioAsset.created`, so no client hears of a file before it can be
+2. Records it without reading it when the item already stores those bytes under another path or version: objects are
+   named by content, so the kept object is never uploaded over.
+3. Checks the location's storage limit against the bytes Studio has recorded there.
+4. Streams the file out of the workspace (`read_file("artifacts/<path>")`) into the item's storage location at
+   `studio/<itemId>/<sha256>.<extension>`, hashing it as it passes. Nothing is held in memory. Bytes that no longer
+   match the announcement are removed and not recorded; the turn that changed them announces them again.
+5. Records a `studio_assets` row, then publishes `studioAsset.created`, so no client hears of a file before it can be
    fetched.
+
+A file that cannot be kept (over the location's limit, refused by the provider) is recorded on the item as its
+`pullError`, which the item page shows; the next file that is kept clears it.
 
 Events can be missed (a dropped stream the satellite cannot resume), so the watcher also reconciles: whenever it
 attaches to a Studio thread, it lists the thread's artifacts and pulls any it has not recorded.
@@ -89,10 +96,10 @@ drives the viewer. Grouping is by path without its extension, done in the fronte
 ### Serving files
 
 `GET /api/v1/studio-items/{id}/assets/{assetId}/content` streams the file from the storage location, so no provider
-URL or credential reaches the browser. `?download=1` adds `Content-Disposition: attachment` with the artifact's name.
-Files are addressed by content, so responses are cached as immutable. Every response carries
-`Content-Security-Policy: sandbox; default-src 'none'; style-src 'unsafe-inline'` and `nosniff`, because an agent
-wrote the bytes: an SVG opened directly runs no script.
+URL or credential reaches the browser. `?download=true` adds `Content-Disposition: attachment` with the artifact's
+name. Files are addressed by content, so responses are cached as immutable. An agent wrote the bytes, so they are served
+under the API's own policy, `default-src 'none'; frame-ancestors 'none'; sandbox`, with `nosniff` (see
+`docs/security.md`): an SVG opened directly runs no script.
 
 ### The thumbnail
 
@@ -117,15 +124,20 @@ Feedback is a prompt, optionally with a drawing. Annotate on an image opens it u
 it freezes the current view first (`model-viewer`'s `toBlob()`) and records the camera orbit. The user draws with a pen
 in three colors or an arrow, with undo and clear, and writes what to change.
 
-A drawn prompt is sent as `multipart/form-data` to `POST /api/v1/studio-items/{id}/turns`:
+Every prompt is sent as `multipart/form-data` to `POST /api/v1/studio-items/{id}/turns`
+(`api/src/routes/v1/studio_items/send_turn.rs`): `prompt`, `satelliteId` (where a continued item runs), and for a
+drawing `annotated` (PNG), `capture` (PNG), `sourceAssetId`, and `cameraOrbit`. A drawn prompt:
 
-1. The API uploads the flattened drawing into the workspace at `feedback/<n>/annotated.png` and starts the turn with it
-   as an Arsox turn attachment. The satellite hands images to the harness as native image input, so the agent sees
-   exactly what was drawn.
-2. It keeps both the drawing and the clean capture in the item's storage location, and records a `studio_feedback` row
-   with the prompt, the source asset, the camera orbit, and the turn it started.
+1. Keeps both images in the item's storage location at `studio/<itemId>/feedback/<feedbackId>/`, within the location's
+   limit, and records a `studio_feedback` row with the prompt, the source asset, the camera orbit, and who sent it.
+2. Uploads the drawing into the workspace at `feedback/<feedbackId>/annotated.png` and starts the turn with it as an
+   Arsox turn attachment. The satellite hands images to the harness as native image input, so the agent sees exactly
+   what was drawn. The row then names the turn it started; a turn the satellite refuses takes the row and its images
+   with it.
 
-A prompt without a drawing is plain text and attaches nothing.
+The drawing is at most 3.75 MiB, the limit Arsox and the model APIs set for an attached image, so the frontend
+downscales a large capture before it draws. The clean capture is only kept, never sent, and may be 12 MiB. A prompt
+without a drawing attaches nothing. The answer is `{ session, turn, feedback, continued }`.
 
 ## Continuing
 
@@ -144,9 +156,20 @@ session on the same item, on the chosen satellite or else the previous one:
 1. The latest version of every artifact path is copied from storage back into the new workspace's `artifacts/`.
 2. When the new thread runs the same harness family as the stored transcript, the transcript is imported
    (`import_session`), and the harness resumes its own conversation with full context.
-3. When it cannot (no transcript, or the credential stack now picks the other family), the first turn carries a brief
-   instead: the original prompt, the feedback given so far, and the thumbnail as an attachment. The conversation view
-   says which happened.
+3. When it cannot (no transcript, the other family, or an import the satellite refuses), the first turn carries a
+   brief ahead of the prompt instead: the original prompt, the latest 20 feedback prompts, and the thumbnail as an
+   attachment.
+
+The session records which happened as `continuation` (`imported` or `brief`; `null` for a session that continued
+nothing), and the conversation view says so at the divider. Copying files back is all or nothing: a provider or
+satellite that refuses a file discards the new session rather than leave a workspace missing some of the item's work.
+
+An item has at most one live session. Continuing takes a Redis lock per item for its duration, so a second prompt sent
+meanwhile answers `409` instead of opening a second thread. While the latest thread is live, `satelliteId` is ignored
+and the turn runs there; a latest thread whose satellite cannot be reached answers `502` rather than continuing, since
+that thread may still be running. The harness session is exported after every turn the satellite reports complete
+(`api/src/studio/transcripts.rs`) and kept sealed; a failed export is logged and only costs a later continue its
+import.
 
 The conversation view reads the item's sessions in order and shows a divider where one continued into the next.
 

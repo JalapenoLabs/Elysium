@@ -3,9 +3,10 @@
 //! Hardening response headers, equivalent to Express's `helmet` defaults.
 //!
 //! Every response carries the same headers except the Content Security Policy, which
-//! depends on what is answering. `/api` only ever returns JSON or plain text, so its
-//! policy forbids everything: a browser that somehow renders an API response directly
-//! must not execute or embed anything from it. Every other path is the web app, whose
+//! depends on what is answering. `/api` returns JSON, plain text, and the files Studio's
+//! agents wrote, so its policy forbids everything and sandboxes the document: a browser that
+//! renders an API response directly, such as an agent's SVG opened in a tab, must not execute
+//! or embed anything from it. Every other path is the web app, whose
 //! policy allows exactly what the app loads, all from its own origin.
 
 use axum::extract::Request;
@@ -13,9 +14,10 @@ use axum::http::{HeaderName, HeaderValue, header};
 use axum::middleware::Next;
 use axum::response::Response;
 
-/// The policy for `/api`: nothing may load, run, or embed the response.
+/// The policy for `/api`: nothing may load, run, or embed the response, and a document it
+/// renders as gets a unique origin with scripts, forms, and popups off.
 const API_CONTENT_SECURITY_POLICY: HeaderValue =
-    HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'");
+    HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'; sandbox");
 
 /// The policy for the web app. Everything comes from its own origin, and no script runs
 /// inline: the pre-paint theme script is `public/theme.js` for that reason.
