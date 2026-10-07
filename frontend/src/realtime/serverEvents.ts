@@ -12,6 +12,7 @@ import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRout
 import type { Project } from '../api/routes/projectRoutes'
 import type { Satellite, SatelliteStatus } from '../api/routes/satelliteRoutes'
 import type { StorageLocation } from '../api/routes/storageRoutes'
+import type { StudioAsset, StudioFeedback, StudioItem } from '../api/routes/studioRoutes'
 import type { User, WorkspaceSettings } from '../api/routes/userRoutes'
 
 // Everything the API's event stream can send. Mirrors `ServerEvent` in
@@ -68,6 +69,15 @@ export type ServerEvent =
   | { type: 'session.event', data: SessionEvent }
   // Live events for this session may have been missed; refetch its history.
   | { type: 'session.resync', data: { id: number } }
+  // Created, renamed, pinned, continued, or restored, or a file it holds changed its counts
+  // or thumbnail.
+  | { type: 'studioItem.upserted', data: StudioItem }
+  // Soft or permanent; the event does not say which.
+  | { type: 'studioItem.deleted', data: { id: string } }
+  // A file was pulled from a workspace and stored; every version is its own asset.
+  | { type: 'studioAsset.created', data: StudioAsset }
+  // A prompt with a drawing was sent.
+  | { type: 'studioFeedback.created', data: StudioFeedback }
   // Someone signed up, was approved, changed role, or was disabled or enabled.
   | { type: 'user.upserted', data: User }
   // A pending sign-up was rejected.
