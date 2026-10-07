@@ -145,6 +145,25 @@ pub async fn has_version(
     .await
 }
 
+/// Whether the item already keeps a file at `storage_path`. Files are named by content, so a
+/// path whose bytes another path or version already has needs nothing uploaded.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn is_stored(
+    connection: &mut AsyncPgConnection,
+    studio_item_id: Uuid,
+    storage_path: &str,
+) -> QueryResult<bool> {
+    diesel::select(diesel::dsl::exists(
+        studio_assets::table
+            .filter(studio_assets::studio_item_id.eq(studio_item_id))
+            .filter(studio_assets::storage_path.eq(storage_path)),
+    ))
+    .get_result(connection)
+    .await
+}
+
 /// Records a stored file, or returns `None` when the same version was recorded meanwhile, as
 /// when a replayed event and a reconcile pull the same file at once.
 ///

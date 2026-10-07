@@ -1,133 +1,14 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Downloads and uploads end to end: the real SDK against a local fake of a satellite's
-//! workspace file routes, and [`Storage`] against the storage module's fake Bunny zone.
-//!
-//! The fake satellite answers the way a satellite does: protobuf for the version and the
-//! thread, the file's bytes with a `Content-Length` for a read, a `WorkspaceFileWritten` for
-//! a write, and a contract error for a file that is not there.
+//! Downloads and uploads end to end: the real SDK against the fleet's fake satellite, and
+//! [`Storage`] against the storage module's fake Bunny zone.
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
-
-use arsox_sdk::client::Satellite as SatelliteClient;
-use arsox_sdk::proto::artifact::v1::WorkspaceFileWritten;
-use arsox_sdk::proto::error::v1::{Error as ContractError, ErrorCode};
-use arsox_sdk::proto::satellite::v1::GetVersionResponse;
-use arsox_sdk::proto::thread::v1::{GetThreadResponse, Thread};
-use axum::Router;
-use axum::body::Body;
-use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode, header};
-use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::http::HeaderMap;
 use bytes::Bytes;
-use futures_util::StreamExt as _;
 
 use super::*;
+use crate::fleet::fake_satellite::{WorkspaceFile, fake_workspace};
 use crate::storage::tests::{PASSWORD, bunny_location, fake_storage};
-
-const THREAD_ID: &str = "thread-1";
-
-/// A workspace file as the fake holds it, with the headers it was written with.
-#[derive(Debug, Clone)]
-struct WorkspaceFile {
-    headers: HeaderMap,
-    bytes: Vec<u8>,
-}
-
-/// The fake workspace's files by path, such as `reports/today.txt`.
-type Workspace = Arc<Mutex<BTreeMap<String, WorkspaceFile>>>;
-
-fn protobuf(status: StatusCode, message: &impl prost::Message) -> Response {
-    let headers = [(header::CONTENT_TYPE, "application/protobuf")];
-    (status, headers, message.encode_to_vec()).into_response()
-}
-
-async fn version() -> Response {
-    let answer = GetVersionResponse {
-        satellite_version: "test".to_owned(),
-        proto_major: 1,
-        proto_minor: 0,
-    };
-    protobuf(StatusCode::OK, &answer)
-}
-
-async fn thread(Path(thread_id): Path<String>) -> Response {
-    let answer = GetThreadResponse {
-        thread: Some(Thread {
-            thread_id,
-            ..Thread::default()
-        }),
-    };
-    protobuf(StatusCode::OK, &answer)
-}
-
-async fn read_file(
-    State(workspace): State<Workspace>,
-    Path((_thread_id, path)): Path<(String, String)>,
-) -> Response {
-    let Some(file) = workspace.lock().expect("lock").get(&path).cloned() else {
-        let missing = ContractError {
-            code: ErrorCode::WorkspaceFileNotFound.into(),
-            message: format!("nothing is at {path}"),
-            ..ContractError::default()
-        };
-        return protobuf(StatusCode::NOT_FOUND, &missing);
-    };
-    let headers = [(header::CONTENT_TYPE, "text/csv")];
-    (headers, file.bytes).into_response()
-}
-
-async fn write_file(
-    State(workspace): State<Workspace>,
-    Path((_thread_id, path)): Path<(String, String)>,
-    headers: HeaderMap,
-    body: Body,
-) -> Response {
-    let mut chunks = body.into_data_stream();
-    let mut bytes = Vec::new();
-    while let Some(chunk) = chunks.next().await {
-        let Ok(chunk) = chunk else {
-            return StatusCode::BAD_REQUEST.into_response();
-        };
-        bytes.extend_from_slice(&chunk);
-    }
-    let written = WorkspaceFileWritten {
-        path: path.clone(),
-        size_bytes: bytes.len() as u64,
-        ..WorkspaceFileWritten::default()
-    };
-    workspace
-        .lock()
-        .expect("lock")
-        .insert(path, WorkspaceFile { headers, bytes });
-    protobuf(StatusCode::OK, &written)
-}
-
-/// Starts the fake satellite on a free local port and attaches to its one thread.
-async fn fake_workspace() -> (ThreadHandle, Workspace) {
-    let workspace = Workspace::default();
-    let router = Router::new()
-        .route("/v1/version", get(version))
-        .route("/v1/threads/{id}", get(thread))
-        .route(
-            "/v1/threads/{id}/files/{*path}",
-            get(read_file).put(write_file),
-        )
-        .with_state(Arc::clone(&workspace));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind");
-    let address = listener.local_addr().expect("address");
-    tokio::spawn(async move { axum::serve(listener, router).await });
-
-    let client = SatelliteClient::connect(format!("http://{address}"), "satellite-secret")
-        .await
-        .expect("connect");
-    let handle = client.threads().attach(THREAD_ID).await.expect("attach");
-    (handle, workspace)
-}
 
 fn upload_arguments(workspace_path: &str, content_type: Option<&str>) -> UploadArguments {
     UploadArguments {

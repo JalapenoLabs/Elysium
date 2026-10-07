@@ -183,6 +183,33 @@ pub async fn keep(
         return Ok(Kept::AlreadyKept);
     }
 
+    // Another path or version already holds these bytes: the object is kept and verified, so it
+    // is recorded for this path without being read or uploaded again. Uploading would overwrite
+    // a kept object, and a mismatch would then delete it out from under its other rows.
+    let storage_path =
+        studio_asset::storage_path(source.studio_item_id, &artifact.sha256, &artifact.path);
+    let bytes_stored =
+        studio_asset::is_stored(&mut connection, source.studio_item_id, &storage_path)
+            .await
+            .map_err(|error| internal(error.into()))?;
+    if bytes_stored {
+        let new_asset = NewStudioAsset {
+            id: Uuid::now_v7(),
+            studio_item_id: source.studio_item_id,
+            session_id: Some(source.session_id),
+            kind: studio_asset::kind_of(&artifact.path),
+            artifact_path: artifact.path.clone(),
+            content_type: artifact.content_type.clone(),
+            size_bytes: i64::try_from(artifact.size_bytes).unwrap_or(i64::MAX),
+            sha256: artifact.sha256.clone(),
+            storage_path,
+        };
+        let recorded = studio_asset::create(&mut connection, &new_asset)
+            .await
+            .map_err(|error| internal(error.into()))?;
+        return Ok(recorded.map_or(Kept::AlreadyKept, Kept::New));
+    }
+
     let item = studio_item::find(&mut connection, source.studio_item_id)
         .await
         .map_err(|error| internal(error.into()))?;
@@ -231,8 +258,6 @@ pub async fn keep(
         chunk.map(|bytes: Bytes| bytes)
     });
 
-    let storage_path =
-        studio_asset::storage_path(source.studio_item_id, &artifact.sha256, &artifact.path);
     services
         .storage
         .upload(
@@ -251,7 +276,8 @@ pub async fn keep(
 
     let digest = hex::encode(hasher.lock().expect(HASHER_POISONED).clone().finalize());
     if digest != artifact.sha256 {
-        // The object is named by the announced hash but holds other bytes; it must not stay.
+        // The object is named by the announced hash but holds other bytes; it must not stay. No
+        // other row names it: an object already kept is never uploaded over, above.
         if let Err(error) = services
             .storage
             .delete(&location, &access_key, &storage_path)
@@ -325,3 +351,6 @@ async fn report(
         )));
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

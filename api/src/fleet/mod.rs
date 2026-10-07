@@ -35,6 +35,8 @@
 //! restarts or stops its watchers through [`Fleet::reload_satellite`] and
 //! [`Fleet::forget_satellite`].
 
+#[cfg(test)]
+pub mod fake_satellite;
 mod relay;
 pub mod views;
 
