@@ -215,9 +215,10 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
 
 `/studio` (`StudioPage`) is tiles only (`StudioItemTile`):
 
-- **Tile.** The thumbnail, title, live thread state, and image and model counts. The thumbnail is the API's choice
-  (`thumbnailAssetId`); without one, a working placeholder shows while the item's thread runs or waits, else an empty
-  frame (`getTileThumbnail` in `studioListing.ts`).
+- **Tile.** The thumbnail, title, live thread state, and image and model counts. The state chip shows only once the
+  item's latest thread has a known state (`getTileThreadState`): an item with no session, or a thread not polled yet,
+  has none. The thumbnail is the API's choice (`thumbnailAssetId`); without one, a working placeholder shows while the
+  item's thread runs or waits, else an empty frame (`getTileThumbnail` in `studioListing.ts`).
 - **Filters.** A project (or no project) and a Deleted items switch, kept in the address (`?project=`,
   `?deleted=true`), so a filtered grid survives opening an item. Deleted tiles offer Restore.
 - **New item** (`CreateStudioItemForm`). The prompt, an optional title and project, a storage location, and a

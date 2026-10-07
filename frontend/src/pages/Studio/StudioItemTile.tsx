@@ -14,7 +14,7 @@ import { StudioThumbnail } from './StudioThumbnail'
 // Misc
 import { getStudioItemUrl } from '../../urls'
 import { threadStateChipColors, threadStateLabelKeys } from '../Coding/sessionPresentation'
-import { getTileThumbnail } from './studioListing'
+import { getTileThreadState, getTileThumbnail } from './studioListing'
 
 // The title's overlay stretches across the whole card, so clicking anywhere on a tile opens
 // the item; Restore sits above it, since a button cannot live inside a link. As on the
@@ -30,12 +30,12 @@ type Props = {
   latestSession: CodingSession | undefined
 }
 
-// One item in the grid: its picture, title, live thread state, and how many images and
-// models it holds.
+// One item in the grid: its picture, title, live thread state when there is one to report,
+// and how many images and models it holds.
 export function StudioItemTile(props: Props) {
   const { t, i18n } = useTranslation([ 'studio', 'coding' ])
   const item = props.item
-  const state = props.latestSession?.thread?.state ?? 'unknown'
+  const threadState = getTileThreadState(props.latestSession)
   const thumbnail = getTileThumbnail(item, props.latestSession)
 
   return <Card className='relative h-full overflow-hidden p-0 transition-transform hover:-translate-y-0.5'>
@@ -54,8 +54,12 @@ export function StudioItemTile(props: Props) {
         }</Link>
       </Card.Title>
       <div className='flex flex-wrap items-center gap-2 text-xs'>
-        {!item.deletedAt && <Chip size='sm' variant='soft' color={threadStateChipColors[state]}>{
-          t(threadStateLabelKeys[state], { ns: 'coding' })
+        {threadState && !item.deletedAt && <Chip
+          size='sm'
+          variant='soft'
+          color={threadStateChipColors[threadState]}
+        >{
+          t(threadStateLabelKeys[threadState], { ns: 'coding' })
         }</Chip>}
         <span className='opacity-70'>{t('grid.images', { count: item.imageCount })}</span>
         <span className='opacity-70'>{t('grid.models', { count: item.modelCount })}</span>
