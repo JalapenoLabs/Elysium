@@ -238,6 +238,11 @@ impl FakeSatellite {
         self.lock().turn_refusal = Some(code);
     }
 
+    /// Accepts turns again after [`Self::refuse_turns`].
+    pub fn accept_turns(&self) {
+        self.lock().turn_refusal = None;
+    }
+
     /// Answers every session export with `archive`. Until this is called, an export answers
     /// `HARNESS_SESSION_NOT_FOUND`, as for a thread that has not run a turn.
     pub fn set_session_export(&self, archive: SessionArchive) {

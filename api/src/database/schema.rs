@@ -660,6 +660,18 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    studio_storage_reservations (id) {
+        id -> Uuid,
+        storage_location_id -> Uuid,
+        size_bytes -> Int8,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     user_events (id) {
         id -> Uuid,
         user_id -> Nullable<Uuid>,
@@ -759,6 +771,8 @@ diesel::joinable!(studio_feedback -> users (created_by));
 diesel::joinable!(studio_items -> projects (project_id));
 diesel::joinable!(studio_items -> storage_locations (storage_location_id));
 diesel::joinable!(studio_items -> users (created_by));
+diesel::joinable!(studio_storage_reservations -> storage_locations (storage_location_id));
+diesel::joinable!(studio_storage_reservations -> users (created_by));
 diesel::joinable!(workspace_settings -> users (updated_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -795,6 +809,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     studio_assets,
     studio_feedback,
     studio_items,
+    studio_storage_reservations,
     user_events,
     users,
     workspace_settings,

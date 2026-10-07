@@ -38,10 +38,12 @@ use crate::models::storage_location::{self, StorageLocation};
 use crate::models::studio_asset;
 use crate::models::studio_feedback::{self, StudioFeedback};
 use crate::models::studio_item::{self, StudioItem};
+use crate::models::studio_reservation::{self, Room};
 use crate::realtime::ServerEvent;
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
+use crate::routes::v1::coding_sessions::open::{self, OpenedSession};
 use crate::state::AppState;
-use crate::studio::continuation::{self, Continued};
+use crate::studio::continuation::{self, Continued, ItemThread};
 
 /// The largest drawing. It is handed to the harness as an image, and Arsox refuses a turn
 /// attachment past 3.75 MiB because the model APIs do; a viewer capture downscaled to fit
@@ -74,6 +76,16 @@ struct TurnForm {
     camera_orbit: Option<String>,
     annotated: Option<Bytes>,
     capture: Option<Bytes>,
+}
+
+/// What keeping a drawing needs to know about the request it came with.
+#[derive(Debug, Clone, Copy)]
+struct DrawingRequest<'request> {
+    item: &'request StudioItem,
+    actor: Uuid,
+    workspace: &'request ThreadHandle,
+    session_id: i64,
+    form: &'request TurnForm,
 }
 
 /// A drawing, once it is stored and recorded.
@@ -123,51 +135,23 @@ pub async fn handle(
     let item_thread =
         continuation::thread_for_turn(&state, &item, current.id(), form.satellite_id).await?;
 
-    let mut attachments = Vec::new();
-    let mut prompt = String::new();
-    if let Some(Continued::Brief(brief)) = &item_thread.continued {
-        prompt.push_str(&brief.text);
-        attachments.extend(brief.thumbnail.clone());
-    }
-    prompt.push_str(&form.prompt);
-
-    let drawing = match form.annotated.clone() {
-        Some(annotated) => Some(
-            keep_drawing(
-                &state,
-                &item,
-                current.id(),
-                &item_thread.handle,
-                item_thread.session.id,
-                &form,
-                annotated,
-            )
-            .await?,
-        ),
-        None => None,
-    };
-    if let Some(drawing) = &drawing {
-        attachments.push(drawing.attachment.clone());
-    }
-
-    let options = TurnOptions {
-        attachments,
-        ..TurnOptions::default()
-    };
-    let turn = match item_thread.handle.start_turn_with(prompt, options).await {
-        Ok(turn) => turn,
+    // A session this request continued the item on exists only for this turn: if the turn never
+    // starts, it is discarded, so the next prompt continues the item afresh with its brief or
+    // import instead of finding a live thread that never heard of the item's past.
+    let started = start_turn(&state, &item, current.id(), &form, &item_thread).await;
+    let (turn, feedback) = match started {
+        Ok(started) => started,
         Err(error) => {
-            if let Some(drawing) = &drawing {
-                forget_drawing(&state, drawing).await;
+            if item_thread.continued.is_some() {
+                let opened = OpenedSession {
+                    session: item_thread.session.clone(),
+                    handle: item_thread.handle.clone(),
+                    thread: item_thread.thread.clone(),
+                };
+                open::discard(&state, &opened).await;
             }
-            return Err(error.into());
+            return Err(error);
         }
-    };
-    let turn = TurnView::from(turn.queued());
-
-    let feedback = match drawing {
-        Some(drawing) => Some(record_turn(&state, drawing.feedback, &turn.turn_id).await),
-        None => None,
     };
     let continued = item_thread.continued.is_some();
     if continued {
@@ -184,6 +168,69 @@ pub async fn handle(
             "continued": continued,
         })),
     ))
+}
+
+/// Starts the turn in `item_thread`: the brief ahead of the prompt when the item continued
+/// with one, and the drawing, once kept, attached.
+///
+/// # Errors
+/// The failures of keeping the drawing and the satellite's refusal of the turn, which takes the
+/// drawing with it.
+async fn start_turn(
+    state: &AppState,
+    item: &StudioItem,
+    actor: Uuid,
+    form: &TurnForm,
+    item_thread: &ItemThread,
+) -> Result<(TurnView, Option<StudioFeedbackResponse>), ApiError> {
+    let mut attachments = Vec::new();
+    let mut prompt = String::new();
+    if let Some(Continued::Brief(brief)) = &item_thread.continued {
+        prompt.push_str(&brief.text);
+        attachments.extend(brief.thumbnail.clone());
+    }
+    prompt.push_str(&form.prompt);
+
+    let drawing = match form.annotated.clone() {
+        Some(annotated) => Some(
+            keep_drawing(
+                state,
+                DrawingRequest {
+                    item,
+                    actor,
+                    workspace: &item_thread.handle,
+                    session_id: item_thread.session.id,
+                    form,
+                },
+                annotated,
+            )
+            .await?,
+        ),
+        None => None,
+    };
+    if let Some(drawing) = &drawing {
+        attachments.push(drawing.attachment.clone());
+    }
+
+    let options = TurnOptions {
+        attachments,
+        ..TurnOptions::default()
+    };
+    let turn = match item_thread.handle.start_turn_with(prompt, options).await {
+        Ok(turn) => TurnView::from(turn.queued()),
+        Err(error) => {
+            if let Some(drawing) = &drawing {
+                forget_drawing(state, drawing).await;
+            }
+            return Err(error.into());
+        }
+    };
+
+    let feedback = match drawing {
+        Some(drawing) => Some(record_turn(state, drawing.feedback, &turn.turn_id).await),
+        None => None,
+    };
+    Ok((turn, feedback))
 }
 
 /// Reads the form, checking each part against its own limit as it arrives.
@@ -281,21 +328,67 @@ async fn png(field: Field<'_>, name: &str, limit: usize) -> Result<Bytes, ApiErr
 }
 
 /// Keeps both images in the item's storage location, records the drawn prompt, and uploads
-/// the drawing into the workspace to be attached to the turn. Anything kept is removed again
-/// when a later step fails.
+/// the drawing into the workspace to be attached to the turn. The images' bytes are reserved in
+/// the location first, so concurrent uploads cannot pass its limit together. Anything kept is
+/// removed again when a later step fails.
 ///
 /// # Errors
 /// `409` when the images would pass the location's storage limit, and the failures of the
 /// provider, the database, and the satellite.
 async fn keep_drawing(
     state: &AppState,
-    item: &StudioItem,
-    actor: Uuid,
-    workspace: &ThreadHandle,
-    session_id: i64,
-    form: &TurnForm,
+    request: DrawingRequest<'_>,
     annotated: Bytes,
 ) -> Result<Drawing, ApiError> {
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    let location =
+        storage_location::find(&mut connection, request.item.storage_location_id).await?;
+    let size_bytes = (annotated.len() + request.form.capture.as_ref().map_or(0, Bytes::len)) as u64;
+    let room =
+        studio_reservation::reserve(&mut connection, &location, size_bytes, request.actor).await?;
+    drop(connection);
+    if matches!(room, Room::Full { .. }) {
+        return Err(ApiError::Conflict(
+            "the item's storage location is full; free space or raise its limit",
+        ));
+    }
+
+    let kept = keep_drawing_in(state, request, annotated, location).await;
+    let released = match state.database.get().await {
+        Ok(mut connection) => studio_reservation::release(&mut connection, room)
+            .await
+            .map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    };
+    if let Err(message) = released {
+        event!(
+            name: "studio.storage.reservation_unreleased",
+            Level::WARN,
+            error.message = %message,
+            "could not release a storage reservation; it stops counting within the hour",
+        );
+    }
+    kept
+}
+
+/// [`keep_drawing`]'s work, once the images' room in `location` is reserved.
+async fn keep_drawing_in(
+    state: &AppState,
+    request: DrawingRequest<'_>,
+    annotated: Bytes,
+    location: StorageLocation,
+) -> Result<Drawing, ApiError> {
+    let DrawingRequest {
+        item,
+        actor,
+        workspace,
+        session_id,
+        form,
+    } = request;
     let feedback_id = Uuid::now_v7();
     let directory = format!(
         "{}/feedback/{feedback_id}",
@@ -307,9 +400,9 @@ async fn keep_drawing(
         .as_ref()
         .map(|_capture| format!("{directory}/capture.png"));
     let capture_size = form.capture.as_ref().map(Bytes::len);
-    let location = store_images(
+    store_images(
         state,
-        item,
+        &location,
         (&annotated_path, &annotated),
         capture_path.as_deref().zip(form.capture.as_ref()),
     )
@@ -374,65 +467,45 @@ async fn keep_drawing(
     })
 }
 
-/// Keeps a drawing, and its clean capture when there is one, in the item's storage location,
-/// within the location's limit. A capture that fails takes the drawing with it.
+/// Keeps a drawing, and its clean capture when there is one, in `location`, whose room is
+/// already reserved. A capture that fails takes the drawing with it.
 ///
 /// # Errors
-/// `409` when the images would pass the location's storage limit, and the failures of the
-/// provider and the database.
+/// The failures of the provider.
 async fn store_images(
     state: &AppState,
-    item: &StudioItem,
+    location: &StorageLocation,
     annotated: (&str, &Bytes),
     capture: Option<(&str, &Bytes)>,
-) -> Result<StorageLocation, ApiError> {
+) -> Result<(), ApiError> {
     let (annotated_path, annotated_bytes) = annotated;
-    let new_bytes = annotated_bytes.len() + capture.map_or(0, |(_path, bytes)| bytes.len());
-
-    let mut connection = state
-        .database
-        .get()
-        .await
-        .context("no database connection available")?;
-    let location = storage_location::find(&mut connection, item.storage_location_id).await?;
-    if let Some(limit) = location.storage_limit_bytes {
-        let used = studio_item::bytes_in_location(&mut connection, location.id).await?;
-        let remaining = u64::try_from(limit.saturating_sub(used)).unwrap_or_default();
-        if new_bytes as u64 > remaining {
-            return Err(ApiError::Conflict(
-                "the item's storage location is full; free space or raise its limit",
-            ));
-        }
-    }
-    drop(connection);
-
     let access_key = location
         .access_key(&state.cipher)
         .context("the storage location's access key cannot be decrypted")?;
     upload(
         state,
-        &location,
+        location,
         &access_key,
         annotated_path,
         annotated_bytes.clone(),
     )
     .await?;
     let Some((capture_path, capture_bytes)) = capture else {
-        return Ok(location);
+        return Ok(());
     };
     if let Err(error) = upload(
         state,
-        &location,
+        location,
         &access_key,
         capture_path,
         capture_bytes.clone(),
     )
     .await
     {
-        remove_files(state, &location, &[annotated_path]).await;
+        remove_files(state, location, &[annotated_path]).await;
         return Err(error);
     }
-    Ok(location)
+    Ok(())
 }
 
 async fn upload(

@@ -68,7 +68,10 @@ The session watcher hands each one to `api/src/studio/artifacts.rs`, which:
 1. Skips it when the item already holds that path with that sha256, so a re-announced or seeded file costs nothing.
 2. Records it without reading it when the item already stores those bytes under another path or version: objects are
    named by content, so the kept object is never uploaded over.
-3. Checks the location's storage limit against the bytes Studio has recorded there.
+3. Reserves the file's bytes in a location with a storage limit (`api/src/models/studio_reservation.rs`): under a lock
+   per location it counts what Studio has recorded there plus what uploads in flight have reserved, so concurrent
+   uploads cannot pass the limit together. The reservation is released once the file is recorded or refused; one a
+   crash left behind stops counting after an hour.
 4. Streams the file out of the workspace (`read_file("artifacts/<path>")`) into the item's storage location at
    `studio/<itemId>/<sha256>.<extension>`, hashing it as it passes. Nothing is held in memory. Bytes that no longer
    match the announcement are removed and not recorded; the turn that changed them announces them again.
@@ -128,8 +131,9 @@ Every prompt is sent as `multipart/form-data` to `POST /api/v1/studio-items/{id}
 (`api/src/routes/v1/studio_items/send_turn.rs`): `prompt`, `satelliteId` (where a continued item runs), and for a
 drawing `annotated` (PNG), `capture` (PNG), `sourceAssetId`, and `cameraOrbit`. A drawn prompt:
 
-1. Keeps both images in the item's storage location at `studio/<itemId>/feedback/<feedbackId>/`, within the location's
-   limit, and records a `studio_feedback` row with the prompt, the source asset, the camera orbit, and who sent it.
+1. Keeps both images in the item's storage location at `studio/<itemId>/feedback/<feedbackId>/`, reserving their bytes
+   within the location's limit as a delivered file's are, and records a `studio_feedback` row with the prompt, the
+   source asset, the camera orbit, and who sent it.
 2. Uploads the drawing into the workspace at `feedback/<feedbackId>/annotated.png` and starts the turn with it as an
    Arsox turn attachment. The satellite hands images to the harness as native image input, so the agent sees exactly
    what was drawn. The row then names the turn it started; a turn the satellite refuses takes the row and its images
@@ -160,6 +164,10 @@ session on the same item, on the chosen satellite or else the previous one:
    brief ahead of the prompt instead: the original prompt (its first 4,000 characters), the most recent feedback
    prompts that fit 20 prompts and 8,000 characters, and the thumbnail as an attachment. What was left out is said,
    so a long history never makes a long first turn.
+
+A session a prompt continued the item on exists for that prompt's turn: when the drawing cannot be kept or the
+satellite refuses the turn, the session is discarded, so the next prompt continues the item afresh with its brief or
+import rather than finding a live thread that never heard of the item's past.
 
 The session records which happened as `continuation` (`imported` or `brief`; `null` for a session that continued
 nothing), and the conversation view says so at the divider. Copying files back is all or nothing: a provider or

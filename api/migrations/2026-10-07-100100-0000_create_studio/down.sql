@@ -1,3 +1,4 @@
+DROP TABLE studio_storage_reservations;
 DROP INDEX storage_locations_one_studio_default_idx;
 ALTER TABLE storage_locations DROP COLUMN is_studio_default;
 

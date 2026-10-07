@@ -31,6 +31,8 @@ use crate::database::Pool;
 use crate::models::storage_location::{self, StorageLocation};
 use crate::models::studio_asset::{self, NewStudioAsset, StudioAsset};
 use crate::models::studio_item;
+use crate::models::studio_reservation::{self, Room};
+use crate::models::user::CODING_AGENT_USER_ID;
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::studio_items::{StudioAssetResponse, StudioItemResponse};
 use crate::storage::{Storage, StorageError};
@@ -203,11 +205,16 @@ pub async fn keep(
         return record(services, source, artifact, stored).await;
     }
 
-    let location = location_with_room(services, source, artifact).await?;
-    match stream_into_storage(services, source, artifact, &location, storage_path).await? {
-        Some(stored) => record(services, source, artifact, stored).await,
-        None => Ok(Kept::ChangedSinceAnnounced),
-    }
+    let location = location_of(services, source, artifact).await?;
+    let room = reserve_room(services, artifact, &location).await?;
+    let kept = match stream_into_storage(services, source, artifact, &location, storage_path).await
+    {
+        Ok(Some(stored)) => record(services, source, artifact, stored).await,
+        Ok(None) => Ok(Kept::ChangedSinceAnnounced),
+        Err(error) => Err(error),
+    };
+    release_room(services, room).await;
+    kept
 }
 
 /// Where a file's bytes are kept, as recorded on its row.
@@ -225,8 +232,8 @@ fn internal(artifact: &Artifact, cause: anyhow::Error) -> KeepError {
     }
 }
 
-/// The item's storage location, once it is known to have room for the file.
-async fn location_with_room(
+/// The item's storage location.
+async fn location_of(
     services: Services<'_>,
     source: Source<'_>,
     artifact: &Artifact,
@@ -239,23 +246,58 @@ async fn location_with_room(
     let item = studio_item::find(&mut connection, source.studio_item_id)
         .await
         .map_err(|error| internal(artifact, error.into()))?;
-    let location = storage_location::find(&mut connection, item.storage_location_id)
+    storage_location::find(&mut connection, item.storage_location_id)
+        .await
+        .map_err(|error| internal(artifact, error.into()))
+}
+
+/// Reserves the file's bytes in a location with a limit, so concurrent uploads cannot pass it
+/// together. The coding agent delivered the file, so the reservation is made for it.
+async fn reserve_room(
+    services: Services<'_>,
+    artifact: &Artifact,
+    location: &StorageLocation,
+) -> Result<Room, KeepError> {
+    let mut connection = services
+        .database
+        .get()
         .await
         .map_err(|error| internal(artifact, error.into()))?;
-    if let Some(limit) = location.storage_limit_bytes {
-        let used = studio_item::bytes_in_location(&mut connection, location.id)
-            .await
-            .map_err(|error| internal(artifact, error.into()))?;
-        let remaining = u64::try_from(limit.saturating_sub(used)).unwrap_or_default();
-        if artifact.size_bytes > remaining {
-            return Err(KeepError::OverLimit {
-                path: artifact.path.clone(),
-                size_bytes: artifact.size_bytes,
-                remaining_bytes: remaining,
-            });
-        }
+    let room = studio_reservation::reserve(
+        &mut connection,
+        location,
+        artifact.size_bytes,
+        CODING_AGENT_USER_ID,
+    )
+    .await
+    .map_err(|error| internal(artifact, error.into()))?;
+    if let Room::Full { remaining_bytes } = room {
+        return Err(KeepError::OverLimit {
+            path: artifact.path.clone(),
+            size_bytes: artifact.size_bytes,
+            remaining_bytes,
+        });
     }
-    Ok(location)
+    Ok(room)
+}
+
+/// Releases a reservation once its upload is recorded or refused. A release that fails is
+/// logged; the reservation stops counting on its own within the hour.
+async fn release_room(services: Services<'_>, room: Room) {
+    let released = match services.database.get().await {
+        Ok(mut connection) => studio_reservation::release(&mut connection, room)
+            .await
+            .map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    };
+    if let Err(message) = released {
+        event!(
+            name: "studio.storage.reservation_unreleased",
+            Level::WARN,
+            error.message = %message,
+            "could not release a storage reservation; it stops counting within the hour",
+        );
+    }
 }
 
 /// Streams the file from the workspace into storage at `storage_path`, hashing it as it

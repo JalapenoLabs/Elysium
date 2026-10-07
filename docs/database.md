@@ -381,6 +381,20 @@ sha256)` makes a pull of a file already kept a no-op.
 | `storage_path`   | `TEXT`              | Where it is kept: `studio/<item>/<sha256>.<extension>`, shared by every row with those bytes |
 | `created_at`     | `TIMESTAMPTZ`       | Set on insert                                                |
 
+### `studio_storage_reservations`
+
+Bytes promised to a Studio upload in flight into a location with a storage limit, taken under an advisory lock per
+location (`api/src/models/studio_reservation.rs`) so concurrent uploads cannot pass the limit together. A row lives for
+one upload; one older than an hour no longer counts and is cleared by the next release.
+
+| Column                | Type          | Notes                                                              |
+|-----------------------|---------------|--------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key                                                |
+| `storage_location_id` | `UUID`        | References `storage_locations`; deleted with it                    |
+| `size_bytes`          | `BIGINT`      | Not negative                                                       |
+| `created_by`          | `UUID`        | The coding agent for a delivered file, the person for a drawing    |
+| `created_at`          | `TIMESTAMPTZ` | Set on insert                                                      |
+
 ### `studio_feedback`
 
 A prompt sent with a drawing. Both images are kept in the item's storage location.

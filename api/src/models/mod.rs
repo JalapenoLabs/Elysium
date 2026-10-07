@@ -28,4 +28,5 @@ pub mod storage_location;
 pub mod studio_asset;
 pub mod studio_feedback;
 pub mod studio_item;
+pub mod studio_reservation;
 pub mod user;

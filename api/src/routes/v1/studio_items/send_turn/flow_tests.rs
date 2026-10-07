@@ -463,6 +463,40 @@ async fn a_brief_attaches_the_image_the_tile_shows() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_continue_whose_turn_never_starts_is_undone_so_the_next_prompt_continues_afresh() {
+    let mut studio = Studio::start().await;
+    studio.keep_file("banana-hero.png", b"the render").await;
+    studio.end_thread();
+    studio.satellite.refuse_turns(ErrorCode::TurnQueueFull);
+
+    let (status, body) = studio.send(&[("prompt", b"Make it yellower")]).await;
+
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{body}");
+    assert_eq!(
+        studio.sessions().await.len(),
+        1,
+        "the session the refused turn was to run in is discarded"
+    );
+
+    studio.satellite.accept_turns();
+    let (status, body) = studio.send(&[("prompt", b"Make it yellower")]).await;
+
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(
+        body["continued"], true,
+        "the retry continues the item itself"
+    );
+    assert_eq!(body["session"]["continuation"], "brief");
+    let turns = studio.satellite.turns();
+    let prompt = &turns.last().expect("the retried turn").prompt;
+    assert!(
+        prompt.starts_with(BRIEF_OPENING),
+        "the retry carries the brief: {prompt}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn an_ended_thread_resumes_its_saved_session_when_the_harness_matches() {
     let mut studio = Studio::start().await;
     studio.use_claude().await;
