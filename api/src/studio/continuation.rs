@@ -51,6 +51,15 @@ const CONTINUE_LOCK_SECONDS: u64 = 300;
 /// asset was heading without the brief outgrowing the prompt it introduces.
 const BRIEF_FEEDBACK_LIMIT: usize = 20;
 
+/// The most characters of feedback a brief repeats, the most recent kept. Prompts may each run
+/// to 100,000 characters, so a count alone could make a brief of megabytes; this keeps the
+/// first turn of a continued item about as long as an ordinary prompt.
+const BRIEF_FEEDBACK_CHARS: usize = 8_000;
+
+/// The most characters of the item's first prompt a brief repeats. Past it the prompt is cut,
+/// and the brief says so.
+const BRIEF_FIRST_PROMPT_CHARS: usize = 4_000;
+
 /// The thread an item's next turn runs in.
 #[derive(Debug)]
 pub struct ItemThread {
@@ -415,24 +424,43 @@ async fn brief(
 }
 
 /// The brief's words. A pure function of the item's history, so its shape is tested on its
-/// own.
+/// own. The first prompt and the feedback are each held to a budget, cutting the oldest
+/// feedback first, so a long history never makes a long brief.
 fn brief_text(first_prompt: &str, feedback: &[&str], has_thumbnail: bool) -> String {
     let mut text = String::from(
         "This item continues work from an earlier conversation that could not be resumed. \
          The files made so far are in artifacts/.\n\nThe item was first asked for:\n",
     );
-    text.push_str(first_prompt);
+    push_cut(&mut text, first_prompt, BRIEF_FIRST_PROMPT_CHARS);
     text.push('\n');
 
-    let skipped = feedback.len().saturating_sub(BRIEF_FEEDBACK_LIMIT);
+    // The most recent prompts that fit both limits, newest first as they are chosen.
+    let mut kept = Vec::new();
+    let mut budget = BRIEF_FEEDBACK_CHARS;
+    for prompt in feedback.iter().rev().take(BRIEF_FEEDBACK_LIMIT) {
+        let length = prompt.chars().count();
+        if length > budget {
+            // The newest prompt is kept, cut, even when it alone outgrows the budget.
+            if kept.is_empty() {
+                kept.push((*prompt, budget));
+            }
+            break;
+        }
+        budget -= length;
+        kept.push((*prompt, length));
+    }
+    let skipped = feedback.len() - kept.len();
+
     if !feedback.is_empty() {
         text.push_str("\nFeedback given since, oldest first");
         if skipped > 0 {
             let _ = write!(text, " (the {skipped} earliest left out)");
         }
         text.push_str(":\n");
-        for prompt in &feedback[skipped..] {
-            let _ = writeln!(text, "- {prompt}");
+        for (prompt, limit) in kept.iter().rev() {
+            text.push_str("- ");
+            push_cut(&mut text, prompt, *limit);
+            text.push('\n');
         }
     }
     if has_thumbnail {
@@ -440,6 +468,18 @@ fn brief_text(first_prompt: &str, feedback: &[&str], has_thumbnail: bool) -> Str
     }
     text.push_str("\nNow:\n");
     text
+}
+
+/// Appends `value`, cut to `limit` characters with a note when it is longer.
+fn push_cut(text: &mut String, value: &str, limit: usize) {
+    let mut characters = value.char_indices();
+    match characters.nth(limit) {
+        Some((cut_at, _first_dropped)) => {
+            text.push_str(&value[..cut_at]);
+            text.push_str(" [cut short]");
+        }
+        None => text.push_str(value),
+    }
 }
 
 /// One item's continue lock, held in Redis so every API replica sees it.
@@ -528,6 +568,32 @@ mod tests {
         assert!(text.contains("- change 6\n"));
         assert!(text.contains("- change 25\n"));
         assert!(!text.contains("attached image"));
+    }
+
+    #[test]
+    fn a_long_history_is_held_to_its_character_budget() {
+        let long = "x".repeat(3_000);
+        let feedback: Vec<&str> = std::iter::repeat_n(long.as_str(), 10).collect();
+        let first = "y".repeat(10_000);
+        let text = brief_text(&first, &feedback, false);
+
+        // 8,000 characters of feedback hold two 3,000 character prompts, the newest two.
+        assert!(text.contains("the 8 earliest left out"), "{text}");
+        assert_eq!(text.matches(&long).count(), 2);
+        assert!(text.contains(&format!(
+            "{} [cut short]",
+            "y".repeat(BRIEF_FIRST_PROMPT_CHARS)
+        )));
+        assert!(text.chars().count() < BRIEF_FEEDBACK_CHARS + BRIEF_FIRST_PROMPT_CHARS + 1_000);
+    }
+
+    #[test]
+    fn a_newest_prompt_past_the_budget_is_kept_cut() {
+        let huge = "z".repeat(BRIEF_FEEDBACK_CHARS * 3);
+        let text = brief_text("Model a banana", &["Add a stem", &huge], false);
+        assert!(text.contains("the 1 earliest left out"), "{text}");
+        assert!(text.contains(" [cut short]"));
+        assert!(!text.contains("Add a stem"));
     }
 
     #[test]

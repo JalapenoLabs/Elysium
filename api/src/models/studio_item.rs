@@ -135,7 +135,27 @@ pub async fn pin_thumbnail(
         .await
 }
 
-/// Records why a file could not be kept, or clears it with `None` once one is.
+/// The longest `pull_error` the column accepts (`studio_items_pull_error_length`).
+const PULL_ERROR_MAX_CHARS: usize = 2_000;
+
+/// A failure's message as `pull_error` keeps it: cut to the column's limit, so a provider's long
+/// message or an agent's deeply nested path is shown cut short rather than refused outright.
+pub fn pull_error_from(message: &str) -> String {
+    match message.char_indices().nth(PULL_ERROR_MAX_CHARS) {
+        Some((cut_at, _first_dropped)) => {
+            // Room for the ellipsis inside the limit.
+            let kept_end = message
+                .char_indices()
+                .nth(PULL_ERROR_MAX_CHARS - 1)
+                .map_or(cut_at, |(index, _character)| index);
+            format!("{}…", &message[..kept_end])
+        }
+        None => message.to_owned(),
+    }
+}
+
+/// Records why a file could not be kept, or clears it with `None` once one is. A message comes
+/// through [`pull_error_from`], so it fits the column.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] when no row has that id.
@@ -222,4 +242,54 @@ pub async fn bytes_in_location(
     .get_result(connection)
     .await?;
     Ok(usage.bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{TEST_PERSON_ID, migrated_database, studio_item_with_session};
+
+    #[test]
+    fn a_short_message_is_kept_as_it_is() {
+        assert_eq!(pull_error_from("over the limit"), "over the limit");
+    }
+
+    #[test]
+    fn a_long_message_is_cut_to_the_column_with_an_ellipsis() {
+        let message = "é".repeat(PULL_ERROR_MAX_CHARS + 500);
+        let fitted = pull_error_from(&message);
+        assert_eq!(fitted.chars().count(), PULL_ERROR_MAX_CHARS);
+        assert!(fitted.ends_with('…'));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_provider_message_past_the_column_is_still_recorded() {
+        let (_url, mut connection) = migrated_database().await;
+        let fixture = studio_item_with_session(
+            &mut connection,
+            &crate::test_support::cipher(),
+            "http://127.0.0.1:9",
+        )
+        .await;
+        let studio_item_id = fixture.item.id;
+        let refusal = format!(
+            "{}/x.png could not be stored: {}",
+            "deep/".repeat(300),
+            "the provider refused it ".repeat(100)
+        );
+
+        let item = set_pull_error(
+            &mut connection,
+            studio_item_id,
+            Some(&pull_error_from(&refusal)),
+        )
+        .await
+        .expect("a long refusal is recorded, cut short");
+        assert!(
+            item.pull_error
+                .is_some_and(|recorded| recorded.ends_with('…'))
+        );
+        assert_eq!(item.created_by, TEST_PERSON_ID);
+    }
 }

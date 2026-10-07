@@ -114,8 +114,9 @@ app's files:
 The Content Security Policy depends on what answers, in `api/src/middleware/security_headers.rs`:
 
 - `/api` answers JSON, plain text, and the files Studio's agents wrote, so its policy is `default-src 'none';
-  frame-ancestors 'none'; sandbox`. A browser that renders an API response directly, such as an agent's SVG opened in
-  a tab, gets a unique origin and runs, loads, and embeds nothing from it; `nosniff` keeps the stored type.
+  frame-ancestors 'none'; sandbox allow-downloads`. A browser that renders an API response directly, such as an
+  agent's SVG opened in a tab, gets a unique origin and runs, loads, and embeds nothing from it; `nosniff` keeps the
+  stored type. Downloads stay allowed, because Studio's file downloads are `/api` responses.
 - Every other path is the web app the published image serves (see `docs/infrastructure.md`). Its policy allows only
   its own origin: `script-src 'self'` with no inline scripts and no eval, `connect-src 'self'`, `object-src 'none'`,
   `base-uri` and `form-action 'self'`, and `frame-ancestors 'none'`. Three allowances are deliberate:
@@ -135,7 +136,7 @@ Studio's 3D viewer (`@google/model-viewer`, see `docs/studio.md`) runs inside th
 - **Textures.** three.js reads a model's embedded textures by fetching `blob:` URLs, which `connect-src 'self'`
   refuses. Textured models render without their textures in production until the policy allows `blob:` in
   `connect-src`.
-- **Studio's files.** Responses carry their own sandboxing policy (`docs/studio.md`). The app shows them only as
+- **Studio's files.** They are served under the `/api` policy above (`docs/studio.md`). The app shows them only as
   `<img>` sources and viewer models, all from `/api`.
 
 In the development stack nginx sends the app's paths to the Vite dev server instead. The dev server needs inline

@@ -663,6 +663,7 @@ impl Fleet {
             Err(error) => return interrupted(error.to_string()),
         };
         let mut catching_up = from_sequence < latest_at_open;
+        let mut backup_owed = false;
         if *needs_resync && !catching_up {
             *needs_resync = false;
             self.inner
@@ -683,9 +684,25 @@ impl Fleet {
                     self.record_event(session.id, &thread_event).await;
                     self.act_on(session, &handle, &thread_event);
 
+                    // A turn's harness session is backed up when it completes. History replayed
+                    // while catching up names turns long done, and an export is always the
+                    // session as it is now, so the catch-up backs it up once, when it ends.
+                    let completes_studio_turn = session.studio_item_id.is_some()
+                        && matches!(
+                            thread_event.payload,
+                            Some(thread_event::Payload::TurnCompleted(_))
+                        );
+                    if completes_studio_turn && !catching_up {
+                        self.back_up_transcript(session.id, &handle);
+                    }
+                    backup_owed |= completes_studio_turn && catching_up;
+
                     if catching_up {
                         if thread_event.sequence >= latest_at_open {
                             catching_up = false;
+                            if backup_owed {
+                                self.back_up_transcript(session.id, &handle);
+                            }
                             *needs_resync = false;
                             self.inner
                                 .events
@@ -719,24 +736,16 @@ impl Fleet {
     ///
     /// - `ArtifactCreated` on a Studio session: keep the file for the item. Keeping is
     ///   idempotent, so an event replayed while catching up costs one lookup.
-    /// - `TurnCompleted` on a Studio session: back up the harness session, so a later thread
-    ///   can resume the item's conversation.
+    ///
+    /// Backing up a Studio turn's harness session is the caller's, which knows whether the event
+    /// is history being caught up on.
     fn act_on(&self, session: &CodingSession, handle: &ThreadHandle, thread_event: &ThreadEvent) {
-        if session.studio_item_id.is_none() {
+        let Some(thread_event::Payload::ArtifactCreated(created)) = &thread_event.payload else {
             return;
-        }
-        match &thread_event.payload {
-            Some(thread_event::Payload::ArtifactCreated(created)) => {
-                if let (Some(studio_item_id), Some(artifact)) =
-                    (session.studio_item_id, &created.artifact)
-                {
-                    self.keep_artifact(session.id, studio_item_id, handle, artifact.clone());
-                }
-            }
-            Some(thread_event::Payload::TurnCompleted(_)) => {
-                self.back_up_transcript(session.id, handle);
-            }
-            _ => {}
+        };
+        if let (Some(studio_item_id), Some(artifact)) = (session.studio_item_id, &created.artifact)
+        {
+            self.keep_artifact(session.id, studio_item_id, handle, artifact.clone());
         }
     }
 

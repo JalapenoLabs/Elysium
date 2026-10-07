@@ -15,9 +15,11 @@ use axum::middleware::Next;
 use axum::response::Response;
 
 /// The policy for `/api`: nothing may load, run, or embed the response, and a document it
-/// renders as gets a unique origin with scripts, forms, and popups off.
+/// renders as gets a unique origin with scripts, forms, and popups off. Downloads stay allowed:
+/// a bare `sandbox` sets the sandboxed-downloads flag, and Studio's file downloads are `/api`
+/// responses the browser follows as a navigation.
 const API_CONTENT_SECURITY_POLICY: HeaderValue =
-    HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'; sandbox");
+    HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'; sandbox allow-downloads");
 
 /// The policy for the web app. Everything comes from its own origin, and no script runs
 /// inline: the pre-paint theme script is `public/theme.js` for that reason.

@@ -97,9 +97,9 @@ drives the viewer. Grouping is by path without its extension, done in the fronte
 
 `GET /api/v1/studio-items/{id}/assets/{assetId}/content` streams the file from the storage location, so no provider
 URL or credential reaches the browser. `?download=true` adds `Content-Disposition: attachment` with the artifact's
-name. Files are addressed by content, so responses are cached as immutable. An agent wrote the bytes, so they are served
-under the API's own policy, `default-src 'none'; frame-ancestors 'none'; sandbox`, with `nosniff` (see
-`docs/security.md`): an SVG opened directly runs no script.
+name. Files are addressed by content, so responses are cached as immutable. An agent wrote the bytes, so they are
+served under the API's own policy, `default-src 'none'; frame-ancestors 'none'; sandbox allow-downloads`, with
+`nosniff` (see `docs/security.md`): an SVG opened directly runs no script, and its download still works.
 
 ### The thumbnail
 
@@ -157,8 +157,9 @@ session on the same item, on the chosen satellite or else the previous one:
 2. When the new thread runs the same harness family as the stored transcript, the transcript is imported
    (`import_session`), and the harness resumes its own conversation with full context.
 3. When it cannot (no transcript, the other family, or an import the satellite refuses), the first turn carries a
-   brief ahead of the prompt instead: the original prompt, the latest 20 feedback prompts, and the thumbnail as an
-   attachment.
+   brief ahead of the prompt instead: the original prompt (its first 4,000 characters), the most recent feedback
+   prompts that fit 20 prompts and 8,000 characters, and the thumbnail as an attachment. What was left out is said,
+   so a long history never makes a long first turn.
 
 The session records which happened as `continuation` (`imported` or `brief`; `null` for a session that continued
 nothing), and the conversation view says so at the divider. Copying files back is all or nothing: a provider or
@@ -169,7 +170,8 @@ meanwhile answers `409` instead of opening a second thread. Under the lock the l
 prompt that found the thread ended just before another continued the item runs in that one's new thread. While the latest thread is live, `satelliteId` is ignored
 and the turn runs there; a latest thread whose satellite cannot be reached answers `502` rather than continuing, since
 that thread may still be running. The harness session is exported after every turn the satellite reports complete
-(`api/src/studio/transcripts.rs`) and kept sealed; a failed export is logged and only costs a later continue its
+(`api/src/studio/transcripts.rs`) and kept sealed; history a reconnecting watcher catches up on is backed up once,
+when the catch-up ends,; a failed export is logged and only costs a later continue its
 import.
 
 The conversation view reads the item's sessions in order and shows a divider where one continued into the next. Each

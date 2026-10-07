@@ -135,7 +135,7 @@ pub async fn keep_and_report(services: Services<'_>, source: Source<'_>, artifac
                     "keeping an agent's file failed inside Elysium",
                 );
             }
-            Some(error.to_string())
+            Some(studio_item::pull_error_from(&error.to_string()))
         }
     };
     if let Err(error) = report(
