@@ -83,10 +83,17 @@ export function describeSession(
     ? context.formatInstant(lastActivityAt)
     : t('sessions.never')
 
+  // A deleted satellite leaves its sessions behind without one.
+  const satelliteName = session.satelliteId
+    ? context.satelliteNames[session.satelliteId] ?? ''
+    : t('sessions.satelliteDeleted')
+
   return {
     session,
-    projectName: context.projectNames[session.projectId] ?? '',
-    satelliteName: context.satelliteNames[session.satelliteId] ?? '',
+    projectName: session.projectId
+      ? context.projectNames[session.projectId] ?? ''
+      : '',
+    satelliteName,
     state,
     stateLabel: t(threadStateLabelKeys[state]),
     lastActivity,

@@ -78,8 +78,16 @@ pub mod sql_types {
     pub struct S3Service;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "session_continuation"))]
+    pub struct SessionContinuation;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "storage_location_kind"))]
     pub struct StorageLocationKind;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "studio_asset_kind"))]
+    pub struct StudioAssetKind;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "user_role"))]
@@ -239,18 +247,21 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::SessionContinuation;
 
     coding_sessions (id) {
         id -> Int8,
-        satellite_id -> Uuid,
+        satellite_id -> Nullable<Uuid>,
         thread_id -> Text,
         title -> Text,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        project_id -> Uuid,
+        project_id -> Nullable<Uuid>,
         github_credential_id -> Nullable<Uuid>,
         action_item_id -> Nullable<Uuid>,
         created_by -> Uuid,
+        studio_item_id -> Nullable<Uuid>,
+        continuation -> Nullable<SessionContinuation>,
     }
 }
 
@@ -531,6 +542,31 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    session_events (session_id, sequence) {
+        session_id -> Int8,
+        sequence -> Int8,
+        occurred_at -> Nullable<Timestamptz>,
+        event -> Bytea,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    session_transcripts (session_id) {
+        session_id -> Int8,
+        harness -> Text,
+        harness_session_id -> Text,
+        transcript_sealed -> Bytea,
+        size_bytes -> Int8,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     storage_location_projects (storage_location_id, project_id) {
         storage_location_id -> Uuid,
         project_id -> Uuid,
@@ -561,6 +597,75 @@ diesel::table! {
         s3_region -> Nullable<Text>,
         s3_access_key_id -> Nullable<Text>,
         created_by -> Uuid,
+        is_studio_default -> Bool,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::StudioAssetKind;
+
+    studio_assets (id) {
+        id -> Uuid,
+        studio_item_id -> Uuid,
+        session_id -> Nullable<Int8>,
+        kind -> StudioAssetKind,
+        artifact_path -> Text,
+        content_type -> Nullable<Text>,
+        size_bytes -> Int8,
+        sha256 -> Text,
+        storage_path -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    studio_feedback (id) {
+        id -> Uuid,
+        studio_item_id -> Uuid,
+        session_id -> Nullable<Int8>,
+        turn_id -> Nullable<Text>,
+        prompt -> Text,
+        source_asset_id -> Nullable<Uuid>,
+        camera_orbit -> Nullable<Text>,
+        annotated_storage_path -> Text,
+        annotated_size_bytes -> Int8,
+        capture_storage_path -> Nullable<Text>,
+        capture_size_bytes -> Nullable<Int8>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    studio_items (id) {
+        id -> Uuid,
+        title -> Text,
+        prompt -> Text,
+        project_id -> Nullable<Uuid>,
+        storage_location_id -> Uuid,
+        thumbnail_asset_id -> Nullable<Uuid>,
+        pull_error -> Nullable<Text>,
+        deleted_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    studio_storage_reservations (id) {
+        id -> Uuid,
+        storage_location_id -> Uuid,
+        size_bytes -> Int8,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
     }
 }
 
@@ -626,6 +731,7 @@ diesel::joinable!(coding_sessions -> action_items (action_item_id));
 diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
+diesel::joinable!(coding_sessions -> studio_items (studio_item_id));
 diesel::joinable!(coding_sessions -> users (created_by));
 diesel::joinable!(environment_variables -> users (created_by));
 diesel::joinable!(github_credentials -> users (created_by));
@@ -652,9 +758,21 @@ diesel::joinable!(mail_servers -> users (created_by));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
 diesel::joinable!(projects -> users (created_by));
 diesel::joinable!(satellites -> users (created_by));
+diesel::joinable!(session_events -> coding_sessions (session_id));
+diesel::joinable!(session_transcripts -> coding_sessions (session_id));
 diesel::joinable!(storage_location_projects -> projects (project_id));
 diesel::joinable!(storage_location_projects -> storage_locations (storage_location_id));
 diesel::joinable!(storage_locations -> users (created_by));
+diesel::joinable!(studio_assets -> coding_sessions (session_id));
+diesel::joinable!(studio_feedback -> coding_sessions (session_id));
+diesel::joinable!(studio_feedback -> studio_assets (source_asset_id));
+diesel::joinable!(studio_feedback -> studio_items (studio_item_id));
+diesel::joinable!(studio_feedback -> users (created_by));
+diesel::joinable!(studio_items -> projects (project_id));
+diesel::joinable!(studio_items -> storage_locations (storage_location_id));
+diesel::joinable!(studio_items -> users (created_by));
+diesel::joinable!(studio_storage_reservations -> storage_locations (storage_location_id));
+diesel::joinable!(studio_storage_reservations -> users (created_by));
 diesel::joinable!(workspace_settings -> users (updated_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -684,8 +802,14 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_servers,
     projects,
     satellites,
+    session_events,
+    session_transcripts,
     storage_location_projects,
     storage_locations,
+    studio_assets,
+    studio_feedback,
+    studio_items,
+    studio_storage_reservations,
     user_events,
     users,
     workspace_settings,

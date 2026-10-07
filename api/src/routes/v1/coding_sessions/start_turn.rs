@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use validator::Validate;
 
-use super::validate_not_blank;
+use super::{satellite_of, validate_not_blank};
 use crate::errors::ApiError;
 use crate::fleet::views::TurnView;
 use crate::models::coding_session;
@@ -48,7 +48,7 @@ pub async fn handle(
     let session = coding_session::find(&mut connection, id).await?;
     drop(connection);
 
-    let client = state.fleet.client(session.satellite_id).await?;
+    let client = state.fleet.client(satellite_of(&session)?).await?;
     let handle = client.threads().attach(session.thread_id.as_str()).await?;
     let turn = handle.start_turn(body.prompt).await?;
 

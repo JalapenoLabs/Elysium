@@ -205,6 +205,7 @@ fn location(
         s3_bucket,
         s3_region,
         s3_access_key_id: is_s3.then(|| "AKIAIOSFODNN7EXAMPLE".to_owned()),
+        is_studio_default: false,
     }
 }
 

@@ -16,12 +16,14 @@
 //! the satellite's control stream, which the Rust SDK does not expose yet.
 //!
 //! Each session on an active satellite has a **session watcher** task. It follows
-//! the thread's event stream from the latest sequence and publishes every event as
-//! `session.event`. History is not replayed here; clients fetch it on demand from
-//! `GET /api/v1/coding-sessions/{id}/events` and merge on `sequence`. After a
-//! dropped stream the watcher resumes from the last sequence it delivered. If that
-//! resume point cannot be honored, it tails from the latest event instead and
-//! publishes `session.resync` so clients refetch the history they missed.
+//! the thread's event stream from the last event Elysium kept, records every event in
+//! `session_events`, and publishes it as `session.event`. Satellites keep events only
+//! while a thread lives, so the kept history is what `GET
+//! /api/v1/coding-sessions/{id}/events` serves; clients merge it with live events on
+//! `sequence`. History that is catching up (after a restart) is recorded without being
+//! published one by one, then clients are told to refetch with `session.resync`. If a
+//! resume point cannot be honored, the watcher tails from the latest event instead,
+//! leaving a gap in the kept history, and publishes `session.resync`.
 //!
 //! Beside each session watcher runs the session's **relay** ([`relay`]), which answers the
 //! tool calls its agent makes to Elysium over a socket Elysium opens to the satellite.
@@ -33,6 +35,8 @@
 //! restarts or stops its watchers through [`Fleet::reload_satellite`] and
 //! [`Fleet::forget_satellite`].
 
+#[cfg(test)]
+pub mod fake_satellite;
 mod relay;
 pub mod views;
 
@@ -43,7 +47,10 @@ use std::time::Duration;
 
 use anyhow::Context;
 use arsox_sdk::client::Satellite as SatelliteClient;
+use arsox_sdk::client::ThreadHandle;
+use arsox_sdk::proto::artifact::v1::Artifact;
 use arsox_sdk::proto::error::v1::ErrorCode;
+use arsox_sdk::proto::event::v1::{ThreadEvent, thread_event};
 use arsox_sdk::proto::thread::v1::ThreadOrder;
 use futures_util::StreamExt as _;
 use secrecy::ExposeSecret;
@@ -59,9 +66,11 @@ use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::coding_session::{self, CodingSession};
 use crate::models::satellite::{self, Satellite};
+use crate::models::session_event;
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
 use crate::storage::Storage;
+use crate::studio::{artifacts, transcripts};
 use crate::tools::ToolContext;
 
 /// Metadata key marking a thread as opened by Elysium, so the watcher lists only those.
@@ -208,7 +217,10 @@ impl Fleet {
             self.watch_satellite(satellite.id);
         }
         for session in sessions {
-            if active.contains(&session.satellite_id) {
+            if session
+                .satellite_id
+                .is_some_and(|satellite_id| active.contains(&satellite_id))
+            {
                 self.watch_session(session);
             }
         }
@@ -322,11 +334,21 @@ impl Fleet {
     }
 
     /// Starts following a session's thread and relaying its tool calls, replacing any
-    /// existing watcher for it.
+    /// existing watcher for it. A session whose satellite was deleted has no thread left to
+    /// follow; its history is already kept.
     pub fn watch_session(&self, session: CodingSession) {
+        let Some(satellite_id) = session.satellite_id else {
+            event!(
+                name: "fleet.session.watch.skipped",
+                Level::DEBUG,
+                session.id = %session.id,
+                "session has no satellite; nothing to follow",
+            );
+            return;
+        };
         let cancel = self.inner.shutdown.child_token();
         let watch = SessionWatch {
-            satellite_id: session.satellite_id,
+            satellite_id,
             cancel: cancel.clone(),
         };
         if let Some(previous) = self
@@ -341,11 +363,15 @@ impl Fleet {
         self.inner.tasks.spawn(relay::run_relay(
             self.clone(),
             session.clone(),
+            satellite_id,
             cancel.clone(),
         ));
-        self.inner
-            .tasks
-            .spawn(run_session_watcher(self.clone(), session, cancel));
+        self.inner.tasks.spawn(run_session_watcher(
+            self.clone(),
+            session,
+            satellite_id,
+            cancel,
+        ));
     }
 
     /// Stops following a session's thread and relaying its tool calls.
@@ -384,6 +410,28 @@ impl Fleet {
             .expect(LOCK_POISONED)
             .get(&session_id)
             .cloned()
+    }
+
+    /// The last event kept for a session, or `None` before its first, or when the database
+    /// cannot say (logged), which replays the thread from its start; recording ignores
+    /// events already kept.
+    async fn kept_sequence(&self, session_id: i64) -> Option<u64> {
+        let kept = match self.inner.database.get().await {
+            Ok(mut connection) => session_event::latest_sequence(&mut connection, session_id)
+                .await
+                .map_err(anyhow::Error::from),
+            Err(pool_error) => Err(anyhow::Error::from(pool_error)),
+        };
+        kept.unwrap_or_else(|error| {
+            event!(
+                name: "fleet.session.history.unreadable",
+                Level::WARN,
+                session.id = session_id,
+                error.message = %error,
+                "could not read where the kept history ends; replaying the thread from its start",
+            );
+            None
+        })
     }
 
     fn watch_satellite(&self, satellite_id: Uuid) {
@@ -562,11 +610,19 @@ impl Fleet {
             .publish(&ServerEvent::SatelliteStatus(status));
     }
 
-    /// Follows a thread's events until the stream drops, the thread ends, or the
-    /// watcher is cancelled. `resume_after` is the last sequence delivered.
+    /// Follows a thread's events until the stream drops, the thread ends, or the watcher is
+    /// cancelled. `resume_after` is the last sequence received, or `None` to tail from the
+    /// thread's latest event.
+    ///
+    /// Every event is recorded in `session_events` before it is published. Events up to the
+    /// thread's latest sequence when the stream opened are history catching up (after a
+    /// restart, or a session recorded before its history was kept): they are recorded
+    /// without being published one by one, and clients are told to refetch once the
+    /// catch-up is done, which spares the event bus a burst it would drop anyway.
     async fn follow_thread(
         &self,
         session: &CodingSession,
+        satellite_id: Uuid,
         resume_after: &mut Option<u64>,
         needs_resync: &mut bool,
         cancel: &CancellationToken,
@@ -576,7 +632,7 @@ impl Fleet {
             delivered: false,
         };
 
-        let client = match self.client(session.satellite_id).await {
+        let client = match self.client(satellite_id).await {
             Ok(client) => client,
             Err(error) => return interrupted(error.to_string()),
         };
@@ -594,18 +650,21 @@ impl Fleet {
             }
             Err(error) => return interrupted(error.to_string()),
         };
-        let from_sequence = match *resume_after {
-            Some(sequence) => sequence,
-            None => match handle.get().await {
-                Ok(thread) => thread.latest_sequence,
-                Err(error) => return interrupted(error.to_string()),
-            },
+        if let Some(studio_item_id) = session.studio_item_id {
+            self.reconcile_artifacts(session.id, studio_item_id, &handle);
+        }
+        let latest_at_open = match handle.get().await {
+            Ok(thread) => thread.latest_sequence,
+            Err(error) => return interrupted(error.to_string()),
         };
+        let from_sequence = resume_after.unwrap_or(latest_at_open);
         let mut stream = match handle.events_from(from_sequence).await {
             Ok(stream) => stream,
             Err(error) => return interrupted(error.to_string()),
         };
-        if *needs_resync {
+        let mut catching_up = from_sequence < latest_at_open;
+        let mut backup_owed = false;
+        if *needs_resync && !catching_up {
             *needs_resync = false;
             self.inner
                 .events
@@ -622,6 +681,35 @@ impl Fleet {
                 Some(Ok(thread_event)) => {
                     delivered = true;
                     *resume_after = Some(thread_event.sequence);
+                    self.record_event(session.id, &thread_event).await;
+                    self.act_on(session, &handle, &thread_event);
+
+                    // A turn's harness session is backed up when it completes. History replayed
+                    // while catching up names turns long done, and an export is always the
+                    // session as it is now, so the catch-up backs it up once, when it ends.
+                    let completes_studio_turn = session.studio_item_id.is_some()
+                        && matches!(
+                            thread_event.payload,
+                            Some(thread_event::Payload::TurnCompleted(_))
+                        );
+                    if completes_studio_turn && !catching_up {
+                        self.back_up_transcript(session.id, &handle);
+                    }
+                    backup_owed |= completes_studio_turn && catching_up;
+
+                    if catching_up {
+                        if thread_event.sequence >= latest_at_open {
+                            catching_up = false;
+                            if backup_owed {
+                                self.back_up_transcript(session.id, &handle);
+                            }
+                            *needs_resync = false;
+                            self.inner
+                                .events
+                                .publish(&ServerEvent::SessionResync { id: session.id });
+                        }
+                        continue;
+                    }
                     let view = SessionEvent::new(session.id, thread_event);
                     self.inner
                         .events
@@ -642,6 +730,121 @@ impl Fleet {
             }
         }
     }
+
+    /// Starts what an event asks of Elysium beyond recording it. Each runs in its own tracked
+    /// task, so a large file never holds up the stream.
+    ///
+    /// - `ArtifactCreated` on a Studio session: keep the file for the item. Keeping is
+    ///   idempotent, so an event replayed while catching up costs one lookup.
+    ///
+    /// Backing up a Studio turn's harness session is the caller's, which knows whether the event
+    /// is history being caught up on.
+    fn act_on(&self, session: &CodingSession, handle: &ThreadHandle, thread_event: &ThreadEvent) {
+        let Some(thread_event::Payload::ArtifactCreated(created)) = &thread_event.payload else {
+            return;
+        };
+        if let (Some(studio_item_id), Some(artifact)) = (session.studio_item_id, &created.artifact)
+        {
+            self.keep_artifact(session.id, studio_item_id, handle, artifact.clone());
+        }
+    }
+
+    /// Keeps one announced file for its item, in a tracked task so a large file never holds up
+    /// the stream.
+    fn keep_artifact(
+        &self,
+        session_id: i64,
+        studio_item_id: Uuid,
+        handle: &ThreadHandle,
+        artifact: Artifact,
+    ) {
+        let fleet = self.clone();
+        let workspace = handle.clone();
+        let cancel = self.inner.shutdown.child_token();
+        self.inner.tasks.spawn(async move {
+            let services = fleet.studio_services();
+            let source = artifacts::Source {
+                session_id,
+                studio_item_id,
+                workspace: &workspace,
+            };
+            tokio::select! {
+                () = cancel.cancelled() => {}
+                () = artifacts::keep_and_report(services, source, &artifact) => {}
+            }
+        });
+    }
+
+    /// Backs up a Studio thread's harness session, in a tracked task: exporting it can take a
+    /// moment, and the stream carries on meanwhile.
+    fn back_up_transcript(&self, session_id: i64, handle: &ThreadHandle) {
+        let fleet = self.clone();
+        let workspace = handle.clone();
+        let cancel = self.inner.shutdown.child_token();
+        self.inner.tasks.spawn(async move {
+            let backup = transcripts::back_up(
+                &fleet.inner.database,
+                &fleet.inner.cipher,
+                session_id,
+                &workspace,
+            );
+            tokio::select! {
+                () = cancel.cancelled() => {}
+                () = backup => {}
+            }
+        });
+    }
+
+    /// Keeps whatever files a Studio thread holds that its item has not, in a tracked task, so
+    /// an announcement missed while the watcher was away is still kept.
+    fn reconcile_artifacts(&self, session_id: i64, studio_item_id: Uuid, handle: &ThreadHandle) {
+        let fleet = self.clone();
+        let workspace = handle.clone();
+        let cancel = self.inner.shutdown.child_token();
+        self.inner.tasks.spawn(async move {
+            let services = fleet.studio_services();
+            let source = artifacts::Source {
+                session_id,
+                studio_item_id,
+                workspace: &workspace,
+            };
+            tokio::select! {
+                () = cancel.cancelled() => {}
+                () = artifacts::reconcile(services, source) => {}
+            }
+        });
+    }
+
+    /// What Studio's file keeping uses, borrowed from the fleet.
+    fn studio_services(&self) -> artifacts::Services<'_> {
+        artifacts::Services {
+            database: &self.inner.database,
+            cipher: &self.inner.cipher,
+            storage: &self.inner.tools.storage,
+            events: &self.inner.events,
+        }
+    }
+
+    /// Keeps one event in the session's history. A failure is logged and the stream carries
+    /// on: the event still reaches live clients, and only the kept history has a gap.
+    async fn record_event(&self, session_id: i64, thread_event: &ThreadEvent) {
+        let recorded = match self.inner.database.get().await {
+            Ok(mut connection) => session_event::record(&mut connection, session_id, thread_event)
+                .await
+                .map_err(anyhow::Error::from),
+            Err(pool_error) => Err(anyhow::Error::from(pool_error)),
+        };
+        if let Err(error) = recorded {
+            event!(
+                name: "fleet.session.event.record_failure",
+                Level::ERROR,
+                session.id = session_id,
+                event.sequence = thread_event.sequence,
+                error.message = %error,
+                "could not keep a thread event; the session's history has a gap there",
+            );
+        }
+    }
 }
 
 async fn run_satellite_watcher(fleet: Fleet, satellite_id: Uuid, cancel: CancellationToken) {
@@ -657,14 +860,27 @@ async fn run_satellite_watcher(fleet: Fleet, satellite_id: Uuid, cancel: Cancell
     }
 }
 
-async fn run_session_watcher(fleet: Fleet, session: CodingSession, cancel: CancellationToken) {
-    let mut resume_after = None;
+async fn run_session_watcher(
+    fleet: Fleet,
+    session: CodingSession,
+    satellite_id: Uuid,
+    cancel: CancellationToken,
+) {
+    // The kept history is where following resumes, so a restart replays only what it
+    // missed, and a session never seen before is caught up from its first event.
+    let mut resume_after = Some(fleet.kept_sequence(session.id).await.unwrap_or(0));
     let mut needs_resync = false;
     let mut backoff = RECONNECT_BACKOFF_INITIAL;
 
     loop {
         match fleet
-            .follow_thread(&session, &mut resume_after, &mut needs_resync, &cancel)
+            .follow_thread(
+                &session,
+                satellite_id,
+                &mut resume_after,
+                &mut needs_resync,
+                &cancel,
+            )
             .await
         {
             FollowOutcome::Cancelled => return,
@@ -692,7 +908,7 @@ async fn run_session_watcher(fleet: Fleet, session: CodingSession, cancel: Cance
                     // The resume point may have aged out of the satellite's retained
                     // history, which refuses the stream on every attempt. Tail from the
                     // latest event instead, and once that stream opens, tell clients to
-                    // refetch what they missed.
+                    // refetch what they missed. The kept history has a gap there.
                     resume_after = None;
                     needs_resync = true;
                 }

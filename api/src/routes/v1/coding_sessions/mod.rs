@@ -11,7 +11,8 @@ mod first_turn;
 mod github_token;
 mod list_coding_sessions;
 mod list_session_events;
-mod model_stack;
+pub mod model_stack;
+pub mod open;
 mod rename_coding_session;
 mod start_turn;
 
@@ -22,7 +23,7 @@ use arsox_sdk::proto::common::v1::{
 };
 use arsox_sdk::proto::harness::v1::Harness;
 use arsox_sdk::proto::settings::v1::EnvVar;
-use arsox_sdk::proto::settings::v1::{Budget, Repo, ThreadSettings};
+use arsox_sdk::proto::settings::v1::{Budget, Repo, ThreadSettings, TurnEndHook};
 use axum::Router;
 use axum::routing::{get, patch, post};
 use chrono::{DateTime, Utc};
@@ -33,8 +34,9 @@ use validator::ValidationError;
 
 use self::model_stack::ModelStack;
 use crate::blender;
+use crate::errors::ApiError;
 use crate::fleet::views::ThreadStatus;
-use crate::models::coding_session::CodingSession;
+use crate::models::coding_session::{CodingSession, SessionContinuation};
 use crate::models::environment_variable::ThreadVariable;
 use crate::state::AppState;
 use crate::tools;
@@ -71,8 +73,10 @@ const TURN_WALL_CLOCK_CEILING_SECONDS: i64 = 60 * 60;
 pub struct CodingSessionResponse {
     /// The session's number.
     id: i64,
-    project_id: Uuid,
-    satellite_id: Uuid,
+    /// Always set for a Coding session; a Studio session has its item's, which is optional.
+    project_id: Option<Uuid>,
+    /// `null` once the satellite was deleted; the session's history is kept.
+    satellite_id: Option<Uuid>,
     thread_id: String,
     title: String,
     /// The GitHub token the thread was started with, or `null` for none or a token since
@@ -80,6 +84,10 @@ pub struct CodingSessionResponse {
     github_credential_id: Option<Uuid>,
     /// The action item the session was started from, if any.
     action_item_id: Option<Uuid>,
+    /// The Studio item the session works on; `null` for a Coding session.
+    studio_item_id: Option<Uuid>,
+    /// How it continued its Studio item: `imported` or `brief`, or `null`.
+    continuation: Option<SessionContinuation>,
     created_at: DateTime<Utc>,
     /// Who created it.
     created_by: Uuid,
@@ -98,6 +106,8 @@ impl CodingSessionResponse {
             title: session.title,
             github_credential_id: session.github_credential_id,
             action_item_id: session.action_item_id,
+            studio_item_id: session.studio_item_id,
+            continuation: session.continuation,
             created_at: session.created_at,
             created_by: session.created_by,
             updated_at: session.updated_at,
@@ -106,21 +116,34 @@ impl CodingSessionResponse {
     }
 }
 
-/// Settings for a new thread: Elysium's policy ceilings, the repositories to clone, the
-/// credentials the thread fails over through, the workspace's environment variables, the
-/// GitHub token its agent works with, the Blender services and the MCP server that reaches them,
-/// and the tools Elysium relays: the work tools always, and the storage tools when the project has
-/// a storage location to use them on.
-///
-/// Without a stack the thread declares no endpoint, and the satellite falls back to
-/// whatever credential it holds itself.
-fn thread_settings(
-    repositories: Vec<Repo>,
-    stack: Option<ModelStack>,
-    variables: &[ThreadVariable],
-    github_token: Option<&SecretString>,
-    has_storage_locations: bool,
-) -> ThreadSettings {
+/// What a new thread is opened with, beyond Elysium's policy ceilings.
+#[derive(Debug, Default)]
+pub struct ThreadPlan<'plan> {
+    /// The repositories to clone, in order.
+    pub repositories: Vec<Repo>,
+    /// The credentials the thread fails over through. Without a stack the thread declares no
+    /// endpoint, and the satellite falls back to whatever credential it holds itself.
+    pub stack: Option<ModelStack>,
+    /// The workspace's environment variables.
+    pub variables: &'plan [ThreadVariable],
+    /// The GitHub token the agent works with.
+    pub github_token: Option<&'plan SecretString>,
+    /// Whether the session's project reaches a storage location, which is what the storage
+    /// tools would work on.
+    pub has_storage_locations: bool,
+    /// Whether the session has a project, which is what the work tools are scoped to. Every
+    /// Coding session does; a Studio item may not.
+    pub has_project: bool,
+    /// Instructions written into the agent's `AGENTS.md`, below the satellite's own.
+    pub instructions: String,
+    /// Programs the satellite runs after every turn, before it scans `artifacts/`.
+    pub turn_end_hooks: Vec<TurnEndHook>,
+}
+
+/// Settings for a new thread: Elysium's policy ceilings, the Blender services and the MCP
+/// server that reaches them, and everything in `plan`. Elysium relays the work tools when the
+/// session has a project, and the storage tools when it has a storage location to use them on.
+pub fn thread_settings(plan: ThreadPlan<'_>) -> ThreadSettings {
     let budget = Budget {
         // Per-turn tokens are bounded by the cost and wall clock ceilings instead.
         max_tokens_per_turn: Some(TokenCeiling {
@@ -142,10 +165,18 @@ fn thread_settings(
 
     // The harness has to match the endpoints: a Claude list cannot drive Codex, and
     // both travel together out of the stack for that reason.
-    let (harness, models) = stack.map_or_else(
+    let (harness, models) = plan.stack.map_or_else(
         || (Harness::Unspecified, Vec::new()),
         |stack| (stack.harness, stack.endpoints),
     );
+
+    // A thread takes its tools once. Each call re-checks what it may reach anyway.
+    let storage = plan
+        .has_storage_locations
+        .then(|| tools::relayed_server(&tools::storage::SERVER));
+    let work = plan
+        .has_project
+        .then(|| tools::relayed_server(&tools::work::SERVER));
 
     ThreadSettings {
         idle_ttl: Some(Duration {
@@ -155,20 +186,15 @@ fn thread_settings(
         budget: Some(budget),
         harness: harness.into(),
         models,
-        repos: repositories,
-        github: github_token.map(github_token::integration),
-        env: thread_environment(variables, github_token),
+        repos: plan.repositories,
+        github: plan.github_token.map(github_token::integration),
+        env: thread_environment(plan.variables, plan.github_token),
+        prompt: plan.instructions,
+        turn_end_hooks: plan.turn_end_hooks,
         // Every thread models in a Blender of its own; see `crate::blender`.
         services: blender::services(),
         mcp_servers: vec![blender::mcp_server()],
-        // A thread takes its tools once. A project without a location yet has nothing to
-        // call the storage tools on; each call re-checks the project's locations anyway.
-        // Every project has its work to read, so every thread declares the work tools.
-        relayed_mcp_servers: has_storage_locations
-            .then(|| tools::relayed_server(&tools::storage::SERVER))
-            .into_iter()
-            .chain([tools::relayed_server(&tools::work::SERVER)])
-            .collect(),
+        relayed_mcp_servers: storage.into_iter().chain(work).collect(),
         ..ThreadSettings::default()
     }
 }
@@ -194,8 +220,19 @@ fn thread_environment(
     workspace.chain(elysium).collect()
 }
 
+/// The satellite a session's thread runs on.
+///
+/// # Errors
+/// Answers `409` for a session whose satellite was deleted: its history is kept, but there is
+/// no thread left to reach.
+fn satellite_of(session: &CodingSession) -> Result<Uuid, ApiError> {
+    session
+        .satellite_id
+        .ok_or(ApiError::Conflict("the session's satellite was deleted"))
+}
+
 /// Rejects text that is only whitespace; `length` alone would accept `"   "`.
-fn validate_not_blank(value: &str) -> Result<(), ValidationError> {
+pub fn validate_not_blank(value: &str) -> Result<(), ValidationError> {
     if value.trim().is_empty() {
         return Err(ValidationError::new("blank").with_message("must not be blank".into()));
     }

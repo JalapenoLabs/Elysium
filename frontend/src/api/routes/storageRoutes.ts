@@ -60,6 +60,8 @@ export type StorageLocation = {
   storageLimitBytes: number | null
   // The projects that save files here.
   projects: ProjectScope
+  // Where Studio's New item form saves by default. At most one location holds it.
+  isStudioDefault: boolean
   createdAt: string
   // The user who created it: a person, or a machine such as the coding agent.
   createdBy: string
@@ -107,6 +109,8 @@ type UpdateStorageLocationRequest = {
   accessKey?: string
   // Replaces the projects that save files here.
   projects?: ProjectScope
+  // True moves the Studio default here from any other location; false clears it.
+  isStudioDefault?: boolean
 }
 
 export function updateStorageLocation(locationId: string, body: UpdateStorageLocationRequest) {

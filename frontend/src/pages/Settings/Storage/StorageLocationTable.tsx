@@ -14,6 +14,7 @@ import { selectProjectNamesById } from '../../../store/projectsSlice'
 // User interface
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { StorageLocationRowActions } from './StorageLocationRowActions'
+import { StudioDefaultSwitch } from './StudioDefaultSwitch'
 
 // Misc
 import { ALL_PROJECTS } from '../../../api/routes/projectRoutes'
@@ -35,7 +36,16 @@ type Props = {
   onDelete: (location: StorageLocation) => void
 }
 
-const STORAGE_COLUMN_KEYS = [ 'name', 'provider', 'location', 'projects', 'limit', 'createdBy', 'rowActions' ] as const
+const STORAGE_COLUMN_KEYS = [
+  'name',
+  'provider',
+  'location',
+  'projects',
+  'limit',
+  'studioDefault',
+  'createdBy',
+  'rowActions',
+] as const
 type StorageColumnKey = typeof STORAGE_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
@@ -44,6 +54,7 @@ const columnLabelKeys = {
   location: 'table.location',
   projects: 'table.projects',
   limit: 'table.limit',
+  studioDefault: 'table.studioDefault',
   createdBy: 'common:table.createdBy',
   rowActions: 'common:actions.moreActions',
 } as const satisfies Record<StorageColumnKey, string>
@@ -55,6 +66,7 @@ const columnSizes = {
   location: 240,
   projects: 220,
   limit: 120,
+  studioDefault: 140,
   createdBy: 160,
   rowActions: 64,
 } as const satisfies Record<StorageColumnKey, number>
@@ -101,6 +113,7 @@ export function StorageLocationTable(props: Props) {
       limit: (location: StorageLocation) => location.storageLimitBytes === null
         ? t('table.noLimit')
         : formatStorageBytes(location.storageLimitBytes, i18n.language),
+      studioDefault: (location: StorageLocation) => <StudioDefaultSwitch location={location} />,
       createdBy: (location: StorageLocation) => userNames[location.createdBy] ?? t('common:table.someone'),
       rowActions: (location: StorageLocation) => <StorageLocationRowActions
         location={location}
@@ -122,6 +135,10 @@ export function StorageLocationTable(props: Props) {
       limit: (location: StorageLocation) => location.storageLimitBytes === null
         ? t('table.noLimit')
         : formatStorageBytes(location.storageLimitBytes, i18n.language),
+      // Searching for "Studio default" finds the one that is.
+      studioDefault: (location: StorageLocation) => location.isStudioDefault
+        ? t('table.studioDefault')
+        : '',
       createdBy: (location: StorageLocation) => userNames[location.createdBy] ?? '',
       rowActions: null,
     } satisfies Record<StorageColumnKey, ((location: StorageLocation) => string) | null>
@@ -176,7 +193,7 @@ export function StorageLocationTable(props: Props) {
   return <SmartTable
     ids={{
       tableElementId: 'storage-locations-table',
-      tableLocalStorageId: 'elysium.settings.storage.table.v2',
+      tableLocalStorageId: 'elysium.settings.storage.table.v3',
     }}
     tableAriaLabel={t('table.label')}
     data={props.locations}

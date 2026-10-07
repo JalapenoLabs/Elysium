@@ -76,6 +76,12 @@ Everything else follows these rules:
 - Every coding agent can 3D model. Blender is never baked into the satellite image: Elysium hands every satellite a
   setup script (Arsox runs it as root at each container start) and declares per-turn Blender services on every
   thread, so no two threads share a scene. See `docs/coding.md`.
+- Satellites own no data and treat every thread as ephemeral. Elysium keeps what a thread needs to carry on: every
+  event in Postgres as the watcher receives it, the harness session (sealed) after every turn, and a Studio item's
+  files in its storage location. A new thread picks up from what Elysium hands it. Deleting a satellite keeps its
+  sessions. See `docs/coding.md`, History.
+- When a satellite lacks something Elysium needs, it is built into Arsox (the satellite and its SDK) as a general
+  feature, not worked around in Elysium.
 
 ## Mail
 
@@ -105,6 +111,20 @@ Everything else follows these rules:
 - Coding agents reach their project's locations through the `elysium_storage` MCP tools, which Elysium answers over a
   relay socket it opens to the satellite; nothing listens for the satellite. Every call re-checks the location against
   the project in the database. See `api/src/tools/` and `docs/storage.md`.
+
+## Studio
+
+- Studio (`/studio`) is where agents make single assets: a 3D model, a render, a 2D image, one per item, with no git
+  repositories. Coding is for multi-repository, long-lived work with pull requests. See `docs/studio.md`.
+- A Studio item runs on coding sessions (`coding_sessions.studio_item_id`); its project is optional and its storage
+  location is required. The Coding page lists only sessions without an item.
+- Agents deliver files into the workspace's `artifacts/`; Arsox announces them at the end of each turn and Elysium
+  pulls each into the item's storage location, keeping every version. Elysium, not the agent, exports every `.blend`
+  to `.glb` through a turn-end hook installed by the setup script.
+- Drawn feedback reaches the agent as an Arsox turn attachment, the harness's native image input. A prompt without a
+  drawing attaches nothing.
+- An item whose thread ended continues on a new thread with its next prompt: the files are copied back into the
+  workspace and the harness session is imported when the harness family matches, or a brief is sent when it does not.
 
 ## GitHub
 

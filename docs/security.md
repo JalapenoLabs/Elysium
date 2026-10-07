@@ -113,8 +113,10 @@ app's files:
 
 The Content Security Policy depends on what answers, in `api/src/middleware/security_headers.rs`:
 
-- `/api` answers JSON or plain text only, so its policy is `default-src 'none'; frame-ancestors 'none'`. A browser
-  that somehow renders an API response must not run or embed anything from it.
+- `/api` answers JSON, plain text, and the files Studio's agents wrote, so its policy is `default-src 'none';
+  frame-ancestors 'none'; sandbox allow-downloads`. A browser that renders an API response directly, such as an
+  agent's SVG opened in a tab, gets a unique origin and runs, loads, and embeds nothing from it; `nosniff` keeps the
+  stored type. Downloads stay allowed, because Studio's file downloads are `/api` responses.
 - Every other path is the web app the published image serves (see `docs/infrastructure.md`). Its policy allows only
   its own origin: `script-src 'self'` with no inline scripts and no eval, `connect-src 'self'`, `object-src 'none'`,
   `base-uri` and `form-action 'self'`, and `frame-ancestors 'none'`. Three allowances are deliberate:
@@ -124,6 +126,18 @@ The Content Security Policy depends on what answers, in `api/src/middleware/secu
 Keeping the app inside that policy takes two things on the frontend: the pre-paint theme script is the file
 `public/theme.js`, not inline, and Zod runs `jitless`, so it never probes for `new Function`. See
 `docs/frontend.md`.
+
+Studio's 3D viewer (`@google/model-viewer`, see `docs/studio.md`) runs inside the same policy:
+
+- **Decoders.** Its Draco, KTX2, and Meshopt decoders are off. They load from Google's CDN and run as blob workers
+  with WebAssembly, which would need another origin in `connect-src`, `blob:` in `worker-src`, and
+  `'wasm-unsafe-eval'`. The viewer refuses every URL off the app's own origin, so they never load, in any
+  environment. Elysium's own glTF export never compresses.
+- **Textures.** three.js reads a model's embedded textures by fetching `blob:` URLs, which `connect-src 'self'`
+  refuses. Textured models render without their textures in production until the policy allows `blob:` in
+  `connect-src`.
+- **Studio's files.** They are served under the `/api` policy above (`docs/studio.md`). The app shows them only as
+  `<img>` sources and viewer models, all from `/api`.
 
 In the development stack nginx sends the app's paths to the Vite dev server instead. The dev server needs inline
 scripts and websockets, so those pages carry no CSP, only the headers nginx adds there (`nosniff`, `DENY`,
@@ -152,4 +166,6 @@ Application secrets never go there. They are stored in Postgres, encrypted with 
 ## Roadmap
 
 - Authentication on `/api/v1`, then publishing nginx beyond loopback by default.
+- Deciding on `blob:` in the web app's `connect-src`, which Studio's viewer needs to show textured models. It would let
+  the app fetch blob URLs it created itself, and nothing from another origin.
 - TLS termination at nginx.

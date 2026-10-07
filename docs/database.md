@@ -51,8 +51,11 @@ redo, concurrent migrators, the pending-migration refusal, and every LLM, satell
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
 query, every `elysium_work` tool against its project scope, each link provider against a faked provider, the
 watcher's passes, changesets proposed, decided, applied in part, and undone, accounts and their guardrails, and the
-router itself refusing every workspace route without a session. Plain `cargo test` skips them because they need
-`TEST_DATABASE_URL`, and the router test `TEST_REDIS_URL`.
+router itself refusing every workspace route without a session. Studio prompts are driven through the router as a
+signed-in person, against a fake satellite (`api/src/fleet/fake_satellite.rs`) and a fake Bunny zone: plain and drawn
+prompts, a refused turn, continuing with a brief or an imported session, a deleted satellite, racing prompts, and the
+transcript backup. Plain `cargo test` skips them because they need `TEST_DATABASE_URL`, and the router tests
+`TEST_REDIS_URL`. A router test signs in by caching a Kratos session in Redis (`test_support::signed_in_cookie`).
 
 ## Conventions
 
@@ -267,6 +270,9 @@ External locations Elysium saves files to; see `docs/storage.md`.
 | `s3_bucket`            | `TEXT`                  | Set exactly for `s3`                                         |
 | `s3_region`            | `TEXT`                  | Set exactly for `aws`                                        |
 | `s3_access_key_id`     | `TEXT`                  | Set exactly for `s3`; letters and digits, up to 256          |
+| `is_studio_default`    | `BOOLEAN`               | Studio's New item form starts here; at most one row is true  |
+
+`storage_locations_one_studio_default_idx`, a partial unique index, holds the one default.
 
 Constraints compare `kind` as text, because the migration adding `s3` can share a transaction with the one that uses
 it, and Postgres refuses a new enum value as a literal in the transaction that added it.
@@ -284,27 +290,129 @@ project_id)`, and an index on `project_id` finds a project's locations.
 
 ### `coding_sessions`
 
-A pointer to an Arsox thread. The thread's state and history live on the satellite; see `docs/coding.md`.
+A pointer to an Arsox thread, and what Elysium keeps of it beside the row (`session_events`,
+`session_transcripts`); see `docs/coding.md`.
 
 | Column         | Type          | Notes                                                                 |
 |----------------|---------------|-----------------------------------------------------------------------|
 | `id`           | `BIGINT`      | Identity from 1; the API reserves it with `nextval` before the thread exists |
-| `project_id`   | `UUID`        | References `projects`; a project with sessions cannot be deleted      |
-| `satellite_id` | `UUID`        | References `satellites`; deleting the satellite deletes its sessions  |
+| `project_id`   | `UUID`        | References `projects`; a project with sessions cannot be deleted. NULL only for a Studio session |
+| `satellite_id` | `UUID`        | References `satellites`; `ON DELETE SET NULL`, so a session outlives its satellite |
 | `thread_id`    | `TEXT`        | The satellite's thread id; unique per satellite                       |
 | `title`        | `TEXT`        | 1 to 200 characters                                                   |
 | `github_credential_id` | `UUID` | The GitHub token the thread started with; `ON DELETE SET NULL`     |
 | `action_item_id` | `UUID`      | The action item the session was started from; `ON DELETE SET NULL`   |
+| `studio_item_id` | `UUID`      | The Studio item it works on; NULL for a Coding session. Deleted with the item |
+| `continuation` | `session_continuation` | How it continued its Studio item: `imported` or `brief`; NULL otherwise |
 | `created_at`   | `TIMESTAMPTZ` | Set on insert                                                         |
 | `updated_at`   | `TIMESTAMPTZ` | Maintained by trigger                                                 |
 
+`coding_sessions_project_required` holds that only a Studio session may lack a project, and
+`coding_sessions_continuation_studio` that only a Studio session records a continuation.
 `coding_sessions_created_at_idx` serves the newest-first overview, `coding_sessions_project_id_idx` the project
-lookups, including the delete check, and `coding_sessions_action_item_id_idx` an item's sessions. Items are deleted
-softly, so a session keeps its item while the item is hidden.
+lookups, including the delete check, `coding_sessions_action_item_id_idx` an item's sessions, and
+`coding_sessions_studio_item_id_idx` a Studio item's. Action items are deleted softly, so a session keeps its item
+while the item is hidden.
 
 The `project_id` foreign key is `ON DELETE NO ACTION` rather than `RESTRICT`. Both refuse the delete, but only
 `NO ACTION` reports SQLSTATE `23503`, which Diesel surfaces as a foreign key violation; `RESTRICT` reports
 `23001`, which Diesel does not classify.
+
+### `session_events`
+
+Every event a session's thread emitted, as the satellite sent it. The primary key is `(session_id, sequence)`, and
+recording ignores an event already kept, so a replay after a reconnect changes nothing.
+
+| Column        | Type          | Notes                                                    |
+|---------------|---------------|----------------------------------------------------------|
+| `session_id`  | `BIGINT`      | References `coding_sessions`; deleted with the session   |
+| `sequence`    | `BIGINT`      | The satellite's sequence; not negative                   |
+| `occurred_at` | `TIMESTAMPTZ` | When the satellite says it happened                      |
+| `event`       | `BYTEA`       | The protobuf `ThreadEvent`                               |
+
+### `session_transcripts`
+
+The latest harness session of each session, so a new thread can resume the conversation.
+
+| Column               | Type          | Notes                                                        |
+|----------------------|---------------|--------------------------------------------------------------|
+| `session_id`         | `BIGINT`      | Primary key; references `coding_sessions`, deleted with it   |
+| `harness`            | `TEXT`        | `claude` or `codex`: only that family can resume it          |
+| `harness_session_id` | `TEXT`        | The harness's own id for the session                         |
+| `transcript_sealed`  | `BYTEA`       | zstd-compressed, then sealed; see `docs/secrets.md`          |
+| `size_bytes`         | `BIGINT`      | The export's size before compression                         |
+| `created_at`         | `TIMESTAMPTZ` | Set on insert                                                |
+| `updated_at`         | `TIMESTAMPTZ` | Maintained by trigger                                        |
+
+### `studio_items`
+
+Studio's single assets; see `docs/studio.md`.
+
+| Column                | Type          | Notes                                                              |
+|-----------------------|---------------|--------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key                                                |
+| `title`               | `TEXT`        | 1 to 200 characters                                                |
+| `prompt`              | `TEXT`        | The first prompt; 1 to 100,000 characters                          |
+| `project_id`          | `UUID`        | Optional; references `projects`, `ON DELETE NO ACTION`             |
+| `storage_location_id` | `UUID`        | References `storage_locations`, `ON DELETE NO ACTION`              |
+| `thumbnail_asset_id`  | `UUID`        | The pinned thumbnail; references `studio_assets`, `ON DELETE SET NULL` |
+| `pull_error`          | `TEXT`        | Why the latest file could not be kept; cleared by the next that is |
+| `deleted_at`          | `TIMESTAMPTZ` | Set by a soft delete                                               |
+| `created_at`          | `TIMESTAMPTZ` | Set on insert                                                      |
+| `updated_at`          | `TIMESTAMPTZ` | Maintained by trigger                                              |
+
+`studio_items_live_created_at_idx` serves the grid; the project and location indexes serve the delete checks.
+
+### `studio_assets`
+
+One version of one file an agent delivered. `studio_assets_version_unique` on `(studio_item_id, artifact_path,
+sha256)` makes a pull of a file already kept a no-op.
+
+| Column           | Type                | Notes                                                        |
+|------------------|---------------------|--------------------------------------------------------------|
+| `id`             | `UUID`              | UUIDv7, primary key                                          |
+| `studio_item_id` | `UUID`              | References `studio_items`; deleted with the item             |
+| `session_id`     | `BIGINT`            | The session it came from; `ON DELETE SET NULL`               |
+| `kind`           | `studio_asset_kind` | `image`, `model`, or `file`                                  |
+| `artifact_path`  | `TEXT`              | Where the agent wrote it, relative to `artifacts/`           |
+| `content_type`   | `TEXT`              | As the satellite reported it, when it could                  |
+| `size_bytes`     | `BIGINT`            | Not negative                                                 |
+| `sha256`         | `TEXT`              | 64 lowercase hex characters                                  |
+| `storage_path`   | `TEXT`              | Where it is kept: `studio/<item>/<sha256>.<extension>`, shared by every row with those bytes |
+| `created_at`     | `TIMESTAMPTZ`       | Set on insert                                                |
+
+### `studio_storage_reservations`
+
+Bytes promised to a Studio upload in flight into a location with a storage limit, taken under an advisory lock per
+location (`api/src/models/studio_reservation.rs`) so concurrent uploads cannot pass the limit together. A row lives for
+one upload; one older than an hour no longer counts and is cleared by the next release.
+
+| Column                | Type          | Notes                                                              |
+|-----------------------|---------------|--------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key                                                |
+| `storage_location_id` | `UUID`        | References `storage_locations`; deleted with it                    |
+| `size_bytes`          | `BIGINT`      | Not negative                                                       |
+| `created_by`          | `UUID`        | The coding agent for a delivered file, the person for a drawing    |
+| `created_at`          | `TIMESTAMPTZ` | Set on insert                                                      |
+
+### `studio_feedback`
+
+A prompt sent with a drawing. Both images are kept in the item's storage location.
+
+| Column                   | Type          | Notes                                                    |
+|--------------------------|---------------|----------------------------------------------------------|
+| `id`                     | `UUID`        | UUIDv7, primary key                                      |
+| `studio_item_id`         | `UUID`        | References `studio_items`; deleted with the item         |
+| `session_id`             | `BIGINT`      | The session it was sent to; `ON DELETE SET NULL`         |
+| `turn_id`                | `TEXT`        | The turn it started; NULL until the satellite accepts it |
+| `prompt`                 | `TEXT`        | 1 to 100,000 characters                                  |
+| `source_asset_id`        | `UUID`        | What was drawn over; `ON DELETE SET NULL`                |
+| `camera_orbit`           | `TEXT`        | The 3D viewer's camera at capture; up to 200 characters  |
+| `annotated_storage_path` | `TEXT`        | The drawing as sent                                      |
+| `annotated_size_bytes`   | `BIGINT`      |                                                          |
+| `capture_storage_path`   | `TEXT`        | The view without the drawing; set with its size          |
+| `capture_size_bytes`     | `BIGINT`      |                                                          |
+| `created_at`             | `TIMESTAMPTZ` | Set on insert                                            |
 
 ### `action_items`
 
