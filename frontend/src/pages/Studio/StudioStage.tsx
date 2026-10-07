@@ -2,10 +2,11 @@
 
 import type { ModelViewerElement } from '@google/model-viewer'
 import type { StudioItem } from '../../api/routes/studioRoutes'
+import type { AnnotationSource } from './annotation'
 import type { StageSubject } from './studioAssets'
 
 // Core
-import { lazy, Suspense, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -15,7 +16,8 @@ import { studioItemUpserted } from '../../store/studioItemsSlice'
 
 // User interface
 import { Button, Spinner, toast, Tooltip } from '@heroui/react'
-import { LuPin, LuPinOff } from 'react-icons/lu'
+import { LuPencilLine, LuPin, LuPinOff } from 'react-icons/lu'
+import { AnnotateModal } from './AnnotateModal'
 import { StudioDownloads } from './StudioDownloads'
 import { StudioFilmstrip } from './StudioFilmstrip'
 
@@ -54,6 +56,19 @@ export function StudioStage(props: Props) {
   // The version picked in the filmstrip; null follows the newest as turns deliver.
   const [ chosenVersionId, setChosenVersionId ] = useState<string | null>(null)
   const [ isPinning, setIsPinning ] = useState(false)
+  const [ annotationSource, setAnnotationSource ] = useState<AnnotationSource | null>(null)
+
+  // A frozen model view lives in a blob URL for as long as the drawing over it is open.
+  useEffect(() => {
+    const frozenViewUrl = annotationSource?.capture
+      ? annotationSource.imageUrl
+      : null
+    return () => {
+      if (frozenViewUrl) {
+        URL.revokeObjectURL(frozenViewUrl)
+      }
+    }
+  }, [ annotationSource ])
 
   const isChosenSubjectPresent = chosenSubject?.kind === 'image'
     ? groups.images.some((image) => image.path === chosenSubject.path)
@@ -111,6 +126,41 @@ export function StudioStage(props: Props) {
     }
   }
 
+  // An image is drawn on as it is. A model's view is frozen first, with the camera's orbit,
+  // so the drawing and the agent both see exactly what was on screen.
+  async function openAnnotation() {
+    if (!shownAsset) {
+      console.debug('StudioStage was asked to annotate with nothing shown', { itemId: item.id })
+      return
+    }
+
+    if (shownAsset.kind === 'image') {
+      setAnnotationSource({
+        imageUrl: getStudioAssetContentUrl(item.id, shownAsset.id),
+        sourceAssetId: shownAsset.id,
+      })
+      return
+    }
+
+    const viewer = viewerRef.current
+    try {
+      if (!viewer?.loaded) {
+        throw new Error('The model has not finished loading')
+      }
+      const capture = await viewer.toBlob({ mimeType: 'image/png' })
+      setAnnotationSource({
+        imageUrl: URL.createObjectURL(capture),
+        sourceAssetId: shownAsset.id,
+        cameraOrbit: viewer.getCameraOrbit().toString(),
+        capture,
+      })
+    }
+    catch (error) {
+      console.debug('StudioStage could not freeze the model\'s view', { error, itemId: item.id })
+      toast.danger(t('viewer.captureFailed'))
+    }
+  }
+
   function changeSubject(nextSubject: StageSubject) {
     setChosenSubject(nextSubject)
     setChosenVersionId(null)
@@ -128,6 +178,19 @@ export function StudioStage(props: Props) {
       }</p>
       <div className='flex shrink-0 items-center gap-2'>
         {isPinned && <span className='text-xs opacity-60'>{t('stage.pinned')}</span>}
+        {shownAsset && !props.isReadOnly && <Tooltip delay={300}>
+          <Button
+            size='sm'
+            variant='outline'
+            onPress={() => void openAnnotation()}
+          >
+            <LuPencilLine className='size-4' aria-hidden />
+            <span>{t('stage.annotate')}</span>
+          </Button>
+          <Tooltip.Content>
+            <span>{t('stage.annotateHint')}</span>
+          </Tooltip.Content>
+        </Tooltip>}
         {shownAsset?.kind === 'image' && !props.isReadOnly && <Tooltip delay={300}>
           <Button
             isIconOnly
@@ -184,5 +247,11 @@ export function StudioStage(props: Props) {
       itemId={item.id}
       groups={groups.downloads}
     />
+
+    {annotationSource && <AnnotateModal
+      itemId={item.id}
+      source={annotationSource}
+      onClose={() => setAnnotationSource(null)}
+    />}
   </div>
 }

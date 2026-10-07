@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Selection } from '@heroui/react'
+import type { Key } from '@heroui/react'
 import type { IconType } from 'react-icons'
 import type { StudioLayoutMode } from './studioLayout'
 
@@ -35,11 +35,9 @@ type Props = {
 export function StudioLayoutControl(props: Props) {
   const { t } = useTranslation('studio')
 
-  function changeMode(keys: Selection) {
+  function changeMode(keys: Set<Key>) {
     // The group disallows an empty selection, so one mode is always chosen.
-    const [ key ] = keys === 'all'
-      ? []
-      : [ ...keys ]
+    const [ key ] = [ ...keys ]
     const mode = STUDIO_LAYOUT_MODES.find((candidate) => candidate === key)
     if (!mode) {
       console.debug('StudioLayoutControl ignored an unknown mode', { key })
