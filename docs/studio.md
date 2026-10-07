@@ -250,8 +250,14 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
   `StudioSessionTimeline` built on the Coding page's `TimelineEventList`. A divider sits between sessions. A drawn
   prompt shows its drawing under the prompt, matched by `turnId`.
 - **Composer** (`StudioComposer`). It wraps the Coding page's `PromptComposer` but never closes, since a prompt to an
-  ended thread is how an item continues. While the latest thread has ended, it offers a satellite (or the previous
-  one) and sends through `sendStudioTurn`.
+  ended thread is how an item continues. It sends through `sendStudioTurn`. Without a live thread, a notice and a
+  satellite picker sit on a row above the field, and the picker wraps under the notice in a narrow column
+  (`getStudioThreadStatus` in `studioContinuation.ts` mirrors the API's rule):
+  - The latest thread ended on a satellite that still exists: the picker offers Previous satellite, the default, which
+    leaves the choice to the API.
+  - The latest session's satellite was deleted, or the item has never run (its creation failed): there is no previous
+    satellite, so the picker has no such option and Send stays disabled, saying why, until a satellite is chosen.
+  - No satellite is active: the picker is disabled and Send says so.
 - **Deleted items.** A deleted item is read-only under a banner with Restore. A pull error shows as a banner too.
 - **Delete** (`StudioItemActions`). It confirms through `useConfirm`, whose message (`DeleteStudioItemMessage`) holds
   the unchecked permanent box. A soft delete rereads the item to show it deleted; a permanent one returns to the grid.
