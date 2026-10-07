@@ -13,13 +13,22 @@ use crate::models::satellite;
 use crate::state::AppState;
 
 pub async fn handle(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let satellites = list(&state).await?;
+    Ok(Json(json!({ "satellites": satellites })))
+}
+
+/// Every satellite, with the fleet's latest status for each.
+///
+/// # Errors
+/// An internal error when the database cannot be reached.
+pub async fn list(state: &AppState) -> Result<Vec<SatelliteResponse>, ApiError> {
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
 
-    let satellites: Vec<SatelliteResponse> = satellite::list(&mut connection)
+    let satellites = satellite::list(&mut connection)
         .await?
         .into_iter()
         .map(|satellite| {
@@ -27,6 +36,5 @@ pub async fn handle(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
             SatelliteResponse::new(satellite, status)
         })
         .collect();
-
-    Ok(Json(json!({ "satellites": satellites })))
+    Ok(satellites)
 }

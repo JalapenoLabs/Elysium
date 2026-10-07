@@ -8,8 +8,10 @@ use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
+use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use uuid::Uuid;
 use validator::Validate;
 
 use super::{SatelliteResponse, SatelliteSecret, validate_http_scheme, validate_not_blank};
@@ -19,17 +21,24 @@ use crate::models::satellite::{self, NewSatellite};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
-#[derive(Debug, Deserialize, Validate)]
+/// A satellite to register. The secret is sealed on arrival and never answered back.
+#[derive(Debug, Deserialize, Validate, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RequestBody {
+pub struct CreateSatelliteRequest {
+    /// What the satellite is called in Elysium.
     #[validate(length(min = 1, max = 120), custom(function = "validate_not_blank"))]
     name: String,
+    /// What the satellite is for, or where it runs.
     #[serde(default)]
     #[validate(length(max = 2000))]
     description: String,
+    /// Where Elysium reaches the satellite's API, over http or https.
     #[validate(url, length(max = 2048), custom(function = "validate_http_scheme"))]
     url: String,
+    /// The satellite's bearer secret.
+    #[schemars(with = "String")]
     secret: SatelliteSecret,
+    /// Whether Elysium watches the satellite and may start sessions on it.
     #[serde(default = "default_is_active")]
     is_active: bool,
 }
@@ -41,13 +50,27 @@ const fn default_is_active() -> bool {
 pub async fn handle(
     State(state): State<AppState>,
     current: CurrentUser,
-    body: Result<Json<RequestBody>, JsonRejection>,
+    body: Result<Json<CreateSatelliteRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
+    let satellite = create(&state, current.id(), body).await?;
+    Ok((StatusCode::CREATED, Json(json!({ "satellite": satellite }))))
+}
+
+/// Registers a satellite as `actor`, then starts watching it and announces it.
+///
+/// # Errors
+/// The request's validation errors, the database's refusal, or the fleet's failure to start
+/// watching it.
+pub async fn create(
+    state: &AppState,
+    actor: Uuid,
+    body: CreateSatelliteRequest,
+) -> Result<SatelliteResponse, ApiError> {
     body.validate()?;
 
     let new_satellite = NewSatellite {
-        created_by: current.id(),
+        created_by: actor,
         name: body.name,
         description: body.description,
         url: body.url,
@@ -64,24 +87,19 @@ pub async fn handle(
     drop(connection);
 
     state.fleet.reload_satellite(&satellite).await?;
+    // The status is unknown until the fleet's first poll.
+    let response = SatelliteResponse::new(satellite, None);
     state
         .events
-        .publish(&ServerEvent::SatelliteUpserted(SatelliteResponse::new(
-            satellite.clone(),
-            None,
-        )));
-
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({ "satellite": SatelliteResponse::new(satellite, None) })),
-    ))
+        .publish(&ServerEvent::SatelliteUpserted(response.clone()));
+    Ok(response)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn parse(body: Value) -> Result<RequestBody, serde_json::Error> {
+    fn parse(body: Value) -> Result<CreateSatelliteRequest, serde_json::Error> {
         serde_json::from_value(body)
     }
 

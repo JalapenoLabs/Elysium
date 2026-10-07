@@ -19,16 +19,21 @@ pub async fn handle(
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
+    let satellite = find(&state, id).await?;
+    Ok(Json(json!({ "satellite": satellite })))
+}
+
+/// The satellite `id`, with the fleet's latest status.
+///
+/// # Errors
+/// `404` for an unknown satellite.
+pub async fn find(state: &AppState, id: Uuid) -> Result<SatelliteResponse, ApiError> {
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
-
     let satellite = satellite::find(&mut connection, id).await?;
     let status = state.fleet.satellite_status(id);
-
-    Ok(Json(
-        json!({ "satellite": SatelliteResponse::new(satellite, status) }),
-    ))
+    Ok(SatelliteResponse::new(satellite, status))
 }

@@ -57,13 +57,16 @@ Everything else follows these rules:
 ## External MCP clients connect through OAuth
 
 - Elysium's MCP server is at `/api/mcp`, for clients such as Claude Code and Codex. It speaks Streamable HTTP through
-  the official Rust SDK (`rmcp`), statelessly. Its tools are in `api/src/mcp/workspace.rs`. See `docs/mcp.md`.
+  the official Rust SDK (`rmcp`), statelessly. Its tools are in `api/src/mcp/`, one module per group. See `docs/mcp.md`.
 - Ory Hydra (`hydra/`) is the OAuth 2.1 authorization server; Kratos still proves who people are, and the web app's
   `/oauth/login` and `/oauth/consent` pages answer Hydra's challenges. Hydra is configured like Kratos, from
   `ELYSIUM_PUBLIC_URL` and `ELYSIUM_ENCRYPTION_KEY`, with its database `hydra` on the shared Postgres.
 - Any approved person may connect any client; admins gate sign-up, not OAuth. Clients register themselves.
 - Every token is bound to `/api/mcp` and checked on every call: active, granting `workspace:read`, and naming an active,
   approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
+- A tool never reimplements a route: it calls the function the route's handler calls, so a change made over MCP is
+  validated, recorded, and announced exactly as one made in the browser. Tools exist for projects (read), satellites,
+  and coding sessions; Studio items, action items, and initiatives are on the roadmap.
 
 ## Satellites are reached only through the API
 

@@ -15,6 +15,12 @@ mod model_stack;
 mod rename_coding_session;
 mod start_turn;
 
+pub use create_coding_session::{CreateCodingSessionRequest, create};
+pub use list_coding_sessions::{find, list};
+pub use list_session_events::{EventWindow, Keep, read_events};
+pub use rename_coding_session::{RenameCodingSessionRequest, rename};
+pub use start_turn::{StartTurnRequest, start_turn};
+
 use arsox_sdk::proto::common::v1::Secret;
 use arsox_sdk::proto::common::v1::{
     CostCeiling, Duration, DurationCeiling, Money, TokenCeiling, Unlimited, cost_ceiling,

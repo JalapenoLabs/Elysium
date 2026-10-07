@@ -10,7 +10,7 @@ use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
-use serde_json::json;
+use serde_json::{Value, json};
 use tracing::{Level, event};
 use validator::ValidationErrors;
 
@@ -235,9 +235,13 @@ impl From<crate::storage::StorageError> for ApiError {
     }
 }
 
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let (status, body) = match self {
+impl ApiError {
+    /// The status and JSON body a client is answered with, logging what only the server keeps.
+    ///
+    /// Both the HTTP routes and the MCP server report failures through this, so a tool result
+    /// says exactly what the browser would be told and an internal error stays as generic.
+    pub fn into_status_and_body(self) -> (StatusCode, Value) {
+        match self {
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, json!({ "message": message })),
             Self::Validation(errors) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
@@ -283,8 +287,13 @@ impl IntoResponse for ApiError {
                     json!({ "message": "internal server error" }),
                 )
             }
-        };
+        }
+    }
+}
 
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let (status, body) = self.into_status_and_body();
         (status, Json(body)).into_response()
     }
 }
