@@ -167,12 +167,13 @@ satellite that refuses a file discards the new session rather than leave a works
 
 An item has at most one live session. Continuing takes a Redis lock per item for its duration, so a second prompt sent
 meanwhile answers `409` instead of opening a second thread. Under the lock the latest session is read again, so a
-prompt that found the thread ended just before another continued the item runs in that one's new thread. While the latest thread is live, `satelliteId` is ignored
-and the turn runs there; a latest thread whose satellite cannot be reached answers `502` rather than continuing, since
-that thread may still be running. The harness session is exported after every turn the satellite reports complete
-(`api/src/studio/transcripts.rs`) and kept sealed; history a reconnecting watcher catches up on is backed up once,
-when the catch-up ends,; a failed export is logged and only costs a later continue its
-import.
+prompt that found the thread ended just before another continued the item runs in that one's new thread. While the
+latest thread is live, `satelliteId` is ignored and the turn runs there; a latest thread whose satellite cannot be
+reached answers `502` rather than continuing, since that thread may still be running.
+
+The harness session is exported after every turn the satellite reports complete (`api/src/studio/transcripts.rs`) and
+kept sealed. History a reconnecting watcher catches up on is backed up once, when the catch-up ends, since an export is
+always the session as it is now. A failed export is logged and only costs a later continue its import.
 
 The conversation view reads the item's sessions in order and shows a divider where one continued into the next. Each
 session in an item's response carries `continuation`: `imported` or `brief` for how it carried on, and `null` for the
