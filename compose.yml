@@ -1,12 +1,16 @@
 name: elysium
 
+# The production stack, running the published image. compose.dev.yml layers the
+# development stack over it: the API built from source and the Vite dev server. See
+# docs/infrastructure.md.
+#
 # Infrastructure credentials, the log filter, and the encryption key come from the
 # environment file. Application secrets are not configured here at all: they are
 # stored encrypted in Postgres. Everything else is inline below.
 
-x-api-build: &api-build
-  context: .
-  dockerfile: api/Dockerfile
+# The API and the web app it serves, published from this repository. ELYSIUM_VERSION
+# pins a release such as 1.4.2; unset, the newest release runs.
+x-api-image: &api-image jalapenolabs/elysium-api:${ELYSIUM_VERSION:-latest}
 
 # nginx's fixed address on the mail network. Stalwart trusts the PROXY protocol header, which
 # carries each mail client's real address, from this address alone. Change it together with the
@@ -15,14 +19,52 @@ x-mail-ingress-address: &mail-ingress-address 172.29.53.2
 
 x-database-url: &database-url postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:?}
 
+# The origin browsers reach Elysium at. Sessions, passkeys, and recovery links are bound to
+# it, so it must be https, or http://localhost for development. See docs/auth.md.
+x-public-url: &public-url ${ELYSIUM_PUBLIC_URL:-http://localhost:${WEB_PORT:-4000}}
+
+# Ory Kratos, run from its image with Elysium's configuration mounted. The entrypoint derives
+# Kratos's secrets and URLs from the two variables below, so the environment file holds
+# nothing for Kratos.
+x-kratos: &kratos
+  image: oryd/kratos:v26.2.0@sha256:2a13bb8d362c7a7ae33bd7c0f5168aee46921f15c916a06346db91c06dc76643
+  entrypoint: ["/bin/sh", "/etc/elysium-kratos/entrypoint.sh"]
+  environment:
+    # The same server and credentials as Elysium's database; `migrate` creates `kratos`.
+    DSN: postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/kratos?sslmode=disable
+    ELYSIUM_ENCRYPTION_KEY: ${ELYSIUM_ENCRYPTION_KEY:?ELYSIUM_ENCRYPTION_KEY is not set}
+    ELYSIUM_PUBLIC_URL: *public-url
+    TZ: UTC
+  volumes:
+    - ./kratos:/etc/elysium-kratos:ro
+
+# Ory Hydra, the OAuth 2.1 authorization server MCP clients connect through. Set up like Kratos:
+# its secrets and URLs are derived from the two variables below. See docs/mcp.md.
+x-hydra: &hydra
+  image: oryd/hydra:v26.2.0@sha256:ff67c7fb5f95074fa53374d41151713554960504b340cd3f95b09e65deaea2a9
+  entrypoint: ["/bin/sh", "/etc/elysium-hydra/entrypoint.sh"]
+  environment:
+    # The same server and credentials as Elysium's database; `migrate` creates `hydra`.
+    DSN: postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/hydra?sslmode=disable
+    ELYSIUM_ENCRYPTION_KEY: ${ELYSIUM_ENCRYPTION_KEY:?ELYSIUM_ENCRYPTION_KEY is not set}
+    ELYSIUM_PUBLIC_URL: *public-url
+    TZ: UTC
+  volumes:
+    - ./hydra:/etc/elysium-hydra:ro
+
 services:
   nginx:
     container_name: elysium-nginx
     image: nginx:1.30.4-alpine
     restart: unless-stopped
+    environment:
+      # The proxy in front of nginx, such as a TLS terminator, whose X-Forwarded-For names the
+      # client. Loopback by default, which trusts nobody. See nginx/real-ip.conf.template.
+      TRUSTED_PROXY_ADDRESSES: ${TRUSTED_PROXY_ADDRESSES:-127.0.0.1/32}
     ports:
-      # Loopback by default: the API has no authentication yet and can write credentials and
-      # reach the host. WEB_BIND_ADDRESS widens it for a deployment that accepts that risk.
+      # Loopback by default. Everyone signed in shares the workspace, which can write
+      # credentials and reach the host through Docker, so WEB_BIND_ADDRESS widens it only for
+      # a network whose users may all hold accounts. See docs/security.md.
       - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-4000}:80"
       # Mail, on every interface: SMTP, submission, and IMAP, passed through to Stalwart.
       # Stalwart authenticates these itself. See nginx/mail.conf.
@@ -32,6 +74,10 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # Outside conf.d: both routing files include it inside their server block.
+      - ./nginx/locations.conf:/etc/nginx/locations.conf:ro
+      # Filled in by the image's entrypoint from TRUSTED_PROXY_ADDRESSES; see the file.
+      - ./nginx/real-ip.conf.template:/etc/nginx/templates/real-ip.conf.template:ro
       - ./nginx/mail.conf:/etc/nginx/stream.d/mail.conf:ro
     networks:
       default:
@@ -40,7 +86,10 @@ services:
     depends_on:
       api:
         condition: service_healthy
-      frontend:
+      kratos:
+        condition: service_healthy
+      # Started, not healthy: a stuck Hydra takes down OAuth for MCP clients, never the web app.
+      hydra:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/api/ok"]
@@ -49,25 +98,12 @@ services:
       retries: 3
       start_period: 10s
 
-  frontend:
-    container_name: elysium-frontend
-    build: ./frontend
-    restart: unless-stopped
-    environment:
-      # The browser reaches Vite's HMR websocket through nginx's published port.
-      VITE_HMR_CLIENT_PORT: ${WEB_PORT:-4000}
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
-      - ./frontend/index.html:/app/index.html
-      - ./frontend/vite.config.ts:/app/vite.config.ts
-
   # One-shot: applies pending migrations, then exits. The API refuses to start
-  # against an unmigrated schema, so it waits for this to finish.
+  # against an unmigrated schema, so it waits for this to finish. It also creates
+  # Kratos's database when it is missing.
   migrate:
     container_name: elysium-migrate
-    image: elysium-api
-    build: *api-build
+    image: *api-image
     command: ["elysium-api", "migrate", "run"]
     restart: "no"
     environment:
@@ -77,15 +113,75 @@ services:
       postgres:
         condition: service_healthy
 
+  # One-shot: applies Kratos's own migrations to its database, then exits.
+  kratos-migrate:
+    <<: *kratos
+    container_name: elysium-kratos-migrate
+    command: ["migrate", "sql", "--read-from-env", "--yes"]
+    restart: "no"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Identities, passwords, passkeys, authenticators, sessions, and recovery. Browsers reach its
+  # public API through nginx at /api/identity/; its admin API (4434) is for the API alone.
+  kratos:
+    <<: *kratos
+    container_name: elysium-kratos
+    command: ["serve", "--watch-courier", "--sqa-opt-out"]
+    restart: unless-stopped
+    depends_on:
+      kratos-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4434/health/ready"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # One-shot: applies Hydra's own migrations to its database, then exits.
+  hydra-migrate:
+    <<: *hydra
+    container_name: elysium-hydra-migrate
+    command: ["migrate", "sql", "up", "--read-from-env", "--yes"]
+    restart: "no"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # OAuth for MCP clients. Its public API (4444) is reached through nginx at /oauth2/ and its
+  # discovery documents; its admin API (4445) is for the API alone.
+  hydra:
+    <<: *hydra
+    container_name: elysium-hydra
+    command: ["serve", "all", "--sqa-opt-out"]
+    restart: unless-stopped
+    depends_on:
+      hydra-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4445/health/ready"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
   api:
     # No container_name and no host port: it scales, and it must only be reachable through nginx.
-    image: elysium-api
-    build: *api-build
+    image: *api-image
     restart: unless-stopped
     environment:
       DATABASE_URL: *database-url
       REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379/0
       ELYSIUM_ENCRYPTION_KEY: ${ELYSIUM_ENCRYPTION_KEY:?ELYSIUM_ENCRYPTION_KEY is not set}
+      ELYSIUM_PUBLIC_URL: *public-url
+      # Kratos, on the compose network: the public API for sessions, the admin API for
+      # managing identities. Browsers never reach the admin API.
+      KRATOS_PUBLIC_URL: http://kratos:4433
+      KRATOS_ADMIN_URL: http://kratos:4434
+      # Hydra's admin API: sign-in and consent for MCP clients, and token introspection.
+      HYDRA_ADMIN_URL: http://hydra:4445
       RUST_LOG: ${RUST_LOG:-info,tower_http=info}
       LOG_FORMAT: compact
       # Empty: frontend and API share nginx's origin, so no cross-origin grant is needed.

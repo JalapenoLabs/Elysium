@@ -84,6 +84,14 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "studio_asset_kind"))]
     pub struct StudioAssetKind;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "user_role"))]
+    pub struct UserRole;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "user_status"))]
+    pub struct UserStatus;
 }
 
 diesel::table! {
@@ -189,6 +197,7 @@ diesel::table! {
         deleted_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Uuid,
     }
 }
 
@@ -227,6 +236,8 @@ diesel::table! {
         undone_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Uuid,
+        decided_by -> Nullable<Uuid>,
     }
 }
 
@@ -243,6 +254,7 @@ diesel::table! {
         project_id -> Nullable<Uuid>,
         github_credential_id -> Nullable<Uuid>,
         action_item_id -> Nullable<Uuid>,
+        created_by -> Uuid,
         studio_item_id -> Nullable<Uuid>,
     }
 }
@@ -258,6 +270,7 @@ diesel::table! {
         description -> Text,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Uuid,
     }
 }
 
@@ -277,6 +290,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         is_default -> Bool,
+        created_by -> Uuid,
     }
 }
 
@@ -340,6 +354,7 @@ diesel::table! {
         deleted_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Uuid,
     }
 }
 
@@ -383,6 +398,7 @@ diesel::table! {
         checked_at -> Timestamptz,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Uuid,
     }
 }
 
@@ -428,6 +444,7 @@ diesel::table! {
         expires_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Uuid,
     }
 }
 
@@ -448,6 +465,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         mail_domain_id -> Nullable<Uuid>,
+        created_by -> Uuid,
     }
 }
 
@@ -460,6 +478,8 @@ diesel::table! {
         stalwart_id -> Text,
         is_default -> Bool,
         created_at -> Timestamptz,
+        created_by -> Uuid,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -472,6 +492,8 @@ diesel::table! {
         admin_username -> Text,
         admin_secret_encrypted -> Bytea,
         created_at -> Timestamptz,
+        created_by -> Uuid,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -491,6 +513,7 @@ diesel::table! {
         cover_fit -> ProjectCoverFit,
         github_access -> GithubAccess,
         github_credential_id -> Nullable<Uuid>,
+        created_by -> Uuid,
     }
 }
 
@@ -506,6 +529,7 @@ diesel::table! {
         is_active -> Bool,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        created_by -> Uuid,
     }
 }
 
@@ -566,6 +590,7 @@ diesel::table! {
         s3_bucket -> Nullable<Text>,
         s3_region -> Nullable<Text>,
         s3_access_key_id -> Nullable<Text>,
+        created_by -> Uuid,
         is_studio_default -> Bool,
     }
 }
@@ -603,6 +628,7 @@ diesel::table! {
         annotated_size_bytes -> Int8,
         capture_storage_path -> Nullable<Text>,
         capture_size_bytes -> Nullable<Int8>,
+        created_by -> Uuid,
         created_at -> Timestamptz,
     }
 }
@@ -619,7 +645,52 @@ diesel::table! {
         thumbnail_asset_id -> Nullable<Uuid>,
         pull_error -> Nullable<Text>,
         deleted_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
         created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    user_events (id) {
+        id -> Uuid,
+        user_id -> Nullable<Uuid>,
+        actor_id -> Nullable<Uuid>,
+        kind -> Text,
+        data -> Jsonb,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::UserRole;
+    use super::sql_types::UserStatus;
+
+    users (id) {
+        id -> Uuid,
+        kratos_identity_id -> Nullable<Uuid>,
+        email -> Nullable<Text>,
+        name -> Text,
+        role -> Nullable<UserRole>,
+        status -> Nullable<UserStatus>,
+        approved_at -> Nullable<Timestamptz>,
+        last_seen_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    workspace_settings (singleton) {
+        singleton -> Bool,
+        signup_open -> Bool,
+        require_mfa -> Bool,
+        updated_by -> Uuid,
         updated_at -> Timestamptz,
     }
 }
@@ -635,6 +706,7 @@ diesel::joinable!(action_item_links -> github_credentials (github_credential_id)
 diesel::joinable!(action_item_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(action_item_projects -> action_items (action_item_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
+diesel::joinable!(action_items -> users (created_by));
 diesel::joinable!(changeset_operations -> changesets (changeset_id));
 diesel::joinable!(changesets -> projects (project_id));
 diesel::joinable!(coding_sessions -> action_items (action_item_id));
@@ -642,6 +714,9 @@ diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
 diesel::joinable!(coding_sessions -> studio_items (studio_item_id));
+diesel::joinable!(coding_sessions -> users (created_by));
+diesel::joinable!(environment_variables -> users (created_by));
+diesel::joinable!(github_credentials -> users (created_by));
 diesel::joinable!(initiative_items -> action_items (action_item_id));
 diesel::joinable!(initiative_items -> initiative_links (via_link_id));
 diesel::joinable!(initiative_items -> initiatives (initiative_id));
@@ -650,23 +725,35 @@ diesel::joinable!(initiative_links -> initiatives (initiative_id));
 diesel::joinable!(initiative_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(initiative_projects -> initiatives (initiative_id));
 diesel::joinable!(initiative_projects -> projects (project_id));
+diesel::joinable!(initiatives -> users (created_by));
 diesel::joinable!(jira_credential_boards -> jira_credentials (jira_credential_id));
 diesel::joinable!(jira_credential_projects -> jira_credentials (jira_credential_id));
+diesel::joinable!(jira_credentials -> users (created_by));
 diesel::joinable!(jira_done_transitions -> jira_credentials (jira_credential_id));
 diesel::joinable!(link_watch_cursors -> github_credentials (github_credential_id));
 diesel::joinable!(link_watch_cursors -> jira_credentials (jira_credential_id));
+diesel::joinable!(llms -> users (created_by));
 diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
+diesel::joinable!(mail_accounts -> users (created_by));
+diesel::joinable!(mail_domains -> users (created_by));
+diesel::joinable!(mail_servers -> users (created_by));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
+diesel::joinable!(projects -> users (created_by));
+diesel::joinable!(satellites -> users (created_by));
 diesel::joinable!(session_events -> coding_sessions (session_id));
 diesel::joinable!(session_transcripts -> coding_sessions (session_id));
 diesel::joinable!(storage_location_projects -> projects (project_id));
 diesel::joinable!(storage_location_projects -> storage_locations (storage_location_id));
+diesel::joinable!(storage_locations -> users (created_by));
 diesel::joinable!(studio_assets -> coding_sessions (session_id));
 diesel::joinable!(studio_feedback -> coding_sessions (session_id));
 diesel::joinable!(studio_feedback -> studio_assets (source_asset_id));
 diesel::joinable!(studio_feedback -> studio_items (studio_item_id));
+diesel::joinable!(studio_feedback -> users (created_by));
 diesel::joinable!(studio_items -> projects (project_id));
 diesel::joinable!(studio_items -> storage_locations (storage_location_id));
+diesel::joinable!(studio_items -> users (created_by));
+diesel::joinable!(workspace_settings -> users (updated_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
     action_item_comments,
@@ -702,4 +789,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     studio_assets,
     studio_feedback,
     studio_items,
+    user_events,
+    users,
+    workspace_settings,
 );

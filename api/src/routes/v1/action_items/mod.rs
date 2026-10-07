@@ -48,6 +48,7 @@ use uuid::Uuid;
 use validator::{Validate, ValidationError};
 
 use crate::action_items::{Transition, WorkError};
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item::{
     self, ActionItem, ActionItemPriority, ActionItemState, Memberships, Owner, ProjectFilter,
@@ -124,8 +125,10 @@ pub fn router() -> Router<AppState> {
         router = router.route(
             path,
             post(
-                move |state: State<AppState>, id: Result<Path<Uuid>, PathRejection>| {
-                    transition_action_item::handle(state, id, transition)
+                move |state: State<AppState>,
+                      current: CurrentUser,
+                      id: Result<Path<Uuid>, PathRejection>| {
+                    transition_action_item::handle(state, current, id, transition)
                 },
             ),
         );
@@ -153,6 +156,8 @@ pub struct ActionItemResponse {
     /// The initiatives it is in now, leaving out deleted ones.
     initiative_ids: Vec<Uuid>,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
 }
 
@@ -174,6 +179,7 @@ impl ActionItemResponse {
             dismissed_at: item.dismissed_at,
             deleted_at: item.deleted_at,
             created_at: item.created_at,
+            created_by: item.created_by,
             updated_at: item.updated_at,
         }
     }

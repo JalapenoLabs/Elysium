@@ -35,6 +35,8 @@ use crate::state::AppState;
 /// A session about to be opened: where its thread runs, how, and what the row records.
 #[derive(Debug)]
 pub struct SessionOpening {
+    /// Who the session is created as.
+    pub created_by: Uuid,
     pub satellite_id: Uuid,
     pub settings: ThreadSettings,
     pub title: String,
@@ -83,6 +85,7 @@ pub async fn open(state: &AppState, opening: SessionOpening) -> Result<OpenedSes
         .await?;
 
     let new_session = NewCodingSession {
+        created_by: opening.created_by,
         id: session_id,
         project_id: opening.project_id,
         satellite_id: opening.satellite_id,

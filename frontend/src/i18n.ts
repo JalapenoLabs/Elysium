@@ -6,6 +6,7 @@ import { initReactI18next } from 'react-i18next'
 
 // Misc
 import actionItems from './locales/en-US/actionItems.json'
+import auth from './locales/en-US/auth.json'
 import changesets from './locales/en-US/changesets.json'
 import coding from './locales/en-US/coding.json'
 import common from './locales/en-US/common.json'
@@ -16,10 +17,12 @@ import initiatives from './locales/en-US/initiatives.json'
 import jira from './locales/en-US/jira.json'
 import llms from './locales/en-US/llms.json'
 import navigation from './locales/en-US/navigation.json'
+import oauth from './locales/en-US/oauth.json'
 import projects from './locales/en-US/projects.json'
 import satellites from './locales/en-US/satellites.json'
 import settings from './locales/en-US/settings.json'
 import storage from './locales/en-US/storage.json'
+import users from './locales/en-US/users.json'
 
 export const DEFAULT_LOCALE = 'en-US'
 export const DEFAULT_NAMESPACE = 'common'
@@ -29,6 +32,7 @@ export const DEFAULT_NAMESPACE = 'common'
 export const resources = {
   [DEFAULT_LOCALE]: {
     actionItems,
+    auth,
     changesets,
     coding,
     common,
@@ -39,10 +43,12 @@ export const resources = {
     jira,
     llms,
     navigation,
+    oauth,
     projects,
     satellites,
     settings,
     storage,
+    users,
   },
 } as const
 

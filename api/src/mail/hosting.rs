@@ -37,6 +37,7 @@ use anyhow::Context;
 use secrecy::SecretString;
 use serde::Serialize;
 use tracing::{Level, event};
+use uuid::Uuid;
 
 use super::stalwart::container::StalwartContainer;
 use super::stalwart::{Administrator, Stalwart, StalwartError};
@@ -215,11 +216,17 @@ impl Hosting {
             .map(|(_hostname, administrator)| administrator))
     }
 
-    /// Begins creating the server in the background. See the module documentation.
+    /// Begins creating the server in the background, for `created_by`. See the module
+    /// documentation.
     ///
     /// # Errors
     /// [`StartRefused`] when a server exists or is being created.
-    pub async fn start(&self, hostname: String, domain: String) -> Result<(), StartRefused> {
+    pub async fn start(
+        &self,
+        hostname: String,
+        domain: String,
+        created_by: Uuid,
+    ) -> Result<(), StartRefused> {
         if self.stored_server().await?.is_some() {
             return Err(StartRefused::AlreadyExists);
         }
@@ -228,7 +235,7 @@ impl Hosting {
 
         let hosting = self.clone();
         tokio::spawn(async move {
-            let outcome = hosting.create(&hostname, &domain).await;
+            let outcome = hosting.create(&hostname, &domain, created_by).await;
             let next = match outcome {
                 Ok(()) => {
                     event!(name: "mail.server.created", Level::INFO, mail.server.hostname = %hostname, "created");
@@ -279,7 +286,7 @@ impl Hosting {
         }
     }
 
-    async fn create(&self, hostname: &str, domain: &str) -> anyhow::Result<()> {
+    async fn create(&self, hostname: &str, domain: &str, created_by: Uuid) -> anyhow::Result<()> {
         let container = &self.inner.container;
         let stalwart = &self.inner.stalwart;
 
@@ -309,6 +316,7 @@ impl Hosting {
                 hostname: hostname.to_owned(),
                 admin_username: administrator.username.clone(),
                 admin_secret: administrator.password.clone(),
+                created_by,
             },
         )
         .await
@@ -328,7 +336,8 @@ impl Hosting {
             .get()
             .await
             .context("no database connection available")?;
-        let created = mail_domain::create(&mut connection, domain, &stalwart_id, true).await?;
+        let created =
+            mail_domain::create(&mut connection, domain, &stalwart_id, true, created_by).await?;
         self.inner
             .events
             .publish(&ServerEvent::MailDomainUpserted(MailDomainResponse::from(

@@ -35,6 +35,8 @@ export type Satellite = {
   url: string
   isActive: boolean
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
   updatedAt: string
   status: SatelliteStatus | null
 }

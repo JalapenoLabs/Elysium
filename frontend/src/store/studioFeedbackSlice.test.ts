@@ -34,7 +34,7 @@ describe('studioFeedbackSlice', () => {
 
   it('adds a drawn prompt as it is sent', () => {
     const store = createAppStore()
-    store.dispatch(studioFeedbackLoaded({ studioItemId: 'item', feedback: [] }))
+    store.dispatch(studioFeedbackLoaded({ studioItemId: 'item', feedback: []}))
     store.dispatch(studioFeedbackCreated(makeStudioFeedback({ id: 'new', turnId: 'turn-1' })))
 
     expect(selectStudioItemFeedback(store.getState(), 'item')[0]?.turnId).toBe('turn-1')

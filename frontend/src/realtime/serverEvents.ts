@@ -12,6 +12,7 @@ import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRout
 import type { Project } from '../api/routes/projectRoutes'
 import type { Satellite, SatelliteStatus } from '../api/routes/satelliteRoutes'
 import type { StorageLocation } from '../api/routes/storageRoutes'
+import type { User, WorkspaceSettings } from '../api/routes/userRoutes'
 
 // Everything the API's event stream can send. Mirrors `ServerEvent` in
 // api/src/realtime.rs: each SSE message's data is one of these as JSON.
@@ -67,5 +68,10 @@ export type ServerEvent =
   | { type: 'session.event', data: SessionEvent }
   // Live events for this session may have been missed; refetch its history.
   | { type: 'session.resync', data: { id: number } }
+  // Someone signed up, was approved, changed role, or was disabled or enabled.
+  | { type: 'user.upserted', data: User }
+  // A pending sign-up was rejected.
+  | { type: 'user.deleted', data: { id: string } }
+  | { type: 'workspaceSettings.updated', data: WorkspaceSettings }
 
 export type ServerEventType = ServerEvent['type']

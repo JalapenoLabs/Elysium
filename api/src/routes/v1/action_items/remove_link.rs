@@ -12,7 +12,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use super::{publish_item_links, publish_item_write};
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item_link;
 use crate::realtime::ServerEvent;
@@ -20,6 +20,7 @@ use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<StatusCode, ApiError> {
     let Path((id, link_id)) = path?;
@@ -30,7 +31,8 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
 
-    let unlinked = action_item_link::remove(&mut connection, id, link_id, Actor::User, now).await?;
+    let unlinked =
+        action_item_link::remove(&mut connection, id, link_id, current.actor(), now).await?;
     state.events.publish(&ServerEvent::ActionItemLinkDeleted {
         id: link_id,
         action_item_id: id,

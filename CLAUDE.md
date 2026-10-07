@@ -3,6 +3,17 @@
 Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind one nginx origin, run with
 `docker compose`. Decisions are documented per topic in `docs/`; keep them current as the code changes.
 
+## Images and stacks
+
+- `compose.yml` is the production stack: it runs the published `jalapenolabs/elysium-api` image, which serves both
+  `/api` and the web app's production build, so nginx sends every path to the API. `compose.dev.yml` layers the
+  development stack over it: the API built from source (`api/Dockerfile` stage `server`) and the Vite dev server,
+  with nginx swapped to `nginx/development.conf`. See `docs/infrastructure.md`.
+- `.github/workflows/publish.yml` pushes `jalapenolabs/elysium-api` and `jalapenolabs/elysium-oauth-broker` to Docker
+  Hub on every push to `main` and every `v*` tag. A release is a `vX.Y.Z` tag. See `docs/ci.md`.
+- The web app's pages carry a strict Content Security Policy set by the API: no inline scripts, no eval, nothing
+  from another origin. Frontend code keeps to it. See `docs/security.md`.
+
 ## Application secrets live in Postgres, not environment files
 
 `.env` holds only what is needed to bootstrap the stack:
@@ -11,6 +22,8 @@ Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`
 - `REDIS_PASSWORD`
 - `RUST_LOG`, which is optional
+- `ELYSIUM_PUBLIC_URL`, which is optional: the origin browsers use, `http://localhost:4000` unless set
+- `ELYSIUM_VERSION`, which is optional: the published release the production stack runs, `latest` unless set
 
 Everything else follows these rules:
 
@@ -19,6 +32,38 @@ Everything else follows these rules:
 - Non-secret configuration, such as `CORS_ALLOWED_ORIGINS`, is written inline in `compose.yml`.
 - Policy values that must not vary per deployment, such as rate limits, are constants in the code, not
   configuration.
+
+## Accounts live in Ory Kratos
+
+- Kratos (`kratos/`) owns identities: passwords, passkeys, authenticator apps, lookup codes, sessions, and recovery.
+  Elysium never re-implements any of it. The frontend renders Kratos's flows through its JSON API at
+  `/api/identity/`; the API calls Kratos's admin API alone. See `docs/auth.md`.
+- Kratos's configuration is derived from `ELYSIUM_PUBLIC_URL` and `ELYSIUM_ENCRYPTION_KEY` by
+  `kratos/entrypoint.sh`. Nothing for Kratos goes in the bootstrap file. Its database, `kratos`, shares Elysium's
+  Postgres server and credentials.
+- `users` holds every principal: people, mapped to their Kratos identity, and the seeded machines (the system user,
+  Elysia, and the coding agent), which can never sign in. Roles are one enum: `admin`, `member`, `guest`, `agent`,
+  `system`. Guests have a member's access until roles are built out.
+- The first person to sign up becomes the admin; everyone after waits for an admin's approval. Admins can close
+  sign-up and require an authenticator app. The workspace always keeps one active admin. Approved people are never
+  deleted, only disabled.
+- Every `/api/v1` route needs a session, except `/auth/status`; handlers name who they act for with `CurrentUser` or
+  `AdminUser`. Unsafe requests must come from Elysium's own origin.
+- Every top-level table has `created_by NOT NULL REFERENCES users`, and every new one gets it too. Machines create
+  as their seeded user. There is no `updated_by`; history records edits.
+- There is no mail for accounts yet: recovery links are logged by the API (`auth.recovery.issued`), or created by an
+  admin.
+
+## External MCP clients connect through OAuth
+
+- Elysium's MCP server is at `/api/mcp`, for clients such as Claude Code and Codex. It speaks Streamable HTTP through
+  the official Rust SDK (`rmcp`), statelessly. Its tools are in `api/src/mcp/workspace.rs`. See `docs/mcp.md`.
+- Ory Hydra (`hydra/`) is the OAuth 2.1 authorization server; Kratos still proves who people are, and the web app's
+  `/oauth/login` and `/oauth/consent` pages answer Hydra's challenges. Hydra is configured like Kratos, from
+  `ELYSIUM_PUBLIC_URL` and `ELYSIUM_ENCRYPTION_KEY`, with its database `hydra` on the shared Postgres.
+- Any approved person may connect any client; admins gate sign-up, not OAuth. Clients register themselves.
+- Every token is bound to `/api/mcp` and checked on every call: active, granting `workspace:read`, and naming an active,
+  approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
 
 ## Satellites are reached only through the API
 
@@ -160,7 +205,8 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   changeset with `work_propose_changes`.
 - A session started from an item records it, and its first turn carries the item's context ahead of the user's
   prompt.
-- There is no users table yet. Ownership and actors are recorded as text and become references when users land.
+- Every row records who created it. Ownership (`owner_kind`, `waiting_on`) is still text; making it reference users
+  is on the roadmap.
 - Every write records a history entry with its actor in the same transaction, with before and after values so it can
   be shown and undone. Deleting items and initiatives is soft. Next's order and the progress rules are pure functions
   in `api/src/action_items/`.
@@ -212,8 +258,10 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Job names are the required check names. Keep them short, stable, and unique across workflows, and update the list
   in `docs/ci.md` when one changes.
 - The repository is public: trigger on `pull_request`, never `pull_request_target`; every job skips pull requests
-  from forks; permissions stay `contents: read`; no workflow reads a secret; third-party actions are pinned to a
+  from forks; permissions stay `contents: read`; no check reads a secret; third-party actions are pinned to a
   commit SHA.
+- The one exception is `publish.yml`, which reads the organization's Docker Hub token (`DOCKERHUB_USERNAME`
+  variable, `DOCKERHUB_TOKEN` secret). It never triggers on a pull request, and leaves no login on the runners.
 - Tools are pinned in one place and verified: Rust by each crate's `rust-toolchain.toml`, Node by `frontend/.nvmrc`,
   Yarn by `packageManager`, the Diesel CLI by `DIESEL_VERSION` in `api.yml`. Dockerfiles must use the same Rust and
   Node versions; the image checks fail when they drift.

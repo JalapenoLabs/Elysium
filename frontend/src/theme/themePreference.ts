@@ -7,14 +7,14 @@ import type { ThemePreference } from '@jalapenolabs/uikit'
 // stored value, resolving "system" against the OS setting, and applying the result
 // to <html>. `startThemeSync` wires them to the store.
 //
-// index.html runs a tiny inline copy of the read-and-apply step before the CSS
-// loads so the first paint already has the right theme. Keep the two in sync.
+// public/theme.js runs a tiny copy of the read-and-apply step before the CSS loads
+// so the first paint already has the right theme. Keep the two in sync.
 
 export type ResolvedTheme = 'light' | 'dark'
 
 export const THEME_PREFERENCES = [ 'light', 'dark', 'system' ] as const satisfies readonly ThemePreference[]
 
-// Shared with the inline script in index.html.
+// Shared with public/theme.js.
 export const THEME_STORAGE_KEY = 'elysium.theme'
 const DEFAULT_PREFERENCE: ThemePreference = 'system'
 

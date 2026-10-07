@@ -13,6 +13,7 @@ import { EnvironmentVariableRowActions } from './EnvironmentVariableRowActions'
 
 // Misc
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
+import { useUserNames } from '../../../hooks/useUserNames'
 import { MASKED_VALUE } from './environmentPresentation'
 
 type Props = {
@@ -21,13 +22,14 @@ type Props = {
   onDelete: (variable: EnvironmentVariable) => void
 }
 
-const ENVIRONMENT_COLUMN_KEYS = [ 'key', 'value', 'description', 'rowActions' ] as const
+const ENVIRONMENT_COLUMN_KEYS = [ 'key', 'value', 'description', 'createdBy', 'rowActions' ] as const
 type EnvironmentColumnKey = typeof ENVIRONMENT_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
   key: 'table.key',
   value: 'table.value',
   description: 'table.description',
+  createdBy: 'common:table.createdBy',
   rowActions: 'common:actions.moreActions',
 } as const satisfies Record<EnvironmentColumnKey, string>
 
@@ -36,12 +38,14 @@ const columnSizes = {
   key: 240,
   value: 280,
   description: 320,
+  createdBy: 160,
   rowActions: 64,
 } as const satisfies Record<EnvironmentColumnKey, number>
 
 export function EnvironmentVariableTable(props: Props) {
   const { t } = useTranslation([ 'environment', 'common' ])
   const labels = useSmartTableLabels()
+  const userNames = useUserNames()
   const [ search, setSearch ] = useState('')
 
   const managedColumns = useMemo(() => {
@@ -66,6 +70,7 @@ export function EnvironmentVariableTable(props: Props) {
       description: (variable: EnvironmentVariable) => <span className='line-clamp-2 opacity-80'>{
         variable.description
       }</span>,
+      createdBy: (variable: EnvironmentVariable) => userNames[variable.createdBy] ?? t('common:table.someone'),
       rowActions: (variable: EnvironmentVariable) => <EnvironmentVariableRowActions
         variable={variable}
         onEdit={props.onEdit}
@@ -80,6 +85,7 @@ export function EnvironmentVariableTable(props: Props) {
         ? t('table.secret')
         : variable.value ?? '',
       description: (variable: EnvironmentVariable) => variable.description,
+      createdBy: (variable: EnvironmentVariable) => userNames[variable.createdBy] ?? '',
       rowActions: null,
     } satisfies Record<EnvironmentColumnKey, ((variable: EnvironmentVariable) => string) | null>
 
@@ -111,7 +117,7 @@ export function EnvironmentVariableTable(props: Props) {
         }
       },
     })
-  }, [ t, props.onEdit, props.onDelete ])
+  }, [ t, userNames, props.onEdit, props.onDelete ])
 
   if (!props.variables.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
@@ -122,7 +128,7 @@ export function EnvironmentVariableTable(props: Props) {
   return <SmartTable
     ids={{
       tableElementId: 'environment-variables-table',
-      tableLocalStorageId: 'elysium.settings.environment.table',
+      tableLocalStorageId: 'elysium.settings.environment.table.v2',
     }}
     tableAriaLabel={t('table.label')}
     data={props.variables}

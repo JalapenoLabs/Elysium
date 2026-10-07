@@ -91,6 +91,7 @@
     "undoTitle": "Undo this changeset?",
     "undoBody": "Every applied change is reversed, last first: new items and initiatives are deleted (they can be restored), edits and states go back, and comments and links are taken back.",
     "undoLimits": "Undo cannot take back what already reached Jira or GitHub: a posted comment stays posted, and a closed issue stays closed. A field or item you changed since keeps your change.",
+    "decidedBy": "Decided by {{name}} on {{date}}",
     "undoneAt": "Undone on {{date}}"
   },
   "undo": {

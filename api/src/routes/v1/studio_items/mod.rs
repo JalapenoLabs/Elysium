@@ -86,6 +86,8 @@ pub struct StudioItemResponse {
     /// Why the latest file an agent delivered could not be kept, such as the storage limit.
     pull_error: Option<String>,
     deleted_at: Option<DateTime<Utc>>,
+    /// Who created it.
+    created_by: Uuid,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -121,6 +123,7 @@ impl StudioItemResponse {
             project_id: item.project_id,
             storage_location_id: item.storage_location_id,
             deleted_at: item.deleted_at,
+            created_by: item.created_by,
             created_at: item.created_at,
             updated_at: item.updated_at,
         }
@@ -202,6 +205,8 @@ pub struct StudioFeedbackResponse {
     camera_orbit: Option<String>,
     /// Whether the clean view was kept beside the drawing.
     has_capture: bool,
+    /// Who sent it.
+    created_by: Uuid,
     created_at: DateTime<Utc>,
 }
 
@@ -216,6 +221,7 @@ impl From<StudioFeedback> for StudioFeedbackResponse {
             source_asset_id: feedback.source_asset_id,
             camera_orbit: feedback.camera_orbit,
             has_capture: feedback.capture_storage_path.is_some(),
+            created_by: feedback.created_by,
             created_at: feedback.created_at,
         }
     }

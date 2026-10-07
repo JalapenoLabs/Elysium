@@ -7,6 +7,7 @@
 @import "dockview-react/dist/styles/dockview.css";
 @import "./theme/matter.css";
 @import "./theme/dockview.css";
+@import "./theme/authSplash.css";
 
 :root {
   --radius: 0.5rem;

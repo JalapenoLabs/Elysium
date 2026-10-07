@@ -19,6 +19,7 @@ import { StorageLocationRowActions } from './StorageLocationRowActions'
 import { ALL_PROJECTS } from '../../../api/routes/projectRoutes'
 import { useProjectsLoader } from '../../../hooks/useServerData'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
+import { useUserNames } from '../../../hooks/useUserNames'
 import {
   bunnyRegionLabelKeys,
   formatStorageBytes,
@@ -34,7 +35,7 @@ type Props = {
   onDelete: (location: StorageLocation) => void
 }
 
-const STORAGE_COLUMN_KEYS = [ 'name', 'provider', 'location', 'projects', 'limit', 'rowActions' ] as const
+const STORAGE_COLUMN_KEYS = [ 'name', 'provider', 'location', 'projects', 'limit', 'createdBy', 'rowActions' ] as const
 type StorageColumnKey = typeof STORAGE_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
@@ -43,6 +44,7 @@ const columnLabelKeys = {
   location: 'table.location',
   projects: 'table.projects',
   limit: 'table.limit',
+  createdBy: 'common:table.createdBy',
   rowActions: 'common:actions.moreActions',
 } as const satisfies Record<StorageColumnKey, string>
 
@@ -53,12 +55,14 @@ const columnSizes = {
   location: 240,
   projects: 220,
   limit: 120,
+  createdBy: 160,
   rowActions: 64,
 } as const satisfies Record<StorageColumnKey, number>
 
 export function StorageLocationTable(props: Props) {
   const { t, i18n } = useTranslation([ 'storage', 'common' ])
   const labels = useSmartTableLabels()
+  const userNames = useUserNames()
   const [ search, setSearch ] = useState('')
   useProjectsLoader()
   const projectNamesById = useAppSelector(selectProjectNamesById, shallowEqual)
@@ -97,6 +101,7 @@ export function StorageLocationTable(props: Props) {
       limit: (location: StorageLocation) => location.storageLimitBytes === null
         ? t('table.noLimit')
         : formatStorageBytes(location.storageLimitBytes, i18n.language),
+      createdBy: (location: StorageLocation) => userNames[location.createdBy] ?? t('common:table.someone'),
       rowActions: (location: StorageLocation) => <StorageLocationRowActions
         location={location}
         onEdit={props.onEdit}
@@ -117,6 +122,7 @@ export function StorageLocationTable(props: Props) {
       limit: (location: StorageLocation) => location.storageLimitBytes === null
         ? t('table.noLimit')
         : formatStorageBytes(location.storageLimitBytes, i18n.language),
+      createdBy: (location: StorageLocation) => userNames[location.createdBy] ?? '',
       rowActions: null,
     } satisfies Record<StorageColumnKey, ((location: StorageLocation) => string) | null>
 
@@ -159,7 +165,7 @@ export function StorageLocationTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, projectNamesById, props.onEdit, props.onTest, props.onDelete ])
+  }, [ t, userNames, i18n.language, projectNamesById, props.onEdit, props.onTest, props.onDelete ])
 
   if (!props.locations.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
@@ -170,7 +176,7 @@ export function StorageLocationTable(props: Props) {
   return <SmartTable
     ids={{
       tableElementId: 'storage-locations-table',
-      tableLocalStorageId: 'elysium.settings.storage.table',
+      tableLocalStorageId: 'elysium.settings.storage.table.v2',
     }}
     tableAriaLabel={t('table.label')}
     data={props.locations}

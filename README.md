@@ -6,7 +6,14 @@ Rust API, Vite/React frontend, Postgres, and Redis behind a single nginx origin.
 
 ```sh
 cp .env.example .env   # then fill in credentials and ELYSIUM_ENCRYPTION_KEY, see docs/secrets.md
-docker compose up --build --wait
+docker compose up --wait
+```
+
+That runs the published image. To develop, build from this checkout and run the web app on the Vite dev server with
+hot reload:
+
+```sh
+docker compose -f compose.yml -f compose.dev.yml up --build --wait
 ```
 
 The stack answers on `http://localhost:4000`:

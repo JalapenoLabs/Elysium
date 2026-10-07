@@ -31,6 +31,8 @@ pub struct StudioFeedback {
     /// The view without the drawing.
     pub capture_storage_path: Option<String>,
     pub capture_size_bytes: Option<i64>,
+    /// Who sent it.
+    pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
 }
 

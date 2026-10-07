@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use validator::Validate;
 
 use super::{MailDomainResponse, require_administrator, validate_domain};
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::mail_domain;
 use crate::realtime::ServerEvent;
@@ -29,6 +30,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -55,7 +57,8 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let created = mail_domain::create(&mut connection, &name, &stalwart_id, false).await?;
+    let created =
+        mail_domain::create(&mut connection, &name, &stalwart_id, false, current.id()).await?;
 
     let response = MailDomainResponse::from(created);
     let body = json!({ "domain": &response });

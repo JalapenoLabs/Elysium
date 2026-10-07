@@ -19,12 +19,14 @@ use uuid::Uuid;
 
 use super::{publish_changeset, publish_touched};
 use crate::action_items::changesets;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::changeset::{self, Written};
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
@@ -44,7 +46,8 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let Written { staged, touched } = changeset::apply(&mut connection, id, reads, now).await?;
+    let Written { staged, touched } =
+        changeset::apply(&mut connection, id, reads, current.id(), now).await?;
     publish_touched(&state.events, &mut connection, touched, now).await?;
     state.links.wake_watcher();
     let changeset = publish_changeset(&state.events, staged);

@@ -1,0 +1,186 @@
+# Copyright © 2026 Jalapeno Labs
+
+# Builds one image and pushes it to Docker Hub under the tags the triggering ref earns.
+# Used by .github/workflows/publish.yml only; see docs/ci.md.
+#
+# The runners are persistent and can share one Docker daemon, so nothing here leaves
+# state behind: the login lives in a configuration directory inside the job's own
+# temporary directory and is removed at the end, and every local tag is removed too.
+name: Docker publish
+description: Build an image and push it to Docker Hub with the tags for this ref.
+
+inputs:
+  repository:
+    description: The Docker Hub repository, such as jalapenolabs/example-api.
+    required: true
+  context:
+    description: The build context, relative to the repository root.
+    required: true
+  dockerfile:
+    description: The Dockerfile, relative to the repository root.
+    required: true
+  target:
+    description: The Dockerfile stage to publish. Empty publishes the last stage.
+    required: false
+    default: ''
+  username:
+    description: The Docker Hub account the token belongs to.
+    required: true
+  token:
+    description: A Docker Hub access token that may push to the repository.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # main publishes `main` and `sha-<commit>`, so any build that landed can be pulled
+    # by commit. A release tag vX.Y.Z publishes X.Y.Z here; the push step adds X.Y and
+    # latest when it is still the newest release. A pre-release (vX.Y.Z-rc.1) publishes
+    # only its own version.
+    - name: Choose the tags
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+      run: |
+        set -euo pipefail
+        case "${GITHUB_REF}" in
+          refs/heads/main)
+            tags="main sha-${GITHUB_SHA::12}"
+            version="main"
+            ;;
+          refs/tags/v*)
+            version="${GITHUB_REF_NAME#v}"
+            if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::${GITHUB_REF_NAME} is not a version tag such as v1.2.3 or v1.2.3-rc.1."
+              exit 1
+            fi
+            tags="${version}"
+            ;;
+          *)
+            echo "::error::${GITHUB_REF} publishes nothing; only main and version tags do."
+            exit 1
+            ;;
+        esac
+
+        echo "Publishing ${REPOSITORY} as: ${tags}"
+        {
+          echo "PUBLISH_TAGS=${tags}"
+          echo "PUBLISH_VERSION=${version}"
+          echo "DOCKER_CONFIG=${RUNNER_TEMP}/docker-config"
+          # Unique per run, because runners in the pool can share one Docker daemon.
+          echo "PUBLISH_BUILD_TAG=${REPOSITORY}:build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        } >> "${GITHUB_ENV}"
+
+    # Fails before the build when the organization's credentials are not shared with
+    # this repository, rather than after twenty minutes of compiling.
+    - name: Log in to Docker Hub
+      shell: bash
+      env:
+        DOCKERHUB_USERNAME: ${{ inputs.username }}
+        DOCKERHUB_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_TOKEN}" ]; then
+          echo "::error::The DOCKERHUB_USERNAME variable or DOCKERHUB_TOKEN secret is not available to this repository."
+          exit 1
+        fi
+        mkdir -p "${DOCKER_CONFIG}"
+        printf '%s' "${DOCKERHUB_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
+
+    # --pull refreshes the base images, so a published image carries the latest
+    # security fixes of its pinned base tags. The runners are x86_64, so the image is
+    # linux/amd64 alone.
+    - name: Build the image
+      shell: bash
+      env:
+        CONTEXT: ${{ inputs.context }}
+        DOCKERFILE: ${{ inputs.dockerfile }}
+        TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        target=()
+        if [ -n "${TARGET}" ]; then
+          target=(--target "${TARGET}")
+        fi
+        docker build \
+          --pull \
+          --platform linux/amd64 \
+          --file "${DOCKERFILE}" \
+          "${target[@]}" \
+          --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+          --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+          --label "org.opencontainers.image.version=${PUBLISH_VERSION}" \
+          --label "org.opencontainers.image.licenses=Apache-2.0" \
+          --tag "${PUBLISH_BUILD_TAG}" \
+          "${CONTEXT}"
+
+    # The ref's own tags are pushed from the run's build tag. No other run pushes them:
+    # runs of one ref queue (the workflow's concurrency group), and main and release runs
+    # push disjoint tag sets.
+    #
+    # Release runs of different versions do overlap, so X.Y and latest move only for the
+    # newest release, read from the repository's tags after the build rather than before
+    # it, and they move on the registry, pointed at the version just pushed, never
+    # through a local tag another run on the same daemon could retag or remove.
+    - name: Push the tags
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+      run: |
+        set -euo pipefail
+        echo "Pushing ${REPOSITORY} as: ${PUBLISH_TAGS}"
+        for tag in ${PUBLISH_TAGS}; do
+          docker tag "${PUBLISH_BUILD_TAG}" "${REPOSITORY}:${tag}"
+          docker push "${REPOSITORY}:${tag}"
+          docker rmi "${REPOSITORY}:${tag}" > /dev/null
+        done
+
+        if [[ "${GITHUB_REF}" != refs/tags/v* || "${PUBLISH_VERSION}" == *-* ]]; then
+          exit 0
+        fi
+
+        # The exact version is out. Moving X.Y or latest needs every release listed: a run
+        # that could not see them must not assume it is the newest, so it fails instead and
+        # leaves both where they were. The repository is public, so listing needs no
+        # credentials.
+        if ! listing="$(git ls-remote --tags --refs "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" 'v*')"; then
+          echo "::error::Cannot list the repository's tags, so ${PUBLISH_VERSION} was published without moving X.Y or latest."
+          exit 1
+        fi
+        # The triggering tag is always listed, so this matches at least one line.
+        releases="$(printf '%s\n' "${listing}" | sed 's|.*refs/tags/v||' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$')"
+
+        minor="${PUBLISH_VERSION%.*}"
+        newest="$(printf '%s\n' "${releases}" | sort -V | tail -n 1)"
+        newest_in_minor="$(printf '%s\n' "${releases}" \
+          | awk -v prefix="${minor}." 'index($0, prefix) == 1' \
+          | sort -V | tail -n 1)"
+
+        floating=()
+        if [ "${PUBLISH_VERSION}" = "${newest_in_minor}" ]; then
+          floating+=("${minor}")
+        fi
+        if [ "${PUBLISH_VERSION}" = "${newest}" ]; then
+          floating+=("latest")
+        fi
+        if [ "${#floating[@]}" -eq 0 ]; then
+          echo "${PUBLISH_VERSION} is not the newest release, so X.Y and latest stay where they are."
+          exit 0
+        fi
+
+        echo "Moving ${REPOSITORY}: ${floating[*]}"
+        for tag in "${floating[@]}"; do
+          docker buildx imagetools create --tag "${REPOSITORY}:${tag}" "${REPOSITORY}:${PUBLISH_VERSION}"
+        done
+
+    - name: Log out and remove the local build
+      if: always()
+      shell: bash
+      run: |
+        if [ -n "${DOCKER_CONFIG:-}" ]; then
+          docker logout > /dev/null 2>&1 || true
+          rm -rf "${DOCKER_CONFIG}"
+        fi
+        if [ -n "${PUBLISH_BUILD_TAG:-}" ]; then
+          docker rmi --force "${PUBLISH_BUILD_TAG}" > /dev/null 2>&1 || true
+        fi

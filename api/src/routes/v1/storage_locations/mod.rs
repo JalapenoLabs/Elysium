@@ -65,6 +65,8 @@ pub struct StorageLocationResponse {
     /// Whether Studio's New item form starts on this location.
     is_studio_default: bool,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
 }
 
@@ -79,6 +81,7 @@ impl StorageLocationResponse {
             projects,
             is_studio_default: location.is_studio_default,
             created_at: location.created_at,
+            created_by: location.created_by,
             updated_at: location.updated_at,
         }
     }

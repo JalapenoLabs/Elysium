@@ -82,6 +82,7 @@
     "renameLabel": "Click to rename",
     "describeLabel": "Click to edit the description",
     "addDescription": "Add a description",
+    "createdBy": "Created by {{name}} on {{date}}",
     "changeCover": "Change cover",
     "addCover": "Add a cover image",
     "coverHint": "Double-click the cover to replace it",

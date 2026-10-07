@@ -1,0 +1,211 @@
+# Ory Kratos, Elysium's identity server. See docs/auth.md.
+#
+# A template: entrypoint.sh replaces every @PLACEHOLDER@ with a value derived from
+# ELYSIUM_PUBLIC_URL and ELYSIUM_ENCRYPTION_KEY, so no deployment edits this file and
+# `.env` gains no variable for Kratos. The database connection comes from the DSN
+# environment variable, which Kratos reads directly.
+#
+# Browsers reach the public API on Elysium's origin at /api/identity/, through nginx.
+# The admin API and every webhook stay on the compose network.
+
+version: v26.2.0
+
+serve:
+  public:
+    base_url: @PUBLIC_URL@/api/identity/
+    request_log:
+      disable_for_health: true
+  admin:
+    base_url: http://kratos:4434/
+    request_log:
+      disable_for_health: true
+
+identity:
+  default_schema_id: person
+  schemas:
+    - id: person
+      url: file:///etc/elysium-kratos/identity.schema.json
+
+selfservice:
+  default_browser_return_url: @PUBLIC_URL@/
+  allowed_return_urls:
+    - @PUBLIC_URL@/
+
+  methods:
+    password:
+      enabled: true
+      config:
+        # Elysium's password policy. The frontend adds character classes and a zxcvbn
+        # score on top; Kratos cannot check those, and its hooks never see the password.
+        min_password_length: 12
+        haveibeenpwned_enabled: true
+        identifier_similarity_check_enabled: true
+    passkey:
+      enabled: true
+      config:
+        rp:
+          display_name: Elysium
+          id: @PUBLIC_HOST@
+          origins:
+            - @PUBLIC_ORIGIN@
+    totp:
+      enabled: true
+      config:
+        issuer: Elysium
+    lookup_secret:
+      enabled: true
+    # Recovery links: the only message Kratos sends, which the API logs. See docs/auth.md.
+    link:
+      enabled: true
+      config:
+        lifespan: 15m
+    code:
+      enabled: false
+    profile:
+      enabled: true
+    webauthn:
+      enabled: false
+
+  flows:
+    error:
+      ui_url: @PUBLIC_URL@/auth/error
+
+    login:
+      ui_url: @PUBLIC_URL@/login
+      lifespan: 15m
+
+    logout:
+      after:
+        default_browser_return_url: @PUBLIC_URL@/login
+
+    registration:
+      enabled: true
+      ui_url: @PUBLIC_URL@/signup
+      lifespan: 15m
+      # One form: name, email, and password together.
+      style: unified
+      after:
+        # Elysium decides whether a sign-up may proceed (sign-up closed, a password
+        # required) before Kratos stores the identity. `parse` makes the hook run before
+        # persistence and lets its answer refuse the sign-up with a message.
+        password:
+          hooks:
+            - hook: web_hook
+              config:
+                id: elysium-registration
+                url: http://api:8080/internal/kratos/registration
+                method: POST
+                body: file:///etc/elysium-kratos/registration.jsonnet
+                response:
+                  parse: true
+                auth:
+                  type: api_key
+                  config:
+                    name: X-Elysium-Hook-Key
+                    value: @HOOK_KEY@
+                    in: header
+            # Once the identity is stored, Elysium creates the account, so the first person to
+            # finish signing up is the admin whoever reaches the API first. Without `parse`,
+            # Kratos runs this after storing the identity.
+            - hook: web_hook
+              config:
+                id: elysium-provision
+                url: http://api:8080/internal/kratos/registered
+                method: POST
+                body: file:///etc/elysium-kratos/registered.jsonnet
+                auth:
+                  type: api_key
+                  config:
+                    name: X-Elysium-Hook-Key
+                    value: @HOOK_KEY@
+                    in: header
+            - hook: session
+        # Every account starts with a password; passkeys are added afterwards. The same
+        # hook refuses a passkey sign-up, so no passkey-only account can exist.
+        passkey:
+          hooks:
+            - hook: web_hook
+              config:
+                id: elysium-registration-passkey
+                url: http://api:8080/internal/kratos/registration
+                method: POST
+                body: file:///etc/elysium-kratos/registration-passkey.jsonnet
+                response:
+                  parse: true
+                auth:
+                  type: api_key
+                  config:
+                    name: X-Elysium-Hook-Key
+                    value: @HOOK_KEY@
+                    in: header
+
+    recovery:
+      enabled: true
+      ui_url: @PUBLIC_URL@/recovery
+      use: link
+      lifespan: 15m
+      notify_unknown_recipients: false
+
+    verification:
+      enabled: false
+
+    settings:
+      ui_url: @PUBLIC_URL@/settings/security
+      # Changing a password, passkey, or authenticator needs a sign-in this recent.
+      privileged_session_max_age: 15m
+      required_aal: highest_available
+      after:
+        password:
+          hooks:
+            - hook: revoke_active_sessions
+
+session:
+  # 72 hours from the last use. Kratos only extends when asked; the API asks once a
+  # session is an hour old (71h before expiry), so each session costs at most one
+  # extension write per hour. See docs/auth.md.
+  lifespan: 72h
+  earliest_possible_extend: 71h
+  whoami:
+    required_aal: highest_available
+  cookie:
+    name: elysium_session
+    same_site: Lax
+    # The session cookie has its own flag; `cookies.secure` below covers only the CSRF one.
+    secure: "@COOKIE_SECURE@"
+    # A browser session cookie outlives a restart, like the session itself.
+    persistent: true
+
+cookies:
+  same_site: Lax
+  secure: "@COOKIE_SECURE@"
+
+hashers:
+  algorithm: argon2
+
+ciphers:
+  algorithm: xchacha20-poly1305
+
+secrets:
+  cookie:
+    - @COOKIE_SECRET@
+  cipher:
+    - @CIPHER_SECRET@
+  default:
+    - @DEFAULT_SECRET@
+
+courier:
+  # No mail yet: every message goes to the API, which logs recovery links. See
+  # docs/auth.md.
+  delivery_strategy: http
+  http:
+    request_config:
+      url: http://api:8080/internal/kratos/courier
+      method: POST
+      body: file:///etc/elysium-kratos/courier.jsonnet
+      headers:
+        X-Elysium-Hook-Key: @HOOK_KEY@
+
+log:
+  level: info
+  format: text
+  leak_sensitive_values: false

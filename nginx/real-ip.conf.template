@@ -1,0 +1,15 @@
+# The client's real address, for the sign-in throttle, the API's rate limiter, and the logs.
+#
+# nginx sees the address that connects to it. When a TLS terminator or another proxy sits in
+# front (which any deployment reached from other machines needs, since sessions require
+# https), that is the proxy's address for everyone, and the throttle would count the whole
+# workspace as one client. TRUSTED_PROXY_ADDRESSES names that proxy; its X-Forwarded-For then
+# supplies the client's address. Anyone else's X-Forwarded-For is ignored, since a client can
+# set it to anything.
+#
+# The image's entrypoint fills this template in and writes it to /etc/nginx/conf.d/. The
+# default trusts loopback alone, which nothing in front of the stack uses, so nothing is
+# trusted unless an operator says so. See docs/security.md.
+set_real_ip_from ${TRUSTED_PROXY_ADDRESSES};
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;

@@ -13,6 +13,9 @@ type Props = {
   onChange: (value: string) => void
   className?: string
   isDisabled?: boolean
+  // For a select whose purpose its surroundings already say, such as a table cell: the
+  // label is still read by screen readers.
+  isLabelHidden?: boolean
 }
 
 // A labelled select over a short, fixed list, such as a filter's Any, Yes, and No, or an
@@ -30,7 +33,9 @@ export function OptionSelect(props: Props) {
       props.onChange(String(key))
     }}
   >
-    <Label>{props.label}</Label>
+    <Label className={props.isLabelHidden
+      ? 'sr-only'
+      : undefined}>{props.label}</Label>
     <Select.Trigger>
       <Select.Value />
       <Select.Indicator />

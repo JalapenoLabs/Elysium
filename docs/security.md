@@ -2,10 +2,13 @@
 
 ## Trust boundary
 
-nginx publishes the web on `127.0.0.1` by default. The API has no authentication yet, its LLM and satellite routes
-write credentials, and its coding routes drive agents on satellites, so by default nothing outside this machine may
-reach it. `WEB_BIND_ADDRESS` publishes it on another address, which extends that trust to every client able to reach
-the address.
+Every API route but `GET /api/v1/auth/status` requires a Kratos session and an approved account; see
+`docs/auth.md`. Everyone signed in shares one workspace: its LLM and satellite routes write credentials, its coding
+routes drive agents on satellites, and its mail routes reach the Docker host. An account is therefore trusted with all
+of that, which is why admins approve every sign-up and can close sign-up entirely.
+
+nginx publishes the web on `127.0.0.1` by default. `WEB_BIND_ADDRESS` publishes it on another address, for a network
+whose users may all hold accounts, together with an https `ELYSIUM_PUBLIC_URL`.
 
 The mail ports (25, 465, 993) are published on every interface. They reach Stalwart alone, which authenticates
 mailbox access itself and accepts unauthenticated SMTP only as delivery to its own domains, never as a relay.
@@ -18,7 +21,7 @@ would let a client forge them.
 ## Satellites
 
 - The API connects to whatever URL a satellite is registered with. That is intended, since satellites are
-  operator infrastructure, and it is one more reason the API stays on loopback by default until it has authentication.
+  operator infrastructure, and it is one more reason every account is approved by an admin.
 - Satellite secrets never leave the API. Browsers talk only to the API, which holds the one client per satellite.
 - Satellite errors shown to clients (`502` messages, `satellite.status` errors) come from the satellite's contract
   errors and transport failures, which never contain the secret.
@@ -45,19 +48,39 @@ The API creates and runs the mail server through Docker. It never mounts the Doc
 other service joins. Exec, build, swarm, secrets, and system endpoints are refused.
 
 The proxy narrows the surface but does not make it safe: creating a container is enough to control the host. Anyone
-who can send the API requests can therefore reach the host, which is one more reason nginx listens on loopback by
-default until the API has authentication. `WEB_BIND_ADDRESS` publishes it more widely for an operator who trusts
-every client on that network.
+signed in can therefore reach the host through the mail routes, which is one more reason every account is approved
+by an admin.
+
+## Sign-in
+
+Kratos holds passwords (Argon2id), passkeys, authenticator apps, and sessions; the API never sees a password.
+
+- **Cookie.** The session cookie is `HttpOnly`, `SameSite=Lax`, and host-only, and it is `Secure` over https.
+- **Origin.** Unsafe API requests must carry Elysium's own `Origin`.
+- **Brute force.** nginx throttles sign-in, sign-up, and recovery submissions to 5 a minute per client address.
+  There is no per-account lockout, which would let anyone lock a known person out. Behind a proxy, the address is
+  right only when `TRUSTED_PROXY_ADDRESSES` names that proxy (`docs/auth.md`).
+- **Kratos's internal routes.** Kratos calls the API's `/internal` routes. nginx never forwards `/internal`
+  (production answers it with a `404`), and the routes also check a key derived from the encryption key.
+
+- **MCP clients.** External MCP clients reach `/api/mcp` with OAuth access tokens Hydra issues, only after an
+  approved person consents. Tokens are opaque, bound to `/api/mcp` alone, and checked against Hydra and the person's
+  account on every call. Client registration is open and throttled per address. See `docs/mcp.md`.
+
+`docs/auth.md` has the whole design.
 
 ## Rate limiting
 
 Token bucket per client IP, on `governor`: 30 requests may be spent at once, refilling at 10 per second. Both are
 constants in `api/src/middleware/rate_limit.rs`, not configuration, so every deployment enforces the same limit.
-The event stream counts as one request per connection. Exceeding the limit answers `429` with a JSON body,
+Only `/api` is limited: the web app's files cost a file read each, and a cold page load fetches several at
+once. The event stream counts as one request per connection. Exceeding the limit answers `429` with a JSON body,
 `Retry-After`, and `x-ratelimit-*` headers. Buckets for idle clients are swept every minute so the key map stays
 bounded.
 
-The client is the first parseable `X-Forwarded-For` address, then `X-Real-IP`, then the peer address.
+The client is the first parseable `X-Forwarded-For` address, then `X-Real-IP`, then the peer address. nginx sets
+`X-Forwarded-For` to the one client address it resolved, replacing whatever the client sent, so a client cannot pick
+its own bucket. Behind a proxy, that address is the client's only when `TRUSTED_PROXY_ADDRESSES` names the proxy.
 
 **Buckets are timed with `std::time::Instant`**, which pauses while the host is suspended. governor's default
 clock reads the CPU's time stamp counter, which does not survive a suspend: after one, every stored bucket sat
@@ -70,14 +93,16 @@ client out.
 
 ## Response headers
 
-The API sets the helmet-equivalent set on every response, including `429`s:
+The API sets the helmet-equivalent set, plus `Permissions-Policy`, on every response, including `429`s and the web
+app's files:
 
 | Header                              | Value                                        |
 |-------------------------------------|----------------------------------------------|
-| `Content-Security-Policy`           | `default-src 'none'; frame-ancestors 'none'` |
+| `Content-Security-Policy`           | By path, below                               |
 | `Cross-Origin-Opener-Policy`        | `same-origin`                                |
 | `Cross-Origin-Resource-Policy`      | `same-origin`                                |
 | `Origin-Agent-Cluster`              | `?1`                                         |
+| `Permissions-Policy`                | `camera=(), geolocation=(), microphone=()`   |
 | `Referrer-Policy`                   | `no-referrer`                                |
 | `Strict-Transport-Security`         | `max-age=63072000; includeSubDomains`        |
 | `X-Content-Type-Options`            | `nosniff`                                    |
@@ -86,9 +111,24 @@ The API sets the helmet-equivalent set on every response, including `429`s:
 | `X-Frame-Options`                   | `DENY`                                       |
 | `X-Permitted-Cross-Domain-Policies` | `none`                                       |
 
-nginx adds a lighter set on the SPA (`nosniff`, `DENY`, `Referrer-Policy`,
-`Permissions-Policy`) and hides its version. The SPA has no CSP while it is served
-by the Vite dev server, which relies on inline scripts and websockets.
+The Content Security Policy depends on what answers, in `api/src/middleware/security_headers.rs`:
+
+- `/api` answers JSON or plain text only, so its policy is `default-src 'none'; frame-ancestors 'none'`. A browser
+  that somehow renders an API response must not run or embed anything from it.
+- Every other path is the web app the published image serves (see `docs/infrastructure.md`). Its policy allows only
+  its own origin: `script-src 'self'` with no inline scripts and no eval, `connect-src 'self'`, `object-src 'none'`,
+  `base-uri` and `form-action 'self'`, and `frame-ancestors 'none'`. Three allowances are deliberate:
+  `style-src 'unsafe-inline'`, because React Aria and HeroUI write styles at runtime; `img-src data: blob:`, for
+  the cover preview and inlined icons; and `font-src data:`, for fonts bundled CSS inlines.
+
+Keeping the app inside that policy takes two things on the frontend: the pre-paint theme script is the file
+`public/theme.js`, not inline, and Zod runs `jitless`, so it never probes for `new Function`. See
+`docs/frontend.md`.
+
+In the development stack nginx sends the app's paths to the Vite dev server instead. The dev server needs inline
+scripts and websockets, so those pages carry no CSP, only the headers nginx adds there (`nosniff`, `DENY`,
+`Referrer-Policy`, `Permissions-Policy`). That stack is for local work, never a deployment. nginx hides its version
+in both stacks.
 
 ## CORS
 
@@ -112,5 +152,4 @@ Application secrets never go there. They are stored in Postgres, encrypted with 
 ## Roadmap
 
 - Authentication on `/api/v1`, then publishing nginx beyond loopback by default.
-- CSP for the SPA once a production static build replaces the dev server.
 - TLS termination at nginx.

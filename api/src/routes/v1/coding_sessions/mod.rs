@@ -87,6 +87,8 @@ pub struct CodingSessionResponse {
     /// The Studio item the session works on; `null` for a Coding session.
     studio_item_id: Option<Uuid>,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
     /// The thread as of the fleet's latest poll; `None` until the first poll sees it.
     thread: Option<ThreadStatus>,
@@ -104,6 +106,7 @@ impl CodingSessionResponse {
             action_item_id: session.action_item_id,
             studio_item_id: session.studio_item_id,
             created_at: session.created_at,
+            created_by: session.created_by,
             updated_at: session.updated_at,
             thread,
         }

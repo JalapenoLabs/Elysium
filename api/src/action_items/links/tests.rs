@@ -32,7 +32,7 @@ use crate::models::github_credential::{self, GithubTokenKind, NewGithubCredentia
 use crate::models::jira_credential::{self, Allowed, AllowedProject, Allowlist, NewJiraCredential};
 use crate::models::jira_done_transition;
 use crate::realtime::EventBus;
-use crate::test_support::{cipher, migrated_database};
+use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, cipher, migrated_database};
 
 /// The Jira account the credential's token belongs to. An issue assigned to it is the
 /// user's.
@@ -401,6 +401,7 @@ impl LinkFixture {
             &mut connection,
             &cipher,
             &NewJiraCredential {
+                created_by: TEST_PERSON_ID,
                 name: "Work".to_owned(),
                 verified: jira_credential::VerifiedToken {
                     site_url: SITE_URL.to_owned(),
@@ -435,6 +436,7 @@ impl LinkFixture {
             &mut connection,
             &cipher,
             &NewGithubCredential {
+                created_by: TEST_PERSON_ID,
                 name: "Personal".to_owned(),
                 verified: github_credential::VerifiedToken {
                     kind: GithubTokenKind::Classic,
@@ -563,7 +565,6 @@ async fn linked(
     remote: &Remote,
     kind: LinkKind,
 ) -> ActionItemLink {
-    use crate::action_items::Actor;
     use crate::models::action_item::{ActionItemState, NewActionItem};
     use crate::models::action_item_link::{self, NewLink};
 
@@ -587,7 +588,7 @@ async fn linked(
         &mut fixture.connection,
         new_item,
         new_link,
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await

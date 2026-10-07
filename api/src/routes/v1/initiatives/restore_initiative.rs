@@ -11,13 +11,14 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{publish_initiative_write, publish_member_items};
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::initiative;
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path(id) = path?;
@@ -28,7 +29,7 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
 
-    let restored = initiative::restore(&mut connection, id, Actor::User, now).await?;
+    let restored = initiative::restore(&mut connection, id, current.actor(), now).await?;
     let initiative =
         publish_initiative_write(&state.events, &mut connection, restored, now).await?;
     publish_member_items(&state.events, &mut connection, id, now).await?;

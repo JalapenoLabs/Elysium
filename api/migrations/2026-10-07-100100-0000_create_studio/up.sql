@@ -19,6 +19,7 @@ CREATE TABLE studio_items (
     pull_error TEXT,
     -- Soft delete: hidden from the grid, restorable.
     deleted_at TIMESTAMPTZ,
+    created_by UUID NOT NULL REFERENCES users (id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -102,6 +103,8 @@ CREATE TABLE studio_feedback (
     -- The view without the drawing.
     capture_storage_path TEXT,
     capture_size_bytes BIGINT,
+    -- Who sent it; an item may be shaped by more than one person.
+    created_by UUID NOT NULL REFERENCES users (id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     CONSTRAINT studio_feedback_prompt_length CHECK (char_length(prompt) BETWEEN 1 AND 100000),

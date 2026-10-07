@@ -27,6 +27,8 @@ pub struct Satellite {
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Who created it.
+    pub created_by: Uuid,
 }
 
 /// Fields for a new satellite, with the secret still in plaintext.
@@ -37,6 +39,8 @@ pub struct NewSatellite {
     pub url: String,
     pub secret: SecretString,
     pub is_active: bool,
+    /// Who is creating it.
+    pub created_by: Uuid,
 }
 
 /// A partial update. `None` leaves a column untouched.
@@ -70,6 +74,7 @@ struct SatelliteRow<'a> {
     url: &'a str,
     secret_encrypted: Vec<u8>,
     is_active: bool,
+    created_by: Uuid,
 }
 
 /// Row-shaped update, holding the already sealed secret if one was supplied.
@@ -140,6 +145,7 @@ pub async fn create(
 ) -> QueryResult<Satellite> {
     let id = Uuid::now_v7();
     let row = SatelliteRow {
+        created_by: new_satellite.created_by,
         id,
         name: &new_satellite.name,
         description: &new_satellite.description,
@@ -206,10 +212,11 @@ pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult
 mod tests {
     use super::*;
     use crate::errors::ApiError;
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 
     fn new_satellite(name: &str) -> NewSatellite {
         NewSatellite {
+            created_by: TEST_PERSON_ID,
             name: name.to_owned(),
             description: "test satellite".to_owned(),
             url: "http://arsox:8080".to_owned(),

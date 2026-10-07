@@ -1,0 +1,305 @@
+/* Copyright © 2026 Jalapeno Labs */
+
+/* The splash behind the sign-in, sign-up, recovery, and waiting pages: geometric shards
+   under moving light, in Matter's blues pushed toward violet and magenta. It is dark in
+   both themes, so the card above it reads the same either way.
+
+   On load, rings pulse out from the card and waves sweep across. After that the colors
+   drift slowly and the lights breathe. Everything is decorative (`aria-hidden`), and all
+   motion stops for people who ask the system to reduce it. */
+
+:root {
+  --splash-base: #06080d;
+  --splash-blue: #267fb5;
+  --splash-cyan: #2fd6e6;
+  --splash-violet: #7b4dff;
+  --splash-magenta: #e0388f;
+  --splash-amber: #ffb547;
+  --splash-line: rgba(255, 255, 255, 0.14);
+}
+
+.auth-splash {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 80% at 50% 120%, color-mix(in srgb, var(--splash-violet) 35%, transparent), transparent 60%),
+    linear-gradient(160deg, var(--splash-base) 0%, #0b1220 55%, var(--splash-base) 100%);
+}
+
+/* Each layer follows the pointer by its own depth (`--depth`, set per layer): the near shards
+   lean toward the pointer the most, the lights behind them less, so the scene shifts like
+   parallax. `--pointer-x` and `--pointer-y` run from -1 to 1 and are eased in AuthSplash.
+   Layers are oversized so their edges never show as they move. */
+.auth-splash {
+  --pointer-x: 0;
+  --pointer-y: 0;
+  perspective: 1200px;
+}
+
+.auth-splash-layer {
+  position: absolute;
+  inset: -6%;
+  transform: translate3d(
+    calc(var(--pointer-x) * var(--depth) * 42px),
+    calc(var(--pointer-y) * var(--depth) * 28px),
+    0
+  );
+  will-change: transform;
+}
+
+/* The shards also tilt, raising the side nearest the pointer toward the viewer, so the plane
+   they sit on seems drawn to it. */
+.auth-splash-layer-tilt {
+  transform:
+    translate3d(
+      calc(var(--pointer-x) * var(--depth) * 42px),
+      calc(var(--pointer-y) * var(--depth) * 28px),
+      0
+    )
+    rotateX(calc(var(--pointer-y) * 5deg))
+    rotateY(calc(var(--pointer-x) * -7deg));
+}
+
+/* Three soft lights, each drifting on its own path. Each fades into a second color and back
+   (`::after`), so the palette shifts over time. Only opacity animates, which the compositor
+   handles; filtering the whole screen instead repainted it every frame while the page idled. */
+.auth-splash-light::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle, var(--light-tint), transparent 65%);
+  opacity: 0;
+  animation: auth-splash-tint 16s ease-in-out infinite alternate;
+}
+
+.auth-splash-light {
+  position: absolute;
+  width: 60vmax;
+  height: 60vmax;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.55;
+  mix-blend-mode: screen;
+}
+
+.auth-splash-light-a {
+  top: -25vmax;
+  left: -15vmax;
+  background: radial-gradient(circle, var(--splash-blue), transparent 65%);
+  --light-tint: var(--splash-violet);
+  animation: auth-splash-drift-a 18s ease-in-out infinite alternate;
+}
+
+.auth-splash-light-b {
+  right: -20vmax;
+  bottom: -25vmax;
+  background: radial-gradient(circle, var(--splash-magenta), transparent 65%);
+  --light-tint: var(--splash-amber);
+  animation: auth-splash-drift-b 22s ease-in-out infinite alternate;
+}
+
+.auth-splash-light-c {
+  top: 20%;
+  right: 10%;
+  width: 40vmax;
+  height: 40vmax;
+  background: radial-gradient(circle, var(--splash-cyan), transparent 65%);
+  --light-tint: var(--splash-magenta);
+  opacity: 0.35;
+  animation: auth-splash-drift-c 26s ease-in-out infinite alternate;
+}
+
+/* A stage light from above, swaying slowly. */
+.auth-splash-beam {
+  position: absolute;
+  top: -20%;
+  left: 50%;
+  width: 140vmax;
+  height: 140vmax;
+  translate: -50% 0;
+  background: conic-gradient(
+    from 180deg at 50% 0%,
+    transparent 0deg,
+    color-mix(in srgb, var(--splash-amber) 22%, transparent) 12deg,
+    transparent 24deg,
+    transparent 336deg,
+    color-mix(in srgb, var(--splash-cyan) 18%, transparent) 348deg,
+    transparent 360deg
+  );
+  mix-blend-mode: screen;
+  transform-origin: 50% 0%;
+  animation: auth-splash-sway 14s ease-in-out infinite alternate;
+}
+
+.auth-splash-shards {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.auth-splash-shard {
+  mix-blend-mode: screen;
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation:
+    auth-splash-shard-in 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards,
+    auth-splash-shard-float 12s ease-in-out 1.4s infinite alternate;
+}
+
+.auth-splash-edge {
+  fill: none;
+  stroke: var(--splash-line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Waves that draw themselves across on load, then keep rolling. */
+.auth-splash-wave {
+  fill: none;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 2400;
+  stroke-dashoffset: 2400;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    auth-splash-wave-draw 2.4s cubic-bezier(0.4, 0, 0.2, 1) forwards,
+    auth-splash-wave-roll 9s ease-in-out 2.4s infinite alternate;
+}
+
+/* Rings that pulse out from behind the card on load, then breathe. */
+.auth-splash-rings {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+}
+
+.auth-splash-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 34rem;
+  height: 34rem;
+  margin: -17rem 0 0 -17rem;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--splash-cyan) 60%, transparent);
+  box-shadow: 0 0 40px color-mix(in srgb, var(--splash-violet) 40%, transparent);
+  opacity: 0;
+  animation:
+    auth-splash-pulse 2.2s cubic-bezier(0.1, 0.7, 0.3, 1) forwards,
+    auth-splash-breathe 6s ease-in-out 2.2s infinite;
+}
+
+.auth-splash-ring:nth-child(2) {
+  animation-delay: 0.25s, 2.45s;
+  border-color: color-mix(in srgb, var(--splash-violet) 60%, transparent);
+}
+
+.auth-splash-ring:nth-child(3) {
+  animation-delay: 0.5s, 2.7s;
+  border-color: color-mix(in srgb, var(--splash-magenta) 50%, transparent);
+}
+
+/* A fine grain over everything, so the gradients never band. */
+.auth-splash-grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.08;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* The card and brand rise in once the pulse has begun. */
+.auth-splash-rise {
+  animation: auth-splash-rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) 0.15s both;
+}
+
+.auth-splash-card {
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  backdrop-filter: blur(18px) saturate(140%);
+  box-shadow:
+    0 30px 80px -20px rgba(0, 0, 0, 0.7),
+    0 0 0 1px color-mix(in srgb, var(--splash-cyan) 18%, transparent),
+    0 0 60px -10px color-mix(in srgb, var(--splash-violet) 45%, transparent);
+}
+
+.auth-splash-mark {
+  background: linear-gradient(135deg, var(--splash-cyan), var(--splash-violet) 55%, var(--splash-magenta));
+  box-shadow: 0 0 24px color-mix(in srgb, var(--splash-violet) 60%, transparent);
+}
+
+
+@keyframes auth-splash-tint {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes auth-splash-drift-a {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(18vmax, 12vmax) scale(1.2); }
+}
+
+@keyframes auth-splash-drift-b {
+  from { transform: translate(0, 0) scale(1.1); }
+  to { transform: translate(-16vmax, -14vmax) scale(0.9); }
+}
+
+@keyframes auth-splash-drift-c {
+  from { transform: translate(0, 0); }
+  to { transform: translate(-30vmax, 20vmax); }
+}
+
+@keyframes auth-splash-sway {
+  from { rotate: -9deg; }
+  to { rotate: 9deg; }
+}
+
+@keyframes auth-splash-shard-in {
+  from { opacity: 0; transform: scale(0.6) rotate(-8deg); }
+  to { opacity: var(--shard-opacity, 0.6); transform: scale(1) rotate(0deg); }
+}
+
+@keyframes auth-splash-shard-float {
+  from { transform: translate(0, 0) rotate(0deg); }
+  to { transform: translate(var(--shard-dx, 10px), var(--shard-dy, -14px)) rotate(var(--shard-turn, 3deg)); }
+}
+
+@keyframes auth-splash-wave-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes auth-splash-wave-roll {
+  from { transform: translateX(0) scaleY(1); }
+  to { transform: translateX(-6%) scaleY(1.35); }
+}
+
+@keyframes auth-splash-pulse {
+  0% { opacity: 0.9; transform: scale(0.2); }
+  70% { opacity: 0.5; }
+  100% { opacity: 0.35; transform: scale(1); }
+}
+
+@keyframes auth-splash-breathe {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.15; transform: scale(1.06); }
+}
+
+@keyframes auth-splash-rise {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-splash,
+  .auth-splash *,
+  .auth-splash-rise {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+  }
+}

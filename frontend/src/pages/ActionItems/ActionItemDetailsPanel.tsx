@@ -12,6 +12,7 @@ import { selectLiveInitiatives } from '../../store/initiativesSlice'
 import { selectAllProjects } from '../../store/projectsSlice'
 
 // User interface
+import { UserName } from '../../components/UserName'
 import { Button, Card, toast } from '@heroui/react'
 import { DayPicker } from '../../components/DayPicker'
 import { OptionSelect } from '../../components/OptionSelect'
@@ -167,6 +168,8 @@ export function ActionItemDetailsPanel(props: Props) {
         <dd>{t(owner.key, owner.values)}</dd>
         <dt className='opacity-60'>{t('fields.created')}</dt>
         <dd>{dateTimeFormatter.format(new Date(item.createdAt))}</dd>
+        <dt className='opacity-60'>{t('fields.createdBy')}</dt>
+        <dd><UserName userId={item.createdBy} /></dd>
         <dt className='opacity-60'>{t('fields.updated')}</dt>
         <dd>{dateTimeFormatter.format(new Date(item.updatedAt))}</dd>
       </dl>

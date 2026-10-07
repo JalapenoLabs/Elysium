@@ -15,6 +15,7 @@ use validator::Validate;
 use super::{
     JiraCredentialResponse, JiraToken, Selection, reach, validate_email_address, validate_not_blank,
 };
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::jira::{Site, normalize_site_url};
 use crate::models::jira_credential::{self, Allowed, NewJiraCredential, VerifiedToken};
@@ -38,6 +39,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -64,6 +66,7 @@ pub async fn handle(
     };
 
     let new_credential = NewJiraCredential {
+        created_by: current.id(),
         name: body.name,
         verified: VerifiedToken {
             site_url,

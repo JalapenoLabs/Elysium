@@ -63,6 +63,8 @@ export type StorageLocation = {
   // Where Studio's New item form saves by default. At most one location holds it.
   isStudioDefault: boolean
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
   updatedAt: string
 }
 

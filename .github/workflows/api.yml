@@ -159,7 +159,7 @@ jobs:
           echo "${script_pid}" > "${RUNNER_TEMP}/verify-migrations.pid"
           wait "${script_pid}"
 
-      - name: Remove the disposable Postgres
+      - name: Remove the disposable Postgres and Redis
         if: always()
         run: |
           pid_file="${RUNNER_TEMP}/verify-migrations.pid"
@@ -167,7 +167,8 @@ jobs:
             echo "The migrations never started, so there is no container to remove."
             exit 0
           fi
-          docker rm --force "elysium-verify-migrations-$(cat "${pid_file}")" > /dev/null 2>&1 || true
+          pid="$(cat "${pid_file}")"
+          docker rm --force "elysium-verify-migrations-${pid}" "elysium-verify-redis-${pid}" > /dev/null 2>&1 || true
 
   image:
     name: API image
@@ -184,9 +185,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # The image compiles with its own FROM line, not rust-toolchain.toml, so the
-      # two are compared here rather than trusted to be edited together.
-      - name: Check the image uses the pinned toolchain
+      # The image compiles with its own FROM lines, not rust-toolchain.toml or
+      # frontend/.nvmrc, so they are compared here rather than trusted to be edited
+      # together.
+      - name: Check the image uses the pinned toolchains
         run: |
           set -euo pipefail
           channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' api/rust-toolchain.toml)"
@@ -196,16 +198,28 @@ jobs:
           fi
           echo "api/Dockerfile builds with rust ${channel}."
 
-      # Built from the repository root with the compose file's Dockerfile, exactly
-      # as compose builds it. Not pushed anywhere.
+          node_version="$(cat frontend/.nvmrc)"
+          if ! grep --quiet --fixed-strings "FROM node:${node_version}-" api/Dockerfile; then
+            echo "::error::api/Dockerfile does not build the web app with Node ${node_version} from frontend/.nvmrc."
+            exit 1
+          fi
+          echo "api/Dockerfile builds the web app with Node ${node_version}."
+
+      # The `app` stage, from the repository root, exactly as the publish
+      # workflow builds it. Not pushed anywhere.
       - name: Build the image
-        run: docker build --file api/Dockerfile --tag "${IMAGE}" .
+        run: docker build --file api/Dockerfile --target app --tag "${IMAGE}" .
 
       # Booting the server needs Postgres, Redis, and an encryption key. Running
       # the CLI still proves the runtime stage: the binary starts and finds every
       # library it links.
       - name: Run the binary in the image
         run: docker run --rm "${IMAGE}" elysium-api --help
+
+      # The API refuses to start without the build FRONTEND_DIR names, so a missing
+      # one would otherwise surface only when a deployment boots.
+      - name: Check the image carries the web app
+        run: docker run --rm --entrypoint sh "${IMAGE}" -c 'test -f "${FRONTEND_DIR}/index.html"'
 
       - name: Remove the CI tag
         if: always()

@@ -6,6 +6,7 @@
 //! and generate encryption keys. See `elysium-api --help`.
 
 mod action_items;
+mod auth;
 mod blender;
 mod cli;
 mod config;
@@ -20,8 +21,10 @@ mod github;
 mod images;
 mod jira;
 mod mail;
+mod mcp;
 mod middleware;
 mod models;
+mod oauth;
 mod realtime;
 mod routes;
 mod server;
@@ -33,6 +36,7 @@ mod studio;
 mod test_support;
 mod tools;
 mod version;
+mod web_app;
 
 use anyhow::Result;
 use clap::Parser;

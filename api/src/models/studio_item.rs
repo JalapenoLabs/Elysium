@@ -29,6 +29,8 @@ pub struct StudioItem {
     /// Why the latest file could not be kept; cleared by the next file that is.
     pub pull_error: Option<String>,
     pub deleted_at: Option<DateTime<Utc>>,
+    /// Who created it.
+    pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -37,6 +39,8 @@ pub struct StudioItem {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = studio_items)]
 pub struct NewStudioItem {
+    /// Who is creating it.
+    pub created_by: Uuid,
     pub id: Uuid,
     pub title: String,
     pub prompt: String,

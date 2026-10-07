@@ -141,6 +141,8 @@ pub struct StorageLocation {
     pub s3_access_key_id: Option<String>,
     /// The location Studio's New item form starts on. At most one location is.
     pub is_studio_default: bool,
+    /// Who created it.
+    pub created_by: Uuid,
 }
 
 /// Fields for a new location, with the access key still in plaintext.
@@ -153,6 +155,8 @@ pub struct NewStorageLocation {
     pub storage_limit_bytes: Option<i64>,
     pub access_key: SecretString,
     pub projects: ProjectScope,
+    /// Who is creating it.
+    pub created_by: Uuid,
 }
 
 /// A partial update. `None` leaves a column untouched; a provider replaces all of its
@@ -199,6 +203,7 @@ struct StorageLocationRow<'a> {
     storage_limit_bytes: Option<i64>,
     access_key_encrypted: Vec<u8>,
     all_projects: bool,
+    created_by: Uuid,
 }
 
 /// Row-shaped update, holding the already sealed access key if one was supplied.
@@ -506,6 +511,7 @@ pub async fn create(
 ) -> QueryResult<StorageLocation> {
     let id = Uuid::now_v7();
     let row = StorageLocationRow {
+        created_by: new_location.created_by,
         id,
         name: &new_location.name,
         provider: provider_columns(&new_location.provider),
@@ -606,10 +612,11 @@ pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult
 mod tests {
     use super::*;
     use crate::errors::ApiError;
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 
     fn new_location(name: &str) -> NewStorageLocation {
         NewStorageLocation {
+            created_by: TEST_PERSON_ID,
             name: name.to_owned(),
             provider: StorageProvider::Bunny {
                 zone: "elysium-files".to_owned(),
@@ -634,6 +641,7 @@ mod tests {
             let created = project::create(
                 &mut connection,
                 &NewProject {
+                    created_by: TEST_PERSON_ID,
                     name: name.to_owned(),
                     description: String::new(),
                 },
@@ -718,6 +726,7 @@ mod tests {
             let created = project::create(
                 &mut connection,
                 &NewProject {
+                    created_by: TEST_PERSON_ID,
                     name: name.to_owned(),
                     description: String::new(),
                 },

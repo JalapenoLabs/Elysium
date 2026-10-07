@@ -193,6 +193,7 @@ mod tests {
             connection,
             &cipher(),
             &NewSatellite {
+                created_by: crate::test_support::TEST_PERSON_ID,
                 name: "orbit".to_owned(),
                 description: String::new(),
                 url: "http://arsox:8080".to_owned(),
@@ -206,6 +207,7 @@ mod tests {
         let project_id = project::create(
             connection,
             &NewProject {
+                created_by: crate::test_support::TEST_PERSON_ID,
                 name: "Elysium".to_owned(),
                 description: String::new(),
             },
@@ -214,6 +216,7 @@ mod tests {
         .expect("project")
         .id;
         let new_session = NewCodingSession {
+            created_by: crate::test_support::TEST_PERSON_ID,
             id: coding_session::reserve_id(connection).await.expect("reserve"),
             project_id: Some(project_id),
             satellite_id,

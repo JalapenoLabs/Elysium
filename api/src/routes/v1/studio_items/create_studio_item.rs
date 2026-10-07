@@ -20,6 +20,7 @@ use validator::Validate;
 
 use super::StudioItemResponse;
 use super::thread::studio_thread_settings;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::studio_item::{self, NewStudioItem};
 use crate::models::{project, satellite, storage_location};
@@ -50,6 +51,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -90,6 +92,7 @@ pub async fn handle(
         studio_item::create(
             &mut connection,
             &NewStudioItem {
+                created_by: current.id(),
                 id: Uuid::now_v7(),
                 title: title.clone(),
                 prompt: body.prompt.clone(),
@@ -103,6 +106,7 @@ pub async fn handle(
     let opened = match open::open(
         &state,
         SessionOpening {
+            created_by: current.id(),
             satellite_id: satellite.id,
             settings,
             title,

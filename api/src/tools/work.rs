@@ -19,6 +19,8 @@
 //! tested against Postgres without a satellite; the `run_*` wrappers only parse, connect,
 //! and report.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use diesel::result::Error as DieselError;
 use diesel_async::AsyncPgConnection;
@@ -30,7 +32,7 @@ use uuid::Uuid;
 use super::{CallScope, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments};
 use crate::action_items::links::LinkError;
 use crate::action_items::progress::{self, Progress};
-use crate::action_items::{Actor, WorkError};
+use crate::action_items::{Actor, WorkError, actor_label};
 use crate::github::issues::IssueRef;
 use crate::models::action_item::{
     self, ActionItem, ActionItemFilter, ActionItemState, Memberships, ProjectFilter,
@@ -40,7 +42,7 @@ use crate::models::action_item_event::{self, HistoryEntry, Recorded};
 use crate::models::action_item_link::{self, LinkCredential, LinkKind, LinkProvider, NewLink};
 use crate::models::coding_session;
 use crate::models::initiative::{self, Initiative, InitiativeFilter, InitiativeState};
-use crate::models::project;
+use crate::models::{project, user};
 use crate::realtime::ServerEvent;
 use crate::routes::v1::action_items::{CommentResponse, HistoryEntryResponse};
 use crate::routes::v1::action_items::{publish_item_links, publish_item_write};
@@ -757,8 +759,15 @@ async fn item_detail(
         .map(|project| json!({ "id": project.id, "name": project.name }))
         .collect();
     detail["initiatives"] = json!(initiatives);
-    detail["comments"] = comments.iter().map(comment_view).collect();
-    detail["history"] = history.iter().map(history_view).collect();
+    let names = user::names(connection).await?;
+    detail["comments"] = comments
+        .iter()
+        .map(|comment| comment_view(comment, &names))
+        .collect();
+    detail["history"] = history
+        .iter()
+        .map(|entry| history_view(entry, &names))
+        .collect();
     detail["historyCount"] = json!(history_count);
     Ok(json!({ "item": detail }))
 }
@@ -954,19 +963,23 @@ fn item_summary(item: &ActionItem, memberships: &Memberships) -> Value {
     })
 }
 
-fn comment_view(comment: &Comment) -> Value {
+/// A comment for an agent. `author` is the recorded actor; `authorName` is how it reads.
+fn comment_view(comment: &Comment, names: &HashMap<Uuid, String>) -> Value {
     json!({
         "id": comment.id,
         "author": comment.author,
+        "authorName": actor_label(&comment.author, names),
         "body": comment.body,
         "createdAt": comment.created_at,
     })
 }
 
-fn history_view(entry: &HistoryEntry) -> Value {
+/// A history entry for an agent. `actor` is the recorded actor; `actorName` is how it reads.
+fn history_view(entry: &HistoryEntry, names: &HashMap<Uuid, String>) -> Value {
     json!({
         "kind": entry.kind,
         "actor": entry.actor,
+        "actorName": actor_label(&entry.actor, names),
         "data": entry.data,
         "at": entry.created_at,
     })

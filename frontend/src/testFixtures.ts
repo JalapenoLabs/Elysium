@@ -14,11 +14,15 @@ import type { Project } from './api/routes/projectRoutes'
 import type { Satellite } from './api/routes/satelliteRoutes'
 import type { StorageLocation } from './api/routes/storageRoutes'
 import type { StudioAsset, StudioFeedback, StudioItem } from './api/routes/studioRoutes'
+import type { User } from './api/routes/userRoutes'
 
 // Records shaped as the API sends them, for tests. Each starts from plain defaults and
 // takes only the fields a test is about.
 
 const CREATED_AT = '2026-09-01T00:00:00.000Z'
+
+// The system user, which owns what predates accounts.
+const CREATED_BY = '00000000-0000-0000-0000-000000000001'
 
 export function makeActionItem(overrides: Partial<ActionItem> & Pick<ActionItem, 'id'>): ActionItem {
   return {
@@ -36,6 +40,7 @@ export function makeActionItem(overrides: Partial<ActionItem> & Pick<ActionItem,
     projectIds: [],
     initiativeIds: [],
     createdAt: CREATED_AT,
+    createdBy: CREATED_BY,
     updatedAt: CREATED_AT,
     ...overrides,
   }
@@ -51,6 +56,7 @@ export function makeInitiative(overrides: Partial<Initiative> & Pick<Initiative,
     progress: { resolved: 0, total: 0 },
     deletedAt: null,
     createdAt: CREATED_AT,
+    createdBy: CREATED_BY,
     updatedAt: CREATED_AT,
     ...overrides,
   }
@@ -108,6 +114,8 @@ export function makeChangeset(overrides: Partial<Changeset> & Pick<Changeset, 'i
     undoneAt: null,
     operations: [],
     createdAt: CREATED_AT,
+    createdBy: '00000000-0000-0000-0000-000000000002',
+    decidedBy: null,
     updatedAt: CREATED_AT,
     ...overrides,
   }
@@ -123,6 +131,7 @@ export function makeCodingSession(overrides: Partial<CodingSession> & Pick<Codin
     actionItemId: null,
     studioItemId: null,
     createdAt: CREATED_AT,
+    createdBy: CREATED_BY,
     updatedAt: CREATED_AT,
     thread: null,
     ...overrides,
@@ -134,6 +143,7 @@ export function makeProject(overrides: Partial<Project> & Pick<Project, 'id'>): 
     name: overrides.id,
     description: '',
     createdAt: CREATED_AT,
+    createdBy: CREATED_BY,
     updatedAt: CREATED_AT,
     coverUpdatedAt: null,
     coverFit: 'fit',
@@ -205,6 +215,23 @@ export function makeStudioItem(overrides: Partial<StudioItem> & Pick<StudioItem,
     modelCount: 0,
     pullError: null,
     deletedAt: null,
+    createdBy: CREATED_BY,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeUser(overrides: Partial<User> = {}): User {
+  return {
+    id: 'person',
+    kind: 'person',
+    name: 'Ada Lovelace',
+    email: 'ada@example.com',
+    role: 'member',
+    status: 'active',
+    approvedAt: CREATED_AT,
+    lastSeenAt: null,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     ...overrides,
@@ -236,6 +263,7 @@ export function makeStudioFeedback(overrides: Partial<StudioFeedback> & Pick<Stu
     sourceAssetId: null,
     cameraOrbit: null,
     hasCapture: true,
+    createdBy: CREATED_BY,
     createdAt: CREATED_AT,
     ...overrides,
   }
@@ -251,6 +279,7 @@ export function makeStorageLocation(
     storageLimitBytes: null,
     projects: '*',
     isStudioDefault: false,
+    createdBy: CREATED_BY,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     ...overrides,
@@ -263,6 +292,7 @@ export function makeSatellite(overrides: Partial<Satellite> & Pick<Satellite, 'i
     description: '',
     url: 'http://satellite.test',
     isActive: true,
+    createdBy: CREATED_BY,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     status: {

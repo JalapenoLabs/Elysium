@@ -28,6 +28,7 @@ function makeCredential(overrides: Partial<JiraCredential> = {}): JiraCredential
     boards: [{ id: 12, name: 'ELY board', projectKey: 'ELY' }],
     checkedAt: '2026-09-18T12:00:00.000Z',
     createdAt: '2026-09-18T12:00:00.000Z',
+    createdBy: '00000000-0000-0000-0000-000000000001',
     updatedAt: '2026-09-18T12:00:00.000Z',
     ...overrides,
   }

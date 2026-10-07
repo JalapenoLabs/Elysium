@@ -42,6 +42,8 @@ export type CodingSession = {
   // The Studio item the session belongs to; null for a Coding session.
   studioItemId: string | null
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
   updatedAt: string
   // The thread as of the API's latest poll; null until the first poll sees it.
   thread: ThreadStatus | null

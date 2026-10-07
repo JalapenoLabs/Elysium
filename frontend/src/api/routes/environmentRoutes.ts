@@ -15,6 +15,8 @@ export type EnvironmentVariable = {
   // The plaintext of a non-secret variable; null for a secret one.
   value: string | null
   createdAt: string
+  // The user who created it: a person, or a machine such as the coding agent.
+  createdBy: string
   updatedAt: string
 }
 

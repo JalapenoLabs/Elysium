@@ -27,6 +27,8 @@ export type StudioItem = {
   // Cleared once a later file is kept.
   pullError: string | null
   deletedAt: string | null
+  // Who created it.
+  createdBy: string
   createdAt: string
   updatedAt: string
 }
@@ -62,6 +64,8 @@ export type StudioFeedback = {
   cameraOrbit: string | null
   // Whether the clean view was kept beside the drawing.
   hasCapture: boolean
+  // Who sent it.
+  createdBy: string
   createdAt: string
 }
 

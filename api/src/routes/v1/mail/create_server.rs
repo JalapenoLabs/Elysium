@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use validator::Validate;
 
 use super::validate_domain;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::mail::hosting::StartRefused;
 use crate::state::AppState;
@@ -31,6 +32,7 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -38,7 +40,11 @@ pub async fn handle(
 
     let hosting = &state.mail.hosting;
     hosting
-        .start(body.hostname.to_lowercase(), body.domain.to_lowercase())
+        .start(
+            body.hostname.to_lowercase(),
+            body.domain.to_lowercase(),
+            current.id(),
+        )
         .await
         .map_err(|refused| match refused {
             StartRefused::AlreadyExists => ApiError::Conflict("a mail server already exists"),

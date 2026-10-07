@@ -17,6 +17,7 @@ import { selectProjectNamesById } from '../../store/projectsSlice'
 import { Link, Spinner } from '@heroui/react'
 
 // Misc
+import { useActorNames } from '../../hooks/useActorNames'
 import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { getChangesetViewUrl } from '../../urls'
 import { describeActor } from './actionItemPresentation'
@@ -34,6 +35,7 @@ export function HistoryTimeline(props: Props) {
   const { t, i18n } = useTranslation([ 'actionItems', 'initiatives' ])
   useProjectsLoader()
   useInitiativesLoader()
+  const actorNames = useActorNames()
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
   const initiativeNames = useAppSelector(selectInitiativeNamesById, shallowEqual)
   const itemTitles = useAppSelector(selectActionItemTitlesById, shallowEqual)
@@ -58,7 +60,7 @@ export function HistoryTimeline(props: Props) {
 
   return <ol className='flex flex-col gap-4 border-l border-separator pl-4'>{
     props.entries.toReversed().map((entry) => {
-      const actor = describeActor(entry.actor)
+      const actor = describeActor(entry.actor, actorNames)
       const description = describeHistoryEntry(entry, context, t)
       return <li key={entry.id} className='text-sm'>
         <p>

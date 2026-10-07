@@ -12,13 +12,14 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::publish_item_write;
-use crate::action_items::Actor;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item;
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<(Uuid, Uuid)>, PathRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Path((id, project_id)) = path?;
@@ -30,7 +31,7 @@ pub async fn handle(
         .context("no database connection available")?;
 
     let removed =
-        action_item::remove_project(&mut connection, id, project_id, Actor::User, now).await?;
+        action_item::remove_project(&mut connection, id, project_id, current.actor(), now).await?;
     let item = publish_item_write(&state.events, &mut connection, removed, &[], now).await?;
 
     Ok(Json(json!({ "item": item })))

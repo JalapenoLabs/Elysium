@@ -265,9 +265,11 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::test_support::TEST_PERSON_ID;
 
     fn credential(name: &str, type_: LlmType, token: &str) -> (Llm, SecretString) {
         let llm = Llm {
+            created_by: TEST_PERSON_ID,
             id: Uuid::now_v7(),
             name: name.to_owned(),
             description: String::new(),

@@ -43,6 +43,8 @@ use crate::routes::v1::storage_locations::StorageLocationResponse;
 use crate::routes::v1::studio_items::{
     StudioAssetResponse, StudioFeedbackResponse, StudioItemResponse,
 };
+use crate::routes::v1::users::UserResponse;
+use crate::routes::v1::workspace_settings::WorkspaceSettingsResponse;
 
 /// How many serialized events a slow client may fall behind before it is told to
 /// resync. Thread event bursts (streamed agent output) are the largest source; this
@@ -155,6 +157,14 @@ pub enum ServerEvent {
     /// A prompt with a drawing was sent.
     #[serde(rename = "studioFeedback.created")]
     StudioFeedbackCreated(StudioFeedbackResponse),
+    /// A person signed up, was approved, changed role, or was disabled or enabled.
+    #[serde(rename = "user.upserted")]
+    UserUpserted(UserResponse),
+    /// A pending sign-up was rejected.
+    #[serde(rename = "user.deleted")]
+    UserDeleted { id: Uuid },
+    #[serde(rename = "workspaceSettings.updated")]
+    WorkspaceSettingsUpdated(WorkspaceSettingsResponse),
 }
 
 impl ServerEvent {

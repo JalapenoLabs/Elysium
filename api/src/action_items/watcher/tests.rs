@@ -17,6 +17,7 @@ use crate::models::action_item_link::LinkProvider;
 use crate::models::initiative::NewInitiative;
 use crate::models::initiative_link::{ContainerKind, NewContainer};
 use crate::models::project::{self, NewProject};
+use crate::test_support::{TEST_PERSON, TEST_PERSON_ID};
 
 /// An item created from `reference` on GitHub by the user, with that link as its primary.
 async fn item_from_github(fixture: &mut LinkFixture, reference: &str, kind: LinkKind) -> Uuid {
@@ -46,7 +47,7 @@ async fn item_from_github(fixture: &mut LinkFixture, reference: &str, kind: Link
         &mut fixture.connection,
         new_item,
         new_link,
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -81,7 +82,7 @@ async fn link_github(
         &mut fixture.connection,
         item_id,
         new_link,
-        actor == Actor::User,
+        actor == TEST_PERSON,
         actor,
         Utc::now(),
     )
@@ -100,7 +101,7 @@ async fn move_item(fixture: &mut LinkFixture, id: Uuid, transition: Transition) 
         &mut fixture.connection,
         id,
         transition,
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -168,7 +169,7 @@ async fn resolving_moves_every_open_linked_issue_once_and_never_a_pull_request()
         id,
         "JalapenoLabs/Elysium#13",
         LinkKind::Issue,
-        Actor::User,
+        TEST_PERSON,
     )
     .await;
     link_github(
@@ -176,7 +177,7 @@ async fn resolving_moves_every_open_linked_issue_once_and_never_a_pull_request()
         id,
         "JalapenoLabs/Elysium#15",
         LinkKind::PullRequest,
-        Actor::User,
+        TEST_PERSON,
     )
     .await;
 
@@ -256,7 +257,7 @@ async fn a_failed_write_stays_pending_every_pass_until_it_lands_or_is_cancelled(
         cancelled,
         write.link_id,
         write.id,
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -264,7 +265,7 @@ async fn a_failed_write_stays_pending_every_pass_until_it_lands_or_is_cancelled(
     assert!(
         history(&mut fixture, cancelled)
             .await
-            .contains(&"link_write_cancelled by user".to_owned())
+            .contains(&format!("link_write_cancelled by {TEST_PERSON}"))
     );
 
     fixture.github.refuse_writes(false);
@@ -328,7 +329,7 @@ async fn a_comment_is_posted_to_the_primary_link_only() {
         &mut fixture.connection,
         id,
         "Asked Sam for the logs.".to_owned(),
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -523,7 +524,7 @@ async fn the_owner_follows_the_primary_links_assignee_when_it_changes() {
         &mut fixture.connection,
         id,
         by_hand,
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -556,6 +557,7 @@ async fn initiative_on_a_milestone(fixture: &mut LinkFixture) -> (Uuid, Uuid) {
     let project_id = project::create(
         &mut fixture.connection,
         &NewProject {
+            created_by: TEST_PERSON_ID,
             name: "Elysium".to_owned(),
             description: String::new(),
         },
@@ -571,7 +573,7 @@ async fn initiative_on_a_milestone(fixture: &mut LinkFixture) -> (Uuid, Uuid) {
             target_at: None,
             project_ids: vec![project_id],
         },
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -601,7 +603,7 @@ async fn initiative_on_a_milestone(fixture: &mut LinkFixture) -> (Uuid, Uuid) {
             url: container.url,
             title: container.title,
         },
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -722,7 +724,7 @@ async fn a_child_leaves_with_the_container_and_an_item_already_tracked_joins_onc
         &mut fixture.connection,
         initiative_id,
         container_id,
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -745,7 +747,7 @@ async fn a_label_renamed_on_github_is_a_failed_read_that_keeps_its_children() {
             target_at: None,
             project_ids: Vec::new(),
         },
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -782,7 +784,7 @@ async fn a_label_renamed_on_github_is_a_failed_read_that_keeps_its_children() {
             url: container.url,
             title: container.title,
         },
-        Actor::User,
+        TEST_PERSON,
         Utc::now(),
     )
     .await
@@ -892,7 +894,7 @@ async fn a_jira_issue_done_in_jira_resolves_its_item_and_a_resolve_moves_it() {
             &mut fixture.connection,
             new_item,
             new_link,
-            Actor::User,
+            TEST_PERSON,
             Utc::now(),
         )
         .await

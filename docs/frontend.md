@@ -22,6 +22,25 @@ HeroUI v3 on Tailwind CSS v4 and is modeled on Stripe's dashboard.
 | Translations    | i18next with react-i18next                                     |
 | Tests           | Vitest with jsdom and Testing Library                          |
 
+## Serving
+
+In production the API serves the app. The published image's `frontend` stage runs `yarn build`, and the API answers
+every path outside `/api` from that build: files under `assets/` are fingerprinted and cached for a year, a missing
+one is a `404`, and every other path is `index.html`, revalidated on each load. The image build writes Brotli and gzip
+copies beside every text asset, which are sent as they are; the few other files are compressed per request. See
+`api/src/web_app.rs` and `docs/infrastructure.md`.
+
+In development the Vite dev server serves it with hot reload, behind nginx, and `/api` goes to the API.
+
+The production pages carry a strict Content Security Policy (`docs/security.md`): no inline scripts and no eval.
+Code here keeps to it:
+
+- No inline `<script>`. The one script that must run before the first paint is `public/theme.js`.
+- Zod is configured `jitless` in `main.tsx`, before any schema parses. Otherwise it probes for `new Function` once,
+  and the policy reports that probe as a violation even though Zod recovers from it.
+- Images come from the API or are `blob:` or `data:` URLs. Anything from another origin needs the policy widened
+  first.
+
 ## Layout
 
 `src/layout/AppShell.tsx` is the root route's element and renders on every page:
@@ -83,6 +102,50 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s.
 New settings pages add an entry to a section and a route under `/settings`.
+
+## Accounts
+
+The account pages sit outside the app shell: `/login`, `/signup`, `/recovery`, `/pending`, and `/auth/error`. They
+render Ory Kratos's self-service flows through its JSON API at `/api/identity/`, using `@ory/client-fetch`
+(`src/api/kratos.ts`, `src/api/kratosFlows.ts`). Passkeys go through `@simplewebauthn/browser`, and the email field
+offers them in autofill. See `docs/auth.md`.
+
+- **The gate.** `src/auth/AuthGate.tsx` wraps every workspace page. It loads `GET /api/v1/me` into `authSlice` and
+  sends people where they must go first: sign-in, the second factor, `/pending`, the disabled notice, or Sign-in &
+  security when the workspace requires an authenticator app.
+  - **Refusals.** Any request's `401` or coded `403` lands in Redux through the ky hook in `src/api/index.ts`, and the
+    gate routes on it the same way.
+  - **Event stream.** The stream opens only once the person may use the workspace, and closes on sign-out.
+- **The waiting page.** `/pending` asks `/me` every 5 seconds. It is the one page that polls: a pending person may not
+  open the event stream.
+- **Sign-in & security** (`/settings/security`). Name and email, password, authenticator app, lookup codes, passkeys,
+  and where the person is signed in. Each is a Kratos settings flow; a change needing a recent sign-in sends the person
+  to `/login` in refresh mode and back.
+- **Users** (`/settings/users`). Admins only. Workspace access settings, then pending sign-ups pinned above everyone
+  approved. Users flow through SWR, then `usersSlice`, then the `user.*` events. The directory entry is hidden from
+  others and badges the pending count.
+- **Password field.** `PasswordInput` is the one password field. It shows a zxcvbn strength meter
+  (`@zxcvbn-ts/core`, with dictionaries loaded only where the field is) and a checklist: 12 or more characters, an
+  uppercase letter, and a symbol. Forms stay disabled until every rule passes and the score is at least 3.
+- **Names.** `UserName` and `useActorNames` turn a user id or a recorded actor into a name: `user:<id>` is the
+  person, and "You" for oneself. A bare `user` is from before accounts. Resources show who created them with
+  `createdBy`.
+- **Kratos's messages.** These show in English as Kratos sends them. Only Elysium's own sign-up refusals (`4190001`
+  and `4190002`) are translated, as are the API's coded refusals.
+
+## Connecting MCP clients
+
+- **OAuth pages.** Hydra sends someone connecting an MCP client to `/oauth/login` and `/oauth/consent`. Both sit inside
+  the auth gate, in the account pages' layout, so a person who isn't signed in signs in first and comes back.
+  - `/oauth/login` answers the challenge at once and follows the redirect.
+  - `/oauth/consent` shows the client and the scopes it asks for, then Allow or Deny.
+- **Connected apps** (`/settings/connected-apps`):
+  - The MCP server's URL, with the `claude mcp add` and `codex mcp add` commands.
+  - The person's connected clients, with Disconnect.
+  - For admins, every registered client, with Delete.
+  - This data is loaded with SWR and revalidated after a change; no event stream carries it.
+
+See `docs/mcp.md`.
 
 ## Pages and components
 
@@ -544,8 +607,9 @@ localStorage under `elysium.theme`, and defaults to System.
 - `src/theme/startThemeSync.ts` connects them at startup. A listener saves and applies every `themeChanged`. The OS
   color scheme and other tabs' storage events dispatch `themeChanged` again.
 - `useThemePreference()` reads the preference from Redux and dispatches changes.
-- An inline script in `index.html` applies the saved theme before the CSS loads, so dark mode never flashes
-  light on load. It duplicates the resolve-and-apply logic in a few lines; keep the two in sync.
+- `public/theme.js`, loaded by `index.html` without `defer`, applies the saved theme before the CSS loads, so dark
+  mode never flashes light on load. It is a file rather than an inline script because the page's Content Security
+  Policy forbids inline scripts. It duplicates the resolve-and-apply logic in a few lines; keep the two in sync.
 - The theme cards use HeroUI's `RadioGroup` with the preview artwork uikit exports. uikit's own `ThemeSelector`
   hardcodes its green brand color for the selected card.
 

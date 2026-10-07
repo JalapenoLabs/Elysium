@@ -50,6 +50,8 @@ pub struct SatelliteResponse {
     url: String,
     is_active: bool,
     created_at: DateTime<Utc>,
+    /// Who created it.
+    created_by: Uuid,
     updated_at: DateTime<Utc>,
     /// The fleet's latest poll; `None` for an inactive satellite or before the first poll.
     status: Option<SatelliteStatus>,
@@ -64,6 +66,7 @@ impl SatelliteResponse {
             url: satellite.url,
             is_active: satellite.is_active,
             created_at: satellite.created_at,
+            created_by: satellite.created_by,
             updated_at: satellite.updated_at,
             status,
         }

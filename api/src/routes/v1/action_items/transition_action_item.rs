@@ -16,13 +16,15 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{publish_item_links, publish_item_write};
-use crate::action_items::{Actor, Transition};
+use crate::action_items::Transition;
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::action_item;
 use crate::state::AppState;
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     path: Result<Path<Uuid>, PathRejection>,
     transition: Transition,
 ) -> Result<Json<Value>, ApiError> {
@@ -34,7 +36,8 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
 
-    let moved = action_item::transition(&mut connection, id, transition, Actor::User, now).await?;
+    let moved =
+        action_item::transition(&mut connection, id, transition, current.actor(), now).await?;
     let item = publish_item_write(&state.events, &mut connection, moved, &[], now).await?;
     if transition == Transition::Resolve {
         // Resolving owed a close to every linked issue still open; the watcher lands them.

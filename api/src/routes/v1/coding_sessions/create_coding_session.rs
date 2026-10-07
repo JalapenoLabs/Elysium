@@ -31,6 +31,7 @@ use super::github_token::{self, SessionChoice, SessionToken};
 use super::open::{self, SessionOpening};
 use super::{CodingSessionResponse, ThreadPlan, thread_settings, validate_not_blank};
 use super::{first_turn, model_stack};
+use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::github::Repository;
 use crate::models::environment_variable;
@@ -90,6 +91,7 @@ pub struct RepositoryRequest {
 
 pub async fn handle(
     State(state): State<AppState>,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
@@ -151,6 +153,7 @@ pub async fn handle(
     let opened = open::open(
         &state,
         SessionOpening {
+            created_by: current.id(),
             satellite_id: satellite.id,
             settings,
             title: body.title,

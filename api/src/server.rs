@@ -10,6 +10,7 @@
 //! connection drops.
 
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -26,6 +27,8 @@ use tracing::{Level, event};
 
 use crate::action_items::links::Links;
 use crate::action_items::watcher::{WatchContext, Watcher};
+use crate::auth::kratos::Kratos;
+use crate::auth::{Auth, hook_key};
 use crate::config::Config;
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -39,11 +42,12 @@ use crate::mail::dns::DnsChecker;
 use crate::mail::hosting::Hosting;
 use crate::mail::stalwart::Stalwart;
 use crate::mail::stalwart::container::StalwartContainer;
+use crate::oauth::hydra::Hydra;
 use crate::realtime::EventBus;
 use crate::state::AppState;
 use crate::storage::Storage;
 use crate::version::VersionInfo;
-use crate::{connections, middleware, routes, shutdown};
+use crate::{connections, middleware, routes, shutdown, web_app};
 
 /// How long one Docker call may take. Pulling the mail server's image is one call, and
 /// can take minutes on a slow connection.
@@ -54,6 +58,10 @@ const DOCKER_TIMEOUT_SECONDS: u64 = 600;
 /// # Errors
 /// Fails on invalid configuration, an invalid encryption key, pending migrations,
 /// unreachable stores, or a listener that cannot bind.
+#[expect(
+    clippy::too_many_lines,
+    reason = "startup is one ordered sequence, and reads best top to bottom in one place"
+)]
 pub async fn serve() -> Result<()> {
     let config = Config::from_env().context("configuration is invalid")?;
     let version = Arc::new(VersionInfo::from_build()?);
@@ -123,6 +131,7 @@ pub async fn serve() -> Result<()> {
     tokio::spawn(async move { hosting.reconcile().await });
 
     let state = AppState {
+        auth: build_auth(&config, http.clone()),
         database: database.clone(),
         redis: redis.clone(),
         cipher,
@@ -137,7 +146,7 @@ pub async fn serve() -> Result<()> {
         shutdown: shutdown.clone(),
     };
     let rate_limiter = middleware::rate_limit::build();
-    let app = build_router(&config, Arc::clone(&rate_limiter.limiter)).with_state(state);
+    let app = build_router(&config, Arc::clone(&rate_limiter.limiter), &state)?.with_state(state);
 
     let listener = TcpListener::bind(config.bind_address)
         .await
@@ -180,8 +189,22 @@ pub async fn serve() -> Result<()> {
     Ok(())
 }
 
+/// Kratos, and what requests are checked against. See `crate::auth`.
+pub(crate) fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
+    Auth {
+        kratos: Kratos::new(
+            http.clone(),
+            config.kratos_public_url.clone(),
+            config.kratos_admin_url.clone(),
+        ),
+        hydra: Hydra::new(http, config.hydra_admin_url.clone()),
+        hook_key: hook_key::derive(&config.encryption_key),
+        public_url: config.public_url.clone(),
+    }
+}
+
 /// The mail services. The broker and Stalwart share `http`.
-fn build_mail(
+pub(crate) fn build_mail(
     config: &Config,
     http: reqwest::Client,
     database: Pool,
@@ -232,13 +255,22 @@ fn build_mail(
     })
 }
 
-/// Assembles middleware around the routes. Outermost layers run first on the way
-/// in and last on the way out, so request ids exist before anything logs, and the
-/// security headers cover every response including rate limit rejections.
+/// Assembles middleware around the routes and, when the image carries one, the web
+/// app. Outermost layers run first on the way in and last on the way out, so request
+/// ids exist before anything logs, and the security headers cover every response
+/// including rate limit rejections and the web app's files.
+///
+/// Only `/api` is rate limited. A cold page load fetches several of the web app's files
+/// at once, and serving one costs a file read, so limiting them would spend a visitor's
+/// API budget on its first paint without protecting anything.
+///
+/// # Errors
+/// Fails when `FRONTEND_DIR` names a directory without a build in it.
 fn build_router(
     config: &Config,
     rate_limit: Arc<middleware::rate_limit::Limiter>,
-) -> Router<AppState> {
+    state: &AppState,
+) -> Result<Router<AppState>> {
     let layers = ServiceBuilder::new()
         .layer(middleware::trace::set_request_id_layer())
         .layer(middleware::trace::propagate_request_id_layer())
@@ -252,11 +284,105 @@ fn build_router(
         .layer(axum::middleware::from_fn(
             middleware::security_headers::apply,
         ))
-        .layer(middleware::cors::layer(config.cors_allowed_origins.clone()))
-        .layer(axum::middleware::from_fn_with_state(
-            rate_limit,
-            middleware::rate_limit::enforce,
-        ));
+        .layer(middleware::cors::layer(config.cors_allowed_origins.clone()));
 
-    routes::router().layer(layers)
+    let routes = assemble_routes(
+        routes::router(state),
+        rate_limit,
+        config.frontend_dir.as_deref(),
+    )?;
+    Ok(routes.layer(layers))
+}
+
+/// Rate limits `api`, then merges the web app beside it when `frontend_dir` names one.
+///
+/// The order is load-bearing. The limiter layer wraps `api`'s routes and its default
+/// fallback; merging replaces that fallback with the web app's, which therefore never
+/// passes through the limiter.
+///
+/// # Errors
+/// Fails when `frontend_dir` names a directory without a build in it.
+fn assemble_routes<State>(
+    api: Router<State>,
+    rate_limit: Arc<middleware::rate_limit::Limiter>,
+    frontend_dir: Option<&Path>,
+) -> Result<Router<State>>
+where
+    State: Clone + Send + Sync + 'static,
+{
+    let api = api.layer(axum::middleware::from_fn_with_state(
+        rate_limit,
+        middleware::rate_limit::enforce,
+    ));
+
+    let Some(directory) = frontend_dir else {
+        event!(
+            name: "api.web_app.disabled",
+            Level::INFO,
+            "FRONTEND_DIR is unset, so only /api is served",
+        );
+        return Ok(api);
+    };
+
+    let app = api.merge(web_app::router(directory)?);
+    event!(
+        name: "api.web_app.configured",
+        Level::INFO,
+        file.directory = %directory.display(),
+        "serving the web app from {{file.directory}}",
+    );
+    Ok(app)
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::Request;
+    use axum::routing::get;
+    use tower::ServiceExt;
+
+    use super::*;
+    use crate::middleware::rate_limit::BURST_SIZE;
+
+    async fn status_of(app: &Router, path: &str) -> StatusCode {
+        let request = Request::get(path)
+            .header("x-real-ip", "203.0.113.7")
+            .body(Body::empty())
+            .expect("request");
+        app.clone()
+            .oneshot(request)
+            .await
+            .expect("infallible")
+            .status()
+    }
+
+    // The web app's files skip the limiter, which is what keeps a cold page load from
+    // spending a visitor's API budget, while /api stays limited. Both follow from the
+    // layer-then-merge order in `assemble_routes`, which nothing else would catch.
+    #[tokio::test]
+    async fn only_api_is_rate_limited_beside_the_web_app() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        std::fs::write(directory.path().join("index.html"), "<!doctype html>").expect("index.html");
+        let api = Router::new().nest("/api", Router::new().route("/ok", get(|| async { "ok" })));
+        let rate_limiter = middleware::rate_limit::build();
+        let app = assemble_routes(
+            api,
+            Arc::clone(&rate_limiter.limiter),
+            Some(directory.path()),
+        )
+        .expect("a valid build");
+
+        for _ in 0..=BURST_SIZE {
+            assert_eq!(status_of(&app, "/projects").await, StatusCode::OK);
+        }
+
+        for _ in 0..BURST_SIZE {
+            assert_eq!(status_of(&app, "/api/ok").await, StatusCode::OK);
+        }
+        assert_eq!(
+            status_of(&app, "/api/ok").await,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        rate_limiter.sweeper.abort();
+    }
 }
