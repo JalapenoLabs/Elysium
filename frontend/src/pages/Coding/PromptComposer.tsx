@@ -16,8 +16,10 @@ type Props = {
   onSend: (prompt: string) => Promise<boolean>
   // The thread has ended and cannot take prompts.
   isClosed: boolean
-  // Shown beside the send button, such as a choice the prompt is sent with.
-  accessory?: ReactNode
+  // Shown on its own row above the field, such as a choice the prompt is sent with. It is
+  // not beside the send button, so the field and the button keep the row however narrow
+  // the column is.
+  header?: ReactNode
   placeholder?: string
 }
 
@@ -60,10 +62,15 @@ export function PromptComposer(props: Props) {
       send()
     }}
   >
-    <div className='mx-auto flex max-w-3xl items-end gap-2'>
+    {props.header && <div className='mx-auto mb-2 max-w-3xl'>
+      {props.header}
+    </div>}
+    {/* Send wraps under the field when the column is too narrow for both, so neither is
+        squeezed nor pushed past the edge. */}
+    <div className='mx-auto flex max-w-3xl flex-wrap items-end justify-end gap-2'>
       <TextField
         aria-label={t('conversation.composer.label')}
-        className='flex-1'
+        className='min-w-0 flex-1 basis-48'
         value={prompt}
         onChange={setPrompt}
       >
@@ -81,12 +88,9 @@ export function PromptComposer(props: Props) {
         />
         <Description className='text-xs'>{t('conversation.composer.hint')}</Description>
       </TextField>
-      {props.accessory && <div className='mb-6 shrink-0'>
-        {props.accessory}
-      </div>}
       <Button
         type='submit'
-        className='mb-6'
+        className='mb-6 shrink-0'
         isDisabled={!canSend}
         isPending={isSending}
       >

@@ -81,48 +81,50 @@ export function StudioComposer(props: Props) {
     }
   }
 
-  const satelliteSelect = <Select
-    className='w-44'
-    aria-label={t('conversation.satellite')}
-    value={satelliteChoice}
-    onChange={(key) => setSatelliteChoice(String(key ?? PREVIOUS_SATELLITE))}
-  >
-    <Label className='sr-only'>{t('conversation.satellite')}</Label>
-    <Select.Trigger>
-      <Select.Value />
-      <Select.Indicator />
-    </Select.Trigger>
-    <Select.Popover>
-      <ListBox>
-        <ListBox.Item id={PREVIOUS_SATELLITE} textValue={t('conversation.satellitePlaceholder')}>
-          {t('conversation.satellitePlaceholder')}
-          <ListBox.ItemIndicator />
-        </ListBox.Item>
-        {activeSatellites.map((satellite) => <ListBox.Item
-          key={satellite.id}
-          id={satellite.id}
-          textValue={satellite.name}
-        >
-          {satellite.name}
-          <ListBox.ItemIndicator />
-        </ListBox.Item>)}
-      </ListBox>
-    </Select.Popover>
-  </Select>
-
-  return <div className='shrink-0'>
-    {hasEnded && <p className='px-4 pb-2 text-center text-xs opacity-70'>{
+  // The notice and the satellite share a row above the field, and the satellite wraps
+  // under the notice when the column is too narrow for both.
+  const continueHeader = <div className='flex flex-wrap items-center gap-x-3 gap-y-2'>
+    <p className='min-w-48 flex-1 text-xs opacity-70'>{
       t('conversation.threadEnded')
-    }</p>}
-    <PromptComposer
-      onSend={send}
-      isClosed={false}
-      accessory={hasEnded
-        ? satelliteSelect
-        : undefined}
-      placeholder={hasEnded
-        ? t('conversation.placeholderContinue')
-        : undefined}
-    />
+    }</p>
+    <Select
+      className='w-56 max-w-full'
+      aria-label={t('conversation.satellite')}
+      value={satelliteChoice}
+      onChange={(key) => setSatelliteChoice(String(key ?? PREVIOUS_SATELLITE))}
+    >
+      <Label className='sr-only'>{t('conversation.satellite')}</Label>
+      <Select.Trigger>
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox>
+          <ListBox.Item id={PREVIOUS_SATELLITE} textValue={t('conversation.satellitePlaceholder')}>
+            {t('conversation.satellitePlaceholder')}
+            <ListBox.ItemIndicator />
+          </ListBox.Item>
+          {activeSatellites.map((satellite) => <ListBox.Item
+            key={satellite.id}
+            id={satellite.id}
+            textValue={satellite.name}
+          >
+            {satellite.name}
+            <ListBox.ItemIndicator />
+          </ListBox.Item>)}
+        </ListBox>
+      </Select.Popover>
+    </Select>
   </div>
+
+  return <PromptComposer
+    onSend={send}
+    isClosed={false}
+    header={hasEnded
+      ? continueHeader
+      : undefined}
+    placeholder={hasEnded
+      ? t('conversation.placeholderContinue')
+      : undefined}
+  />
 }
