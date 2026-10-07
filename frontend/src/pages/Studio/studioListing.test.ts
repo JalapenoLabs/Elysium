@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { makeCodingSession, makeStudioItem } from '../../testFixtures'
 import {
   filterStudioItems,
+  getTileThreadState,
   getTileThumbnail,
   NO_PROJECT,
   readStudioFilters,
@@ -93,5 +94,29 @@ describe('getTileThumbnail', () => {
     expect(getTileThumbnail(item, idle)).toEqual({ kind: 'empty' })
     expect(getTileThumbnail(item, expired)).toEqual({ kind: 'empty' })
     expect(getTileThumbnail(item, undefined)).toEqual({ kind: 'empty' })
+  })
+})
+
+describe('getTileThreadState', () => {
+  it('shows no chip for an item with no session', () => {
+    expect(getTileThreadState(undefined)).toBeNull()
+  })
+
+  it('shows no chip for a thread the API has not polled yet', () => {
+    const session = makeCodingSession({ id: 1, studioItemId: 'item', thread: null })
+
+    expect(getTileThreadState(session)).toBeNull()
+  })
+
+  it('does not present an unknown state as a state', () => {
+    const session = makeCodingSession({ id: 1, studioItemId: 'item', thread: makeThread({ state: 'unknown' }) })
+
+    expect(getTileThreadState(session)).toBeNull()
+  })
+
+  it.each([ 'running', 'idle', 'expired' ] as const)('shows a %s thread\'s state', (state) => {
+    const session = makeCodingSession({ id: 1, studioItemId: 'item', thread: makeThread({ state }) })
+
+    expect(getTileThreadState(session)).toBe(state)
   })
 })

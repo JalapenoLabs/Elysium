@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ModelViewerElement } from '@google/model-viewer'
-import type { StudioItem } from '../../api/routes/studioRoutes'
+import type { ParseKeys } from 'i18next'
+import type { StudioAssetKind, StudioItem } from '../../api/routes/studioRoutes'
 import type { AnnotationSource } from './annotation'
 import type { StageSubject } from './studioAssets'
 
@@ -16,10 +17,11 @@ import { studioItemUpserted } from '../../store/studioItemsSlice'
 
 // User interface
 import { Button, Spinner, toast, Tooltip } from '@heroui/react'
-import { LuPencilLine, LuPin, LuPinOff } from 'react-icons/lu'
+import { LuImageOff, LuPencilLine, LuPin, LuPinOff } from 'react-icons/lu'
 import { AnnotateModal } from './AnnotateModal'
 import { StudioDownloads } from './StudioDownloads'
 import { StudioFilmstrip } from './StudioFilmstrip'
+import { StudioImage } from './StudioImage'
 
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
@@ -32,6 +34,14 @@ const StudioModelViewer = lazy(async () => {
   const module = await import('./StudioModelViewer')
   return { default: module.StudioModelViewer }
 })
+
+// Why Annotate is off for a shown file that could not be loaded: there is nothing to draw
+// over. Only images and models are shown on the stage.
+const annotateFailedKeyByKind = {
+  image: 'stage.annotateImageFailed',
+  model: 'stage.annotateModelFailed',
+  file: 'stage.annotateNothingShown',
+} as const satisfies Record<StudioAssetKind, ParseKeys<'studio'>>
 
 type Props = {
   item: StudioItem
@@ -57,6 +67,8 @@ export function StudioStage(props: Props) {
   const [ chosenVersionId, setChosenVersionId ] = useState<string | null>(null)
   const [ isPinning, setIsPinning ] = useState(false)
   const [ annotationSource, setAnnotationSource ] = useState<AnnotationSource | null>(null)
+  // The shown file that failed to load, whose Annotate has nothing to draw over.
+  const [ failedAssetId, setFailedAssetId ] = useState<string | null>(null)
 
   // A frozen model view lives in a blob URL for as long as the drawing over it is open.
   useEffect(() => {
@@ -93,6 +105,23 @@ export function StudioStage(props: Props) {
   const versions = getSubjectVersions(groups, subject)
   const shownAsset = versions.find((version) => version.id === chosenVersionId) ?? versions[0]
   const isPinned = Boolean(shownAsset) && item.pinnedAssetId === shownAsset.id
+  const annotateBlocker = shownAsset && failedAssetId === shownAsset.id
+    ? t(annotateFailedKeyByKind[shownAsset.kind])
+    : null
+
+  // A failure is held until the same file loads, so another file loading meanwhile does not
+  // clear it.
+  function trackLoad(assetId: string, state: 'loaded' | 'failed') {
+    setFailedAssetId((current) => {
+      if (state === 'failed') {
+        return assetId
+      }
+      if (current === assetId) {
+        return null
+      }
+      return current
+    })
+  }
 
   async function togglePin() {
     if (!shownAsset) {
@@ -178,17 +207,23 @@ export function StudioStage(props: Props) {
       }</p>
       <div className='flex shrink-0 items-center gap-2'>
         {isPinned && <span className='text-xs opacity-60'>{t('stage.pinned')}</span>}
+        {/* A disabled button fires no hover, so the tooltip hangs on a wrapper around it. */}
         {shownAsset && !props.isReadOnly && <Tooltip delay={300}>
-          <Button
-            size='sm'
-            variant='outline'
-            onPress={() => void openAnnotation()}
-          >
-            <LuPencilLine className='size-4' aria-hidden />
-            <span>{t('stage.annotate')}</span>
-          </Button>
-          <Tooltip.Content>
-            <span>{t('stage.annotateHint')}</span>
+          <Tooltip.Trigger>
+            <div>
+              <Button
+                size='sm'
+                variant='outline'
+                isDisabled={Boolean(annotateBlocker)}
+                onPress={() => void openAnnotation()}
+              >
+                <LuPencilLine className='size-4' aria-hidden />
+                <span>{t('stage.annotate')}</span>
+              </Button>
+            </div>
+          </Tooltip.Trigger>
+          <Tooltip.Content className='max-w-xs'>
+            <span>{annotateBlocker ?? t('stage.annotateHint')}</span>
           </Tooltip.Content>
         </Tooltip>}
         {shownAsset?.kind === 'image' && !props.isReadOnly && <Tooltip delay={300}>
@@ -212,10 +247,19 @@ export function StudioStage(props: Props) {
     </div>
 
     <div className='relative min-h-0 flex-1 bg-surface-secondary'>
-      {shownAsset?.kind === 'image' && <img
+      {/* Keyed by file, so returning to one that failed tries it again. */}
+      {shownAsset?.kind === 'image' && <StudioImage
+        key={shownAsset.id}
         src={getStudioAssetContentUrl(item.id, shownAsset.id)}
         alt={shownAsset.name}
         className='size-full object-contain'
+        fallback={<div className='grid size-full place-items-center p-6'>
+          <div className='flex flex-col items-center gap-2 text-center text-sm opacity-70'>
+            <LuImageOff className='size-8' aria-hidden />
+            <p className='max-w-sm'>{t('stage.imageLoadError')}</p>
+          </div>
+        </div>}
+        onLoadStateChange={(state) => trackLoad(shownAsset.id, state)}
       />}
 
       {shownAsset?.kind === 'model' && <Suspense fallback={<div className='grid size-full place-items-center'>
@@ -225,6 +269,7 @@ export function StudioStage(props: Props) {
           src={getStudioAssetContentUrl(item.id, shownAsset.id)}
           name={shownAsset.name}
           viewerRef={viewerRef}
+          onLoadStateChange={(state) => trackLoad(shownAsset.id, state)}
         />
       </Suspense>}
 

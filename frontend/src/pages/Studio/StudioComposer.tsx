@@ -1,7 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ParseKeys } from 'i18next'
 import type { CodingSession } from '../../api/routes/codingSessionRoutes'
 import type { StudioItem } from '../../api/routes/studioRoutes'
+import type { StudioThreadStatus } from './studioContinuation'
 
 // Core
 import { useMemo, useState } from 'react'
@@ -20,46 +22,64 @@ import { PromptComposer } from '../Coding/PromptComposer'
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { sendStudioTurn } from '../../api/routes/studioRoutes'
-import { useSatellitesLoader } from '../../hooks/useServerData'
-import { CLOSED_THREAD_STATES } from '../Coding/sessionPresentation'
+import { useSatellitesLoader, useStudioItemLoader } from '../../hooks/useServerData'
+import { getStudioThreadStatus } from './studioContinuation'
 
 // The satellite select's key for leaving the choice to the API, which continues on the
-// previous satellite.
+// latest session's satellite.
 const PREVIOUS_SATELLITE = 'previous'
+
+// The statuses in which a prompt opens a new thread, so a satellite is offered.
+type OpeningStatus = Extract<StudioThreadStatus, 'ended' | 'satelliteDeleted' | 'neverRan'>
+
+const noticeKeyByStatus = {
+  ended: 'conversation.threadEnded',
+  satelliteDeleted: 'conversation.satelliteDeleted',
+  neverRan: 'conversation.neverRan',
+} as const satisfies Record<OpeningStatus, ParseKeys<'studio'>>
+
+const placeholderKeyByStatus = {
+  ended: 'conversation.placeholderContinue',
+  satelliteDeleted: 'conversation.placeholderContinue',
+  neverRan: 'conversation.placeholderStart',
+} as const satisfies Record<OpeningStatus, ParseKeys<'studio'>>
 
 type Props = {
   item: StudioItem
-  // The item's newest session; absent until its sessions load.
+  // The item's newest session; absent until its sessions load, or when it has none.
   latestSession: CodingSession | undefined
 }
 
 // Sends the next prompt. Unlike a Coding session's composer, it never closes: a prompt to an
-// item whose thread has ended is how the item continues, in a new thread on the satellite
-// chosen here or else the previous one.
+// item without a live thread is how the item continues, in a new thread on the satellite
+// chosen here. Only an item whose latest session still has its satellite may leave the choice
+// to the API; any other must choose, or the API answers 409.
 export function StudioComposer(props: Props) {
   const { t } = useTranslation([ 'studio', 'common' ])
   const dispatch = useAppDispatch()
   useSatellitesLoader()
+  // The item page loads the item too; SWR shares the request. It says whether no session
+  // means the item never ran or that its sessions have not arrived yet.
+  const itemLoadStatus = useStudioItemLoader(props.item.id)
   const satellites = useAppSelector(selectAllSatellites)
-  const [ satelliteChoice, setSatelliteChoice ] = useState(PREVIOUS_SATELLITE)
+  const [ chosenSatelliteId, setChosenSatelliteId ] = useState<string | null>(null)
 
   const activeSatellites = useMemo(
     () => satellites.filter((satellite) => satellite.isActive),
     [ satellites ],
   )
 
-  const state = props.latestSession?.thread?.state
-  const hasEnded = !props.latestSession
-    || props.latestSession.satelliteId === null
-    || (state !== undefined && CLOSED_THREAD_STATES.includes(state))
+  const status = getStudioThreadStatus(props.latestSession, itemLoadStatus !== 'loading')
+  const offersPrevious = status === 'ended'
+  // A satellite deactivated or deleted since it was chosen is no longer a choice.
+  const chosenSatellite = activeSatellites.find((satellite) => satellite.id === chosenSatelliteId)
 
   async function send(prompt: string) {
     try {
       const response = await sendStudioTurn(props.item.id, {
         prompt,
-        satelliteId: hasEnded && satelliteChoice !== PREVIOUS_SATELLITE
-          ? satelliteChoice
-          : undefined,
+        // The API ignores a satellite while the latest thread is live.
+        satelliteId: chosenSatellite?.id,
       })
       dispatch(codingSessionUpserted(response.session))
       if (response.feedback) {
@@ -81,48 +101,81 @@ export function StudioComposer(props: Props) {
     }
   }
 
-  const satelliteSelect = <Select
-    className='w-44'
-    aria-label={t('conversation.satellite')}
-    value={satelliteChoice}
-    onChange={(key) => setSatelliteChoice(String(key ?? PREVIOUS_SATELLITE))}
-  >
-    <Label className='sr-only'>{t('conversation.satellite')}</Label>
-    <Select.Trigger>
-      <Select.Value />
-      <Select.Indicator />
-    </Select.Trigger>
-    <Select.Popover>
-      <ListBox>
-        <ListBox.Item id={PREVIOUS_SATELLITE} textValue={t('conversation.satellitePlaceholder')}>
-          {t('conversation.satellitePlaceholder')}
-          <ListBox.ItemIndicator />
-        </ListBox.Item>
-        {activeSatellites.map((satellite) => <ListBox.Item
-          key={satellite.id}
-          id={satellite.id}
-          textValue={satellite.name}
-        >
-          {satellite.name}
-          <ListBox.ItemIndicator />
-        </ListBox.Item>)}
-      </ListBox>
-    </Select.Popover>
-  </Select>
-
-  return <div className='shrink-0'>
-    {hasEnded && <p className='px-4 pb-2 text-center text-xs opacity-70'>{
-      t('conversation.threadEnded')
-    }</p>}
-    <PromptComposer
+  if (status === 'loading') {
+    return <PromptComposer
       onSend={send}
       isClosed={false}
-      accessory={hasEnded
-        ? satelliteSelect
-        : undefined}
-      placeholder={hasEnded
-        ? t('conversation.placeholderContinue')
-        : undefined}
+      sendBlocker={t('conversation.loading')}
     />
+  }
+
+  if (status === 'live') {
+    return <PromptComposer
+      onSend={send}
+      isClosed={false}
+    />
+  }
+
+  const selectedKey = chosenSatellite?.id ?? (offersPrevious
+    ? PREVIOUS_SATELLITE
+    : null)
+  const hasChoices = offersPrevious || activeSatellites.length > 0
+  let sendBlocker: string | undefined
+  if (!hasChoices) {
+    sendBlocker = t('conversation.noActiveSatellite')
+  }
+  else if (!selectedKey) {
+    sendBlocker = t('conversation.satelliteRequired')
+  }
+
+  // The notice and the satellite share a row above the field, and the satellite wraps
+  // under the notice when the column is too narrow for both.
+  const header = <div className='flex flex-wrap items-center gap-x-3 gap-y-2'>
+    <p className='min-w-48 flex-1 text-xs opacity-70'>{
+      t(noticeKeyByStatus[status])
+    }</p>
+    <Select
+      className='w-56 max-w-full'
+      aria-label={t('conversation.satellite')}
+      placeholder={t('conversation.satellitePlaceholder')}
+      isDisabled={!hasChoices}
+      value={selectedKey}
+      onChange={(key) => {
+        const satelliteId = key === null || key === PREVIOUS_SATELLITE
+          ? null
+          : String(key)
+        setChosenSatelliteId(satelliteId)
+      }}
+    >
+      <Label className='sr-only'>{t('conversation.satellite')}</Label>
+      <Select.Trigger>
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      <Select.Popover>
+        <ListBox>
+          {offersPrevious && <ListBox.Item id={PREVIOUS_SATELLITE} textValue={t('conversation.previousSatellite')}>
+            {t('conversation.previousSatellite')}
+            <ListBox.ItemIndicator />
+          </ListBox.Item>}
+          {activeSatellites.map((satellite) => <ListBox.Item
+            key={satellite.id}
+            id={satellite.id}
+            textValue={satellite.name}
+          >
+            {satellite.name}
+            <ListBox.ItemIndicator />
+          </ListBox.Item>)}
+        </ListBox>
+      </Select.Popover>
+    </Select>
   </div>
+
+  return <PromptComposer
+    onSend={send}
+    isClosed={false}
+    header={header}
+    placeholder={t(placeholderKeyByStatus[status])}
+    sendBlocker={sendBlocker}
+  />
 }

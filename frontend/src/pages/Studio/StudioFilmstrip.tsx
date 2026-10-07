@@ -7,7 +7,8 @@ import type { StageSubject, StudioAssetGroups } from './studioAssets'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { LuBox } from 'react-icons/lu'
+import { LuBox, LuImageOff } from 'react-icons/lu'
+import { StudioImage } from './StudioImage'
 
 // Misc
 import { getStudioAssetContentUrl } from '../../api/routes/studioRoutes'
@@ -38,6 +39,9 @@ type Props = {
 export function StudioFilmstrip(props: Props) {
   const { t, i18n } = useTranslation('studio')
   const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' })
+
+  // What a frame shows for an image that fails to load, in place of an empty box.
+  const noImage = <LuImageOff className='size-8 opacity-60' aria-hidden />
 
   function frameClassName(isSelected: boolean) {
     if (isSelected) {
@@ -75,11 +79,12 @@ export function StudioFilmstrip(props: Props) {
             onClick={() => props.onSubjectChange({ kind: 'image', path: image.path })}
           >
             <span className={PICTURE_CLASS_NAME}>
-              <img
+              <StudioImage
                 src={getStudioAssetContentUrl(props.itemId, image.versions[0].id)}
                 alt=''
                 loading='lazy'
                 className='size-full object-contain'
+                fallback={noImage}
               />
             </span>
             <span className='truncate'>{image.versions[0].name}</span>
@@ -106,11 +111,12 @@ export function StudioFilmstrip(props: Props) {
             >
               <span className={PICTURE_CLASS_NAME}>{
                 version.kind === 'image'
-                  ? <img
+                  ? <StudioImage
                     src={getStudioAssetContentUrl(props.itemId, version.id)}
                     alt=''
                     loading='lazy'
                     className='size-full object-contain'
+                    fallback={noImage}
                   />
                   : <LuBox className='size-8 opacity-60' aria-hidden />
               }</span>

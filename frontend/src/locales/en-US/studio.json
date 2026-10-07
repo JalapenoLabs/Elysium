@@ -84,6 +84,10 @@
     "pinned": "Thumbnail",
     "annotate": "Annotate",
     "annotateHint": "Draw over this view to show the agent what to change",
+    "annotateImageFailed": "This image could not be loaded, so there is nothing to draw over.",
+    "annotateModelFailed": "This model could not be shown, so there is no view to draw over.",
+    "annotateNothingShown": "This file has no view to draw over.",
+    "imageLoadError": "This image could not be loaded.",
     "toasts": {
       "pinned": "The tile now shows this image.",
       "unpinned": "The tile shows its default image again.",
@@ -127,9 +131,15 @@
     "continuedBrief": "Continued in a new thread, which started from a brief of the item so far",
     "drawing": "Drawing sent with this prompt",
     "threadEnded": "This item's thread has ended. Sending continues it in a new thread.",
+    "satelliteDeleted": "This item's satellite was deleted. Choose a satellite to continue it on in a new thread.",
+    "neverRan": "This item has never run. Choose a satellite to start it on.",
     "satellite": "Satellite",
-    "satellitePlaceholder": "Previous satellite",
-    "placeholderContinue": "Continue the item…"
+    "satellitePlaceholder": "Choose a satellite",
+    "previousSatellite": "Previous satellite",
+    "satelliteRequired": "Choose a satellite to run the agent on first.",
+    "noActiveSatellite": "No satellite is active. Activate one under Settings, Satellites.",
+    "placeholderContinue": "Continue the item…",
+    "placeholderStart": "Describe what the agent should make…"
   },
   "delete": {
     "action": "Delete",

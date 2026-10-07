@@ -433,9 +433,11 @@ matter when changing it:
 - **Deletes.** `studioItem.deleted` carries only an id, so, as for action items, it revalidates the deleted list
   and the item's own page.
 - **Reuse from Coding.** The conversation reuses `TimelineEventList` and `useFollowingScroll`, and the composer
-  reuses `PromptComposer` with `isClosed` always false.
+  reuses `PromptComposer` with `isClosed` always false, its `header` row for the satellite picker, and its
+  `sendBlocker`, which disables Send with the reason in a tooltip.
 - **Pure logic.** Grouping files by stem, the stage's default subject, layout modes and the stored layout, tile
-  thumbnails, filters, location choices, and drawing geometry are pure modules with tests beside them.
+  thumbnails, filters, location choices, where the next prompt goes, and drawing geometry are pure modules with tests
+  beside them.
 
 ### Projects page
 

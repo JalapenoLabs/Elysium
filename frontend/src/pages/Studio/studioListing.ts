@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { CodingSession } from '../../api/routes/codingSessionRoutes'
+import type { CodingSession, ThreadState } from '../../api/routes/codingSessionRoutes'
 import type { StudioItem } from '../../api/routes/studioRoutes'
 
 // Misc
@@ -94,4 +94,15 @@ export function getTileThumbnail(item: StudioItem, latestSession: CodingSession 
     return { kind: 'working' }
   }
   return { kind: 'empty' }
+}
+
+// The thread state a tile's chip shows, or null for no chip. An item with no session has no
+// thread to report, and a thread the API has not polled yet, or one whose satellite reported
+// no known state, has no state worth naming: the thumbnail already says when work is under way.
+export function getTileThreadState(latestSession: CodingSession | undefined): ThreadState | null {
+  const state = latestSession?.thread?.state
+  if (!state || state === 'unknown') {
+    return null
+  }
+  return state
 }

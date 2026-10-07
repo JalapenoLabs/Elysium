@@ -216,9 +216,11 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
 
 `/studio` (`StudioPage`) is tiles only (`StudioItemTile`):
 
-- **Tile.** The thumbnail, title, live thread state, and image and model counts. The thumbnail is the API's choice
-  (`thumbnailAssetId`); without one, a working placeholder shows while the item's thread runs or waits, else an empty
-  frame (`getTileThumbnail` in `studioListing.ts`).
+- **Tile.** The thumbnail, title, live thread state, and image and model counts. The state chip shows only once the
+  item's latest thread has a known state (`getTileThreadState`): an item with no session, or a thread not polled yet,
+  has none. The thumbnail is the API's choice (`thumbnailAssetId`); without one, a working placeholder shows while the
+  item's thread runs or waits, else an empty frame (`getTileThumbnail` in `studioListing.ts`). A thumbnail whose
+  content fails to load (the provider is down, or the file is gone) shows the empty frame too.
 - **Filters.** A project (or no project) and a Deleted items switch, kept in the address (`?project=`,
   `?deleted=true`), so a filtered grid survives opening an item. Deleted tiles offer Restore.
 - **New item** (`CreateStudioItemForm`). The prompt, an optional title and project, a storage location, and a
@@ -242,6 +244,10 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
     mounted, so the model stays loaded.
 - **Stage** (`StudioStage`). The image or the 3D viewer, with the file's path above and two actions: Pin as thumbnail
   for an image, and Annotate.
+  - Every stored image, on the stage, in the filmstrip, and on the tile, is a `StudioImage`, which shows a placeholder
+    in place of an image whose content fails to load rather than an empty box.
+  - Annotate is disabled, saying why on hover, while the file shown failed to load: an image that errored, or a model
+    the viewer could not show. There is nothing to draw over.
   - The filmstrip (`StudioFilmstrip`) lists every model and image the item holds, then the versions of the one shown,
     newest first, to compare turns. The stage follows the newest version until an older one is picked.
   - Downloads list the newest version of every file, grouped by stem (`groupStudioAssets` in `studioAssets.ts`).
@@ -251,8 +257,14 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
   `StudioSessionTimeline` built on the Coding page's `TimelineEventList`. A divider sits between sessions. A drawn
   prompt shows its drawing under the prompt, matched by `turnId`.
 - **Composer** (`StudioComposer`). It wraps the Coding page's `PromptComposer` but never closes, since a prompt to an
-  ended thread is how an item continues. While the latest thread has ended, it offers a satellite (or the previous
-  one) and sends through `sendStudioTurn`.
+  ended thread is how an item continues. It sends through `sendStudioTurn`. Without a live thread, a notice and a
+  satellite picker sit on a row above the field, and the picker wraps under the notice in a narrow column
+  (`getStudioThreadStatus` in `studioContinuation.ts` mirrors the API's rule):
+  - The latest thread ended on a satellite that still exists: the picker offers Previous satellite, the default, which
+    leaves the choice to the API.
+  - The latest session's satellite was deleted, or the item has never run (its creation failed): there is no previous
+    satellite, so the picker has no such option and Send stays disabled, saying why, until a satellite is chosen.
+  - No satellite is active: the picker is disabled and Send says so.
 - **Deleted items.** A deleted item is read-only under a banner with Restore. A pull error shows as a banner too.
 - **Delete** (`StudioItemActions`). It confirms through `useConfirm`, whose message (`DeleteStudioItemMessage`) holds
   the unchecked permanent box. A soft delete rereads the item to show it deleted; a permanent one returns to the grid.
