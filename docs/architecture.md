@@ -95,6 +95,35 @@ than a documented warning. A rule the system can check beats a rule written in a
 - **Deployment** is one binary serving the API and the built SPA, from the framework's
   three-stage image.
 
+## Running it
+
+Two ways, and they answer different questions.
+
+**`yarn dev` is the loop.** Postgres runs in Docker, the backend and Vite run on the host,
+and both hot-reload. This is what a working day looks like, and `compose.yaml` exists to
+serve it: datastores only, no application container.
+
+**`compose.app.yaml` runs the whole thing in Docker**, the release image and its database:
+
+```sh
+docker compose --env-file .env.app -f compose.app.yaml up -d --wait
+```
+
+It builds the production image, so a source edit means a rebuild. Reach for it to see the
+deployment shape, to hand somebody a URL, or to prove the image actually boots. It takes its
+own compose project name and network, and every port comes from `.env.app`, so it runs beside
+whatever else the host is already serving instead of fighting it for a port.
+
+Three environment values have no defaults and the server refuses to start without them:
+`DATABASE_URL`, `APP_URL`, and `ANUBIS_SECRET_KEY`. `APP_URL` is the origin a browser sees,
+and email links, OAuth redirect URIs, and the websocket origin are all built from it, so it
+has to match the address the container is actually reached on rather than the container's own
+view of itself.
+
+The application reaches Postgres by service name over the compose network, never through the
+published host port. The published port is for `psql` and for reading the database while
+something is wrong.
+
 ## Where the tenancy sits
 
 Every resource chains its ownership to a tenant, and the framework's guards walk that chain

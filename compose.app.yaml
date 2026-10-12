@@ -1,0 +1,65 @@
+# The whole application in Docker: the server, the built SPA, and its database.
+#
+#   docker compose --env-file .env.app -f compose.app.yaml up -d --wait
+#
+# This is not the day-to-day loop. `yarn dev` is, because it runs the backend
+# and Vite on the host where both hot-reload; this file builds a release image
+# and serves the bundle, so a source edit means a rebuild. Reach for it to see
+# the deployment shape, to hand somebody a URL, or to check that the production
+# image actually boots.
+#
+# Every port comes from `.env.app` and defaults away from the ranges the usual
+# stacks claim, so this can run beside them. It also takes its own project name
+# and its own network, so nothing here joins or collides with another compose
+# project on the same host.
+name: elysium-app
+
+services:
+  postgres:
+    container_name: elysium-app-postgres
+    image: postgres:17.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-elysium}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.app}
+      POSTGRES_DB: ${POSTGRES_DB:-elysium_app}
+    ports:
+      # Published for psql and debugging. The application does not use this
+      # path: it reaches Postgres over the compose network by service name.
+      - "127.0.0.1:${POSTGRES_PORT:-54329}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-elysium}"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  app:
+    container_name: elysium-app
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # `postgres` is the service name on this network, so the address resolves
+      # inside the network and never depends on a published host port. Naming
+      # the host by address rather than by `localhost` is the same rule
+      # .env.example states: a dual-stack lookup that tries ::1 first pays a
+      # full TCP connect timeout per pool connection.
+      DATABASE_URL: postgres://${POSTGRES_USER:-elysium}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-elysium_app}
+      # The origin a browser sees. Email links, OAuth redirect URIs, and the
+      # websocket origin are all built from it, so it has to match the address
+      # the port below is reached on rather than the container's own view.
+      APP_URL: ${APP_URL:-http://localhost:31500}
+      # Production refuses to boot without this. Mint one with
+      # `anubis secret generate`; rotating it discards every sealed value.
+      ANUBIS_SECRET_KEY: ${ANUBIS_SECRET_KEY:?set ANUBIS_SECRET_KEY in .env.app}
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "127.0.0.1:${APP_PORT:-31500}:3000"
+
+volumes:
+  postgres-data:

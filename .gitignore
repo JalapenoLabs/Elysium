@@ -18,6 +18,8 @@ test-results/
 # Environment
 .env
 .env.local
+# The dockerized-application environment, which carries a real encryption key
+.env.app
 
 # Claude Code local session state
 .claude/
