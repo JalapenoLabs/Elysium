@@ -31,8 +31,10 @@ use crate::auth::kratos::Kratos;
 use crate::auth::{Auth, hook_key};
 use crate::browser::Browsers;
 use crate::browser::container::BrowserContainers;
+use crate::browser::devtools::Devtools;
 use crate::browser::neko::Neko;
 use crate::config::Config;
+use crate::connectors::ingest::Ingest;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::database::migrations;
@@ -141,6 +143,13 @@ pub async fn serve() -> Result<()> {
     )?;
     // Brings every browser back up, and keeps them up, until shutdown.
     let browser_reconciler = browsers.start(shutdown.clone());
+    // Reads every connector account through its browser, onto the timeline.
+    let ingest = Ingest::new(
+        database.clone(),
+        events.clone(),
+        Devtools::new(http.clone()),
+    )
+    .start(shutdown.clone());
 
     let state = AppState {
         auth: build_auth(&config, http.clone()),
@@ -187,6 +196,14 @@ pub async fn serve() -> Result<()> {
     fleet.shutdown().await;
     event!(name: "fleet.shutdown.complete", Level::INFO, "fleet watchers stopped");
     watcher.stopped().await;
+    if let Err(error) = ingest.await {
+        event!(
+            name: "connectors.ingest.join.failed",
+            Level::ERROR,
+            error.message = %error,
+            "the connector ingest loop ended abnormally",
+        );
+    }
     if let Err(error) = browser_reconciler.await {
         event!(
             name: "browser.reconcile.join.failed",

@@ -16,6 +16,7 @@
 
 pub mod address;
 pub mod container;
+pub mod devtools;
 pub mod neko;
 pub mod relay;
 

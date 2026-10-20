@@ -12,6 +12,7 @@ mod browser;
 mod cli;
 mod config;
 mod connections;
+mod connectors;
 mod crypto;
 mod database;
 mod environment;

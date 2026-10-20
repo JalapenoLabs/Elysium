@@ -125,6 +125,19 @@ pub async fn find_owned(
         .await
 }
 
+/// The browser `id`, whoever owns it. Only for machines acting for its owner, such as a
+/// connector reading through it; requests use [`find_owned`].
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist.
+pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<BrowserSession> {
+    browser_sessions::table
+        .find(id)
+        .select(BrowserSession::as_select())
+        .first(connection)
+        .await
+}
+
 /// Whether the browser `id` is still stored.
 ///
 /// # Errors

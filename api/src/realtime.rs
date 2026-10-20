@@ -32,6 +32,7 @@ use crate::routes::v1::action_items::{
 use crate::routes::v1::browser_sessions::BrowserSessionResponse;
 use crate::routes::v1::changesets::ChangesetResponse;
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
+use crate::routes::v1::connectors::ConnectorAccountResponse;
 use crate::routes::v1::environment_variables::EnvironmentVariableResponse;
 use crate::routes::v1::github_credentials::GithubCredentialResponse;
 use crate::routes::v1::initiatives::{InitiativeLinkResponse, InitiativeResponse};
@@ -87,6 +88,21 @@ pub enum ServerEvent {
     BrowserSessionUpserted(BrowserSessionResponse),
     #[serde(rename = "browserSession.deleted")]
     BrowserSessionDeleted { id: Uuid },
+    /// A connector account was added, or what its last read found about signing in changed.
+    #[serde(rename = "connectorAccount.upserted")]
+    ConnectorAccountUpserted(ConnectorAccountResponse),
+    #[serde(rename = "connectorAccount.deleted")]
+    ConnectorAccountDeleted { id: Uuid },
+    /// Something was ingested onto someone's timeline. Never its content: every client hears
+    /// this, and a person's mail is theirs. Its owner's pages and Elysia load it by id.
+    #[serde(rename = "timelineRecord.created")]
+    TimelineRecordCreated {
+        id: Uuid,
+        source_kind: String,
+        created_by: Uuid,
+        /// The inbox item it raised, when it raised one.
+        action_item_id: Option<Uuid>,
+    },
     /// A write to an item or initiative recorded this in its history.
     #[serde(rename = "history.appended")]
     HistoryAppended(HistoryEntryResponse),

@@ -283,6 +283,24 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    connector_accounts (id) {
+        id -> Uuid,
+        kind -> Text,
+        browser_session_id -> Uuid,
+        sign_in_state -> Text,
+        cursor -> Jsonb,
+        last_polled_at -> Nullable<Timestamptz>,
+        last_error -> Nullable<Text>,
+        is_active -> Bool,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     environment_variables (id) {
         id -> Uuid,
         key -> Text,
@@ -687,6 +705,39 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    timeline_record_projects (timeline_record_id, project_id) {
+        timeline_record_id -> Uuid,
+        project_id -> Uuid,
+        confidence -> Float4,
+        attributed_by -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    timeline_records (id) {
+        id -> Uuid,
+        source_kind -> Text,
+        connector_account_id -> Nullable<Uuid>,
+        external_id -> Nullable<Text>,
+        occurred_at -> Timestamptz,
+        actor -> Text,
+        title -> Text,
+        body -> Text,
+        url -> Nullable<Text>,
+        media -> Nullable<Jsonb>,
+        metadata -> Jsonb,
+        action_item_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     user_events (id) {
         id -> Uuid,
         user_id -> Nullable<Uuid>,
@@ -749,6 +800,8 @@ diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
 diesel::joinable!(coding_sessions -> studio_items (studio_item_id));
 diesel::joinable!(coding_sessions -> users (created_by));
+diesel::joinable!(connector_accounts -> browser_sessions (browser_session_id));
+diesel::joinable!(connector_accounts -> users (created_by));
 diesel::joinable!(environment_variables -> users (created_by));
 diesel::joinable!(github_credentials -> users (created_by));
 diesel::joinable!(initiative_items -> action_items (action_item_id));
@@ -789,6 +842,11 @@ diesel::joinable!(studio_items -> storage_locations (storage_location_id));
 diesel::joinable!(studio_items -> users (created_by));
 diesel::joinable!(studio_storage_reservations -> storage_locations (storage_location_id));
 diesel::joinable!(studio_storage_reservations -> users (created_by));
+diesel::joinable!(timeline_record_projects -> projects (project_id));
+diesel::joinable!(timeline_record_projects -> timeline_records (timeline_record_id));
+diesel::joinable!(timeline_records -> action_items (action_item_id));
+diesel::joinable!(timeline_records -> connector_accounts (connector_account_id));
+diesel::joinable!(timeline_records -> users (created_by));
 diesel::joinable!(workspace_settings -> users (updated_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -802,6 +860,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     changeset_operations,
     changesets,
     coding_sessions,
+    connector_accounts,
     environment_variables,
     github_credentials,
     initiative_items,
@@ -827,6 +886,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     studio_feedback,
     studio_items,
     studio_storage_reservations,
+    timeline_record_projects,
+    timeline_records,
     user_events,
     users,
     workspace_settings,
