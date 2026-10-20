@@ -30,6 +30,7 @@ import { studioAssetsSlice } from './studioAssetsSlice'
 import { studioFeedbackSlice } from './studioFeedbackSlice'
 import { studioItemsSlice } from './studioItemsSlice'
 import { themeSlice } from './themeSlice'
+import { updatesSlice } from './updatesSlice'
 import { usersSlice } from './usersSlice'
 import { workspaceSettingsSlice } from './workspaceSettingsSlice'
 
@@ -70,6 +71,7 @@ export function createAppStore() {
       [studioFeedbackSlice.name]: studioFeedbackSlice.reducer,
       [studioItemsSlice.name]: studioItemsSlice.reducer,
       [themeSlice.name]: themeSlice.reducer,
+      [updatesSlice.name]: updatesSlice.reducer,
       [usersSlice.name]: usersSlice.reducer,
       [workspaceSettingsSlice.name]: workspaceSettingsSlice.reducer,
     },

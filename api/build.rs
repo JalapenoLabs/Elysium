@@ -56,6 +56,12 @@ fn main() {
     let rustc_version = run_command(Command::new(rustc).arg("--version")).unwrap_or_default();
     println!("cargo:rustc-env=ELYSIUM_RUSTC_VERSION={rustc_version}");
 
+    // The release the image is published as, passed by the publish workflow as a build
+    // argument. Empty for `main` and local builds, which are not releases.
+    println!("cargo:rerun-if-env-changed=ELYSIUM_RELEASE");
+    let release = std::env::var("ELYSIUM_RELEASE").unwrap_or_default();
+    println!("cargo:rustc-env=ELYSIUM_RELEASE={release}");
+
     let profile = std::env::var("PROFILE").unwrap_or_default();
     println!("cargo:rustc-env=ELYSIUM_BUILD_PROFILE={profile}");
 }

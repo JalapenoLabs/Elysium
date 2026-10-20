@@ -54,6 +54,7 @@ export const UrlTree = {
   settingsStorage: '/settings/storage',
   settingsStorageNew: '/settings/storage/new',
   settingsStorageEdit: '/settings/storage/:locationId/edit',
+  settingsUpdates: '/settings/updates',
 } as const
 export type UrlValue = typeof UrlTree[keyof typeof UrlTree]
 
