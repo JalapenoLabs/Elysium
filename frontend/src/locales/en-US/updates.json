@@ -1,0 +1,72 @@
+{
+  "title": "Updates",
+  "description": "Elysium checks Docker Hub for a new release every hour and applies it on its own, once no agent is in the middle of a turn. A release that does not come up healthy is rolled back.",
+  "adminOnly": "Only admins can manage updates.",
+  "loadError": "Elysium could not load the update status. Reload the page to try again.",
+  "running": {
+    "label": "Running release",
+    "development": "Development build",
+    "build": "Commit {{commit}}, built {{builtAt}}",
+    "unknownCommit": "unknown"
+  },
+  "state": {
+    "notARelease": {
+      "label": "Not a release",
+      "description": "This build is not a release, so it never updates itself. Releases are what the updater applies."
+    },
+    "upToDate": {
+      "label": "Up to date",
+      "description": "Elysium is running the newest release."
+    },
+    "heldBack": {
+      "label": "Held back",
+      "description": "Release {{release}} rolled back here before, so it waits for you. Update now to try it again."
+    },
+    "waitingForWork": {
+      "label": "Waiting",
+      "description_one": "Release {{release}} applies as soon as {{count}} agent turn finishes.",
+      "description_other": "Release {{release}} applies as soon as {{count}} agent turns finish."
+    },
+    "applying": {
+      "label": "Updating",
+      "description": "The updater is applying a release. Elysium restarts for a moment and reconnects on its own."
+    },
+    "ready": {
+      "label": "Ready",
+      "description": "Release {{release}} applies within a minute."
+    }
+  },
+  "updater": {
+    "missingTitle": "The updater is not running",
+    "missingDescription": "Releases are found but nothing applies them. Turn on auto-update on the host, as docs/infrastructure.md describes."
+  },
+  "check": {
+    "never": "Not checked yet.",
+    "lastChecked": "Last checked {{checkedAt}}.",
+    "failed": "The last check failed: {{error}}"
+  },
+  "actions": {
+    "checkNow": "Check now",
+    "updateNow": "Update to {{release}}"
+  },
+  "toasts": {
+    "applyRequested": "The update applies once no agent is in the middle of a turn.",
+    "failed": "Elysium could not do that."
+  },
+  "history": {
+    "heading": "History",
+    "label": "Update history",
+    "empty": "No updates yet.",
+    "release": "Update",
+    "status": "Outcome",
+    "started": "Started",
+    "finished": "Finished",
+    "reason": "Reason",
+    "fromTo": "{{from}} to {{to}}",
+    "statuses": {
+      "applying": "Applying",
+      "succeeded": "Succeeded",
+      "rolledBack": "Rolled back"
+    }
+  }
+}

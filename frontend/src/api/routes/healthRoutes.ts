@@ -27,6 +27,8 @@ export type GitCommit = {
 export type GetVersionResponse = {
   name: string
   version: string
+  // The release this build was published as, or null for `main` and development builds.
+  release: string | null
   profile: string
   rustc: string
   builtAt: string

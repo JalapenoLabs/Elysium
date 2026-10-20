@@ -2,7 +2,7 @@
 
 //! HTTP routes. Every public path is mounted under `/api`, matching nginx's proxy prefix.
 //! Health and build routes sit at the top level; resources are versioned under `/api/v1`.
-//! `/internal` answers Kratos alone, on the compose network.
+//! `/internal` answers Kratos and the deployment's updater alone, on the compose network.
 
 mod internal;
 mod ok;
@@ -17,7 +17,7 @@ use crate::errors::ApiError;
 use crate::mcp;
 use crate::state::AppState;
 
-/// Builds the `/api` router, and `/internal` for Kratos.
+/// Builds the `/api` router, and `/internal` for Kratos and the updater.
 pub fn router(state: &AppState) -> Router<AppState> {
     let api = Router::new()
         .route("/ok", get(ok::handle))
@@ -75,6 +75,7 @@ mod tests {
         "/api/v1/projects",
         "/api/v1/satellites",
         "/api/v1/storage-locations",
+        "/api/v1/updates",
         "/api/v1/coding-sessions",
         "/api/v1/users",
         "/api/v1/workspace-settings",
@@ -147,12 +148,13 @@ mod tests {
             "/internal/kratos/registration",
             "/internal/kratos/registered",
             "/internal/kratos/courier",
+            "/internal/updater/outcome",
         ] {
             let (status, _) = send(&state, Method::POST, path, None).await;
             assert_eq!(
                 status,
                 StatusCode::UNAUTHORIZED,
-                "{path} needs Kratos's hook key"
+                "{path} needs its caller's key"
             );
         }
     }
