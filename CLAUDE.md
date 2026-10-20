@@ -241,6 +241,19 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   be shown and undone. Deleting items and initiatives is soft. Next's order and the progress rules are pure functions
   in `api/src/action_items/`.
 
+## Elysia
+
+- Elysia's panel sits beside every page, opened from the topbar: her status color (orange running, red errored, pink
+  needs you, green done), what holds her back, her questions, her work, the conversation, and her activity. See
+  `docs/elysia.md`.
+- Everything that starts her is a turn in `elysia_turns`, queued by a person's message or answer, or by her intake,
+  which batches relevant event-stream changes into one `event` turn. Turns run one at a time on one resumed Claude Code
+  session; running them on the host runner is next on the roadmap, and until then they wait in the queue.
+- Her hours are UTC minute-of-week windows, because the server holds no time zones. Only turns she would start herself
+  wait for them; a person's message never does.
+- Her own changes never trigger her, and outward actions go through changesets. Which kinds of action start in which
+  autonomy tier is in `docs/elysia.md`.
+
 ## One event stream keeps the frontend current
 
 - Every page holds one server-sent event stream, `GET /api/v1/events`. Any write or watcher that changes what a

@@ -8,6 +8,7 @@ import { useMatch } from 'react-router'
 // User interface
 import { buttonVariants, Kbd, Link, SearchField, Tooltip } from '@heroui/react'
 import { LuSettings } from 'react-icons/lu'
+import { ElysiaToggle } from '../elysia/ElysiaToggle'
 import { LiveUpdatesIndicator } from './LiveUpdatesIndicator'
 import { UserMenu } from './UserMenu'
 
@@ -59,6 +60,7 @@ export function Topbar() {
       </SearchField.Group>
     </SearchField>
     <div className='level-right gap-3'>
+      <ElysiaToggle />
       <LiveUpdatesIndicator />
       <Tooltip delay={300}>
         {/* A link styled as a button: it navigates, so it must be an anchor. */}

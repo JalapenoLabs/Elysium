@@ -53,6 +53,14 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/changesets`                  | `200` `{ changesets: Changeset[] }`, newest first    |
 | GET    | `/api/v1/changesets/{id}`             | `200` `{ changeset }`                               |
 | POST   | `/api/v1/changesets/{id}/decide`      | `200` `{ changeset }`; approves or rejects operations |
+| GET    | `/api/v1/elysia`                      | `200` `{ elysia }`: her status, hold, questions, work, active turns |
+| PATCH  | `/api/v1/elysia/settings`             | `200` `{ elysia }`; admins: `paused`, `availability`, `resumeUsage` |
+| GET    | `/api/v1/elysia/messages`             | `200` `{ messages }`, newest first; `before`, `limit` |
+| POST   | `/api/v1/elysia/messages`             | `201` `{ message }`; queues a turn                  |
+| GET    | `/api/v1/elysia/turns`                | `200` `{ turns }`, newest first; `limit`            |
+| POST   | `/api/v1/elysia/turns/{id}/cancel`    | `200` `{ turn }`; `409 turn_not_queued` once started |
+| POST   | `/api/v1/elysia/questions/{id}/answer` | `200` `{ question }`; queues a turn; `409 question_not_open` |
+| POST   | `/api/v1/elysia/questions/{id}/dismiss` | `200` `{ question }`; `409 question_not_open`     |
 | POST   | `/api/v1/changesets/{id}/apply`       | `200` `{ changeset }` with each operation's outcome |
 | POST   | `/api/v1/changesets/{id}/undo`        | `200` `{ changeset }` with what each undo did       |
 | GET    | `/api/v1/llms`                        | `200` `{ llms: Llm[] }`, in priority order          |
