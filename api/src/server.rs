@@ -39,6 +39,7 @@ use crate::connectors::ingest::Ingest;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::database::migrations;
+use crate::elysia::intake::{self, IntakeContext};
 use crate::fleet::Fleet;
 use crate::github::Github;
 use crate::jira::Jira;
@@ -133,6 +134,13 @@ pub async fn serve() -> Result<()> {
         links: links.clone(),
     };
     let watcher = Watcher::start(watch, shutdown.clone());
+    let elysia_intake = tokio::spawn(intake::run(
+        IntakeContext {
+            database: database.clone(),
+            events: events.clone(),
+        },
+        shutdown.clone(),
+    ));
     let mail = build_mail(
         &config,
         http.clone(),
@@ -256,6 +264,14 @@ pub async fn serve() -> Result<()> {
             Level::ERROR,
             error.message = %error,
             "the browser reconciler ended abnormally",
+        );
+    }
+    if let Err(error) = elysia_intake.await {
+        event!(
+            name: "elysia.intake.join.failure",
+            Level::ERROR,
+            error.message = %error,
+            "the Elysia intake ended abnormally",
         );
     }
     if let Err(error) = update_checks.await {

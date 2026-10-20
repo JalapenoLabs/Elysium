@@ -6,6 +6,7 @@ import type { Changeset } from '../api/routes/changesetRoutes'
 import type { ConnectorAccount } from '../api/routes/connectorRoutes'
 import type { Initiative, InitiativeLink } from '../api/routes/initiativeRoutes'
 import type { CodingSession, SessionEvent } from '../api/routes/codingSessionRoutes'
+import type { Elysia, ElysiaMessage, ElysiaTurn } from '../api/routes/elysiaRoutes'
 import type { EnvironmentVariable } from '../api/routes/environmentRoutes'
 import type { GithubCredential } from '../api/routes/githubRoutes'
 import type { JiraCredential } from '../api/routes/jiraRoutes'
@@ -56,6 +57,11 @@ export type ServerEvent =
   | { type: 'history.appended', data: HistoryEntry }
   // A changeset was proposed, decided on, applied, or undone.
   | { type: 'changeset.upserted', data: Changeset }
+  // Elysia's status, settings, open questions, or work changed; carries all of it.
+  | { type: 'elysia.updated', data: Elysia }
+  | { type: 'elysiaMessage.created', data: ElysiaMessage }
+  // One of her turns was queued, started, ended, or cancelled.
+  | { type: 'elysiaTurn.upserted', data: ElysiaTurn }
   | { type: 'environmentVariable.upserted', data: EnvironmentVariable }
   | { type: 'environmentVariable.deleted', data: { id: string } }
   | { type: 'githubCredential.upserted', data: GithubCredential }

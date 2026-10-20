@@ -16,6 +16,7 @@ import { browserSessionDeleted, browserSessionUpserted } from '../store/browserS
 import { changesetUpserted } from '../store/changesetsSlice'
 import { connectorAccountDeleted, connectorAccountUpserted } from '../store/connectorAccountsSlice'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
+import { elysiaMessageCreated, elysiaTurnUpserted, elysiaUpdated } from '../store/elysiaSlice'
 import { environmentVariableDeleted, environmentVariableUpserted } from '../store/environmentVariablesSlice'
 import { githubCredentialDeleted, githubCredentialUpserted } from '../store/githubCredentialsSlice'
 import { initiativeDeleted, initiativeUpserted } from '../store/initiativesSlice'
@@ -116,6 +117,9 @@ const handlers: Handlers = {
   },
   'history.appended': (event) => store.dispatch(historyAppended(event.data)),
   'changeset.upserted': (event) => store.dispatch(changesetUpserted(event.data)),
+  'elysia.updated': (event) => store.dispatch(elysiaUpdated(event.data)),
+  'elysiaMessage.created': (event) => store.dispatch(elysiaMessageCreated(event.data)),
+  'elysiaTurn.upserted': (event) => store.dispatch(elysiaTurnUpserted(event.data)),
   'environmentVariable.upserted': (event) => store.dispatch(environmentVariableUpserted(event.data)),
   'environmentVariable.deleted': (event) => store.dispatch(environmentVariableDeleted(event.data.id)),
   'githubCredential.upserted': (event) => store.dispatch(githubCredentialUpserted(event.data)),

@@ -8,6 +8,7 @@ pub mod browser_sessions;
 pub mod changesets;
 pub mod coding_sessions;
 pub mod connectors;
+pub mod elysia;
 pub mod environment_variables;
 mod events;
 pub mod github_credentials;
@@ -56,6 +57,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/browser-sessions", browser_sessions::router())
         .nest("/changesets", changesets::router())
         .nest("/connectors", connectors::router())
+        .nest("/elysia", elysia::router())
         .nest("/environment-variables", environment_variables::router())
         .nest("/github-credentials", github_credentials::router())
         .nest("/initiatives", initiatives::router())

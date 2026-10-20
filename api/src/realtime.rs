@@ -33,6 +33,7 @@ use crate::routes::v1::browser_sessions::BrowserSessionResponse;
 use crate::routes::v1::changesets::ChangesetResponse;
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
 use crate::routes::v1::connectors::ConnectorAccountResponse;
+use crate::routes::v1::elysia::{ElysiaResponse, MessageResponse, TurnResponse};
 use crate::routes::v1::environment_variables::EnvironmentVariableResponse;
 use crate::routes::v1::github_credentials::GithubCredentialResponse;
 use crate::routes::v1::initiatives::{InitiativeLinkResponse, InitiativeResponse};
@@ -110,6 +111,15 @@ pub enum ServerEvent {
     /// A changeset was proposed, decided on, applied, or undone.
     #[serde(rename = "changeset.upserted")]
     ChangesetUpserted(ChangesetResponse),
+    /// Elysia's status, settings, open questions, or work changed.
+    #[serde(rename = "elysia.updated")]
+    ElysiaUpdated(Box<ElysiaResponse>),
+    /// A person or Elysia added to the conversation.
+    #[serde(rename = "elysiaMessage.created")]
+    ElysiaMessageCreated(MessageResponse),
+    /// One of her turns was queued, started, ended, or cancelled.
+    #[serde(rename = "elysiaTurn.upserted")]
+    ElysiaTurnUpserted(TurnResponse),
     #[serde(rename = "environmentVariable.upserted")]
     EnvironmentVariableUpserted(EnvironmentVariableResponse),
     #[serde(rename = "environmentVariable.deleted")]

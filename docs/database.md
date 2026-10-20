@@ -740,6 +740,84 @@ What happened to accounts and workspace settings, one row per change.
 | `data`       | `JSONB`       | A JSON object shaped by `kind`, with values before and after            |
 | `created_at` | `TIMESTAMPTZ` | Set on insert                                                           |
 
+### `elysia_state`
+
+Elysia's settings and her session. One row, always present (`singleton` is its key and must be true). See
+`docs/elysia.md`.
+
+| Column               | Type          | Notes                                                                    |
+|----------------------|---------------|--------------------------------------------------------------------------|
+| `paused`             | `BOOLEAN`     | Defaults to false; while true, no turn starts                            |
+| `availability`       | `JSONB`       | An array of `{ startMinute, endMinute }` UTC minute-of-week windows; empty means any time |
+| `usage_paused_until` | `TIMESTAMPTZ` | While in the future, no turn starts                                      |
+| `runner_session_id`  | `TEXT`        | The Claude Code session her next turn resumes                            |
+| `updated_by`         | `UUID`        | References `users`                                                       |
+| `updated_at`         | `TIMESTAMPTZ` | Maintained by trigger                                                    |
+
+### `elysia_messages`
+
+The conversation between people and Elysia. A message is hers when `created_by` is her seeded user. Never edited.
+
+| Column       | Type          | Notes                                         |
+|--------------|---------------|-----------------------------------------------|
+| `id`         | `UUID`        | UUIDv7, primary key, so ids order messages    |
+| `body`       | `TEXT`        | 1 to 20,000 characters                        |
+| `created_by` | `UUID`        | References `users`                            |
+| `created_at` | `TIMESTAMPTZ` | Set on insert                                 |
+
+### `elysia_turns`
+
+One run of her session and what started it.
+
+| Column           | Type                 | Notes                                                                 |
+|------------------|----------------------|-----------------------------------------------------------------------|
+| `id`             | `UUID`               | UUIDv7, primary key                                                   |
+| `trigger_kind`   | `TEXT`               | `message`, `answer`, or `event`; lowercase, so later kinds need no migration |
+| `trigger_detail` | `JSONB`              | A JSON object: `{ messageId }`, `{ questionId }`, or `{ events, omitted }` |
+| `status`         | `elysia_turn_status` | `queued`, `running`, `succeeded`, `failed`, `cancelled`              |
+| `summary`        | `TEXT`               | Up to 1,000 characters on what the turn did                           |
+| `error`          | `TEXT`               | Up to 2,000 characters; set exactly when `failed`                     |
+| `created_by`     | `UUID`               | The person who wrote or answered; the system user for events          |
+| `created_at`     | `TIMESTAMPTZ`        | Set on insert                                                         |
+| `started_at`     | `TIMESTAMPTZ`        | Set exactly once it ran                                               |
+| `finished_at`    | `TIMESTAMPTZ`        | Set exactly once it succeeded or failed                               |
+
+A partial index on queued and running turns serves the queue.
+
+### `elysia_questions`
+
+What Elysia asks a person when she is blocked.
+
+| Column           | Type                     | Notes                                                       |
+|------------------|--------------------------|-------------------------------------------------------------|
+| `id`             | `UUID`                   | UUIDv7, primary key                                         |
+| `prompt`         | `TEXT`                   | 1 to 2,000 characters                                       |
+| `options`        | `JSONB`                  | Up to four suggested answers, as strings                    |
+| `status`         | `elysia_question_status` | `open`, `answered`, `dismissed`                             |
+| `answer`         | `TEXT`                   | 1 to 2,000 characters; set exactly when `answered`          |
+| `action_item_id` | `UUID`                   | The item it is about; `ON DELETE SET NULL`                  |
+| `created_by`     | `UUID`                   | References `users`                                          |
+| `created_at`     | `TIMESTAMPTZ`            | Set on insert                                               |
+| `answered_by`    | `UUID`                   | Who answered or dismissed it; set exactly once it is closed |
+| `answered_at`    | `TIMESTAMPTZ`            | Set exactly once it is closed                               |
+
+### `elysia_work`
+
+What Elysia has taken on.
+
+| Column           | Type                 | Notes                                                           |
+|------------------|----------------------|-----------------------------------------------------------------|
+| `id`             | `UUID`               | UUIDv7, primary key                                             |
+| `title`          | `TEXT`               | 1 to 200 characters                                             |
+| `detail`         | `TEXT`               | Up to 2,000 characters, where it stands in her words            |
+| `status`         | `elysia_work_status` | `working`, `ready`, `blocked`, `gave-up`, `done`                |
+| `ready_at`       | `TIMESTAMPTZ`        | Her estimate of when it is ready for review                     |
+| `action_item_id` | `UUID`               | The item it serves; `ON DELETE SET NULL`                        |
+| `revisits`       | `INTEGER`            | How often she came back to it                                   |
+| `revisited_at`   | `TIMESTAMPTZ`        | When she last came back to it                                   |
+| `created_by`     | `UUID`               | References `users`                                              |
+| `created_at`     | `TIMESTAMPTZ`        | Set on insert                                                   |
+| `updated_at`     | `TIMESTAMPTZ`        | Maintained by trigger                                           |
 ### `deployment_updates`
 
 Every release the updater was told to apply, and how it ended; see `docs/infrastructure.md`. At most one row is
