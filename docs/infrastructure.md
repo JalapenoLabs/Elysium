@@ -57,7 +57,7 @@ Browsers are not compose services either. The API creates each one's container, 
 named `elysium-browser-<id>`, through `docker-proxy`, and joins itself and nginx to that network. Compose drops
 those joins whenever it recreates nginx or the API; the API's reconciler restores them within 10 seconds. The media
 ports `59000-59007` are published on every interface, and a cloud host needs a firewall rule allowing them over UDP
-and TCP. See `docs/browser.md`.
+and TCP. Browsers need Docker Engine 28.0 or later; see `docs/browser.md`.
 
 `oauth-broker/` is a separate deployable with its own `compose.yml` and .env; it is not part of this
 stack.

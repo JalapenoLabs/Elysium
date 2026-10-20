@@ -14,6 +14,7 @@ use axum::http::StatusCode;
 use uuid::Uuid;
 
 use crate::auth::CurrentUser;
+use crate::browser::DeleteError;
 use crate::errors::ApiError;
 use crate::models::browser_session;
 use crate::state::AppState;
@@ -36,6 +37,9 @@ pub async fn handle(
         .browsers
         .delete(&session)
         .await
-        .map_err(|error| ApiError::BadGateway(format!("{error:#}")))?;
+        .map_err(|error| match error {
+            DeleteError::Docker(error) => ApiError::BadGateway(error.to_string()),
+            DeleteError::Internal(error) => ApiError::Internal(error),
+        })?;
     Ok(StatusCode::NO_CONTENT)
 }

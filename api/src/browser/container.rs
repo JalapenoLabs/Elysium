@@ -208,7 +208,14 @@ impl BrowserContainers {
 
         let options = CreateContainerOptionsBuilder::new().name(&name).build();
         self.docker
-            .create_container(Some(options), container_spec(spec, &fingerprint))
+            .create_container(
+                Some(options),
+                container_spec(
+                    spec,
+                    &fingerprint,
+                    crate::browser::generate_password().expose_secret(),
+                ),
+            )
             .await?;
         // The label claims the setup files are in place, so a container that did not receive
         // them must not survive for the next pass to start.
@@ -252,6 +259,20 @@ impl BrowserContainers {
         }
         event!(name: "browser.container.removed", Level::INFO, container.name = %name, "removed");
         Ok(())
+    }
+
+    /// Whether the Docker Engine honors the gateway priority nginx and the API join browser
+    /// networks with. Older engines ignore it silently, and a browser's network can then
+    /// become nginx's gateway.
+    ///
+    /// # Errors
+    /// [`ContainerError::Docker`] when Docker does not answer.
+    pub async fn supports_gateway_priority(&self) -> Result<bool, ContainerError> {
+        let version = self.docker.version().await?;
+        Ok(version
+            .api_version
+            .as_deref()
+            .is_some_and(api_version_has_gateway_priority))
     }
 
     async fn upload_setup_files(&self, name: &str) -> Result<(), ContainerError> {
@@ -379,6 +400,18 @@ impl BrowserContainers {
     }
 }
 
+/// Gateway priority arrived with Docker Engine 28.0, API version 1.48.
+const GATEWAY_PRIORITY_API_VERSION: (u32, u32) = (1, 48);
+
+/// Whether an Engine API version such as `1.55` is at least [`GATEWAY_PRIORITY_API_VERSION`].
+fn api_version_has_gateway_priority(api_version: &str) -> bool {
+    let mut parts = api_version.split('.').map(str::parse::<u32>);
+    let (Some(Ok(major)), Some(Ok(minor))) = (parts.next(), parts.next()) else {
+        return false;
+    };
+    (major, minor) >= GATEWAY_PRIORITY_API_VERSION
+}
+
 /// Whether Docker's `State.StartedAt` says the container ran at least once.
 fn has_ever_started(started_at: Option<&str>) -> bool {
     started_at.is_some_and(|started_at| !started_at.starts_with(NEVER_STARTED_YEAR))
@@ -444,17 +477,19 @@ fn environment(spec: &BrowserSpec, discarded_admin_password: &str) -> Vec<String
 
 /// The container Docker creates: the pinned image on the browser's own network, answering
 /// as [`host_name`], with no published ports and the profile on its volume.
-fn container_spec(spec: &BrowserSpec, fingerprint: &str) -> ContainerCreateBody {
+/// `discarded_admin_password` is generated per container by the caller and kept nowhere.
+fn container_spec(
+    spec: &BrowserSpec,
+    fingerprint: &str,
+    discarded_admin_password: &str,
+) -> ContainerCreateBody {
     let name = resource_name(spec.session_id);
     let mut labels = managed_labels(spec.session_id);
     labels.insert(SPEC_LABEL.to_owned(), fingerprint.to_owned());
 
     ContainerCreateBody {
         image: Some(IMAGE.to_owned()),
-        env: Some(environment(
-            spec,
-            crate::browser::generate_password().expose_secret(),
-        )),
+        env: Some(environment(spec, discarded_admin_password)),
         labels: Some(labels),
         host_config: Some(HostConfig {
             binds: Some(vec![format!("{name}:{PROFILE_DIRECTORY}")]),
@@ -530,7 +565,7 @@ mod tests {
     #[test]
     fn the_container_publishes_nothing_and_answers_by_its_port() {
         let browser = spec();
-        let body = container_spec(&browser, "fingerprint");
+        let body = container_spec(&browser, "fingerprint", "discarded");
         let host_config = body.host_config.expect("host config");
         assert!(host_config.port_bindings.is_none());
 
@@ -592,13 +627,32 @@ mod tests {
     }
 
     #[test]
-    fn the_fingerprint_changes_with_the_address_and_nothing_else_varies_it() {
-        let first = spec();
+    fn the_fingerprint_is_stable_and_changes_with_each_input() {
+        let original = spec_fingerprint(&spec());
+        assert_eq!(original, spec_fingerprint(&spec()));
+
         let mut moved = spec();
         moved.public_address = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 4));
+        let mut renumbered = spec();
+        renumbered.port = 59004;
+        let mut rekeyed = spec();
+        rekeyed.member_password = SecretString::from("another-password");
+        for changed in [moved, renumbered, rekeyed] {
+            assert_ne!(original, spec_fingerprint(&changed), "{changed:?}");
+        }
+    }
 
-        assert_eq!(spec_fingerprint(&first), spec_fingerprint(&spec()));
-        assert_ne!(spec_fingerprint(&first), spec_fingerprint(&moved));
+    #[test]
+    fn the_fingerprint_covers_every_setup_file() {
+        // Each file's path and contents feed the hash, so any edit to one replaces containers.
+        let mut hasher = Sha256::new();
+        for (path, contents) in SETUP_FILES {
+            hasher.update(path);
+            hasher.update(contents);
+        }
+        let files_only = hex::encode(hasher.finalize());
+        assert_ne!(files_only, spec_fingerprint(&spec()));
+        assert_eq!(SETUP_FILES.len(), 4);
     }
 
     #[test]
@@ -619,15 +673,36 @@ mod tests {
         }
     }
 
+    fn setup_file(path: &str) -> &'static str {
+        SETUP_FILES
+            .iter()
+            .find(|(candidate, _contents)| *candidate == path)
+            .map_or_else(
+                || panic!("{path} is a setup file"),
+                |(_path, contents)| *contents,
+            )
+    }
+
     #[test]
     fn chromium_keeps_its_profile_and_opens_the_devtools_port() {
-        let chromium = SETUP_FILES[0].1;
+        let chromium = setup_file("etc/neko/supervisord/chromium.conf");
         assert!(chromium.contains("--remote-debugging-port=9222"));
         assert!(!chromium.contains("--bwsi"));
         assert!(chromium.contains(&format!("--user-data-dir={PROFILE_DIRECTORY}")));
 
         let policies: serde_json::Value =
-            serde_json::from_str(SETUP_FILES[3].1).expect("the policy is JSON");
+            serde_json::from_str(setup_file("etc/chromium/policies/managed/policies.json"))
+                .expect("the policy is JSON");
         assert_eq!(policies["DefaultCookiesSetting"], 1);
+        assert_eq!(policies["DefaultPopupsSetting"], 1);
+    }
+
+    #[test]
+    fn engines_before_api_1_48_cannot_set_a_gateway_priority() {
+        assert!(api_version_has_gateway_priority("1.48"));
+        assert!(api_version_has_gateway_priority("1.55"));
+        assert!(api_version_has_gateway_priority("2.0"));
+        assert!(!api_version_has_gateway_priority("1.47"));
+        assert!(!api_version_has_gateway_priority("garbage"));
     }
 }
