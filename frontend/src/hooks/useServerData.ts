@@ -25,6 +25,7 @@ import { projectsLoaded } from '../store/projectsSlice'
 import { satellitesLoaded } from '../store/satellitesSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
 import { storageLocationsLoaded } from '../store/storageLocationsSlice'
+import { updatesStatusUpdated } from '../store/updatesSlice'
 import { usersLoaded } from '../store/usersSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
@@ -54,6 +55,7 @@ import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/
 import { listProjects } from '../api/routes/projectRoutes'
 import { listSatellites } from '../api/routes/satelliteRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
+import { getUpdates } from '../api/routes/updateRoutes'
 import { getWorkspaceSettings, listUsers } from '../api/routes/userRoutes'
 
 // How server data reaches a component:
@@ -419,6 +421,16 @@ export function useWorkspaceSettingsLoader(): LoadStatus {
   const { data, error } = useSWR('v1/workspace-settings', async () => {
     const response = await getWorkspaceSettings()
     dispatch(workspaceSettingsUpdated(response.settings))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useUpdatesLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/updates', async () => {
+    const response = await getUpdates()
+    dispatch(updatesStatusUpdated(response.updates))
     return response
   })
   return toLoadStatus(data !== undefined, error)

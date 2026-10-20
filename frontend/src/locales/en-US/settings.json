@@ -50,6 +50,10 @@
     "environment": {
       "title": "Environment variables",
       "description": "Set variables every coding session's agent receives, such as registry tokens or build settings."
+    },
+    "updates": {
+      "title": "Updates",
+      "description": "See which release is running, follow auto-update, and check for a new release."
     }
   },
   "personalDetails": {

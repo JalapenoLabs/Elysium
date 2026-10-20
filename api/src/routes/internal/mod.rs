@@ -1,12 +1,14 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `/internal`: what Kratos calls. nginx proxies nothing here (it forwards `/api/` alone), so
-//! only services on the compose network reach these routes, and each checks the hook key
-//! Kratos carries as well. See `docs/auth.md`.
+//! `/internal`: what Kratos and the deployment's updater call. nginx answers `/internal` with
+//! a `404`, so only services on the compose network reach these routes, and each checks a key
+//! its caller carries as well: Kratos's hook key (see `docs/auth.md`) or the updater's (see
+//! `crate::updates`).
 
 mod courier;
 mod registered;
 mod registration;
+mod updater;
 
 use axum::Router;
 use axum::extract::{Request, State};
@@ -28,6 +30,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .route("/kratos/registered", post(registered::handle))
         .route("/kratos/courier", post(courier::handle))
         .route_layer(from_fn_with_state(state.clone(), require_hook_key))
+        .nest("/updater", updater::router(state))
 }
 
 /// Refuses a call without Kratos's hook key. Both sides are hashed before comparing, so the

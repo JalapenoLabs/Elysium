@@ -42,6 +42,7 @@ use crate::routes::v1::satellites::SatelliteResponse;
 use crate::routes::v1::storage_locations::StorageLocationResponse;
 use crate::routes::v1::users::UserResponse;
 use crate::routes::v1::workspace_settings::WorkspaceSettingsResponse;
+use crate::updates::UpdatesStatus;
 
 /// How many serialized events a slow client may fall behind before it is told to
 /// resync. Thread event bursts (streamed agent output) are the largest source; this
@@ -141,6 +142,10 @@ pub enum ServerEvent {
     /// Live events for the session may have been missed; refetch its history.
     #[serde(rename = "session.resync")]
     SessionResync { id: i64 },
+    /// Auto-update's state changed: a check, an update beginning or ending, or what it
+    /// waits for.
+    #[serde(rename = "updates.status")]
+    UpdatesStatus(Box<UpdatesStatus>),
     /// A person signed up, was approved, changed role, or was disabled or enabled.
     #[serde(rename = "user.upserted")]
     UserUpserted(UserResponse),

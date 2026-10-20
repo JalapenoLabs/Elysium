@@ -54,6 +54,7 @@ import { ManageUsersPage } from './pages/Settings/Users/ManageUsersPage'
 import { AddStorageLocationPage } from './pages/Settings/Storage/AddStorageLocationPage'
 import { EditStorageLocationPage } from './pages/Settings/Storage/EditStorageLocationPage'
 import { ManageStoragePage } from './pages/Settings/Storage/ManageStoragePage'
+import { UpdatesPage } from './pages/Settings/Updates/UpdatesPage'
 
 // Misc
 import { addLlmUrlByType } from './pages/Settings/Llms/llmProviders'
@@ -164,6 +165,10 @@ const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsUsers,
       element: <ManageUsersPage />,
+    },
+    {
+      path: UrlTree.settingsUpdates,
+      element: <UpdatesPage />,
     },
     {
       path: UrlTree.settingsLlms,

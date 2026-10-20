@@ -28,6 +28,7 @@ import { satelliteDeleted, satelliteStatusReported, satelliteUpserted } from '..
 import { sessionEventReceived } from '../store/sessionEventsSlice'
 import { storageLocationDeleted, storageLocationUpserted } from '../store/storageLocationsSlice'
 import { userDeleted, userUpserted } from '../store/usersSlice'
+import { updatesStatusUpdated } from '../store/updatesSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
 // Misc
@@ -110,6 +111,7 @@ const handlers: Handlers = {
   'session.event': (event) => store.dispatch(sessionEventReceived(event.data)),
   // Revalidates only if a conversation panel holds this session's history key.
   'session.resync': (event) => void mutate(`v1/coding-sessions/${event.data.id}/events`),
+  'updates.status': (event) => store.dispatch(updatesStatusUpdated(event.data)),
   // Also updates the signed-in person's own account, through the auth slice.
   'user.upserted': (event) => store.dispatch(userUpserted(event.data)),
   'user.deleted': (event) => store.dispatch(userDeleted(event.data.id)),

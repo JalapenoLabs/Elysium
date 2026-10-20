@@ -51,6 +51,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `session.deleted`    | `{ id }`                 | A session was deleted; `id` is the session's number        |
 | `session.event`      | `SessionEvent`           | A thread emitted an event                                  |
 | `session.resync`     | `{ id }`                 | Live events for that session may have been missed          |
+| `updates.status`     | `UpdatesStatus`          | Auto-update checked, began or finished an update, or what it waits for changed |
 | `user.upserted`      | `User`                   | Someone signed up, was approved, changed role, or was disabled or enabled |
 | `user.deleted`       | `{ id }`                 | A pending sign-up was rejected                             |
 | `workspaceSettings.updated` | `WorkspaceSettings` | Sign-up was opened or closed, or the authenticator rule changed |

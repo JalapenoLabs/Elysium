@@ -124,6 +124,10 @@ offers them in autofill. See `docs/auth.md`.
 - **Users** (`/settings/users`). Admins only. Workspace access settings, then pending sign-ups pinned above everyone
   approved. Users flow through SWR, then `usersSlice`, then the `user.*` events. The directory entry is hidden from
   others and badges the pending count.
+- **Updates** (`/settings/updates`). Admins only. The release running, auto-update's state with what it waits for, a
+  warning when no updater is connected, Check now, Update now for a release that rolled back, and the update history.
+  The status flows through SWR, then `updatesSlice`, then the `updates.status` event. The directory entry is hidden
+  from others.
 - **Password field.** `PasswordInput` is the one password field. It shows a zxcvbn strength meter
   (`@zxcvbn-ts/core`, with dictionaries loaded only where the field is) and a checklist: 12 or more characters, an
   uppercase letter, and a symbol. Forms stay disabled until every rule passes and the score is at least 3.

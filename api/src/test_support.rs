@@ -150,12 +150,24 @@ pub async fn app_state(database_url: &SecretString) -> crate::state::AppState {
     )
     .expect("mail services build without reaching anything");
 
+    let activity = crate::activity::Activities::new();
+    let version = Arc::new(VersionInfo::from_build().expect("build metadata parses"));
+    let updates = crate::updates::Updates::new(crate::updates::UpdatesDeps {
+        database: database.clone(),
+        events: events.clone(),
+        activity: activity.clone(),
+        http: http.clone(),
+        version: Arc::clone(&version),
+        encryption_key: config.encryption_key.clone(),
+    });
+
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
         database,
+        activity,
         redis,
         cipher,
-        version: Arc::new(VersionInfo::from_build().expect("build metadata parses")),
+        version,
         events,
         fleet,
         github,
@@ -163,6 +175,7 @@ pub async fn app_state(database_url: &SecretString) -> crate::state::AppState {
         links,
         mail,
         storage,
+        updates,
         shutdown,
     }
 }

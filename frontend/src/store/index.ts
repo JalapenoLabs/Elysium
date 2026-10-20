@@ -27,6 +27,7 @@ import { sessionEventsSlice } from './sessionEventsSlice'
 import { sessionsViewSlice } from './sessionsViewSlice'
 import { storageLocationsSlice } from './storageLocationsSlice'
 import { themeSlice } from './themeSlice'
+import { updatesSlice } from './updatesSlice'
 import { usersSlice } from './usersSlice'
 import { workspaceSettingsSlice } from './workspaceSettingsSlice'
 
@@ -64,6 +65,7 @@ export function createAppStore() {
       [sessionsViewSlice.name]: sessionsViewSlice.reducer,
       [storageLocationsSlice.name]: storageLocationsSlice.reducer,
       [themeSlice.name]: themeSlice.reducer,
+      [updatesSlice.name]: updatesSlice.reducer,
       [usersSlice.name]: usersSlice.reducer,
       [workspaceSettingsSlice.name]: workspaceSettingsSlice.reducer,
     },

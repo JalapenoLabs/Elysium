@@ -34,6 +34,10 @@ pub mod sql_types {
     pub struct ContainerKind;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "deployment_update_status"))]
+    pub struct DeploymentUpdateStatus;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "github_access"))]
     pub struct GithubAccess;
 
@@ -250,6 +254,22 @@ diesel::table! {
         project_id -> Uuid,
         github_credential_id -> Nullable<Uuid>,
         action_item_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::DeploymentUpdateStatus;
+
+    deployment_updates (id) {
+        id -> Uuid,
+        from_version -> Text,
+        to_version -> Text,
+        status -> DeploymentUpdateStatus,
+        reason -> Nullable<Text>,
+        started_at -> Timestamptz,
+        finished_at -> Nullable<Timestamptz>,
         created_by -> Uuid,
     }
 }
@@ -627,6 +647,7 @@ diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
 diesel::joinable!(coding_sessions -> users (created_by));
+diesel::joinable!(deployment_updates -> users (created_by));
 diesel::joinable!(environment_variables -> users (created_by));
 diesel::joinable!(github_credentials -> users (created_by));
 diesel::joinable!(initiative_items -> action_items (action_item_id));
@@ -667,6 +688,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     changeset_operations,
     changesets,
     coding_sessions,
+    deployment_updates,
     environment_variables,
     github_credentials,
     initiative_items,

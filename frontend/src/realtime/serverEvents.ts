@@ -12,6 +12,7 @@ import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRout
 import type { Project } from '../api/routes/projectRoutes'
 import type { Satellite, SatelliteStatus } from '../api/routes/satelliteRoutes'
 import type { StorageLocation } from '../api/routes/storageRoutes'
+import type { UpdatesStatus } from '../api/routes/updateRoutes'
 import type { User, WorkspaceSettings } from '../api/routes/userRoutes'
 
 // Everything the API's event stream can send. Mirrors `ServerEvent` in
@@ -68,6 +69,8 @@ export type ServerEvent =
   | { type: 'session.event', data: SessionEvent }
   // Live events for this session may have been missed; refetch its history.
   | { type: 'session.resync', data: { id: number } }
+  // Auto-update's state changed: a check, an update beginning or ending, or what it waits for.
+  | { type: 'updates.status', data: UpdatesStatus }
   // Someone signed up, was approved, changed role, or was disabled or enabled.
   | { type: 'user.upserted', data: User }
   // A pending sign-up was rejected.

@@ -37,6 +37,9 @@ The full vision is `docs/vision.md`. Read it before designing any feature.
   with nginx swapped to `nginx/development.conf`. See `docs/infrastructure.md`.
 - `.github/workflows/publish.yml` pushes `jalapenolabs/elysium-api` and `jalapenolabs/elysium-oauth-broker` to Docker
   Hub on every push to `main` and every `v*` tag. A release is a `vX.Y.Z` tag. See `docs/ci.md`.
+- Releases update themselves: the API decides when, and an updater on the host carries it out. It never restarts the
+  stack while work is running; anything a restart would cut short, such as an agent turn, holds an activity
+  (`api/src/activity.rs`) while it runs. See `docs/infrastructure.md`.
 - The web app's pages carry a strict Content Security Policy set by the API: no inline scripts, no eval, nothing
   from another origin. Frontend code keeps to it. See `docs/security.md`.
 
