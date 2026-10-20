@@ -65,10 +65,13 @@ impl std::fmt::Debug for ToolContext {
 /// Who a call is made for: the coding session whose agent called, its project, which
 /// decides what the call may reach, the action item it was started from, and its thread,
 /// whose workspace files the call may read and write.
+///
+/// A Studio session may have no project; it then reaches only the storage locations for
+/// every project, and no work at all.
 #[derive(Clone)]
 pub struct CallScope {
     pub session_id: i64,
-    pub project_id: Uuid,
+    pub project_id: Option<Uuid>,
     pub action_item_id: Option<Uuid>,
     pub workspace: ThreadHandle,
 }

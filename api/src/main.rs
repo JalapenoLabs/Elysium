@@ -32,6 +32,7 @@ mod server;
 mod shutdown;
 mod state;
 mod storage;
+mod studio;
 #[cfg(test)]
 mod test_support;
 mod tools;

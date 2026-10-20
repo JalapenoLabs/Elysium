@@ -26,6 +26,9 @@ import { satellitesSlice } from './satellitesSlice'
 import { sessionEventsSlice } from './sessionEventsSlice'
 import { sessionsViewSlice } from './sessionsViewSlice'
 import { storageLocationsSlice } from './storageLocationsSlice'
+import { studioAssetsSlice } from './studioAssetsSlice'
+import { studioFeedbackSlice } from './studioFeedbackSlice'
+import { studioItemsSlice } from './studioItemsSlice'
 import { themeSlice } from './themeSlice'
 import { updatesSlice } from './updatesSlice'
 import { usersSlice } from './usersSlice'
@@ -64,6 +67,9 @@ export function createAppStore() {
       [sessionEventsSlice.name]: sessionEventsSlice.reducer,
       [sessionsViewSlice.name]: sessionsViewSlice.reducer,
       [storageLocationsSlice.name]: storageLocationsSlice.reducer,
+      [studioAssetsSlice.name]: studioAssetsSlice.reducer,
+      [studioFeedbackSlice.name]: studioFeedbackSlice.reducer,
+      [studioItemsSlice.name]: studioItemsSlice.reducer,
       [themeSlice.name]: themeSlice.reducer,
       [updatesSlice.name]: updatesSlice.reducer,
       [usersSlice.name]: usersSlice.reducer,

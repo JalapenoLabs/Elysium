@@ -1,35 +1,29 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/coding-sessions/{id}/events`: the thread's retained event history.
+//! `GET /api/v1/coding-sessions/{id}/events`: the session's kept event history.
 //!
-//! The satellite has no paged history endpoint, so this replays the thread's stream
-//! from the start and stops at the sequence the thread reported when the request
-//! began. Events after that arrive live on the event stream; clients merge the two on
-//! `sequence`. Only the latest [`HISTORY_LIMIT`] events are returned.
+//! Elysium records every event its session watcher receives (`crate::fleet`), so history is
+//! read from Postgres and outlives the thread. Events after the response arrive live on the
+//! event stream; clients merge the two on `sequence`. Only the latest [`HISTORY_LIMIT`] are
+//! returned.
 
 use std::collections::VecDeque;
-use std::time::Duration;
 
 use anyhow::Context;
 use axum::Json;
 use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, State};
-use futures_util::StreamExt as _;
 use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::errors::ApiError;
 use crate::fleet::views::SessionEvent;
-use crate::models::coding_session;
+use crate::models::{coding_session, session_event};
 use crate::state::AppState;
 
 /// Most events one response carries. A long session's streamed output runs to
 /// thousands of small events; the conversation view needs the recent end of it.
 const HISTORY_LIMIT: usize = 5_000;
-
-/// Longest the replay may take before the request gives up. Well under the API's
-/// request timeout, so a slow satellite answers 502 rather than 408.
-const HISTORY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Which end of a window to keep when more events match than the limit allows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +70,7 @@ enum Flow {
     Stop,
 }
 
-/// Decides, event by event, what a page keeps. Kept apart from the satellite's stream so the
+/// Decides, event by event, what a page keeps. Kept apart from the database read so the
 /// window's rules are tested on their own.
 #[derive(Debug)]
 struct EventCollector {
@@ -148,12 +142,11 @@ pub async fn handle(
     ))
 }
 
-/// Replays the session `id`'s thread over `window`, up to the sequence it had reached when the
+/// Reads the session `id`'s recorded events over `window`, up to the latest recorded when the
 /// read began.
 ///
 /// # Errors
-/// `404` for an unknown session, or `502` when the satellite fails or the replay outlasts
-/// [`HISTORY_TIMEOUT`].
+/// `404` for an unknown session, or an internal error when the database fails.
 pub async fn read_events(
     state: &AppState,
     id: i64,
@@ -164,37 +157,39 @@ pub async fn read_events(
         .get()
         .await
         .context("no database connection available")?;
-    let session = coding_session::find(&mut connection, id).await?;
-    drop(connection);
-
-    let client = state.fleet.client(session.satellite_id).await?;
-    let handle = client.threads().attach(session.thread_id.as_str()).await?;
-    let latest_sequence = handle.get().await?.latest_sequence;
+    // Answers 404 for a session that does not exist, rather than an empty history.
+    coding_session::find(&mut connection, id).await?;
+    let latest_sequence = session_event::latest_sequence(&mut connection, id)
+        .await?
+        .unwrap_or_default();
+    let mut collector = EventCollector::new(window);
     if latest_sequence <= window.after_sequence {
-        return Ok(EventCollector::new(window).finish(latest_sequence));
+        return Ok(collector.finish(latest_sequence));
     }
 
-    let replay = async {
-        // The satellite resumes after the sequence it is given.
-        let mut stream = handle.events_from(window.after_sequence).await?;
-        let mut collector = EventCollector::new(window);
+    // The conversation view's read, every event from the start keeping the latest, is the
+    // common one and the costliest; the database answers it with only the rows it keeps.
+    if window.after_sequence == 0 && window.keep == Keep::Latest && !window.rendered_only {
+        let (thread_events, truncated) =
+            session_event::latest(&mut connection, id, window.limit).await?;
+        let events = thread_events
+            .into_iter()
+            .map(|thread_event| SessionEvent::new(id, thread_event))
+            .collect();
+        return Ok(EventPage {
+            events,
+            truncated,
+            latest_sequence,
+            next_sequence: latest_sequence,
+        });
+    }
 
-        while let Some(thread_event) = stream.next().await {
-            let thread_event = thread_event?;
-            let sequence = thread_event.sequence;
-            let flow = collector.offer(SessionEvent::new(id, thread_event));
-            if flow == Flow::Stop || sequence >= latest_sequence {
-                break;
-            }
+    let thread_events = session_event::after(&mut connection, id, window.after_sequence).await?;
+    for thread_event in thread_events {
+        if collector.offer(SessionEvent::new(id, thread_event)) == Flow::Stop {
+            break;
         }
-        Ok::<_, ApiError>(collector)
-    };
-
-    let collector = tokio::time::timeout(HISTORY_TIMEOUT, replay)
-        .await
-        .map_err(|_elapsed| {
-            ApiError::BadGateway("timed out replaying the thread's history".to_owned())
-        })??;
+    }
     Ok(collector.finish(latest_sequence))
 }
 

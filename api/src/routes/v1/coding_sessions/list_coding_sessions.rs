@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/coding-sessions`: every session, newest first, with its thread state.
+//! `GET /api/v1/coding-sessions`: every Coding session (Studio's are left out), newest first, with its thread state.
 //!
 //! [`find`] answers one session the same way; the MCP server reads it, and no route needs it.
 
@@ -19,7 +19,7 @@ pub async fn handle(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
     Ok(Json(json!({ "sessions": sessions })))
 }
 
-/// Every session, newest first, with the fleet's latest view of its thread.
+/// Every Coding session, newest first, with the fleet's latest view of its thread.
 ///
 /// # Errors
 /// An internal error when the database cannot be reached.
@@ -30,7 +30,7 @@ pub async fn list(state: &AppState) -> Result<Vec<CodingSessionResponse>, ApiErr
         .await
         .context("no database connection available")?;
 
-    let sessions = coding_session::list(&mut connection)
+    let sessions = coding_session::list_coding(&mut connection)
         .await?
         .into_iter()
         .map(|session| {
