@@ -22,7 +22,7 @@
 //! shapes the container is hashed into [`SPEC_LABEL`], so a container built from an older
 //! spec (another address, image, or file) is replaced, keeping its profile volume.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
 use bollard::Docker;
@@ -33,7 +33,8 @@ use bollard::models::{
     VolumeCreateRequest,
 };
 use bollard::query_parameters::{
-    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, RemoveContainerOptionsBuilder,
+    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, ListContainersOptionsBuilder,
+    ListNetworksOptionsBuilder, ListVolumesOptionsBuilder, RemoveContainerOptionsBuilder,
     RemoveVolumeOptionsBuilder, UploadToContainerOptionsBuilder,
 };
 use futures_util::StreamExt;
@@ -76,6 +77,10 @@ const SHARED_MEMORY_BYTES: i64 = 2 * 1024 * 1024 * 1024;
 
 /// The profile directory, as Neko's Chromium is started with it (`neko/chromium.conf`).
 const PROFILE_DIRECTORY: &str = "/home/neko/.config/chromium";
+
+/// Docker reports a container that was created but never started as having started at the
+/// zero time, `0001-01-01T00:00:00Z`.
+const NEVER_STARTED_YEAR: &str = "0001-";
 
 const MANAGED_LABEL: (&str, &str) = ("dev.elysium.managed", "browser");
 const SESSION_LABEL: &str = "dev.elysium.browser-session";
@@ -178,12 +183,12 @@ impl BrowserContainers {
                     .config
                     .and_then(|config| config.labels)
                     .and_then(|labels| labels.get(SPEC_LABEL).cloned());
-                if current.as_deref() == Some(fingerprint.as_str()) {
-                    let running = existing
-                        .state
-                        .and_then(|state| state.running)
-                        .unwrap_or(false);
-                    if !running {
+                let state = existing.state.unwrap_or_default();
+                // Starting is the last step of creating one, so a container that never ran may
+                // be missing its setup files, whatever its label says.
+                let has_started = has_ever_started(state.started_at.as_deref());
+                if current.as_deref() == Some(fingerprint.as_str()) && has_started {
+                    if !state.running.unwrap_or(false) {
                         self.docker.start_container(&name, None).await?;
                     }
                     return Ok(());
@@ -192,7 +197,8 @@ impl BrowserContainers {
                     name: "browser.container.replaced",
                     Level::INFO,
                     container.name = %name,
-                    "replacing a browser container built from an older spec",
+                    container.started = has_started,
+                    "replacing a browser container built from another spec, or never started",
                 );
                 self.remove_container(&name).await?;
             }
@@ -204,14 +210,12 @@ impl BrowserContainers {
         self.docker
             .create_container(Some(options), container_spec(spec, &fingerprint))
             .await?;
-        let upload = UploadToContainerOptionsBuilder::new().path("/").build();
-        self.docker
-            .upload_to_container(
-                &name,
-                Some(upload),
-                bollard::body_full(setup_archive()?.into()),
-            )
-            .await?;
+        // The label claims the setup files are in place, so a container that did not receive
+        // them must not survive for the next pass to start.
+        if let Err(error) = self.upload_setup_files(&name).await {
+            self.remove_container(&name).await?;
+            return Err(error);
+        }
         self.docker.start_container(&name, None).await?;
         event!(name: "browser.container.created", Level::INFO, container.name = %name, "created");
         Ok(())
@@ -248,6 +252,58 @@ impl BrowserContainers {
         }
         event!(name: "browser.container.removed", Level::INFO, container.name = %name, "removed");
         Ok(())
+    }
+
+    async fn upload_setup_files(&self, name: &str) -> Result<(), ContainerError> {
+        let upload = UploadToContainerOptionsBuilder::new().path("/").build();
+        self.docker
+            .upload_to_container(
+                name,
+                Some(upload),
+                bollard::body_full(setup_archive()?.into()),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// The ids of every browser Docker holds anything for: a container, network, or volume
+    /// labelled as one. The reconciler removes those no row owns any more.
+    ///
+    /// # Errors
+    /// [`ContainerError::Docker`] when Docker refuses a listing.
+    pub async fn managed_session_ids(&self) -> Result<HashSet<Uuid>, ContainerError> {
+        let label = format!("{}={}", MANAGED_LABEL.0, MANAGED_LABEL.1);
+        let filters = HashMap::from([("label".to_owned(), vec![label])]);
+        let mut labels: Vec<HashMap<String, String>> = Vec::new();
+
+        let containers = ListContainersOptionsBuilder::new()
+            .all(true)
+            .filters(&filters)
+            .build();
+        for container in self.docker.list_containers(Some(containers)).await? {
+            labels.extend(container.labels);
+        }
+        let networks = ListNetworksOptionsBuilder::new().filters(&filters).build();
+        for network in self.docker.list_networks(Some(networks)).await? {
+            labels.extend(network.labels);
+        }
+        let volumes = ListVolumesOptionsBuilder::new().filters(&filters).build();
+        for volume in self
+            .docker
+            .list_volumes(Some(volumes))
+            .await?
+            .volumes
+            .unwrap_or_default()
+        {
+            labels.push(volume.labels);
+        }
+
+        let ids = labels
+            .iter()
+            .filter_map(|labels| labels.get(SESSION_LABEL))
+            .filter_map(|id| Uuid::parse_str(id).ok())
+            .collect();
+        Ok(ids)
     }
 
     async fn remove_container(&self, name: &str) -> Result<(), ContainerError> {
@@ -321,6 +377,11 @@ impl BrowserContainers {
             Err(error) => Err(error.into()),
         }
     }
+}
+
+/// Whether Docker's `State.StartedAt` says the container ran at least once.
+fn has_ever_started(started_at: Option<&str>) -> bool {
+    started_at.is_some_and(|started_at| !started_at.starts_with(NEVER_STARTED_YEAR))
 }
 
 /// How nginx or the API joins a browser's network: never as its default gateway.
@@ -498,7 +559,19 @@ mod tests {
             .endpoint_config
             .and_then(|endpoint| endpoint.gw_priority)
             .expect("a gateway priority is set");
-        assert!(priority < 0, "priority {priority} could outrank compose's networks");
+        assert!(
+            priority < 0,
+            "priority {priority} could outrank compose's networks"
+        );
+    }
+
+    // A container whose setup upload failed carried the right label but never started; the
+    // next pass started it as is, without the setup files, and reported it running.
+    #[test]
+    fn a_container_that_never_started_is_not_taken_as_set_up() {
+        assert!(!has_ever_started(Some("0001-01-01T00:00:00Z")));
+        assert!(!has_ever_started(None));
+        assert!(has_ever_started(Some("2026-10-20T20:22:46.368773Z")));
     }
 
     #[test]

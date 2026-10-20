@@ -165,12 +165,14 @@ are allowed because sign-in flows open them, and no extension is installed, so t
 - **The reconciler** runs once at startup and then every 10 seconds over every browser. It recreates whatever is
   missing, starts a stopped container, rejoins nginx and the API to each network, and replaces a container whose spec
   changed: another image, public address, or setup file. The spec is a hash in the container's
-  `dev.elysium.browser-spec` label; replacing a container keeps its profile volume. A failure marks the browser
+  `dev.elysium.browser-spec` label; replacing a container keeps its profile volume. A container that never started
+  is replaced too, and one whose setup files fail to copy in is removed at once, since the label claims they are in
+  place. Each pass ends by removing whatever Docker holds for a browser no row owns. A failure marks the browser
   `failed` with the reason until a pass succeeds.
 - **Status** is kept in memory and starts as `starting` when the API starts; the first pass sets it.
 - **Removing one** removes its container, network, and volume, then its row, in a task of its own so a request that
-  is given up on does not stop it halfway. A reconcile pass waiting for Docker meanwhile checks the row is still
-  there before it creates anything. The accounts it was signed in to are untouched; their sessions simply stop being
+  is given up on does not stop it halfway, and holding Docker's lock throughout. A reconcile pass waiting for the
+  lock checks the row is still there before it creates anything. The accounts it was signed in to are untouched; their sessions simply stop being
   used.
 - **The public address** a browser advertises is what `ELYSIUM_PUBLIC_URL`'s host resolves to (its first IPv4
   address, else its first address), or loopback for `localhost`. A host whose public name resolves somewhere viewers

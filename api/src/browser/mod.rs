@@ -19,7 +19,7 @@ pub mod container;
 pub mod neko;
 pub mod relay;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -249,14 +249,14 @@ impl Browsers {
     }
 
     async fn remove(&self, session: &BrowserSession) -> anyhow::Result<()> {
+        // Held until the row is gone too: a reconcile pass waiting for the lock checks the row
+        // before it creates anything, and must find it deleted, not merely emptied.
         let docker = self.inner.docker.lock().await;
         self.inner
             .containers
             .remove(session.id)
             .await
             .context("Docker refused to remove the browser")?;
-        drop(docker);
-
         let mut connection = self
             .inner
             .database
@@ -264,6 +264,9 @@ impl Browsers {
             .await
             .context("no database connection available")?;
         browser_session::delete(&mut connection, session.id).await?;
+        drop(connection);
+        drop(docker);
+
         self.inner
             .statuses
             .lock()
@@ -304,6 +307,59 @@ impl Browsers {
         for session in &sessions {
             self.bring_up(session, None).await;
         }
+        self.sweep_orphans().await;
+    }
+
+    /// Removes whatever Docker holds for a browser no row owns: what a crash between
+    /// removing a browser's container and deleting its row leaves behind. An orphan would
+    /// keep a signed-in profile running after its owner removed it, and keep its port's name
+    /// on a network nginx is joined to.
+    async fn sweep_orphans(&self) {
+        let docker = self.inner.docker.lock().await;
+        let managed = match self.inner.containers.managed_session_ids().await {
+            Ok(managed) => managed,
+            Err(error) => {
+                event!(
+                    name: "browser.sweep.failed",
+                    Level::WARN,
+                    error.message = %error,
+                    "cannot list what Docker holds for browsers",
+                );
+                return;
+            }
+        };
+        // Read again under the lock: a browser created since the pass began is not an orphan,
+        // so without a fresh list nothing is removed.
+        let stored: HashSet<Uuid> = match self.list_all().await {
+            Ok(current) => current.iter().map(|session| session.id).collect(),
+            Err(error) => {
+                event!(
+                    name: "browser.sweep.failed",
+                    Level::WARN,
+                    error.message = %format!("{error:#}"),
+                    "cannot list the browsers to sweep for orphans",
+                );
+                return;
+            }
+        };
+        for orphan in orphans(&managed, &stored) {
+            event!(
+                name: "browser.sweep.orphan",
+                Level::WARN,
+                browser.session.id = %orphan,
+                "removing a browser no row owns",
+            );
+            if let Err(error) = self.inner.containers.remove(orphan).await {
+                event!(
+                    name: "browser.sweep.failed",
+                    Level::WARN,
+                    browser.session.id = %orphan,
+                    error.message = %error,
+                    "cannot remove a browser no row owns",
+                );
+            }
+        }
+        drop(docker);
     }
 
     async fn list_all(&self) -> anyhow::Result<Vec<BrowserSession>> {
@@ -421,6 +477,11 @@ fn port_of(session: &BrowserSession) -> u16 {
     u16::try_from(session.port).expect("browser_sessions.port is checked to be a media port")
 }
 
+/// The browsers Docker holds something for that no stored row owns.
+fn orphans(managed: &HashSet<Uuid>, stored: &HashSet<Uuid>) -> Vec<Uuid> {
+    managed.difference(stored).copied().collect()
+}
+
 /// The lowest port in [`PORTS`] no browser holds.
 fn free_port(in_use: &[i32]) -> Option<u16> {
     PORTS
@@ -450,6 +511,17 @@ mod tests {
         assert_eq!(free_port(&[59000, 59002]), Some(59001));
         let every_port: Vec<i32> = PORTS.map(i32::from).collect();
         assert_eq!(free_port(&every_port), None);
+    }
+
+    // A pass that took the lock between a removal's Docker cleanup and its row deletion
+    // recreated the browser, leaving resources no row owned. The sweep removes exactly those.
+    #[test]
+    fn only_browsers_without_a_row_are_orphans() {
+        let kept = Uuid::now_v7();
+        let orphan = Uuid::now_v7();
+        let managed = HashSet::from([kept, orphan]);
+        let stored = HashSet::from([kept, Uuid::now_v7()]);
+        assert_eq!(orphans(&managed, &stored), vec![orphan]);
     }
 
     #[test]

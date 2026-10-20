@@ -119,7 +119,7 @@ Each belongs to the person who created it and answers nobody else.
 | `port`                      | `INTEGER`     | Unique, 59000 to 59007: its media port, and its name on its network |
 | `member_password_encrypted` | `BYTEA`       | Sealed password of the Neko member session the API relays, see `docs/secrets.md` |
 | `created_by`                | `UUID`        | References `users`; the browser's owner, indexed                |
-| `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert                                                   |
+| `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
 
 ### `mail_servers`
 

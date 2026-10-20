@@ -19,3 +19,5 @@ CREATE TABLE browser_sessions (
 );
 
 CREATE INDEX browser_sessions_created_by ON browser_sessions (created_by);
+
+SELECT diesel_manage_updated_at('browser_sessions');
