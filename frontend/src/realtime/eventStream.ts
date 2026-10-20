@@ -12,6 +12,7 @@ import { historyAppended } from '../store/actionItemHistorySlice'
 import { actionItemLinkDeleted, actionItemLinkUpserted } from '../store/actionItemLinksSlice'
 import { initiativeLinkDeleted, initiativeLinkUpserted } from '../store/initiativeLinksSlice'
 import { actionItemDeleted, actionItemUpserted } from '../store/actionItemsSlice'
+import { browserSessionDeleted, browserSessionUpserted } from '../store/browserSessionsSlice'
 import { changesetUpserted } from '../store/changesetsSlice'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
 import { environmentVariableDeleted, environmentVariableUpserted } from '../store/environmentVariablesSlice'
@@ -83,6 +84,15 @@ const handlers: Handlers = {
     void mutate('v1/initiatives?deleted=true')
     void mutate(`v1/initiatives/${event.data.id}`)
   },
+  // Every client hears every browser's events, but a browser belongs to its owner alone, and
+  // only the owner's pages list it.
+  'browserSession.upserted': (event) => {
+    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
+      return
+    }
+    store.dispatch(browserSessionUpserted(event.data))
+  },
+  'browserSession.deleted': (event) => store.dispatch(browserSessionDeleted(event.data.id)),
   'history.appended': (event) => store.dispatch(historyAppended(event.data)),
   'changeset.upserted': (event) => store.dispatch(changesetUpserted(event.data)),
   'environmentVariable.upserted': (event) => store.dispatch(environmentVariableUpserted(event.data)),

@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ActionItem, ActionItemComment, ActionItemLink, HistoryEntry } from '../api/routes/actionItemRoutes'
+import type { BrowserSession } from '../api/routes/browserSessionRoutes'
 import type { Changeset } from '../api/routes/changesetRoutes'
 import type { Initiative, InitiativeLink } from '../api/routes/initiativeRoutes'
 import type { CodingSession, SessionEvent } from '../api/routes/codingSessionRoutes'
@@ -37,6 +38,9 @@ export type ServerEvent =
   | { type: 'initiative.upserted', data: Initiative }
   // Soft: the initiative can be restored.
   | { type: 'initiative.deleted', data: { id: string } }
+  // A browser was added, or began starting, running, or failing.
+  | { type: 'browserSession.upserted', data: BrowserSession }
+  | { type: 'browserSession.deleted', data: { id: string } }
   // An entry an item's or an initiative's write recorded.
   | { type: 'history.appended', data: HistoryEntry }
   // A changeset was proposed, decided on, applied, or undone.

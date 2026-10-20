@@ -10,6 +10,7 @@ import { historyLoaded } from '../store/actionItemHistorySlice'
 import { actionItemLinksLoaded } from '../store/actionItemLinksSlice'
 import { initiativeLinksLoaded } from '../store/initiativeLinksSlice'
 import { actionItemsLoaded, actionItemUpserted, deletedActionItemsLoaded } from '../store/actionItemsSlice'
+import { browserSessionsLoaded } from '../store/browserSessionsSlice'
 import { changesetsLoaded, changesetUpserted } from '../store/changesetsSlice'
 import { codingSessionsLoaded } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
@@ -44,6 +45,7 @@ import {
   listInitiativeLinks,
   listInitiatives,
 } from '../api/routes/initiativeRoutes'
+import { listBrowserSessions } from '../api/routes/browserSessionRoutes'
 import { getChangeset, listChangesets } from '../api/routes/changesetRoutes'
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
@@ -89,6 +91,16 @@ export function useEnvironmentVariablesLoader(): LoadStatus {
   const { data, error } = useSWR('v1/environment-variables', async () => {
     const response = await listEnvironmentVariables()
     dispatch(environmentVariablesLoaded(response.variables))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useBrowserSessionsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/browser-sessions', async () => {
+    const response = await listBrowserSessions()
+    dispatch(browserSessionsLoaded(response.browserSessions))
     return response
   })
   return toLoadStatus(data !== undefined, error)
