@@ -10,6 +10,8 @@ mod list_projects;
 mod update_project;
 mod upload_cover;
 
+pub use list_projects::list;
+
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, patch};
