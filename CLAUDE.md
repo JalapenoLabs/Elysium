@@ -14,6 +14,15 @@ Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind
   optional for remote compute.
 - Seraphim's autonomous loop (take the next work when idle, fix failing CI, address review, revive dead turns, ask
   when blocked) moves into Elysium redesigned, not ported as is.
+- Elysium uses services the way its user does, signed in as that user, and never installs anything into an
+  organization. Each service is a connector behind one trait: how it signs in, how it stays signed in, how it
+  ingests, and how it acts. An official API, a CLI such as `gh`, and a browser session the user signed in to are
+  interchangeable ways of filling those parts.
+- Everything ingested lands on one timeline, attributed to projects, so a project shows every message, mail, note,
+  agent turn, and meeting segment about it in order. A meeting segment is the trimmed recording, its transcript, and
+  its summary.
+- Agent logs read like GitHub Actions: each turn collapses to a one or two sentence summary that expands to its
+  full log.
 - Next on the roadmap: receiving mail from Gmail and Outlook, so Elysia is told when mail arrives and manages it.
 
 ## Images and stacks
