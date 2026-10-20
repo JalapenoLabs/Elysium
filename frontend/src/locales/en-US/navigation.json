@@ -3,7 +3,8 @@
     "label": "Primary navigation",
     "actionItems": "Action items",
     "projects": "Projects",
-    "coding": "Coding"
+    "coding": "Coding",
+    "studio": "Studio"
   },
   "topbar": {
     "settings": "Settings",

@@ -32,6 +32,7 @@ use arsox_sdk::proto::relay::v1::{ToolCall, ToolContent, ToolResult, tool_conten
 use tokio::task::{AbortHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
+use uuid::Uuid;
 
 use super::{Fleet, RECONNECT_BACKOFF_INITIAL, RECONNECT_BACKOFF_MAX};
 use crate::models::coding_session::CodingSession;
@@ -52,11 +53,17 @@ enum RelayOutcome {
     },
 }
 
-/// Keeps a session's relay attached until `cancel` fires or the thread is gone.
-pub(super) async fn run_relay(fleet: Fleet, session: CodingSession, cancel: CancellationToken) {
+/// Keeps a session's relay attached until `cancel` fires or the thread is gone. The
+/// session's thread runs on `satellite_id`.
+pub(super) async fn run_relay(
+    fleet: Fleet,
+    session: CodingSession,
+    satellite_id: Uuid,
+    cancel: CancellationToken,
+) {
     let mut backoff = RECONNECT_BACKOFF_INITIAL;
     loop {
-        match serve(&fleet, &session, &cancel).await {
+        match serve(&fleet, &session, satellite_id, &cancel).await {
             RelayOutcome::Cancelled => return,
             RelayOutcome::ThreadGone => {
                 event!(
@@ -99,13 +106,18 @@ pub(super) async fn run_relay(fleet: Fleet, session: CodingSession, cancel: Canc
 }
 
 /// Attaches to the thread's relay and answers calls until the socket ends.
-async fn serve(fleet: &Fleet, session: &CodingSession, cancel: &CancellationToken) -> RelayOutcome {
+async fn serve(
+    fleet: &Fleet,
+    session: &CodingSession,
+    satellite_id: Uuid,
+    cancel: &CancellationToken,
+) -> RelayOutcome {
     let interrupted = |reason: String| RelayOutcome::Interrupted {
         reason,
         received: false,
     };
 
-    let client = match fleet.client(session.satellite_id).await {
+    let client = match fleet.client(satellite_id).await {
         Ok(client) => client,
         Err(error) => return interrupted(error.to_string()),
     };

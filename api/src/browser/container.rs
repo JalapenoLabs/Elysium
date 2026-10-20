@@ -22,7 +22,7 @@
 //! shapes the container is hashed into [`SPEC_LABEL`], so a container built from an older
 //! spec (another address, image, or file) is replaced, keeping its profile volume.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
 use bollard::Docker;
@@ -33,7 +33,8 @@ use bollard::models::{
     VolumeCreateRequest,
 };
 use bollard::query_parameters::{
-    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, RemoveContainerOptionsBuilder,
+    CreateContainerOptionsBuilder, CreateImageOptionsBuilder, ListContainersOptionsBuilder,
+    ListNetworksOptionsBuilder, ListVolumesOptionsBuilder, RemoveContainerOptionsBuilder,
     RemoveVolumeOptionsBuilder, UploadToContainerOptionsBuilder,
 };
 use futures_util::StreamExt;
@@ -76,6 +77,10 @@ const SHARED_MEMORY_BYTES: i64 = 2 * 1024 * 1024 * 1024;
 
 /// The profile directory, as Neko's Chromium is started with it (`neko/chromium.conf`).
 const PROFILE_DIRECTORY: &str = "/home/neko/.config/chromium";
+
+/// Docker reports a container that was created but never started as having started at the
+/// zero time, `0001-01-01T00:00:00Z`.
+const NEVER_STARTED_YEAR: &str = "0001-";
 
 const MANAGED_LABEL: (&str, &str) = ("dev.elysium.managed", "browser");
 const SESSION_LABEL: &str = "dev.elysium.browser-session";
@@ -178,12 +183,12 @@ impl BrowserContainers {
                     .config
                     .and_then(|config| config.labels)
                     .and_then(|labels| labels.get(SPEC_LABEL).cloned());
-                if current.as_deref() == Some(fingerprint.as_str()) {
-                    let running = existing
-                        .state
-                        .and_then(|state| state.running)
-                        .unwrap_or(false);
-                    if !running {
+                let state = existing.state.unwrap_or_default();
+                // Starting is the last step of creating one, so a container that never ran may
+                // be missing its setup files, whatever its label says.
+                let has_started = has_ever_started(state.started_at.as_deref());
+                if current.as_deref() == Some(fingerprint.as_str()) && has_started {
+                    if !state.running.unwrap_or(false) {
                         self.docker.start_container(&name, None).await?;
                     }
                     return Ok(());
@@ -192,7 +197,8 @@ impl BrowserContainers {
                     name: "browser.container.replaced",
                     Level::INFO,
                     container.name = %name,
-                    "replacing a browser container built from an older spec",
+                    container.started = has_started,
+                    "replacing a browser container built from another spec, or never started",
                 );
                 self.remove_container(&name).await?;
             }
@@ -202,16 +208,21 @@ impl BrowserContainers {
 
         let options = CreateContainerOptionsBuilder::new().name(&name).build();
         self.docker
-            .create_container(Some(options), container_spec(spec, &fingerprint))
-            .await?;
-        let upload = UploadToContainerOptionsBuilder::new().path("/").build();
-        self.docker
-            .upload_to_container(
-                &name,
-                Some(upload),
-                bollard::body_full(setup_archive()?.into()),
+            .create_container(
+                Some(options),
+                container_spec(
+                    spec,
+                    &fingerprint,
+                    crate::browser::generate_password().expose_secret(),
+                ),
             )
             .await?;
+        // The label claims the setup files are in place, so a container that did not receive
+        // them must not survive for the next pass to start.
+        if let Err(error) = self.upload_setup_files(&name).await {
+            self.remove_container(&name).await?;
+            return Err(error);
+        }
         self.docker.start_container(&name, None).await?;
         event!(name: "browser.container.created", Level::INFO, container.name = %name, "created");
         Ok(())
@@ -248,6 +259,72 @@ impl BrowserContainers {
         }
         event!(name: "browser.container.removed", Level::INFO, container.name = %name, "removed");
         Ok(())
+    }
+
+    /// Whether the Docker Engine honors the gateway priority nginx and the API join browser
+    /// networks with. Older engines ignore it silently, and a browser's network can then
+    /// become nginx's gateway.
+    ///
+    /// # Errors
+    /// [`ContainerError::Docker`] when Docker does not answer.
+    pub async fn supports_gateway_priority(&self) -> Result<bool, ContainerError> {
+        let version = self.docker.version().await?;
+        Ok(version
+            .api_version
+            .as_deref()
+            .is_some_and(api_version_has_gateway_priority))
+    }
+
+    async fn upload_setup_files(&self, name: &str) -> Result<(), ContainerError> {
+        let upload = UploadToContainerOptionsBuilder::new().path("/").build();
+        self.docker
+            .upload_to_container(
+                name,
+                Some(upload),
+                bollard::body_full(setup_archive()?.into()),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// The ids of every browser Docker holds anything for: a container, network, or volume
+    /// labelled as one. The reconciler removes those no row owns any more.
+    ///
+    /// # Errors
+    /// [`ContainerError::Docker`] when Docker refuses a listing.
+    pub async fn managed_session_ids(&self) -> Result<HashSet<Uuid>, ContainerError> {
+        let label = format!("{}={}", MANAGED_LABEL.0, MANAGED_LABEL.1);
+        let filters = HashMap::from([("label".to_owned(), vec![label])]);
+        let mut labels: Vec<HashMap<String, String>> = Vec::new();
+
+        let containers = ListContainersOptionsBuilder::new()
+            .all(true)
+            .filters(&filters)
+            .build();
+        for container in self.docker.list_containers(Some(containers)).await? {
+            labels.extend(container.labels);
+        }
+        let networks = ListNetworksOptionsBuilder::new().filters(&filters).build();
+        for network in self.docker.list_networks(Some(networks)).await? {
+            labels.extend(network.labels);
+        }
+        let volumes = ListVolumesOptionsBuilder::new().filters(&filters).build();
+        for volume in self
+            .docker
+            .list_volumes(Some(volumes))
+            .await?
+            .volumes
+            .unwrap_or_default()
+        {
+            labels.push(volume.labels);
+        }
+
+        let ids = labels
+            .iter()
+            .filter_map(|labels| labels.get(SESSION_LABEL))
+            .filter_map(|id| Uuid::parse_str(id).ok())
+            .collect();
+        Ok(ids)
     }
 
     async fn remove_container(&self, name: &str) -> Result<(), ContainerError> {
@@ -323,6 +400,23 @@ impl BrowserContainers {
     }
 }
 
+/// Gateway priority arrived with Docker Engine 28.0, API version 1.48.
+const GATEWAY_PRIORITY_API_VERSION: (u32, u32) = (1, 48);
+
+/// Whether an Engine API version such as `1.55` is at least [`GATEWAY_PRIORITY_API_VERSION`].
+fn api_version_has_gateway_priority(api_version: &str) -> bool {
+    let mut parts = api_version.split('.').map(str::parse::<u32>);
+    let (Some(Ok(major)), Some(Ok(minor))) = (parts.next(), parts.next()) else {
+        return false;
+    };
+    (major, minor) >= GATEWAY_PRIORITY_API_VERSION
+}
+
+/// Whether Docker's `State.StartedAt` says the container ran at least once.
+fn has_ever_started(started_at: Option<&str>) -> bool {
+    started_at.is_some_and(|started_at| !started_at.starts_with(NEVER_STARTED_YEAR))
+}
+
 /// How nginx or the API joins a browser's network: never as its default gateway.
 fn join_request(container: String) -> NetworkConnectRequest {
     NetworkConnectRequest {
@@ -383,17 +477,19 @@ fn environment(spec: &BrowserSpec, discarded_admin_password: &str) -> Vec<String
 
 /// The container Docker creates: the pinned image on the browser's own network, answering
 /// as [`host_name`], with no published ports and the profile on its volume.
-fn container_spec(spec: &BrowserSpec, fingerprint: &str) -> ContainerCreateBody {
+/// `discarded_admin_password` is generated per container by the caller and kept nowhere.
+fn container_spec(
+    spec: &BrowserSpec,
+    fingerprint: &str,
+    discarded_admin_password: &str,
+) -> ContainerCreateBody {
     let name = resource_name(spec.session_id);
     let mut labels = managed_labels(spec.session_id);
     labels.insert(SPEC_LABEL.to_owned(), fingerprint.to_owned());
 
     ContainerCreateBody {
         image: Some(IMAGE.to_owned()),
-        env: Some(environment(
-            spec,
-            crate::browser::generate_password().expose_secret(),
-        )),
+        env: Some(environment(spec, discarded_admin_password)),
         labels: Some(labels),
         host_config: Some(HostConfig {
             binds: Some(vec![format!("{name}:{PROFILE_DIRECTORY}")]),
@@ -469,7 +565,7 @@ mod tests {
     #[test]
     fn the_container_publishes_nothing_and_answers_by_its_port() {
         let browser = spec();
-        let body = container_spec(&browser, "fingerprint");
+        let body = container_spec(&browser, "fingerprint", "discarded");
         let host_config = body.host_config.expect("host config");
         assert!(host_config.port_bindings.is_none());
 
@@ -498,7 +594,19 @@ mod tests {
             .endpoint_config
             .and_then(|endpoint| endpoint.gw_priority)
             .expect("a gateway priority is set");
-        assert!(priority < 0, "priority {priority} could outrank compose's networks");
+        assert!(
+            priority < 0,
+            "priority {priority} could outrank compose's networks"
+        );
+    }
+
+    // A container whose setup upload failed carried the right label but never started; the
+    // next pass started it as is, without the setup files, and reported it running.
+    #[test]
+    fn a_container_that_never_started_is_not_taken_as_set_up() {
+        assert!(!has_ever_started(Some("0001-01-01T00:00:00Z")));
+        assert!(!has_ever_started(None));
+        assert!(has_ever_started(Some("2026-10-20T20:22:46.368773Z")));
     }
 
     #[test]
@@ -519,13 +627,32 @@ mod tests {
     }
 
     #[test]
-    fn the_fingerprint_changes_with_the_address_and_nothing_else_varies_it() {
-        let first = spec();
+    fn the_fingerprint_is_stable_and_changes_with_each_input() {
+        let original = spec_fingerprint(&spec());
+        assert_eq!(original, spec_fingerprint(&spec()));
+
         let mut moved = spec();
         moved.public_address = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 4));
+        let mut renumbered = spec();
+        renumbered.port = 59004;
+        let mut rekeyed = spec();
+        rekeyed.member_password = SecretString::from("another-password");
+        for changed in [moved, renumbered, rekeyed] {
+            assert_ne!(original, spec_fingerprint(&changed), "{changed:?}");
+        }
+    }
 
-        assert_eq!(spec_fingerprint(&first), spec_fingerprint(&spec()));
-        assert_ne!(spec_fingerprint(&first), spec_fingerprint(&moved));
+    #[test]
+    fn the_fingerprint_covers_every_setup_file() {
+        // Each file's path and contents feed the hash, so any edit to one replaces containers.
+        let mut hasher = Sha256::new();
+        for (path, contents) in SETUP_FILES {
+            hasher.update(path);
+            hasher.update(contents);
+        }
+        let files_only = hex::encode(hasher.finalize());
+        assert_ne!(files_only, spec_fingerprint(&spec()));
+        assert_eq!(SETUP_FILES.len(), 4);
     }
 
     #[test]
@@ -546,15 +673,36 @@ mod tests {
         }
     }
 
+    fn setup_file(path: &str) -> &'static str {
+        SETUP_FILES
+            .iter()
+            .find(|(candidate, _contents)| *candidate == path)
+            .map_or_else(
+                || panic!("{path} is a setup file"),
+                |(_path, contents)| *contents,
+            )
+    }
+
     #[test]
     fn chromium_keeps_its_profile_and_opens_the_devtools_port() {
-        let chromium = SETUP_FILES[0].1;
+        let chromium = setup_file("etc/neko/supervisord/chromium.conf");
         assert!(chromium.contains("--remote-debugging-port=9222"));
         assert!(!chromium.contains("--bwsi"));
         assert!(chromium.contains(&format!("--user-data-dir={PROFILE_DIRECTORY}")));
 
         let policies: serde_json::Value =
-            serde_json::from_str(SETUP_FILES[3].1).expect("the policy is JSON");
+            serde_json::from_str(setup_file("etc/chromium/policies/managed/policies.json"))
+                .expect("the policy is JSON");
         assert_eq!(policies["DefaultCookiesSetting"], 1);
+        assert_eq!(policies["DefaultPopupsSetting"], 1);
+    }
+
+    #[test]
+    fn engines_before_api_1_48_cannot_set_a_gateway_priority() {
+        assert!(api_version_has_gateway_priority("1.48"));
+        assert!(api_version_has_gateway_priority("1.55"));
+        assert!(api_version_has_gateway_priority("2.0"));
+        assert!(!api_version_has_gateway_priority("1.47"));
+        assert!(!api_version_has_gateway_priority("garbage"));
     }
 }

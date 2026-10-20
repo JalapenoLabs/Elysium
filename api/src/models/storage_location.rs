@@ -139,6 +139,8 @@ pub struct StorageLocation {
     pub s3_bucket: Option<String>,
     pub s3_region: Option<String>,
     pub s3_access_key_id: Option<String>,
+    /// The location Studio's New item form starts on. At most one location is.
+    pub is_studio_default: bool,
     /// Who created it.
     pub created_by: Uuid,
 }
@@ -172,6 +174,8 @@ pub struct StorageLocationChanges {
     pub access_key: Option<SecretString>,
     /// Replaces the projects that save files here.
     pub projects: Option<ProjectScope>,
+    /// Makes this Studio's default location, taking the mark from any other, or clears it.
+    pub is_studio_default: Option<bool>,
 }
 
 impl StorageLocationChanges {
@@ -183,6 +187,7 @@ impl StorageLocationChanges {
             && self.storage_limit_bytes.is_none()
             && self.access_key.is_none()
             && self.projects.is_none()
+            && self.is_studio_default.is_none()
     }
 }
 
@@ -214,6 +219,7 @@ struct StorageLocationChangeset<'a> {
     storage_limit_bytes: Option<Option<i64>>,
     access_key_encrypted: Option<Vec<u8>>,
     all_projects: Option<bool>,
+    is_studio_default: Option<bool>,
 }
 
 /// One link between a location and a project that saves files to it.
@@ -423,16 +429,21 @@ pub async fn projects_of(
 }
 
 /// Every location a project saves files to, alphabetically: those for every project, and
-/// those linked to this one.
+/// those linked to this one. With no project (a Studio item may have none), only those for
+/// every project.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn list_for_project(
     connection: &mut AsyncPgConnection,
-    project_id: Uuid,
+    project_id: Option<Uuid>,
 ) -> QueryResult<Vec<StorageLocation>> {
     let linked = storage_location_projects::table
-        .filter(storage_location_projects::project_id.eq(project_id))
+        .filter(
+            storage_location_projects::project_id
+                .nullable()
+                .eq(project_id),
+        )
         .select(storage_location_projects::storage_location_id);
     storage_locations::table
         .filter(storage_locations::all_projects.or(storage_locations::id.eq_any(linked)))
@@ -442,7 +453,8 @@ pub async fn list_for_project(
         .await
 }
 
-/// One location by id, only if the project saves files to it.
+/// One location by id, only if the project saves files to it; with no project, only if it
+/// is for every project.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] when no row has that id, or the location is
@@ -450,10 +462,14 @@ pub async fn list_for_project(
 pub async fn find_for_project(
     connection: &mut AsyncPgConnection,
     id: Uuid,
-    project_id: Uuid,
+    project_id: Option<Uuid>,
 ) -> QueryResult<StorageLocation> {
     let linked = storage_location_projects::table
-        .filter(storage_location_projects::project_id.eq(project_id))
+        .filter(
+            storage_location_projects::project_id
+                .nullable()
+                .eq(project_id),
+        )
         .select(storage_location_projects::storage_location_id);
     storage_locations::table
         .find(id)
@@ -461,6 +477,21 @@ pub async fn find_for_project(
         .select(StorageLocation::as_select())
         .first(connection)
         .await
+}
+
+/// The location marked as Studio's default, if any.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn find_studio_default(
+    connection: &mut AsyncPgConnection,
+) -> QueryResult<Option<StorageLocation>> {
+    storage_locations::table
+        .filter(storage_locations::is_studio_default)
+        .select(StorageLocation::as_select())
+        .first(connection)
+        .await
+        .optional()
 }
 
 /// One location by id.
@@ -542,10 +573,22 @@ pub async fn update(
             .projects
             .as_ref()
             .map(|projects| *projects == ProjectScope::All),
+        is_studio_default: changes.is_studio_default,
     };
 
     connection
         .transaction(async move |connection| {
+            // At most one location is Studio's default, so the mark moves rather than copies.
+            if changes.is_studio_default == Some(true) {
+                diesel::update(
+                    storage_locations::table
+                        .filter(storage_locations::is_studio_default)
+                        .filter(storage_locations::id.ne(id)),
+                )
+                .set(storage_locations::is_studio_default.eq(false))
+                .execute(connection)
+                .await?;
+            }
             let location = diesel::update(storage_locations::table.find(id))
                 .set((changeset, changes.provider.as_ref().map(provider_columns)))
                 .returning(StorageLocation::as_returning())
@@ -718,7 +761,7 @@ mod tests {
             .await
             .expect("insert");
 
-        let names: Vec<String> = list_for_project(&mut connection, reaching)
+        let names: Vec<String> = list_for_project(&mut connection, Some(reaching))
             .await
             .expect("list")
             .into_iter()
@@ -727,17 +770,33 @@ mod tests {
         assert_eq!(names, ["everyone", "linked"]);
 
         for reachable in [everyone.id, linked.id] {
-            find_for_project(&mut connection, reachable, reaching)
+            find_for_project(&mut connection, reachable, Some(reaching))
                 .await
                 .expect("a location for every project or linked to this one");
         }
-        let unlinked = find_for_project(&mut connection, other.id, reaching)
+        let unlinked = find_for_project(&mut connection, other.id, Some(reaching))
             .await
             .expect_err("a location linked only to another project");
         assert!(matches!(unlinked, diesel::result::Error::NotFound));
 
+        // With no project, as for a Studio item without one, only locations for every project.
+        let unscoped: Vec<String> = list_for_project(&mut connection, None)
+            .await
+            .expect("list")
+            .into_iter()
+            .map(|location| location.name)
+            .collect();
+        assert_eq!(unscoped, ["everyone"]);
+        find_for_project(&mut connection, everyone.id, None)
+            .await
+            .expect("a location for every project");
+        let linked_only = find_for_project(&mut connection, linked.id, None)
+            .await
+            .expect_err("a location linked to one project needs that project");
+        assert!(matches!(linked_only, diesel::result::Error::NotFound));
+
         delete(&mut connection, linked.id).await.expect("delete");
-        let deleted = find_for_project(&mut connection, linked.id, reaching)
+        let deleted = find_for_project(&mut connection, linked.id, Some(reaching))
             .await
             .expect_err("a deleted location");
         assert!(matches!(deleted, diesel::result::Error::NotFound));

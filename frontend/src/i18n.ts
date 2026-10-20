@@ -23,6 +23,7 @@ import projects from './locales/en-US/projects.json'
 import satellites from './locales/en-US/satellites.json'
 import settings from './locales/en-US/settings.json'
 import storage from './locales/en-US/storage.json'
+import studio from './locales/en-US/studio.json'
 import users from './locales/en-US/users.json'
 
 export const DEFAULT_LOCALE = 'en-US'
@@ -50,6 +51,7 @@ export const resources = {
     satellites,
     settings,
     storage,
+    studio,
     users,
   },
 } as const

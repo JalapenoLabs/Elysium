@@ -133,7 +133,9 @@ Per-browser networks are what Stalwart never needed, and they change two things:
 - Docker routes a container's default gateway, and the ports it publishes, through its network of highest gateway
   priority, ties broken by name. At the default priority a browser's network can win for nginx, so the host's
   requests to the web port arrive through it, and removing that browser cuts them mid-request (seen as nginx `499`s).
-  nginx and the API therefore join every browser network at priority `-1`, below their compose networks.
+  nginx and the API therefore join every browser network at priority `-1`, below their compose networks. Gateway
+  priority needs Docker Engine 28.0 (API 1.48) or later; an older engine ignores it, and the API warns at startup
+  (`browser.engine.outdated`).
 
 The forwarder and Chromium's command line are copied into the container before it first starts, through Docker's
 archive endpoint, so the upstream image runs as published. Neko's supervisord loads every file in
@@ -165,15 +167,18 @@ are allowed because sign-in flows open them, and no extension is installed, so t
 - **The reconciler** runs once at startup and then every 10 seconds over every browser. It recreates whatever is
   missing, starts a stopped container, rejoins nginx and the API to each network, and replaces a container whose spec
   changed: another image, public address, or setup file. The spec is a hash in the container's
-  `dev.elysium.browser-spec` label; replacing a container keeps its profile volume. A failure marks the browser
+  `dev.elysium.browser-spec` label; replacing a container keeps its profile volume. A container that never started
+  is replaced too, and one whose setup files fail to copy in is removed at once, since the label claims they are in
+  place. Each pass ends by removing whatever Docker holds for a browser no row owns. A failure marks the browser
   `failed` with the reason until a pass succeeds.
 - **Status** is kept in memory and starts as `starting` when the API starts; the first pass sets it.
 - **Removing one** removes its container, network, and volume, then its row, in a task of its own so a request that
-  is given up on does not stop it halfway. A reconcile pass waiting for Docker meanwhile checks the row is still
-  there before it creates anything. The accounts it was signed in to are untouched; their sessions simply stop being
+  is given up on does not stop it halfway, and holding Docker's lock throughout. A reconcile pass waiting for the
+  lock checks the row is still there before it creates anything. The accounts it was signed in to are untouched; their sessions simply stop being
   used.
 - **The public address** a browser advertises is what `ELYSIUM_PUBLIC_URL`'s host resolves to (its first IPv4
-  address, else its first address), or loopback for `localhost`. A host whose public name resolves somewhere viewers
+  address, else its first address), or loopback for `localhost`. A lookup that fails keeps the last address that
+  resolved, so a resolver's bad moment does not fail and replace every browser. A host whose public name resolves somewhere viewers
   cannot reach it from, such as a proxy that carries only HTTP, needs an explicit address, which is on the roadmap.
 - **The desktop** is 1920 by 1080 at 30 frames a second, in UTC.
 

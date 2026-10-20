@@ -41,6 +41,9 @@ use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
 use crate::routes::v1::projects::ProjectResponse;
 use crate::routes::v1::satellites::SatelliteResponse;
 use crate::routes::v1::storage_locations::StorageLocationResponse;
+use crate::routes::v1::studio_items::{
+    StudioAssetResponse, StudioFeedbackResponse, StudioItemResponse,
+};
 use crate::routes::v1::users::UserResponse;
 use crate::routes::v1::workspace_settings::WorkspaceSettingsResponse;
 
@@ -129,7 +132,7 @@ pub enum ServerEvent {
     ProjectDeleted { id: Uuid },
     #[serde(rename = "satellite.upserted")]
     SatelliteUpserted(SatelliteResponse),
-    /// Also removes every session recorded against the satellite.
+    /// Its sessions stay; each is republished with `satelliteId: null`.
     #[serde(rename = "satellite.deleted")]
     SatelliteDeleted { id: Uuid },
     #[serde(rename = "satellite.status")]
@@ -147,6 +150,19 @@ pub enum ServerEvent {
     /// Live events for the session may have been missed; refetch its history.
     #[serde(rename = "session.resync")]
     SessionResync { id: i64 },
+    /// An item was created, renamed, pinned, continued, or restored, or its files changed its
+    /// thumbnail or counts.
+    #[serde(rename = "studioItem.upserted")]
+    StudioItemUpserted(StudioItemResponse),
+    /// The item was deleted, softly (it may be restored) or for good.
+    #[serde(rename = "studioItem.deleted")]
+    StudioItemDeleted { id: Uuid },
+    /// A file was pulled out of a workspace and stored.
+    #[serde(rename = "studioAsset.created")]
+    StudioAssetCreated(StudioAssetResponse),
+    /// A prompt with a drawing was sent.
+    #[serde(rename = "studioFeedback.created")]
+    StudioFeedbackCreated(StudioFeedbackResponse),
     /// A person signed up, was approved, changed role, or was disabled or enabled.
     #[serde(rename = "user.upserted")]
     UserUpserted(UserResponse),

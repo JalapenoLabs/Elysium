@@ -78,7 +78,11 @@ export function CodingSessionsTable(props: Props) {
       timeStyle: 'short',
     })
 
+    // A deleted satellite leaves its sessions behind without one.
     function satelliteName(session: CodingSession) {
+      if (!session.satelliteId) {
+        return t('sessions.satelliteDeleted')
+      }
       return satelliteNames[session.satelliteId] ?? ''
     }
     function stateLabel(session: CodingSession) {

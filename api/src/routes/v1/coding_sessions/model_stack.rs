@@ -23,6 +23,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use tracing::{Level, event};
 
+use crate::crypto::Cipher;
 use crate::models::llm::{Llm, LlmType};
 
 /// What the satellite records this endpoint as serving. The harness CLI still chooses
@@ -235,6 +236,27 @@ fn secret(value: &str) -> Secret {
         value: Some(value.to_owned()),
         display: None,
     }
+}
+
+/// Decrypts the model credentials a thread fails over through.
+///
+/// Decrypting here rather than in the stack keeps the cipher out of the shaping rules. A
+/// credential that cannot be opened is skipped: the rest still run.
+pub fn open_credentials(credentials: Vec<Llm>, cipher: &Cipher) -> Vec<(Llm, SecretString)> {
+    let mut opened = Vec::with_capacity(credentials.len());
+    for credential in credentials {
+        match credential.secret_token(cipher) {
+            Ok(token) => opened.push((credential, token)),
+            Err(error) => event!(
+                name: "coding_session.credential.unreadable",
+                Level::ERROR,
+                llm.id = %credential.id,
+                error.message = %error,
+                "a stored credential could not be decrypted and was skipped",
+            ),
+        }
+    }
+    opened
 }
 
 #[cfg(test)]

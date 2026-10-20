@@ -43,6 +43,8 @@ pub struct RequestBody {
     access_key: Option<StorageAccessKey>,
     /// Replaces the projects: `"*"` for every project, or project ids.
     projects: Option<ProjectScope>,
+    /// `true` makes this Studio's default location, taking the mark from any other.
+    is_studio_default: Option<bool>,
 }
 
 pub async fn handle(
@@ -63,6 +65,7 @@ pub async fn handle(
         storage_limit_bytes: body.storage_limit_bytes,
         access_key: body.access_key.map(|access_key| access_key.0),
         projects: body.projects,
+        is_studio_default: body.is_studio_default,
     };
 
     if changes.is_empty() {
@@ -87,10 +90,24 @@ pub async fn handle(
             ));
         }
     }
+    let previous_default = match changes.is_studio_default {
+        Some(true) => storage_location::find_studio_default(&mut connection)
+            .await?
+            .filter(|previous| previous.id != id),
+        _ => None,
+    };
     let location = storage_location::update(&mut connection, &state.cipher, id, &changes)
         .await
         .map_err(refuse_unknown_projects)?;
     let projects = storage_location::projects_of(&mut connection, &location).await?;
+    // The mark moved off the previous default, which clients show too.
+    if let Some(previous) = previous_default {
+        let previous = storage_location::find(&mut connection, previous.id).await?;
+        let previous_projects = storage_location::projects_of(&mut connection, &previous).await?;
+        state.events.publish(&ServerEvent::StorageLocationUpserted(
+            StorageLocationResponse::new(previous, previous_projects),
+        ));
+    }
     drop(connection);
 
     state.events.publish(&ServerEvent::StorageLocationUpserted(

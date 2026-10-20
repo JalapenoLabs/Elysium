@@ -19,7 +19,8 @@ pub mod container;
 pub mod neko;
 pub mod relay;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -27,6 +28,7 @@ use std::time::Duration;
 use anyhow::Context;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL;
+use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use secrecy::SecretString;
 use serde::Serialize;
 use tokio::task::JoinHandle;
@@ -103,6 +105,16 @@ pub enum CreateError {
     Internal(#[from] anyhow::Error),
 }
 
+/// Why a browser could not be removed. Either way its row is kept, so removal can be tried
+/// again.
+#[derive(Debug, thiserror::Error)]
+pub enum DeleteError {
+    #[error("Docker refused to remove the browser: {0}")]
+    Docker(#[from] container::ContainerError),
+    #[error(transparent)]
+    Internal(#[from] anyhow::Error),
+}
+
 #[derive(Clone)]
 pub struct Browsers {
     inner: Arc<Inner>,
@@ -116,6 +128,8 @@ struct Inner {
     neko: Neko,
     public_url: Url,
     statuses: Mutex<HashMap<Uuid, BrowserStatus>>,
+    /// The last public address that resolved.
+    public_address: Mutex<Option<IpAddr>>,
     /// Held across every change to Docker, so a browser being created, checked, and removed
     /// at once never races itself. Eight browsers make this cheap.
     docker: tokio::sync::Mutex<()>,
@@ -152,6 +166,7 @@ impl Browsers {
                 neko,
                 public_url,
                 statuses: Mutex::new(HashMap::new()),
+                public_address: Mutex::new(None),
                 docker: tokio::sync::Mutex::new(()),
             }),
         }
@@ -162,6 +177,7 @@ impl Browsers {
     pub fn start(&self, shutdown: CancellationToken) -> JoinHandle<()> {
         let browsers = self.clone();
         tokio::spawn(async move {
+            browsers.check_engine().await;
             let mut interval = tokio::time::interval(RECONCILE_INTERVAL);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
@@ -171,6 +187,25 @@ impl Browsers {
                 }
             }
         })
+    }
+
+    /// Warns once when the Docker Engine is too old to keep browser networks off nginx's
+    /// gateway. Browsers still run; removing one may then cut nginx's open connections.
+    async fn check_engine(&self) {
+        match self.inner.containers.supports_gateway_priority().await {
+            Ok(true) => {}
+            Ok(false) => event!(
+                name: "browser.engine.outdated",
+                Level::WARN,
+                "Docker Engine 28.0 or later is needed to keep browser networks off nginx's gateway",
+            ),
+            Err(error) => event!(
+                name: "browser.engine.unknown",
+                Level::WARN,
+                error.message = %error,
+                "cannot read the Docker Engine's version",
+            ),
+        }
     }
 
     /// What the browser `id` is doing.
@@ -201,28 +236,46 @@ impl Browsers {
             .get()
             .await
             .context("no database connection available")?;
-        let in_use = browser_session::ports_in_use(&mut connection)
-            .await
-            .context("cannot read which ports browsers hold")?;
-        let port = free_port(&in_use).ok_or(CreateError::PortsExhausted)?;
 
-        let session = browser_session::create(
-            &mut connection,
-            &self.inner.cipher,
-            NewBrowserSession {
+        // Two browsers added at the same instant can pick the same port, and the table's
+        // unique port refuses the second. It then takes the next free one, which can only
+        // happen as many times as there are ports.
+        let mut stored = None;
+        for _attempt in PORTS {
+            let in_use = browser_session::ports_in_use(&mut connection)
+                .await
+                .context("cannot read which ports browsers hold")?;
+            let port = free_port(&in_use).ok_or(CreateError::PortsExhausted)?;
+            let new_session = NewBrowserSession {
                 id: Uuid::now_v7(),
-                name,
+                name: name.clone(),
                 start_url: start_url.to_string(),
                 port: i32::from(port),
                 member_password: generate_password(),
                 created_by: owner,
-            },
-        )
-        .await
-        // Two browsers added at the same instant can pick the same port. The table's unique
-        // port refuses the second, which can simply be added again.
-        .context("cannot store the browser")?;
+            };
+            match browser_session::create(&mut connection, &self.inner.cipher, new_session).await {
+                Ok(session) => {
+                    stored = Some(session);
+                    break;
+                }
+                Err(DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
+                    event!(
+                        name: "browser.create.port_taken",
+                        Level::DEBUG,
+                        server.port = port,
+                        "another browser took the port first; trying the next",
+                    );
+                }
+                Err(error) => {
+                    return Err(anyhow::Error::from(error)
+                        .context("cannot store the browser")
+                        .into());
+                }
+            }
+        }
         drop(connection);
+        let session = stored.ok_or(CreateError::PortsExhausted)?;
 
         self.set_status(&session, BrowserStatus::STARTING);
         let browsers = self.clone();
@@ -240,7 +293,7 @@ impl Browsers {
     ///
     /// # Errors
     /// Fails when Docker refuses, leaving the row so removal can be tried again.
-    pub async fn delete(&self, session: &BrowserSession) -> anyhow::Result<()> {
+    pub async fn delete(&self, session: &BrowserSession) -> Result<(), DeleteError> {
         let browsers = self.clone();
         let session = session.clone();
         tokio::spawn(async move { browsers.remove(&session).await })
@@ -248,22 +301,23 @@ impl Browsers {
             .context("the browser's removal ended abnormally")?
     }
 
-    async fn remove(&self, session: &BrowserSession) -> anyhow::Result<()> {
+    async fn remove(&self, session: &BrowserSession) -> Result<(), DeleteError> {
+        // Held until the row is gone too: a reconcile pass waiting for the lock checks the row
+        // before it creates anything, and must find it deleted, not merely emptied.
         let docker = self.inner.docker.lock().await;
-        self.inner
-            .containers
-            .remove(session.id)
-            .await
-            .context("Docker refused to remove the browser")?;
-        drop(docker);
-
+        self.inner.containers.remove(session.id).await?;
         let mut connection = self
             .inner
             .database
             .get()
             .await
             .context("no database connection available")?;
-        browser_session::delete(&mut connection, session.id).await?;
+        browser_session::delete(&mut connection, session.id)
+            .await
+            .context("cannot delete the browser's row")?;
+        drop(connection);
+        drop(docker);
+
         self.inner
             .statuses
             .lock()
@@ -304,6 +358,59 @@ impl Browsers {
         for session in &sessions {
             self.bring_up(session, None).await;
         }
+        self.sweep_orphans().await;
+    }
+
+    /// Removes whatever Docker holds for a browser no row owns: what a crash between
+    /// removing a browser's container and deleting its row leaves behind. An orphan would
+    /// keep a signed-in profile running after its owner removed it, and keep its port's name
+    /// on a network nginx is joined to.
+    async fn sweep_orphans(&self) {
+        let docker = self.inner.docker.lock().await;
+        let managed = match self.inner.containers.managed_session_ids().await {
+            Ok(managed) => managed,
+            Err(error) => {
+                event!(
+                    name: "browser.sweep.failed",
+                    Level::WARN,
+                    error.message = %error,
+                    "cannot list what Docker holds for browsers",
+                );
+                return;
+            }
+        };
+        // Read again under the lock: a browser created since the pass began is not an orphan,
+        // so without a fresh list nothing is removed.
+        let stored: HashSet<Uuid> = match self.list_all().await {
+            Ok(current) => current.iter().map(|session| session.id).collect(),
+            Err(error) => {
+                event!(
+                    name: "browser.sweep.failed",
+                    Level::WARN,
+                    error.message = %format!("{error:#}"),
+                    "cannot list the browsers to sweep for orphans",
+                );
+                return;
+            }
+        };
+        for orphan in orphans(&managed, &stored) {
+            event!(
+                name: "browser.sweep.orphan",
+                Level::WARN,
+                browser.session.id = %orphan,
+                "removing a browser no row owns",
+            );
+            if let Err(error) = self.inner.containers.remove(orphan).await {
+                event!(
+                    name: "browser.sweep.failed",
+                    Level::WARN,
+                    browser.session.id = %orphan,
+                    error.message = %error,
+                    "cannot remove a browser no row owns",
+                );
+            }
+        }
+        drop(docker);
     }
 
     async fn list_all(&self) -> anyhow::Result<Vec<BrowserSession>> {
@@ -359,7 +466,7 @@ impl Browsers {
         let member_password = session
             .member_password(&self.inner.cipher)
             .context("the browser's stored password does not open with this encryption key")?;
-        let public_address = address::public_address(&self.inner.public_url).await?;
+        let public_address = self.public_address().await?;
         let spec = BrowserSpec {
             session_id: session.id,
             port: port_of(session),
@@ -384,6 +491,32 @@ impl Browsers {
                 .await?;
         }
         Ok(BringUp::Running)
+    }
+
+    /// The address browsers advertise. A lookup that fails falls back to the last one that
+    /// worked, so a resolver's bad moment does not mark every running browser failed and
+    /// replace its container.
+    async fn public_address(&self) -> anyhow::Result<IpAddr> {
+        match address::public_address(&self.inner.public_url).await {
+            Ok(resolved) => {
+                *self.inner.public_address.lock().expect(LOCK_POISONED) = Some(resolved);
+                Ok(resolved)
+            }
+            Err(error) => {
+                let last_good = *self.inner.public_address.lock().expect(LOCK_POISONED);
+                let Some(last_good) = last_good else {
+                    return Err(error.into());
+                };
+                event!(
+                    name: "browser.address.stale",
+                    Level::WARN,
+                    error.message = %error,
+                    server.address = %last_good,
+                    "keeping the last public address that resolved",
+                );
+                Ok(last_good)
+            }
+        }
     }
 
     async fn still_stored(&self, id: Uuid) -> anyhow::Result<bool> {
@@ -421,6 +554,11 @@ fn port_of(session: &BrowserSession) -> u16 {
     u16::try_from(session.port).expect("browser_sessions.port is checked to be a media port")
 }
 
+/// The browsers Docker holds something for that no stored row owns.
+fn orphans(managed: &HashSet<Uuid>, stored: &HashSet<Uuid>) -> Vec<Uuid> {
+    managed.difference(stored).copied().collect()
+}
+
 /// The lowest port in [`PORTS`] no browser holds.
 fn free_port(in_use: &[i32]) -> Option<u16> {
     PORTS
@@ -450,6 +588,17 @@ mod tests {
         assert_eq!(free_port(&[59000, 59002]), Some(59001));
         let every_port: Vec<i32> = PORTS.map(i32::from).collect();
         assert_eq!(free_port(&every_port), None);
+    }
+
+    // A pass that took the lock between a removal's Docker cleanup and its row deletion
+    // recreated the browser, leaving resources no row owned. The sweep removes exactly those.
+    #[test]
+    fn only_browsers_without_a_row_are_orphans() {
+        let kept = Uuid::now_v7();
+        let orphan = Uuid::now_v7();
+        let managed = HashSet::from([kept, orphan]);
+        let stored = HashSet::from([kept, Uuid::now_v7()]);
+        assert_eq!(orphans(&managed, &stored), vec![orphan]);
     }
 
     #[test]

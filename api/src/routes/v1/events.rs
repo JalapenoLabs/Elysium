@@ -57,11 +57,11 @@ pub async fn handle(State(state): State<AppState>, headers: HeaderMap) -> impl I
     });
 
     let shutdown = Box::pin(state.shutdown.clone().cancelled_owned());
-    let revoked = Box::pin(revoked(state, headers, ACCESS_CHECK_INTERVAL));
+    let access = Box::pin(revoked(state, headers, ACCESS_CHECK_INTERVAL));
     let messages = hello
         .chain(published)
         .map(|payload| Ok::<Event, Infallible>(Event::default().data(&*payload)))
-        .take_until(future::select(shutdown, revoked));
+        .take_until(future::select(shutdown, access));
 
     (
         // Tells nginx not to buffer the stream, which would hold events back.
