@@ -19,8 +19,8 @@ session without one is a Coding session. The Coding page lists only Coding sessi
 inside their items.
 
 An item has one session, opened when the item is created, and its directory in the workspace keeps the item's work
-between turns. An item whose session could not be opened gets one with its next prompt. Items created before sessions
-ran on the runner may hold several, which read as one conversation.
+between turns. An item whose session could not be opened gets one with its next prompt. An item with several sessions
+reads them as one conversation, oldest first.
 
 | Field                 | Meaning                                                                        |
 |-----------------------|--------------------------------------------------------------------------------|
