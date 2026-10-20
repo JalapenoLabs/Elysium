@@ -5,6 +5,94 @@ The Coding area runs agent sessions on Arsox satellites. A satellite is a self-h
 typed event stream. Satellites are registered under Settings, Manage satellites; sessions are started and followed
 on the Coding page.
 
+## The runner
+
+`api/src/runner/` runs agent turns on Elysium's own host: the official `claude` CLI, headless
+(`claude -p --output-format stream-json --verbose`), in the agent workspace container. Coding sessions, Studio, and
+Elysia all submit turns to it (`state.runner.submit(TurnRequest)`) and read the turn's events from the ticket it
+returns. The roadmap is for every turn to run here, with Arsox satellites as an optional path to remote compute.
+
+### Where turns run, and why there
+
+Turns never run inside the API's container: it holds `ELYSIUM_ENCRYPTION_KEY` and the database's credentials, and an
+agent with every permission could read them. They run in one long-lived sibling container, `elysium-workspace`, that
+the API creates through `docker-proxy` like Stalwart, from the `elysium-workspace` image of its own release
+(`workspace/Dockerfile`). A sibling container keeps the API image small and lets the agents' toolchain change without
+touching the API. Per-turn containers were not chosen: a turn would pay a container start, and work that spans turns
+(clones, build caches, Claude's own transcripts) would need its own volume per conversation.
+
+| Path                    | Holds                                                                         |
+|-------------------------|-------------------------------------------------------------------------------|
+| `/workspace`            | The volume `elysium-workspace`: everything that outlives the container        |
+| `/workspace/.claude`    | `CLAUDE_CONFIG_DIR`, and the agent's `~/.claude`: settings, skills, transcripts |
+| `/workspace/.elysium/turns/<turn>-<attempt>` | A running attempt's process group id and MCP configuration, removed as it ends |
+
+Every turn is a `docker exec` as `agent` (uid 1001); Claude Code refuses to bypass permissions as root. The container
+joins `elysium-agents` with the API alone, so agents reach Elysium's own MCP routes at `http://api:8080`
+(`runner::AGENT_API_URL`) and the internet for git, packages, and the model. The image pins Claude Code and `gh`,
+turns the CLI's self-updater off, and builds on the web app's Node. A container running another image is replaced at
+startup, keeping its volume.
+
+### `~/.claude`
+
+Admins name a configuration repository under the workspace settings (`agentConfigurationRepository`, an https URL
+without credentials). The runner fetches its default branch into `/workspace/.claude` before the first turn and again
+whenever the setting changes, checking it out over the directory: tracked files are replaced and untracked ones,
+including Claude's transcripts, are kept, so `--resume` survives a fetch. A github.com repository is read with the
+workspace's default GitHub token, passed to git as an `http.extraHeader` in the environment and never written to
+disk. A fetch that fails fails the turns that need it, with git's message.
+
+### A turn
+
+1. **Queue.** Turns of one conversation (`ConversationId`, chosen by the caller) run one after another; different
+   conversations run side by side, at most `MAX_CONCURRENT_TURNS` (8) at once.
+2. **Prepare.** The first turn after the API starts (the API also starts this at boot) ensures the container, kills
+   turns a previous run left behind, and fetches `~/.claude`.
+3. **Attempt.** One `claude` process on one credential. Secrets travel only in the exec's environment: the
+   credential as `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, and the MCP configuration, which the turn script
+   writes to a private file in the turn's directory. `claude` runs in its own process group, so stopping it stops
+   its tools too.
+4. **Events.** Each line of `stream-json` becomes a `RunnerEvent` (`api/src/runner/events.rs`): `turnStarted`,
+   `agentMessage`, `agentThinking`, `toolStarted`, `toolCompleted`, `rateLimit`, `credentialRolledOver`, and
+   `other` for any line it does not understand, which is kept rather than dropped. Claude's other `system` lines are
+   progress telemetry and are dropped.
+5. **Finish.** Every turn's events end with one `finished`, carrying its status (`completed`, `failed`, `cancelled`,
+   `interrupted`, `usage-limited`), Claude's final text, the error, the harness session id, and the cost in
+   millionths of a dollar, never a float. The caller keeps the session id and passes it as the next turn's `resume`.
+
+The runner keeps nothing: callers record the events they show.
+
+### Credentials
+
+A turn runs on the active Claude credentials in priority order (`claude-code-oauth` as a subscription token,
+`claude-api-token` as an API key); ChatGPT credentials, inactive, and expired ones are skipped. An attempt whose
+credential is spent (a `rejected` rate limit, or a result saying the limit is reached or the credit is gone) or
+refused (an invalid key, an expired token, not logged in) hands the turn to the next credential, reported as
+`credentialRolledOver`. If the attempt had begun a Claude session, the next one resumes it with a prompt to continue
+where it stopped, so no work is lost; otherwise it runs the original prompt. Any other failure ends the turn at
+once, since another credential would fail the same way. When every credential is spent the turn finishes
+`usage-limited`, still carrying the session id to resume later. Unlike a satellite's proxy, the CLI holds the
+credential itself, so an agent can read it from its environment.
+
+### Liveness
+
+| Policy            | Value      | Why                                                           |
+|-------------------|------------|---------------------------------------------------------------|
+| Heartbeat         | 20 minutes | A model call or a quiet build takes minutes; twenty without a line is a hang |
+| Concurrent turns  | 8          | Each is a `claude` process with its own tools on a shared host |
+| Shutdown grace    | 15 seconds | Turns are killed and report `interrupted` before the API exits |
+
+A turn that prints nothing for the heartbeat is killed and finishes `interrupted`. A cancelled turn
+(`runner.cancel(turn_id)`) is killed and finishes `cancelled`; one still queued finishes without running. Docker
+calls for the runner allow 24 hours, because a turn's output is one exec stream held open for the whole turn.
+
+### Testing
+
+The runner's rules are tested against a scripted workspace (`runner/turn.rs`). One opt-in test drives a real daemon:
+with `RUNNER_TEST_DOCKER_URL` naming a `docker-socket-proxy` with `EXEC=1`, `RUNNER_TEST_WORKSPACE_IMAGE` an image
+such as `elysium-workspace:dev`, and an `elysium-agents` network, it runs a turn without a credential and expects the
+CLI to report that it is not logged in. It creates the real `elysium-workspace` container and volume.
+
 ## Terms
 
 | Elysium          | Arsox   | Meaning                                                                   |

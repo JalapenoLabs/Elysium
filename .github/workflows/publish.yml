@@ -31,6 +31,9 @@ concurrency:
 jobs:
   api:
     name: Publish API
+    # Last: auto-update treats a release as available once its API tag exists, and then pulls
+    # the workspace image of the same tag, so that one must already be there.
+    needs: workspace
     runs-on: [ self-hosted, linux, rocky9, docker ]
 
     steps:
@@ -68,5 +71,25 @@ jobs:
           repository: jalapenolabs/elysium-oauth-broker
           context: oauth-broker
           dockerfile: oauth-broker/Dockerfile
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  workspace:
+    name: Publish workspace
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # The image agent turns run in. The API pulls the one of its own release.
+      - name: Publish
+        uses: ./.github/actions/docker-publish
+        with:
+          repository: jalapenolabs/elysium-workspace
+          context: workspace
+          dockerfile: workspace/Dockerfile
           username: ${{ vars.DOCKERHUB_USERNAME }}
           token: ${{ secrets.DOCKERHUB_TOKEN }}

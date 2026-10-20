@@ -196,14 +196,19 @@ services:
       # Where browsers reach the OAuth broker Gmail and Outlook accounts connect through.
       # Empty disables both. OAUTH_BROKER_INTERNAL_URL may name another address for the API.
       OAUTH_BROKER_URL: ""
-      # The filtered Docker API the mail server is created and run through.
+      # The filtered Docker API the mail server and the agent workspace are run through.
       DOCKER_URL: http://docker-proxy:2375
+      # The image agent turns run in, from the same release. The API creates the container.
+      WORKSPACE_IMAGE: jalapenolabs/elysium-workspace:${ELYSIUM_VERSION:-latest}
       MAIL_INGRESS_ADDRESS: *mail-ingress-address
       TZ: UTC
     networks:
-      - default
-      - docker-control
-      - mail
+      default:
+      docker-control:
+      mail:
+      # Agents in the workspace reach the API here as http://api:8080, never through nginx.
+      agents:
+        aliases: [ api ]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -259,6 +264,8 @@ services:
       POST: 1
       ALLOW_START: 1
       ALLOW_RESTARTS: 1
+      # Agent turns are `docker exec` in the workspace container.
+      EXEC: 1
       EVENTS: 0
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -298,6 +305,12 @@ networks:
           # Every other container gets an address from here, so none can take nginx's
           # fixed address before nginx starts.
           ip_range: 172.29.53.128/25
+
+  # The API and the agent workspace it creates, which answers as `workspace`. A plain bridge,
+  # because agents need the internet; nginx is not on it, so nothing public reaches it. A
+  # fixed name, because the API attaches the workspace to it by name.
+  agents:
+    name: elysium-agents
 
 volumes:
   postgres-data:

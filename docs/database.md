@@ -723,6 +723,7 @@ One row, always present (`singleton` is its key and must be true).
 |---------------|---------------|--------------------------------------------------------------|
 | `signup_open` | `BOOLEAN`     | Defaults to true; the first person may sign up regardless    |
 | `require_mfa` | `BOOLEAN`     | Defaults to false                                            |
+| `agent_configuration_repository` | `TEXT` | Nullable; the https repository agents' `~/.claude` comes from, no credentials, at most 2048 characters |
 | `updated_by`  | `UUID`        | References `users`                                           |
 | `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                                        |
 
