@@ -12,6 +12,7 @@ use crate::activity::Activities;
 use crate::auth::Auth;
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::elysia::Elysia;
 use crate::fleet::Fleet;
 use crate::github::Github;
 use crate::jira::Jira;
@@ -39,6 +40,8 @@ pub struct AppState {
     pub version: Arc<VersionInfo>,
     /// Publishes to every open `GET /api/v1/events` stream.
     pub events: EventBus,
+    /// Elysia, and the signal that tells her dispatcher to look at the queue.
+    pub elysia: Elysia,
     pub fleet: Fleet,
     pub github: Github,
     pub jira: Jira,

@@ -221,6 +221,7 @@ pub async fn app_state_with_storage(
         cipher,
         version,
         events,
+        elysia: crate::elysia::Elysia::new(crate::elysia::runner::TurnRunner::Host(runner.clone())),
         fleet,
         github,
         jira,
