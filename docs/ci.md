@@ -53,7 +53,7 @@ Job names are the check names. Require exactly these in the `main` ruleset:
 | `Frontend build`     | `frontend.yml`           | `yarn build`, the production bundle                             |
 | `Frontend image`     | `frontend.yml`           | `frontend/Dockerfile` builds and the dev server answers         |
 | `Compose config`     | `compose.yml`            | the stacks parse and interpolate, the development override merges |
-| `Workspace image`    | `workspace.yml`          | `workspace/Dockerfile` builds, and `claude`, `gh`, and `git` run as `agent` in it |
+| `Workspace image`    | `workspace.yml`          | `workspace/Dockerfile` builds, and `claude`, `gh`, `git`, Node, and Blender run as `agent` in it |
 
 Names are prefixed with their lane because a required check is matched by name alone, and two workflows each
 reporting `Clippy` could not be told apart.
@@ -86,7 +86,7 @@ Every tool is pinned to an exact version, in one place where the repository allo
 |--------------------|------------------------------------------------------|-----------------------------------|
 | Rust               | `rust-toolchain.toml` in `api/` and `oauth-broker/`  | rustup, Dockerfile comparison     |
 | Node               | `frontend/.nvmrc`                                    | checksum, version, Dockerfile comparison (API, frontend, workspace) |
-| Claude Code, `gh`  | `ARG`s in `workspace/Dockerfile`                     | `gh`'s published checksum         |
+| Claude Code, `gh`, Blender | `workspace/Dockerfile`, `workspace/blender/install.sh` | published checksums, a git commit for the Blender MCP server |
 | Yarn               | `packageManager` in `frontend/package.json`          | corepack, version                 |
 | Diesel CLI         | `DIESEL_VERSION` in `api.yml`                        | checksum, version                 |
 | Postgres           | `api/scripts/verify-migrations.sh`                   | same image as compose             |

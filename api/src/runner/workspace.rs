@@ -39,7 +39,7 @@ use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tracing::{Level, event};
 
-const CONTAINER_NAME: &str = "elysium-workspace";
+pub(super) const CONTAINER_NAME: &str = "elysium-workspace";
 const VOLUME_NAME: &str = "elysium-workspace";
 const NETWORK_NAME: &str = "elysium-agents";
 /// What other containers on [`NETWORK_NAME`] call the workspace.
@@ -95,6 +95,11 @@ impl WorkspaceContainer {
     /// `image` is a full reference such as `jalapenolabs/elysium-workspace:v1.2.0`.
     pub const fn new(docker: Docker, image: String) -> Self {
         Self { docker, image }
+    }
+
+    /// The Docker client, for the file operations in `super::files`.
+    pub(super) const fn docker(&self) -> &Docker {
+        &self.docker
     }
 
     /// Pulls the image if Docker lacks it, then makes sure the container runs it.

@@ -16,7 +16,7 @@
 //! cannot delete anything. See `docs/action-items.md`.
 //!
 //! Each tool's database work is a function of a connection and a [`WorkScope`], so it is
-//! tested against Postgres without a satellite; the `run_*` wrappers only parse, connect,
+//! tested against Postgres without a workspace; the `run_*` wrappers only parse, connect,
 //! and report.
 
 use std::collections::HashMap;
@@ -155,7 +155,7 @@ const HISTORY_MAX: usize = 50;
 const COMMENT_MAX_CHARACTERS: usize = 20_000;
 
 /// What a call reaches: the session and its project, and the item it was started from.
-/// The parts of [`CallScope`] that need no satellite, so the queries are testable alone.
+/// The parts of [`CallScope`] that need no workspace, so the queries are testable alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[expect(
     clippy::struct_field_names,
@@ -173,16 +173,17 @@ impl TryFrom<&CallScope> for WorkScope {
     /// Work is scoped to a project. A Studio session without one never declares these tools,
     /// so a call from one is refused rather than answered from no project at all.
     fn try_from(scope: &CallScope) -> Result<Self, ToolError> {
-        let Some(project_id) = scope.project_id else {
+        let CallScope::Session(session) = scope;
+        let Some(project_id) = session.project_id else {
             return Err(ToolError::Invalid(
                 "this session belongs to no project, so it has no action items or initiatives"
                     .to_owned(),
             ));
         };
         Ok(Self {
-            session_id: scope.session_id,
+            session_id: session.session_id,
             project_id,
-            action_item_id: scope.action_item_id,
+            action_item_id: session.action_item_id,
         })
     }
 }

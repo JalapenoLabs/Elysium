@@ -3,15 +3,14 @@
 //! `elysium_storage`: the agent's tools for files in its project's storage locations.
 //!
 //! Every call names a location by id and is checked against the database as it is now: a
-//! location unlinked from the project or deleted after the thread started is refused,
-//! whatever the thread was told when it was created. Paths inside a location are relative
+//! location unlinked from the project or deleted after the session started is refused,
+//! whatever the session was told when it started. Paths inside a location are relative
 //! to its directory and checked by [`crate::storage::path::RelativePath`]; workspace paths
-//! are relative to the workspace root and checked by the satellite.
+//! are relative to the session's directory, and a path that leads outside it is refused
+//! inside the workspace container (`crate::runner::files`).
 //!
-//! File bodies stream between the provider and the satellite's workspace without being held
-//! in memory.
+//! File bodies stream between the provider and the workspace without being held in memory.
 
-use arsox_sdk::client::ThreadHandle;
 use diesel::result::Error as DieselError;
 use futures_util::FutureExt as _;
 use secrecy::SecretString;
@@ -21,6 +20,8 @@ use uuid::Uuid;
 
 use super::{CallScope, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments};
 use crate::models::storage_location::{self, StorageLocation, StorageLocationKind};
+use crate::runner::WorkspacePath;
+use crate::runner::workspace::WorkspaceContainer;
 use crate::storage::{MAX_UPLOAD_BYTES, Storage, StorageError};
 
 pub const SERVER: ToolServer = ToolServer {
@@ -248,12 +249,13 @@ async fn run_locations(
     arguments: &str,
 ) -> Result<Value, ToolError> {
     let NoArguments {} = parse_arguments(arguments)?;
+    let CallScope::Session(session) = scope;
     let mut connection = context
         .database
         .get()
         .await
         .map_err(|error| internal(scope, "database.connect", &error))?;
-    let locations = storage_location::list_for_project(&mut connection, scope.project_id)
+    let locations = storage_location::list_for_project(&mut connection, session.project_id)
         .await
         .map_err(|error| internal(scope, "storage_location.list_for_project", &error))?;
 
@@ -326,9 +328,11 @@ async fn run_download(
 ) -> Result<Value, ToolError> {
     let arguments: DownloadArguments = parse_arguments(arguments)?;
     let (location, access_key) = open_location(context, scope, arguments.location_id).await?;
+    let CallScope::Session(session) = scope;
     copy_to_workspace(
         &context.storage,
-        &scope.workspace,
+        &context.workspace,
+        &session.directory,
         &location,
         &access_key,
         &arguments,
@@ -344,9 +348,11 @@ async fn run_upload(
     let arguments: UploadArguments = parse_arguments(arguments)?;
     // The location is checked first, so a call it refuses never opens the workspace file.
     let (location, access_key) = open_location(context, scope, arguments.location_id).await?;
+    let CallScope::Session(session) = scope;
     copy_to_location(
         &context.storage,
-        &scope.workspace,
+        &context.workspace,
+        &session.directory,
         &location,
         &access_key,
         arguments,
@@ -365,13 +371,14 @@ async fn open_location(
     scope: &CallScope,
     location_id: Uuid,
 ) -> Result<(StorageLocation, SecretString), ToolError> {
+    let CallScope::Session(session) = scope;
     let mut connection = context
         .database
         .get()
         .await
         .map_err(|error| internal(scope, "database.connect", &error))?;
     let location =
-        storage_location::find_for_project(&mut connection, location_id, scope.project_id)
+        storage_location::find_for_project(&mut connection, location_id, session.project_id)
             .await
             .map_err(|error| match error {
                 DieselError::NotFound => ToolError::LocationUnavailable(location_id),
@@ -385,16 +392,16 @@ async fn open_location(
     Ok((location, access_key))
 }
 
-/// Streams a stored file into the workspace. Both sides need its length before the first
-/// byte: the satellite checks a write's declared length against its ceiling.
+/// Streams a stored file into the session's directory.
 ///
 /// # Errors
-/// Returns [`ToolError::NotFound`] when no file is stored at the path,
-/// [`ToolError::Provider`] when the provider refuses or does not say how large the file is,
-/// and [`ToolError::Workspace`] when the satellite refuses the write or it fails part way.
+/// Returns [`ToolError::NotFound`] when no file is stored at the path, [`ToolError::Provider`]
+/// when the provider refuses, and [`ToolError::Workspace`] when the path leaves the session's
+/// directory or the write fails part way.
 async fn copy_to_workspace(
     storage: &Storage,
-    workspace: &ThreadHandle,
+    workspace: &WorkspaceContainer,
+    directory: &WorkspacePath,
     location: &StorageLocation,
     access_key: &SecretString,
     arguments: &DownloadArguments,
@@ -402,63 +409,51 @@ async fn copy_to_workspace(
     let download = storage
         .download(location, access_key, &arguments.path)
         .await?;
-    let Some(content_length) = download.content_length else {
-        return Err(ToolError::Provider(
-            "the provider did not say how large the file is, so it cannot be written to the \
-             workspace"
-                .to_owned(),
-        ));
-    };
-    let written = workspace
-        .write_file(&arguments.workspace_path, content_length, download.body)
+    let size_bytes = workspace
+        .write_file(directory, &arguments.workspace_path, download.body)
         .await
         .map_err(|error| ToolError::Workspace(error.to_string()))?;
-    Ok(json!({ "workspacePath": written.path, "sizeBytes": written.size_bytes }))
+    Ok(json!({ "workspacePath": arguments.workspace_path, "sizeBytes": size_bytes }))
 }
 
-/// Streams a workspace file into a location. A file over [`MAX_UPLOAD_BYTES`] is refused
-/// before a byte moves.
+/// Streams a file from the session's directory into a location. A file over
+/// [`MAX_UPLOAD_BYTES`] is refused before a byte moves.
 ///
 /// # Errors
-/// Returns [`ToolError::Workspace`] when the satellite cannot read the file,
-/// [`ToolError::Invalid`] for a file too large or a path that is not plain, and
-/// [`ToolError::Provider`] when the provider refuses or the body fails part way.
+/// Returns [`ToolError::Workspace`] when the file cannot be read or leaves the session's
+/// directory, [`ToolError::Invalid`] for a file too large, and [`ToolError::Provider`] when the
+/// provider refuses or the body fails part way.
 async fn copy_to_location(
     storage: &Storage,
-    workspace: &ThreadHandle,
+    workspace: &WorkspaceContainer,
+    directory: &WorkspacePath,
     location: &StorageLocation,
     access_key: &SecretString,
     arguments: UploadArguments,
 ) -> Result<Value, ToolError> {
     let file = workspace
-        .read_file(&arguments.workspace_path)
+        .read_file(directory, &arguments.workspace_path)
         .await
         .map_err(|error| ToolError::Workspace(error.to_string()))?;
-    let content_length = file.content_length();
+    let content_length = file.content_length;
     if content_length > MAX_UPLOAD_BYTES {
         return Err(ToolError::Invalid(format!(
             "{} is {content_length} bytes, over the {MAX_UPLOAD_BYTES} byte (5 GiB) upload limit",
             arguments.workspace_path
         )));
     }
-    let content_type = arguments
-        .content_type
-        .or_else(|| file.content_type().map(ToOwned::to_owned));
     let entry = storage
         .upload(
             location,
             access_key,
             &arguments.path,
-            file.into_body(),
+            file.body,
             content_length,
-            content_type.as_deref(),
+            arguments.content_type.as_deref(),
         )
         .await?;
     Ok(json!({ "entry": entry }))
 }
-
-#[cfg(test)]
-mod transfer_tests;
 
 #[cfg(test)]
 mod tests {
