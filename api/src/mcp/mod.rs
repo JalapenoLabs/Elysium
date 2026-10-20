@@ -5,7 +5,8 @@
 //! It speaks MCP's Streamable HTTP transport through the official Rust SDK, statelessly: every
 //! request stands alone, so any API replica can answer it and nothing is kept between calls.
 //! Every request carries an OAuth access token Hydra issued, checked by [`bearer`] before the
-//! server sees it. The tools are in [`workspace`].
+//! server sees it. The server is [`workspace`], and its tools are grouped by what they act on:
+//! [`projects`], [`satellites`], and [`sessions`].
 //!
 //! Clients find out how to get a token from the protected resource metadata
 //! ([`protected_resource_metadata`]), which names Hydra as the authorization server. See
@@ -15,6 +16,9 @@
 //! through the satellite and scoped to a session's project.
 
 pub mod bearer;
+mod projects;
+mod satellites;
+mod sessions;
 pub mod workspace;
 
 use std::sync::Arc;
@@ -48,8 +52,9 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .with_cancellation_token(state.shutdown.child_token())
         .with_allowed_hosts([host])
         .with_allowed_origins([public_url.origin().ascii_serialization()]);
+    let workspace_state = state.clone();
     let service = StreamableHttpService::new(
-        || Ok(Workspace::default()),
+        move || Ok(Workspace::new(workspace_state.clone())),
         Arc::new(NeverSessionManager::default()),
         config,
     );

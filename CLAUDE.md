@@ -3,6 +3,32 @@
 Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind one nginx origin, run with
 `docker compose`. Decisions are documented per topic in `docs/`; keep them current as the code changes.
 
+## Direction
+
+The full vision is `docs/vision.md`. Read it before designing any feature.
+
+- Elysium is a personal Jalapeno Labs project. A workplace runs its published releases as a user, updated from the
+  latest release, and never contributes to it.
+- Elysia should work without being fed. Events (mail, meetings, chat, provider changes) create work, Elysia starts
+  it on her own, and she reports back when something is ready for review.
+- Claude is the agent. Codex is for occasional automated tasks only.
+- The roadmap is for coding sessions to run Claude Code directly on Elysium's host by default, with Arsox satellites
+  optional for remote compute.
+- Seraphim's autonomous loop (take the next work when idle, fix failing CI, address review, revive dead turns, ask
+  when blocked) moves into Elysium redesigned, not ported as is.
+- Elysium uses services the way its user does, signed in as that user, and never installs anything into an
+  organization. Each service is a connector behind one trait: how it signs in, how it stays signed in, how it
+  ingests, and how it acts. An official API, a CLI such as `gh`, and a browser session the user signed in to are
+  interchangeable ways of filling those parts.
+- Everything ingested lands on one timeline, attributed to projects, so a project shows every message, mail, note,
+  agent turn, and meeting segment about it in order. A meeting segment is the trimmed recording, its transcript, and
+  its summary.
+- Agent logs read like GitHub Actions: each turn collapses to a one or two sentence summary that expands to its
+  full log.
+- Signing in without an app of Elysium's own happens in a real browser the host runs and streams to the user over
+  WebRTC, one container and profile per account. A provider that refuses datacenter sign-ins is handled when met.
+- Next on the roadmap: Outlook and Gmail through that browser, so Elysia is told when mail arrives and manages it.
+
 ## Images and stacks
 
 - `compose.yml` is the production stack: it runs the published `jalapenolabs/elysium-api` image, which serves both
@@ -24,6 +50,7 @@ Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind
 - `RUST_LOG`, which is optional
 - `ELYSIUM_PUBLIC_URL`, which is optional: the origin browsers use, `http://localhost:4000` unless set
 - `ELYSIUM_VERSION`, which is optional: the published release the production stack runs, `latest` unless set
+- `WEB_PORT` and `WEB_BIND_ADDRESS`, which are optional: where nginx publishes the web, `127.0.0.1:4000` unless set
 
 Everything else follows these rules:
 
@@ -57,13 +84,16 @@ Everything else follows these rules:
 ## External MCP clients connect through OAuth
 
 - Elysium's MCP server is at `/api/mcp`, for clients such as Claude Code and Codex. It speaks Streamable HTTP through
-  the official Rust SDK (`rmcp`), statelessly. Its tools are in `api/src/mcp/workspace.rs`. See `docs/mcp.md`.
+  the official Rust SDK (`rmcp`), statelessly. Its tools are in `api/src/mcp/`, one module per group. See `docs/mcp.md`.
 - Ory Hydra (`hydra/`) is the OAuth 2.1 authorization server; Kratos still proves who people are, and the web app's
   `/oauth/login` and `/oauth/consent` pages answer Hydra's challenges. Hydra is configured like Kratos, from
   `ELYSIUM_PUBLIC_URL` and `ELYSIUM_ENCRYPTION_KEY`, with its database `hydra` on the shared Postgres.
 - Any approved person may connect any client; admins gate sign-up, not OAuth. Clients register themselves.
 - Every token is bound to `/api/mcp` and checked on every call: active, granting `workspace:read`, and naming an active,
   approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
+- A tool never reimplements a route: it calls the function the route's handler calls, so a change made over MCP is
+  validated, recorded, and announced exactly as one made in the browser. Tools exist for projects (read), satellites,
+  and coding sessions; Studio items, action items, and initiatives are on the roadmap.
 
 ## Satellites are reached only through the API
 

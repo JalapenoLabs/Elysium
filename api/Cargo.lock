@@ -1077,6 +1077,7 @@ dependencies = [
  "rmcp",
  "rustls",
  "rusty-s3",
+ "schemars",
  "secrecy",
  "serde",
  "serde_json",
@@ -3111,6 +3112,7 @@ dependencies = [
  "schemars_derive",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
