@@ -14,6 +14,7 @@ mod config;
 mod connections;
 mod crypto;
 mod database;
+mod elysia;
 mod environment;
 mod errors;
 mod fleet;
