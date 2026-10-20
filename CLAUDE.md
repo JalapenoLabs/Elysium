@@ -3,6 +3,32 @@
 Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind one nginx origin, run with
 `docker compose`. Decisions are documented per topic in `docs/`; keep them current as the code changes.
 
+## Direction
+
+The full vision is `docs/vision.md`. Read it before designing any feature.
+
+- Elysium is a personal Jalapeno Labs project. A workplace runs its published releases as a user, updated from the
+  latest release, and never contributes to it.
+- Elysia should work without being fed. Events (mail, meetings, chat, provider changes) create work, Elysia starts
+  it on her own, and she reports back when something is ready for review.
+- Claude is the agent. Codex is for occasional automated tasks only.
+- The roadmap is for coding sessions to run Claude Code directly on Elysium's host by default, with Arsox satellites
+  optional for remote compute.
+- Seraphim's autonomous loop (take the next work when idle, fix failing CI, address review, revive dead turns, ask
+  when blocked) moves into Elysium redesigned, not ported as is.
+- Elysium uses services the way its user does, signed in as that user, and never installs anything into an
+  organization. Each service is a connector behind one trait: how it signs in, how it stays signed in, how it
+  ingests, and how it acts. An official API, a CLI such as `gh`, and a browser session the user signed in to are
+  interchangeable ways of filling those parts.
+- Everything ingested lands on one timeline, attributed to projects, so a project shows every message, mail, note,
+  agent turn, and meeting segment about it in order. A meeting segment is the trimmed recording, its transcript, and
+  its summary.
+- Agent logs read like GitHub Actions: each turn collapses to a one or two sentence summary that expands to its
+  full log.
+- Signing in without an app of Elysium's own happens in a real browser the host runs and streams to the user over
+  WebRTC, one container and profile per account. A provider that refuses datacenter sign-ins is handled when met.
+- Next on the roadmap: Outlook and Gmail through that browser, so Elysia is told when mail arrives and manages it.
+
 ## Images and stacks
 
 - `compose.yml` is the production stack: it runs the published `jalapenolabs/elysium-api` image, which serves both
