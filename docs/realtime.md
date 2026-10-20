@@ -57,6 +57,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `studioItem.deleted` | `{ id }`                 | A Studio item was deleted, softly or for good              |
 | `studioAsset.created` | `StudioAsset`           | A file was pulled from a workspace into a Studio item      |
 | `studioFeedback.created` | `StudioFeedback`     | A prompt with a drawing was sent to a Studio item          |
+| `updates.status`     | `UpdatesStatus`          | Auto-update checked, began or finished an update, or what it waits for changed |
 | `user.upserted`      | `User`                   | Someone signed up, was approved, changed role, or was disabled or enabled |
 | `user.deleted`       | `{ id }`                 | A pending sign-up was rejected                             |
 | `workspaceSettings.updated` | `WorkspaceSettings` | Sign-up was opened or closed, or the authenticator rule changed |

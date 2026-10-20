@@ -117,6 +117,10 @@ pub async fn app_state(database_url: &SecretString) -> crate::state::AppState {
 ///
 /// # Panics
 /// Panics when `TEST_REDIS_URL` is unset or Redis refuses the connection.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one service per field of AppState, built in order, reads best in one place"
+)]
 pub async fn app_state_with_storage(
     database_url: &SecretString,
     storage: crate::storage::Storage,
@@ -198,13 +202,25 @@ pub async fn app_state_with_storage(
     )
     .expect("browsers build without reaching anything");
 
+    let activity = crate::activity::Activities::new();
+    let version = Arc::new(VersionInfo::from_build().expect("build metadata parses"));
+    let updates = crate::updates::Updates::new(crate::updates::UpdatesDeps {
+        database: database.clone(),
+        events: events.clone(),
+        activity: activity.clone(),
+        http: http.clone(),
+        version: Arc::clone(&version),
+        encryption_key: config.encryption_key.clone(),
+    });
+
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
         browsers,
         database,
+        activity,
         redis,
         cipher,
-        version: Arc::new(VersionInfo::from_build().expect("build metadata parses")),
+        version,
         events,
         fleet,
         github,
@@ -212,6 +228,7 @@ pub async fn app_state_with_storage(
         links,
         mail,
         storage,
+        updates,
         shutdown,
     }
 }

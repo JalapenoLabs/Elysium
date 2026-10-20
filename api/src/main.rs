@@ -6,6 +6,7 @@
 //! and generate encryption keys. See `elysium-api --help`.
 
 mod action_items;
+mod activity;
 mod auth;
 mod blender;
 mod browser;
@@ -36,6 +37,7 @@ mod studio;
 #[cfg(test)]
 mod test_support;
 mod tools;
+mod updates;
 mod version;
 mod web_app;
 
