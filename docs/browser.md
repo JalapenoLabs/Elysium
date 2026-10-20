@@ -5,8 +5,8 @@ The user signs in on the real page, through any OAuth, MFA, or passkey prompt it
 on the host afterwards, which keeps the session alive. Connectors then read and act through that same browser, so
 Elysium uses each service as its user does and never installs anything into an organization.
 
-None of this is built yet. This doc records what was verified against the pinned versions below, and the design the
-roadmap builds.
+Today the API runs a browser per signed-in account and relays its stream; the sign-in panel in the web app and the
+connectors that read through it are on the roadmap. The facts below were verified against the pinned versions.
 
 ## Neko
 
@@ -142,22 +142,36 @@ the sign-in on every restart, and both are overridden:
   a stop and start with it, and was gone without it.
 - Chromium is started without `--bwsi`.
 
-The policy file, Neko's own with that one setting added, is copied in with the rest.
+The policy file (`api/src/browser/neko/policies.json`) is Neko's own with three changes: cookies are kept, pop-ups
+are allowed because sign-in flows open them, and no extension is installed, so the browser is a plain Chromium.
 
-## Design
+## Browser sessions
 
-| Piece             | Where                                   | What it does                                            |
-|-------------------|-----------------------------------------|---------------------------------------------------------|
-| Browser sessions  | `api/src/browser/`, `browser_sessions`  | One container, volume, network, and port per signed-in account, created through `docker-proxy`, and kept in place by a reconciler |
-| Stream route      | `/api/v1/browser-sessions/{id}/stream`  | Authenticated WebSocket relay of Neko's signaling       |
-| Sign-in panel     | `frontend/src/`                         | Video, input, and paste over Neko's protocol            |
-| Connectors        | `api/src/connectors/`                   | One trait: sign in, stay signed in, ingest, act         |
-| Timeline          | `timeline_records`                      | Every ingested record, attributed to projects           |
-| Outlook and Gmail | `api/src/connectors/`                   | A cheap check for new mail in the signed-in page, then records, an event, and an inbox item |
+`api/src/browser/` runs them; `/api/v1/browser-sessions` exposes them (`docs/api.md`); `browser_sessions` stores them
+(`docs/database.md`).
+
+- **Adding one** stores it on the lowest free port with a generated member password and answers at once as
+  `starting`. In the background the API pulls Neko's image if Docker lacks it, creates the browser's network, volume,
+  and container, joins itself and nginx to the network, copies the setup files in, and starts it. Once Chromium's
+  DevTools port answers, it opens the browser's start page in a new tab. Each change of status is published as
+  `browserSession.upserted`.
+- **The reconciler** runs once at startup and then every 10 seconds over every browser. It recreates whatever is
+  missing, starts a stopped container, rejoins nginx and the API to each network, and replaces a container whose spec
+  changed: another image, public address, or setup file. The spec is a hash in the container's
+  `dev.elysium.browser-spec` label; replacing a container keeps its profile volume. A failure marks the browser
+  `failed` with the reason until a pass succeeds.
+- **Status** is kept in memory and starts as `starting` when the API starts; the first pass sets it.
+- **Removing one** removes its container, network, and volume, then its row. The accounts it was signed in to are
+  untouched; their sessions simply stop being used.
+- **The public address** a browser advertises is what `ELYSIUM_PUBLIC_URL`'s host resolves to (its first IPv4
+  address, else its first address), or loopback for `localhost`. A host whose public name resolves somewhere viewers
+  cannot reach it from, such as a proxy that carries only HTTP, needs an explicit address, which is on the roadmap.
+- **The desktop** is 1920 by 1080 at 30 frames a second, in UTC.
 
 ## Roadmap
 
-- Browser sessions, the stream route, and the sign-in panel.
+- The sign-in panel in the web app, speaking Neko's protocol.
 - The connector trait and the timeline record.
-- Outlook and Gmail ingest through the signed-in browser.
+- Outlook and Gmail ingest through the signed-in browser, over the DevTools Protocol.
+- An explicit public address, for hosts whose public name does not resolve to where media can reach them.
 - Elysia's triage turn and drafting, driving the same browser.
