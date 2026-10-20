@@ -73,5 +73,8 @@ pub async fn start_turn(
             .studio_item_id
             .map(|_studio_item| INSTRUCTIONS.to_owned()),
     };
-    state.sessions.start_turn(&session, body.prompt, extras).await
+    state
+        .sessions
+        .start_turn(&session, body.prompt, extras)
+        .await
 }

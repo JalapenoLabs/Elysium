@@ -42,7 +42,7 @@ pub enum ApiError {
     /// A service this request needs is not configured on this deployment.
     #[error("{0}")]
     Unavailable(&'static str),
-    /// An upstream (a satellite, a mail server, the OAuth broker, a storage provider)
+    /// An upstream (the workspace, a mail server, the OAuth broker, a storage provider)
     /// refused the request or could not be reached. The message is the upstream's own
     /// error, which never carries a secret.
     #[error("{0}")]

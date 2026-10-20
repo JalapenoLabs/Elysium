@@ -14,7 +14,7 @@ import {
   LuHardDrive,
   LuMail,
   LuPlug,
-  LuSatellite,
+  LuRefreshCw,
   LuShieldCheck,
   LuSquareKanban,
   LuUser,
@@ -71,12 +71,6 @@ export function SettingsDirectoryPage() {
           href={UrlTree.settingsLlms}
         />
         <SettingsDirectoryItem
-          icon={LuSatellite}
-          title={t('items.satellites.title')}
-          description={t('items.satellites.description')}
-          href={UrlTree.settingsSatellites}
-        />
-        <SettingsDirectoryItem
           icon={LuMail}
           title={t('items.email.title')}
           description={t('items.email.description')}
@@ -106,6 +100,12 @@ export function SettingsDirectoryPage() {
           description={t('items.environment.description')}
           href={UrlTree.settingsEnvironment}
         />
+        {isAdmin && <SettingsDirectoryItem
+          icon={LuRefreshCw}
+          title={t('items.updates.title')}
+          description={t('items.updates.description')}
+          href={UrlTree.settingsUpdates}
+        />}
       </div>
     </section>
   </div>

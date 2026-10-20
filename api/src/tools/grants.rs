@@ -86,8 +86,11 @@ impl Grant {
             .iter()
             .map(|server| McpServer::Http {
                 name: server.name.to_owned(),
-                url: Url::parse(&format!("{AGENT_API_URL}{AGENT_TOOLS_PATH}/{}", server.name))
-                    .expect("server names are URL-safe"),
+                url: Url::parse(&format!(
+                    "{AGENT_API_URL}{AGENT_TOOLS_PATH}/{}",
+                    server.name
+                ))
+                .expect("server names are URL-safe"),
                 headers: vec![(
                     "Authorization".to_owned(),
                     SecretString::from(format!("Bearer {}", self.token.expose_secret())),

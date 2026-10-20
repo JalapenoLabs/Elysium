@@ -24,6 +24,8 @@
 //!   left behind are killed when the workspace is first prepared.
 //! - **Every turn finishes.** Its events end with exactly one [`RunnerEvent::Finished`], also
 //!   when it fails before it starts.
+//! - **Busy.** A running turn holds an activity (`crate::activity`), so auto-update never
+//!   restarts the stack under it.
 //!
 //! Only the official CLI runs, with the credential in its environment. The Agent SDK is
 //! never driven with subscription credentials.
@@ -55,6 +57,7 @@ use self::configuration::ConfigurationSource;
 use self::credentials::ClaudeCredential;
 pub use self::events::{HarnessSessionId, RunnerEvent, TurnOutcome, TurnStatus};
 use self::workspace::WorkspaceContainer;
+use crate::activity::Activities;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 
@@ -226,6 +229,8 @@ struct Inner {
     executor: Executor,
     credentials: CredentialSource,
     configuration: ConfigurationSource,
+    /// Where each running turn says the stack is busy.
+    activity: Activities,
     shutdown: CancellationToken,
     slots: Semaphore,
     tracker: TaskTracker,
@@ -303,6 +308,7 @@ impl Runner {
         workspace: WorkspaceContainer,
         database: Pool,
         cipher: Arc<Cipher>,
+        activity: Activities,
         shutdown: &CancellationToken,
     ) -> Self {
         Self::with_parts(
@@ -312,6 +318,7 @@ impl Runner {
                 cipher: Arc::clone(&cipher),
             },
             ConfigurationSource::Database { database, cipher },
+            activity,
             shutdown.child_token(),
         )
     }
@@ -320,6 +327,7 @@ impl Runner {
         executor: Executor,
         credentials: CredentialSource,
         configuration: ConfigurationSource,
+        activity: Activities,
         shutdown: CancellationToken,
     ) -> Self {
         Self {
@@ -327,6 +335,7 @@ impl Runner {
                 executor,
                 credentials,
                 configuration,
+                activity,
                 shutdown,
                 slots: Semaphore::new(MAX_CONCURRENT_TURNS),
                 tracker: TaskTracker::new(),

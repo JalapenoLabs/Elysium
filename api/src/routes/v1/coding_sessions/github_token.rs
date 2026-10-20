@@ -72,25 +72,19 @@ impl SessionChoice {
     }
 }
 
-/// The token a session starts with, opened and ready to hand to its agent.
-#[derive(Debug)]
-pub struct SessionToken {
-    pub credential_id: Uuid,
-    pub token: SecretString,
-}
-
-/// Resolves which token a new session starts with and decrypts it, or `None` for no token.
+/// Resolves which token a new session starts with, or `None` for no token, and checks it
+/// opens. Each turn opens it again ([`open_for_session`]).
 ///
 /// # Errors
 /// Answers `400` when the session names a token that does not exist. Unlike a model
 /// credential, a token that cannot be decrypted is not skipped: the agent would start
 /// without the access it was promised, so the session is refused.
-pub async fn open(
+pub async fn resolve(
     connection: &mut AsyncPgConnection,
     cipher: &Cipher,
     project: &Project,
     choice: SessionChoice,
-) -> Result<Option<SessionToken>, ApiError> {
+) -> Result<Option<Uuid>, ApiError> {
     let workspace_default = github_credential::find_default(connection)
         .await?
         .map(|credential| credential.id);
@@ -106,13 +100,10 @@ pub async fn open(
             ),
             other => other.into(),
         })?;
-    let token = credential
+    credential
         .token(cipher)
         .context("the stored GitHub token cannot be decrypted")?;
-    Ok(Some(SessionToken {
-        credential_id,
-        token,
-    }))
+    Ok(Some(credential_id))
 }
 
 /// Opens the token a session was started with, or `None` for a session without one or whose
@@ -284,6 +275,5 @@ mod tests {
             clone_url("https://gitlab.com/org/repo.git"),
             "https://gitlab.com/org/repo.git"
         );
-
     }
 }

@@ -27,10 +27,6 @@
       "title": "Manage LLMs",
       "description": "Connect language model providers, set their priority, and manage credentials."
     },
-    "satellites": {
-      "title": "Manage satellites",
-      "description": "Register the Arsox satellites that run coding sessions, and check that Elysium can reach them."
-    },
     "email": {
       "title": "Email",
       "description": "Connect Gmail and Outlook accounts, or create mailboxes on Elysium's own mail server."
@@ -50,6 +46,10 @@
     "environment": {
       "title": "Environment variables",
       "description": "Set variables every coding session's agent receives, such as registry tokens or build settings."
+    },
+    "updates": {
+      "title": "Updates",
+      "description": "See which release is running, follow auto-update, and check for a new release."
     }
   },
   "personalDetails": {

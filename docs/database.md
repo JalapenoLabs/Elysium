@@ -47,14 +47,11 @@ Guarantees:
 3. `cargo test -- --include-ignored` runs the store-backed tests, against that Postgres and a disposable Redis.
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
-redo, concurrent migrators, the pending-migration refusal, and every LLM, satellite, storage location, GitHub
+redo, concurrent migrators, the pending-migration refusal, and every LLM, storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
 query, every `elysium_work` tool against its project scope, each link provider against a faked provider, the
 watcher's passes, changesets proposed, decided, applied in part, and undone, accounts and their guardrails, and the
-router itself refusing every workspace route without a session. Studio prompts are driven through the router as a
-signed-in person, against a fake satellite (`api/src/fleet/fake_satellite.rs`) and a fake Bunny zone: plain and drawn
-prompts, a refused turn, continuing with a brief or an imported session, a deleted satellite, racing prompts, and the
-transcript backup. Plain `cargo test` skips them because they need `TEST_DATABASE_URL`, and the router tests
+router itself refusing every workspace route without a session. Plain `cargo test` skips them because they need `TEST_DATABASE_URL`, and the router tests
 `TEST_REDIS_URL`. A router test signs in by caching a Kratos session in Redis (`test_support::signed_in_cookie`).
 
 ## Conventions
@@ -154,19 +151,6 @@ What coding sessions are grouped under.
 `Project` in `api/src/models/project.rs` leaves `cover_image` out, so listing projects never loads images;
 `find_cover` reads it for the one route that serves a cover.
 
-### `satellites`
-
-| Column             | Type          | Notes                                                  |
-|--------------------|---------------|--------------------------------------------------------|
-| `id`               | `UUID`        | UUIDv7, primary key                                    |
-| `name`             | `TEXT`        | 1 to 120 characters, unique                            |
-| `description`      | `TEXT`        | Up to 2000 characters, defaults to empty               |
-| `url`              | `TEXT`        | Starts with `http://` or `https://`, up to 2048 chars  |
-| `secret_encrypted` | `BYTEA`       | Sealed bearer secret, see `docs/secrets.md`            |
-| `is_active`        | `BOOLEAN`     | Defaults to true; inactive satellites are not watched  |
-| `created_at`       | `TIMESTAMPTZ` | Set on insert                                          |
-| `updated_at`       | `TIMESTAMPTZ` | Maintained by trigger                                  |
-
 ### `github_credentials`
 
 The GitHub tokens Elysium holds; see `docs/github.md`.
@@ -235,19 +219,19 @@ The boards a credential may touch without `all_boards`. The primary key is `(jir
 
 ### `environment_variables`
 
-Global environment variables every coding session's thread receives; see `docs/environment.md`.
+Global environment variables every coding session's turns receive; see `docs/environment.md`.
 
 | Column            | Type          | Notes                                                                  |
 |-------------------|---------------|------------------------------------------------------------------------|
 | `id`              | `UUID`        | UUIDv7, primary key                                                    |
 | `key`             | `TEXT`        | Unique; `^[A-Za-z_][A-Za-z0-9_]*$`, up to 128 characters               |
 | `value_encrypted` | `BYTEA`       | Sealed value, secret or not, see `docs/secrets.md`                     |
-| `is_secret`       | `BOOLEAN`     | The value is write-only over HTTP and scrubbed from thread output      |
+| `is_secret`       | `BOOLEAN`     | The value is write-only over HTTP and scrubbed from session events     |
 | `description`     | `TEXT`        | Up to 500 characters, defaults to empty                                |
 | `created_at`      | `TIMESTAMPTZ` | Set on insert                                                          |
 | `updated_at`      | `TIMESTAMPTZ` | Maintained by trigger                                                  |
 
-Which keys may be stored beyond their shape is decided in the API, not in SQL, since the rules follow the satellite.
+Which keys may be stored beyond their shape is decided in the API, not in SQL, since the rules follow the runner.
 
 ### `storage_locations`
 
@@ -290,25 +274,22 @@ project_id)`, and an index on `project_id` finds a project's locations.
 
 ### `coding_sessions`
 
-A pointer to an Arsox thread, and what Elysium keeps of it beside the row (`session_events`,
-`session_transcripts`); see `docs/coding.md`.
+An agent conversation: a directory in the workspace, the Claude session its turns resume, and the events kept in
+`session_events`; see `docs/coding.md`.
 
 | Column         | Type          | Notes                                                                 |
 |----------------|---------------|-----------------------------------------------------------------------|
-| `id`           | `BIGINT`      | Identity from 1; the API reserves it with `nextval` before the thread exists |
+| `id`           | `BIGINT`      | Identity from 1; the API reserves it with `nextval` before the row exists |
 | `project_id`   | `UUID`        | References `projects`; a project with sessions cannot be deleted. NULL only for a Studio session |
-| `satellite_id` | `UUID`        | References `satellites`; `ON DELETE SET NULL`, so a session outlives its satellite |
-| `thread_id`    | `TEXT`        | The satellite's thread id; unique per satellite                       |
 | `title`        | `TEXT`        | 1 to 200 characters                                                   |
-| `github_credential_id` | `UUID` | The GitHub token the thread started with; `ON DELETE SET NULL`     |
+| `github_credential_id` | `UUID` | The GitHub token its turns use; `ON DELETE SET NULL`               |
 | `action_item_id` | `UUID`      | The action item the session was started from; `ON DELETE SET NULL`   |
 | `studio_item_id` | `UUID`      | The Studio item it works on; NULL for a Coding session. Deleted with the item |
-| `continuation` | `session_continuation` | How it continued its Studio item: `imported` or `brief`; NULL otherwise |
+| `harness_session_id` | `TEXT`  | The Claude session the next turn resumes; 1 to 200 characters, NULL until a turn reports one |
 | `created_at`   | `TIMESTAMPTZ` | Set on insert                                                         |
 | `updated_at`   | `TIMESTAMPTZ` | Maintained by trigger                                                 |
 
-`coding_sessions_project_required` holds that only a Studio session may lack a project, and
-`coding_sessions_continuation_studio` that only a Studio session records a continuation.
+`coding_sessions_project_required` holds that only a Studio session may lack a project.
 `coding_sessions_created_at_idx` serves the newest-first overview, `coding_sessions_project_id_idx` the project
 lookups, including the delete check, `coding_sessions_action_item_id_idx` an item's sessions, and
 `coding_sessions_studio_item_id_idx` a Studio item's. Action items are deleted softly, so a session keeps its item
@@ -320,29 +301,15 @@ The `project_id` foreign key is `ON DELETE NO ACTION` rather than `RESTRICT`. Bo
 
 ### `session_events`
 
-Every event a session's thread emitted, as the satellite sent it. The primary key is `(session_id, sequence)`, and
-recording ignores an event already kept, so a replay after a reconnect changes nothing.
+Every event a session's turns reported, scrubbed of the turn's secrets. The primary key is `(session_id, sequence)`.
 
 | Column        | Type          | Notes                                                    |
 |---------------|---------------|----------------------------------------------------------|
 | `session_id`  | `BIGINT`      | References `coding_sessions`; deleted with the session   |
-| `sequence`    | `BIGINT`      | The satellite's sequence; not negative                   |
-| `occurred_at` | `TIMESTAMPTZ` | When the satellite says it happened                      |
-| `event`       | `BYTEA`       | The protobuf `ThreadEvent`                               |
-
-### `session_transcripts`
-
-The latest harness session of each session, so a new thread can resume the conversation.
-
-| Column               | Type          | Notes                                                        |
-|----------------------|---------------|--------------------------------------------------------------|
-| `session_id`         | `BIGINT`      | Primary key; references `coding_sessions`, deleted with it   |
-| `harness`            | `TEXT`        | `claude` or `codex`: only that family can resume it          |
-| `harness_session_id` | `TEXT`        | The harness's own id for the session                         |
-| `transcript_sealed`  | `BYTEA`       | zstd-compressed, then sealed; see `docs/secrets.md`          |
-| `size_bytes`         | `BIGINT`      | The export's size before compression                         |
-| `created_at`         | `TIMESTAMPTZ` | Set on insert                                                |
-| `updated_at`         | `TIMESTAMPTZ` | Maintained by trigger                                        |
+| `sequence`    | `BIGINT`      | Counts from 1 per session; not negative                  |
+| `turn_id`     | `UUID`        | The turn that reported it                                |
+| `occurred_at` | `TIMESTAMPTZ` | When Elysium received it                                 |
+| `payload`     | `JSONB`       | The runner's event (`RunnerEvent`), rendered when read   |
 
 ### `studio_items`
 
@@ -375,7 +342,7 @@ sha256)` makes a pull of a file already kept a no-op.
 | `session_id`     | `BIGINT`            | The session it came from; `ON DELETE SET NULL`               |
 | `kind`           | `studio_asset_kind` | `image`, `model`, or `file`                                  |
 | `artifact_path`  | `TEXT`              | Where the agent wrote it, relative to `artifacts/`           |
-| `content_type`   | `TEXT`              | As the satellite reported it, when it could                  |
+| `content_type`   | `TEXT`              | From the file's extension, when it is known                  |
 | `size_bytes`     | `BIGINT`            | Not negative                                                 |
 | `sha256`         | `TEXT`              | 64 lowercase hex characters                                  |
 | `storage_path`   | `TEXT`              | Where it is kept: `studio/<item>/<sha256>.<extension>`, shared by every row with those bytes |
@@ -404,7 +371,7 @@ A prompt sent with a drawing. Both images are kept in the item's storage locatio
 | `id`                     | `UUID`        | UUIDv7, primary key                                      |
 | `studio_item_id`         | `UUID`        | References `studio_items`; deleted with the item         |
 | `session_id`             | `BIGINT`      | The session it was sent to; `ON DELETE SET NULL`         |
-| `turn_id`                | `TEXT`        | The turn it started; NULL until the satellite accepts it |
+| `turn_id`                | `TEXT`        | The turn it started; NULL until the turn is queued       |
 | `prompt`                 | `TEXT`        | 1 to 100,000 characters                                  |
 | `source_asset_id`        | `UUID`        | What was drawn over; `ON DELETE SET NULL`                |
 | `camera_orbit`           | `TEXT`        | The 3D viewer's camera at capture; up to 200 characters  |
@@ -674,3 +641,19 @@ What happened to accounts and workspace settings, one row per change.
 | `kind`       | `TEXT`        | Such as `signed_up`, `approved`, `rejected`, `role_changed`, `disabled` |
 | `data`       | `JSONB`       | A JSON object shaped by `kind`, with values before and after            |
 | `created_at` | `TIMESTAMPTZ` | Set on insert                                                           |
+
+### `deployment_updates`
+
+Every release the updater was told to apply, and how it ended; see `docs/infrastructure.md`. At most one row is
+`applying`, enforced by the partial unique index `deployment_updates_one_applying`.
+
+| Column         | Type                       | Notes                                                             |
+|----------------|----------------------------|-------------------------------------------------------------------|
+| `id`           | `UUID`                     | UUIDv7, primary key                                               |
+| `from_version` | `TEXT`                     | The release running when it began, `X.Y.Z`                        |
+| `to_version`   | `TEXT`                     | The release applied, `X.Y.Z`                                      |
+| `status`       | `deployment_update_status` | `applying`, `succeeded`, or `rolled_back`                         |
+| `reason`       | `TEXT`                     | Why it rolled back, 1 to 2000 characters; set exactly when it did |
+| `started_at`   | `TIMESTAMPTZ`              | Set on insert                                                     |
+| `finished_at`  | `TIMESTAMPTZ`              | Set exactly once it leaves `applying`                             |
+| `created_by`   | `UUID`                     | The admin who asked for it, or the system user for an automatic update |

@@ -54,7 +54,6 @@ impl SessionEvent {
 #[serde(rename_all = "kebab-case")]
 pub enum TurnState {
     Queued,
-    Running,
     Completed,
     Failed,
     Cancelled,
@@ -257,7 +256,9 @@ mod tests {
             8,
             None,
             Utc::now(),
-            &RunnerEvent::Other { raw: json!({ "type": "new" }) },
+            &RunnerEvent::Other {
+                raw: json!({ "type": "new" }),
+            },
         );
         assert_eq!(view.event_type, "other");
         assert!(view.payload.is_none());

@@ -102,7 +102,7 @@ pub fn location_for_every_project(
 }
 
 /// A whole [`AppState`] against `database_url` and the Redis at `TEST_REDIS_URL`, for tests that
-/// drive the router itself. Kratos, satellites, and mail point nowhere reachable: a test that
+/// drive the router itself. Kratos, Docker, and mail point nowhere reachable: a test that
 /// needs them fakes them, and one that keeps files uses [`app_state_with_storage`].
 ///
 /// # Panics
@@ -181,6 +181,16 @@ pub async fn app_state_with_storage(
     )
     .expect("mail services build without reaching anything");
 
+    let activity = crate::activity::Activities::new();
+    let version = Arc::new(VersionInfo::from_build().expect("build metadata parses"));
+    let updates = crate::updates::Updates::new(crate::updates::UpdatesDeps {
+        database: database.clone(),
+        events: events.clone(),
+        activity: activity.clone(),
+        http: http.clone(),
+        version: Arc::clone(&version),
+        encryption_key: config.encryption_key.clone(),
+    });
     let (runner, sessions) = crate::server::build_agents(
         &config,
         crate::server::AgentServices {
@@ -188,6 +198,7 @@ pub async fn app_state_with_storage(
             cipher: Arc::clone(&cipher),
             events: events.clone(),
             storage: storage.clone(),
+            activity: activity.clone(),
         },
         &shutdown,
     )
@@ -196,9 +207,10 @@ pub async fn app_state_with_storage(
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
         database,
+        activity,
         redis,
         cipher,
-        version: Arc::new(VersionInfo::from_build().expect("build metadata parses")),
+        version,
         events,
         github,
         jira,
@@ -207,6 +219,7 @@ pub async fn app_state_with_storage(
         runner,
         sessions,
         storage,
+        updates,
         shutdown,
     }
 }
@@ -257,23 +270,14 @@ pub fn multipart_form(parts: &[(&str, &[u8])]) -> (String, Vec<u8>) {
     (content_type, body)
 }
 
-/// What [`studio_item_with_session`] creates.
-#[derive(Debug)]
-pub struct StudioFixture {
-    pub item: crate::models::studio_item::StudioItem,
-    /// The item's one session.
-    pub session: crate::models::coding_session::CodingSession,
-}
-
 /// A Studio item named "Banana", first asked to "Model a banana", whose files go to the storage
-/// module's fake Bunny zone, with one session.
+/// module's fake Bunny zone.
 ///
 /// Secrets are sealed with `cipher`, which must be the one the code under test opens them with.
-pub async fn studio_item_with_session(
+pub async fn studio_item(
     connection: &mut AsyncPgConnection,
     cipher: &Cipher,
-) -> StudioFixture {
-    use crate::models::coding_session::{self, NewCodingSession};
+) -> crate::models::studio_item::StudioItem {
     use crate::models::project::ProjectScope;
     use crate::models::storage_location::{
         self, BunnyStorageRegion, NewStorageLocation, StorageProvider,
@@ -299,7 +303,7 @@ pub async fn studio_item_with_session(
     )
     .await
     .expect("location");
-    let item = studio_item::create(
+    studio_item::create(
         connection,
         &NewStudioItem {
             created_by: TEST_PERSON_ID,
@@ -311,22 +315,5 @@ pub async fn studio_item_with_session(
         },
     )
     .await
-    .expect("item");
-    let session = coding_session::create(
-        connection,
-        &NewCodingSession {
-            created_by: TEST_PERSON_ID,
-            id: coding_session::reserve_id(connection)
-                .await
-                .expect("reserve"),
-            project_id: None,
-            title: item.title.clone(),
-            github_credential_id: None,
-            action_item_id: None,
-            studio_item_id: Some(item.id),
-        },
-    )
-    .await
-    .expect("session");
-    StudioFixture { item, session }
+    .expect("item")
 }

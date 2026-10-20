@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/coding-sessions`: every Coding session (Studio's are left out), newest first, with its thread state.
+//! `GET /api/v1/coding-sessions`: every Coding session (Studio's are left out), newest first,
+//! with what each is doing now.
 //!
 //! [`find`] answers one session the same way; the MCP server reads it, and no route needs it.
 

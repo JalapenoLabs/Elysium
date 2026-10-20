@@ -14,8 +14,6 @@ type Props = {
   // Sends the prompt and reports its own failures. Resolves true when the prompt was sent,
   // which clears the field; false keeps what was typed so it can be sent again.
   onSend: (prompt: string) => Promise<boolean>
-  // The thread has ended and cannot take prompts.
-  isClosed: boolean
   // Shown on its own row above the field, such as a choice the prompt is sent with. It is
   // not beside the send button, so the field and the button keep the row however narrow
   // the column is.
@@ -33,7 +31,7 @@ export function PromptComposer(props: Props) {
   const [ prompt, setPrompt ] = useState('')
   const [ isSending, setIsSending ] = useState(false)
 
-  const canSend = !props.isClosed && !props.sendBlocker && !isSending && prompt.trim().length > 0
+  const canSend = !props.sendBlocker && !isSending && prompt.trim().length > 0
 
   async function send() {
     if (!canSend) {
@@ -50,12 +48,6 @@ export function PromptComposer(props: Props) {
     finally {
       setIsSending(false)
     }
-  }
-
-  if (props.isClosed) {
-    return <p className='shrink-0 border-t border-separator px-4 py-3 text-center text-sm opacity-60'>{
-      t('conversation.composer.closed')
-    }</p>
   }
 
   return <form

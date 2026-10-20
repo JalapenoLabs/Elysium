@@ -580,6 +580,7 @@ async fn run_link_pull_request(
         observation: remote.observation(),
     };
 
+    let CallScope::Session(session) = scope;
     let now = Utc::now();
     let mut connection = context
         .database
@@ -591,7 +592,7 @@ async fn run_link_pull_request(
         item_id,
         new_link,
         false,
-        Actor::Session(scope.session_id),
+        Actor::Session(session.session_id),
         now,
     )
     .await

@@ -3,13 +3,13 @@
 // Misc
 import { apiClient } from '../index'
 
-// A global variable every coding session's satellite thread receives. Mirrors
+// A global variable every agent turn receives. Mirrors
 // `EnvironmentVariableResponse` in api/src/routes/v1/environment_variables/mod.rs.
 export type EnvironmentVariable = {
   id: string
   key: string
   // A secret's value is never returned. The agent can still read it; secret only means
-  // Elysium never shows it again and the satellite scrubs it from thread output.
+  // Elysium never shows it again and scrubs it from what it records of a turn.
   isSecret: boolean
   description: string
   // The plaintext of a non-secret variable; null for a secret one.

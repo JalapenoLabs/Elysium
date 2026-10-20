@@ -23,7 +23,6 @@ import { StudioNoStorage } from './StudioNoStorage'
 // Misc
 import {
   useDeletedStudioItemsLoader,
-  useSatellitesLoader,
   useStorageLocationsLoader,
   useStudioItemsLoader,
 } from '../../hooks/useServerData'
@@ -39,8 +38,6 @@ export function StudioPage() {
   const liveStatus = useStudioItemsLoader()
   const deletedStatus = useDeletedStudioItemsLoader(filters.deleted)
   const locationsStatus = useStorageLocationsLoader()
-  // The New item form picks a satellite; loading them here has them ready when it opens.
-  useSatellitesLoader()
 
   const liveItems = useAppSelector(selectLiveStudioItems)
   const deletedItems = useAppSelector(selectDeletedStudioItems)

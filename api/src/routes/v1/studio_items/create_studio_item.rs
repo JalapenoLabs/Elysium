@@ -237,6 +237,6 @@ mod tests {
             "storageLocationId": Uuid::nil(),
             "satelliteId": Uuid::nil(),
         }))
-        .expect_err("satellites are gone, and a stray field is refused");
+        .expect_err("a field the form does not take is refused");
     }
 }

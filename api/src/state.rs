@@ -8,6 +8,7 @@ use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;
 
 use crate::action_items::links::Links;
+use crate::activity::Activities;
 use crate::auth::Auth;
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -18,6 +19,7 @@ use crate::realtime::EventBus;
 use crate::runner::Runner;
 use crate::sessions::Sessions;
 use crate::storage::Storage;
+use crate::updates::Updates;
 use crate::version::VersionInfo;
 
 /// Everything a request handler can reach. Cloning is cheap: each field is a handle.
@@ -26,6 +28,12 @@ pub struct AppState {
     /// Kratos, and what the auth layers check requests against.
     pub auth: Auth,
     pub database: Pool,
+    /// Work a restart would cut short, such as agent turns. Auto-update waits for it.
+    #[expect(
+        dead_code,
+        reason = "no handler begins an activity yet; the runner and auto-update hold their own handles"
+    )]
+    pub activity: Activities,
     pub redis: ConnectionManager,
     pub cipher: Arc<Cipher>,
     pub version: Arc<VersionInfo>,
@@ -41,6 +49,8 @@ pub struct AppState {
     /// Coding and Studio sessions' turns, events, and activity. See `crate::sessions`.
     pub sessions: Sessions,
     pub storage: Storage,
+    /// Auto-update: what the updater is told, and the release history.
+    pub updates: Updates,
     /// Cancelled when shutdown begins; long-lived responses end on it.
     pub shutdown: CancellationToken,
 }

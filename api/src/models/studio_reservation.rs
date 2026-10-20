@@ -20,8 +20,8 @@ use crate::database::schema::studio_storage_reservations;
 use crate::models::storage_location::StorageLocation;
 use crate::models::studio_item;
 
-/// How long a reservation counts. Long enough for a large model to stream from a satellite to a
-/// provider; past it, a reservation is taken to be one a crashed upload never released.
+/// How long a reservation counts. Long enough for a large model to stream from the workspace to
+/// a provider; past it, a reservation is taken to be one a crashed upload never released.
 const RESERVATION_LIFETIME_SECONDS: i64 = 60 * 60;
 
 /// What a location has room for.

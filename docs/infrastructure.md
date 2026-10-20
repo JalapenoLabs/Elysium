@@ -111,9 +111,6 @@ copied in as well, because the binary embeds the SQL. `cargo-chef` caches compil
 layer. Source and `.git` are copied afterwards, so a commit only rebuilds the crate itself. The runtime image is
 `debian:trixie-slim` with `ca-certificates` and `curl` for the healthcheck, running as a non-root user.
 
-The `arsox-sdk` dependency comes from git, so the build stages install `git` and copy `api/.cargo/config.toml`,
-which makes Cargo fetch through the git CLI.
-
 `api/Dockerfile` ends in two stages:
 
 - `server`, the API alone. The development stack builds this one, so a frontend edit never rebuilds the API.
@@ -149,6 +146,27 @@ image is labelled with the commit, the version, and this repository. The workflo
 All are `linux/amd64` only, since the runners are x86_64; an arm64 host cannot run them. Postgres, Redis, nginx,
 Kratos, and the socket proxy are upstream images pinned in `compose.yml`.
 
+## Auto-update
+
+The API decides when a deployment moves to a newer release; an updater on the host carries it out
+(`api/src/updates/`). The API asks Docker Hub for the API image's release tags every hour, and on Settings, Updates,
+Check now. It tells the updater to apply the newest release when all of these hold:
+
+- the running build is a release: its image was published from a `vX.Y.Z` tag, which bakes the version in
+  (`/api/version` reports it as `release`). `main` and development builds never update themselves;
+- the newest release is newer, and has not rolled back here before, unless an admin asks for it with Update now;
+- no update is applying;
+- nothing is running that a restart would cut short. Work such as an agent turn holds an activity
+  (`api/src/activity.rs`) for as long as it runs, and the update waits until none is held.
+
+The updater asks every minute over `GET /internal/updater/instruction`, which answers `wait` or
+`apply <target> from <running>`, and reports with `POST /internal/updater/outcome`: `succeeded <version>` or
+`rolled-back <version> <reason>`. Both carry
+the key `x-elysium-updater-key`, the hex SHA-256 of `elysium/updater/key:<ELYSIUM_ENCRYPTION_KEY>`. Each update is a
+`deployment_updates` row (`docs/database.md`). One that reports nothing within 45 minutes counts as rolled back, and a
+release that starts while an update to it is applying records it as succeeded. Every change is published as
+`updates.status`.
+
 ## Time
 
 Postgres runs with `timezone=UTC`, and every server container sets `TZ=UTC`.
@@ -177,4 +195,5 @@ Formatting, lints, tests, migrations, and every image are checked on each pull r
 
 ## Roadmap
 
+- The updater compose service, and daily release tags cut from green `main`.
 - Redis pub/sub for the event bus, so the API can run more than one replica.

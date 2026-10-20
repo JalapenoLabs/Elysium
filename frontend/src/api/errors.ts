@@ -33,7 +33,7 @@ export function getApiErrorCode(error: unknown): string | null {
   return null
 }
 
-// The API answers 502 when an upstream (a satellite, a mail server, the OAuth broker)
+// The API answers 502 when an upstream (the workspace, a mail server, the OAuth broker)
 // refuses or cannot be reached, with the upstream's own message. That message names what
 // went wrong (an unreachable host, a rejected secret, a revoked grant), so it is worth
 // showing.

@@ -4,8 +4,8 @@ Elysium serves an MCP server at `/api/mcp`, so external MCP clients such as Clau
 workspace as the person who connected them. Clients connect through OAuth 2.1, with Ory Hydra as the authorization
 server and Kratos still proving who people are. Nothing about OAuth is written by hand.
 
-These are not the tools coding agents use on satellites (`api/src/tools/`), which are relayed through the satellite and
-scoped to a session's project.
+These are not the tools coding agents use (`api/src/tools/`), which are served at `/api/agent-tools` to the
+workspace alone and scoped to a session's project; see `docs/coding.md`.
 
 ## Connecting a client
 
@@ -97,11 +97,7 @@ Tools are named for what they act on, then what they do.
 |------------------------|-------------------|------------------------------------------------------------------------|
 | `hello`                | `workspace:read`  | Says who the connection acts as, and what it was granted               |
 | `projects_list`        | `workspace:read`  | Lists projects, so a session can name its own                          |
-| `satellites_list`      | `workspace:read`  | Lists satellites with their latest status                              |
-| `satellites_get`       | `workspace:read`  | Shows one satellite                                                    |
-| `satellites_create`    | `workspace:write` | Registers a satellite by URL and bearer secret, and starts watching it |
-| `satellites_update`    | `workspace:write` | Changes a satellite's name, description, URL, secret, or active state  |
-| `sessions_list`        | `workspace:read`  | Lists coding sessions with their thread's latest state                 |
+| `sessions_list`        | `workspace:read`  | Lists coding sessions with what each is doing now                      |
 | `sessions_get`         | `workspace:read`  | Shows one coding session                                               |
 | `sessions_create`      | `workspace:write` | Starts a coding session, with an optional first prompt                 |
 | `sessions_rename`      | `workspace:write` | Renames a coding session                                               |
@@ -111,22 +107,20 @@ Tools are named for what they act on, then what they do.
 - **Results.** A tool answers structured content, the same JSON the route answers in the browser, repeated as a text
   block for clients that render only text. A failure is a tool
   result marked as an error, carrying the HTTP status and the message the browser would get, so the model reads why: a
-  `404`, a validation error naming its fields, or a satellite's refusal. An internal error stays as generic as it is
+  `404`, a validation error naming its fields, or a failed clone. An internal error stays as generic as it is
   over HTTP.
 - **Writes.** A grant without `workspace:write` is answered with a `403` result saying to reconnect and allow changes.
-- **Events.** A thread's history runs to thousands of events. `sessions_events` answers only the ones Elysium renders
-  (prompts, messages, thinking, tool calls, plans, questions, finished turns, incidents), 100 unless asked for up to
+- **Events.** A session's history runs to thousands of events. `sessions_events` answers only the ones Elysium renders
+  (prompts, messages, thinking, tool calls, finished turns, incidents), 100 unless asked for up to
   1,000. Without `afterSequence` it answers the latest. With it, it pages forward: the earliest events after that
   sequence, so none is skipped. Every answer carries `nextSequence`, which passed back as `afterSequence` reads on, and
   `truncated` when more remain.
-- **Secrets.** A satellite's bearer secret is accepted by `satellites_create` and `satellites_update` and never
-  answered. rmcp logs every request in full at debug, so the API drops every rmcp event past info, from any of its
+- **Logs.** rmcp logs every request in full at debug, so the API drops every rmcp event past info, from any of its
   modules, whatever `RUST_LOG` names (`within_rmcp_ceiling` in `api/src/main.rs`).
 
 ### Adding a tool
 
-Tools are grouped by what they act on, one module each under `api/src/mcp/` (`projects.rs`, `satellites.rs`,
-`sessions.rs`), each a `#[tool_router(router = <group>_router)]` block combined in `Workspace::new`.
+Tools are grouped by what they act on, one module each under `api/src/mcp/` (`projects.rs`, `sessions.rs`), each a `#[tool_router(router = <group>_router)]` block combined in `Workspace::new`.
 
 1. Expose the route's work as a function: the handler's body moves into a `pub async fn` on the route module that takes
    `&AppState`, the acting user's id when it creates, and the request struct, and answers the response. The handler

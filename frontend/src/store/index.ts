@@ -22,7 +22,6 @@ import { mailDomainsSlice } from './mailDomainsSlice'
 import { mailServerSlice } from './mailServerSlice'
 import { projectsSlice } from './projectsSlice'
 import { realtimeSlice } from './realtimeSlice'
-import { satellitesSlice } from './satellitesSlice'
 import { sessionEventsSlice } from './sessionEventsSlice'
 import { sessionsViewSlice } from './sessionsViewSlice'
 import { storageLocationsSlice } from './storageLocationsSlice'
@@ -30,6 +29,7 @@ import { studioAssetsSlice } from './studioAssetsSlice'
 import { studioFeedbackSlice } from './studioFeedbackSlice'
 import { studioItemsSlice } from './studioItemsSlice'
 import { themeSlice } from './themeSlice'
+import { updatesSlice } from './updatesSlice'
 import { usersSlice } from './usersSlice'
 import { workspaceSettingsSlice } from './workspaceSettingsSlice'
 
@@ -62,7 +62,6 @@ export function createAppStore() {
       [mailServerSlice.name]: mailServerSlice.reducer,
       [projectsSlice.name]: projectsSlice.reducer,
       [realtimeSlice.name]: realtimeSlice.reducer,
-      [satellitesSlice.name]: satellitesSlice.reducer,
       [sessionEventsSlice.name]: sessionEventsSlice.reducer,
       [sessionsViewSlice.name]: sessionsViewSlice.reducer,
       [storageLocationsSlice.name]: storageLocationsSlice.reducer,
@@ -70,6 +69,7 @@ export function createAppStore() {
       [studioFeedbackSlice.name]: studioFeedbackSlice.reducer,
       [studioItemsSlice.name]: studioItemsSlice.reducer,
       [themeSlice.name]: themeSlice.reducer,
+      [updatesSlice.name]: updatesSlice.reducer,
       [usersSlice.name]: usersSlice.reducer,
       [workspaceSettingsSlice.name]: workspaceSettingsSlice.reducer,
     },

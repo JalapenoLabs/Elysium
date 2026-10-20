@@ -130,7 +130,7 @@ pub async fn create(
         Utc::now(),
     )
     .await?;
-    let github = github_token::open(
+    let github_credential_id = github_token::resolve(
         &mut connection,
         &state.cipher,
         &project,
@@ -142,7 +142,7 @@ pub async fn create(
         id: coding_session::reserve_id(&mut connection).await?,
         project_id: Some(project.id),
         title: body.title,
-        github_credential_id: github.map(|github| github.credential_id),
+        github_credential_id,
         action_item_id: body.action_item_id,
         studio_item_id: None,
     };
@@ -351,16 +351,14 @@ mod tests {
         valid.validate().expect("valid body");
         refuse_shared_directories(&valid.repositories).expect("distinct directories");
 
-        let none: CreateCodingSessionRequest = serde_json::from_value(
-            json!({ "projectId": Uuid::nil(), "title": "A" }),
-        )
-        .expect("parses");
+        let none: CreateCodingSessionRequest =
+            serde_json::from_value(json!({ "projectId": Uuid::nil(), "title": "A" }))
+                .expect("parses");
         assert!(none.repositories.is_empty());
 
-        let blank_title: CreateCodingSessionRequest = serde_json::from_value(
-            json!({ "projectId": Uuid::nil(), "title": "  " }),
-        )
-        .expect("parses");
+        let blank_title: CreateCodingSessionRequest =
+            serde_json::from_value(json!({ "projectId": Uuid::nil(), "title": "  " }))
+                .expect("parses");
         assert!(
             blank_title
                 .validate()

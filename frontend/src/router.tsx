@@ -49,13 +49,13 @@ import { ManageJiraPage } from './pages/Settings/Jira/ManageJiraPage'
 import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
-import { ManageSatellitesPage } from './pages/Settings/Satellites/ManageSatellitesPage'
 import { ConnectedAppsPage } from './pages/Settings/ConnectedApps/ConnectedAppsPage'
 import { SecurityPage } from './pages/Settings/Security/SecurityPage'
 import { ManageUsersPage } from './pages/Settings/Users/ManageUsersPage'
 import { AddStorageLocationPage } from './pages/Settings/Storage/AddStorageLocationPage'
 import { EditStorageLocationPage } from './pages/Settings/Storage/EditStorageLocationPage'
 import { ManageStoragePage } from './pages/Settings/Storage/ManageStoragePage'
+import { UpdatesPage } from './pages/Settings/Updates/UpdatesPage'
 
 // Misc
 import { addLlmUrlByType } from './pages/Settings/Llms/llmProviders'
@@ -179,6 +179,10 @@ const workspaceRoutes: RouteObject = {
       element: <ManageUsersPage />,
     },
     {
+      path: UrlTree.settingsUpdates,
+      element: <UpdatesPage />,
+    },
+    {
       path: UrlTree.settingsLlms,
       element: <ManageLlmsPage />,
     },
@@ -229,10 +233,6 @@ const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsJiraDoneTransitions,
       element: <JiraDoneTransitionsPage />,
-    },
-    {
-      path: UrlTree.settingsSatellites,
-      element: <ManageSatellitesPage />,
     },
     {
       path: UrlTree.settingsEmail,

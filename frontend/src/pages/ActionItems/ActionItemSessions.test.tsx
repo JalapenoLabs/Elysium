@@ -21,7 +21,6 @@ import { makeCodingSession } from '../../testFixtures'
 // Sessions arrive through Redux; the loaders' requests are the network boundary.
 vi.mock('../../hooks/useServerData', () => ({
   useCodingSessionsLoader: () => 'loaded',
-  useSatellitesLoader: () => 'loaded',
 }))
 
 function renderFor(itemId: string, sessions: CodingSession[]) {

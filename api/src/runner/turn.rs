@@ -19,6 +19,8 @@ use tokio::sync::mpsc;
 use tokio::time::{Instant, sleep_until};
 use tracing::{Level, event};
 
+use crate::activity::ActivityKind;
+
 use super::command::{AttemptCommand, KILL_SCRIPT};
 use super::credentials::ClaudeCredential;
 use super::events::{AttemptFailure, AttemptReport, StreamParser};
@@ -61,6 +63,10 @@ pub(super) async fn run(runner: &Runner, queued: QueuedTurn) {
         let Ok(_permit) = permit else {
             break 'turn stopped(true);
         };
+        // Held until the turn ends, however it ends, so auto-update waits for it.
+        let _activity = inner
+            .activity
+            .begin(ActivityKind::AgentTurn, request.label.clone());
 
         send(
             &events,
@@ -341,7 +347,13 @@ impl Executor {
         match self {
             Self::Workspace(workspace) => {
                 let killed = workspace
-                    .run_script(AGENT_USER, KILL_SCRIPT, &[turn_directory], Vec::new(), SCRIPT_TIMEOUT)
+                    .run_script(
+                        AGENT_USER,
+                        KILL_SCRIPT,
+                        &[turn_directory],
+                        Vec::new(),
+                        SCRIPT_TIMEOUT,
+                    )
                     .await;
                 if let Err(error) = killed {
                     event!(
@@ -532,6 +544,7 @@ mod tests {
             Executor::Fake(fake),
             CredentialSource::Fixed(credentials),
             ConfigurationSource::None,
+            crate::activity::Activities::new(),
             tokio_util::sync::CancellationToken::new(),
         )
     }
@@ -762,6 +775,27 @@ mod tests {
         assert!(runner.cancel(ticket.turn_id));
         let (_events, outcome) = collect(ticket).await;
         assert_eq!(outcome.status, TurnStatus::Cancelled);
+    }
+
+    #[tokio::test]
+    async fn a_running_turn_keeps_the_stack_busy_until_it_ends() {
+        let activity = crate::activity::Activities::new();
+        let runner = Runner::with_parts(
+            Executor::Fake(FakeWorkspace::with_scripts(vec![Script::hanging()])),
+            CredentialSource::Fixed(vec![credential("first")]),
+            ConfigurationSource::None,
+            activity.clone(),
+            tokio_util::sync::CancellationToken::new(),
+        );
+        assert!(activity.is_idle());
+        let mut ticket = runner
+            .submit(request(ConversationId::new(Uuid::now_v7()), "Wait"))
+            .expect("accepted");
+        ticket.events.recv().await.expect("started");
+        assert!(!activity.is_idle(), "auto-update must wait for the turn");
+        runner.cancel(ticket.turn_id);
+        collect(ticket).await;
+        assert!(activity.is_idle());
     }
 
     #[tokio::test]

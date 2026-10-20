@@ -4,7 +4,7 @@
 //! frontend current.
 //!
 //! Anything that changes state a client displays publishes a [`ServerEvent`] here:
-//! route handlers after a write, and the fleet watchers as satellites report. Each
+//! route handlers after a write, and the sessions service as agent turns report. Each
 //! connected client holds a [`broadcast`] receiver and gets every event as one SSE
 //! `message` whose data is `{"type": ..., "data": ...}`.
 //!
@@ -44,6 +44,7 @@ use crate::routes::v1::studio_items::{
 use crate::routes::v1::users::UserResponse;
 use crate::routes::v1::workspace_settings::WorkspaceSettingsResponse;
 use crate::sessions::views::SessionEvent;
+use crate::updates::UpdatesStatus;
 
 /// How many serialized events a slow client may fall behind before it is told to
 /// resync. Session event bursts (streamed agent output) are the largest source; this
@@ -146,6 +147,10 @@ pub enum ServerEvent {
     /// A prompt with a drawing was sent.
     #[serde(rename = "studioFeedback.created")]
     StudioFeedbackCreated(StudioFeedbackResponse),
+    /// Auto-update's state changed: a check, an update beginning or ending, or what it
+    /// waits for.
+    #[serde(rename = "updates.status")]
+    UpdatesStatus(Box<UpdatesStatus>),
     /// A person signed up, was approved, changed role, or was disabled or enabled.
     #[serde(rename = "user.upserted")]
     UserUpserted(UserResponse),

@@ -56,18 +56,6 @@ pub struct NewCodingSession {
     pub created_by: Uuid,
 }
 
-/// Every session, Coding and Studio alike, newest first.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn list(connection: &mut AsyncPgConnection) -> QueryResult<Vec<CodingSession>> {
-    coding_sessions::table
-        .order(coding_sessions::created_at.desc())
-        .select(CodingSession::as_select())
-        .load(connection)
-        .await
-}
-
 /// The Coding area's sessions, newest first: every session that is not a Studio item's.
 ///
 /// # Errors
@@ -258,7 +246,7 @@ mod tests {
             .await
             .expect("insert");
 
-        let ids: Vec<i64> = list(&mut connection)
+        let ids: Vec<i64> = list_coding(&mut connection)
             .await
             .expect("list")
             .into_iter()

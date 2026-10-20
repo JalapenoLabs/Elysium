@@ -321,7 +321,7 @@ pub async fn set_default(
 }
 
 /// Deletes one credential. Projects that chose it follow the workspace default from then
-/// on, and sessions keep running with the token their thread was given.
+/// on, and a session started with it runs its later turns without a token.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] when no row has that id.

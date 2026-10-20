@@ -186,10 +186,10 @@ impl WorkspaceContainer {
         &self,
         root: &WorkspacePath,
         path: &str,
-        mut body: Chunks,
+        body: Chunks,
     ) -> Result<u64, FileError>
     where
-        Chunks: Stream<Item = Result<Bytes, ChunkError>> + Unpin + Send,
+        Chunks: Stream<Item = Result<Bytes, ChunkError>> + Send,
         ChunkError: std::fmt::Display,
     {
         let exec = self
@@ -224,6 +224,7 @@ impl WorkspaceContainer {
         };
 
         let writing = async {
+            let mut body = std::pin::pin!(body);
             while let Some(chunk) = body.next().await {
                 let chunk = chunk.map_err(|error| {
                     FileError::Failed(format!("the file's source failed: {error}"))

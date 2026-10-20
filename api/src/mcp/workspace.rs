@@ -47,9 +47,7 @@ impl Workspace {
     pub fn new(state: AppState) -> Self {
         Self {
             state,
-            tool_router: Self::tool_router()
-                + Self::projects_router()
-                + Self::sessions_router(),
+            tool_router: Self::tool_router() + Self::projects_router() + Self::sessions_router(),
         }
     }
 }

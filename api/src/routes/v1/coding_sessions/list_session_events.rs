@@ -18,8 +18,8 @@ use serde_json::{Value, json};
 
 use crate::errors::ApiError;
 use crate::models::session_event::StoredEvent;
-use crate::sessions::views::SessionEvent;
 use crate::models::{coding_session, session_event};
+use crate::sessions::views::SessionEvent;
 use crate::state::AppState;
 
 /// Most events one response carries. A long session's streamed output runs to
@@ -35,7 +35,7 @@ pub enum Keep {
     Earliest,
 }
 
-/// Which of a thread's events to read.
+/// Which of a session's events to read.
 #[derive(Debug, Clone, Copy)]
 pub struct EventWindow {
     /// Only events after this sequence; `0` reads from the start.
@@ -44,19 +44,19 @@ pub struct EventWindow {
     pub limit: usize,
     /// Which end of the window is answered when more events match than `limit`.
     pub keep: Keep,
-    /// Keeps only events Elysium renders (messages, tools, turns, plans, questions,
-    /// incidents), leaving out bookkeeping such as rate limit notices.
+    /// Keeps only events Elysium renders (messages, tools, turns, incidents), leaving out
+    /// bookkeeping such as rate limit notices.
     pub rendered_only: bool,
 }
 
-/// A slice of a thread's history, oldest first.
+/// A slice of a session's history, oldest first.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventPage {
     pub events: Vec<SessionEvent>,
     /// Whether more events matched than were answered.
     pub truncated: bool,
-    /// The thread's latest sequence when the read began.
+    /// The session's latest sequence when the read began.
     pub latest_sequence: u64,
     /// Where the next read continues: passed back as the window's `after_sequence`, it answers
     /// the events after these, skipping none. When the page kept its earliest events and more

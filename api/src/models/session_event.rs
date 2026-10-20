@@ -46,9 +46,8 @@ pub async fn record(
     session_id: i64,
     stored: &StoredEvent,
 ) -> QueryResult<()> {
-    let payload = serde_json::to_value(&stored.event).map_err(|error| {
-        diesel::result::Error::SerializationError(Box::new(error))
-    })?;
+    let payload = serde_json::to_value(&stored.event)
+        .map_err(|error| diesel::result::Error::SerializationError(Box::new(error)))?;
     let row = NewSessionEvent {
         session_id,
         sequence: sequence_to_column(stored.sequence),
@@ -241,9 +240,13 @@ mod tests {
         );
 
         for sequence in 1..=5 {
-            record(&mut connection, session_id, &message(sequence, &format!("m{sequence}")))
-                .await
-                .expect("record");
+            record(
+                &mut connection,
+                session_id,
+                &message(sequence, &format!("m{sequence}")),
+            )
+            .await
+            .expect("record");
         }
         record(&mut connection, session_id, &message(3, "again"))
             .await

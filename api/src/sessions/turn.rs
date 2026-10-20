@@ -45,6 +45,8 @@ impl Follower {
                 RunnerEvent::Finished(outcome) => {
                     self.record(runner_event.clone()).await;
                     self.finished(outcome).await;
+                    // The turn is over: its tools stop answering it.
+                    drop(self.grant);
                     return;
                 }
                 _ => {}
@@ -65,6 +67,7 @@ impl Follower {
             "the turn ended without reporting how",
         ))
         .await;
+        drop(self.grant);
     }
 
     async fn record(&self, runner_event: RunnerEvent) {
@@ -107,24 +110,40 @@ impl Follower {
 
     /// The session's next sequence. The first turn after the API starts reads where the
     /// session's history ends; later ones count on from memory.
+    ///
+    /// When that read fails, the guess is not remembered, so the next event reads again
+    /// rather than every later event colliding with history it could not see.
     async fn next_sequence(&self) -> u64 {
         let mut sequences = self.sessions.inner.sequences.lock().await;
-        let last = match sequences.get(&self.session_id) {
-            Some(last) => *last,
-            None => match self.sessions.inner.database.get().await {
-                Ok(mut connection) => {
-                    session_event::latest_sequence(&mut connection, self.session_id)
-                        .await
-                        .ok()
-                        .flatten()
-                        .unwrap_or(0)
-                }
-                Err(_pool_error) => 0,
-            },
+        if let Some(last) = sequences.get(&self.session_id) {
+            let next = last + 1;
+            sequences.insert(self.session_id, next);
+            return next;
+        }
+
+        let latest = match self.sessions.inner.database.get().await {
+            Ok(mut connection) => session_event::latest_sequence(&mut connection, self.session_id)
+                .await
+                .map_err(|error| error.to_string()),
+            Err(error) => Err(error.to_string()),
         };
-        let next = last + 1;
-        sequences.insert(self.session_id, next);
-        next
+        match latest {
+            Ok(last) => {
+                let next = last.unwrap_or(0) + 1;
+                sequences.insert(self.session_id, next);
+                next
+            }
+            Err(message) => {
+                event!(
+                    name: "sessions.event.sequence_failure",
+                    Level::ERROR,
+                    session.id = self.session_id,
+                    error.message = %message,
+                    "could not read where a session's history ends; numbering this event from 1",
+                );
+                1
+            }
+        }
     }
 
     async fn started(&self) {

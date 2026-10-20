@@ -38,11 +38,12 @@ pub async fn open(
         .get()
         .await
         .context("no database connection available")?;
+    let id = coding_session::reserve_id(&mut connection).await?;
     let session = coding_session::create(
         &mut connection,
         &NewCodingSession {
             created_by: actor,
-            id: coding_session::reserve_id(&mut connection).await?,
+            id,
             project_id: item.project_id,
             title: item.title.clone(),
             github_credential_id: None,

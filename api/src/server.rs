@@ -3,11 +3,11 @@
 //! The HTTP server: startup, middleware stack, and graceful shutdown.
 //!
 //! Startup order: configuration, encryption key, schema check, store connections
-//! (with retry), fleet watchers, the link watcher, router, listener. Shutdown order is the
-//! reverse: a signal cancels the shutdown token, which ends every event stream, fleet
-//! watcher, and the link watcher; the server stops accepting and drains in-flight
-//! requests; the watchers are awaited; then the Postgres pool closes and the Redis
-//! connection drops.
+//! (with retry), fleet watchers, the link watcher, the update checker, router, listener.
+//! Shutdown order is the reverse: a signal cancels the shutdown token, which ends every
+//! event stream, fleet watcher, the link watcher, and the update checker; the server stops
+//! accepting and drains in-flight requests; the watchers are awaited; then the Postgres
+//! pool closes and the Redis connection drops.
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -27,6 +27,7 @@ use tracing::{Level, event};
 
 use crate::action_items::links::Links;
 use crate::action_items::watcher::{WatchContext, Watcher};
+use crate::activity::Activities;
 use crate::auth::kratos::Kratos;
 use crate::auth::{Auth, hook_key};
 use crate::config::Config;
@@ -44,11 +45,12 @@ use crate::mail::stalwart::container::StalwartContainer;
 use crate::oauth::hydra::Hydra;
 use crate::realtime::EventBus;
 use crate::runner::Runner;
-use crate::sessions::{Sessions, SessionsDeps};
-use crate::tools::grants::Grants;
 use crate::runner::workspace::WorkspaceContainer;
+use crate::sessions::{Sessions, SessionsDeps};
 use crate::state::AppState;
 use crate::storage::Storage;
+use crate::tools::grants::Grants;
+use crate::updates::{Updates, UpdatesDeps};
 use crate::version::VersionInfo;
 use crate::{connections, middleware, routes, shutdown, web_app};
 
@@ -127,6 +129,16 @@ pub async fn serve() -> Result<()> {
     let hosting = mail.hosting.clone();
     tokio::spawn(async move { hosting.reconcile().await });
 
+    let activity = Activities::new();
+    let updates = Updates::new(UpdatesDeps {
+        database: database.clone(),
+        events: events.clone(),
+        activity: activity.clone(),
+        http: http.clone(),
+        version: Arc::clone(&version),
+        encryption_key: config.encryption_key.clone(),
+    });
+    let update_checks = updates.start(shutdown.clone());
     let (runner, sessions) = build_agents(
         &config,
         AgentServices {
@@ -134,6 +146,7 @@ pub async fn serve() -> Result<()> {
             cipher: Arc::clone(&cipher),
             events: events.clone(),
             storage: storage.clone(),
+            activity: activity.clone(),
         },
         &shutdown,
     )?;
@@ -154,6 +167,7 @@ pub async fn serve() -> Result<()> {
     let state = AppState {
         auth: build_auth(&config, http.clone()),
         database: database.clone(),
+        activity,
         redis: redis.clone(),
         cipher,
         version,
@@ -165,6 +179,7 @@ pub async fn serve() -> Result<()> {
         runner: runner.clone(),
         sessions: sessions.clone(),
         storage,
+        updates,
         shutdown: shutdown.clone(),
     };
     let rate_limiter = middleware::rate_limit::build();
@@ -197,6 +212,14 @@ pub async fn serve() -> Result<()> {
     sessions.shutdown().await;
     event!(name: "runner.shutdown.complete", Level::INFO, "agent turns stopped");
     watcher.stopped().await;
+    if let Err(error) = update_checks.await {
+        event!(
+            name: "updates.shutdown.failure",
+            Level::ERROR,
+            error.message = %error,
+            "the update checker did not stop cleanly",
+        );
+    }
 
     // serve() returning means every in-flight request has finished and the router,
     // with its copies of the handles, is gone. Closing the pool drops its idle
@@ -227,12 +250,14 @@ pub(crate) fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
 }
 
 /// What the runner and the sessions service share with the rest of the API.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct AgentServices {
     pub database: Pool,
     pub cipher: Arc<Cipher>,
     pub events: EventBus,
     pub storage: Storage,
+    /// Where running turns say the stack is busy.
+    pub activity: Activities,
 }
 
 /// The runner, whose turns run in the workspace container through Docker, and the sessions
@@ -254,6 +279,7 @@ pub(crate) fn build_agents(
         workspace.clone(),
         services.database.clone(),
         Arc::clone(&services.cipher),
+        services.activity,
         shutdown,
     );
     let sessions = Sessions::new(SessionsDeps {

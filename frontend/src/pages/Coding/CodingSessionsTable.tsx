@@ -7,23 +7,17 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 
-// Redux
-import { shallowEqual } from 'react-redux'
-import { useAppSelector } from '../../store/hooks'
-import { selectSatelliteNamesById } from '../../store/satellitesSlice'
-
 // User interface
 import { Chip, Link } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 
 // Misc
-import { useSatellitesLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getCodingSessionUrl } from '../../urls'
 import {
   SESSION_NUMBER_COLUMN_SIZING,
-  threadStateChipColors,
-  threadStateLabelKeys,
+  activityStateChipColors,
+  activityStateLabelKeys,
 } from './sessionPresentation'
 
 type Props = {
@@ -37,17 +31,14 @@ type Props = {
   ariaLabel: string
   // Shown instead of an empty table.
   emptyMessage: string
-  // The columns to show, for a page narrower than the project page; every column by default.
-  columnKeys?: readonly SessionColumnKey[]
 }
 
-const SESSION_COLUMN_KEYS = [ 'number', 'title', 'satellite', 'state', 'lastActivity' ] as const
-export type SessionColumnKey = typeof SESSION_COLUMN_KEYS[number]
+const SESSION_COLUMN_KEYS = [ 'number', 'title', 'state', 'lastActivity' ] as const
+type SessionColumnKey = typeof SESSION_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
   number: 'sessions.number',
   title: 'sessions.title',
-  satellite: 'sessions.satellite',
   state: 'sessions.state',
   lastActivity: 'sessions.lastActivity',
 } as const satisfies Record<SessionColumnKey, string>
@@ -55,8 +46,7 @@ const columnLabelKeys = {
 // Starting widths in pixels, summing to less than the page's content column.
 const columnSizes = {
   number: SESSION_NUMBER_COLUMN_SIZING.size,
-  title: 240,
-  satellite: 200,
+  title: 280,
   state: 160,
   lastActivity: 220,
 } as const satisfies Record<SessionColumnKey, number>
@@ -67,9 +57,6 @@ export function CodingSessionsTable(props: Props) {
   const { t, i18n } = useTranslation('coding')
   const navigate = useNavigate()
   const labels = useSmartTableLabels()
-  useSatellitesLoader()
-  const satelliteNames = useAppSelector(selectSatelliteNamesById, shallowEqual)
-  const columnKeys = props.columnKeys ?? SESSION_COLUMN_KEYS
 
   const managedColumns = useMemo(() => {
     // Timestamps arrive as UTC; this is where they become the viewer's local time.
@@ -78,18 +65,11 @@ export function CodingSessionsTable(props: Props) {
       timeStyle: 'short',
     })
 
-    // A deleted satellite leaves its sessions behind without one.
-    function satelliteName(session: CodingSession) {
-      if (!session.satelliteId) {
-        return t('sessions.satelliteDeleted')
-      }
-      return satelliteNames[session.satelliteId] ?? ''
-    }
     function stateLabel(session: CodingSession) {
-      return t(threadStateLabelKeys[session.thread?.state ?? 'unknown'])
+      return t(activityStateLabelKeys[session.activity.state])
     }
     function lastActivityText(session: CodingSession) {
-      const lastActivityAt = session.thread?.lastActivityAt
+      const lastActivityAt = session.activity.lastActivityAt
       if (!lastActivityAt) {
         return t('sessions.never')
       }
@@ -106,26 +86,25 @@ export function CodingSessionsTable(props: Props) {
       >{
         session.title
       }</Link>,
-      satellite: satelliteName,
-      state: (session: CodingSession) => {
-        const state = session.thread?.state ?? 'unknown'
-        return <Chip size='sm' variant='soft' color={threadStateChipColors[state]}>{
-          stateLabel(session)
-        }</Chip>
-      },
+      state: (session: CodingSession) => <Chip
+        size='sm'
+        variant='soft'
+        color={activityStateChipColors[session.activity.state]}
+      >{
+        stateLabel(session)
+      }</Chip>,
       lastActivity: lastActivityText,
     } satisfies Record<SessionColumnKey, (session: CodingSession) => unknown>
 
     const sortValue = {
       number: (session: CodingSession) => String(session.id),
       title: (session: CodingSession) => session.title,
-      satellite: satelliteName,
       state: stateLabel,
-      lastActivity: (session: CodingSession) => session.thread?.lastActivityAt ?? '',
+      lastActivity: (session: CodingSession) => session.activity.lastActivityAt ?? '',
     } satisfies Record<SessionColumnKey, (session: CodingSession) => string>
 
     return createManagedColumns<CodingSession, SessionColumnKey>({
-      columnKeys,
+      columnKeys: SESSION_COLUMN_KEYS,
       getColumnLabel: (columnKey) => t(columnLabelKeys[columnKey]),
       getSearchKey: () => null,
       getSearchValue: (columnKey) => sortValue[columnKey],
@@ -147,7 +126,7 @@ export function CodingSessionsTable(props: Props) {
         }),
       },
     })
-  }, [ t, i18n.language, satelliteNames, columnKeys ])
+  }, [ t, i18n.language ])
 
   if (!props.sessions.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

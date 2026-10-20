@@ -108,7 +108,7 @@ pub type Run = for<'call> fn(
 /// A relayed MCP server: a named set of tools with the instructions that explain them.
 #[derive(Debug, Clone, Copy)]
 pub struct ToolServer {
-    /// 1 to 64 letters, digits, underscores, or hyphens, not starting with `arsox`.
+    /// 1 to 64 letters, digits, underscores, or hyphens: an MCP server name and a URL segment.
     pub name: &'static str,
     pub instructions: &'static str,
     pub tools: &'static [Tool],

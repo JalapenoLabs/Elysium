@@ -22,12 +22,12 @@ import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { mailDomainsLoaded } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
 import { projectsLoaded } from '../store/projectsSlice'
-import { satellitesLoaded } from '../store/satellitesSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
 import { storageLocationsLoaded } from '../store/storageLocationsSlice'
 import { studioAssetsLoaded } from '../store/studioAssetsSlice'
 import { studioFeedbackLoaded } from '../store/studioFeedbackSlice'
 import { deletedStudioItemsLoaded, studioItemsLoaded, studioItemUpserted } from '../store/studioItemsSlice'
+import { updatesStatusUpdated } from '../store/updatesSlice'
 import { usersLoaded } from '../store/usersSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
@@ -55,9 +55,9 @@ import { listJiraCredentials } from '../api/routes/jiraRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
-import { listSatellites } from '../api/routes/satelliteRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
 import { getStudioItem, listStudioItems } from '../api/routes/studioRoutes'
+import { getUpdates } from '../api/routes/updateRoutes'
 import { getWorkspaceSettings, listUsers } from '../api/routes/userRoutes'
 
 // How server data reaches a component:
@@ -163,16 +163,6 @@ export function useProjectsLoader(): LoadStatus {
   const { data, error } = useSWR('v1/projects', async () => {
     const response = await listProjects()
     dispatch(projectsLoaded(response.projects))
-    return response
-  })
-  return toLoadStatus(data !== undefined, error)
-}
-
-export function useSatellitesLoader(): LoadStatus {
-  const dispatch = useAppDispatch()
-  const { data, error } = useSWR('v1/satellites', async () => {
-    const response = await listSatellites()
-    dispatch(satellitesLoaded(response.satellites))
     return response
   })
   return toLoadStatus(data !== undefined, error)
@@ -428,7 +418,7 @@ export function useWorkspaceSettingsLoader(): LoadStatus {
   return toLoadStatus(data !== undefined, error)
 }
 
-// Every live Studio item, with each item's sessions so a tile shows its thread's state. The
+// Every live Studio item, with each item's sessions so a tile shows what its agent is doing. The
 // sessions join the Coding ones in the shared slice without replacing them.
 export function useStudioItemsLoader(): LoadStatus {
   const dispatch = useAppDispatch()
@@ -467,6 +457,16 @@ export function useStudioItemLoader(itemId: string): LoadStatus {
     dispatch(studioAssetsLoaded({ studioItemId: itemId, assets: response.assets }))
     dispatch(studioFeedbackLoaded({ studioItemId: itemId, feedback: response.feedback }))
     dispatch(codingSessionsUpserted(response.sessions))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useUpdatesLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/updates', async () => {
+    const response = await getUpdates()
+    dispatch(updatesStatusUpdated(response.updates))
     return response
   })
   return toLoadStatus(data !== undefined, error)

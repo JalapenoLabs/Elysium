@@ -22,6 +22,8 @@
 //! Nothing here matches on whether a session is Coding or Studio beyond the instructions
 //! Studio's agents get and the collection after a Studio turn.
 
+#[cfg(test)]
+mod live_tests;
 pub mod scrub;
 mod turn;
 pub mod views;
@@ -138,7 +140,7 @@ struct Live {
 }
 
 /// The services sessions are built from.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SessionsDeps {
     pub database: Pool,
     pub cipher: Arc<Cipher>,
@@ -147,6 +149,20 @@ pub struct SessionsDeps {
     pub workspace: WorkspaceContainer,
     pub grants: Grants,
     pub storage: Storage,
+}
+
+impl std::fmt::Debug for SessionsDeps {
+    #[expect(
+        clippy::renamed_function_params,
+        reason = "project naming rule forbids std's one-letter `f`"
+    )]
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The pool and cipher have nothing useful to print.
+        formatter
+            .debug_struct("SessionsDeps")
+            .field("runner", &self.runner)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Sessions {
@@ -202,11 +218,9 @@ impl Sessions {
         session: &CodingSession,
         repositories: &[RepositoryClone],
     ) -> Result<(), ApiError> {
-        self.inner
-            .runner
-            .prepare()
-            .await
-            .map_err(|error| ApiError::BadGateway(format!("the workspace is not available: {error:#}")))?;
+        self.inner.runner.prepare().await.map_err(|error| {
+            ApiError::BadGateway(format!("the workspace is not available: {error:#}"))
+        })?;
         if repositories.is_empty() {
             return Ok(());
         }
@@ -274,7 +288,7 @@ impl Sessions {
     ) -> Result<TurnView, ApiError> {
         let mut connection = self.connection().await?;
         let variables =
-            environment_variable::thread_environment(&mut connection, &self.inner.cipher).await?;
+            environment_variable::turn_environment(&mut connection, &self.inner.cipher).await?;
         let github = github_token::open_for_session(
             &mut connection,
             &self.inner.cipher,
@@ -290,7 +304,9 @@ impl Sessions {
         let mut environment = Vec::with_capacity(variables.len() + 6);
         for variable in variables {
             if variable.is_secret {
-                secrets.push(SecretString::from(variable.value.expose_secret().to_owned()));
+                secrets.push(SecretString::from(
+                    variable.value.expose_secret().to_owned(),
+                ));
             }
             environment.push(EnvironmentEntry {
                 key: variable.key,
@@ -505,7 +521,10 @@ mod tests {
         let names = |servers: Vec<&'static ToolServer>| -> Vec<&'static str> {
             servers.iter().map(|server| server.name).collect()
         };
-        assert_eq!(names(tool_servers(true, true)), ["elysium_work", "elysium_storage"]);
+        assert_eq!(
+            names(tool_servers(true, true)),
+            ["elysium_work", "elysium_storage"]
+        );
         assert_eq!(names(tool_servers(true, false)), ["elysium_work"]);
         assert!(names(tool_servers(false, false)).is_empty());
         assert_eq!(names(tool_servers(false, true)), ["elysium_storage"]);
