@@ -29,6 +29,9 @@ use crate::action_items::links::Links;
 use crate::action_items::watcher::{WatchContext, Watcher};
 use crate::auth::kratos::Kratos;
 use crate::auth::{Auth, hook_key};
+use crate::browser::Browsers;
+use crate::browser::container::BrowserContainers;
+use crate::browser::neko::Neko;
 use crate::config::Config;
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -129,9 +132,19 @@ pub async fn serve() -> Result<()> {
     // the API does not wait for it.
     let hosting = mail.hosting.clone();
     tokio::spawn(async move { hosting.reconcile().await });
+    let browsers = build_browsers(
+        &config,
+        http.clone(),
+        database.clone(),
+        Arc::clone(&cipher),
+        events.clone(),
+    )?;
+    // Brings every browser back up, and keeps them up, until shutdown.
+    let browser_reconciler = browsers.start(shutdown.clone());
 
     let state = AppState {
         auth: build_auth(&config, http.clone()),
+        browsers,
         database: database.clone(),
         redis: redis.clone(),
         cipher,
@@ -174,6 +187,14 @@ pub async fn serve() -> Result<()> {
     fleet.shutdown().await;
     event!(name: "fleet.shutdown.complete", Level::INFO, "fleet watchers stopped");
     watcher.stopped().await;
+    if let Err(error) = browser_reconciler.await {
+        event!(
+            name: "browser.reconcile.join.failed",
+            Level::ERROR,
+            error.message = %error,
+            "the browser reconciler ended abnormally",
+        );
+    }
 
     // serve() returning means every in-flight request has finished and the router,
     // with its copies of the handles, is gone. Closing the pool drops its idle
@@ -222,13 +243,7 @@ pub(crate) fn build_mail(
     });
     let stalwart = Stalwart::new(http);
 
-    // Connecting is lazy: nothing reaches Docker until the mail server is needed.
-    let docker = Docker::connect_with_http(
-        mail_config.docker.as_str().trim_end_matches('/'),
-        DOCKER_TIMEOUT_SECONDS,
-        API_DEFAULT_VERSION,
-    )
-    .context("DOCKER_URL is invalid")?;
+    let docker = build_docker(config)?;
     let hosting = Hosting::new(
         database,
         cipher,
@@ -253,6 +268,38 @@ pub(crate) fn build_mail(
         hosting,
         dns,
     })
+}
+
+/// The filtered Docker API the mail server and the browsers run through. Connecting is lazy:
+/// nothing reaches Docker until one of them is needed.
+///
+/// # Errors
+/// Fails when `DOCKER_URL` is not a URL Docker can be reached at.
+fn build_docker(config: &Config) -> Result<Docker> {
+    Docker::connect_with_http(
+        config.mail.docker.as_str().trim_end_matches('/'),
+        DOCKER_TIMEOUT_SECONDS,
+        API_DEFAULT_VERSION,
+    )
+    .context("DOCKER_URL is invalid")
+}
+
+/// The browsers the host streams. They share `http` with every other outbound call.
+pub(crate) fn build_browsers(
+    config: &Config,
+    http: reqwest::Client,
+    database: Pool,
+    cipher: Arc<Cipher>,
+    events: EventBus,
+) -> Result<Browsers> {
+    Ok(Browsers::new(
+        database,
+        cipher,
+        events,
+        BrowserContainers::new(build_docker(config)?),
+        Neko::new(http),
+        config.public_url.clone(),
+    ))
 }
 
 /// Assembles middleware around the routes and, when the image carries one, the web

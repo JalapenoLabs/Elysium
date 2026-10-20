@@ -8,6 +8,7 @@
 mod action_items;
 mod auth;
 mod blender;
+mod browser;
 mod cli;
 mod config;
 mod connections;

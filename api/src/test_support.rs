@@ -149,9 +149,19 @@ pub async fn app_state(database_url: &SecretString) -> crate::state::AppState {
         events.clone(),
     )
     .expect("mail services build without reaching anything");
+    // Its reconciler is never started, so no test reaches Docker through it.
+    let browsers = crate::server::build_browsers(
+        &config,
+        http.clone(),
+        database.clone(),
+        Arc::clone(&cipher),
+        events.clone(),
+    )
+    .expect("browsers build without reaching anything");
 
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
+        browsers,
         database,
         redis,
         cipher,

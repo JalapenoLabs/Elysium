@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::action_items::links::Links;
 use crate::auth::Auth;
+use crate::browser::Browsers;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::fleet::Fleet;
@@ -24,6 +25,8 @@ use crate::version::VersionInfo;
 pub struct AppState {
     /// Kratos, and what the auth layers check requests against.
     pub auth: Auth,
+    /// The browsers the host runs for people to sign in to their accounts in.
+    pub browsers: Browsers,
     pub database: Pool,
     pub redis: ConnectionManager,
     pub cipher: Arc<Cipher>,

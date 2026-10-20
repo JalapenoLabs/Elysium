@@ -199,6 +199,21 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    browser_sessions (id) {
+        id -> Uuid,
+        name -> Text,
+        start_url -> Text,
+        port -> Int4,
+        member_password_encrypted -> Bytea,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::ChangesetDecision;
     use super::sql_types::ChangesetOutcome;
 
@@ -620,6 +635,7 @@ diesel::joinable!(action_item_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(action_item_projects -> action_items (action_item_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
 diesel::joinable!(action_items -> users (created_by));
+diesel::joinable!(browser_sessions -> users (created_by));
 diesel::joinable!(changeset_operations -> changesets (changeset_id));
 diesel::joinable!(changesets -> projects (project_id));
 diesel::joinable!(coding_sessions -> action_items (action_item_id));
@@ -664,6 +680,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     action_item_links,
     action_item_projects,
     action_items,
+    browser_sessions,
     changeset_operations,
     changesets,
     coding_sessions,
