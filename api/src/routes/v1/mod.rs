@@ -22,6 +22,7 @@ pub mod satellites;
 pub mod storage_locations;
 pub mod studio_items;
 pub mod timeline;
+mod updates;
 pub mod users;
 pub mod workspace_settings;
 
@@ -68,6 +69,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/studio-items", studio_items::router())
         .nest("/coding-sessions", coding_sessions::router())
         .nest("/oauth", oauth::router())
+        .nest("/updates", updates::router())
         .nest("/users", users::router())
         .nest("/workspace-settings", workspace_settings::router())
 }

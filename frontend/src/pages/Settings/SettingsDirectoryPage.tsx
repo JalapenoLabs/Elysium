@@ -15,6 +15,7 @@ import {
   LuHardDrive,
   LuMail,
   LuPlug,
+  LuRefreshCw,
   LuSatellite,
   LuShieldCheck,
   LuSquareKanban,
@@ -113,6 +114,12 @@ export function SettingsDirectoryPage() {
           description={t('items.environment.description')}
           href={UrlTree.settingsEnvironment}
         />
+        {isAdmin && <SettingsDirectoryItem
+          icon={LuRefreshCw}
+          title={t('items.updates.title')}
+          description={t('items.updates.description')}
+          href={UrlTree.settingsUpdates}
+        />}
       </div>
     </section>
   </div>

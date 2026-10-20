@@ -33,6 +33,7 @@ import { studioAssetCreated } from '../store/studioAssetsSlice'
 import { studioFeedbackCreated } from '../store/studioFeedbackSlice'
 import { studioItemDeleted, studioItemUpserted } from '../store/studioItemsSlice'
 import { userDeleted, userUpserted } from '../store/usersSlice'
+import { updatesStatusUpdated } from '../store/updatesSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
 // Misc
@@ -151,6 +152,7 @@ const handlers: Handlers = {
   },
   'studioAsset.created': (event) => store.dispatch(studioAssetCreated(event.data)),
   'studioFeedback.created': (event) => store.dispatch(studioFeedbackCreated(event.data)),
+  'updates.status': (event) => store.dispatch(updatesStatusUpdated(event.data)),
   // Also updates the signed-in person's own account, through the auth slice.
   'user.upserted': (event) => store.dispatch(userUpserted(event.data)),
   'user.deleted': (event) => store.dispatch(userDeleted(event.data.id)),
