@@ -81,18 +81,21 @@ pub fn derive_updater_key(encryption_key: &SecretString) -> SecretString {
     SecretString::from(hex::encode(digest))
 }
 
-/// What the updater is told to do, written as one line of text it reads with `read`.
+/// What the updater is told to do, written as one line of text it reads with `read`:
+/// `wait`, or `apply <target> from <running>`. The running release is what it restores if the
+/// target does not come up healthy; the deployment's own configuration may name a floating
+/// tag such as `latest`, which would move with the update.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Instruction {
     Wait,
-    Apply(Version),
+    Apply { target: Version, running: Version },
 }
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Wait => f.write_str("wait"),
-            Self::Apply(version) => write!(f, "apply {version}"),
+            Self::Apply { target, running } => write!(f, "apply {target} from {running}"),
         }
     }
 }
@@ -539,7 +542,10 @@ impl Updates {
                     service.version.target = update.to_version,
                     "told the updater to apply a release",
                 );
-                Ok(Instruction::Apply(target.clone()))
+                Ok(Instruction::Apply {
+                    target: target.clone(),
+                    running: running.clone(),
+                })
             }
             Err(DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _)) => {
                 event!(

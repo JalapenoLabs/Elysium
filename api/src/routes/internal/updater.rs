@@ -5,7 +5,7 @@
 //! The updater is a shell script with `wget` and no JSON parser, so both routes speak one
 //! line of plain text. Each checks the updater's key, derived from the encryption key.
 //!
-//! - `GET /internal/updater/instruction` answers `wait` or `apply <version>`.
+//! - `GET /internal/updater/instruction` answers `wait` or `apply <target> from <running>`.
 //! - `POST /internal/updater/outcome` takes `succeeded <version>` or
 //!   `rolled-back <version> <reason>`, and answers `204`.
 

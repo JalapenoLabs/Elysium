@@ -154,8 +154,9 @@ Check now. It tells the updater to apply the newest release when all of these ho
 - nothing is running that a restart would cut short. Work such as an agent turn holds an activity
   (`api/src/activity.rs`) for as long as it runs, and the update waits until none is held.
 
-The updater asks every minute over `GET /internal/updater/instruction`, which answers `wait` or `apply <version>`, and
-reports with `POST /internal/updater/outcome`: `succeeded <version>` or `rolled-back <version> <reason>`. Both carry
+The updater asks every minute over `GET /internal/updater/instruction`, which answers `wait` or
+`apply <target> from <running>`, and reports with `POST /internal/updater/outcome`: `succeeded <version>` or
+`rolled-back <version> <reason>`. Both carry
 the key `x-elysium-updater-key`, the hex SHA-256 of `elysium/updater/key:<ELYSIUM_ENCRYPTION_KEY>`. Each update is a
 `deployment_updates` row (`docs/database.md`). One that reports nothing within 45 minutes counts as rolled back, and a
 release that starts while an update to it is applying records it as succeeded. Every change is published as

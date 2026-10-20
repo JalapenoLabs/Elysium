@@ -18,10 +18,11 @@ fn the_updater_key_matches_the_updater_script() {
 #[test]
 fn instructions_are_one_line_the_updater_reads() {
     assert_eq!(Instruction::Wait.to_string(), "wait");
-    assert_eq!(
-        Instruction::Apply(Version::new(0, 4, 2)).to_string(),
-        "apply 0.4.2"
-    );
+    let apply = Instruction::Apply {
+        target: Version::new(0, 4, 2),
+        running: Version::new(0, 4, 1),
+    };
+    assert_eq!(apply.to_string(), "apply 0.4.2 from 0.4.1");
 }
 
 #[test]
@@ -97,7 +98,13 @@ async fn a_newer_release_is_applied_once_and_recorded() {
     updates.set_newest(Some(Version::new(0, 1, 1)));
 
     let first = updates.instruction().await.expect("an instruction");
-    assert_eq!(first, Instruction::Apply(Version::new(0, 1, 1)));
+    assert_eq!(
+        first,
+        Instruction::Apply {
+            target: Version::new(0, 1, 1),
+            running: Version::new(0, 1, 0),
+        }
+    );
 
     let second = updates.instruction().await.expect("an instruction");
     assert_eq!(second, Instruction::Wait, "one update at a time");
@@ -137,7 +144,10 @@ async fn running_work_holds_the_update_until_it_finishes() {
     drop(turn);
     assert_eq!(
         updates.instruction().await.expect("an instruction"),
-        Instruction::Apply(Version::new(0, 1, 1))
+        Instruction::Apply {
+            target: Version::new(0, 1, 1),
+            running: Version::new(0, 1, 0),
+        }
     );
 }
 
@@ -172,7 +182,10 @@ async fn a_release_that_rolled_back_waits_for_an_admin() {
         .expect("an admin may ask for it");
     assert_eq!(
         updates.instruction().await.expect("an instruction"),
-        Instruction::Apply(Version::new(0, 1, 1))
+        Instruction::Apply {
+            target: Version::new(0, 1, 1),
+            running: Version::new(0, 1, 0),
+        }
     );
     let status = updates.status().await.expect("the status");
     assert_eq!(status.history[0].created_by, TEST_PERSON_ID);
