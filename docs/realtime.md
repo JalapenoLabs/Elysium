@@ -37,7 +37,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `project.upserted`   | `Project`                | A project was created or changed                           |
 | `project.deleted`    | `{ id }`                 | A project was deleted                                      |
 | `satellite.upserted` | `Satellite`              | A satellite was created or changed (status arrives later)  |
-| `satellite.deleted`  | `{ id }`                 | A satellite and its sessions were deleted                  |
+| `satellite.deleted`  | `{ id }`                 | A satellite was deleted; each of its sessions follows as `session.upserted` with `satelliteId: null` |
 | `satellite.status`   | `SatelliteStatus`        | A poll found different reachability, version, or load      |
 | `environmentVariable.upserted` | `EnvironmentVariable` | An environment variable was added or changed      |
 | `environmentVariable.deleted`  | `{ id }`              | An environment variable was deleted               |
@@ -51,6 +51,10 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `session.deleted`    | `{ id }`                 | A session was deleted; `id` is the session's number        |
 | `session.event`      | `SessionEvent`           | A thread emitted an event                                  |
 | `session.resync`     | `{ id }`                 | Live events for that session may have been missed          |
+| `studioItem.upserted` | `StudioItem`            | A Studio item was created, renamed, pinned, continued, or restored |
+| `studioItem.deleted` | `{ id }`                 | A Studio item was deleted, softly or for good              |
+| `studioAsset.created` | `StudioAsset`           | A file was pulled from a workspace into a Studio item      |
+| `studioFeedback.created` | `StudioFeedback`     | A prompt with a drawing was sent to a Studio item          |
 | `user.upserted`      | `User`                   | Someone signed up, was approved, changed role, or was disabled or enabled |
 | `user.deleted`       | `{ id }`                 | A pending sign-up was rejected                             |
 | `workspaceSettings.updated` | `WorkspaceSettings` | Sign-up was opened or closed, or the authenticator rule changed |
@@ -65,7 +69,9 @@ whose `initiativeIds` leave deleted initiatives out. A write that changed nothin
 every action item event to Redux; `actionItem.deleted` and `initiative.deleted` also revalidate the deleted lists,
 `initiative.upserted` the initiative's burnup, and `actionItemLink.upserted` the item's live provider reads, each only
 while a view shows it (`docs/frontend.md`). The link and container events land in the `actionItemLinks` and
-`initiativeLinks` slices, and `changeset.upserted` in the `changesets` slice.
+`initiativeLinks` slices, and `changeset.upserted` in the `changesets` slice. The Studio events land in the
+`studioItems`, `studioAssets`, and `studioFeedback` slices; `studioItem.deleted` also revalidates the deleted items and
+the item's own page, which then shows a soft-deleted item as deleted and a permanently deleted one as missing.
 
 Only an active, approved person may open the stream, and every one of them receives every event. Every 30 seconds
 the stream checks its session and person again and closes when either lost access (`docs/auth.md`). The stream never

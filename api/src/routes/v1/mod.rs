@@ -18,6 +18,7 @@ pub mod oauth;
 pub mod projects;
 pub mod satellites;
 pub mod storage_locations;
+pub mod studio_items;
 pub mod users;
 pub mod workspace_settings;
 
@@ -58,6 +59,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/projects", projects::router())
         .nest("/satellites", satellites::router())
         .nest("/storage-locations", storage_locations::router())
+        .nest("/studio-items", studio_items::router())
         .nest("/coding-sessions", coding_sessions::router())
         .nest("/oauth", oauth::router())
         .nest("/users", users::router())

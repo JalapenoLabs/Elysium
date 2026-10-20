@@ -26,6 +26,8 @@ export const UrlTree = {
   projectView: '/projects/:projectId',
   coding: '/coding',
   codingSession: '/coding/:sessionId',
+  studio: '/studio',
+  studioItem: '/studio/:itemId',
   settings: '/settings',
   settingsPersonalDetails: '/settings/personal-details',
   settingsSecurity: '/settings/security',
@@ -151,6 +153,10 @@ export function getCodingSessionUrl(sessionId: number) {
 // The Coding page opens New session started from this item, then returns to its own address.
 export function getNewCodingSessionUrl(actionItemId: string) {
   return `${UrlTree.coding}?${NEW_SESSION_ITEM_PARAM}=${encodeURIComponent(actionItemId)}`
+}
+
+export function getStudioItemUrl(itemId: string) {
+  return UrlTree.studioItem.replace(':itemId', itemId)
 }
 
 type LoginOptions = {

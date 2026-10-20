@@ -27,6 +27,9 @@ import { eventStreamLost, eventStreamOpened } from '../store/realtimeSlice'
 import { satelliteDeleted, satelliteStatusReported, satelliteUpserted } from '../store/satellitesSlice'
 import { sessionEventReceived } from '../store/sessionEventsSlice'
 import { storageLocationDeleted, storageLocationUpserted } from '../store/storageLocationsSlice'
+import { studioAssetCreated } from '../store/studioAssetsSlice'
+import { studioFeedbackCreated } from '../store/studioFeedbackSlice'
+import { studioItemDeleted, studioItemUpserted } from '../store/studioItemsSlice'
 import { userDeleted, userUpserted } from '../store/usersSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
@@ -110,6 +113,17 @@ const handlers: Handlers = {
   'session.event': (event) => store.dispatch(sessionEventReceived(event.data)),
   // Revalidates only if a conversation panel holds this session's history key.
   'session.resync': (event) => void mutate(`v1/coding-sessions/${event.data.id}/events`),
+  'studioItem.upserted': (event) => store.dispatch(studioItemUpserted(event.data)),
+  // The event carries only the id and does not say whether the delete was soft, so the
+  // deleted list and the item's own page reload, each only if a view shows it: a soft delete
+  // then shows the item as deleted, and a permanent one as missing.
+  'studioItem.deleted': (event) => {
+    store.dispatch(studioItemDeleted(event.data.id))
+    void mutate('v1/studio-items?deleted=true')
+    void mutate(`v1/studio-items/${event.data.id}`)
+  },
+  'studioAsset.created': (event) => store.dispatch(studioAssetCreated(event.data)),
+  'studioFeedback.created': (event) => store.dispatch(studioFeedbackCreated(event.data)),
   // Also updates the signed-in person's own account, through the auth slice.
   'user.upserted': (event) => store.dispatch(userUpserted(event.data)),
   'user.deleted': (event) => store.dispatch(userDeleted(event.data.id)),

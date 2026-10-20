@@ -148,7 +148,7 @@ pub(super) async fn run(
         });
     }
 
-    let work_scope = WorkScope::from(scope);
+    let work_scope = WorkScope::try_from(scope)?;
     let has_pull_requests = drafts
         .iter()
         .any(|drafted| matches!(drafted.draft, Draft::LinkPullRequest { .. }));

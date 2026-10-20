@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 
 // Redux
 import { shallowEqual } from 'react-redux'
-import { selectAllCodingSessions } from '../../store/codingSessionsSlice'
+import { selectCodingSessions } from '../../store/codingSessionsSlice'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { selectProjectNamesById } from '../../store/projectsSlice'
 import { selectSatelliteNamesById } from '../../store/satellitesSlice'
@@ -88,7 +88,7 @@ export function SessionsPanel() {
   const [ search, setSearch ] = useState('')
   const view = useAppSelector(selectSessionsView)
 
-  const sessions = useAppSelector(selectAllCodingSessions)
+  const sessions = useAppSelector(selectCodingSessions)
   const sessionsStatus = useCodingSessionsLoader()
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
   const projectsStatus = useProjectsLoader()
