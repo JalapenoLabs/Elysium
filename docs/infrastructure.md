@@ -201,8 +201,8 @@ applying records it as succeeded. Every change is published as `updates.status`.
    newest five.
 4. Installs the configuration in place of the directory's, and points `ELYSIUM_VERSION` at the target. `.env` is
    rewritten in place, so it keeps its owner and mode.
-5. Pulls the remaining images and brings every service but the updater up, waiting up to ten minutes for every
-   health check. The `migrate` services run the target's migrations on the way.
+5. Brings every service but the updater up, pulling only images Docker lacks (every one is a fixed version), and
+   waits up to ten minutes for every health check. The `migrate` services run the target's migrations on the way.
 6. Checks that the API answering is the target, reports success, and recreates itself last if its own definition
    changed.
 
