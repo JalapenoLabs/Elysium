@@ -11,6 +11,7 @@ pub mod browser_session;
 pub mod changeset;
 pub mod coding_session;
 pub mod deployment_update;
+pub mod elysia;
 pub mod environment_variable;
 pub mod github_credential;
 pub mod initiative;

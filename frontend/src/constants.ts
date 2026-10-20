@@ -92,5 +92,8 @@ export const PENDING_APPROVAL_POLL_MS = 5_000
 // Passwords must be at least this long; Kratos refuses shorter ones too (kratos/kratos.yml).
 export const PASSWORD_MIN_LENGTH = 12
 
+// Whether Elysia's panel is open beside the page, remembered per browser.
+export const ELYSIA_PANEL_STORAGE_KEY = 'elysium.elysia.panel.v1'
+
 // The zxcvbn score, out of 4, a new password must reach before the form submits.
 export const PASSWORD_MIN_SCORE = 3
