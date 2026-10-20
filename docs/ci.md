@@ -74,6 +74,9 @@ Elysium is public and the runners are self-hosted, so a workflow run is code exe
 - No check reads a secret. The placeholder values in the Compose and broker checks are not credentials. The one
   workflow that does is `publish.yml`, which reads the organization's Docker Hub token; it has no `pull_request`
   trigger, so neither a fork nor a pull request reaches it.
+- `release.yml` is the one workflow whose token writes: `contents: write` to push a release tag and `actions: write`
+  to start `publish.yml` on it. It reads no secret, and runs only on its schedule and by hand, never on a pull
+  request.
 - Third-party actions are pinned to a full commit SHA with the version in a comment. `actions/checkout` is the only
   one.
 
@@ -150,8 +153,9 @@ required variables. Nothing is started. The images compose builds are built by t
 ## Publishing
 
 `.github/workflows/publish.yml` builds and pushes the API image (stage `app`, with the web app) and the OAuth broker
-image to Docker Hub, as listed in `docs/infrastructure.md`. It runs on every push to `main` and every `v*` tag, and
-never on a pull request. What it builds already passed every check in the merge queue, so it is not a required check
+image to Docker Hub, as listed in `docs/infrastructure.md`. It runs on every push to `main` and every `v*` tag, when
+`release.yml` starts it on a tag, and never on a pull request. A release build passes its version to the API image as
+the `ELYSIUM_RELEASE` build argument, so the binary knows it is a release; `main` passes nothing. What it builds already passed every check in the merge queue, so it is not a required check
 and repeats none of them.
 
 | Ref               | Tags pushed                       |
@@ -183,6 +187,18 @@ Both jobs use the composite action `.github/actions/docker-publish`:
 - A commit to `main` that changes only `docs/` or Markdown publishes nothing. Tag pushes are never filtered.
 
 A release is a tag: `git tag v1.2.3 && git push origin v1.2.3`.
+
+## Releases
+
+`.github/workflows/release.yml` cuts a release every day at 09:00 UTC, and on demand with a choice of patch, minor, or
+major (`.github/scripts/cut-release.sh`). It walks `main`'s first-parent history back from the newest commit, at most
+50 commits and never past the last release, and takes the first one whose check runs all passed: every run completed
+as success, skipped, or neutral, its own run aside. It cuts nothing when no commit since the last release is green yet,
+or when only `docs/` and Markdown changed since it. Otherwise it raises the last `vX.Y.Z` (patch by default; the first
+release is `v0.1.0`), pushes the tag at that commit, and starts `publish.yml` on the tag. A tag the workflow's own
+token pushes starts no push run, which is why it starts the publish itself.
+
+Deployments running auto-update apply the release within the hour after its images land (`docs/infrastructure.md`).
 
 ## Roadmap
 
