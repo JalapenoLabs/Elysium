@@ -165,7 +165,8 @@ Application secrets never go there. They are stored in Postgres, encrypted with 
 
 ## Roadmap
 
-- Authentication on `/api/v1`, then publishing nginx beyond loopback by default.
+- Narrowing the API's Docker access to the containers and volumes it manages (labels, no privileged mode, no
+  host mounts), then publishing nginx beyond loopback by default.
 - Deciding on `blob:` in the web app's `connect-src`, which Studio's viewer needs to show textured models. It would let
   the app fetch blob URLs it created itself, and nothing from another origin.
 - TLS termination at nginx.

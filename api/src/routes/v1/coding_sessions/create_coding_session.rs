@@ -22,6 +22,7 @@ use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use chrono::Utc;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -39,11 +40,15 @@ use crate::models::llm;
 use crate::models::{project, satellite, storage_location};
 use crate::state::AppState;
 
-#[derive(Debug, Deserialize, Validate)]
+/// A coding session to start: a thread opened on a satellite for a project.
+#[derive(Debug, Deserialize, Validate, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RequestBody {
+pub struct CreateCodingSessionRequest {
+    /// The project the session works for.
     project_id: Uuid,
+    /// The satellite the session's thread runs on.
     satellite_id: Uuid,
+    /// What the session is called.
     #[validate(length(min = 1, max = 200), custom(function = "validate_not_blank"))]
     title: String,
     /// The repositories the satellite clones into the thread's workspace, in order.
@@ -53,6 +58,7 @@ pub struct RequestBody {
     /// The GitHub token the agent works with: absent follows the project, `null` asks for
     /// none, and an id names one.
     #[serde(default, with = "::serde_with::rust::double_option")]
+    #[schemars(with = "Option<Uuid>")]
     #[expect(
         clippy::option_option,
         reason = "absent, null, and an id are three distinct requests"
@@ -78,7 +84,7 @@ pub struct RequestBody {
 const MAX_REPOSITORIES: u64 = 16;
 
 /// One repository to clone. `Serialize` because a length error on the list reports it.
-#[derive(Debug, Deserialize, Serialize, Validate)]
+#[derive(Debug, Deserialize, Serialize, Validate, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepositoryRequest {
     /// Git URL the satellite clones from.
@@ -92,9 +98,24 @@ pub struct RepositoryRequest {
 pub async fn handle(
     State(state): State<AppState>,
     current: CurrentUser,
-    body: Result<Json<RequestBody>, JsonRejection>,
+    body: Result<Json<CreateCodingSessionRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
+    let session = create(&state, current.id(), body).await?;
+    Ok((StatusCode::CREATED, Json(json!({ "session": session }))))
+}
+
+/// Opens a thread for a new session as `actor`, records it, queues its first turn, and
+/// announces it. See the module documentation for the order and what is undone on failure.
+///
+/// # Errors
+/// The request's validation errors, `404` for an unknown project, satellite, or item, or the
+/// satellite's refusal.
+pub async fn create(
+    state: &AppState,
+    actor: Uuid,
+    body: CreateCodingSessionRequest,
+) -> Result<CodingSessionResponse, ApiError> {
     body.validate()?;
     refuse_shared_directories(&body.repositories)?;
 
@@ -151,9 +172,9 @@ pub async fn handle(
     });
 
     let opened = open::open(
-        &state,
+        state,
         SessionOpening {
-            created_by: current.id(),
+            created_by: actor,
             satellite_id: satellite.id,
             settings,
             title: body.title,
@@ -167,16 +188,13 @@ pub async fn handle(
     if let Some(first_turn) = first_turn
         && let Err(turn_error) = opened.handle.start_turn(first_turn).await
     {
-        open::discard(&state, &opened).await;
+        open::discard(state, &opened).await;
         return Err(turn_error.into());
     }
-    open::announce(&state, &opened);
-
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({
-            "session": CodingSessionResponse::new(opened.session, Some(opened.thread)),
-        })),
+    open::announce(state, &opened);
+    Ok(CodingSessionResponse::new(
+        opened.session,
+        Some(opened.thread),
     ))
 }
 
@@ -310,7 +328,7 @@ mod tests {
     }
 
     /// A request body with these repository URLs, none with a base branch.
-    fn body_with(urls: &[&str]) -> RequestBody {
+    fn body_with(urls: &[&str]) -> CreateCodingSessionRequest {
         let repositories: Vec<Value> = urls.iter().map(|url| json!({ "url": url })).collect();
         serde_json::from_value(json!({
             "projectId": Uuid::nil(),
@@ -323,7 +341,7 @@ mod tests {
 
     #[test]
     fn bodies_validate_titles_and_repository_urls() {
-        let valid: RequestBody = serde_json::from_value(json!({
+        let valid: CreateCodingSessionRequest = serde_json::from_value(json!({
             "projectId": Uuid::nil(),
             "satelliteId": Uuid::nil(),
             "title": "Fix the login bug",
@@ -336,13 +354,13 @@ mod tests {
         valid.validate().expect("valid body");
         refuse_shared_directories(&valid.repositories).expect("distinct directories");
 
-        let none: RequestBody = serde_json::from_value(
+        let none: CreateCodingSessionRequest = serde_json::from_value(
             json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "A" }),
         )
         .expect("parses");
         assert!(none.repositories.is_empty());
 
-        let blank_title: RequestBody = serde_json::from_value(
+        let blank_title: CreateCodingSessionRequest = serde_json::from_value(
             json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "  " }),
         )
         .expect("parses");
@@ -372,7 +390,7 @@ mod tests {
             .validate()
             .expect_err("a session clones at most sixteen repositories");
 
-        serde_json::from_value::<RequestBody>(json!({
+        serde_json::from_value::<CreateCodingSessionRequest>(json!({
             "projectId": Uuid::nil(),
             "satelliteId": Uuid::nil(),
             "title": "A",
@@ -526,7 +544,8 @@ mod tests {
     fn a_first_prompt_is_optional_and_never_blank() {
         let base = json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "A" });
 
-        let none: RequestBody = serde_json::from_value(base.clone()).expect("parses");
+        let none: CreateCodingSessionRequest =
+            serde_json::from_value(base.clone()).expect("parses");
         none.validate()
             .expect("a session may start without a prompt");
         assert_eq!(none.prompt, None);
@@ -534,14 +553,15 @@ mod tests {
 
         let mut blank = base.clone();
         blank["prompt"] = json!("  ");
-        let blank: RequestBody = serde_json::from_value(blank).expect("parses");
+        let blank: CreateCodingSessionRequest = serde_json::from_value(blank).expect("parses");
         let refused = blank.validate().expect_err("a blank prompt");
         assert!(refused.field_errors().contains_key("prompt"));
 
         let mut from_item = base;
         from_item["prompt"] = json!("Fix it.");
         from_item["actionItemId"] = json!(Uuid::nil());
-        let from_item: RequestBody = serde_json::from_value(from_item).expect("parses");
+        let from_item: CreateCodingSessionRequest =
+            serde_json::from_value(from_item).expect("parses");
         from_item.validate().expect("valid");
         assert_eq!(from_item.action_item_id, Some(Uuid::nil()));
     }
@@ -550,17 +570,18 @@ mod tests {
     fn github_credential_ids_distinguish_absent_null_and_an_id() {
         let base = json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "A" });
 
-        let absent: RequestBody = serde_json::from_value(base.clone()).expect("parses");
+        let absent: CreateCodingSessionRequest =
+            serde_json::from_value(base.clone()).expect("parses");
         assert_eq!(absent.github_credential_id, None);
 
         let mut null = base.clone();
         null["githubCredentialId"] = Value::Null;
-        let null: RequestBody = serde_json::from_value(null).expect("parses");
+        let null: CreateCodingSessionRequest = serde_json::from_value(null).expect("parses");
         assert_eq!(null.github_credential_id, Some(None));
 
         let mut named = base;
         named["githubCredentialId"] = json!(Uuid::nil());
-        let named: RequestBody = serde_json::from_value(named).expect("parses");
+        let named: CreateCodingSessionRequest = serde_json::from_value(named).expect("parses");
         assert_eq!(named.github_credential_id, Some(Some(Uuid::nil())));
     }
 }

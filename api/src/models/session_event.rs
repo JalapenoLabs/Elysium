@@ -98,6 +98,11 @@ pub async fn latest(
     rows.truncate(limit);
     rows.reverse();
 
+    Ok((decode_rows(session_id, rows), truncated))
+}
+
+/// Decodes stored events in order, skipping and logging any that no longer decode.
+fn decode_rows(session_id: i64, rows: Vec<(i64, Vec<u8>)>) -> Vec<ThreadEvent> {
     let mut events = Vec::with_capacity(rows.len());
     for (sequence, bytes) in rows {
         match ThreadEvent::decode(bytes.as_slice()) {
@@ -112,7 +117,28 @@ pub async fn latest(
             ),
         }
     }
-    Ok((events, truncated))
+    events
+}
+
+/// A session's events after `after_sequence`, oldest first.
+///
+/// An event whose stored bytes no longer decode is skipped and logged, as in [`latest`].
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn after(
+    connection: &mut AsyncPgConnection,
+    session_id: i64,
+    after_sequence: u64,
+) -> QueryResult<Vec<ThreadEvent>> {
+    let rows: Vec<(i64, Vec<u8>)> = session_events::table
+        .filter(session_events::session_id.eq(session_id))
+        .filter(session_events::sequence.gt(sequence_to_column(after_sequence)))
+        .order(session_events::sequence.asc())
+        .select((session_events::sequence, session_events::event))
+        .load(connection)
+        .await?;
+    Ok(decode_rows(session_id, rows))
 }
 
 /// Sequences are `u64` on the wire and `BIGINT` in Postgres. A satellite would have to emit

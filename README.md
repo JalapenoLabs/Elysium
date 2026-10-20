@@ -18,15 +18,15 @@ docker compose -f compose.yml -f compose.dev.yml up --build --wait
 
 The stack answers on `http://localhost:4000`:
 
-| Path           | Serves                                   |
-|----------------|------------------------------------------|
-| `/`            | Web app: sidebar, topbar, and pages      |
-| `/settings`    | Settings directory, including LLMs       |
-| `/api/ok`      | `ok`                                     |
-| `/api/ping`    | `pong`                                   |
-| `/api/version` | build, toolchain, and git history JSON   |
-| `/api/v1/llms` | LLM credentials, tokens stored encrypted |
-| `/api/v1/mail` | Mailboxes, mail server, and domains      |
+| Path               | Serves                                                     |
+|--------------------|------------------------------------------------------------|
+| `/`                | Web app                                                    |
+| `/api/ok`          | `ok`                                                       |
+| `/api/ping`        | `pong`                                                     |
+| `/api/version`     | Build, toolchain, and git history JSON                     |
+| `/api/v1`          | The API, behind a Kratos session; see `docs/api.md`        |
+| `/api/identity/`   | Ory Kratos's public API: sign-in, sign-up, and recovery    |
+| `/api/mcp`         | The MCP server for Claude Code, Codex, and other clients   |
 
 `oauth-broker/` is the separately deployable OAuth broker Gmail and Outlook connect through; see its README.
 
