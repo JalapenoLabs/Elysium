@@ -88,12 +88,22 @@ Everything else follows these rules:
   Docker, reached only via the filtered `docker-proxy`, never a mounted socket. It is not a compose service.
 - Stalwart's administrator is issued by Stalwart when the API creates the server, and is sealed in Postgres like any
   application secret. It never goes in `.env` or `compose.yml`.
-- nginx is the single ingress for web and mail. It passes the mail ports (25, 465, 993) to Stalwart as raw TCP with
+- nginx is the single ingress for web, mail, and browser media. It passes the mail ports (25, 465, 993) to Stalwart as raw TCP with
   the PROXY protocol, and Stalwart trusts that header from nginx's fixed address alone. The Stalwart container
   publishes no ports of its own.
 - What sits in front of the host (a VM's public address, port forwarding, tunnels, reverse DNS, certificates) is
   the operator's responsibility, and Elysium accepts whatever arrives. Elysium provides each domain's DNS records
   and checks them, and never changes DNS or issues certificates.
+
+## Remote browser
+
+- Signing in to a service without an app of Elysium's own happens in a real browser the host runs and streams to the
+  user over WebRTC: Neko (`ghcr.io/m1k1o/neko/chromium`, pinned by digest), run unchanged, one container, profile
+  volume, Docker network, and media port per signed-in account. The roadmap builds it; see `docs/browser.md`.
+- nginx stays the single ingress: it passes the media ports, `59000-59007` over UDP and TCP, to the browser that owns
+  each one, on every interface. Signaling never leaves the API's authenticated stream route.
+- The frontend speaks Neko's protocol itself; Neko's own client cannot run under the web app's CSP.
+- The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
 
 ## Storage
 

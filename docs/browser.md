@@ -2,8 +2,8 @@
 
 Elysium signs in to services the way its user does: in a real browser that the host runs and streams to the user.
 The user signs in on the real page, through any OAuth, MFA, or passkey prompt it shows, and the browser stays running
-on the host afterwards, which keeps the session alive. Connectors then read and act through that same browser. See
-`docs/vision.md`, "Elysium acts as its user".
+on the host afterwards, which keeps the session alive. Connectors then read and act through that same browser, so
+Elysium uses each service as its user does and never installs anything into an organization.
 
 None of this is built yet. This doc records what was verified against the pinned versions below, and the design the
 roadmap builds.
@@ -44,8 +44,15 @@ ingress: nginx's `stream` module passes raw UDP and TCP the way it passes the ma
 The range is eight browsers. The number is a constant in the API and the range in `compose.yml` and `nginx/`; the
 three change together.
 
+nginx publishes the range on every interface, like the mail ports and unlike the web port, because the sign-in
+panel is useless to a remote user until media reaches them. What arrives there is worthless on its own: a media
+session needs the ICE credentials and DTLS fingerprint exchanged over signaling, and signaling runs only through the
+API's authenticated stream route. Reaching the port alone yields nothing, the same argument that lets Stalwart's
+ports stay open.
+
 What the host must allow: `59000-59007` over both UDP and TCP, from wherever users reach Elysium, beside the web
-port. A cloud VM needs a firewall rule for them. Nothing else changes.
+port. A cloud VM needs a firewall rule for them. `docs/infrastructure.md` and `docs/security.md` list the range with
+the other published ports once it is built.
 
 A provider that refuses sign-ins from a datacenter address is handled when it is met; routing the browser's own
 traffic through a VPN is the likely answer. It does not affect the stream, which flows between the user and the
@@ -56,8 +63,7 @@ host.
 Neko ships a web client, but Elysium cannot embed it:
 
 - It is built on Vue 2 aliased to `vue/dist/vue.esm.js`, the build that compiles templates at runtime with
-  `new Function`, which the web app's Content Security Policy forbids (no eval). Its `index.html` also carries an
-  inline style.
+  `new Function`, which the web app's Content Security Policy forbids (no eval).
 - Served from Elysium's origin it would be a same-origin frame, able to script the web app itself, and it would
   hold Neko's administrator session in the browser.
 
@@ -80,10 +86,15 @@ So the frontend speaks Neko's protocol directly, which is small and documented i
 
 ## Authentication
 
-Neko's own sign-in stays inside the host. Each browser runs with the `multiuser` member provider and a generated
-administrator password, sealed in Postgres like any application secret, and session cookies off, so a sign-in answers
-a token in its body. The API signs in server to server (`POST /api/login`) and opens the upstream WebSocket with the
-token.
+Neko's own sign-in stays inside the host. Each browser runs with the `multiuser` member provider and session cookies
+off, so a sign-in answers a token in its body. Two passwords are generated:
+
+- The **member** password, sealed in Postgres like any application secret. A member session can watch, hold control,
+  and set the clipboard, which is everything a viewer needs, and nothing more: it cannot start a broadcast, manage
+  members, change the screen, or read logs. The API signs in with it server to server (`POST /api/login`) and opens
+  the upstream WebSocket with the token.
+- The **administrator** password, generated for each new container and never kept, because nothing in Elysium needs
+  an administrator session and Neko would otherwise accept its default one.
 
 The browser only ever talks to the API's stream route, which:
 
@@ -91,8 +102,8 @@ The browser only ever talks to the API's stream route, which:
   unsafe-request check does not cover, so the route checks the origin itself),
 - answers only the person who created the browser,
 - relays only the events a viewer needs (signaling, control, heartbeats, clipboard set, keyboard map) from the user
-  to Neko, and drops the rest: an administrator session could otherwise start a broadcast to any address, change
-  members, or read logs.
+  to Neko, and drops the rest. Neko already refuses a member the administrator's events; the list is the second
+  wall, so an event it misses is a bug, not an escalation.
 
 ## Elysia drives the same browser
 
@@ -106,6 +117,16 @@ Elysia and the connectors reach the browser over the Chrome DevTools Protocol, v
   `Host: localhost` whatever name it dials.
 - The DevTools port has no authentication of its own. Each browser therefore has its own Docker network, which only
   the API and nginx join, and nginx forwards nothing to a browser but its media port. No browser can reach another.
+
+Per-browser networks are what Stalwart never needed, and they change two things:
+
+- `docker-proxy` must answer the network endpoints (`NETWORKS: 1`), to create a network per browser and connect the
+  API and nginx to it. That adds no reach the API lacks today: creating a container is already root on the host,
+  which `docs/security.md` names as the reason every account is approved by an admin.
+- nginx is a compose service, so `docker compose up` resets its networks to the ones `compose.yml` lists and drops
+  the ones the API added. The API's reconciler checks every browser's network every 10 seconds and joins nginx and
+  itself back. Until it does, that browser's media port refuses connections and an open stream reconnects. A shared
+  network would avoid it, but would let every browser reach every other's DevTools port.
 
 The forwarder and Chromium's command line are copied into the container before it first starts, through Docker's
 archive endpoint, so the upstream image runs as published. Neko's supervisord loads every file in
@@ -127,7 +148,7 @@ The policy file, Neko's own with that one setting added, is copied in with the r
 
 | Piece             | Where                                   | What it does                                            |
 |-------------------|-----------------------------------------|---------------------------------------------------------|
-| Browser sessions  | `api/src/browser/`, `browser_sessions`  | One container, volume, network, and port per signed-in account, created through `docker-proxy` like Stalwart, and recreated at API start |
+| Browser sessions  | `api/src/browser/`, `browser_sessions`  | One container, volume, network, and port per signed-in account, created through `docker-proxy`, and kept in place by a reconciler |
 | Stream route      | `/api/v1/browser-sessions/{id}/stream`  | Authenticated WebSocket relay of Neko's signaling       |
 | Sign-in panel     | `frontend/src/`                         | Video, input, and paste over Neko's protocol            |
 | Connectors        | `api/src/connectors/`                   | One trait: sign in, stay signed in, ingest, act         |
