@@ -16,6 +16,7 @@ mod connections;
 mod connectors;
 mod crypto;
 mod database;
+mod elysia;
 mod environment;
 mod errors;
 mod fleet;

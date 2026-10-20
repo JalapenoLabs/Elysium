@@ -15,6 +15,7 @@ import { changesetsLoaded, changesetUpserted } from '../store/changesetsSlice'
 import { connectorAccountsLoaded } from '../store/connectorAccountsSlice'
 import { codingSessionsLoaded, codingSessionsUpserted } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
+import { elysiaMessagesLoaded, elysiaTurnsLoaded, elysiaUpdated } from '../store/elysiaSlice'
 import { environmentVariablesLoaded } from '../store/environmentVariablesSlice'
 import { githubCredentialsLoaded } from '../store/githubCredentialsSlice'
 import { deletedInitiativesLoaded, initiativesLoaded, initiativeUpserted } from '../store/initiativesSlice'
@@ -54,6 +55,7 @@ import { listBrowserSessions } from '../api/routes/browserSessionRoutes'
 import { getChangeset, listChangesets } from '../api/routes/changesetRoutes'
 import { listConnectorAccounts } from '../api/routes/connectorRoutes'
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
+import { getElysia, listElysiaMessages, listElysiaTurns } from '../api/routes/elysiaRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
 import { listGithubCredentials } from '../api/routes/githubRoutes'
 import { listJiraCredentials } from '../api/routes/jiraRoutes'
@@ -93,6 +95,42 @@ export function toLoadStatus(hasData: boolean, error: unknown): LoadStatus {
 // Collections dispatch from inside the fetcher, so only a response fresh off the network
 // replaces Redux. SWR's buffered copy is older than the event stream's updates, and a
 // component mounting on it must not roll Redux back.
+
+// Elysia at a glance: her color, holds, questions, and work.
+export function useElysiaLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/elysia', async () => {
+    const response = await getElysia()
+    dispatch(elysiaUpdated(response.elysia))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// The latest page of the conversation. Pages merge into Redux rather than replacing it,
+// so the buffered copy may be applied too.
+export function useElysiaMessagesLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/elysia/messages', () => listElysiaMessages())
+  useEffect(() => {
+    if (data) {
+      dispatch(elysiaMessagesLoaded(data.messages))
+    }
+  }, [ data, dispatch ])
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Her latest turns, merged the same way as the conversation.
+export function useElysiaTurnsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/elysia/turns', () => listElysiaTurns())
+  useEffect(() => {
+    if (data) {
+      dispatch(elysiaTurnsLoaded(data.turns))
+    }
+  }, [ data, dispatch ])
+  return toLoadStatus(data !== undefined, error)
+}
 
 export function useEnvironmentVariablesLoader(): LoadStatus {
   const dispatch = useAppDispatch()

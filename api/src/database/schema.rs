@@ -38,6 +38,18 @@ pub mod sql_types {
     pub struct DeploymentUpdateStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "elysia_question_status"))]
+    pub struct ElysiaQuestionStatus;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "elysia_turn_status"))]
+    pub struct ElysiaTurnStatus;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "elysia_work_status"))]
+    pub struct ElysiaWorkStatus;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "github_access"))]
     pub struct GithubAccess;
 
@@ -315,6 +327,86 @@ diesel::table! {
         started_at -> Timestamptz,
         finished_at -> Nullable<Timestamptz>,
         created_by -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    elysia_messages (id) {
+        id -> Uuid,
+        body -> Text,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ElysiaQuestionStatus;
+
+    elysia_questions (id) {
+        id -> Uuid,
+        prompt -> Text,
+        options -> Jsonb,
+        status -> ElysiaQuestionStatus,
+        answer -> Nullable<Text>,
+        action_item_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        answered_by -> Nullable<Uuid>,
+        answered_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    elysia_state (singleton) {
+        singleton -> Bool,
+        paused -> Bool,
+        availability -> Jsonb,
+        usage_paused_until -> Nullable<Timestamptz>,
+        runner_session_id -> Nullable<Text>,
+        updated_by -> Uuid,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ElysiaTurnStatus;
+
+    elysia_turns (id) {
+        id -> Uuid,
+        trigger_kind -> Text,
+        trigger_detail -> Jsonb,
+        status -> ElysiaTurnStatus,
+        summary -> Nullable<Text>,
+        error -> Nullable<Text>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        started_at -> Nullable<Timestamptz>,
+        finished_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ElysiaWorkStatus;
+
+    elysia_work (id) {
+        id -> Uuid,
+        title -> Text,
+        detail -> Text,
+        status -> ElysiaWorkStatus,
+        ready_at -> Nullable<Timestamptz>,
+        action_item_id -> Nullable<Uuid>,
+        revisits -> Int4,
+        revisited_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -824,6 +916,12 @@ diesel::joinable!(coding_sessions -> users (created_by));
 diesel::joinable!(connector_accounts -> browser_sessions (browser_session_id));
 diesel::joinable!(connector_accounts -> users (created_by));
 diesel::joinable!(deployment_updates -> users (created_by));
+diesel::joinable!(elysia_messages -> users (created_by));
+diesel::joinable!(elysia_questions -> action_items (action_item_id));
+diesel::joinable!(elysia_state -> users (updated_by));
+diesel::joinable!(elysia_turns -> users (created_by));
+diesel::joinable!(elysia_work -> action_items (action_item_id));
+diesel::joinable!(elysia_work -> users (created_by));
 diesel::joinable!(environment_variables -> users (created_by));
 diesel::joinable!(github_credentials -> users (created_by));
 diesel::joinable!(initiative_items -> action_items (action_item_id));
@@ -884,6 +982,11 @@ diesel::allow_tables_to_appear_in_same_query!(
     coding_sessions,
     connector_accounts,
     deployment_updates,
+    elysia_messages,
+    elysia_questions,
+    elysia_state,
+    elysia_turns,
+    elysia_work,
     environment_variables,
     github_credentials,
     initiative_items,

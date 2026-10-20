@@ -20,6 +20,7 @@ import { z } from 'zod'
 // Misc
 import './i18n'
 import './index.css'
+import { startElysiaPanelSync } from './elysia/startElysiaPanelSync'
 import { startSessionsViewSync } from './pages/Coding/startSessionsViewSync'
 import { router } from './router'
 import { startThemeSync } from './theme/startThemeSync'
@@ -33,6 +34,7 @@ z.config({ jitless: true })
 // twice. The event stream waits for a signed-in person with access: `AuthGate` opens it.
 startThemeSync()
 startSessionsViewSync()
+startElysiaPanelSync()
 
 // The event stream refetches on reconnection and pushes every change, so SWR's own
 // focus and network revalidation would only repeat requests.

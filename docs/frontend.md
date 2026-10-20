@@ -47,9 +47,12 @@ Code here keeps to it:
 
 - `Sidebar` sits on the left: the brand, then the primary navigation from `src/layout/navigation.ts`. Add
   top-level areas to that list, not to the component.
-- `Topbar` spans the content column. It has a search field and, on the right, the live updates dot and the
-  settings gear. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
+- `Topbar` spans the content column. It has a search field and, on the right, the Elysia button, the live updates
+  dot, and the settings gear. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
   green while the event stream is connected and amber while it reconnects.
+- `ElysiaPanel` (`src/elysia/`) sits on the right while it is open: her status, questions, work, and the
+  conversation or her activity. The Elysia button toggles it, and `startElysiaPanelSync` remembers it per browser.
+  `useElysiaSounds` plays her tones as her light changes. See `docs/elysia.md`.
 - The routed page renders in `main` through `<Outlet />`. By default `main` is a padded, scrolling column. A route
   whose `handle` is `{ layout: 'workspace' }` (typed as `RouteLayoutHandle` in `src/router.tsx`) gets the whole
   content area and manages its own scrolling instead; the Coding page does.
@@ -537,6 +540,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `actionItemHistory` | Item and initiative history entries, oldest first                    |
 | `actionItemLinks` | Links of the items viewed, the primary first, then oldest first         |
 | `changesets`     | Every changeset, newest first                                           |
+| `elysia`         | Elysia at a glance, her conversation oldest first, her turns newest first, and whether her panel is open |
 | `initiativeLinks` | Containers of the initiatives viewed, oldest first                     |
 | `initiatives`    | Live and deleted initiatives in separate halves, by name                |
 | `llms`           | LLM credentials, sorted by priority                                     |
@@ -569,7 +573,8 @@ Server collections use entity adapters. Redux is the source of truth components 
    `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,
    `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,
    `useInitiativeLoader`, `useInitiativeHistoryLoader`, `useActionItemLinksLoader`, `useInitiativeLinksLoader`,
-   `useChangesetsLoader`, `useChangesetLoader`, `useStudioItemsLoader`, `useDeletedStudioItemsLoader`,
+   `useChangesetsLoader`, `useChangesetLoader`, `useElysiaLoader`, `useElysiaMessagesLoader`, `useElysiaTurnsLoader`,
+   `useStudioItemsLoader`, `useDeletedStudioItemsLoader`,
    `useStudioItemLoader`). SWR
    fetches the key once, deduplicates every component asking for it, and buffers the response so a remounted page
    renders at once while it revalidates.
@@ -685,7 +690,7 @@ first render.
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
   `satellites`, `email`, `storage`, `github`, `jira`, `environment`, `projects`, `coding`,
-  `actionItems`, `initiatives`, `changesets`, `studio`.
+  `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.

@@ -1,0 +1,86 @@
+{
+  "name": "Elysia",
+  "toggle": {
+    "open": "Open Elysia: {{status}}",
+    "close": "Close Elysia: {{status}}"
+  },
+  "light": {
+    "running": "Working",
+    "errored": "Her last turn failed",
+    "needs-you": "Needs you",
+    "done": "All caught up"
+  },
+  "hold": {
+    "paused": "Paused. She starts nothing until resumed.",
+    "usageLimit": "Usage limit reached. She resumes at {{time}}.",
+    "noRunner": "Nothing can run her turns on this deployment yet. Your messages wait for her.",
+    "unavailable": "Outside her hours. She still answers your messages."
+  },
+  "panel": {
+    "label": "Elysia",
+    "close": "Close Elysia",
+    "pause": "Pause",
+    "resume": "Resume",
+    "resumeUsage": "Resume now",
+    "settingsFailed": "Could not change Elysia's settings."
+  },
+  "tabs": {
+    "label": "Elysia's views",
+    "conversation": "Conversation",
+    "activity": "Activity"
+  },
+  "questions": {
+    "heading": "She is asking",
+    "answerLabel": "Your answer",
+    "answer": "Answer",
+    "dismiss": "Dismiss",
+    "failed": "Could not send your answer."
+  },
+  "work": {
+    "heading": "Working on",
+    "readyAt": "Ready for review {{time}}",
+    "revisits_one": "Revisited once",
+    "revisits_other": "Revisited {{count}} times",
+    "status": {
+      "working": "Working",
+      "ready": "Ready for review",
+      "blocked": "Blocked",
+      "gave-up": "Gave up for now",
+      "done": "Done"
+    }
+  },
+  "conversation": {
+    "empty": "Tell Elysia what you need. She takes it from there and tells you when it is ready.",
+    "you": "You",
+    "earlier": "Earlier messages",
+    "queued": "Queued for Elysia",
+    "thinking": "Elysia is working on it…",
+    "loadFailed": "Could not load the conversation."
+  },
+  "composer": {
+    "label": "Message Elysia",
+    "send": "Send",
+    "failed": "Could not send your message."
+  },
+  "activity": {
+    "empty": "Nothing yet. Her turns appear here as she works.",
+    "loadFailed": "Could not load her activity.",
+    "cancel": "Cancel",
+    "cancelFailed": "Could not cancel the turn.",
+    "noSummary": "No summary.",
+    "trigger": {
+      "message": "Your message",
+      "answer": "Your answer",
+      "event": "Workspace changes",
+      "idle": "Revisiting her work",
+      "other": "Other"
+    },
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "succeeded": "Done",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    }
+  }
+}
