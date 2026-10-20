@@ -3,6 +3,19 @@
 Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind one nginx origin, run with
 `docker compose`. Decisions are documented per topic in `docs/`; keep them current as the code changes.
 
+## Direction
+
+- Elysium is a personal Jalapeno Labs project. A workplace runs its published releases as a user, updated from the
+  latest release, and never contributes to it.
+- Elysia should work without being fed. Events (mail, meetings, chat, provider changes) create work, Elysia starts
+  it on her own, and she reports back when something is ready for review.
+- Claude is the agent. Codex is for occasional automated tasks only.
+- The roadmap is for coding sessions to run Claude Code directly on Elysium's host by default, with Arsox satellites
+  optional for remote compute.
+- Seraphim's autonomous loop (take the next work when idle, fix failing CI, address review, revive dead turns, ask
+  when blocked) moves into Elysium redesigned, not ported as is.
+- Next on the roadmap: receiving mail from Gmail and Outlook, so Elysia is told when mail arrives and manages it.
+
 ## Images and stacks
 
 - `compose.yml` is the production stack: it runs the published `jalapenolabs/elysium-api` image, which serves both
