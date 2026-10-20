@@ -153,6 +153,12 @@ the sign-in on every restart, and both are overridden:
   a stop and start with it, and was gone without it.
 - Chromium is started without `--bwsi`.
 
+Replacing a container moves the profile to a container with another hostname, and Chromium then refuses to start:
+its profile lock names the old one ("in use by another Chromium process on another computer"). Chromium therefore
+starts through `start-chromium.sh`, which clears the lock first; only one container ever runs on a profile, so a lock
+found at start is always left over. The API also stops a container, giving Chromium 15 seconds to write its cookies
+and release the lock, before it removes it.
+
 The policy file (`api/src/browser/neko/policies.json`) is Neko's own with four changes: cookies are kept, pop-ups
 are allowed because sign-in flows open them, DevTools is allowed so a page can be read over its protocol, and no
 extension is installed, so the browser is a plain Chromium.
