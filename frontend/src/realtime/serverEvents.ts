@@ -12,6 +12,7 @@ import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRout
 import type { Project } from '../api/routes/projectRoutes'
 import type { Satellite, SatelliteStatus } from '../api/routes/satelliteRoutes'
 import type { StorageLocation } from '../api/routes/storageRoutes'
+import type { StudioAsset, StudioFeedback, StudioItem } from '../api/routes/studioRoutes'
 import type { UpdatesStatus } from '../api/routes/updateRoutes'
 import type { User, WorkspaceSettings } from '../api/routes/userRoutes'
 
@@ -59,7 +60,7 @@ export type ServerEvent =
   | { type: 'project.upserted', data: Project }
   | { type: 'project.deleted', data: { id: string } }
   | { type: 'satellite.upserted', data: Satellite }
-  // Also removes the satellite's sessions.
+  // Its sessions stay; each arrives again as `session.upserted` with no satellite.
   | { type: 'satellite.deleted', data: { id: string } }
   | { type: 'satellite.status', data: SatelliteStatus }
   | { type: 'storageLocation.upserted', data: StorageLocation }
@@ -69,6 +70,15 @@ export type ServerEvent =
   | { type: 'session.event', data: SessionEvent }
   // Live events for this session may have been missed; refetch its history.
   | { type: 'session.resync', data: { id: number } }
+  // Created, renamed, pinned, continued, or restored, or a file it holds changed its counts
+  // or thumbnail.
+  | { type: 'studioItem.upserted', data: StudioItem }
+  // Soft or permanent; the event does not say which.
+  | { type: 'studioItem.deleted', data: { id: string } }
+  // A file was pulled from a workspace and stored; every version is its own asset.
+  | { type: 'studioAsset.created', data: StudioAsset }
+  // A prompt with a drawing was sent.
+  | { type: 'studioFeedback.created', data: StudioFeedback }
   // Auto-update's state changed: a check, an update beginning or ending, or what it waits for.
   | { type: 'updates.status', data: UpdatesStatus }
   // Someone signed up, was approved, changed role, or was disabled or enabled.

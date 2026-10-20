@@ -12,12 +12,13 @@
 #   /opt/blender         Blender, from the official release tarball.
 #   /opt/blender-mcp     Blender Lab's MCP server, in its own venv, dependencies hash-locked.
 #   the `mcp` extension  Blender Lab's bridge add-on, enabled in the agent account's profile.
+#   /opt/elysium         Studio's export hook, which turns every .blend an agent delivers into a .glb.
 #
 # Nothing runs here. Each thread starts its own bridge and server as Arsox thread services, so no two
 # threads ever share a Blender session. See docs/coding.md.
 #
-# Rust appends the hash-locked requirements and the call to `main` (api/src/blender/mod.rs), so this
-# file ends inside the heredoc that writes them.
+# Rust appends the hash-locked requirements, the export hook's two files, and the call to `main`
+# (api/src/blender/mod.rs), so this file ends inside the heredoc that writes the requirements.
 
 set -eu
 
@@ -145,11 +146,23 @@ PYTHON
     echo "$BLENDER_MCP_EXTENSION_VERSION" | run_as_agent tee "$record" > /dev/null
 }
 
+# Studio's turn-end hook (docs/studio.md, Model export). Two small files, rewritten every start, so a
+# new Elysium build's version always replaces the last.
+install_export_hook() {
+    mkdir -p /opt/elysium/bin
+    write_exporter /opt/elysium/export_glb.py
+    write_export_hook /opt/elysium/bin/export-glb
+    chmod 0644 /opt/elysium/export_glb.py
+    chmod 0755 /opt/elysium/bin/export-glb
+    echo "export hook: installed"
+}
+
 main() {
     install_libraries
     install_blender
     install_mcp_server
     install_extension
+    install_export_hook
     echo "blender setup complete"
 }
 

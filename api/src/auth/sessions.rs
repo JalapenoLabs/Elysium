@@ -115,6 +115,19 @@ pub async fn extend_if_due(
     }
 }
 
+/// Caches `session` for `cookie` as if Kratos had just answered for it, so router tests sign
+/// in without a Kratos. Kept for ten minutes rather than [`SESSION_CACHE_TTL`], so no test
+/// outlives its session.
+#[cfg(test)]
+pub async fn remember(redis: &ConnectionManager, cookie: &str, session: &Session) {
+    let serialized = serde_json::to_string(session).expect("a session always serializes");
+    let mut redis = redis.clone();
+    redis
+        .set_ex::<_, _, ()>(cache_key(cookie), serialized, 600)
+        .await
+        .expect("Redis caches the session");
+}
+
 /// The cache key for a cookie. Hashed, so Redis never holds a usable session token.
 fn cache_key(cookie: &str) -> String {
     format!("{CACHE_PREFIX}{}", hex::encode(Sha256::digest(cookie)))

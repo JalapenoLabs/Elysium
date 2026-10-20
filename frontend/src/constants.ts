@@ -73,6 +73,18 @@ export const LINK_SEARCH_DELAY_MS = 350
 // narrower search finds the rest.
 export const LINK_SEARCH_RESULTS = 25
 
+// A drawn Studio prompt carries two PNGs of up to a few megabytes each; sending them can
+// outlast the default request timeout on a slow link.
+export const STUDIO_TURN_UPLOAD_TIMEOUT_MS = 60_000
+
+// The Studio item page's split and which of its columns show, remembered per browser.
+// Versioned so a layout saved by an incompatible build is ignored, not restored.
+export const STUDIO_LAYOUT_STORAGE_KEY = 'elysium.studio.layout.v1'
+
+// Below this width, in pixels, the Studio item page stacks its columns instead of placing
+// them side by side.
+export const STUDIO_STACKED_LAYOUT_MAX_WIDTH_PX = 900
+
 // How often the waiting page asks whether an admin approved the sign-up. The one view that
 // polls: a pending person may not open the event stream.
 export const PENDING_APPROVAL_POLL_MS = 5_000

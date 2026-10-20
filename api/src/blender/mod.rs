@@ -16,19 +16,41 @@
 
 use std::sync::LazyLock;
 
-use arsox_sdk::proto::settings::v1::{McpServer, Service, ServiceEndpoint};
+use arsox_sdk::proto::settings::v1::{McpServer, Service, ServiceEndpoint, TurnEndHook};
 use sha2::{Digest as _, Sha256};
 
 /// The setup script as the satellite receives it.
 ///
 /// `setup.sh` ends inside the heredoc that writes the MCP server's hash-locked requirements, so the
 /// lock can live as its own file, regenerated with `uv` exactly as its header says, instead of being
-/// pasted into a shell script. The literal closes that heredoc and runs the script.
+/// pasted into a shell script. The export hook's files follow the same way, so each stays a real
+/// Python file. The literals close each heredoc, open the next, and finally run the script.
 pub const SETUP_SCRIPT: &str = concat!(
     include_str!("setup.sh"),
     include_str!("requirements.txt"),
-    "REQUIREMENTS\n}\n\nmain\n",
+    "REQUIREMENTS\n}\n\nwrite_exporter() {\n    cat > \"$1\" <<'EXPORTER'\n",
+    include_str!("export_glb.py"),
+    "EXPORTER\n}\n\nwrite_export_hook() {\n    cat > \"$1\" <<'EXPORT_HOOK'\n",
+    include_str!("export-glb"),
+    "EXPORT_HOOK\n}\n\nmain\n",
 );
+
+/// Studio's turn-end hook, which exports every `artifacts/**/*.blend` to a `.glb` beside it. The
+/// setup script installs it; Studio threads declare it through [`export_hook`] (see
+/// `docs/studio.md`, Model export).
+pub const EXPORT_HOOK_PATH: &str = "/opt/elysium/bin/export-glb";
+
+/// The export hook as a Studio thread declares it. The satellite runs it after every turn, before
+/// it scans `artifacts/`, so each `.glb` it writes is announced with the turn that changed its
+/// `.blend`. It keeps the satellite's default timeout of ten minutes, which a large scene's
+/// export fits in.
+pub fn export_hook() -> TurnEndHook {
+    TurnEndHook {
+        name: "export-glb".to_owned(),
+        argv: vec![EXPORT_HOOK_PATH.to_owned()],
+        ..TurnEndHook::default()
+    }
+}
 
 /// The script's SHA-256 in lowercase hex, which is how a satellite reports the script it holds.
 /// A satellite reporting anything else is handed [`SETUP_SCRIPT`].
@@ -83,11 +105,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_setup_script_closes_its_requirements_heredoc_and_runs() {
+    fn the_setup_script_closes_each_heredoc_and_runs() {
         assert!(SETUP_SCRIPT.starts_with("#!/bin/sh\n"));
         assert!(SETUP_SCRIPT.contains("cat > \"$1\" <<'REQUIREMENTS'\n"));
         assert!(SETUP_SCRIPT.contains("--hash=sha256:"));
-        assert!(SETUP_SCRIPT.ends_with("\nREQUIREMENTS\n}\n\nmain\n"));
+        assert!(SETUP_SCRIPT.contains("\nREQUIREMENTS\n}\n"));
+        assert!(SETUP_SCRIPT.contains("bpy.ops.export_scene.gltf("));
+        assert!(SETUP_SCRIPT.contains("\nEXPORTER\n}\n"));
+        assert!(SETUP_SCRIPT.contains("EXPORT_TIMEOUT_SECONDS"));
+        assert!(SETUP_SCRIPT.ends_with("\nEXPORT_HOOK\n}\n\nmain\n"));
+        assert!(SETUP_SCRIPT.contains(EXPORT_HOOK_PATH));
         assert_eq!(SETUP_SCRIPT_SHA256.len(), 64);
     }
 

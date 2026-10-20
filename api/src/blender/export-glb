@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+# Copyright © 2026 Jalapeno Labs
+#
+# Exports every .blend under the workspace's artifacts/ to a .glb beside it, so Studio's viewer can
+# show it and no agent has to export glTF itself. See docs/studio.md, Model export.
+#
+# Arsox runs this as a turn-end hook: as the agent account, in the workspace root, after the turn and
+# before the satellite scans artifacts/. A .blend whose .glb is already as new is skipped, so a turn
+# that changed nothing costs nothing. Each export writes a temporary file and renames it over the
+# .glb only when Blender succeeds, so the scan never sees half a model.
+#
+# One failed export does not stop the others. The exit status is nonzero when any failed, which the
+# satellite reports as a degraded incident; the turn and the .blend stand.
+
+import pathlib
+import subprocess
+import sys
+
+BLENDER = "/opt/blender/blender"
+EXPORTER = "/opt/elysium/export_glb.py"
+
+# A dense scene can take minutes to evaluate with modifiers applied; one stuck export must not hold
+# the hook past the satellite's own timeout for it.
+EXPORT_TIMEOUT_SECONDS = 600
+
+
+def needs_export(blend: pathlib.Path, glb: pathlib.Path) -> bool:
+    return not glb.exists() or glb.stat().st_mtime < blend.stat().st_mtime
+
+
+def export(blend: pathlib.Path, glb: pathlib.Path) -> bool:
+    # Blender appends .glb to an output path without it, so the temporary name keeps the suffix.
+    partial = glb.with_name(f".{glb.stem}.exporting.glb")
+    command = [
+        BLENDER,
+        "--background",
+        "--factory-startup",
+        str(blend),
+        "--python",
+        EXPORTER,
+        "--",
+        str(partial),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=EXPORT_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"export-glb: {blend} took longer than {EXPORT_TIMEOUT_SECONDS} seconds", file=sys.stderr)
+        partial.unlink(missing_ok=True)
+        return False
+
+    if result.returncode != 0 or not partial.is_file():
+        print(f"export-glb: {blend} failed to export", file=sys.stderr)
+        print(result.stdout[-4000:], file=sys.stderr)
+        print(result.stderr[-4000:], file=sys.stderr)
+        partial.unlink(missing_ok=True)
+        return False
+
+    partial.replace(glb)
+    print(f"export-glb: exported {glb}")
+    return True
+
+
+def main() -> int:
+    artifacts = pathlib.Path("artifacts")
+    if not artifacts.is_dir():
+        return 0
+
+    failed = 0
+    # rglob does not follow symbolic links to directories; a linked .blend is skipped too, since the
+    # workspace is the agent's and a link there points wherever it chose.
+    for blend in sorted(artifacts.rglob("*.blend")):
+        if blend.is_symlink() or not blend.is_file():
+            continue
+        glb = blend.with_suffix(".glb")
+        if not needs_export(blend, glb):
+            continue
+        if not export(blend, glb):
+            failed += 1
+
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

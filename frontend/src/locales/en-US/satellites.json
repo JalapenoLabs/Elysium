@@ -59,7 +59,7 @@
   },
   "delete": {
     "title": "Delete {{name}}?",
-    "body": "Elysium forgets this satellite and every coding session recorded on it. Threads already running on the satellite are not stopped; they end on their own when idle."
+    "body": "Elysium forgets this satellite. Its coding sessions and their history are kept, and a Studio item continues on another satellite with its next prompt. Threads already running on the satellite are not stopped; they end on their own when idle."
   },
   "toasts": {
     "created": "{{name}} added",
