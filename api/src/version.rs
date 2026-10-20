@@ -16,6 +16,9 @@ use crate::git_info::GitInfo;
 pub struct VersionInfo {
     pub name: &'static str,
     pub version: &'static str,
+    /// The release this build was published as, such as `1.4.2`, or `None` for `main` and
+    /// development builds. Auto-update moves releases only.
+    pub release: Option<&'static str>,
     pub profile: &'static str,
     pub rustc: &'static str,
     pub built_at: &'static str,
@@ -35,6 +38,7 @@ impl VersionInfo {
         Ok(Self {
             name: env!("CARGO_PKG_NAME"),
             version: env!("CARGO_PKG_VERSION"),
+            release: Some(env!("ELYSIUM_RELEASE")).filter(|release| !release.is_empty()),
             profile: env!("ELYSIUM_BUILD_PROFILE"),
             rustc: env!("ELYSIUM_RUSTC_VERSION"),
             built_at: env!("ELYSIUM_BUILT_AT"),

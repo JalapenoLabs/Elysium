@@ -34,6 +34,10 @@ pub mod sql_types {
     pub struct ContainerKind;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "deployment_update_status"))]
+    pub struct DeploymentUpdateStatus;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "elysia_question_status"))]
     pub struct ElysiaQuestionStatus;
 
@@ -274,6 +278,22 @@ diesel::table! {
         created_by -> Uuid,
         studio_item_id -> Nullable<Uuid>,
         continuation -> Nullable<SessionContinuation>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::DeploymentUpdateStatus;
+
+    deployment_updates (id) {
+        id -> Uuid,
+        from_version -> Text,
+        to_version -> Text,
+        status -> DeploymentUpdateStatus,
+        reason -> Nullable<Text>,
+        started_at -> Timestamptz,
+        finished_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
     }
 }
 
@@ -825,6 +845,7 @@ diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> satellites (satellite_id));
 diesel::joinable!(coding_sessions -> studio_items (studio_item_id));
 diesel::joinable!(coding_sessions -> users (created_by));
+diesel::joinable!(deployment_updates -> users (created_by));
 diesel::joinable!(elysia_messages -> users (created_by));
 diesel::joinable!(elysia_questions -> action_items (action_item_id));
 diesel::joinable!(elysia_state -> users (updated_by));
@@ -883,6 +904,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     changeset_operations,
     changesets,
     coding_sessions,
+    deployment_updates,
     elysia_messages,
     elysia_questions,
     elysia_state,

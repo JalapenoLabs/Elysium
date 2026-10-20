@@ -155,6 +155,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/users/{id}/recovery-link`    | `200` `{ recoveryLink, expiresAt }`; admins          |
 | GET    | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins                         |
 | PATCH  | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins: `signupOpen`, `requireMfa` |
+| GET    | `/api/v1/updates`                     | `200` `{ updates }`: the release running, auto-update's state, and history; admins |
+| POST   | `/api/v1/updates/check`               | `200` `{ updates }` after asking Docker Hub now; admins |
+| POST   | `/api/v1/updates/apply`               | `200` `{ updates }`; admins ask for the newest release, even one that rolled back |
 | POST   | `/api/v1/oauth/login/accept`          | `200` `{ redirectTo }`; answers Hydra's sign-in challenge |
 | GET    | `/api/v1/oauth/consent?challenge=`    | `200` `{ client, scopes }`, or `{ redirectTo }` when approved before |
 | POST   | `/api/v1/oauth/consent/accept`        | `200` `{ redirectTo }`                               |
@@ -185,13 +188,16 @@ Refusals carry a stable `code` beside the `message`:
 | `403`  | `cross_origin`             | An unsafe request from another origin                          |
 
 `/internal/kratos/registration` and `/internal/kratos/courier` answer Kratos alone, on the compose network, with the
-hook key it carries. nginx never forwards them. See `docs/auth.md`.
+hook key it carries. `/internal/updater/instruction` and `/internal/updater/outcome` answer the deployment's updater
+alone, with a key derived the same way (`docs/infrastructure.md`). nginx never forwards any of them. See
+`docs/auth.md`.
 
 Every resource that records its creator returns `createdBy`, a user id; `GET /api/v1/users` names every one.
 
 ### `/api/version`
 
-Returns the crate name and version, build profile, `rustc` version, build timestamp, and git metadata. The git
+Returns the crate name and version, the release the image was published as (`release`, such as `1.4.2`, or null
+for `main` and development builds), build profile, `rustc` version, build timestamp, and git metadata. The git
 metadata is the current branch, `HEAD`, and the last 20 commits, each with hash, short hash, author, ISO 8601
 date, and subject. `api/build.rs` captures all of it at compile time. A build with no git history reports an empty
 history rather than failing.

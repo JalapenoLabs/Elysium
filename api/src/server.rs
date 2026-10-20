@@ -3,11 +3,11 @@
 //! The HTTP server: startup, middleware stack, and graceful shutdown.
 //!
 //! Startup order: configuration, encryption key, schema check, store connections
-//! (with retry), fleet watchers, the link watcher, router, listener. Shutdown order is the
-//! reverse: a signal cancels the shutdown token, which ends every event stream, fleet
-//! watcher, and the link watcher; the server stops accepting and drains in-flight
-//! requests; the watchers are awaited; then the Postgres pool closes and the Redis
-//! connection drops.
+//! (with retry), fleet watchers, the link watcher, the update checker, router, listener.
+//! Shutdown order is the reverse: a signal cancels the shutdown token, which ends every
+//! event stream, fleet watcher, the link watcher, and the update checker; the server stops
+//! accepting and drains in-flight requests; the watchers are awaited; then the Postgres
+//! pool closes and the Redis connection drops.
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -27,6 +27,7 @@ use tracing::{Level, event};
 
 use crate::action_items::links::Links;
 use crate::action_items::watcher::{WatchContext, Watcher};
+use crate::activity::Activities;
 use crate::auth::kratos::Kratos;
 use crate::auth::{Auth, hook_key};
 use crate::config::Config;
@@ -47,6 +48,7 @@ use crate::oauth::hydra::Hydra;
 use crate::realtime::EventBus;
 use crate::state::AppState;
 use crate::storage::Storage;
+use crate::updates::{Updates, UpdatesDeps};
 use crate::version::VersionInfo;
 use crate::{connections, middleware, routes, shutdown, web_app};
 
@@ -138,9 +140,21 @@ pub async fn serve() -> Result<()> {
     let hosting = mail.hosting.clone();
     tokio::spawn(async move { hosting.reconcile().await });
 
+    let activity = Activities::new();
+    let updates = Updates::new(UpdatesDeps {
+        database: database.clone(),
+        events: events.clone(),
+        activity: activity.clone(),
+        http: http.clone(),
+        version: Arc::clone(&version),
+        encryption_key: config.encryption_key.clone(),
+    });
+    let update_checks = updates.start(shutdown.clone());
+
     let state = AppState {
         auth: build_auth(&config, http.clone()),
         database: database.clone(),
+        activity,
         redis: redis.clone(),
         cipher,
         version,
@@ -151,6 +165,7 @@ pub async fn serve() -> Result<()> {
         links,
         mail,
         storage,
+        updates,
         shutdown: shutdown.clone(),
     };
     let rate_limiter = middleware::rate_limit::build();
@@ -188,6 +203,14 @@ pub async fn serve() -> Result<()> {
             Level::ERROR,
             error.message = %error,
             "the Elysia intake ended abnormally",
+        );
+    }
+    if let Err(error) = update_checks.await {
+        event!(
+            name: "updates.shutdown.failure",
+            Level::ERROR,
+            error.message = %error,
+            "the update checker did not stop cleanly",
         );
     }
 
