@@ -5,6 +5,8 @@ Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind
 
 ## Direction
 
+The full vision is `docs/vision.md`. Read it before designing any feature.
+
 - Elysium is a personal Jalapeno Labs project. A workplace runs its published releases as a user, updated from the
   latest release, and never contributes to it.
 - Elysia should work without being fed. Events (mail, meetings, chat, provider changes) create work, Elysia starts
@@ -23,7 +25,9 @@ Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind
   its summary.
 - Agent logs read like GitHub Actions: each turn collapses to a one or two sentence summary that expands to its
   full log.
-- Next on the roadmap: receiving mail from Gmail and Outlook, so Elysia is told when mail arrives and manages it.
+- Signing in without an app of Elysium's own happens in a real browser the host runs and streams to the user over
+  WebRTC, one container and profile per account. A provider that refuses datacenter sign-ins is handled when met.
+- Next on the roadmap: Outlook and Gmail through that browser, so Elysia is told when mail arrives and manages it.
 
 ## Images and stacks
 
