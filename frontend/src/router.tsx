@@ -50,6 +50,8 @@ import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
 import { ManageSatellitesPage } from './pages/Settings/Satellites/ManageSatellitesPage'
+import { BrowserSessionPage } from './pages/Settings/Browsers/BrowserSessionPage'
+import { ManageBrowsersPage } from './pages/Settings/Browsers/ManageBrowsersPage'
 import { ConnectedAppsPage } from './pages/Settings/ConnectedApps/ConnectedAppsPage'
 import { SecurityPage } from './pages/Settings/Security/SecurityPage'
 import { ManageUsersPage } from './pages/Settings/Users/ManageUsersPage'
@@ -169,6 +171,14 @@ const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsSecurity,
       element: <SecurityPage />,
+    },
+    {
+      path: UrlTree.settingsBrowsers,
+      element: <ManageBrowsersPage />,
+    },
+    {
+      path: UrlTree.settingsBrowser,
+      element: <BrowserSessionPage />,
     },
     {
       path: UrlTree.settingsConnectedApps,

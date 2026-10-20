@@ -83,6 +83,8 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/studio/:itemId`             | `StudioItemPage`         | One item: the stage beside its conversation, live or deleted |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
+| `/settings/browsers`          | `ManageBrowsersPage`     | The person's own browsers, their status; add and remove  |
+| `/settings/browsers/:browserSessionId` | `BrowserSessionPage` | One browser, streamed live, to sign in to an account in; see `docs/browser.md` |
 | `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
 | `/settings/llms/add-<type>`   | `AddLlmPage`             | One per provider, see below                              |
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |

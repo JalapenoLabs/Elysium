@@ -5,8 +5,9 @@ The user signs in on the real page, through any OAuth, MFA, or passkey prompt it
 on the host afterwards, which keeps the session alive. Connectors then read and act through that same browser, so
 Elysium uses each service as its user does and never installs anything into an organization.
 
-Today the API runs a browser per signed-in account and relays its stream; the sign-in panel in the web app and the
-connectors that read through it are on the roadmap. The facts below were verified against the pinned versions.
+Today the API runs a browser per signed-in account and relays its stream, and the web app streams it to its owner
+under Settings, Browser sign-ins; the connectors that read through it are on the roadmap. The facts below were
+verified against the pinned versions.
 
 ## Neko
 
@@ -112,8 +113,10 @@ The browser only ever talks to the API's stream route, which:
 
 Elysia and the connectors reach the browser over the Chrome DevTools Protocol, verified against Chromium 154:
 
-- `--remote-debugging-port=9222` works under Neko's policy, including `DeveloperToolsAvailability: 2`, which only
-  removes the DevTools window.
+- `--remote-debugging-port=9222` opens the port, but Neko's policy `DeveloperToolsAvailability: 2` allows only the
+  browser-level endpoint: attaching to a page answers `Not allowed`, and a page's own socket never answers
+  `Runtime.evaluate`. Elysium's policy sets it to `1`, which also lets the signed-in person open DevTools in their
+  own browser.
 - Headful Chromium binds that port to loopback and ignores `--remote-debugging-address`. A small forwarder in the
   container, run by Neko's supervisord, listens on `9223` and passes connections to it.
 - Chromium refuses any `Host` header that is not an IP address or `localhost`, so the API's client sends
@@ -151,8 +154,9 @@ the sign-in on every restart, and both are overridden:
   a stop and start with it, and was gone without it.
 - Chromium is started without `--bwsi`.
 
-The policy file (`api/src/browser/neko/policies.json`) is Neko's own with three changes: cookies are kept, pop-ups
-are allowed because sign-in flows open them, and no extension is installed, so the browser is a plain Chromium.
+The policy file (`api/src/browser/neko/policies.json`) is Neko's own with four changes: cookies are kept, pop-ups
+are allowed because sign-in flows open them, DevTools is allowed so a page can be read over its protocol, and no
+extension is installed, so the browser is a plain Chromium.
 
 ## Browser sessions
 
@@ -174,17 +178,34 @@ are allowed because sign-in flows open them, and no extension is installed, so t
 - **Status** is kept in memory and starts as `starting` when the API starts; the first pass sets it.
 - **Removing one** removes its container, network, and volume, then its row, in a task of its own so a request that
   is given up on does not stop it halfway, and holding Docker's lock throughout. A reconcile pass waiting for the
-  lock checks the row is still there before it creates anything. The accounts it was signed in to are untouched; their sessions simply stop being
-  used.
+  lock checks the row is still there before it creates anything. The accounts it was signed in to are untouched;
+  their sessions simply stop being used.
 - **The public address** a browser advertises is what `ELYSIUM_PUBLIC_URL`'s host resolves to (its first IPv4
   address, else its first address), or loopback for `localhost`. A lookup that fails keeps the last address that
-  resolved, so a resolver's bad moment does not fail and replace every browser. A host whose public name resolves somewhere viewers
-  cannot reach it from, such as a proxy that carries only HTTP, needs an explicit address, which is on the roadmap.
+  resolved, so a resolver's bad moment does not fail and replace every browser. A host whose public name resolves
+  somewhere viewers cannot reach it from, such as a proxy that carries only HTTP, needs an explicit address, which
+  is on the roadmap.
 - **The desktop** is 1920 by 1080 at 30 frames a second, in UTC.
+
+## The sign-in panel
+
+Settings, Browser sign-ins (`/settings/browsers`) lists the signed-in person's browsers with their status, and adds
+one from a preset (Outlook, Gmail) or any https page. Adding one goes straight to its page, which streams it once it
+is running. The client is `frontend/src/browser/`:
+
+- `NekoConnection` opens the stream route, answers Neko's offer, holds the WebRTC peer, and asks for control on
+  connecting (Neko hosts implicitly, so the first viewer to ask gets the pointer and keyboard).
+- `BrowserStream` draws the video and turns what happens on it into input: pointer moves through `toDesktopPoint`,
+  which undoes the letterboxing of `object-fit: contain`; buttons by X11 number; the wheel as whole steps; keys as
+  keysyms through `toKeysym` while the video has focus; and a paste as `clipboard/set` followed by control and V.
+  The remote pointer's shape arrives on the data channel as a PNG and becomes the element's CSS cursor.
+- `nekoInput` encodes the data channel's binary messages; its tests pin the byte layouts.
+
+Every client hears every browser's events, so the event stream keeps only the signed-in person's own browsers in
+Redux.
 
 ## Roadmap
 
-- The sign-in panel in the web app, speaking Neko's protocol.
 - The connector trait and the timeline record.
 - Outlook and Gmail ingest through the signed-in browser, over the DevTools Protocol.
 - An explicit public address, for hosts whose public name does not resolve to where media can reach them.

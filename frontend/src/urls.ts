@@ -32,6 +32,8 @@ export const UrlTree = {
   settingsPersonalDetails: '/settings/personal-details',
   settingsSecurity: '/settings/security',
   settingsUsers: '/settings/users',
+  settingsBrowsers: '/settings/browsers',
+  settingsBrowser: '/settings/browsers/:browserSessionId',
   settingsConnectedApps: '/settings/connected-apps',
   settingsLlms: '/settings/llms',
   settingsLlmsAddCodexOauth: '/settings/llms/add-codex-oauth',
@@ -119,6 +121,10 @@ export function getNewInitiativeUrl(projectId: string) {
 
 export function getProjectViewUrl(projectId: string) {
   return UrlTree.projectView.replace(':projectId', projectId)
+}
+
+export function getBrowserSessionUrl(browserSessionId: string) {
+  return UrlTree.settingsBrowser.replace(':browserSessionId', browserSessionId)
 }
 
 export function getEnvironmentVariableEditUrl(variableId: string) {
