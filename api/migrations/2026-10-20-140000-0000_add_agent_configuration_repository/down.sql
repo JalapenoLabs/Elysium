@@ -1,0 +1,1 @@
+ALTER TABLE workspace_settings DROP COLUMN agent_configuration_repository;

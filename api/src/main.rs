@@ -29,6 +29,11 @@ mod models;
 mod oauth;
 mod realtime;
 mod routes;
+#[expect(
+    dead_code,
+    reason = "the runner's callers (coding sessions, Studio, Elysia) arrive in the next pull requests"
+)]
+mod runner;
 mod server;
 mod shutdown;
 mod state;

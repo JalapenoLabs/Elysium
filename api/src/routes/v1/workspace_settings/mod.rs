@@ -22,13 +22,15 @@ pub fn router() -> Router<AppState> {
 }
 
 /// The workspace settings as clients see them.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSettingsResponse {
     /// Whether anyone may sign up. The first person may sign up either way.
     signup_open: bool,
     /// Whether every person must set up an authenticator app.
     require_mfa: bool,
+    /// The git repository every agent's `~/.claude` is checked out from.
+    agent_configuration_repository: Option<String>,
     updated_by: Uuid,
     updated_at: DateTime<Utc>,
 }
@@ -38,6 +40,7 @@ impl From<WorkspaceSettings> for WorkspaceSettingsResponse {
         Self {
             signup_open: settings.signup_open,
             require_mfa: settings.require_mfa,
+            agent_configuration_repository: settings.agent_configuration_repository,
             updated_by: settings.updated_by,
             updated_at: settings.updated_at,
         }
