@@ -695,6 +695,8 @@ mod tests {
                 .expect("the policy is JSON");
         assert_eq!(policies["DefaultCookiesSetting"], 1);
         assert_eq!(policies["DefaultPopupsSetting"], 1);
+        // At Neko's 2, a page refuses to be attached to over DevTools, and no page can be read.
+        assert_eq!(policies["DeveloperToolsAvailability"], 1);
     }
 
     #[test]

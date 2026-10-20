@@ -112,8 +112,10 @@ The browser only ever talks to the API's stream route, which:
 
 Elysia and the connectors reach the browser over the Chrome DevTools Protocol, verified against Chromium 154:
 
-- `--remote-debugging-port=9222` works under Neko's policy, including `DeveloperToolsAvailability: 2`, which only
-  removes the DevTools window.
+- `--remote-debugging-port=9222` opens the port, but Neko's policy `DeveloperToolsAvailability: 2` allows only the
+  browser-level endpoint: attaching to a page answers `Not allowed`, and a page's own socket never answers
+  `Runtime.evaluate`. Elysium's policy sets it to `1`, which also lets the signed-in person open DevTools in their
+  own browser.
 - Headful Chromium binds that port to loopback and ignores `--remote-debugging-address`. A small forwarder in the
   container, run by Neko's supervisord, listens on `9223` and passes connections to it.
 - Chromium refuses any `Host` header that is not an IP address or `localhost`, so the API's client sends
@@ -151,8 +153,9 @@ the sign-in on every restart, and both are overridden:
   a stop and start with it, and was gone without it.
 - Chromium is started without `--bwsi`.
 
-The policy file (`api/src/browser/neko/policies.json`) is Neko's own with three changes: cookies are kept, pop-ups
-are allowed because sign-in flows open them, and no extension is installed, so the browser is a plain Chromium.
+The policy file (`api/src/browser/neko/policies.json`) is Neko's own with four changes: cookies are kept, pop-ups
+are allowed because sign-in flows open them, DevTools is allowed so a page can be read over its protocol, and no
+extension is installed, so the browser is a plain Chromium.
 
 ## Browser sessions
 
