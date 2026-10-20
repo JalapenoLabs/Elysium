@@ -54,6 +54,13 @@ const IMAGE_DIGEST: &str =
 /// network so it can pass the media port along.
 const NGINX_CONTAINER: &str = "elysium-nginx";
 
+/// The gateway priority nginx and the API join a browser's network with. Docker routes a
+/// container's default gateway, and the ports it publishes, through its network of highest
+/// priority, breaking ties by name; at the default of 0, a browser's network could win, and
+/// removing that browser would then cut every connection nginx was serving. Below 0, their
+/// own compose networks always win.
+const JOINED_GATEWAY_PRIORITY: i64 = -1;
+
 /// Neko's HTTP port, for its API and the signaling WebSocket. Never published.
 pub const NEKO_HTTP_PORT: u16 = 8080;
 /// Where `neko/cdp-forward.py` listens for `DevTools` connections.
@@ -282,11 +289,7 @@ impl BrowserContainers {
             if joined.contains_key(&id) {
                 continue;
             }
-            let request = NetworkConnectRequest {
-                container: id,
-                endpoint_config: None,
-            };
-            self.docker.connect_network(name, request).await?;
+            self.docker.connect_network(name, join_request(id)).await?;
         }
         Ok(())
     }
@@ -317,6 +320,17 @@ impl BrowserContainers {
             }
             Err(error) => Err(error.into()),
         }
+    }
+}
+
+/// How nginx or the API joins a browser's network: never as its default gateway.
+fn join_request(container: String) -> NetworkConnectRequest {
+    NetworkConnectRequest {
+        container,
+        endpoint_config: Some(EndpointSettings {
+            gw_priority: Some(JOINED_GATEWAY_PRIORITY),
+            ..Default::default()
+        }),
     }
 }
 
@@ -473,6 +487,18 @@ mod tests {
             host_config.binds,
             Some(vec![format!("{network}:{PROFILE_DIRECTORY}")])
         );
+    }
+
+    // Joined at Docker's default priority, a browser's network became nginx's gateway, the
+    // host's requests to the web port arrived through it, and removing the browser cut them.
+    #[test]
+    fn nginx_and_the_api_never_take_a_browser_network_as_their_gateway() {
+        let request = join_request("nginx".to_owned());
+        let priority = request
+            .endpoint_config
+            .and_then(|endpoint| endpoint.gw_priority)
+            .expect("a gateway priority is set");
+        assert!(priority < 0, "priority {priority} could outrank compose's networks");
     }
 
     #[test]

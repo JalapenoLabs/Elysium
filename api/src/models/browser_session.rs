@@ -125,6 +125,16 @@ pub async fn find_owned(
         .await
 }
 
+/// Whether the browser `id` is still stored.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn exists(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<bool> {
+    diesel::select(diesel::dsl::exists(browser_sessions::table.find(id)))
+        .get_result(connection)
+        .await
+}
+
 /// The ports browsers already hold.
 ///
 /// # Errors

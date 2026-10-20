@@ -36,6 +36,9 @@ ingress: nginx's `stream` module passes raw UDP and TCP the way it passes the ma
   One `server` block covers the range: `listen 59000-59007` and `listen 59000-59007 udp`, with
   `proxy_pass elysium-browser-$server_port:$server_port`, resolved per connection through Docker's DNS. A browser on
   port 59003 is therefore reachable as `elysium-browser-59003`.
+- The UDP listener needs `reuseport`, so the kernel hands every datagram from one viewer to the same nginx worker.
+  Without it a viewer's datagrams spread over the workers, each relaying from its own socket; the browser then sees
+  the DTLS handshake arrive from another port than ICE checked, and ICE connects while no media flows.
 - UDP is preferred. TCP is the fallback for networks that block UDP. Both were verified through
   `nginx:1.30.4-alpine`: ICE connected, and a 1280 by 720 stream arrived, over UDP alone and over TCP alone.
 - The signaling WebSocket and Neko's HTTP API are never published. The API reaches them on the browser's network
@@ -127,6 +130,10 @@ Per-browser networks are what Stalwart never needed, and they change two things:
   the ones the API added. The API's reconciler checks every browser's network every 10 seconds and joins nginx and
   itself back. Until it does, that browser's media port refuses connections and an open stream reconnects. A shared
   network would avoid it, but would let every browser reach every other's DevTools port.
+- Docker routes a container's default gateway, and the ports it publishes, through its network of highest gateway
+  priority, ties broken by name. At the default priority a browser's network can win for nginx, so the host's
+  requests to the web port arrive through it, and removing that browser cuts them mid-request (seen as nginx `499`s).
+  nginx and the API therefore join every browser network at priority `-1`, below their compose networks.
 
 The forwarder and Chromium's command line are copied into the container before it first starts, through Docker's
 archive endpoint, so the upstream image runs as published. Neko's supervisord loads every file in
@@ -161,8 +168,10 @@ are allowed because sign-in flows open them, and no extension is installed, so t
   `dev.elysium.browser-spec` label; replacing a container keeps its profile volume. A failure marks the browser
   `failed` with the reason until a pass succeeds.
 - **Status** is kept in memory and starts as `starting` when the API starts; the first pass sets it.
-- **Removing one** removes its container, network, and volume, then its row. The accounts it was signed in to are
-  untouched; their sessions simply stop being used.
+- **Removing one** removes its container, network, and volume, then its row, in a task of its own so a request that
+  is given up on does not stop it halfway. A reconcile pass waiting for Docker meanwhile checks the row is still
+  there before it creates anything. The accounts it was signed in to are untouched; their sessions simply stop being
+  used.
 - **The public address** a browser advertises is what `ELYSIUM_PUBLIC_URL`'s host resolves to (its first IPv4
   address, else its first address), or loopback for `localhost`. A host whose public name resolves somewhere viewers
   cannot reach it from, such as a proxy that carries only HTTP, needs an explicit address, which is on the roadmap.

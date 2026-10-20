@@ -86,6 +86,14 @@ impl BrowserStatus {
     };
 }
 
+/// What came of bringing a browser up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BringUp {
+    Running,
+    /// Its row was removed while the pass waited its turn, so nothing was created.
+    Removed,
+}
+
 /// Why a browser could not be added.
 #[derive(Debug, thiserror::Error)]
 pub enum CreateError {
@@ -227,9 +235,20 @@ impl Browsers {
 
     /// Removes the browser's container, network, and profile, then its row.
     ///
+    /// The removal runs as its own task, so a viewer who gives up on the request does not
+    /// stop it halfway; awaiting this only waits for its outcome.
+    ///
     /// # Errors
     /// Fails when Docker refuses, leaving the row so removal can be tried again.
     pub async fn delete(&self, session: &BrowserSession) -> anyhow::Result<()> {
+        let browsers = self.clone();
+        let session = session.clone();
+        tokio::spawn(async move { browsers.remove(&session).await })
+            .await
+            .context("the browser's removal ended abnormally")?
+    }
+
+    async fn remove(&self, session: &BrowserSession) -> anyhow::Result<()> {
         let docker = self.inner.docker.lock().await;
         self.inner
             .containers
@@ -303,7 +322,15 @@ impl Browsers {
     async fn bring_up(&self, session: &BrowserSession, start_url: Option<&Url>) {
         let outcome = self.try_bring_up(session, start_url).await;
         match outcome {
-            Ok(()) => self.set_status(session, BrowserStatus::RUNNING),
+            Ok(BringUp::Running) => self.set_status(session, BrowserStatus::RUNNING),
+            Ok(BringUp::Removed) => {
+                event!(
+                    name: "browser.start.skipped",
+                    Level::DEBUG,
+                    browser.session.id = %session.id,
+                    "skipped bringing up a browser that was removed meanwhile",
+                );
+            }
             Err(error) => {
                 let message = format!("{error:#}");
                 event!(
@@ -328,7 +355,7 @@ impl Browsers {
         &self,
         session: &BrowserSession,
         start_url: Option<&Url>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<BringUp> {
         let member_password = session
             .member_password(&self.inner.cipher)
             .context("the browser's stored password does not open with this encryption key")?;
@@ -341,6 +368,11 @@ impl Browsers {
         };
 
         let docker = self.inner.docker.lock().await;
+        // A removal may have run while this waited for the lock; bringing the browser back
+        // then would leave a container no row owns.
+        if !self.still_stored(session.id).await? {
+            return Ok(BringUp::Removed);
+        }
         self.inner.containers.ensure_image().await?;
         self.inner.containers.ensure(&spec).await?;
         drop(docker);
@@ -351,7 +383,18 @@ impl Browsers {
                 .open_start_page(spec.port, start_url)
                 .await?;
         }
-        Ok(())
+        Ok(BringUp::Running)
+    }
+
+    async fn still_stored(&self, id: Uuid) -> anyhow::Result<bool> {
+        let mut connection = self
+            .inner
+            .database
+            .get()
+            .await
+            .context("no database connection available")?;
+        let stored = browser_session::exists(&mut connection, id).await?;
+        Ok(stored)
     }
 
     /// Records the browser's status and publishes it when it changed.
