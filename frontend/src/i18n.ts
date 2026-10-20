@@ -11,6 +11,7 @@ import browsers from './locales/en-US/browsers.json'
 import changesets from './locales/en-US/changesets.json'
 import coding from './locales/en-US/coding.json'
 import common from './locales/en-US/common.json'
+import elysia from './locales/en-US/elysia.json'
 import email from './locales/en-US/email.json'
 import environment from './locales/en-US/environment.json'
 import github from './locales/en-US/github.json'
@@ -40,6 +41,7 @@ export const resources = {
     changesets,
     coding,
     common,
+    elysia,
     email,
     environment,
     github,

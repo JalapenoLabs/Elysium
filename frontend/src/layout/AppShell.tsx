@@ -3,17 +3,28 @@
 // Core
 import { Outlet, useHref, useMatches, useNavigate } from 'react-router'
 
+// Redux
+import { useAppSelector } from '../store/hooks'
+import { selectIsElysiaPanelOpen } from '../store/elysiaSlice'
+
 // User interface
 import { RouterProvider as AriaRouterProvider, Toast } from '@heroui/react'
+import { ElysiaPanel } from '../elysia/ElysiaPanel'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 
+// Misc
+import { useElysiaSounds } from '../elysia/useElysiaSounds'
+
 // The persistent frame around every page: navigation on the left, the topbar across
-// the content column, and the routed page in the scrollable main area.
+// the content column, the routed page in the scrollable main area, and Elysia's panel on
+// the right while it is open.
 export function AppShell() {
   const navigate = useNavigate()
   const matches = useMatches()
   const isWorkspace = matches.some((match) => isWorkspaceHandle(match.handle))
+  const isElysiaOpen = useAppSelector(selectIsElysiaPanelOpen)
+  useElysiaSounds()
 
   // HeroUI components are built on React Aria. Handing it the router's navigate
   // makes every `href` on a HeroUI Link or Button a client-side route change
@@ -31,6 +42,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      {isElysiaOpen && <ElysiaPanel />}
     </div>
     <Toast.Provider placement='bottom end' />
   </AriaRouterProvider>
