@@ -35,7 +35,7 @@ use bollard::models::{
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, CreateImageOptionsBuilder, ListContainersOptionsBuilder,
     ListNetworksOptionsBuilder, ListVolumesOptionsBuilder, RemoveContainerOptionsBuilder,
-    RemoveVolumeOptionsBuilder, UploadToContainerOptionsBuilder,
+    RemoveVolumeOptionsBuilder, StopContainerOptionsBuilder, UploadToContainerOptionsBuilder,
 };
 use futures_util::StreamExt;
 use secrecy::{ExposeSecret, SecretString};
@@ -75,6 +75,10 @@ const SCREEN: &str = "1920x1080@30";
 /// documentation asks for 2 GiB.
 const SHARED_MEMORY_BYTES: i64 = 2 * 1024 * 1024 * 1024;
 
+/// How long a browser has to shut down before Docker kills it: Chromium writes its cookies
+/// and releases its profile lock on the way out, in a second or two.
+const STOP_TIMEOUT_SECONDS: i32 = 15;
+
 /// The profile directory, as Neko's Chromium is started with it (`neko/chromium.conf`).
 const PROFILE_DIRECTORY: &str = "/home/neko/.config/chromium";
 
@@ -88,10 +92,14 @@ const SESSION_LABEL: &str = "dev.elysium.browser-session";
 const SPEC_LABEL: &str = "dev.elysium.browser-spec";
 
 /// The files copied into every container, at their paths inside it.
-const SETUP_FILES: [(&str, &str); 4] = [
+const SETUP_FILES: [(&str, &str); 5] = [
     (
         "etc/neko/supervisord/chromium.conf",
         include_str!("neko/chromium.conf"),
+    ),
+    (
+        "etc/neko/elysium/start-chromium.sh",
+        include_str!("neko/start-chromium.sh"),
     ),
     (
         "etc/neko/supervisord/elysium.conf",
@@ -327,7 +335,20 @@ impl BrowserContainers {
         Ok(ids)
     }
 
+    /// Stops the container, giving Chromium time to write its cookies and release its profile,
+    /// then removes it. Forcing a running container out would lose whatever Chromium had not
+    /// flushed yet.
     async fn remove_container(&self, name: &str) -> Result<(), ContainerError> {
+        let stop = StopContainerOptionsBuilder::new()
+            .t(STOP_TIMEOUT_SECONDS)
+            .build();
+        match self.docker.stop_container(name, Some(stop)).await {
+            // 304: it was not running; 404: it does not exist.
+            Err(error) if !has_status(&error, 304) && !has_status(&error, 404) => {
+                return Err(error.into());
+            }
+            _stopped_or_absent => {}
+        }
         let options = RemoveContainerOptionsBuilder::new().force(true).build();
         match self.docker.remove_container(name, Some(options)).await {
             Err(error) if !has_status(&error, 404) => Err(error.into()),
@@ -652,7 +673,7 @@ mod tests {
         }
         let files_only = hex::encode(hasher.finalize());
         assert_ne!(files_only, spec_fingerprint(&spec()));
-        assert_eq!(SETUP_FILES.len(), 4);
+        assert_eq!(SETUP_FILES.len(), 5);
     }
 
     #[test]
@@ -697,6 +718,19 @@ mod tests {
         assert_eq!(policies["DefaultPopupsSetting"], 1);
         // At Neko's 2, a page refuses to be attached to over DevTools, and no page can be read.
         assert_eq!(policies["DeveloperToolsAvailability"], 1);
+    }
+
+    // A replaced container inherited its predecessor's profile lock, naming the old hostname,
+    // and Chromium refused to start on it. It now starts through a script that clears it.
+    #[test]
+    fn chromium_starts_on_a_profile_a_replaced_container_left_locked() {
+        let chromium = setup_file("etc/neko/supervisord/chromium.conf");
+        assert!(chromium.contains("command=/bin/sh /etc/neko/elysium/start-chromium.sh"));
+
+        let start = setup_file("etc/neko/elysium/start-chromium.sh");
+        assert!(start.contains(r#""$profile/SingletonLock""#));
+        assert!(start.contains(&format!("profile={PROFILE_DIRECTORY}")));
+        assert!(start.contains(r#"exec /usr/bin/chromium "$@""#));
     }
 
     #[test]
