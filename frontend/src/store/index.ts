@@ -12,6 +12,7 @@ import { authSlice } from './authSlice'
 import { browserSessionsSlice } from './browserSessionsSlice'
 import { changesetsSlice } from './changesetsSlice'
 import { codingSessionsSlice } from './codingSessionsSlice'
+import { connectorAccountsSlice } from './connectorAccountsSlice'
 import { environmentVariablesSlice } from './environmentVariablesSlice'
 import { githubCredentialsSlice } from './githubCredentialsSlice'
 import { initiativeLinksSlice } from './initiativeLinksSlice'
@@ -53,6 +54,7 @@ export function createAppStore() {
       [browserSessionsSlice.name]: browserSessionsSlice.reducer,
       [changesetsSlice.name]: changesetsSlice.reducer,
       [codingSessionsSlice.name]: codingSessionsSlice.reducer,
+      [connectorAccountsSlice.name]: connectorAccountsSlice.reducer,
       [environmentVariablesSlice.name]: environmentVariablesSlice.reducer,
       [githubCredentialsSlice.name]: githubCredentialsSlice.reducer,
       [initiativeLinksSlice.name]: initiativeLinksSlice.reducer,

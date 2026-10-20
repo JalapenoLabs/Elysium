@@ -124,6 +124,56 @@ Each belongs to the person who created it and answers nobody else.
 | `created_by`                | `UUID`        | References `users`; the browser's owner, indexed                |
 | `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
 
+### `connector_accounts`
+
+Services Elysium reads through one of a person's browsers; see `docs/connectors.md`.
+
+| Column                      | Type          | Notes                                                           |
+|-----------------------------|---------------|-----------------------------------------------------------------|
+| `id`                        | `UUID`        | UUIDv7, primary key                                             |
+| `kind`                      | `TEXT`        | The connector, such as `outlook`                                |
+| `browser_session_id`        | `UUID`        | Unique; references `browser_sessions`, cascading                |
+| `sign_in_state`             | `TEXT`        | `signed_in`, `signed_out`, or `unknown`, as last read           |
+| `cursor`                    | `JSONB`       | Where the last read left off, in the connector's terms          |
+| `last_polled_at`            | `TIMESTAMPTZ` | When it was last read                                           |
+| `last_error`                | `TEXT`        | Why the last read failed, or `NULL`                             |
+| `is_active`                 | `BOOLEAN`     | Read by the ingest loop when true                               |
+| `created_by`                | `UUID`        | References `users`; the browser's owner                         |
+| `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
+
+### `timeline_records`
+
+Everything ingested, newest first by `occurred_at` (indexed). Unique on `(connector_account_id, external_id)`, so an
+item is recorded once per account.
+
+| Column                 | Type          | Notes                                                                   |
+|------------------------|---------------|-------------------------------------------------------------------------|
+| `id`                   | `UUID`        | UUIDv7, primary key                                                     |
+| `source_kind`          | `TEXT`        | What it is, such as `outlook` or `meeting`                              |
+| `connector_account_id` | `UUID`        | References `connector_accounts`; set to `NULL` when the account goes    |
+| `external_id`          | `TEXT`        | The provider's id, at most 1024 characters                              |
+| `occurred_at`          | `TIMESTAMPTZ` | When it happened, or when it was read                                   |
+| `actor`                | `TEXT`        | Who it came from, as the provider shows them                            |
+| `title`, `body`        | `TEXT`        | Plain text                                                              |
+| `url`                  | `TEXT`        | A link to it, when there is one                                         |
+| `media`                | `JSONB`       | A span inside a recording, for a meeting segment                        |
+| `metadata`             | `JSONB`       | Whatever else the connector keeps                                       |
+| `action_item_id`       | `UUID`        | References `action_items`: the item it raised; `NULL` when it is gone   |
+| `created_by`           | `UUID`        | References `users`; whose timeline it is on                             |
+| `created_at`           | `TIMESTAMPTZ` | Set on insert                                                           |
+
+### `timeline_record_projects`
+
+Which projects a record is about. Primary key `(timeline_record_id, project_id)`, both cascading; indexed by project.
+
+| Column               | Type          | Notes                                                       |
+|----------------------|---------------|-------------------------------------------------------------|
+| `timeline_record_id` | `UUID`        | References `timeline_records`                               |
+| `project_id`         | `UUID`        | References `projects`                                       |
+| `confidence`         | `REAL`        | 0 to 1; a person's attribution is 1                         |
+| `attributed_by`      | `TEXT`        | The actor, as history writes it (`user:<id>`, `elysia`)     |
+| `created_at`         | `TIMESTAMPTZ` | Set on insert                                               |
+
 ### `mail_servers`
 
 The mail server Elysium runs, with the administrator Stalwart issued when it was created; see `docs/mail.md`. At most

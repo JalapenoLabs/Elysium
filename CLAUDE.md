@@ -145,6 +145,21 @@ Everything else follows these rules:
   run under the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
 
+## Connectors and the timeline
+
+- A connector is a service Elysium reads as its user, behind one trait (`api/src/connectors/`): it names its kind
+  and reads what its account shows now. How it signs in and stays signed in belongs to what it reads through. Today
+  Outlook reads through a person's browser over DevTools, with one page script per service; the check is cheap and
+  deterministic, and nothing it does marks mail read. See `docs/connectors.md`.
+- Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
+  projects with a confidence (`timeline_record_projects`). A record is its owner's alone, even about a shared
+  project.
+- Ingest runs every minute. A new unread message raises an inbox item in the same transaction as its record,
+  recorded as `watcher:<service>`: connecting a mailbox is the consent, as linking a container is for the link
+  watcher. The first read baselines the mailbox without raising anything.
+- `timelineRecord.created` carries ids and kinds, never content, because every client hears every event. It is the
+  seam Elysia's triage builds on.
+
 ## Storage
 
 - Storage locations are where Elysium saves files, one row per location with a provider kind, used by the projects

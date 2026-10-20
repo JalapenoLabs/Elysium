@@ -12,6 +12,7 @@ import { initiativeLinksLoaded } from '../store/initiativeLinksSlice'
 import { actionItemsLoaded, actionItemUpserted, deletedActionItemsLoaded } from '../store/actionItemsSlice'
 import { browserSessionsLoaded } from '../store/browserSessionsSlice'
 import { changesetsLoaded, changesetUpserted } from '../store/changesetsSlice'
+import { connectorAccountsLoaded } from '../store/connectorAccountsSlice'
 import { codingSessionsLoaded, codingSessionsUpserted } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
 import { environmentVariablesLoaded } from '../store/environmentVariablesSlice'
@@ -50,6 +51,7 @@ import {
 } from '../api/routes/initiativeRoutes'
 import { listBrowserSessions } from '../api/routes/browserSessionRoutes'
 import { getChangeset, listChangesets } from '../api/routes/changesetRoutes'
+import { listConnectorAccounts } from '../api/routes/connectorRoutes'
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
 import { listGithubCredentials } from '../api/routes/githubRoutes'
@@ -105,6 +107,16 @@ export function useBrowserSessionsLoader(): LoadStatus {
   const { data, error } = useSWR('v1/browser-sessions', async () => {
     const response = await listBrowserSessions()
     dispatch(browserSessionsLoaded(response.browserSessions))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+export function useConnectorAccountsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/connectors', async () => {
+    const response = await listConnectorAccounts()
+    dispatch(connectorAccountsLoaded(response.connectors))
     return response
   })
   return toLoadStatus(data !== undefined, error)

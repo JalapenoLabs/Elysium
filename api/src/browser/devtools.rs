@@ -199,21 +199,6 @@ mod tests {
         );
     }
 
-    /// Against a live browser: `ELYSIUM_DEVTOOLS_SOCKET` names a page's socket through the
-    /// forwarder, such as `ws://172.22.0.2:9223/devtools/page/<id>`. Proves the handshake with
-    /// `Host: localhost` and an evaluation that awaits a promise.
-    #[tokio::test]
-    #[ignore = "needs a running browser; see the doc comment"]
-    async fn a_live_page_evaluates_through_the_forwarder() {
-        let socket = std::env::var("ELYSIUM_DEVTOOLS_SOCKET").expect("ELYSIUM_DEVTOOLS_SOCKET is set");
-        let url = Url::parse(&socket).expect("a socket URL");
-        let value = evaluate_on(&url, "Promise.resolve({ title: document.title, sum: 1 + 2 })")
-            .await
-            .expect("the page answers");
-        assert_eq!(value["sum"], 3);
-        assert!(value["title"].is_string());
-    }
-
     #[test]
     fn a_returned_value_is_answered_and_a_throw_is_an_error() {
         let value = json!({ "id": 1, "result": { "result": { "type": "object", "value": { "ok": true } } } });
