@@ -31,6 +31,9 @@ concurrency:
 jobs:
   api:
     name: Publish API
+    # Last: auto-update treats a release as available once its API tag exists, and then pulls
+    # the workspace image of the same tag, so that one must already be there.
+    needs: workspace
     runs-on: [ self-hosted, linux, rocky9, docker ]
 
     steps:
