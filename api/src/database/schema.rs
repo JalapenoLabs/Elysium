@@ -710,6 +710,7 @@ diesel::table! {
         require_mfa -> Bool,
         updated_by -> Uuid,
         updated_at -> Timestamptz,
+        agent_configuration_repository -> Nullable<Text>,
     }
 }
 

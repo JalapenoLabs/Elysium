@@ -151,10 +151,11 @@ pub async fn app_state_with_storage(
         request_timeout: std::time::Duration::from_secs(5),
         max_request_body_bytes: 1 << 20,
         frontend_dir: None,
+        docker: nowhere,
+        workspace_image: "elysium-workspace:test".to_owned(),
         mail: MailConfig {
             oauth_broker: None,
             oauth_broker_internal: None,
-            docker: nowhere,
             ingress_address: None,
         },
     };
@@ -189,6 +190,10 @@ pub async fn app_state_with_storage(
     )
     .expect("mail services build without reaching anything");
 
+    let runner =
+        crate::server::build_runner(&config, database.clone(), Arc::clone(&cipher), &shutdown)
+            .expect("the runner builds without reaching Docker");
+
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
         database,
@@ -201,6 +206,7 @@ pub async fn app_state_with_storage(
         jira,
         links,
         mail,
+        runner,
         storage,
         shutdown,
     }

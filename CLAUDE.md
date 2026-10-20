@@ -35,8 +35,12 @@ The full vision is `docs/vision.md`. Read it before designing any feature.
   `/api` and the web app's production build, so nginx sends every path to the API. `compose.dev.yml` layers the
   development stack over it: the API built from source (`api/Dockerfile` stage `server`) and the Vite dev server,
   with nginx swapped to `nginx/development.conf`. See `docs/infrastructure.md`.
-- `.github/workflows/publish.yml` pushes `jalapenolabs/elysium-api` and `jalapenolabs/elysium-oauth-broker` to Docker
-  Hub on every push to `main` and every `v*` tag. A release is a `vX.Y.Z` tag. See `docs/ci.md`.
+- `.github/workflows/publish.yml` pushes `jalapenolabs/elysium-api`, `jalapenolabs/elysium-workspace`, and
+  `jalapenolabs/elysium-oauth-broker` to Docker Hub on every push to `main` and every `v*` tag. A release is a `vX.Y.Z`
+  tag. See `docs/ci.md`.
+- Agent turns run the official `claude` CLI in the workspace container (`workspace/Dockerfile`), which the API
+  creates through `docker-proxy` and reaches by `docker exec`, never inside the API's own container. Callers submit
+  turns to `crate::runner`. See `docs/coding.md`.
 - The web app's pages carry a strict Content Security Policy set by the API: no inline scripts, no eval, nothing
   from another origin. Frontend code keeps to it. See `docs/security.md`.
 

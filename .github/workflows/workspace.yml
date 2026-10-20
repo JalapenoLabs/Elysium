@@ -1,0 +1,84 @@
+# Copyright © 2026 Jalapeno Labs
+
+# The agent workspace image every turn runs in. See docs/coding.md and docs/ci.md.
+name: Workspace
+
+# Deliberately unfiltered by path, like every workflow here: this job is a required check,
+# and a required check a path filter skipped would stay pending forever. See docs/ci.md.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+    types: [ checks_requested ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workspace-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Workspace image
+    # Elysium is public and these runners are self-hosted, so a fork's pull request never
+    # reaches them.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    env:
+      # Unique per run, because runners in the pool can share one Docker daemon.
+      IMAGE: elysium-workspace:ci-${{ github.run_id }}-${{ github.run_attempt }}
+      CONTAINER: elysium-workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      VOLUME: elysium-workspace-ci-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Check the image uses the pinned Node
+        run: |
+          set -euo pipefail
+          version="$(cat frontend/.nvmrc)"
+          if ! grep --quiet --fixed-strings "FROM node:${version}-" workspace/Dockerfile; then
+            echo "::error::workspace/Dockerfile does not build with Node ${version} from frontend/.nvmrc."
+            exit 1
+          fi
+          echo "workspace/Dockerfile builds with Node ${version}."
+
+      - name: Build the image
+        run: docker build --tag "${IMAGE}" workspace
+
+      # The API runs turns as `agent` through `docker exec` in a container started the way
+      # api/src/runner/workspace.rs starts it, so the check does the same.
+      - name: Boot the image and run the agent's tools
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --init --name "${CONTAINER}" \
+            --volume "${VOLUME}:/workspace" "${IMAGE}" > /dev/null
+          for attempt in $(seq 1 30); do
+            if docker exec "${CONTAINER}" test -L /home/agent/.claude; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec --user agent "${CONTAINER}" bash -c '
+            set -euo pipefail
+            claude --version
+            gh --version | head -n 1
+            git --version
+            test "$(stat -c %U /workspace/.elysium/turns)" = agent
+            test "$(readlink /home/agent/.claude)" = /workspace/.claude
+          '
+
+      - name: Remove the image
+        if: always()
+        run: |
+          docker rm --force "${CONTAINER}" > /dev/null 2>&1 || true
+          docker volume rm "${VOLUME}" > /dev/null 2>&1 || true
+          docker image rm "${IMAGE}" > /dev/null 2>&1 || true

@@ -146,7 +146,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/users/{id}/reset-mfa`        | `204`; admins                                        |
 | POST   | `/api/v1/users/{id}/recovery-link`    | `200` `{ recoveryLink, expiresAt }`; admins          |
 | GET    | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins                         |
-| PATCH  | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins: `signupOpen`, `requireMfa` |
+| PATCH  | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins: `signupOpen`, `requireMfa`, `agentConfigurationRepository` (`null` clears) |
 | POST   | `/api/v1/oauth/login/accept`          | `200` `{ redirectTo }`; answers Hydra's sign-in challenge |
 | GET    | `/api/v1/oauth/consent?challenge=`    | `200` `{ client, scopes }`, or `{ redirectTo }` when approved before |
 | POST   | `/api/v1/oauth/consent/accept`        | `200` `{ redirectTo }`                               |

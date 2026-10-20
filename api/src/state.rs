@@ -16,6 +16,7 @@ use crate::github::Github;
 use crate::jira::Jira;
 use crate::mail::Mail;
 use crate::realtime::EventBus;
+use crate::runner::Runner;
 use crate::storage::Storage;
 use crate::version::VersionInfo;
 
@@ -36,6 +37,8 @@ pub struct AppState {
     /// Action item links, through one provider trait, and the watcher's wake signal.
     pub links: Links,
     pub mail: Mail,
+    /// Runs agent turns in the workspace container. See `crate::runner`.
+    pub runner: Runner,
     pub storage: Storage,
     /// Cancelled when shutdown begins; long-lived responses end on it.
     pub shutdown: CancellationToken,
