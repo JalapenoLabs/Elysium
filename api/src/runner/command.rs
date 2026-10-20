@@ -14,7 +14,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Map, Value, json};
 
 use super::events::HarnessSessionId;
-use super::{EnvironmentEntry, McpServer};
+use super::{EnvironmentEntry, McpServer, TurnMode};
 
 /// The variable [`TURN_SCRIPT`] reads the MCP configuration from.
 const MCP_CONFIG_VARIABLE: &str = "ELYSIUM_MCP_CONFIG";
@@ -92,6 +92,7 @@ pub struct AttemptCommand {
     pub mcp_servers: Vec<McpServer>,
     pub credential: Option<CredentialSecret>,
     pub environment: Vec<EnvironmentEntry>,
+    pub mode: TurnMode,
 }
 
 impl AttemptCommand {
@@ -139,6 +140,20 @@ impl AttemptCommand {
         if let Some(append) = &self.system_prompt_append {
             argv.push("--append-system-prompt".to_owned());
             argv.push(append.clone());
+        }
+        if let TurnMode::Text { system_prompt } = &self.mode {
+            argv.extend([
+                // An empty list removes every built-in tool.
+                "--tools=".to_owned(),
+                // Only the request's own MCP servers, never ones from settings or plugins.
+                "--strict-mcp-config".to_owned(),
+                // No user, project, or local settings: the agents' configuration repository
+                // must not steer a text turn.
+                "--setting-sources=".to_owned(),
+                "--no-session-persistence".to_owned(),
+                "--system-prompt".to_owned(),
+                system_prompt.clone(),
+            ]);
         }
         argv
     }
@@ -247,7 +262,44 @@ mod tests {
                 key: "CLAUDE_CODE_OAUTH_TOKEN".to_owned(),
                 value: SecretString::from("from-a-variable"),
             }],
+            mode: TurnMode::Agent,
         }
+    }
+
+    #[test]
+    fn an_agent_turn_keeps_its_tools_and_settings() {
+        let argv = command().argv();
+        assert!(!argv.iter().any(|argument| argument.starts_with("--tools")));
+        assert!(
+            !argv
+                .iter()
+                .any(|argument| argument.starts_with("--setting-sources"))
+        );
+        assert!(!argv.contains(&"--no-session-persistence".to_owned()));
+    }
+
+    #[test]
+    fn a_text_turn_has_no_tools_settings_or_session_and_its_own_system_prompt() {
+        let argv = AttemptCommand {
+            mode: TurnMode::Text {
+                system_prompt: "Summarize the log.".to_owned(),
+            },
+            ..command()
+        }
+        .argv();
+        for flag in [
+            "--tools=",
+            "--strict-mcp-config",
+            "--setting-sources=",
+            "--no-session-persistence",
+        ] {
+            assert!(argv.contains(&flag.to_owned()), "{flag}");
+        }
+        let system_prompt = argv
+            .iter()
+            .position(|argument| argument == "--system-prompt")
+            .expect("--system-prompt");
+        assert_eq!(argv[system_prompt + 1], "Summarize the log.");
     }
 
     #[test]

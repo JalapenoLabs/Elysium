@@ -34,6 +34,9 @@ export function ConversationTimeline(props: Props) {
       t('conversation.empty')
     }</p>}
 
-    <TimelineEventList events={props.timeline.events} />
+    <TimelineEventList
+      events={props.timeline.events}
+      summariesByTurnId={props.timeline.summariesByTurnId}
+    />
   </div>
 }

@@ -25,6 +25,7 @@
 #[cfg(test)]
 mod live_tests;
 pub mod scrub;
+mod summary;
 mod turn;
 pub mod views;
 
@@ -50,7 +51,7 @@ use crate::realtime::EventBus;
 use crate::routes::v1::coding_sessions::github_token;
 use crate::runner::workspace::{AGENT_USER, WorkspaceContainer};
 use crate::runner::{
-    ConversationId, EnvironmentEntry, McpServer, Runner, TurnRequest, WorkspacePath,
+    ConversationId, EnvironmentEntry, McpServer, Runner, TurnMode, TurnRequest, WorkspacePath,
 };
 use crate::storage::Storage;
 use crate::tools::grants::Grants;
@@ -351,6 +352,7 @@ impl Sessions {
             system_prompt_append: extras.system_prompt_append,
             environment,
             model: None,
+            mode: TurnMode::Agent,
         };
         let ticket = self
             .inner
