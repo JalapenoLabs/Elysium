@@ -151,5 +151,6 @@ Application secrets never go there. They are stored in Postgres, encrypted with 
 
 ## Roadmap
 
-- Authentication on `/api/v1`, then publishing nginx beyond loopback by default.
+- Narrowing the API's Docker access to the containers and volumes it manages (labels, no privileged mode, no
+  host mounts), then publishing nginx beyond loopback by default.
 - TLS termination at nginx.

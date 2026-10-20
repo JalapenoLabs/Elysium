@@ -50,6 +50,7 @@ The full vision is `docs/vision.md`. Read it before designing any feature.
 - `RUST_LOG`, which is optional
 - `ELYSIUM_PUBLIC_URL`, which is optional: the origin browsers use, `http://localhost:4000` unless set
 - `ELYSIUM_VERSION`, which is optional: the published release the production stack runs, `latest` unless set
+- `WEB_PORT` and `WEB_BIND_ADDRESS`, which are optional: where nginx publishes the web, `127.0.0.1:4000` unless set
 
 Everything else follows these rules:
 
