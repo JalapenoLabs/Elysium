@@ -18,6 +18,7 @@ use crate::github::Github;
 use crate::jira::Jira;
 use crate::mail::Mail;
 use crate::realtime::EventBus;
+use crate::runner::Runner;
 use crate::storage::Storage;
 use crate::updates::Updates;
 use crate::version::VersionInfo;
@@ -31,9 +32,9 @@ pub struct AppState {
     pub browsers: Browsers,
     pub database: Pool,
     /// Work a restart would cut short, such as agent turns. Auto-update waits for it.
-    #[allow(
+    #[expect(
         dead_code,
-        reason = "the host runner begins activities here; remove once it does"
+        reason = "no handler begins an activity yet; the runner and auto-update hold their own handles"
     )]
     pub activity: Activities,
     pub redis: ConnectionManager,
@@ -47,6 +48,8 @@ pub struct AppState {
     /// Action item links, through one provider trait, and the watcher's wake signal.
     pub links: Links,
     pub mail: Mail,
+    /// Runs agent turns in the workspace container. See `crate::runner`.
+    pub runner: Runner,
     pub storage: Storage,
     /// Auto-update: what the updater is told, and the release history.
     pub updates: Updates,
