@@ -141,8 +141,8 @@ Everything else follows these rules:
   member session, never an administrator's.
 - nginx stays the single ingress: it passes the media ports, `59000-59007` over UDP and TCP, to the browser that owns
   each one, on every interface. Signaling never leaves the API's authenticated stream route.
-- The web app's sign-in panel, on the roadmap, speaks Neko's protocol itself: Neko's own client cannot run under
-  the web app's CSP.
+- The web app's sign-in panel (Settings, Browser sign-ins) speaks Neko's protocol itself: Neko's own client cannot
+  run under the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
 
 ## Storage
