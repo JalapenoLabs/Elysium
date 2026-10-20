@@ -11,7 +11,7 @@ import { actionItemLinksLoaded } from '../store/actionItemLinksSlice'
 import { initiativeLinksLoaded } from '../store/initiativeLinksSlice'
 import { actionItemsLoaded, actionItemUpserted, deletedActionItemsLoaded } from '../store/actionItemsSlice'
 import { changesetsLoaded, changesetUpserted } from '../store/changesetsSlice'
-import { codingSessionsLoaded } from '../store/codingSessionsSlice'
+import { codingSessionsLoaded, codingSessionsUpserted } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
 import { environmentVariablesLoaded } from '../store/environmentVariablesSlice'
 import { githubCredentialsLoaded } from '../store/githubCredentialsSlice'
@@ -25,6 +25,9 @@ import { projectsLoaded } from '../store/projectsSlice'
 import { satellitesLoaded } from '../store/satellitesSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
 import { storageLocationsLoaded } from '../store/storageLocationsSlice'
+import { studioAssetsLoaded } from '../store/studioAssetsSlice'
+import { studioFeedbackLoaded } from '../store/studioFeedbackSlice'
+import { deletedStudioItemsLoaded, studioItemsLoaded, studioItemUpserted } from '../store/studioItemsSlice'
 import { usersLoaded } from '../store/usersSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
@@ -54,6 +57,7 @@ import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/
 import { listProjects } from '../api/routes/projectRoutes'
 import { listSatellites } from '../api/routes/satelliteRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
+import { getStudioItem, listStudioItems } from '../api/routes/studioRoutes'
 import { getWorkspaceSettings, listUsers } from '../api/routes/userRoutes'
 
 // How server data reaches a component:
@@ -419,6 +423,50 @@ export function useWorkspaceSettingsLoader(): LoadStatus {
   const { data, error } = useSWR('v1/workspace-settings', async () => {
     const response = await getWorkspaceSettings()
     dispatch(workspaceSettingsUpdated(response.settings))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Every live Studio item, with each item's sessions so a tile shows its thread's state. The
+// sessions join the Coding ones in the shared slice without replacing them.
+export function useStudioItemsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/studio-items', async () => {
+    const response = await listStudioItems()
+    dispatch(studioItemsLoaded(response.items))
+    dispatch(codingSessionsUpserted(response.sessions))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Softly deleted Studio items, loaded only while the grid shows them. `studioItem.deleted`
+// carries only an id, so the event stream revalidates this key when one arrives.
+export function useDeletedStudioItemsLoader(isEnabled: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isEnabled
+    ? 'v1/studio-items?deleted=true'
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await listStudioItems({ deleted: true })
+    dispatch(deletedStudioItemsLoaded(response.items))
+    dispatch(codingSessionsUpserted(response.sessions))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One Studio item, live or deleted, for its own page: the item, every version of its files,
+// its drawn prompts, and its sessions in one response, each landing in its own slice.
+export function useStudioItemLoader(itemId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/studio-items/${itemId}`, async () => {
+    const response = await getStudioItem(itemId)
+    dispatch(studioItemUpserted(response.item))
+    dispatch(studioAssetsLoaded({ studioItemId: itemId, assets: response.assets }))
+    dispatch(studioFeedbackLoaded({ studioItemId: itemId, feedback: response.feedback }))
+    dispatch(codingSessionsUpserted(response.sessions))
     return response
   })
   return toLoadStatus(data !== undefined, error)

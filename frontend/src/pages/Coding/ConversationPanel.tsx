@@ -14,12 +14,14 @@ import { selectSatelliteById } from '../../store/satellitesSlice'
 import { selectSessionTimeline } from '../../store/sessionEventsSlice'
 
 // User interface
-import { Button, Chip, Spinner } from '@heroui/react'
+import { Button, Chip, Spinner, toast } from '@heroui/react'
 import { ConversationTimeline } from './ConversationTimeline'
 import { PromptComposer } from './PromptComposer'
 import { SessionActionItemLink } from './SessionActionItemLink'
 
 // Misc
+import { getUpstreamErrorMessage } from '../../api/errors'
+import { startTurn } from '../../api/routes/codingSessionRoutes'
 import { useCodingSessionsLoader, useSatellitesLoader, useSessionHistoryLoader } from '../../hooks/useServerData'
 import { CLOSED_THREAD_STATES, threadStateChipColors, threadStateLabelKeys } from './sessionPresentation'
 
@@ -61,6 +63,23 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
   const isClosed = CLOSED_THREAD_STATES.includes(state)
   const hasHistory = Boolean(timeline?.isHistoryLoaded)
   const isLoading = !hasHistory && !history.error
+
+  async function sendPrompt(prompt: string) {
+    try {
+      await startTurn(sessionId, prompt)
+      return true
+    }
+    catch (error) {
+      const message = getUpstreamErrorMessage(error)
+      if (!message) {
+        console.debug('ConversationPanel failed to start a turn', { error, sessionId })
+      }
+      toast.danger(t('toasts.promptFailed'), {
+        description: message ?? t('common:errors.unexpected'),
+      })
+      return false
+    }
+  }
 
   return <div className='flex h-full flex-col'>
     <div className='level shrink-0 border-b border-separator px-4 py-2'>
@@ -105,7 +124,7 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
     </div>
 
     <PromptComposer
-      sessionId={session.id}
+      onSend={sendPrompt}
       isClosed={isClosed}
     />
   </div>
