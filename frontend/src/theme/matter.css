@@ -6,12 +6,17 @@
 
    HeroUI derives hover, soft, and secondary shades from these base variables, so
    only base colors are set here. `--sidebar` is Elysium's own token for the app
-   chrome, mirroring Matter's darker side bar, and `--chart-*` are its chart series. */
+   chrome, mirroring Matter's darker side bar, `--chart-*` are its chart series, and
+   `--elysia-*` are Elysia's status colors (see docs/elysia.md). */
 
 @theme inline {
   --color-sidebar: var(--sidebar);
   --color-chart-scope: var(--chart-scope);
   --color-chart-resolved: var(--chart-resolved);
+  --color-elysia-running: var(--elysia-running);
+  --color-elysia-errored: var(--elysia-errored);
+  --color-elysia-needs-you: var(--elysia-needs-you);
+  --color-elysia-done: var(--elysia-done);
 }
 
 [data-theme='light'] {
@@ -61,6 +66,12 @@
      contrast); change them together and re-run those checks. */
   --chart-scope: #267fb5;
   --chart-resolved: #5e9a2e;
+
+  /* Elysia's status, at a glance: orange running, red errored, pink needs you, green done. */
+  --elysia-running: #d9822b;
+  --elysia-errored: var(--danger);
+  --elysia-needs-you: #d6489a;
+  --elysia-done: var(--success);
 }
 
 [data-theme='dark'] {
@@ -117,6 +128,11 @@
      series take a step toward the middle. Validated as for light. */
   --chart-scope: #3a8fc4;
   --chart-resolved: #6aa33a;
+
+  --elysia-running: #f0a35e;
+  --elysia-errored: var(--danger);
+  --elysia-needs-you: #f28ac4;
+  --elysia-done: var(--success);
 }
 
 /* Field shape for both themes: rounder, taller, and flat, in the manner of HeroUI v2's
