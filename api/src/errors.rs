@@ -134,9 +134,18 @@ impl From<crate::oauth::hydra::HydraError> for ApiError {
     }
 }
 
-impl From<arsox_sdk::client::Error> for ApiError {
-    fn from(error: arsox_sdk::client::Error) -> Self {
-        Self::BadGateway(error.to_string())
+impl From<crate::runner::files::FileError> for ApiError {
+    fn from(error: crate::runner::files::FileError) -> Self {
+        use crate::runner::files::FileError;
+
+        match error {
+            refused @ (FileError::NotFound(_) | FileError::Outside(_)) => {
+                Self::BadRequest(refused.to_string())
+            }
+            failed @ (FileError::Failed(_) | FileError::Workspace(_)) => {
+                Self::BadGateway(format!("the workspace: {failed}"))
+            }
+        }
     }
 }
 

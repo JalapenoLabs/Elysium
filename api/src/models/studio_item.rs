@@ -266,12 +266,8 @@ mod tests {
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
     async fn a_provider_message_past_the_column_is_still_recorded() {
         let (_url, mut connection) = migrated_database().await;
-        let fixture = studio_item_with_session(
-            &mut connection,
-            &crate::test_support::cipher(),
-            "http://127.0.0.1:9",
-        )
-        .await;
+        let fixture =
+            studio_item_with_session(&mut connection, &crate::test_support::cipher()).await;
         let studio_item_id = fixture.item.id;
         let refusal = format!(
             "{}/x.png could not be stored: {}",

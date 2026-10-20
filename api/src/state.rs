@@ -11,12 +11,12 @@ use crate::action_items::links::Links;
 use crate::auth::Auth;
 use crate::crypto::Cipher;
 use crate::database::Pool;
-use crate::fleet::Fleet;
 use crate::github::Github;
 use crate::jira::Jira;
 use crate::mail::Mail;
 use crate::realtime::EventBus;
 use crate::runner::Runner;
+use crate::sessions::Sessions;
 use crate::storage::Storage;
 use crate::version::VersionInfo;
 
@@ -31,7 +31,6 @@ pub struct AppState {
     pub version: Arc<VersionInfo>,
     /// Publishes to every open `GET /api/v1/events` stream.
     pub events: EventBus,
-    pub fleet: Fleet,
     pub github: Github,
     pub jira: Jira,
     /// Action item links, through one provider trait, and the watcher's wake signal.
@@ -39,6 +38,8 @@ pub struct AppState {
     pub mail: Mail,
     /// Runs agent turns in the workspace container. See `crate::runner`.
     pub runner: Runner,
+    /// Coding and Studio sessions' turns, events, and activity. See `crate::sessions`.
+    pub sessions: Sessions,
     pub storage: Storage,
     /// Cancelled when shutdown begins; long-lived responses end on it.
     pub shutdown: CancellationToken,

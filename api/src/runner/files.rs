@@ -27,7 +27,9 @@ use futures_util::{Stream, StreamExt};
 use tokio::io::AsyncWriteExt;
 
 use super::WorkspacePath;
-use super::workspace::{AGENT_USER, CONTAINER_NAME, WorkspaceContainer, WorkspaceError};
+use super::workspace::{
+    AGENT_USER, CONTAINER_NAME, SCRIPT_TIMEOUT, WorkspaceContainer, WorkspaceError,
+};
 
 /// Exit statuses the scripts below use to say why they refused.
 const EXIT_MISSING: i64 = 66;
@@ -298,6 +300,7 @@ impl WorkspaceContainer {
                 REMOVE_SCRIPT,
                 &[&directory.absolute()],
                 Vec::new(),
+                SCRIPT_TIMEOUT,
             )
             .await?;
         if output.exit_code != Some(0) {

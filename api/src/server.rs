@@ -33,7 +33,6 @@ use crate::config::Config;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::database::migrations;
-use crate::fleet::Fleet;
 use crate::github::Github;
 use crate::jira::Jira;
 use crate::mail::Mail;
@@ -45,6 +44,8 @@ use crate::mail::stalwart::container::StalwartContainer;
 use crate::oauth::hydra::Hydra;
 use crate::realtime::EventBus;
 use crate::runner::Runner;
+use crate::sessions::{Sessions, SessionsDeps};
+use crate::tools::grants::Grants;
 use crate::runner::workspace::WorkspaceContainer;
 use crate::state::AppState;
 use crate::storage::Storage;
@@ -100,26 +101,14 @@ pub async fn serve() -> Result<()> {
         .user_agent(concat!("elysium-api/", env!("CARGO_PKG_VERSION")))
         .build()
         .context("cannot build the HTTP client")?;
-    // Built before the fleet starts, because the fleet's relays answer agents' storage
-    // tool calls with it.
     let storage = Storage::new(http.clone());
 
     let github = Github::new(http.clone());
     let jira = Jira::new(http.clone());
-    // Built before the fleet too: an agent links its pull request through it.
     let links = Links::new(database.clone(), Arc::clone(&cipher), &jira, &github);
 
     let shutdown = CancellationToken::new();
     let events = EventBus::new();
-    let fleet = Fleet::new(
-        database.clone(),
-        Arc::clone(&cipher),
-        events.clone(),
-        storage.clone(),
-        links.clone(),
-        shutdown.clone(),
-    );
-    fleet.start().await?;
     let watch = WatchContext {
         database: database.clone(),
         events: events.clone(),
@@ -138,7 +127,16 @@ pub async fn serve() -> Result<()> {
     let hosting = mail.hosting.clone();
     tokio::spawn(async move { hosting.reconcile().await });
 
-    let runner = build_runner(&config, database.clone(), Arc::clone(&cipher), &shutdown)?;
+    let (runner, sessions) = build_agents(
+        &config,
+        AgentServices {
+            database: database.clone(),
+            cipher: Arc::clone(&cipher),
+            events: events.clone(),
+            storage: storage.clone(),
+        },
+        &shutdown,
+    )?;
     // Pulls the workspace image and fetches `~/.claude` ahead of the first turn, which
     // would otherwise wait for both.
     let preparing = runner.clone();
@@ -160,12 +158,12 @@ pub async fn serve() -> Result<()> {
         cipher,
         version,
         events,
-        fleet: fleet.clone(),
         github,
         jira,
         links,
         mail,
         runner: runner.clone(),
+        sessions: sessions.clone(),
         storage,
         shutdown: shutdown.clone(),
     };
@@ -195,9 +193,8 @@ pub async fn serve() -> Result<()> {
     .await
     .context("http server failed")?;
 
-    fleet.shutdown().await;
-    event!(name: "fleet.shutdown.complete", Level::INFO, "fleet watchers stopped");
     runner.shutdown().await;
+    sessions.shutdown().await;
     event!(name: "runner.shutdown.complete", Level::INFO, "agent turns stopped");
     watcher.stopped().await;
 
@@ -229,13 +226,22 @@ pub(crate) fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
     }
 }
 
-/// The runner, whose turns run in the workspace container through Docker.
-pub(crate) fn build_runner(
+/// What the runner and the sessions service share with the rest of the API.
+#[derive(Debug, Clone)]
+pub(crate) struct AgentServices {
+    pub database: Pool,
+    pub cipher: Arc<Cipher>,
+    pub events: EventBus,
+    pub storage: Storage,
+}
+
+/// The runner, whose turns run in the workspace container through Docker, and the sessions
+/// service that runs sessions' turns on it.
+pub(crate) fn build_agents(
     config: &Config,
-    database: Pool,
-    cipher: Arc<Cipher>,
+    services: AgentServices,
     shutdown: &CancellationToken,
-) -> Result<Runner> {
+) -> Result<(Runner, Sessions)> {
     // Connecting is lazy: nothing reaches Docker until the workspace is prepared.
     let docker = Docker::connect_with_http(
         config.docker.as_str().trim_end_matches('/'),
@@ -244,7 +250,22 @@ pub(crate) fn build_runner(
     )
     .context("DOCKER_URL is invalid")?;
     let workspace = WorkspaceContainer::new(docker, config.workspace_image.clone());
-    Ok(Runner::new(workspace, database, cipher, shutdown))
+    let runner = Runner::new(
+        workspace.clone(),
+        services.database.clone(),
+        Arc::clone(&services.cipher),
+        shutdown,
+    );
+    let sessions = Sessions::new(SessionsDeps {
+        database: services.database,
+        cipher: services.cipher,
+        events: services.events,
+        runner: runner.clone(),
+        workspace,
+        grants: Grants::new(),
+        storage: services.storage,
+    });
+    Ok((runner, sessions))
 }
 
 /// The mail services. The broker and Stalwart share `http`.

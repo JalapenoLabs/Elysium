@@ -1,11 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/studio-items`: start an item and its first thread, with the prompt queued as
-//! the thread's first turn.
+//! `POST /api/v1/studio-items`: start an item and its session, with the prompt queued as the
+//! session's first turn.
 //!
 //! The item row is written first, because its session names it. A create either yields the
-//! item with its first turn queued or nothing: a thread the satellite refuses, or a first turn
-//! it refuses, takes the item back out.
+//! item with its first turn queued or nothing: a session that cannot be readied or a first
+//! turn that cannot be queued takes the item back out.
 
 use anyhow::Context;
 use axum::Json;
@@ -18,14 +18,13 @@ use tracing::{Level, event};
 use uuid::Uuid;
 use validator::Validate;
 
-use super::StudioItemResponse;
-use super::thread::studio_thread_settings;
+use super::{StudioItemResponse, session};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::models::coding_session;
 use crate::models::studio_item::{self, NewStudioItem};
-use crate::models::{project, satellite, storage_location};
+use crate::models::{project, storage_location};
 use crate::realtime::ServerEvent;
-use crate::routes::v1::coding_sessions::open::{self, SessionOpening};
 use crate::routes::v1::coding_sessions::{CodingSessionResponse, validate_not_blank};
 use crate::state::AppState;
 
@@ -46,7 +45,6 @@ pub struct RequestBody {
     title: Option<String>,
     project_id: Option<Uuid>,
     storage_location_id: Uuid,
-    satellite_id: Uuid,
 }
 
 pub async fn handle(
@@ -62,12 +60,10 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    // Everything the item names is looked up before a thread exists, so an unknown id
-    // answers here instead of after a thread was opened.
+    // Everything the item names is looked up first, so an unknown id answers here.
     if let Some(project_id) = body.project_id {
         project::find(&mut connection, project_id).await?;
     }
-    let satellite = satellite::find(&mut connection, body.satellite_id).await?;
     storage_location::find_for_project(&mut connection, body.storage_location_id, body.project_id)
         .await
         .map_err(|error| match error {
@@ -79,7 +75,6 @@ pub async fn handle(
         })?;
     drop(connection);
 
-    let settings = studio_thread_settings(&state, body.project_id).await?;
     let title = body.title.map_or_else(
         || title_from_prompt(&body.prompt),
         |title| title.trim().to_owned(),
@@ -104,33 +99,37 @@ pub async fn handle(
         .await?
     };
 
-    let opened = match open::open(
-        &state,
-        SessionOpening {
-            created_by: current.id(),
-            satellite_id: satellite.id,
-            settings,
-            title,
-            project_id: item.project_id,
-            github_credential_id: None,
-            action_item_id: None,
-            studio_item_id: Some(item.id),
-        },
-    )
-    .await
-    {
+    let opened = match session::open(&state, &item, current.id()).await {
         Ok(opened) => opened,
         Err(open_error) => {
             forget_item(&state, item.id).await;
             return Err(open_error);
         }
     };
-    if let Err(turn_error) = opened.handle.start_turn(body.prompt).await {
-        open::discard(&state, &opened).await;
+    if let Err(turn_error) = state
+        .sessions
+        .start_turn(&opened, body.prompt, session::turn_extras())
+        .await
+    {
+        state.sessions.remove(opened.id).await;
+        if let Ok(mut connection) = state.database.get().await
+            && let Err(error) = coding_session::delete(&mut connection, opened.id).await
+        {
+            event!(
+                name: "studio.create.orphaned_session",
+                Level::ERROR,
+                session.id = opened.id,
+                error.message = %error,
+                "could not remove a session whose first turn was refused; delete it by hand",
+            );
+        }
         forget_item(&state, item.id).await;
-        return Err(turn_error.into());
+        return Err(turn_error);
     }
-    open::announce(&state, &opened);
+    let session = CodingSessionResponse::new(opened.clone(), state.sessions.activity(opened.id));
+    state
+        .events
+        .publish(&ServerEvent::SessionUpserted(session.clone()));
 
     let response = StudioItemResponse::new(item, &[]);
     state
@@ -140,12 +139,12 @@ pub async fn handle(
         StatusCode::CREATED,
         Json(json!({
             "item": response,
-            "session": CodingSessionResponse::new(opened.session, Some(opened.thread)),
+            "session": session,
         })),
     ))
 }
 
-/// Removes an item whose first thread could not be opened. A row that will not go is logged;
+/// Removes an item whose session could not be started. A row that will not go is logged;
 /// it holds no files and shows in the grid as an item without a session.
 async fn forget_item(state: &AppState, id: Uuid) {
     let removed = match state.database.get().await {
@@ -160,7 +159,7 @@ async fn forget_item(state: &AppState, id: Uuid) {
             Level::ERROR,
             studio_item.id = %id,
             error.message = %error,
-            "could not remove an item whose thread was not opened; delete it by hand",
+            "could not remove an item whose session was not started; delete it by hand",
         );
     }
 }
@@ -208,11 +207,10 @@ mod tests {
     }
 
     #[test]
-    fn bodies_require_a_prompt_a_location_and_a_satellite() {
+    fn bodies_require_a_prompt_and_a_location() {
         let valid: RequestBody = serde_json::from_value(json!({
             "prompt": "Model me a banana",
             "storageLocationId": Uuid::nil(),
-            "satelliteId": Uuid::nil(),
         }))
         .expect("parses");
         valid.validate().expect("a project and title are optional");
@@ -220,7 +218,6 @@ mod tests {
         let blank: RequestBody = serde_json::from_value(json!({
             "prompt": "   ",
             "storageLocationId": Uuid::nil(),
-            "satelliteId": Uuid::nil(),
         }))
         .expect("parses");
         assert!(
@@ -233,8 +230,13 @@ mod tests {
 
         serde_json::from_value::<RequestBody>(json!({
             "prompt": "Model me a banana",
-            "satelliteId": Uuid::nil(),
         }))
         .expect_err("a storage location is required");
+        serde_json::from_value::<RequestBody>(json!({
+            "prompt": "Model me a banana",
+            "storageLocationId": Uuid::nil(),
+            "satelliteId": Uuid::nil(),
+        }))
+        .expect_err("satellites are gone, and a stray field is refused");
     }
 }

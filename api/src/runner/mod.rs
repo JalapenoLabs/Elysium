@@ -484,6 +484,7 @@ impl Executor {
                         command::REAP_SCRIPT,
                         &[TURNS_DIRECTORY],
                         Vec::new(),
+                        workspace::SCRIPT_TIMEOUT,
                     )
                     .await?;
                 if reaped.exit_code != Some(0) {

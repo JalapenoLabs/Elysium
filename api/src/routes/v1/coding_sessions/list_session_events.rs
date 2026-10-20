@@ -2,8 +2,8 @@
 
 //! `GET /api/v1/coding-sessions/{id}/events`: the session's kept event history.
 //!
-//! Elysium records every event its session watcher receives (`crate::fleet`), so history is
-//! read from Postgres and outlives the thread. Events after the response arrive live on the
+//! Elysium records every event a session's turns report (`crate::sessions`), so history is
+//! read from Postgres. Events after the response arrive live on the
 //! event stream; clients merge the two on `sequence`. Only the latest [`HISTORY_LIMIT`] are
 //! returned.
 
@@ -17,7 +17,8 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::errors::ApiError;
-use crate::fleet::views::SessionEvent;
+use crate::models::session_event::StoredEvent;
+use crate::sessions::views::SessionEvent;
 use crate::models::{coding_session, session_event};
 use crate::state::AppState;
 
@@ -44,7 +45,7 @@ pub struct EventWindow {
     /// Which end of the window is answered when more events match than `limit`.
     pub keep: Keep,
     /// Keeps only events Elysium renders (messages, tools, turns, plans, questions,
-    /// incidents), leaving out the satellite's bookkeeping.
+    /// incidents), leaving out bookkeeping such as rate limit notices.
     pub rendered_only: bool,
 }
 
@@ -170,11 +171,11 @@ pub async fn read_events(
     // The conversation view's read, every event from the start keeping the latest, is the
     // common one and the costliest; the database answers it with only the rows it keeps.
     if window.after_sequence == 0 && window.keep == Keep::Latest && !window.rendered_only {
-        let (thread_events, truncated) =
+        let (stored_events, truncated) =
             session_event::latest(&mut connection, id, window.limit).await?;
-        let events = thread_events
-            .into_iter()
-            .map(|thread_event| SessionEvent::new(id, thread_event))
+        let events = stored_events
+            .iter()
+            .map(|stored| view(id, stored))
             .collect();
         return Ok(EventPage {
             events,
@@ -184,19 +185,30 @@ pub async fn read_events(
         });
     }
 
-    let thread_events = session_event::after(&mut connection, id, window.after_sequence).await?;
-    for thread_event in thread_events {
-        if collector.offer(SessionEvent::new(id, thread_event)) == Flow::Stop {
+    let stored_events = session_event::after(&mut connection, id, window.after_sequence).await?;
+    for stored in &stored_events {
+        if collector.offer(view(id, stored)) == Flow::Stop {
             break;
         }
     }
     Ok(collector.finish(latest_sequence))
 }
 
+/// The view clients render of a stored event.
+fn view(session_id: i64, stored: &StoredEvent) -> SessionEvent {
+    SessionEvent::new(
+        session_id,
+        stored.sequence,
+        stored.turn_id,
+        stored.occurred_at,
+        &stored.event,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fleet::views::EventPayload;
+    use crate::sessions::views::EventPayload;
 
     fn event(sequence: u64, rendered: bool) -> SessionEvent {
         SessionEvent {
@@ -204,10 +216,8 @@ mod tests {
             sequence,
             turn_id: None,
             occurred_at: None,
-            event_type: "agent.message".to_owned(),
-            member_id: None,
+            event_type: "agent.message",
             payload: rendered.then(|| EventPayload::AgentMessage {
-                author: None,
                 text: format!("message {sequence}"),
             }),
         }

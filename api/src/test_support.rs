@@ -113,7 +113,7 @@ pub async fn app_state(database_url: &SecretString) -> crate::state::AppState {
 }
 
 /// [`app_state`] keeping files through `storage`, such as the storage module's fake Bunny
-/// zone. The fleet is built with it too, so the files its watchers keep land there as well.
+/// zone. The sessions service is built with it too, so the files Studio keeps land there.
 ///
 /// # Panics
 /// Panics when `TEST_REDIS_URL` is unset or Redis refuses the connection.
@@ -127,7 +127,6 @@ pub async fn app_state_with_storage(
 
     use crate::action_items::links::Links;
     use crate::config::{Config, MailConfig};
-    use crate::fleet::Fleet;
     use crate::github::Github;
     use crate::jira::Jira;
     use crate::realtime::EventBus;
@@ -173,14 +172,6 @@ pub async fn app_state_with_storage(
     let github = Github::new(http.clone());
     let jira = Jira::new(http.clone());
     let links = Links::new(database.clone(), Arc::clone(&cipher), &jira, &github);
-    let fleet = Fleet::new(
-        database.clone(),
-        Arc::clone(&cipher),
-        events.clone(),
-        storage.clone(),
-        links.clone(),
-        shutdown.clone(),
-    );
     let mail = crate::server::build_mail(
         &config,
         http.clone(),
@@ -190,9 +181,17 @@ pub async fn app_state_with_storage(
     )
     .expect("mail services build without reaching anything");
 
-    let runner =
-        crate::server::build_runner(&config, database.clone(), Arc::clone(&cipher), &shutdown)
-            .expect("the runner builds without reaching Docker");
+    let (runner, sessions) = crate::server::build_agents(
+        &config,
+        crate::server::AgentServices {
+            database: database.clone(),
+            cipher: Arc::clone(&cipher),
+            events: events.clone(),
+            storage: storage.clone(),
+        },
+        &shutdown,
+    )
+    .expect("the runner builds without reaching Docker");
 
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
@@ -201,12 +200,12 @@ pub async fn app_state_with_storage(
         cipher,
         version: Arc::new(VersionInfo::from_build().expect("build metadata parses")),
         events,
-        fleet,
         github,
         jira,
         links,
         mail,
         runner,
+        sessions,
         storage,
         shutdown,
     }
@@ -261,25 +260,21 @@ pub fn multipart_form(parts: &[(&str, &[u8])]) -> (String, Vec<u8>) {
 /// What [`studio_item_with_session`] creates.
 #[derive(Debug)]
 pub struct StudioFixture {
-    pub satellite_id: Uuid,
     pub item: crate::models::studio_item::StudioItem,
-    /// The item's one session, on the satellite's [`THREAD_ID`](crate::fleet::fake_satellite::THREAD_ID).
+    /// The item's one session.
     pub session: crate::models::coding_session::CodingSession,
 }
 
 /// A Studio item named "Banana", first asked to "Model a banana", whose files go to the storage
-/// module's fake Bunny zone, with one session on a satellite at `satellite_url`.
+/// module's fake Bunny zone, with one session.
 ///
 /// Secrets are sealed with `cipher`, which must be the one the code under test opens them with.
 pub async fn studio_item_with_session(
     connection: &mut AsyncPgConnection,
     cipher: &Cipher,
-    satellite_url: &str,
 ) -> StudioFixture {
-    use crate::fleet::fake_satellite::THREAD_ID;
     use crate::models::coding_session::{self, NewCodingSession};
     use crate::models::project::ProjectScope;
-    use crate::models::satellite::{self, NewSatellite};
     use crate::models::storage_location::{
         self, BunnyStorageRegion, NewStorageLocation, StorageProvider,
     };
@@ -317,33 +312,15 @@ pub async fn studio_item_with_session(
     )
     .await
     .expect("item");
-    let satellite_id = satellite::create(
-        connection,
-        cipher,
-        &NewSatellite {
-            created_by: TEST_PERSON_ID,
-            name: "orbit".to_owned(),
-            description: String::new(),
-            url: satellite_url.to_owned(),
-            secret: SecretString::from("satellite-secret"),
-            is_active: true,
-        },
-    )
-    .await
-    .expect("satellite")
-    .id;
-    let session_id = coding_session::reserve_id(connection)
-        .await
-        .expect("reserve");
     let session = coding_session::create(
         connection,
         &NewCodingSession {
             created_by: TEST_PERSON_ID,
-            id: session_id,
+            id: coding_session::reserve_id(connection)
+                .await
+                .expect("reserve"),
             project_id: None,
-            satellite_id,
-            thread_id: THREAD_ID.to_owned(),
-            title: "Banana".to_owned(),
+            title: item.title.clone(),
             github_credential_id: None,
             action_item_id: None,
             studio_item_id: Some(item.id),
@@ -351,9 +328,5 @@ pub async fn studio_item_with_session(
     )
     .await
     .expect("session");
-    StudioFixture {
-        satellite_id,
-        item,
-        session,
-    }
+    StudioFixture { item, session }
 }

@@ -2,15 +2,14 @@
 
 //! How an agent's deliverables reach its Studio item.
 //!
-//! At the end of every turn the satellite scans the workspace's `artifacts/` and announces
-//! each file that is new or changed (`ArtifactCreated`). The session watcher hands each
-//! announcement here, and [`keep`] streams the file out of the workspace into the item's
-//! storage location, records it, and tells clients. Nothing is held in memory.
+//! After every turn of a Studio session, [`collect`] exports a `.glb` beside every `.blend`
+//! the agent left in `artifacts/`, then lists that directory with each file's size and hash,
+//! and [`keep`] streams every file the item does not hold yet out of the workspace into the
+//! item's storage location, records it, and tells clients. Nothing is held in memory.
 //!
-//! The satellite hashed the file when it scanned, but the agent owns the workspace and may
-//! change the file before Elysium reads it. So the bytes are hashed again as they stream,
-//! and a file that no longer matches its announcement is dropped from storage and not
-//! recorded: the change is announced at the end of the turn that made it.
+//! The agent owns the workspace and may change a file between the listing and the read, so
+//! the bytes are hashed again as they stream, and a file that no longer matches its listing
+//! is dropped from storage and not recorded: the next turn's listing finds it.
 //!
 //! A file that cannot be kept (over the location's storage limit, refused by the provider)
 //! is recorded on the item as its `pull_error`, which the item page shows, and the next file
@@ -18,8 +17,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use arsox_sdk::client::ThreadHandle;
-use arsox_sdk::proto::artifact::v1::Artifact;
+use std::time::Duration;
+
 use bytes::Bytes;
 use futures_util::StreamExt as _;
 use sha2::{Digest as _, Sha256};
@@ -35,12 +34,72 @@ use crate::models::studio_reservation::{self, Room};
 use crate::models::user::CODING_AGENT_USER_ID;
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::studio_items::{StudioAssetResponse, StudioItemResponse};
+use crate::runner::WorkspacePath;
+use crate::runner::files::ListedFile;
+use crate::runner::workspace::{AGENT_USER, WorkspaceContainer};
 use crate::storage::{Storage, StorageError};
+
+/// The directory of a session's workspace whose files are the item's deliverables.
+const ARTIFACTS_DIRECTORY: &str = "artifacts";
+
+/// Exports every `.blend` in `artifacts/` to a `.glb` beside it (`/opt/elysium/bin/export-glb`
+/// in the workspace image). `$1` is the session's directory.
+const EXPORT_SCRIPT: &str = r#"cd -- "$1" && exec /opt/elysium/bin/export-glb"#;
+
+/// How long exporting may take after a turn. The exporter allows each model ten minutes; a
+/// turn that left several dense scenes is still bounded.
+const EXPORT_TIMEOUT: Duration = Duration::from_mins(30);
+
+/// Media types by extension, for files whose type the item's viewer and storage provider need.
+/// Anything else is stored without one.
+const CONTENT_TYPE_BY_EXTENSION: &[(&str, &str)] = &[
+    ("glb", "model/gltf-binary"),
+    ("gltf", "model/gltf+json"),
+    ("png", "image/png"),
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("webp", "image/webp"),
+    ("gif", "image/gif"),
+    ("svg", "image/svg+xml"),
+    ("blend", "application/x-blender"),
+];
+
+/// One file in `artifacts/`, as the listing found it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Artifact {
+    /// Relative to `artifacts/`.
+    pub path: String,
+    pub size_bytes: u64,
+    /// Lowercase hex.
+    pub sha256: String,
+    pub content_type: Option<String>,
+}
+
+impl From<ListedFile> for Artifact {
+    fn from(listed: ListedFile) -> Self {
+        let content_type = listed
+            .path
+            .rsplit_once('.')
+            .map(|(_stem, extension)| extension.to_ascii_lowercase())
+            .and_then(|extension| {
+                CONTENT_TYPE_BY_EXTENSION
+                    .iter()
+                    .find(|(known, _type)| *known == extension)
+                    .map(|(_known, content_type)| (*content_type).to_owned())
+            });
+        Self {
+            path: listed.path,
+            size_bytes: listed.size_bytes,
+            sha256: listed.sha256,
+            content_type,
+        }
+    }
+}
 
 /// Hasher locks are held only to feed one chunk or read the digest, never across an await.
 const HASHER_POISONED: &str = "artifact hasher lock poisoned by an earlier panic";
 
-/// What keeping a file uses. Borrowed from the fleet, which owns them.
+/// What keeping a file uses. Borrowed from the sessions service, which owns them.
 #[derive(Clone, Copy)]
 pub struct Services<'services> {
     pub database: &'services Pool,
@@ -63,12 +122,13 @@ impl std::fmt::Debug for Services<'_> {
     }
 }
 
-/// Which session's workspace a file comes from, and the item it belongs to.
+/// Which session's directory a file comes from, and the item it belongs to.
 #[derive(Debug, Clone, Copy)]
 pub struct Source<'source> {
     pub session_id: i64,
     pub studio_item_id: Uuid,
-    pub workspace: &'source ThreadHandle,
+    pub workspace: &'source WorkspaceContainer,
+    pub directory: &'source WorkspacePath,
 }
 
 /// How keeping one file went.
@@ -78,8 +138,8 @@ pub enum Kept {
     New(StudioAsset),
     /// The item already holds this version of this path.
     AlreadyHeld,
-    /// The file changed after the satellite announced it, so it was not kept.
-    ChangedSinceAnnounced,
+    /// The file changed after it was listed, so it was not kept.
+    ChangedSinceListed,
 }
 
 /// Why a file could not be kept. `Display` is what the item page shows.
@@ -111,13 +171,13 @@ pub enum KeepError {
     },
 }
 
-/// Keeps one announced file for its item, and records the outcome on the item: a failure
+/// Keeps one listed file for its item, and records the outcome on the item: a failure
 /// becomes its `pull_error`, and a kept file clears it.
 pub async fn keep_and_report(services: Services<'_>, source: Source<'_>, artifact: &Artifact) {
     let outcome = keep(services, source, artifact).await;
     let pull_error = match &outcome {
         Ok(Kept::New(_)) => None,
-        Ok(Kept::AlreadyHeld | Kept::ChangedSinceAnnounced) => return,
+        Ok(Kept::AlreadyHeld | Kept::ChangedSinceListed) => return,
         Err(error) => {
             event!(
                 name: "studio.artifact.keep_failure",
@@ -158,7 +218,7 @@ pub async fn keep_and_report(services: Services<'_>, source: Source<'_>, artifac
     }
 }
 
-/// Streams one announced file from the workspace into the item's storage location and
+/// Streams one listed file from the workspace into the item's storage location and
 /// records it.
 ///
 /// # Errors
@@ -210,7 +270,7 @@ pub async fn keep(
     let kept = match stream_into_storage(services, source, artifact, &location, storage_path).await
     {
         Ok(Some(stored)) => record(services, source, artifact, stored).await,
-        Ok(None) => Ok(Kept::ChangedSinceAnnounced),
+        Ok(None) => Ok(Kept::ChangedSinceListed),
         Err(error) => Err(error),
     };
     release_room(services, room).await;
@@ -302,7 +362,7 @@ async fn release_room(services: Services<'_>, room: Room) {
 
 /// Streams the file from the workspace into storage at `storage_path`, hashing it as it
 /// passes. Answers `None`, with nothing left in storage, when the bytes are not the ones
-/// announced.
+/// listed.
 async fn stream_into_storage(
     services: Services<'_>,
     source: Source<'_>,
@@ -318,22 +378,22 @@ async fn stream_into_storage(
     })?;
     let file = source
         .workspace
-        .read_file(&format!("artifacts/{}", artifact.path))
+        .read_file(
+            source.directory,
+            &format!("{ARTIFACTS_DIRECTORY}/{}", artifact.path),
+        )
         .await
         .map_err(|error| KeepError::Workspace {
             path: artifact.path.clone(),
             message: error.to_string(),
         })?;
-    let content_length = file.content_length();
-    let content_type = artifact
-        .content_type
-        .clone()
-        .or_else(|| file.content_type().map(ToOwned::to_owned));
+    let content_length = file.content_length;
+    let content_type = artifact.content_type.clone();
 
-    // Hash the bytes as they stream past, to learn whether they are the ones announced.
+    // Hash the bytes as they stream past, to learn whether they are the ones listed.
     let hasher = Arc::new(Mutex::new(Sha256::new()));
     let streamed_hasher = Arc::clone(&hasher);
-    let body = file.into_body().map(move |chunk| {
+    let body = file.body.map(move |chunk| {
         if let Ok(bytes) = &chunk {
             streamed_hasher.lock().expect(HASHER_POISONED).update(bytes);
         }
@@ -365,7 +425,7 @@ async fn stream_into_storage(
         }));
     }
 
-    // The object is named by the announced hash but holds other bytes; it must not stay. No
+    // The object is named by the listed hash but holds other bytes; it must not stay. No
     // other row names it: an object already kept is never uploaded over (see `keep`).
     if let Err(error) = services
         .storage
@@ -409,34 +469,67 @@ async fn record(
     let recorded = studio_asset::create(&mut connection, &new_asset)
         .await
         .map_err(|error| internal(artifact, error.into()))?;
-    // A concurrent pull of the same version (a replayed event beside a reconcile) recorded it
-    // first; the bytes are the same, so nothing more is needed.
+    // A concurrent collection of the same version recorded it first; the bytes are the same,
+    // so nothing more is needed.
     Ok(recorded.map_or(Kept::AlreadyHeld, Kept::New))
 }
 
-/// Pulls every file the thread's `artifacts/` holds that its item has not kept yet.
+/// Collects what a turn delivered: exports a `.glb` for every `.blend`, then keeps every file
+/// in `artifacts/` the item does not hold yet.
 ///
-/// Announcements can be missed: a stream that dropped past what the satellite still retains,
-/// or a turn that ended while Elysium was down. So whenever the watcher attaches to a Studio
-/// thread it lists the thread's artifacts and keeps each one. Keeping is idempotent, so a file
-/// already kept costs one lookup. A listing that fails is logged; the next attach tries again.
-pub async fn reconcile(services: Services<'_>, source: Source<'_>) {
-    let artifacts = match source.workspace.artifacts().await {
-        Ok(artifacts) => artifacts,
+/// Keeping is idempotent, so a file already kept costs one lookup. An export or listing that
+/// fails is logged; the next turn collects again.
+pub async fn collect(services: Services<'_>, source: Source<'_>) {
+    let exported = source
+        .workspace
+        .run_script(
+            AGENT_USER,
+            EXPORT_SCRIPT,
+            &[&source.directory.absolute()],
+            Vec::new(),
+            EXPORT_TIMEOUT,
+        )
+        .await;
+    match exported {
+        Ok(output) if output.exit_code == Some(0) => {}
+        Ok(output) => event!(
+            name: "studio.artifact.export_failure",
+            Level::WARN,
+            session.id = source.session_id,
+            studio_item.id = %source.studio_item_id,
+            error.message = %output.output.trim(),
+            "a model could not be exported to glTF; its .blend is still kept",
+        ),
+        Err(error) => event!(
+            name: "studio.artifact.export_failure",
+            Level::WARN,
+            session.id = source.session_id,
+            studio_item.id = %source.studio_item_id,
+            error.message = %error,
+            "the glTF export could not run; every .blend is still kept",
+        ),
+    }
+
+    let listed = match source
+        .workspace
+        .list_files(source.directory, ARTIFACTS_DIRECTORY)
+        .await
+    {
+        Ok(listed) => listed,
         Err(error) => {
             event!(
-                name: "studio.artifact.reconcile_failure",
+                name: "studio.artifact.listing_failure",
                 Level::WARN,
                 session.id = source.session_id,
                 studio_item.id = %source.studio_item_id,
                 error.message = %error,
-                "could not list a Studio thread's artifacts to reconcile them",
+                "could not list a Studio session's artifacts",
             );
             return;
         }
     };
-    for artifact in &artifacts {
-        keep_and_report(services, source, artifact).await;
+    for listed_file in listed {
+        keep_and_report(services, source, &Artifact::from(listed_file)).await;
     }
 }
 
@@ -475,4 +568,27 @@ async fn report(
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_listed_file_takes_its_media_type_from_its_extension() {
+        let listed = |path: &str| {
+            Artifact::from(ListedFile {
+                path: path.to_owned(),
+                size_bytes: 1,
+                sha256: "abc".to_owned(),
+            })
+        };
+        assert_eq!(
+            listed("banana.GLB").content_type.as_deref(),
+            Some("model/gltf-binary")
+        );
+        assert_eq!(
+            listed("renders/banana-hero.png").content_type.as_deref(),
+            Some("image/png")
+        );
+        assert_eq!(listed("notes").content_type, None);
+        assert_eq!(listed("archive.tar.zst").content_type, None);
+    }
+}

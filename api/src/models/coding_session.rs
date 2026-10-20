@@ -1,33 +1,20 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Coding sessions: Elysium's record of an Arsox thread on a satellite.
+//! Coding sessions: an agent's directory in the workspace and the conversation its turns
+//! continue.
 //!
-//! The row points at the thread; the thread's live state and turns are read from the
-//! satellite (see `crate::fleet`). What must outlive the thread, its events and its harness
-//! session, Elysium keeps beside the row (`session_event`, `session_transcript`).
+//! The row is the session; its turns run on the runner (`crate::sessions`), its files live in
+//! the workspace under `sessions/<id>`, and its events are kept beside the row
+//! (`session_event`).
 
 use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
 use diesel::prelude::*;
 use diesel::sql_types::BigInt;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
-use serde::Serialize;
 use uuid::Uuid;
 
 use crate::database::schema::coding_sessions;
-
-/// How a session that continued its Studio item carries the item's past into its new thread.
-/// See `docs/studio.md`, Continuing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, diesel_derive_enum::DbEnum, Serialize)]
-#[ExistingTypePath = "crate::database::schema::sql_types::SessionContinuation"]
-#[serde(rename_all = "kebab-case")]
-pub enum SessionContinuation {
-    /// The harness's own conversation was imported, so the agent resumes with full context.
-    Imported,
-    /// The first turn carried a brief instead: the first prompt, the feedback so far, and the
-    /// thumbnail.
-    Brief,
-}
 
 /// A stored session.
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable, Insertable)]
@@ -35,17 +22,13 @@ pub enum SessionContinuation {
 pub struct CodingSession {
     /// The session's number: 1, 2, 3, ... in the order sessions were started.
     pub id: i64,
-    /// The satellite the thread runs on, or `None` once that satellite was deleted. The
-    /// session keeps its history and can be continued elsewhere.
-    pub satellite_id: Option<Uuid>,
-    pub thread_id: String,
     pub title: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     /// Always set for a Coding session; a Studio session has its item's, which is optional.
     pub project_id: Option<Uuid>,
-    /// The GitHub token the thread was started with, or `None` for no token or one that
-    /// has since been deleted.
+    /// The GitHub token the session works with, or `None` for no token or one that has since
+    /// been deleted.
     pub github_credential_id: Option<Uuid>,
     /// The action item the session was started from, if any.
     pub action_item_id: Option<Uuid>,
@@ -53,19 +36,18 @@ pub struct CodingSession {
     pub studio_item_id: Option<Uuid>,
     /// Who created it.
     pub created_by: Uuid,
-    /// How it continued its item, or `None` for a session that continued nothing.
-    pub continuation: Option<SessionContinuation>,
+    /// Claude Code's id for the conversation, which the next turn resumes; `None` until the
+    /// first turn reports it.
+    pub harness_session_id: Option<String>,
 }
 
-/// Fields for a new session. The id comes from [`reserve_id`], because the thread is
-/// opened before the row exists and carries the number in its metadata.
+/// Fields for a new session. The id comes from [`reserve_id`], so the session's directory can
+/// be named before the row exists.
 #[derive(Debug, Insertable)]
 #[diesel(table_name = coding_sessions)]
 pub struct NewCodingSession {
     pub id: i64,
     pub project_id: Option<Uuid>,
-    pub satellite_id: Uuid,
-    pub thread_id: String,
     pub title: String,
     pub github_credential_id: Option<Uuid>,
     pub action_item_id: Option<Uuid>,
@@ -116,26 +98,11 @@ pub async fn list_for_studio_items(
         .await
 }
 
-/// Every session recorded against one satellite.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn list_for_satellite(
-    connection: &mut AsyncPgConnection,
-    satellite_id: Uuid,
-) -> QueryResult<Vec<CodingSession>> {
-    coding_sessions::table
-        .filter(coding_sessions::satellite_id.eq(satellite_id))
-        .select(CodingSession::as_select())
-        .load(connection)
-        .await
-}
-
 /// Takes the next session number for a session that is about to be created.
 ///
 /// A number is taken for good, even when the session is never recorded, so a create
 /// that fails after this leaves a gap in the numbering. Sequences never hand a number
-/// out twice, which is what lets the thread carry it before the row exists.
+/// out twice.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -162,8 +129,7 @@ pub async fn find(connection: &mut AsyncPgConnection, id: i64) -> QueryResult<Co
 /// Records a session.
 ///
 /// # Errors
-/// Propagates database errors, including a foreign key violation for an unknown
-/// project or satellite and a unique violation for a thread that is already recorded.
+/// Propagates database errors, including a foreign key violation for an unknown project.
 pub async fn create(
     connection: &mut AsyncPgConnection,
     new_session: &NewCodingSession,
@@ -191,17 +157,17 @@ pub async fn rename(
         .await
 }
 
-/// Records how a session continued its Studio item.
+/// Records the Claude session a session's turns continue.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] when no row has that id.
-pub async fn set_continuation(
+pub async fn set_harness_session_id(
     connection: &mut AsyncPgConnection,
     id: i64,
-    continuation: SessionContinuation,
+    harness_session_id: &str,
 ) -> QueryResult<CodingSession> {
     diesel::update(coding_sessions::table.find(id))
-        .set(coding_sessions::continuation.eq(Some(continuation)))
+        .set(coding_sessions::harness_session_id.eq(Some(harness_session_id)))
         .returning(CodingSession::as_returning())
         .get_result(connection)
         .await
@@ -223,28 +189,9 @@ pub async fn delete(connection: &mut AsyncPgConnection, id: i64) -> QueryResult<
 
 #[cfg(test)]
 mod tests {
-    use secrecy::SecretString;
-
     use super::*;
-    use crate::errors::ApiError;
     use crate::models::project::{self, NewProject};
-    use crate::models::satellite::{self, NewSatellite};
     use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, cipher, migrated_database};
-
-    async fn satellite_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
-        let new_satellite = NewSatellite {
-            created_by: TEST_PERSON_ID,
-            name: name.to_owned(),
-            description: String::new(),
-            url: "http://arsox:8080".to_owned(),
-            secret: SecretString::from("bearer"),
-            is_active: true,
-        };
-        satellite::create(connection, &cipher(), &new_satellite)
-            .await
-            .expect("insert satellite")
-            .id
-    }
 
     async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
         let new_project = NewProject {
@@ -262,16 +209,13 @@ mod tests {
     async fn record(
         connection: &mut AsyncPgConnection,
         project_id: Uuid,
-        satellite_id: Uuid,
-        thread_id: &str,
+        title: &str,
     ) -> QueryResult<CodingSession> {
         let new_session = NewCodingSession {
             created_by: TEST_PERSON_ID,
             id: reserve_id(connection).await?,
             project_id: Some(project_id),
-            satellite_id,
-            thread_id: thread_id.to_owned(),
-            title: format!("Session on {thread_id}"),
+            title: title.to_owned(),
             github_credential_id: None,
             action_item_id: None,
             studio_item_id: None,
@@ -284,18 +228,17 @@ mod tests {
     async fn sessions_are_numbered_from_one_and_a_reserved_number_is_never_reused() {
         let (_url, mut connection) = migrated_database().await;
         let project = project_named(&mut connection, "Elysium").await;
-        let orbit = satellite_named(&mut connection, "orbit").await;
 
-        let first = record(&mut connection, project, orbit, "thread-a")
+        let first = record(&mut connection, project, "First")
             .await
             .expect("insert");
         assert_eq!(first.id, 1);
 
-        // A create that fails after reserving, such as a satellite refusing the thread.
+        // A create that fails after reserving, such as a repository that would not clone.
         let abandoned = reserve_id(&mut connection).await.expect("reserve");
         assert_eq!(abandoned, 2);
 
-        let next = record(&mut connection, project, orbit, "thread-b")
+        let next = record(&mut connection, project, "Second")
             .await
             .expect("insert");
         assert_eq!(next.id, 3);
@@ -303,17 +246,15 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn sessions_list_newest_first_and_filter_by_satellite() {
+    async fn sessions_list_newest_first() {
         let (_url, mut connection) = migrated_database().await;
         let project = project_named(&mut connection, "Elysium").await;
-        let orbit = satellite_named(&mut connection, "orbit").await;
-        let lagrange = satellite_named(&mut connection, "lagrange").await;
 
-        let older = record(&mut connection, project, orbit, "thread-a")
+        let older = record(&mut connection, project, "First")
             .await
             .expect("insert");
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-        let newer = record(&mut connection, project, lagrange, "thread-b")
+        let newer = record(&mut connection, project, "Second")
             .await
             .expect("insert");
 
@@ -324,59 +265,35 @@ mod tests {
             .map(|session| session.id)
             .collect();
         assert_eq!(ids, vec![newer.id, older.id]);
-
-        let on_orbit = list_for_satellite(&mut connection, orbit)
-            .await
-            .expect("list");
-        assert_eq!(on_orbit.len(), 1);
-        assert_eq!(on_orbit[0].thread_id, "thread-a");
     }
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn a_thread_is_recorded_once_and_unknown_parents_are_refused() {
+    async fn an_unknown_project_is_refused() {
         let (_url, mut connection) = migrated_database().await;
-        let project = project_named(&mut connection, "Elysium").await;
-        let orbit = satellite_named(&mut connection, "orbit").await;
-
-        record(&mut connection, project, orbit, "thread-a")
-            .await
-            .expect("insert");
-        let duplicate = record(&mut connection, project, orbit, "thread-a")
-            .await
-            .unwrap_err();
-        assert!(matches!(ApiError::from(duplicate), ApiError::Conflict(_)));
-
-        record(&mut connection, project, Uuid::now_v7(), "thread-b")
-            .await
-            .expect_err("the foreign key refuses a satellite that does not exist");
-        record(&mut connection, Uuid::now_v7(), orbit, "thread-c")
+        record(&mut connection, Uuid::now_v7(), "Orphan")
             .await
             .expect_err("the foreign key refuses a project that does not exist");
     }
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn deleting_a_satellite_keeps_its_sessions_without_it() {
+    async fn a_session_is_renamed_and_keeps_the_claude_session_it_continues() {
         let (_url, mut connection) = migrated_database().await;
         let project = project_named(&mut connection, "Elysium").await;
-        let orbit = satellite_named(&mut connection, "orbit").await;
-        let session = record(&mut connection, project, orbit, "thread-a")
+        let session = record(&mut connection, project, "First")
             .await
             .expect("insert");
+        assert_eq!(session.harness_session_id, None);
 
         let renamed = rename(&mut connection, session.id, "Renamed")
             .await
             .expect("rename");
         assert_eq!(renamed.title, "Renamed");
-
-        // Elysium keeps a session's history; only the pointer to the satellite goes.
-        satellite::delete(&mut connection, orbit)
+        let resumed = set_harness_session_id(&mut connection, session.id, "0f8d-session")
             .await
-            .expect("delete satellite");
-        let kept = find(&mut connection, session.id).await.expect("kept");
-        assert_eq!(kept.satellite_id, None);
-        assert_eq!(kept.title, "Renamed");
+            .expect("set");
+        assert_eq!(resumed.harness_session_id.as_deref(), Some("0f8d-session"));
     }
 
     #[tokio::test]
@@ -385,7 +302,6 @@ mod tests {
         use crate::models::studio_item::{self, NewStudioItem};
 
         let (_url, mut connection) = migrated_database().await;
-        let orbit = satellite_named(&mut connection, "orbit").await;
         let location = crate::models::storage_location::create(
             &mut connection,
             &cipher(),
@@ -411,8 +327,6 @@ mod tests {
             created_by: crate::test_support::TEST_PERSON_ID,
             id: reserve_id(&mut connection).await.expect("reserve"),
             project_id: None,
-            satellite_id: orbit,
-            thread_id: "thread-a".to_owned(),
             title: "No project".to_owned(),
             github_credential_id: None,
             action_item_id: None,
@@ -444,8 +358,7 @@ mod tests {
     async fn a_project_with_sessions_cannot_be_deleted() {
         let (_url, mut connection) = migrated_database().await;
         let project = project_named(&mut connection, "Elysium").await;
-        let orbit = satellite_named(&mut connection, "orbit").await;
-        let session = record(&mut connection, project, orbit, "thread-a")
+        let session = record(&mut connection, project, "First")
             .await
             .expect("insert");
 
@@ -476,7 +389,6 @@ mod tests {
 
         let (_url, mut connection) = migrated_database().await;
         let project = project_named(&mut connection, "Elysium").await;
-        let orbit = satellite_named(&mut connection, "orbit").await;
         let new_item = NewActionItem {
             title: "Fix the login bug".to_owned(),
             notes: String::new(),
@@ -496,8 +408,6 @@ mod tests {
             created_by: TEST_PERSON_ID,
             id: reserve_id(&mut connection).await.expect("reserve"),
             project_id: Some(project),
-            satellite_id: orbit,
-            thread_id: "thread-a".to_owned(),
             title: "Fix the login bug".to_owned(),
             github_credential_id: None,
             action_item_id: Some(item.id),

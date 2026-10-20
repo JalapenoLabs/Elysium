@@ -1,24 +1,19 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! How a thread's agent gets its GitHub token.
+//! How a session's agent gets its GitHub token.
 //!
 //! A session starts with one token, chosen at three levels: the workspace default, the
 //! project's choice, and the session's own choice when it is created. The token reaches
-//! the agent as `GH_TOKEN`, which `gh` reads on its own. Plain `git` does not, so the
-//! thread also declares git config through the environment (`GIT_CONFIG_COUNT`, git 2.31
-//! and later) that makes `gh` git's credential helper for github.com. Nothing is written
-//! into the workspace, and no satellite change is needed.
+//! the agent as `GH_TOKEN`, which `gh` reads on its own. Plain `git` does not, so every turn
+//! also carries git config through the environment (`GIT_CONFIG_COUNT`, git 2.31 and later)
+//! that makes `gh` git's credential helper for github.com. Nothing is written into the
+//! workspace. The session's repositories are cloned with the same environment.
 //!
-//! The same token is lent to the satellite's own clone of the session's repository, which
-//! runs before the agent does and does not see the agent's environment.
-//!
-//! An agent can read every variable in its environment. The satellite scrubs `GH_TOKEN`
-//! from what it reports because the variable is declared secret, but the agent holds the
-//! token, which is why a session's token should be scoped to what the session needs.
+//! An agent can read every variable in its environment. Elysium scrubs the token from what it
+//! records and shows of a turn (`crate::sessions`), but the agent holds the token, which is
+//! why a session's token should be scoped to what the session needs.
 
 use anyhow::Context;
-use arsox_sdk::proto::common::v1::Secret;
-use arsox_sdk::proto::settings::v1::{EnvVar, GitAuth, GithubIntegration, git_auth};
 use diesel::result::Error as DieselError;
 use diesel_async::AsyncPgConnection;
 use secrecy::{ExposeSecret, SecretString};
@@ -29,8 +24,9 @@ use crate::errors::ApiError;
 use crate::github::Repository;
 use crate::models::github_credential;
 use crate::models::project::Project;
+use crate::runner::EnvironmentEntry;
 
-/// The git config the thread declares, in order. The empty helper first clears any helper
+/// The git config every turn carries, in order. The empty helper first clears any helper
 /// configured elsewhere for github.com, as `gh auth setup-git` does, so git asks only `gh`.
 const GIT_CONFIG: [(&str, &str); 2] = [
     ("credential.https://github.com.helper", ""),
@@ -76,7 +72,7 @@ impl SessionChoice {
     }
 }
 
-/// The token a session starts with, opened and ready to hand to its thread.
+/// The token a session starts with, opened and ready to hand to its agent.
 #[derive(Debug)]
 pub struct SessionToken {
     pub credential_id: Uuid,
@@ -119,35 +115,47 @@ pub async fn open(
     }))
 }
 
+/// Opens the token a session was started with, or `None` for a session without one or whose
+/// token has since been deleted.
+///
+/// # Errors
+/// Propagates any database error, and refuses a token that cannot be decrypted: the agent
+/// would work without the access it was promised.
+pub async fn open_for_session(
+    connection: &mut AsyncPgConnection,
+    cipher: &Cipher,
+    credential_id: Option<Uuid>,
+) -> Result<Option<SecretString>, ApiError> {
+    let Some(credential_id) = credential_id else {
+        return Ok(None);
+    };
+    let credential = match github_credential::find(connection, credential_id).await {
+        Ok(credential) => credential,
+        Err(DieselError::NotFound) => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let token = credential
+        .token(cipher)
+        .context("the stored GitHub token cannot be decrypted")?;
+    Ok(Some(token))
+}
+
 /// The variables that give the agent the token: `GH_TOKEN` for `gh`, and the git config
 /// that routes `git` through `gh`.
-pub fn thread_environment(token: &SecretString) -> Vec<EnvVar> {
-    let mut environment = vec![EnvVar {
+pub fn environment(token: &SecretString) -> Vec<EnvironmentEntry> {
+    let mut environment = vec![EnvironmentEntry {
         key: "GH_TOKEN".to_owned(),
-        value: Some(secret(token.expose_secret())),
-        is_secret: Some(true),
+        value: SecretString::from(token.expose_secret().to_owned()),
     }];
-
-    environment.push(plain_variable(
-        "GIT_CONFIG_COUNT",
-        &GIT_CONFIG.len().to_string(),
-    ));
+    environment.push(plain("GIT_CONFIG_COUNT", &GIT_CONFIG.len().to_string()));
     for (index, (key, value)) in GIT_CONFIG.iter().enumerate() {
-        environment.push(plain_variable(&format!("GIT_CONFIG_KEY_{index}"), key));
-        environment.push(plain_variable(&format!("GIT_CONFIG_VALUE_{index}"), value));
+        environment.push(plain(&format!("GIT_CONFIG_KEY_{index}"), key));
+        environment.push(plain(&format!("GIT_CONFIG_VALUE_{index}"), value));
     }
     environment
 }
 
-/// The token as the thread's GitHub integration, which the satellite scrubs from its
-/// reports and which its planned `gh` broker will use.
-pub fn integration(token: &SecretString) -> GithubIntegration {
-    GithubIntegration {
-        token: Some(secret(token.expose_secret())),
-    }
-}
-
-/// The URL the satellite clones a repository from.
+/// The URL a repository is cloned from.
 ///
 /// Elysium holds no SSH keys, so a github.com SSH remote could never clone. It is cloned
 /// over HTTPS instead, where the session's token authenticates it, or nothing does for a
@@ -166,33 +174,10 @@ pub fn clone_url(repository_url: &str) -> String {
     }
 }
 
-/// The token lent to the satellite's clone, for a repository on github.com over HTTPS.
-pub fn clone_auth(repository_url: &str, token: &SecretString) -> Option<GitAuth> {
-    let is_https = repository_url.starts_with("https://");
-    if !is_https || Repository::from_url(repository_url).is_none() {
-        return None;
-    }
-    Some(GitAuth {
-        credential: Some(git_auth::Credential::PersonalAccessToken(secret(
-            token.expose_secret(),
-        ))),
-    })
-}
-
-/// A variable the satellite may show as it is. Declared explicitly: an unset `is_secret`
-/// means secret, and scrubbing `!gh auth git-credential` from a log would only confuse.
-fn plain_variable(key: &str, value: &str) -> EnvVar {
-    EnvVar {
+fn plain(key: &str, value: &str) -> EnvironmentEntry {
+    EnvironmentEntry {
         key: key.to_owned(),
-        value: Some(secret(value)),
-        is_secret: Some(false),
-    }
-}
-
-fn secret(value: &str) -> Secret {
-    Secret {
-        value: Some(value.to_owned()),
-        display: None,
+        value: SecretString::from(value.to_owned()),
     }
 }
 
@@ -259,57 +244,27 @@ mod tests {
 
     #[test]
     fn the_environment_hands_gh_the_token_and_routes_git_through_gh() {
-        let environment = thread_environment(&SecretString::from("github_pat_example"));
-        let pairs: Vec<(&str, Option<&str>, Option<bool>)> = environment
+        let environment = environment(&SecretString::from("github_pat_example"));
+        let pairs: Vec<(&str, &str)> = environment
             .iter()
-            .map(|variable| {
-                (
-                    variable.key.as_str(),
-                    variable
-                        .value
-                        .as_ref()
-                        .and_then(|value| value.value.as_deref()),
-                    variable.is_secret,
-                )
-            })
+            .map(|entry| (entry.key.as_str(), entry.value.expose_secret()))
             .collect();
 
         assert_eq!(
             pairs,
             vec![
-                ("GH_TOKEN", Some("github_pat_example"), Some(true)),
-                ("GIT_CONFIG_COUNT", Some("2"), Some(false)),
-                (
-                    "GIT_CONFIG_KEY_0",
-                    Some("credential.https://github.com.helper"),
-                    Some(false)
-                ),
-                ("GIT_CONFIG_VALUE_0", Some(""), Some(false)),
-                (
-                    "GIT_CONFIG_KEY_1",
-                    Some("credential.https://github.com.helper"),
-                    Some(false)
-                ),
-                (
-                    "GIT_CONFIG_VALUE_1",
-                    Some("!gh auth git-credential"),
-                    Some(false)
-                ),
+                ("GH_TOKEN", "github_pat_example"),
+                ("GIT_CONFIG_COUNT", "2"),
+                ("GIT_CONFIG_KEY_0", "credential.https://github.com.helper"),
+                ("GIT_CONFIG_VALUE_0", ""),
+                ("GIT_CONFIG_KEY_1", "credential.https://github.com.helper"),
+                ("GIT_CONFIG_VALUE_1", "!gh auth git-credential"),
             ]
         );
     }
 
-    #[test]
-    fn clones_borrow_the_token_only_for_github_over_https() {
-        let token = SecretString::from("ghp_example");
-
-        assert!(clone_auth("https://github.com/JalapenoLabs/Elysium.git", &token).is_some());
-        assert!(clone_auth("git@github.com:JalapenoLabs/Elysium.git", &token).is_none());
-        assert!(clone_auth("https://gitlab.com/JalapenoLabs/Elysium.git", &token).is_none());
-    }
-
     /// Regression: a session for `git@github.com:JalapenoLabs/Elysium.git` failed to
-    /// provision with `REPO_CLONE_FAILED`, because the satellite tried SSH with no key.
+    /// clone, because SSH was tried with no key.
     #[test]
     fn github_ssh_remotes_are_cloned_over_https() {
         let expected = "https://github.com/JalapenoLabs/Elysium.git";
@@ -330,8 +285,5 @@ mod tests {
             "https://gitlab.com/org/repo.git"
         );
 
-        let token = SecretString::from("ghp_example");
-        let converted = clone_url("git@github.com:JalapenoLabs/Elysium.git");
-        assert!(clone_auth(&converted, &token).is_some());
     }
 }

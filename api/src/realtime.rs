@@ -24,7 +24,6 @@ use tokio::sync::broadcast;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use crate::fleet::views::{SatelliteStatus, SessionEvent};
 use crate::mail::hosting::MailServerStatus;
 use crate::routes::v1::action_items::{
     ActionItemLinkResponse, ActionItemResponse, CommentResponse, HistoryEntryResponse,
@@ -38,17 +37,17 @@ use crate::routes::v1::jira_credentials::JiraCredentialResponse;
 use crate::routes::v1::llms::LlmResponse;
 use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
 use crate::routes::v1::projects::ProjectResponse;
-use crate::routes::v1::satellites::SatelliteResponse;
 use crate::routes::v1::storage_locations::StorageLocationResponse;
 use crate::routes::v1::studio_items::{
     StudioAssetResponse, StudioFeedbackResponse, StudioItemResponse,
 };
 use crate::routes::v1::users::UserResponse;
 use crate::routes::v1::workspace_settings::WorkspaceSettingsResponse;
+use crate::sessions::views::SessionEvent;
 
 /// How many serialized events a slow client may fall behind before it is told to
-/// resync. Thread event bursts (streamed agent output) are the largest source; this
-/// absorbs several seconds of a busy thread for a client on a slow link.
+/// resync. Session event bursts (streamed agent output) are the largest source; this
+/// absorbs several seconds of a busy session for a client on a slow link.
 const BUS_CAPACITY: usize = 4096;
 
 /// Everything a client can be told. Serialized as `{"type": <rename>, "data": <payload>}`.
@@ -124,13 +123,6 @@ pub enum ServerEvent {
     ProjectUpserted(ProjectResponse),
     #[serde(rename = "project.deleted")]
     ProjectDeleted { id: Uuid },
-    #[serde(rename = "satellite.upserted")]
-    SatelliteUpserted(SatelliteResponse),
-    /// Its sessions stay; each is republished with `satelliteId: null`.
-    #[serde(rename = "satellite.deleted")]
-    SatelliteDeleted { id: Uuid },
-    #[serde(rename = "satellite.status")]
-    SatelliteStatus(SatelliteStatus),
     #[serde(rename = "storageLocation.upserted")]
     StorageLocationUpserted(StorageLocationResponse),
     #[serde(rename = "storageLocation.deleted")]
@@ -141,10 +133,7 @@ pub enum ServerEvent {
     SessionDeleted { id: i64 },
     #[serde(rename = "session.event")]
     SessionEvent(Box<SessionEvent>),
-    /// Live events for the session may have been missed; refetch its history.
-    #[serde(rename = "session.resync")]
-    SessionResync { id: i64 },
-    /// An item was created, renamed, pinned, continued, or restored, or its files changed its
+    /// An item was created, renamed, pinned, or restored, or its files changed its
     /// thumbnail or counts.
     #[serde(rename = "studioItem.upserted")]
     StudioItemUpserted(StudioItemResponse),
@@ -216,10 +205,10 @@ mod tests {
     fn events_serialize_as_a_type_and_data_envelope() {
         let id = Uuid::nil();
         let deleted: Value =
-            serde_json::from_str(&ServerEvent::SatelliteDeleted { id }.to_json()).expect("json");
+            serde_json::from_str(&ServerEvent::ProjectDeleted { id }.to_json()).expect("json");
         assert_eq!(
             deleted,
-            json!({ "type": "satellite.deleted", "data": { "id": id } })
+            json!({ "type": "project.deleted", "data": { "id": id } })
         );
 
         let session_deleted: Value =

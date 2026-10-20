@@ -51,9 +51,9 @@ const MANAGED_LABEL: (&str, &str) = ("dev.elysium.managed", "workspace");
 pub const AGENT_USER: &str = "agent";
 
 /// How long a control script (killing a turn, reaping old ones, fetching the configuration
-/// repository) may take. Generous for a slow `git fetch`; turns themselves are not bounded by
-/// it.
-const SCRIPT_TIMEOUT: Duration = Duration::from_secs(300);
+/// repository, moving a file) may take unless its caller says otherwise. Generous for a slow
+/// `git fetch`; turns themselves are not bounded by it.
+pub const SCRIPT_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// Longest output a control script's report keeps, from its end, where errors are.
 const SCRIPT_OUTPUT_TAIL: usize = 4_000;
@@ -64,8 +64,8 @@ pub enum WorkspaceError {
     Docker(#[from] DockerError),
     #[error("the workspace exec did not attach its output")]
     Detached,
-    #[error("a workspace script took longer than {} seconds", SCRIPT_TIMEOUT.as_secs())]
-    ScriptTimeout,
+    #[error("a workspace script took longer than {0} seconds")]
+    ScriptTimeout(u64),
 }
 
 /// One process to run in the workspace.
@@ -234,8 +234,8 @@ impl WorkspaceContainer {
         Ok(inspected.exit_code)
     }
 
-    /// Runs a short `bash` script with `arguments` as its positional parameters and returns
-    /// what it printed.
+    /// Runs a `bash` script with `arguments` as its positional parameters and returns what it
+    /// printed, giving up after `timeout`.
     ///
     /// # Errors
     /// Propagates Docker's refusal, or [`WorkspaceError::ScriptTimeout`].
@@ -245,6 +245,7 @@ impl WorkspaceContainer {
         script: &str,
         arguments: &[&str],
         environment: Vec<String>,
+        timeout: Duration,
     ) -> Result<ScriptOutput, WorkspaceError> {
         let mut argv = vec![
             "bash".to_owned(),
@@ -275,9 +276,9 @@ impl WorkspaceContainer {
                 output: tail(&output, SCRIPT_OUTPUT_TAIL),
             })
         };
-        tokio::time::timeout(SCRIPT_TIMEOUT, run)
+        tokio::time::timeout(timeout, run)
             .await
-            .map_err(|_elapsed| WorkspaceError::ScriptTimeout)?
+            .map_err(|_elapsed| WorkspaceError::ScriptTimeout(timeout.as_secs()))?
     }
 }
 

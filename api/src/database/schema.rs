@@ -78,10 +78,6 @@ pub mod sql_types {
     pub struct S3Service;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "session_continuation"))]
-    pub struct SessionContinuation;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "storage_location_kind"))]
     pub struct StorageLocationKind;
 
@@ -247,12 +243,9 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::SessionContinuation;
 
     coding_sessions (id) {
         id -> Int8,
-        satellite_id -> Nullable<Uuid>,
-        thread_id -> Text,
         title -> Text,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
@@ -261,7 +254,7 @@ diesel::table! {
         action_item_id -> Nullable<Uuid>,
         created_by -> Uuid,
         studio_item_id -> Nullable<Uuid>,
-        continuation -> Nullable<SessionContinuation>,
+        harness_session_id -> Nullable<Text>,
     }
 }
 
@@ -526,41 +519,12 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    satellites (id) {
-        id -> Uuid,
-        name -> Text,
-        description -> Text,
-        url -> Text,
-        secret_encrypted -> Bytea,
-        is_active -> Bool,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        created_by -> Uuid,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-
     session_events (session_id, sequence) {
         session_id -> Int8,
         sequence -> Int8,
-        occurred_at -> Nullable<Timestamptz>,
-        event -> Bytea,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-
-    session_transcripts (session_id) {
-        session_id -> Int8,
-        harness -> Text,
-        harness_session_id -> Text,
-        transcript_sealed -> Bytea,
-        size_bytes -> Int8,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
+        occurred_at -> Timestamptz,
+        turn_id -> Nullable<Uuid>,
+        payload -> Jsonb,
     }
 }
 
@@ -731,7 +695,6 @@ diesel::joinable!(changesets -> projects (project_id));
 diesel::joinable!(coding_sessions -> action_items (action_item_id));
 diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
-diesel::joinable!(coding_sessions -> satellites (satellite_id));
 diesel::joinable!(coding_sessions -> studio_items (studio_item_id));
 diesel::joinable!(coding_sessions -> users (created_by));
 diesel::joinable!(environment_variables -> users (created_by));
@@ -758,9 +721,7 @@ diesel::joinable!(mail_domains -> users (created_by));
 diesel::joinable!(mail_servers -> users (created_by));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
 diesel::joinable!(projects -> users (created_by));
-diesel::joinable!(satellites -> users (created_by));
 diesel::joinable!(session_events -> coding_sessions (session_id));
-diesel::joinable!(session_transcripts -> coding_sessions (session_id));
 diesel::joinable!(storage_location_projects -> projects (project_id));
 diesel::joinable!(storage_location_projects -> storage_locations (storage_location_id));
 diesel::joinable!(storage_locations -> users (created_by));
@@ -802,9 +763,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_domains,
     mail_servers,
     projects,
-    satellites,
     session_events,
-    session_transcripts,
     storage_location_projects,
     storage_locations,
     studio_assets,

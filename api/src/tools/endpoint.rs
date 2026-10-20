@@ -28,14 +28,16 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 
-use super::grants::{AGENT_TOOLS_PATH, Granted, Grants};
+use super::grants::{Granted, Grants};
+#[cfg(doc)]
+use super::grants::AGENT_TOOLS_PATH;
 use super::{SERVERS, ToolContext, ToolServer, dispatch};
 
 /// The host agents address the API by, `api` on `elysium-agents`. rmcp refuses any other
 /// host, which keeps a DNS rebinding page from reaching these servers through another name.
 const AGENT_HOST: &str = "api";
 
-/// Every tool server, mounted under [`AGENT_TOOLS_PATH`].
+/// Every tool server, each at `/{server}`, for mounting at [`AGENT_TOOLS_PATH`].
 pub fn router(
     context: &ToolContext,
     grants: &Grants,
@@ -67,7 +69,7 @@ pub fn router(
             ));
         router = router.nest(&format!("/{}", server.name), checked);
     }
-    Router::new().nest(AGENT_TOOLS_PATH, router)
+    router
 }
 
 /// Refuses a request without a live grant for this server, and hands the grant to the call.

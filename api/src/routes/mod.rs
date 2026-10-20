@@ -16,6 +16,7 @@ use axum::routing::get;
 use crate::errors::ApiError;
 use crate::mcp;
 use crate::state::AppState;
+use crate::tools::{self, ToolContext};
 
 /// Builds the `/api` router, and `/internal` for Kratos.
 pub fn router(state: &AppState) -> Router<AppState> {
@@ -25,6 +26,8 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .route("/version", get(version::handle))
         .nest("/v1", v1::router(state))
         .nest("/mcp", mcp::router(state))
+        // Agents in the workspace, over the network nginx is not on. See `crate::tools`.
+        .nest("/agent-tools", agent_tools(state))
         // Its own fallback, so a path under /api that matches nothing is a JSON 404
         // rather than the web app the outer router falls back to.
         .fallback(not_found);
@@ -41,6 +44,19 @@ pub fn router(state: &AppState) -> Router<AppState> {
         )
         .nest("/api", api)
         .nest("/internal", internal::router(state))
+}
+
+/// The tool servers agents call during their turns.
+fn agent_tools(state: &AppState) -> Router<AppState> {
+    let context = ToolContext {
+        database: state.database.clone(),
+        cipher: std::sync::Arc::clone(&state.cipher),
+        storage: state.storage.clone(),
+        events: state.events.clone(),
+        links: state.links.clone(),
+        workspace: state.sessions.workspace().clone(),
+    };
+    tools::endpoint::router(&context, state.sessions.grants(), &state.shutdown)
 }
 
 async fn not_found() -> ApiError {
@@ -73,7 +89,6 @@ mod tests {
         "/api/v1/llms",
         "/api/v1/mail/accounts",
         "/api/v1/projects",
-        "/api/v1/satellites",
         "/api/v1/storage-locations",
         "/api/v1/coding-sessions",
         "/api/v1/users",
