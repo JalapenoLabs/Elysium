@@ -44,3 +44,16 @@ services:
   api:
     image: elysium-api
     build: *api-build
+    environment:
+      WORKSPACE_IMAGE: elysium-workspace:dev
+    depends_on:
+      workspace-image:
+        condition: service_completed_successfully
+
+  # Builds the agent workspace's image from this checkout and exits. The API creates and runs
+  # the workspace container itself, from this tag.
+  workspace-image:
+    image: elysium-workspace:dev
+    build: ./workspace
+    entrypoint: [ "true" ]
+    restart: "no"

@@ -69,6 +69,8 @@ zeroize = "1.9.0"
 zstd = "0.14.0"
 
 [dev-dependencies]
+# Paused time, so the runner's twenty-minute heartbeat is tested without waiting for it.
+tokio = { version = "1.53.1", features = ["test-util"] }
 # Decodes the path segments the fake GitHub receives, such as a label with a space in it.
 percent-encoding = "2.3.2"
 # Build directories for the web app tests, shaped like `vite build` output.

@@ -190,21 +190,38 @@ impl UserEventKind {
 }
 
 /// Settings that apply to the whole workspace.
-#[derive(Debug, Clone, Copy, Queryable, Selectable)]
+#[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = workspace_settings, check_for_backend(diesel::pg::Pg))]
 pub struct WorkspaceSettings {
     pub signup_open: bool,
     pub require_mfa: bool,
     pub updated_by: Uuid,
     pub updated_at: DateTime<Utc>,
+    /// The git repository every agent's `~/.claude` is checked out from. See
+    /// `crate::runner::configuration`.
+    pub agent_configuration_repository: Option<String>,
 }
 
 /// A partial update of the workspace settings. `None` leaves a setting as it is.
-#[derive(Debug, Default, Clone, Copy, AsChangeset)]
+#[derive(Debug, Default, Clone, AsChangeset)]
 #[diesel(table_name = workspace_settings)]
 pub struct WorkspaceSettingsChanges {
     pub signup_open: Option<bool>,
     pub require_mfa: Option<bool>,
+    /// `Some(None)` clears the repository.
+    #[expect(
+        clippy::option_option,
+        reason = "leave as it is, clear, and set are three distinct changes"
+    )]
+    pub agent_configuration_repository: Option<Option<String>>,
+}
+
+impl WorkspaceSettingsChanges {
+    fn is_empty(&self) -> bool {
+        self.signup_open.is_none()
+            && self.require_mfa.is_none()
+            && self.agent_configuration_repository.is_none()
+    }
 }
 
 /// Why an account change was refused.
@@ -629,7 +646,7 @@ pub async fn update_workspace_settings(
                 .for_update()
                 .first(connection)
                 .await?;
-            if changes.signup_open.is_none() && changes.require_mfa.is_none() {
+            if changes.is_empty() {
                 return Ok(before);
             }
 
@@ -644,8 +661,16 @@ pub async fn update_workspace_settings(
                 actor_id,
                 UserEventKind::WorkspaceSettingsChanged,
                 json!({
-                    "before": { "signupOpen": before.signup_open, "requireMfa": before.require_mfa },
-                    "after": { "signupOpen": after.signup_open, "requireMfa": after.require_mfa },
+                    "before": {
+                        "signupOpen": before.signup_open,
+                        "requireMfa": before.require_mfa,
+                        "agentConfigurationRepository": before.agent_configuration_repository,
+                    },
+                    "after": {
+                        "signupOpen": after.signup_open,
+                        "requireMfa": after.require_mfa,
+                        "agentConfigurationRepository": after.agent_configuration_repository,
+                    },
                 }),
             )
             .await?;
@@ -1031,6 +1056,7 @@ mod tests {
         let closing = WorkspaceSettingsChanges {
             signup_open: Some(false),
             require_mfa: None,
+            agent_configuration_repository: None,
         };
         let after = update_workspace_settings(&mut connection, closing, ada.id)
             .await
@@ -1047,8 +1073,8 @@ mod tests {
         assert_eq!(
             recorded,
             [json!({
-                "before": { "signupOpen": true, "requireMfa": false },
-                "after": { "signupOpen": false, "requireMfa": false },
+                "before": { "signupOpen": true, "requireMfa": false, "agentConfigurationRepository": null },
+                "after": { "signupOpen": false, "requireMfa": false, "agentConfigurationRepository": null },
             })]
         );
     }

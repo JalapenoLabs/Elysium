@@ -43,6 +43,12 @@ pub struct Config {
     /// The web app's production build, served at every path outside `/api`. Set by the
     /// published image; unset in development, where nginx sends those paths to Vite.
     pub frontend_dir: Option<PathBuf>,
+    /// The Docker API the API runs its own containers through (the mail server and the agent
+    /// workspace): the filtered socket proxy.
+    pub docker: Url,
+    /// The agent workspace's image, the `elysium-workspace` of the same release as the API.
+    /// See `crate::runner::workspace`.
+    pub workspace_image: String,
     pub mail: MailConfig,
 }
 
@@ -54,8 +60,6 @@ pub struct MailConfig {
     pub oauth_broker: Option<Url>,
     /// The broker as the API reaches it, when that differs from what browsers see.
     pub oauth_broker_internal: Option<Url>,
-    /// The Docker API the mail server is run through: the filtered socket proxy.
-    pub docker: Url,
     /// nginx's fixed address on the mail network. Stalwart trusts the PROXY protocol
     /// header, which carries each client's real address, from it alone. Unset when
     /// mail does not arrive through nginx.
@@ -90,12 +94,13 @@ impl Config {
             frontend_dir: std::env::var_os("FRONTEND_DIR")
                 .filter(|directory| !directory.is_empty())
                 .map(PathBuf::from),
+            docker: optional_base_url("DOCKER_URL")?.unwrap_or_else(|| {
+                Url::parse("http://docker-proxy:2375/").expect("a static URL parses")
+            }),
+            workspace_image: required("WORKSPACE_IMAGE")?,
             mail: MailConfig {
                 oauth_broker: optional_base_url("OAUTH_BROKER_URL")?,
                 oauth_broker_internal: optional_base_url("OAUTH_BROKER_INTERNAL_URL")?,
-                docker: optional_base_url("DOCKER_URL")?.unwrap_or_else(|| {
-                    Url::parse("http://docker-proxy:2375/").expect("a static URL parses")
-                }),
                 ingress_address: std::env::var("MAIL_INGRESS_ADDRESS")
                     .ok()
                     .filter(|address| !address.trim().is_empty())

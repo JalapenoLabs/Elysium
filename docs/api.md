@@ -151,7 +151,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/users/{id}/reset-mfa`        | `204`; admins                                        |
 | POST   | `/api/v1/users/{id}/recovery-link`    | `200` `{ recoveryLink, expiresAt }`; admins          |
 | GET    | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins                         |
-| PATCH  | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins: `signupOpen`, `requireMfa` |
+| PATCH  | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins: `signupOpen`, `requireMfa`, `agentConfigurationRepository` (`null` clears) |
 | GET    | `/api/v1/updates`                     | `200` `{ updates }`: the release running, auto-update's state, and history; admins |
 | POST   | `/api/v1/updates/check`               | `200` `{ updates }` after asking Docker Hub now; admins |
 | POST   | `/api/v1/updates/apply`               | `200` `{ updates }`; admins ask for the newest release, even one that rolled back |

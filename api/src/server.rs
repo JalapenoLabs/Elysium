@@ -48,6 +48,8 @@ use crate::mail::stalwart::Stalwart;
 use crate::mail::stalwart::container::StalwartContainer;
 use crate::oauth::hydra::Hydra;
 use crate::realtime::EventBus;
+use crate::runner::Runner;
+use crate::runner::workspace::WorkspaceContainer;
 use crate::state::AppState;
 use crate::storage::Storage;
 use crate::updates::{Updates, UpdatesDeps};
@@ -57,6 +59,12 @@ use crate::{connections, middleware, routes, shutdown, web_app};
 /// How long one Docker call may take. Pulling the mail server's image is one call, and
 /// can take minutes on a slow connection.
 const DOCKER_TIMEOUT_SECONDS: u64 = 600;
+
+/// How long one Docker call may take for the runner. A turn's output is one attached exec
+/// stream that stays open for the whole turn, and the client's timeout covers a request end
+/// to end, so it must outlast the longest turn. Hung turns are stopped by the runner's own
+/// heartbeat long before this.
+const RUNNER_DOCKER_TIMEOUT_SECONDS: u64 = 24 * 60 * 60;
 
 /// Serves the API until a shutdown signal arrives.
 ///
@@ -154,6 +162,26 @@ pub async fn serve() -> Result<()> {
         encryption_key: config.encryption_key.clone(),
     });
     let update_checks = updates.start(shutdown.clone());
+    let runner = build_runner(
+        &config,
+        database.clone(),
+        Arc::clone(&cipher),
+        activity.clone(),
+        &shutdown,
+    )?;
+    // Pulls the workspace image and fetches `~/.claude` ahead of the first turn, which
+    // would otherwise wait for both.
+    let preparing = runner.clone();
+    tokio::spawn(async move {
+        if let Err(error) = preparing.prepare().await {
+            event!(
+                name: "runner.workspace.unavailable",
+                Level::ERROR,
+                error.message = %format!("{error:#}"),
+                "the agent workspace could not be prepared; turns retry when they start",
+            );
+        }
+    });
 
     let state = AppState {
         auth: build_auth(&config, http.clone()),
@@ -169,6 +197,7 @@ pub async fn serve() -> Result<()> {
         jira,
         links,
         mail,
+        runner: runner.clone(),
         storage,
         updates,
         shutdown: shutdown.clone(),
@@ -201,6 +230,8 @@ pub async fn serve() -> Result<()> {
 
     fleet.shutdown().await;
     event!(name: "fleet.shutdown.complete", Level::INFO, "fleet watchers stopped");
+    runner.shutdown().await;
+    event!(name: "runner.shutdown.complete", Level::INFO, "agent turns stopped");
     watcher.stopped().await;
     if let Err(error) = browser_reconciler.await {
         event!(
@@ -247,6 +278,25 @@ pub(crate) fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
     }
 }
 
+/// The runner, whose turns run in the workspace container through Docker.
+pub(crate) fn build_runner(
+    config: &Config,
+    database: Pool,
+    cipher: Arc<Cipher>,
+    activity: Activities,
+    shutdown: &CancellationToken,
+) -> Result<Runner> {
+    // Connecting is lazy: nothing reaches Docker until the workspace is prepared.
+    let docker = Docker::connect_with_http(
+        config.docker.as_str().trim_end_matches('/'),
+        RUNNER_DOCKER_TIMEOUT_SECONDS,
+        API_DEFAULT_VERSION,
+    )
+    .context("DOCKER_URL is invalid")?;
+    let workspace = WorkspaceContainer::new(docker, config.workspace_image.clone());
+    Ok(Runner::new(workspace, database, cipher, activity, shutdown))
+}
+
 /// The mail services. The broker and Stalwart share `http`.
 pub(crate) fn build_mail(
     config: &Config,
@@ -281,7 +331,7 @@ pub(crate) fn build_mail(
         name: "mail.services.configured",
         Level::INFO,
         mail.broker = broker.is_some(),
-        mail.docker.url = %mail_config.docker,
+        mail.docker.url = %config.docker,
         mail.ingress.address = ?mail_config.ingress_address,
         "mail services configured",
     );
@@ -300,7 +350,7 @@ pub(crate) fn build_mail(
 /// Fails when `DOCKER_URL` is not a URL Docker can be reached at.
 fn build_docker(config: &Config) -> Result<Docker> {
     Docker::connect_with_http(
-        config.mail.docker.as_str().trim_end_matches('/'),
+        config.docker.as_str().trim_end_matches('/'),
         DOCKER_TIMEOUT_SECONDS,
         API_DEFAULT_VERSION,
     )
