@@ -53,6 +53,7 @@ Job names are the check names. Require exactly these in the `main` ruleset:
 | `Frontend build`     | `frontend.yml`           | `yarn build`, the production bundle                             |
 | `Frontend image`     | `frontend.yml`           | `frontend/Dockerfile` builds and the dev server answers         |
 | `Compose config`     | `compose.yml`            | the stacks parse and interpolate, the development override merges |
+| `Workspace image`    | `workspace.yml`          | `workspace/Dockerfile` builds, and `claude`, `gh`, and `git` run as `agent` in it |
 
 Names are prefixed with their lane because a required check is matched by name alone, and two workflows each
 reporting `Clippy` could not be told apart.
@@ -87,7 +88,8 @@ Every tool is pinned to an exact version, in one place where the repository allo
 | Tool               | Pinned in                                            | Verified by                       |
 |--------------------|------------------------------------------------------|-----------------------------------|
 | Rust               | `rust-toolchain.toml` in `api/` and `oauth-broker/`  | rustup, Dockerfile comparison     |
-| Node               | `frontend/.nvmrc`                                    | checksum, version, Dockerfile comparison |
+| Node               | `frontend/.nvmrc`                                    | checksum, version, Dockerfile comparison (API, frontend, workspace) |
+| Claude Code, `gh`  | `ARG`s in `workspace/Dockerfile`                     | `gh`'s published checksum         |
 | Yarn               | `packageManager` in `frontend/package.json`          | corepack, version                 |
 | Diesel CLI         | `DIESEL_VERSION` in `api.yml`                        | checksum, version                 |
 | Postgres           | `api/scripts/verify-migrations.sh`                   | same image as compose             |
@@ -152,10 +154,11 @@ required variables. Nothing is started. The images compose builds are built by t
 
 ## Publishing
 
-`.github/workflows/publish.yml` builds and pushes the API image (stage `app`, with the web app) and the OAuth broker
-image to Docker Hub, as listed in `docs/infrastructure.md`. It runs on every push to `main` and every `v*` tag, when
-`release.yml` starts it on a tag, and never on a pull request. A release build passes its version to the API image as
-the `ELYSIUM_RELEASE` build argument, so the binary knows it is a release; `main` passes nothing. What it builds already passed every check in the merge queue, so it is not a required check
+`.github/workflows/publish.yml` builds and pushes the API image (stage `app`, with the web app), the agent workspace
+image, and the OAuth broker image to Docker Hub, as listed in `docs/infrastructure.md`. It runs on every push to
+`main` and every `v*` tag, when `release.yml` starts it on a tag, and never on a pull request. A release build passes
+its version to the API image as the `ELYSIUM_RELEASE` build argument, so the binary knows it is a release; `main`
+passes nothing. What it builds already passed every check in the merge queue, so it is not a required check
 and repeats none of them.
 
 | Ref               | Tags pushed                       |
@@ -164,7 +167,7 @@ and repeats none of them.
 | `vX.Y.Z`          | `X.Y.Z`; `X.Y` and `latest` when it is the newest release |
 | `vX.Y.Z-<suffix>` | `X.Y.Z-<suffix>` only             |
 
-Both jobs use the composite action `.github/actions/docker-publish`:
+Every job uses the composite action `.github/actions/docker-publish`:
 
 - Credentials are organization-wide: the variable `DOCKERHUB_USERNAME` (`jalapenolabs`, a personal Docker Hub
   account) and the secret `DOCKERHUB_TOKEN`, a read and write personal access token of that account. The job fails

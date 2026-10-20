@@ -55,6 +55,13 @@ The mail server is not a compose service. The API creates its container (`elysiu
 through `docker-proxy` when the mail server is created on the Email settings page, and they live outside the
 compose project. See `docs/mail.md`.
 
+The agent workspace is not a compose service either. The API creates its container (`elysium-workspace`) and volume
+(`elysium-workspace`) through `docker-proxy` when it starts, from `WORKSPACE_IMAGE`, the `elysium-workspace` image of
+the same release, and runs every agent turn in it by `docker exec`; `docker-proxy` allows exec for that. The
+`elysium-agents` network joins only the API, which answers there as `api`, and the workspace. It is a plain bridge,
+because agents need the internet, and nginx is not on it. The development stack builds the image as
+`elysium-workspace:dev` (service `workspace-image`) before the API starts. See `docs/coding.md`.
+
 `oauth-broker/` is a separate deployable with its own `compose.yml` and .env; it is not part of this
 stack.
 
@@ -132,18 +139,19 @@ the build inside the API image.
 
 ## Published images
 
-`.github/workflows/publish.yml` pushes two images to Docker Hub under the `jalapenolabs` organization:
+`.github/workflows/publish.yml` pushes three images to Docker Hub under the `jalapenolabs` organization:
 
-| Image                                  | Built from                         | Runs                         |
-|----------------------------------------|------------------------------------|------------------------------|
-| `jalapenolabs/elysium-api`             | `api/Dockerfile`, stage `app`      | The API and the web app      |
-| `jalapenolabs/elysium-oauth-broker`    | `oauth-broker/Dockerfile`          | The OAuth broker, standalone |
+| Image                                  | Built from                         | Runs                                       |
+|----------------------------------------|------------------------------------|--------------------------------------------|
+| `jalapenolabs/elysium-api`             | `api/Dockerfile`, stage `app`      | The API and the web app                    |
+| `jalapenolabs/elysium-workspace`       | `workspace/Dockerfile`             | Agent turns, in the container the API makes |
+| `jalapenolabs/elysium-oauth-broker`    | `oauth-broker/Dockerfile`          | The OAuth broker, standalone               |
 
 Every push to `main` publishes `main` and `sha-<commit>`. A tag `vX.Y.Z` publishes `X.Y.Z`, and moves `X.Y` and
 `latest` when it is the newest release; a pre-release tag such as `vX.Y.Z-rc.1` publishes only its own version. Each
 image is labelled with the commit, the version, and this repository. The workflow is described in `docs/ci.md`.
 
-Both are `linux/amd64` only, since the runners are x86_64; an arm64 host cannot run them. Postgres, Redis, nginx,
+All are `linux/amd64` only, since the runners are x86_64; an arm64 host cannot run them. Postgres, Redis, nginx,
 Kratos, and the socket proxy are upstream images pinned in `compose.yml`.
 
 ## Auto-update

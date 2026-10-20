@@ -19,13 +19,6 @@
 //! which is the only one, and it starts empty, since a restart already ended whatever it
 //! counted.
 
-// Auto-update reads the registry today; the host runner, the first to begin activities, is
-// landing beside it. Remove this once the runner holds a guard per turn.
-#![allow(
-    dead_code,
-    reason = "the host runner begins activities; auto-update already reads them"
-)]
-
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
