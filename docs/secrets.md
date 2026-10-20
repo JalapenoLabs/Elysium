@@ -63,6 +63,7 @@ The version byte identifies the envelope format and key generation. Today only v
 | `satellites` | `secret_encrypted`       | `satellites.secret:<id>` |
 | `mail_accounts` | `credential_encrypted` | `mail_accounts.credential:<id>` |
 | `mail_servers` | `admin_secret_encrypted` | `mail_servers.admin_secret:<id>` |
+| `browser_sessions` | `member_password_encrypted` | `browser_sessions.member_password:<id>` |
 | `storage_locations` | `access_key_encrypted` | `storage_locations.access_key:<id>` |
 | `github_credentials` | `token_encrypted` | `github_credentials.token:<id>` |
 | `jira_credentials` | `token_encrypted` | `jira_credentials.token:<id>` |

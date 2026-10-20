@@ -34,6 +34,8 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `mailServer.updated` | `MailServer`             | The mail server's state changed, including each creation step |
 | `mailDomain.upserted`| `MailDomain`             | A domain was added                                         |
 | `mailDomain.deleted` | `{ id }`                 | A domain was removed                                       |
+| `browserSession.upserted` | `BrowserSession` | A browser was added, or began starting, running, or failing |
+| `browserSession.deleted`  | `{ id }`         | A browser and its profile were removed                     |
 | `project.upserted`   | `Project`                | A project was created or changed                           |
 | `project.deleted`    | `{ id }`                 | A project was deleted                                      |
 | `satellite.upserted` | `Satellite`              | A satellite was created or changed (status arrives later)  |
