@@ -1,8 +1,8 @@
 # Connectors and the timeline
 
 A connector is a service Elysium reads as its user. What every connector reads lands on one timeline, as one kind of
-record, attributed to projects. Today one connector exists, Outlook, which reads through a browser the person signed
-in to (`docs/browser.md`). Gmail follows on the same path.
+record, attributed to projects. Today two connectors exist, Outlook and Gmail, which read through a browser the person
+signed in to (`docs/browser.md`).
 
 ## The connector trait
 
@@ -16,6 +16,7 @@ a CLI fills the same trait.
 | Service | Mailbox addresses                                             | Sign-in addresses                          |
 |---------|---------------------------------------------------------------|--------------------------------------------|
 | Outlook | `outlook.office.com/mail`, `outlook.office365.com/mail`, `outlook.live.com/mail` | `login.microsoftonline.com`, `login.live.com` |
+| Gmail   | `mail.google.com/mail`                                        | `accounts.google.com`                      |
 
 A read lists the browser's tabs over DevTools. A tab on a sign-in address and none on the mailbox means the session
 ended (`signed_out`); no tab on either is `unknown`. Otherwise the service's script runs in the mailbox tab, as the
@@ -26,6 +27,12 @@ deterministic; reading closely and acting are Elysia's to do through the same br
 Outlook's script (`api/src/connectors/outlook.js`) reads each conversation by its `data-convid`, its sender, subject,
 and preview from the row's lines of text, the sender's address from a `title`, and unread from the row's
 `aria-label`. It was checked against a fixture shaped that way, not yet against a signed-in Outlook.
+
+Gmail's script (`api/src/connectors/gmail.js`) reads the inbox's unread mail from the Atom feed Gmail publishes for
+the account the tab shows (`/mail/u/<n>/feed/atom`), fetched from the tab so it carries the tab's own session: each
+entry's message id, sender, subject, summary, time, and link. Every entry is unread by definition, and a `401` means
+the session ended. A date that does not parse is treated as absent, so one odd entry never fails a read. It was
+checked against a feed shaped like Gmail's, served locally, not yet against a signed-in Gmail.
 
 ## Accounts
 
@@ -76,7 +83,6 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
 
 ## Roadmap
 
-- Gmail, through the same webmail connector.
 - Elysia's triage on `timelineRecord.created`: classifying each message, drafting replies for review, and attributing
   records to projects.
 - History for attributions, so a correction can be undone like any other edit.

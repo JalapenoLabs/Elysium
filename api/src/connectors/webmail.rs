@@ -3,7 +3,7 @@
 //! Mail read from a webmail page the person is signed in to, in their own browser.
 //!
 //! Each service is one row of [`SERVICES`]: the addresses its mailbox and its sign-in pages
-//! live at, and the script that reads the message list from the page (`outlook.js`). The
+//! live at, and the script that reads the message list from the page (`outlook.js`, `gmail.js`). The
 //! script runs as the page, over `DevTools`, and answers
 //! `{ signedIn, messages: [{ id, from, subject, preview, unread, receivedAt?, url? }] }`.
 //! Reading never opens a message, so nothing is marked read.
@@ -29,19 +29,27 @@ pub struct Service {
     pub script: &'static str,
 }
 
-pub const SERVICES: [Service; 1] = [Service {
-    kind: ConnectorKind::Outlook,
-    mailbox_origins: &[
-        "https://outlook.office.com/mail",
-        "https://outlook.office365.com/mail",
-        "https://outlook.live.com/mail",
-    ],
-    sign_in_origins: &[
-        "https://login.microsoftonline.com/",
-        "https://login.live.com/",
-    ],
-    script: include_str!("outlook.js"),
-}];
+pub const SERVICES: [Service; 2] = [
+    Service {
+        kind: ConnectorKind::Outlook,
+        mailbox_origins: &[
+            "https://outlook.office.com/mail",
+            "https://outlook.office365.com/mail",
+            "https://outlook.live.com/mail",
+        ],
+        sign_in_origins: &[
+            "https://login.microsoftonline.com/",
+            "https://login.live.com/",
+        ],
+        script: include_str!("outlook.js"),
+    },
+    Service {
+        kind: ConnectorKind::Gmail,
+        mailbox_origins: &["https://mail.google.com/mail"],
+        sign_in_origins: &["https://accounts.google.com/"],
+        script: include_str!("gmail.js"),
+    },
+];
 
 /// The service a connector kind reads.
 ///
@@ -136,7 +144,8 @@ struct PageMessage {
     preview: String,
     #[serde(default)]
     unread: bool,
-    received_at: Option<DateTime<Utc>>,
+    /// RFC 3339; one that does not parse is treated as absent, so one odd date never fails a read.
+    received_at: Option<String>,
     url: Option<String>,
 }
 
@@ -163,7 +172,11 @@ fn parse_page(value: &serde_json::Value) -> Result<Reading, ConnectorError> {
         .filter(|message| !message.id.trim().is_empty())
         .map(|message| Read {
             external_id: message.id,
-            occurred_at: message.received_at,
+            occurred_at: message
+                .received_at
+                .as_deref()
+                .and_then(|at| DateTime::parse_from_rfc3339(at).ok())
+                .map(|at| at.with_timezone(&Utc)),
             actor: truncate(&message.from, ACTOR_MAX_CHARACTERS),
             title: truncate(&message.subject, TITLE_MAX_CHARACTERS),
             body: truncate(&message.preview, PREVIEW_MAX_CHARACTERS),
@@ -208,6 +221,40 @@ mod tests {
             reading.items[1].occurred_at.map(|at| at.to_rfc3339()),
             Some("2026-10-20T09:15:00+00:00".to_owned())
         );
+    }
+
+    #[test]
+    fn a_date_that_does_not_parse_is_absent_not_an_error() {
+        let reading = parse_page(&json!({
+            "signedIn": true,
+            "messages": [
+                { "id": "a", "receivedAt": "Tue, 20 Oct 2026 09:15:00 GMT" },
+                { "id": "b", "receivedAt": "2026-10-20T09:15:00-04:00" },
+            ],
+        }))
+        .expect("a reading");
+        assert_eq!(reading.items[0].occurred_at, None);
+        assert_eq!(
+            reading.items[1].occurred_at.map(|at| at.to_rfc3339()),
+            Some("2026-10-20T13:15:00+00:00".to_owned())
+        );
+    }
+
+    #[test]
+    fn gmail_reads_its_mailbox_and_knows_its_sign_in_page() {
+        let gmail = service(ConnectorKind::Gmail);
+        assert!(starts_with_any(
+            "https://mail.google.com/mail/u/0/#inbox",
+            gmail.mailbox_origins
+        ));
+        assert!(starts_with_any(
+            "https://accounts.google.com/v3/signin/identifier",
+            gmail.sign_in_origins
+        ));
+        assert!(!starts_with_any(
+            "https://outlook.office.com/mail/",
+            gmail.mailbox_origins
+        ));
     }
 
     #[test]

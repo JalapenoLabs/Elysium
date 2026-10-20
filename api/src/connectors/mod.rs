@@ -25,18 +25,20 @@ use crate::models::browser_session::BrowserSession;
 #[serde(rename_all = "snake_case")]
 pub enum ConnectorKind {
     Outlook,
+    Gmail,
 }
 
 impl ConnectorKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Outlook => "outlook",
+            Self::Gmail => "gmail",
         }
     }
 
     /// The kind stored as `text`, if it is one.
     pub fn parse(text: &str) -> Option<Self> {
-        [Self::Outlook]
+        [Self::Outlook, Self::Gmail]
             .into_iter()
             .find(|kind| kind.as_str() == text)
     }

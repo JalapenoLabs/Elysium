@@ -4,7 +4,7 @@
 import { apiClient } from '../index'
 
 // Mirrors `ConnectorKind` in api/src/connectors/mod.rs.
-export const CONNECTOR_KINDS = [ 'outlook' ] as const
+export const CONNECTOR_KINDS = [ 'outlook', 'gmail' ] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]
 
 export type SignInState = 'signed_in' | 'signed_out' | 'unknown'

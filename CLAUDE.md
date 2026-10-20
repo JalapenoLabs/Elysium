@@ -152,8 +152,8 @@ Everything else follows these rules:
 
 - A connector is a service Elysium reads as its user, behind one trait (`api/src/connectors/`): it names its kind
   and reads what its account shows now. How it signs in and stays signed in belongs to what it reads through. Today
-  Outlook reads through a person's browser over DevTools, with one page script per service; the check is cheap and
-  deterministic, and nothing it does marks mail read. See `docs/connectors.md`.
+  Outlook and Gmail read through a person's browser over DevTools, with one page script per service; the check is
+  cheap and deterministic, and nothing it does marks mail read. See `docs/connectors.md`.
 - Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
   projects with a confidence (`timeline_record_projects`). A record is its owner's alone, even about a shared
   project.

@@ -12,6 +12,7 @@ type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
 // Mirrors `mailbox_origins` in api/src/connectors/webmail.rs.
 const hostsByConnectorKind = {
   outlook: [ 'outlook.office.com', 'outlook.office365.com', 'outlook.live.com' ],
+  gmail: [ 'mail.google.com' ],
 } as const satisfies Record<ConnectorKind, readonly string[]>
 
 // The connector that reads a browser started at `startUrl`, if one does.
@@ -29,6 +30,7 @@ export function connectorKindFor(startUrl: string): ConnectorKind | null {
 
 export const connectorLabelKeys = {
   outlook: 'connectors.kinds.outlook',
+  gmail: 'connectors.kinds.gmail',
 } as const satisfies Record<ConnectorKind, ParseKeys<'browsers'>>
 
 export const signInLabelKeys = {
