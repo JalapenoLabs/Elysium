@@ -674,3 +674,19 @@ What happened to accounts and workspace settings, one row per change.
 | `kind`       | `TEXT`        | Such as `signed_up`, `approved`, `rejected`, `role_changed`, `disabled` |
 | `data`       | `JSONB`       | A JSON object shaped by `kind`, with values before and after            |
 | `created_at` | `TIMESTAMPTZ` | Set on insert                                                           |
+
+### `deployment_updates`
+
+Every release the updater was told to apply, and how it ended; see `docs/infrastructure.md`. At most one row is
+`applying`, enforced by the partial unique index `deployment_updates_one_applying`.
+
+| Column         | Type                       | Notes                                                             |
+|----------------|----------------------------|-------------------------------------------------------------------|
+| `id`           | `UUID`                     | UUIDv7, primary key                                               |
+| `from_version` | `TEXT`                     | The release running when it began, `X.Y.Z`                        |
+| `to_version`   | `TEXT`                     | The release applied, `X.Y.Z`                                      |
+| `status`       | `deployment_update_status` | `applying`, `succeeded`, or `rolled_back`                         |
+| `reason`       | `TEXT`                     | Why it rolled back, 1 to 2000 characters; set exactly when it did |
+| `started_at`   | `TIMESTAMPTZ`              | Set on insert                                                     |
+| `finished_at`  | `TIMESTAMPTZ`              | Set exactly once it leaves `applying`                             |
+| `created_by`   | `UUID`                     | The admin who asked for it, or the system user for an automatic update |

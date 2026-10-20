@@ -117,6 +117,10 @@ pub async fn app_state(database_url: &SecretString) -> crate::state::AppState {
 ///
 /// # Panics
 /// Panics when `TEST_REDIS_URL` is unset or Redis refuses the connection.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fixture assembling every service the router needs, read top to bottom"
+)]
 pub async fn app_state_with_storage(
     database_url: &SecretString,
     storage: crate::storage::Storage,
@@ -190,16 +194,32 @@ pub async fn app_state_with_storage(
     )
     .expect("mail services build without reaching anything");
 
-    let runner =
-        crate::server::build_runner(&config, database.clone(), Arc::clone(&cipher), &shutdown)
-            .expect("the runner builds without reaching Docker");
+    let activity = crate::activity::Activities::new();
+    let version = Arc::new(VersionInfo::from_build().expect("build metadata parses"));
+    let updates = crate::updates::Updates::new(crate::updates::UpdatesDeps {
+        database: database.clone(),
+        events: events.clone(),
+        activity: activity.clone(),
+        http: http.clone(),
+        version: Arc::clone(&version),
+        encryption_key: config.encryption_key.clone(),
+    });
+    let runner = crate::server::build_runner(
+        &config,
+        database.clone(),
+        Arc::clone(&cipher),
+        activity.clone(),
+        &shutdown,
+    )
+    .expect("the runner builds without reaching Docker");
 
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
         database,
+        activity,
         redis,
         cipher,
-        version: Arc::new(VersionInfo::from_build().expect("build metadata parses")),
+        version,
         events,
         fleet,
         github,
@@ -208,6 +228,7 @@ pub async fn app_state_with_storage(
         mail,
         runner,
         storage,
+        updates,
         shutdown,
     }
 }

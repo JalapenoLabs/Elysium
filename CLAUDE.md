@@ -41,6 +41,9 @@ The full vision is `docs/vision.md`. Read it before designing any feature.
 - Agent turns run the official `claude` CLI in the workspace container (`workspace/Dockerfile`), which the API
   creates through `docker-proxy` and reaches by `docker exec`, never inside the API's own container. Callers submit
   turns to `crate::runner`. See `docs/coding.md`.
+- Releases update themselves: the API decides when, and an updater on the host carries it out. It never restarts the
+  stack while work is running; anything a restart would cut short, such as an agent turn, holds an activity
+  (`api/src/activity.rs`) while it runs. See `docs/infrastructure.md`.
 - The web app's pages carry a strict Content Security Policy set by the API: no inline scripts, no eval, nothing
   from another origin. Frontend code keeps to it. See `docs/security.md`.
 

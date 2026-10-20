@@ -37,6 +37,7 @@ async fn a_turn_without_a_credential_reports_that_it_is_not_logged_in() {
         Executor::Workspace(WorkspaceContainer::new(docker, image)),
         CredentialSource::Fixed(Vec::new()),
         ConfigurationSource::None,
+        crate::activity::Activities::new(),
         CancellationToken::new(),
     );
 
