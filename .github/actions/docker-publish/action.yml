@@ -23,6 +23,12 @@ inputs:
     description: The Dockerfile stage to publish. Empty publishes the last stage.
     required: false
     default: ''
+  bakes-release:
+    description: >-
+      Whether the image takes the ELYSIUM_RELEASE build argument. A release tag passes its
+      version, so the binary knows it is a release; main passes nothing.
+    required: false
+    default: 'false'
   username:
     description: The Docker Hub account the token belongs to.
     required: true
@@ -96,17 +102,23 @@ runs:
         CONTEXT: ${{ inputs.context }}
         DOCKERFILE: ${{ inputs.dockerfile }}
         TARGET: ${{ inputs.target }}
+        BAKES_RELEASE: ${{ inputs.bakes-release }}
       run: |
         set -euo pipefail
         target=()
         if [ -n "${TARGET}" ]; then
           target=(--target "${TARGET}")
         fi
+        release=()
+        if [ "${BAKES_RELEASE}" = "true" ] && [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+          release=(--build-arg "ELYSIUM_RELEASE=${PUBLISH_VERSION}")
+        fi
         docker build \
           --pull \
           --platform linux/amd64 \
           --file "${DOCKERFILE}" \
           "${target[@]}" \
+          "${release[@]}" \
           --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
           --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
           --label "org.opencontainers.image.version=${PUBLISH_VERSION}" \

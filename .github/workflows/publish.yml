@@ -1,8 +1,9 @@
 # Copyright © 2026 Jalapeno Labs
 
-# Publishes the images to Docker Hub: every push to main, and every version tag. It is
-# not a check and never required; what it builds already passed every check in the
-# merge queue. The only workflow that reads a secret. See docs/ci.md.
+# Publishes the images to Docker Hub: every push to main, every version tag, and every
+# release `release.yml` cuts, which starts this on its tag. It is not a check and never
+# required; what it builds already passed every check in the merge queue. The only
+# workflow that reads a secret. See docs/ci.md.
 name: Publish
 
 # No pull_request trigger, so neither a fork nor a branch of this repository reaches
@@ -17,6 +18,9 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
+  # A tag that release.yml pushes with the workflow's token starts no push run, so it
+  # starts this explicitly, on the tag.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -48,6 +52,7 @@ jobs:
           context: .
           dockerfile: api/Dockerfile
           target: app
+          bakes-release: 'true'
           username: ${{ vars.DOCKERHUB_USERNAME }}
           token: ${{ secrets.DOCKERHUB_TOKEN }}
 
