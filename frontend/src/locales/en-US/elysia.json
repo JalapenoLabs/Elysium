@@ -8,6 +8,7 @@
     "running": "Working",
     "errored": "Her last turn failed",
     "needs-you": "Needs you",
+    "held": "Waiting to start",
     "done": "All caught up"
   },
   "hold": {

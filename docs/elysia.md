@@ -78,10 +78,11 @@ Her color, derived on every read from her turns, questions, and settings (`api/s
 |-------------|--------|----------------------------------------------------|
 | `needs-you` | Pink   | She asked a question nobody has answered           |
 | `running`   | Orange | A turn is running                                  |
+| `held`      | Grey   | Work is queued and a hold keeps it from starting   |
 | `errored`   | Red    | Her last finished turn failed                      |
 | `done`      | Green  | None of the above                                  |
 
-When more than one applies, needing a person wins, then running, then a failure. The colors are the `--elysia-*`
+When more than one applies, needing a person wins, then running, then held, then a failure. The colors are the `--elysia-*`
 tokens in `frontend/src/theme/matter.css`.
 
 Separately, a **hold** says why queued work is not starting, the first of: `paused` (a person paused her),
