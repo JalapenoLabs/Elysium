@@ -35,6 +35,7 @@ export const UrlTree = {
   settingsBrowsers: '/settings/browsers',
   settingsBrowser: '/settings/browsers/:browserSessionId',
   settingsConnectedApps: '/settings/connected-apps',
+  settingsMeetings: '/settings/meetings',
   settingsLlms: '/settings/llms',
   settingsLlmsAddCodexOauth: '/settings/llms/add-codex-oauth',
   settingsLlmsAddClaudeCodeOauth: '/settings/llms/add-claude-code-oauth',

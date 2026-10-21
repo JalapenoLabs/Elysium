@@ -16,6 +16,7 @@ import { ProjectActions } from './ProjectActions'
 import { ProjectBanner } from './ProjectBanner'
 import { CodingSessionsTable } from '../Coding/CodingSessionsTable'
 import { ProjectGithubField } from './ProjectGithubField'
+import { ProjectTimeline } from './ProjectTimeline'
 import { ProjectWork } from './ProjectWork'
 
 // Utility
@@ -33,7 +34,7 @@ const createdFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium
 // `/projects/:projectId`: one project, edited in place. The name and description come
 // first and are edited where they are shown, the cover runs across the page below them, and the Actions menu holds
 // what cannot be: removing the cover and deleting the project. Its action items and
-// initiatives, then its coding sessions, follow.
+// initiatives, its timeline, then its coding sessions, follow.
 export function ProjectPage() {
   const { t } = useTranslation([ 'projects', 'common' ])
   const dispatch = useAppDispatch()
@@ -126,6 +127,8 @@ export function ProjectPage() {
     <ProjectGithubField project={project} />
 
     <ProjectWork projectId={project.id} />
+
+    <ProjectTimeline projectId={project.id} />
 
     <section>
       <h2 className='compact text-xl font-semibold'>{t('page.sessionsHeading')}</h2>

@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { BrowserSession } from '../../../api/routes/browserSessionRoutes'
-import type { ConnectorKind } from '../../../api/routes/connectorRoutes'
+import type { WebmailConnectorKind } from '../../../api/routes/connectorRoutes'
 
 // Core
 import { useState } from 'react'
@@ -48,7 +48,7 @@ export function MailReadingSection(props: Props) {
     return null
   }
 
-  async function startReading(connectorKind: ConnectorKind) {
+  async function startReading(connectorKind: WebmailConnectorKind) {
     setIsBusy(true)
     try {
       const response = await createConnectorAccount({

@@ -1,0 +1,28 @@
+{
+  "heading": "Timeline",
+  "description": "Everything about this project, newest first: mail, meeting topics, and more.",
+  "empty": "Nothing on this project's timeline yet. Meeting topics and mail about it arrive here as Elysium reads them.",
+  "loadOlder": "Show older",
+  "failed": "The timeline could not be loaded.",
+  "sources": {
+    "meeting": "Meeting",
+    "outlook": "Outlook",
+    "gmail": "Gmail",
+    "other": "Record"
+  },
+  "segment": {
+    "inMeeting": "In {{meeting}}, {{start}} to {{end}}",
+    "transcript": "Transcript",
+    "hideTranscript": "Hide transcript",
+    "noClip": "No recording was kept for this meeting."
+  },
+  "attribution": {
+    "byElysia": "Elysia, {{percent}} sure",
+    "byPerson": "You said so",
+    "confirm": "It is about this project",
+    "remove": "Not about this project",
+    "removed": "Removed from this project's timeline.",
+    "confirmed": "Kept on this project's timeline."
+  },
+  "openSource": "Open at the source"
+}

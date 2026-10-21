@@ -4,16 +4,29 @@
 import { apiClient } from '../index'
 
 // Mirrors `ConnectorKind` in api/src/connectors/mod.rs.
-export const CONNECTOR_KINDS = [ 'outlook', 'gmail' ] as const
+export const CONNECTOR_KINDS = [ 'outlook', 'gmail', 'fireflies' ] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]
+
+// The kinds that read mail through one of the person's browsers.
+export const WEBMAIL_CONNECTOR_KINDS = [ 'outlook', 'gmail' ] as const satisfies readonly ConnectorKind[]
+export type WebmailConnectorKind = typeof WEBMAIL_CONNECTOR_KINDS[number]
+
+// The kinds that read meetings with an API key.
+export const MEETING_CONNECTOR_KINDS = [ 'fireflies' ] as const satisfies readonly ConnectorKind[]
+export type MeetingConnectorKind = typeof MEETING_CONNECTOR_KINDS[number]
 
 export type SignInState = 'signed_in' | 'signed_out' | 'unknown'
 
-// A service Elysium reads through one of the person's browsers. Only its owner receives it.
+// A service Elysium reads as the person, through one of their browsers or with an API key
+// they gave it. Only its owner receives it, and a key is never sent back.
 export type ConnectorAccount = {
   id: string
   kind: ConnectorKind
-  browserSessionId: string
+  // The browser it reads through, or null for an account that signs in with a key.
+  browserSessionId: string | null
+  hasCredential: boolean
+  // Where it keeps files, such as meeting recordings.
+  storageLocationId: string | null
   // As the last read found it.
   signInState: SignInState
   lastPolledAt: string | null
@@ -35,10 +48,17 @@ export function listConnectorAccounts() {
     .json<ListConnectorAccountsResponse>()
 }
 
-type CreateConnectorAccountRequest = {
-  kind: ConnectorKind
-  browserSessionId: string
-}
+// Each kind signs in its own way, and the API refuses a field the kind does not take.
+type CreateConnectorAccountRequest =
+  | {
+    kind: WebmailConnectorKind
+    browserSessionId: string
+  }
+  | {
+    kind: MeetingConnectorKind
+    apiKey: string
+    storageLocationId: string
+  }
 
 type ConnectorAccountResponse = {
   connector: ConnectorAccount

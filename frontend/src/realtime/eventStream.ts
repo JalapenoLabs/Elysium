@@ -25,6 +25,7 @@ import { llmDeleted, llmUpserted } from '../store/llmsSlice'
 import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSlice'
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
+import { meetingUpserted } from '../store/meetingsSlice'
 import {
   passwordVaultDeleted,
   passwordVaultStatusUpdated,
@@ -42,6 +43,7 @@ import { updatesStatusUpdated } from '../store/updatesSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
 // Misc
+import { getMeeting } from '../api/routes/meetingRoutes'
 import { EVENT_STREAM_PATH, EVENT_STREAM_RETRY_INITIAL_MS, EVENT_STREAM_RETRY_MAX_MS } from '../constants'
 
 // The universal event stream: one EventSource for the whole app, open for as long as
@@ -118,6 +120,19 @@ const handlers: Handlers = {
       return
     }
     void mutate((key) => typeof key === 'string' && key.startsWith('v1/timeline'))
+  },
+  // Like a record, a meeting is its owner's alone, and the event carries no content: the
+  // meeting is loaded by id.
+  'meeting.changed': (event) => {
+    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
+      return
+    }
+    getMeeting(event.data.id)
+      .then((response) => store.dispatch(meetingUpserted(response.meeting)))
+      .catch((error: unknown) => console.debug('A changed meeting could not be loaded', {
+        error,
+        meetingId: event.data.id,
+      }))
   },
   'history.appended': (event) => store.dispatch(historyAppended(event.data)),
   'changeset.upserted': (event) => store.dispatch(changesetUpserted(event.data)),

@@ -95,5 +95,4 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
 - Elysia's triage on `timelineRecord.created`: classifying each message, drafting replies for review, and attributing
   records to projects.
 - History for attributions, so a correction can be undone like any other edit.
-- Project pages showing their timeline, meeting segments included.
 - More connectors: Slack and Teams through the browser, and Google Meet and Teams recordings (`docs/meetings.md`).
