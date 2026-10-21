@@ -3,7 +3,7 @@
 //! The MCP server external clients reach, and what every one of its tools shares.
 //!
 //! The tools are grouped by what they act on, each group a `#[tool_router]` block in its own
-//! module ([`super::projects`], [`super::satellites`], [`super::sessions`]), combined in
+//! module ([`super::projects`], [`super::sessions`]), combined in
 //! [`Workspace::new`]. A tool reaches the person calling it through [`caller`]: the
 //! [`McpCaller`] the bearer check attached to the HTTP request.
 //!
@@ -30,8 +30,8 @@ use crate::state::AppState;
 /// What every client is told the server is for, when it connects.
 const INSTRUCTIONS: &str = "Elysium is a shared workspace of projects, action items, \
 initiatives, and coding sessions. Every call acts as the person who connected this client, with \
-what they granted it. A coding session is an agent working on a project's repositories in a \
-thread on a satellite: start one with sessions_create, steer it with sessions_send_prompt, and \
+what they granted it. A coding session is an agent working on a project's repositories in \
+Elysium's workspace: start one with sessions_create, steer it with sessions_send_prompt, and \
 follow its work with sessions_events.";
 
 /// The MCP server. One is built per request: the server keeps no session state, so any
@@ -47,10 +47,7 @@ impl Workspace {
     pub fn new(state: AppState) -> Self {
         Self {
             state,
-            tool_router: Self::tool_router()
-                + Self::projects_router()
-                + Self::satellites_router()
-                + Self::sessions_router(),
+            tool_router: Self::tool_router() + Self::projects_router() + Self::sessions_router(),
         }
     }
 }

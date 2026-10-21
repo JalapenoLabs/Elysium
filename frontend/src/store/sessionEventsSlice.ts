@@ -20,7 +20,7 @@ export type SessionTimeline = {
   isHistoryLoaded: boolean
   // Sorted by sequence, without duplicates.
   events: SessionEvent[]
-  // Older events exist on the satellite but were not loaded.
+  // Older events exist but were not loaded.
   truncated: boolean
 }
 

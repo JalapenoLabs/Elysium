@@ -24,7 +24,7 @@ use crate::activity::ActivityKind;
 use super::command::{AttemptCommand, KILL_SCRIPT};
 use super::credentials::ClaudeCredential;
 use super::events::{AttemptFailure, AttemptReport, StreamParser};
-use super::workspace::{AGENT_USER, ExecCommand};
+use super::workspace::{AGENT_USER, ExecCommand, SCRIPT_TIMEOUT};
 use super::{
     Executor, HEARTBEAT_TIMEOUT, QueuedTurn, Runner, RunnerEvent, TURNS_DIRECTORY, TurnOutcome,
     TurnStatus,
@@ -347,7 +347,13 @@ impl Executor {
         match self {
             Self::Workspace(workspace) => {
                 let killed = workspace
-                    .run_script(AGENT_USER, KILL_SCRIPT, &[turn_directory], Vec::new())
+                    .run_script(
+                        AGENT_USER,
+                        KILL_SCRIPT,
+                        &[turn_directory],
+                        Vec::new(),
+                        SCRIPT_TIMEOUT,
+                    )
                     .await;
                 if let Err(error) = killed {
                     event!(

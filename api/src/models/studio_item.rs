@@ -247,7 +247,7 @@ pub async fn bytes_in_location(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{TEST_PERSON_ID, migrated_database, studio_item_with_session};
+    use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
     #[test]
     fn a_short_message_is_kept_as_it_is() {
@@ -266,13 +266,10 @@ mod tests {
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
     async fn a_provider_message_past_the_column_is_still_recorded() {
         let (_url, mut connection) = migrated_database().await;
-        let fixture = studio_item_with_session(
-            &mut connection,
-            &crate::test_support::cipher(),
-            "http://127.0.0.1:9",
-        )
-        .await;
-        let studio_item_id = fixture.item.id;
+        let studio_item_id =
+            crate::test_support::studio_item(&mut connection, &crate::test_support::cipher())
+                .await
+                .id;
         let refusal = format!(
             "{}/x.png could not be stored: {}",
             "deep/".repeat(300),

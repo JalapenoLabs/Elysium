@@ -21,7 +21,7 @@ use std::sync::Arc;
 use tracing::{Level, event};
 use url::Url;
 
-use super::workspace::{AGENT_USER, WorkspaceContainer};
+use super::workspace::{AGENT_USER, SCRIPT_TIMEOUT, WorkspaceContainer};
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::models::{github_credential, user};
@@ -131,6 +131,7 @@ pub async fn provision(
             PROVISION_SCRIPT,
             &[CLAUDE_CONFIG_DIRECTORY, repository.url.as_str()],
             environment,
+            SCRIPT_TIMEOUT,
         )
         .await?;
     if output.exit_code != Some(0) {

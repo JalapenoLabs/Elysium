@@ -9,8 +9,7 @@ export const KRATOS_BASE_PATH = `${API_BASE_PATH}/identity`
 // Generous enough for cold starts, short enough that a hung request fails visibly.
 export const API_REQUEST_TIMEOUT_MS = 10_000
 
-// The API gives a satellite 10 seconds to replay a thread's history; this leaves room
-// for that answer to arrive.
+// A session's history is read from the API's own store; this bounds a slow answer.
 export const SESSION_HISTORY_TIMEOUT_MS = 15_000
 
 // A DNS check looks up every record at once, and a resolver that does not answer takes

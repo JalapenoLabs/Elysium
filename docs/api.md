@@ -98,7 +98,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/environment-variables`       | `201` `{ variable }`                                |
 | GET    | `/api/v1/environment-variables/{id}`  | `200` `{ variable }`                                |
 | PATCH  | `/api/v1/environment-variables/{id}`  | `200` `{ variable }`                                |
-| DELETE | `/api/v1/environment-variables/{id}`  | `204`; running threads keep it                      |
+| DELETE | `/api/v1/environment-variables/{id}`  | `204`; a running turn keeps it                      |
 | GET    | `/api/v1/github-credentials`          | `200` `{ credentials: GithubCredential[] }`, by name |
 | POST   | `/api/v1/github-credentials`          | `201` `{ credential }`; checked with GitHub first   |
 | GET    | `/api/v1/github-credentials/{id}`     | `200` `{ credential }`                              |
@@ -137,12 +137,6 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/projects/{id}/cover`         | `200` WebP image; `404` without a cover             |
 | PUT    | `/api/v1/projects/{id}/cover`         | `200` `{ project }`; the body is the image file     |
 | DELETE | `/api/v1/projects/{id}/cover`         | `200` `{ project }`                                 |
-| GET    | `/api/v1/satellites`                  | `200` `{ satellites: Satellite[] }`, by name        |
-| POST   | `/api/v1/satellites`                  | `201` `{ satellite }`                               |
-| GET    | `/api/v1/satellites/{id}`             | `200` `{ satellite }`                               |
-| PATCH  | `/api/v1/satellites/{id}`             | `200` `{ satellite }`                               |
-| DELETE | `/api/v1/satellites/{id}`             | `204`; forgets its sessions                         |
-| POST   | `/api/v1/satellites/{id}/test`        | `200` `{ result }` from a fresh connection          |
 | GET    | `/api/v1/storage-locations`           | `200` `{ locations: StorageLocation[] }`, by name   |
 | POST   | `/api/v1/storage-locations`           | `201` `{ location }`                                |
 | GET    | `/api/v1/storage-locations/{id}`      | `200` `{ location }`                                |
@@ -150,9 +144,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/storage-locations/{id}`      | `204`; files already saved stay with the provider   |
 | POST   | `/api/v1/storage-locations/{id}/test` | `200` `{ result }` from listing its directory       |
 | GET    | `/api/v1/coding-sessions`             | `200` `{ sessions: CodingSession[] }`, newest first |
-| POST   | `/api/v1/coding-sessions`             | `201` `{ session }`; opens a thread                 |
+| POST   | `/api/v1/coding-sessions`             | `201` `{ session }`; clones its repositories        |
 | PATCH  | `/api/v1/coding-sessions/{id}`        | `200` `{ session }`; renames                        |
-| DELETE | `/api/v1/coding-sessions/{id}`        | `204`; destroys the thread                          |
+| DELETE | `/api/v1/coding-sessions/{id}`        | `204`; stops its turns, removes its directory       |
 | GET    | `/api/v1/coding-sessions/{id}/events` | `200` `{ events: SessionEvent[], truncated }`       |
 | POST   | `/api/v1/coding-sessions/{id}/turns`  | `201` `{ turn }`; queues a prompt                   |
 | GET    | `/api/v1/auth/status`                 | `200` `{ signupOpen, firstSignUp }`; needs no session |
@@ -296,18 +290,6 @@ to fit 2400 by 1350 when larger, keeping its shape, and stored as lossy WebP at 
 dropping metadata (`api/src/images.rs`). Anything refused answers `400`; a larger body answers `413`.
 `GET /{id}/cover` serves it with `Cache-Control: private, max-age=31536000, immutable`: clients add `coverUpdatedAt` to
 the URL, so each cover version has its own. Cover changes publish `project.upserted`.
-
-### `/api/v1/satellites`
-
-A `Satellite` has `id`, `name`, `description`, `url`, `isActive`, `createdAt`, `updatedAt`, and `status`. The
-secret is never returned. `status` is the fleet's latest poll, or null for an inactive satellite and until the
-first poll after a change: `{ satelliteId, reachable, version, runningThreads, maxConcurrentThreads, error }`.
-
-`POST` requires `name`, `url` (http or https), and `secret`, and accepts `description` and `isActive` (default
-true). `PATCH` accepts any subset; a new `secret` is re-sealed. Saving restarts the satellite's watchers.
-
-`test` answers `{ version, protoMajor, protoMinor, runningThreads, maxConcurrentThreads }`, or `502` with the
-satellite's error.
 
 ### `/api/v1/storage-locations`
 
@@ -490,27 +472,25 @@ initiative's creation, one at every moment either count changed, and one now.
 
 ### `/api/v1/coding-sessions`
 
-A `CodingSession` has `id` (the session's number, 1, 2, 3, ...), `projectId`, `satelliteId`, `threadId`, `title`,
-`actionItemId` (the item it was started from, or null), `createdAt`, `updatedAt`, and
-`thread`: the thread as of the latest poll, or null until the first poll sees it. `thread` holds `state`,
-`queueDepth`, `currentTurnId`, `latestSequence`, `lastActivityAt`, and `expiresAt`. `state` is one of `unknown`,
-`provisioning`, `idle`, `running`, `awaiting-input`, `watching`, `paused`, `expired`, or `destroyed`.
+A `CodingSession` has `id` (the session's number, 1, 2, 3, ...), `projectId`, `title`, `githubCredentialId`,
+`actionItemId` (the item it was started from, or null), `studioItemId`, `createdAt`, `createdBy`, `updatedAt`, and
+`activity`: what it is doing now, `{ state, queueDepth, currentTurnId, lastActivityAt }`, with `state` one of `idle`,
+`queued`, or `running`.
 
-`POST` requires `projectId`, `satelliteId`, and `title` (1 to 200 characters), and accepts `repositories`, up to 16
+`POST` requires `projectId` and `title` (1 to 200 characters), and accepts `repositories`, up to 16
 `{ url, baseBranch? }` cloned in order, and `githubCredentialId` (absent follows the project, `null` asks for no token, and an id names one;
 an unknown id answers `400`). Two repositories that would clone into the same directory, ignoring case, answer `400`
-naming both URLs; see `docs/coding.md`. Sessions carry `githubCredentialId`, the token their thread started with.
-`prompt` (1 to 100,000 characters) is queued as the thread's first turn. `actionItemId` starts the session from that
+naming both URLs, and a clone that fails answers `502` with git's message; see `docs/coding.md`. Sessions carry
+`githubCredentialId`, the token their turns use. `prompt` (1 to 100,000 characters) is queued as the first turn. `actionItemId` starts the session from that
 item: `prompt` is then required (`400` without it), the project must be one of the item's projects when it has any
 (`400` otherwise), an unknown item answers `404`, and a deleted one `409`. The first turn carries the item's context
-ahead of the prompt; see `docs/action-items.md`. The satellite must be active (`409` otherwise). `turns` requires `prompt` (1 to 100,000 characters)
+ahead of the prompt; see `docs/action-items.md`. `turns` requires `prompt` (1 to 100,000 characters)
 and answers `{ turnId, status, prompt, queuedAt }`; the turn's progress arrives on the event stream.
 
-A `SessionEvent` has `sessionId` (the session's number), `sequence`, `turnId`, `occurredAt`, `type` (the satellite's wire name, such as
-`agent.message`), `memberId`, and `payload`. `payload` is null for event types the API does not render; otherwise
-its `kind` is one of `agentMessage`, `agentThinking`, `toolStarted`, `toolCompleted`, `turnStarted`,
-`turnCompleted`, `planProposed`, `questionAsked`, `budgetWarning`, or `incident`. Field shapes are in
-`api/src/fleet/views.rs`. Behavior, policy, and history limits are in `docs/coding.md`.
+A `SessionEvent` has `sessionId` (the session's number), `sequence`, `turnId`, `occurredAt`, `type` (such as
+`agent.message`), and `payload`. `payload` is null for event types the API does not render; otherwise its `kind` is
+one of `agentMessage`, `agentThinking`, `toolStarted`, `toolCompleted`, `turnStarted`, `turnCompleted`, or
+`incident`. Field shapes are in `api/src/sessions/views.rs`. Behavior, policy, and history limits are in `docs/coding.md`.
 
 ### Errors
 
@@ -523,7 +503,7 @@ Every error is JSON with a `message`.
 | `404`  | No row with that id                                                                   |
 | `409`  | Unique constraint, such as a duplicate LLM name, a project that still has sessions, or a change the record's state refuses |
 | `422`  | Field validation failed; `fields` lists each failure                                  |
-| `502`  | A satellite, mail server, storage provider, or the OAuth broker refused; `message` is its own error |
+| `502`  | The workspace, a mail server, a storage provider, or the OAuth broker failed; `message` is its own error |
 | `503`  | The mail service a request needs is not configured, or the mail server does not exist |
 | `500`  | Internal fault; details are logged, never returned                                    |
 
@@ -541,12 +521,13 @@ With no subcommand the binary serves HTTP.
 
 On start, the server loads an environment file if one is present, installs tracing, and parses `Config` from the
 environment. It then validates the encryption key, connects to Postgres, refuses to continue if any migration is
-pending, connects to Redis, starts the fleet watchers (see `docs/coding.md`) and the link watcher (see
+pending, connects to Redis, starts readying the agent workspace (see `docs/coding.md`) and the link watcher (see
 `docs/action-items.md`), binds, and serves. Both store connections retry with exponential backoff, 8 attempts over
 roughly a minute, and prove themselves with `SELECT 1` and `PING`.
 
-On `SIGTERM` or `SIGINT`, a shutdown token is cancelled first. That ends every open event stream, fleet watcher, and
-the link watcher, which would otherwise keep the drain waiting forever. The listener stops accepting, in-flight
+On `SIGTERM` or `SIGINT`, a shutdown token is cancelled first. That ends every open event stream, agent turn, and
+the link watcher, which would otherwise keep the drain waiting forever. Running turns are killed and recorded as
+`interrupted`. The listener stops accepting, in-flight
 requests drain, the watchers are awaited, then the Postgres pool closes and the Redis connection drops. Compose allows
 30 seconds for this before `SIGKILL`.
 
@@ -588,9 +569,10 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/database/`          | Pool type, migration runner, generated schema    |
 | `src/crypto.rs`          | Secret sealing                                   |
 | `src/errors.rs`          | `ApiError` and its mapping to HTTP responses     |
-| `src/state.rs`           | `AppState`: browsers, pool, Redis, cipher, version, bus, fleet, GitHub, Jira, links, mail, storage, shutdown token |
+| `src/state.rs`           | `AppState`: browsers, pool, Redis, cipher, version, bus, runner, sessions, GitHub, Jira, links, mail, storage, shutdown token |
 | `src/realtime.rs`        | Event bus and the `ServerEvent` envelope          |
-| `src/fleet/`             | Satellite clients and watchers; JSON views of Arsox types |
+| `src/runner/`            | Agent turns: the workspace container, the Claude Code CLI, credentials, and workspace files |
+| `src/sessions/`          | Coding and Studio sessions on the runner: directories, turns, recorded events, activity |
 | `src/jira/`              | Jira Cloud's REST API and Atlassian Document Format |
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/browser/`           | The browsers the host streams: their containers, the reconciler, Neko's API, the stream relay, and the DevTools client |
@@ -598,7 +580,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
 | `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), the link watcher, and changesets' operations, dependencies, and decisions |
-| `src/tools/`             | The relayed MCP servers agents call: `elysium_storage` and `elysium_work`, see `docs/coding.md` |
+| `src/tools/`             | The MCP servers agents call at `/api/agent-tools`: `elysium_storage` and `elysium_work`, see `docs/coding.md` |
 
 ## Logging
 
@@ -609,13 +591,13 @@ client-supplied or a generated UUID. The id is echoed on the response and attach
 ## Testing
 
 `cargo test` runs the hermetic unit tests: encryption, request parsing and validation, refused environment variable
-keys, event envelopes, the Arsox view conversions, the action item rules (transitions, Next's order, progress, a
+keys, event envelopes, the runner's stream parsing and failover rules, the action item rules (transitions, Next's order, progress, a
 session's first turn from an item, and what a provider's change does to a linked item), GitHub's client against a
 local fake, and the agent tools' schemas.
 `api/scripts/verify-migrations.sh` also runs the store-backed tests against a disposable Postgres and Redis.
 
 ## Roadmap
 
-- Authentication. The LLM and satellite routes write credentials and drive agents, so nginx publishes on loopback
+- Authentication. The LLM and coding routes write credentials and drive agents, so nginx publishes on loopback
   by default until auth exists.
 - TLS to Postgres for deployments where the database is not on a private network.

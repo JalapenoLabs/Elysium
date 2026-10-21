@@ -91,7 +91,6 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
 | `/settings/llms/add-<type>`   | `AddLlmPage`             | One per provider, see below                              |
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
-| `/settings/satellites`        | `ManageSatellitesPage`   | Register satellites, see their status, test connections  |
 | `/settings/email`             | `ManageEmailPage`        | Mail server and domains, and every kind of mailbox       |
 | `/settings/environment`       | `ManageEnvironmentPage`  | Environment variables every coding session receives     |
 | `/settings/environment/new`   | `AddEnvironmentVariablePage` | Add an environment variable                          |
@@ -196,10 +195,8 @@ Manage LLMs is split into these files:
   `DatePicker` (typed segments plus a calendar) at day granularity, saved as midnight at the start of that day in
   the viewer's zone. One year from now picks the date 365 days after today.
 
-Manage satellites follows the same split under `src/pages/Settings/Satellites/`. Its table shows each satellite's
-live status (online, unreachable with the reason on hover, checking, or inactive), version, thread load, and its
-Blender setup (pending, installing, ready, or failed with the end of the script's output on hover; see
-`docs/coding.md`), and its row menu adds Test connection.
+Below the credentials, admins see Agent configuration (`AgentConfigurationSettings`): the https repository every
+agent's Claude Code configuration is checked out from, saved to the workspace settings (see `docs/coding.md`).
 
 Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone or
 bucket with directory, projects, limit, and a Studio default switch, `StudioDefaultSwitch`) whose row menu edits,
@@ -265,7 +262,7 @@ description) whose row menu edits or deletes one, and add and edit as their own 
 `EnvironmentVariableEditorLayout` and `EnvironmentVariableForm`. A secret's value shows as a mask beside a Secret chip; a
 visible one is truncated in monospace. The form is a key, a Secret switch, the value (a multi-line text area, or a
 password field while Secret is on), and a description. `EnvironmentVisibilityNote` sits beside the form and above the
-table, saying that the agent can read every value and that secret only hides it from Elysium and the satellite's logs.
+table, saying that the agent can read every value and that secret only hides it from Elysium and its session logs.
 While editing a secret the value is optional and keeps the stored one, and it turns required when Secret is switched
 off, mirroring the API. `environmentPresentation.ts` mirrors the API's refused-key rules (`getKeyRefusal`), so a key
 Elysium would refuse is flagged before saving. See `docs/environment.md`.
@@ -392,13 +389,13 @@ matter when changing it:
   page links sessions this way.
 - The Sessions panel shows its sessions as a table or as tiles. `SessionsToolbar` heads both: a search field, the
   result count, and, on the right, a Table and Tiles switch (HeroUI's `ToggleButtonGroup`, as on the Projects page).
-  Search matches the number, title, project, satellite, state, and last activity as shown, so the table's own search
+  Search matches the number, title, project, state, and last activity as shown, so the table's own search
   and toolbar are hidden. Both views read one `SessionSummary` per session, built by `describeSession` in
-  `sessionPresentation.ts` (project and satellite names, state and its label, last activity in the viewer's zone), and
+  `sessionPresentation.ts` (project name, activity state and its label, last activity in the viewer's zone), and
   `searchSessionSummaries` filters them once for either view. The table's columns render and sort from those
   summaries; last activity sorts by the instant rather than the words shown.
 - `SessionTiles` is a grid that fits as many 16rem columns as the panel is wide, down to one at phone width. Each
-  tile shows the number, title, state chip, project, satellite, and last activity, with `SessionRowActions` in its
+  tile shows the number, title, state chip, project, and last activity, with `SessionRowActions` in its
   corner. The title's link stretches over the whole card, so clicking a tile opens the session as clicking the title
   in the table does; the menu sits above it. The panel is a Tailwind `@container`, so the toolbar and grid follow the
   panel's width, not the window's.
@@ -442,10 +439,9 @@ matter when changing it:
 - **Deletes.** `studioItem.deleted` carries only an id, so, as for action items, it revalidates the deleted list
   and the item's own page.
 - **Reuse from Coding.** The conversation reuses `TimelineEventList` and `useFollowingScroll`, and the composer
-  reuses `PromptComposer` with `isClosed` always false, its `header` row for the satellite picker, and its
-  `sendBlocker`, which disables Send with the reason in a tooltip.
+  reuses `PromptComposer` and its `sendBlocker`, which disables Send with the reason in a tooltip.
 - **Pure logic.** Grouping files by stem, the stage's default subject, layout modes and the stored layout, tile
-  thumbnails, filters, location choices, where the next prompt goes, and drawing geometry are pure modules with tests
+  thumbnails, filters, location choices, and drawing geometry are pure modules with tests
   beside them.
 
 ### Projects page
@@ -548,7 +544,6 @@ Selectors return existing references; never build objects or strings inside one.
 | `mailDomains`    | The mail server's domains, sorted by name                               |
 | `mailServer`     | The mail server's state, replaced whole by every update                 |
 | `projects`       | Projects, sorted by name                                                |
-| `satellites`     | Satellites with their latest status                                     |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
 | `jiraCredentials` | Jira Cloud credentials, sorted by name                                 |
 | `environmentVariables` | Environment variables, sorted by key                              |
@@ -556,7 +551,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `studioItems`    | Live and deleted Studio items in separate halves, newest first          |
 | `studioAssets`   | Every version of the files of the Studio items viewed, newest first     |
 | `studioFeedback` | Drawn prompts of the Studio items viewed, oldest first                  |
-| `codingSessions` | Coding and Studio sessions with their thread state, newest first        |
+| `codingSessions` | Coding and Studio sessions with what each is doing, newest first        |
 | `sessionEvents`  | Events for conversations that are open, merged by sequence              |
 | `sessionsView`   | Whether the Coding page's Sessions panel shows a table or tiles         |
 | `realtime`       | Event stream connection: `connecting`, `open`, or `reconnecting`        |
@@ -568,7 +563,7 @@ Server collections use entity adapters. Redux is the source of truth components 
 
 1. **SWR loads it once.** A component that shows server data calls a loader from `src/hooks/useServerData.ts`
    (`useLlmsLoader`, `useMailAccountsLoader`, `useMailServerLoader`, `useMailDomainsLoader`, `useProjectsLoader`,
-   `useSatellitesLoader`, `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useJiraCredentialsLoader`,
+   `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useJiraCredentialsLoader`,
    `useEnvironmentVariablesLoader`, `useCodingSessionsLoader`,
    `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,
    `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,
@@ -606,7 +601,7 @@ once it is restored instead of listing them. An upsert files a record by its `de
 it back. An initiative's burnup is the one view read from SWR rather than Redux (`useInitiativeProgress`): no event
 carries it, so `initiative.upserted` revalidates its key, which refetches only while an initiative page shows it.
 
-Satellite, mail server, and broker failures answer `502` with the upstream's message. `getUpstreamErrorMessage` in
+Workspace, mail server, and broker failures answer `502` with the upstream's message. `getUpstreamErrorMessage` in
 `src/api/errors.ts` extracts it for toasts.
 
 ## Forms
@@ -689,7 +684,7 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
-  `satellites`, `email`, `storage`, `github`, `jira`, `environment`, `projects`, `coding`,
+  `email`, `storage`, `github`, `jira`, `environment`, `projects`, `coding`,
   `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with

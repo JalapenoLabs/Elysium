@@ -692,33 +692,15 @@ async fn items_cannot_be_filtered_on_another_projects_initiative() {
     );
 }
 
-/// Records a session of `scope.project_id` on a new satellite, with `github_credential_id`
+/// Records a session of `scope.project_id`, with `github_credential_id`
 /// as its token, and answers the scope with the session's number.
 async fn session_with(
     connection: &mut AsyncPgConnection,
     scope: WorkScope,
     github_credential_id: Option<Uuid>,
 ) -> WorkScope {
-    use secrecy::SecretString;
-
     use crate::models::coding_session::NewCodingSession;
-    use crate::models::satellite::{self, NewSatellite};
-    use crate::test_support::cipher;
 
-    let satellite = satellite::create(
-        connection,
-        &cipher(),
-        &NewSatellite {
-            created_by: TEST_PERSON_ID,
-            name: format!("Satellite {}", Uuid::now_v7()),
-            description: String::new(),
-            url: "http://arsox:8080".to_owned(),
-            secret: SecretString::from("bearer"),
-            is_active: true,
-        },
-    )
-    .await
-    .expect("satellite");
     let id = coding_session::reserve_id(connection)
         .await
         .expect("a number");
@@ -728,8 +710,6 @@ async fn session_with(
             created_by: TEST_PERSON_ID,
             id,
             project_id: Some(scope.project_id),
-            satellite_id: satellite.id,
-            thread_id: format!("thread-{}", Uuid::now_v7()),
             title: "Fix it".to_owned(),
             github_credential_id,
             action_item_id: scope.action_item_id,

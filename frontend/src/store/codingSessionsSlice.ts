@@ -81,7 +81,7 @@ export const selectCodingSessionsByProjectId = createSelector(
 )
 
 // How many Coding sessions each project holds; projects without one are absent. Pair with
-// shallowEqual, since thread state changes replace the session entities constantly.
+// shallowEqual, since activity changes replace the session entities constantly.
 export const selectSessionCountsByProjectId = createSelector(
   [ selectCodingSessions ],
   (sessions) => {
@@ -110,7 +110,7 @@ export const selectStudioItemSessions = createSelector(
   },
 )
 
-// Each Studio item's latest session, for the grid's live thread state. Items with no
+// Each Studio item's latest session, for the grid's live activity. Items with no
 // session loaded are absent.
 export const selectLatestSessionsByStudioItemId = createSelector(
   [ selectAllSessions ],

@@ -19,7 +19,7 @@ pub struct StudioFeedback {
     pub id: Uuid,
     pub studio_item_id: Uuid,
     pub session_id: Option<i64>,
-    /// The turn it started; `None` until the satellite accepts the turn.
+    /// The turn it started; `None` until the turn is queued.
     pub turn_id: Option<String>,
     pub prompt: String,
     /// What was drawn over, when it was one of the item's files.
@@ -51,7 +51,7 @@ pub async fn create(
         .await
 }
 
-/// Records the turn a drawn prompt started, once the satellite accepted it.
+/// Records the turn a drawn prompt started, once it was queued.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] when no row has that id.

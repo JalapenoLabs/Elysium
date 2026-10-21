@@ -34,6 +34,7 @@ pub mod command;
 pub mod configuration;
 pub mod credentials;
 pub mod events;
+pub mod files;
 #[cfg(test)]
 mod live_tests;
 mod turn;
@@ -89,11 +90,24 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(15);
 /// Names one conversation: the run of turns that share a Claude session and queue behind
 /// each other. The caller chooses and keeps it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ConversationId(Uuid);
+pub struct ConversationId(Conversation);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Conversation {
+    /// A conversation its owner names, such as Elysia's.
+    Named(Uuid),
+    /// A coding or Studio session's, named by the session's number.
+    Session(i64),
+}
 
 impl ConversationId {
     pub const fn new(id: Uuid) -> Self {
-        Self(id)
+        Self(Conversation::Named(id))
+    }
+
+    /// The conversation of coding session `session_id`.
+    pub const fn for_session(session_id: i64) -> Self {
+        Self(Conversation::Session(session_id))
     }
 }
 
@@ -103,7 +117,10 @@ impl fmt::Display for ConversationId {
         reason = "project naming rule forbids std's one-letter `f`"
     )]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
+        match self.0 {
+            Conversation::Named(id) => id.fmt(formatter),
+            Conversation::Session(session_id) => write!(formatter, "session-{session_id}"),
+        }
     }
 }
 
@@ -476,6 +493,7 @@ impl Executor {
                         command::REAP_SCRIPT,
                         &[TURNS_DIRECTORY],
                         Vec::new(),
+                        workspace::SCRIPT_TIMEOUT,
                     )
                     .await?;
                 if reaped.exit_code != Some(0) {
