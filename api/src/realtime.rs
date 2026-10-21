@@ -28,6 +28,7 @@ use crate::mail::hosting::MailServerStatus;
 use crate::routes::v1::action_items::{
     ActionItemLinkResponse, ActionItemResponse, CommentResponse, HistoryEntryResponse,
 };
+use crate::routes::v1::browser_sessions::BrowserSessionResponse;
 use crate::routes::v1::changesets::ChangesetResponse;
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
 use crate::routes::v1::elysia::{ElysiaResponse, MessageResponse, TurnResponse};
@@ -82,6 +83,11 @@ pub enum ServerEvent {
     ActionItemCommentUpserted(CommentResponse),
     #[serde(rename = "actionItemComment.deleted")]
     ActionItemCommentDeleted { id: Uuid, action_item_id: Uuid },
+    /// A browser was added, or what it is doing changed: starting, running, or failed.
+    #[serde(rename = "browserSession.upserted")]
+    BrowserSessionUpserted(BrowserSessionResponse),
+    #[serde(rename = "browserSession.deleted")]
+    BrowserSessionDeleted { id: Uuid },
     /// A write to an item or initiative recorded this in its history.
     #[serde(rename = "history.appended")]
     HistoryAppended(HistoryEntryResponse),

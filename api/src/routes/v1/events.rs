@@ -23,7 +23,7 @@ use futures_util::{future, stream};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{Level, event};
 
-use crate::auth::middleware::still_allowed;
+use crate::auth::middleware::revoked;
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -57,11 +57,11 @@ pub async fn handle(State(state): State<AppState>, headers: HeaderMap) -> impl I
     });
 
     let shutdown = Box::pin(state.shutdown.clone().cancelled_owned());
-    let revoked = Box::pin(access_revoked(state, headers));
+    let access = Box::pin(revoked(state, headers, ACCESS_CHECK_INTERVAL));
     let messages = hello
         .chain(published)
         .map(|payload| Ok::<Event, Infallible>(Event::default().data(&*payload)))
-        .take_until(future::select(shutdown, revoked));
+        .take_until(future::select(shutdown, access));
 
     (
         // Tells nginx not to buffer the stream, which would hold events back.
@@ -71,22 +71,4 @@ pub async fn handle(State(state): State<AppState>, headers: HeaderMap) -> impl I
         )],
         Sse::new(messages).keep_alive(KeepAlive::new().interval(KEEP_ALIVE_INTERVAL)),
     )
-}
-
-/// Finishes once the stream's session or person may no longer receive events.
-async fn access_revoked(state: AppState, headers: HeaderMap) {
-    let mut interval = tokio::time::interval(ACCESS_CHECK_INTERVAL);
-    // The first tick is immediate, and the request was just checked.
-    interval.tick().await;
-    loop {
-        interval.tick().await;
-        if !still_allowed(&state, &headers).await {
-            event!(
-                name: "realtime.client.revoked",
-                Level::INFO,
-                "closed an event stream whose session or person lost access",
-            );
-            return;
-        }
-    }
 }

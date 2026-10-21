@@ -111,6 +111,26 @@ pub async fn still_allowed(state: &AppState, headers: &HeaderMap) -> bool {
     check_access(state, &principal).await.is_ok()
 }
 
+/// Finishes once the session or person behind a long-lived connection may no longer use the
+/// workspace, checking every `interval`. Event streams and browser streams end on it, so a
+/// person who is signed out or disabled stops receiving anything.
+pub async fn revoked(state: AppState, headers: HeaderMap, interval: std::time::Duration) {
+    let mut ticker = tokio::time::interval(interval);
+    // The first tick is immediate, and the request was just checked.
+    ticker.tick().await;
+    loop {
+        ticker.tick().await;
+        if !still_allowed(&state, &headers).await {
+            event!(
+                name: "auth.connection.revoked",
+                Level::INFO,
+                "closed a long-lived connection whose session or person lost access",
+            );
+            return;
+        }
+    }
+}
+
 /// Whether a request counts as someone using Elysium, which keeps their session alive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Activity {

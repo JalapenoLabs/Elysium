@@ -144,10 +144,14 @@ Everything else follows these rules:
 
 - Signing in to a service without an app of Elysium's own happens in a real browser the host runs and streams to the
   user over WebRTC: Neko (`ghcr.io/m1k1o/neko/chromium`, pinned by digest), run unchanged, one container, profile
-  volume, Docker network, and media port per signed-in account. The roadmap builds it; see `docs/browser.md`.
+  volume, Docker network, and media port per signed-in account. The API runs and reconciles them; see
+  `docs/browser.md`.
+- A browser belongs to the person who created it. Its routes answer that person alone, and the stream relays a Neko
+  member session, never an administrator's.
 - nginx stays the single ingress: it passes the media ports, `59000-59007` over UDP and TCP, to the browser that owns
   each one, on every interface. Signaling never leaves the API's authenticated stream route.
-- The frontend speaks Neko's protocol itself; Neko's own client cannot run under the web app's CSP.
+- The web app's sign-in panel, on the roadmap, speaks Neko's protocol itself: Neko's own client cannot run under
+  the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
 
 ## Storage

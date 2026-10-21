@@ -13,6 +13,10 @@ whose users may all hold accounts, together with an https `ELYSIUM_PUBLIC_URL`.
 The mail ports (25, 465, 993) are published on every interface. They reach Stalwart alone, which authenticates
 mailbox access itself and accepts unauthenticated SMTP only as delivery to its own domains, never as a relay.
 
+The browser media ports (59000-59007, UDP and TCP) are published on every interface too. What reaches them is
+useless alone: a media session needs the ICE credentials and DTLS fingerprint exchanged over signaling, and signaling
+runs only through the API's stream route, which requires the browser's owner and Elysium's own origin.
+
 The API itself has no published port. Everything reaches it through nginx, which is the
 only component that can set `X-Real-IP` and `X-Forwarded-For`. The rate limiter and
 the logs trust those headers for that reason alone. Publishing the API port directly
@@ -47,13 +51,31 @@ would let a client forge them.
 
 ## Docker access
 
-The API creates and runs the mail server through Docker. It never mounts the Docker socket: it reaches
+The API creates and runs the mail server and the browsers through Docker. It never mounts the Docker socket: it reaches
 `docker-proxy`, which answers only the container, image, volume, and network endpoints, on an internal network no
 other service joins. Exec, build, swarm, secrets, and system endpoints are refused.
 
 The proxy narrows the surface but does not make it safe: creating a container is enough to control the host. Anyone
-signed in can therefore reach the host through the mail routes, which is one more reason every account is approved
-by an admin.
+signed in can therefore reach the host through the mail and browser routes, which is one more reason every account
+is approved by an admin. The network endpoints, which create a network per browser and join the API and nginx to it,
+add nothing to that.
+
+## Browsers
+
+- A browser is signed in to its owner's accounts, so every browser route answers its owner alone, and another
+  person's browser is a `404`.
+- The stream route checks the origin itself: a WebSocket upgrade is a `GET`, which the unsafe-request check does not
+  cover. It closes when the owner's session or account stops being allowed, checked every 30 seconds.
+- The API relays a Neko member session, which can watch, hold control, and set the clipboard, and nothing else. The
+  relay also passes only the events a viewer needs, so it is the second wall, not the only one. Neko's
+  administrator password is generated per container and never kept.
+- Each browser's DevTools port has no authentication, so each browser has its own network, joined only by the API and
+  nginx, and nginx forwards only its media port. A compromised browser cannot reach another.
+- A browser's profile volume holds its sign-ins. Removing the browser removes it.
+- `browserSession.upserted` and `browserSession.deleted` reach every client of the event stream, as every event does:
+  the workspace shares one trust boundary. They carry a browser's name, start page, and status, never its password.
+
+See `docs/browser.md`.
 
 ## Auto-update
 
