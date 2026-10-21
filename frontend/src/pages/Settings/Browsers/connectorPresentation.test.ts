@@ -10,6 +10,7 @@ describe('connectorKindFor', () => {
   it('finds the connector for a browser started on its mailbox', () => {
     expect(connectorKindFor('https://outlook.office.com/mail/')).toBe('outlook')
     expect(connectorKindFor('https://outlook.live.com/mail/0/')).toBe('outlook')
+    expect(connectorKindFor('https://mail.google.com/mail/')).toBe('gmail')
   })
 
   it('finds none for any other page', () => {

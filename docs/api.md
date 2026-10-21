@@ -155,6 +155,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/coding-sessions/{id}`        | `204`; stops its turns, removes its directory       |
 | GET    | `/api/v1/coding-sessions/{id}/events` | `200` `{ events: SessionEvent[], truncated }`       |
 | POST   | `/api/v1/coding-sessions/{id}/turns`  | `201` `{ turn }`; queues a prompt                   |
+| GET    | `/api/v1/coding-sessions/{id}/desktop` | WebSocket: the running turn's desktop as VNC, view-only |
 | GET    | `/api/v1/auth/status`                 | `200` `{ signupOpen, firstSignUp }`; needs no session |
 | GET    | `/api/v1/me`                          | `200` `{ user, hasSecondFactor, mfaEnrollmentRequired }`; pending people too |
 | GET    | `/api/v1/users`                       | `200` `{ users: User[] }`, by name, machines included |
@@ -260,7 +261,7 @@ reaches now, or `null` to clear it. `collections` and `sync` answer `503` until 
 
 ### `/api/v1/connectors` and `/api/v1/timeline`
 
-A `ConnectorAccount` has `id`, `kind` (`outlook`), `browserSessionId`, `signInState` (`signed_in`, `signed_out`, or
+A `ConnectorAccount` has `id`, `kind` (`outlook` or `gmail`), `browserSessionId`, `signInState` (`signed_in`, `signed_out`, or
 `unknown`), `lastPolledAt`, `lastError`, `isActive`, `createdBy`, `createdAt`, and `updatedAt`. `POST` requires
 `kind` and `browserSessionId`, answers `400` when the browser is not the caller's and `409` when it already has a
 connector.
@@ -516,6 +517,12 @@ one of `agentMessage`, `agentThinking`, `toolStarted`, `toolCompleted`, `turnSta
 
 `events` answers `{ events, truncated, summaries }`. A `TurnSummary` has `sessionId`, `turnId`, `summary` (one line,
 at most 400 characters), and `createdAt`; see `docs/coding.md`, Turn summaries. Behavior, policy, and history limits are in `docs/coding.md`.
+
+### `/api/v1/coding-sessions/{id}/desktop`
+
+A WebSocket upgrade carrying the running turn's desktop as VNC (RFB) bytes in binary messages, view-only. It requires
+Elysium's own `Origin` (`403` otherwise), answers `404` for an unknown session or when no turn is running, and `502`
+when the workspace cannot be reached. See `docs/coding.md`, The desktop.
 
 ### Errors
 

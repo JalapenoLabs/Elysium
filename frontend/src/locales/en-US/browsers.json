@@ -62,7 +62,8 @@
     "start": "Read this mailbox",
     "stop": "Stop reading",
     "kinds": {
-      "outlook": "Outlook"
+      "outlook": "Outlook",
+      "gmail": "Gmail"
     },
     "signIn": {
       "signedIn": "Signed in",
