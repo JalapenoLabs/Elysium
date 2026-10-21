@@ -21,6 +21,10 @@
       "title": "Connected apps",
       "description": "Connect Claude Code, Codex, and other MCP clients, and disconnect the ones you've allowed."
     },
+    "meetings": {
+      "title": "Meetings",
+      "description": "Connect Fireflies, so your meetings' topics land on their projects' timelines."
+    },
     "users": {
       "title": "Users",
       "description": "Approve sign-ups, manage roles and accounts, and choose who may join.",

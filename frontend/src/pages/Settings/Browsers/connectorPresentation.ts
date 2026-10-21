@@ -1,10 +1,10 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ParseKeys } from 'i18next'
-import type { ConnectorKind, SignInState } from '../../../api/routes/connectorRoutes'
+import type { SignInState, WebmailConnectorKind } from '../../../api/routes/connectorRoutes'
 
 // Misc
-import { CONNECTOR_KINDS } from '../../../api/routes/connectorRoutes'
+import { WEBMAIL_CONNECTOR_KINDS } from '../../../api/routes/connectorRoutes'
 
 type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
 
@@ -13,15 +13,15 @@ type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
 const hostsByConnectorKind = {
   outlook: [ 'outlook.office.com', 'outlook.office365.com', 'outlook.live.com' ],
   gmail: [ 'mail.google.com' ],
-} as const satisfies Record<ConnectorKind, readonly string[]>
+} as const satisfies Record<WebmailConnectorKind, readonly string[]>
 
 // The connector that reads a browser started at `startUrl`, if one does.
-export function connectorKindFor(startUrl: string): ConnectorKind | null {
+export function connectorKindFor(startUrl: string): WebmailConnectorKind | null {
   if (!URL.canParse(startUrl)) {
     return null
   }
   const host = new URL(startUrl).hostname
-  const kind = CONNECTOR_KINDS.find((candidate) => {
+  const kind = WEBMAIL_CONNECTOR_KINDS.find((candidate) => {
     const hosts: readonly string[] = hostsByConnectorKind[candidate]
     return hosts.includes(host)
   })
@@ -31,7 +31,7 @@ export function connectorKindFor(startUrl: string): ConnectorKind | null {
 export const connectorLabelKeys = {
   outlook: 'connectors.kinds.outlook',
   gmail: 'connectors.kinds.gmail',
-} as const satisfies Record<ConnectorKind, ParseKeys<'browsers'>>
+} as const satisfies Record<WebmailConnectorKind, ParseKeys<'browsers'>>
 
 export const signInLabelKeys = {
   signed_in: 'connectors.signIn.signedIn',

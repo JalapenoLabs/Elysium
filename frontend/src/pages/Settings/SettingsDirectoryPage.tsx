@@ -21,6 +21,7 @@ import {
   LuSquareKanban,
   LuUser,
   LuVariable,
+  LuVideo,
 } from 'react-icons/lu'
 import { SettingsDirectoryItem } from './SettingsDirectoryItem'
 import { UsersDirectoryItem } from './UsersDirectoryItem'
@@ -63,6 +64,12 @@ export function SettingsDirectoryPage() {
           title={t('items.connectedApps.title')}
           description={t('items.connectedApps.description')}
           href={UrlTree.settingsConnectedApps}
+        />
+        <SettingsDirectoryItem
+          icon={LuVideo}
+          title={t('items.meetings.title')}
+          description={t('items.meetings.description')}
+          href={UrlTree.settingsMeetings}
         />
       </div>
     </section>

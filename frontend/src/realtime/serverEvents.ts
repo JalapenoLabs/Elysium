@@ -12,6 +12,7 @@ import type { GithubCredential } from '../api/routes/githubRoutes'
 import type { JiraCredential } from '../api/routes/jiraRoutes'
 import type { Llm } from '../api/routes/llmRoutes'
 import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRoutes'
+import type { MeetingState } from '../api/routes/meetingRoutes'
 import type { PasswordVault, VaultStatus } from '../api/routes/passwordVaultRoutes'
 import type { Project } from '../api/routes/projectRoutes'
 import type { StorageLocation } from '../api/routes/storageRoutes'
@@ -53,6 +54,8 @@ export type ServerEvent =
     type: 'timelineRecord.created',
     data: { id: string, sourceKind: string, createdBy: string, actionItemId: string | null },
   }
+  // A meeting was read, or its processing moved on. Never its title, which its owner loads.
+  | { type: 'meeting.changed', data: { id: string, state: MeetingState, createdBy: string } }
   // An entry an item's or an initiative's write recorded.
   | { type: 'history.appended', data: HistoryEntry }
   // A changeset was proposed, decided on, applied, or undone.

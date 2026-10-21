@@ -97,5 +97,8 @@ export const ELYSIA_PANEL_STORAGE_KEY = 'elysium.elysia.panel.v1'
 // How many messages one page of Elysia's conversation holds, as the API pages them by default.
 export const ELYSIA_MESSAGE_PAGE_SIZE = 50
 
+// How many records one page of a timeline holds, as the API pages them by default.
+export const TIMELINE_PAGE_SIZE = 50
+
 // The zxcvbn score, out of 4, a new password must reach before the form submits.
 export const PASSWORD_MIN_SCORE = 3

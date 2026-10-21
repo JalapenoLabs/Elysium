@@ -18,6 +18,7 @@ import github from './locales/en-US/github.json'
 import initiatives from './locales/en-US/initiatives.json'
 import jira from './locales/en-US/jira.json'
 import llms from './locales/en-US/llms.json'
+import meetings from './locales/en-US/meetings.json'
 import navigation from './locales/en-US/navigation.json'
 import oauth from './locales/en-US/oauth.json'
 import passwords from './locales/en-US/passwords.json'
@@ -25,6 +26,7 @@ import projects from './locales/en-US/projects.json'
 import settings from './locales/en-US/settings.json'
 import storage from './locales/en-US/storage.json'
 import studio from './locales/en-US/studio.json'
+import timeline from './locales/en-US/timeline.json'
 import updates from './locales/en-US/updates.json'
 import users from './locales/en-US/users.json'
 
@@ -48,6 +50,7 @@ export const resources = {
     initiatives,
     jira,
     llms,
+    meetings,
     navigation,
     oauth,
     passwords,
@@ -55,6 +58,7 @@ export const resources = {
     settings,
     storage,
     studio,
+    timeline,
     updates,
     users,
   },

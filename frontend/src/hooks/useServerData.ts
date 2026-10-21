@@ -24,12 +24,14 @@ import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { mailDomainsLoaded } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
+import { meetingsLoaded } from '../store/meetingsSlice'
 import { projectsLoaded } from '../store/projectsSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
 import { storageLocationsLoaded } from '../store/storageLocationsSlice'
 import { studioAssetsLoaded } from '../store/studioAssetsSlice'
 import { studioFeedbackLoaded } from '../store/studioFeedbackSlice'
 import { deletedStudioItemsLoaded, studioItemsLoaded, studioItemUpserted } from '../store/studioItemsSlice'
+import { timelineRecordsLoaded } from '../store/timelineRecordsSlice'
 import { updatesStatusUpdated } from '../store/updatesSlice'
 import { passwordVaultLoaded } from '../store/passwordVaultSlice'
 import { usersLoaded } from '../store/usersSlice'
@@ -61,10 +63,13 @@ import { listGithubCredentials } from '../api/routes/githubRoutes'
 import { listJiraCredentials } from '../api/routes/jiraRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
+import { listMeetings } from '../api/routes/meetingRoutes'
 import { getPasswordVault } from '../api/routes/passwordVaultRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
 import { getStudioItem, listStudioItems } from '../api/routes/studioRoutes'
+import { listTimeline, timelineKey } from '../api/routes/timelineRoutes'
+import { TIMELINE_PAGE_SIZE } from '../constants'
 import { getUpdates } from '../api/routes/updateRoutes'
 import { getWorkspaceSettings, listUsers } from '../api/routes/userRoutes'
 
@@ -160,6 +165,40 @@ export function useConnectorAccountsLoader(): LoadStatus {
     return response
   })
   return toLoadStatus(data !== undefined, error)
+}
+
+// The person's recent meetings and how far each one's processing got.
+export function useMeetingsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/meetings', async () => {
+    const response = await listMeetings()
+    dispatch(meetingsLoaded(response.meetings))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One page of a project's timeline, the newest unless `before` names where the last page
+// ended. Pages merge into Redux, so the buffered copy may be applied too. Answers how many
+// records the page held, so the caller knows whether to offer another.
+export function useProjectTimelineLoader(projectId: string, before: string | null) {
+  const dispatch = useAppDispatch()
+  const query = {
+    projectId,
+    before: before ?? undefined,
+    limit: TIMELINE_PAGE_SIZE,
+  }
+  const { data, error } = useSWR(timelineKey(query), () => listTimeline(query))
+  useEffect(() => {
+    if (data) {
+      dispatch(timelineRecordsLoaded(data.records))
+    }
+  }, [ data, dispatch ])
+  return {
+    status: toLoadStatus(data !== undefined, error),
+    pageSize: data?.records.length ?? 0,
+    oldest: data?.records.at(-1)?.occurredAt ?? null,
+  } as const
 }
 
 export function useGithubCredentialsLoader(): LoadStatus {

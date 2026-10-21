@@ -59,6 +59,7 @@ import { EditStorageLocationPage } from './pages/Settings/Storage/EditStorageLoc
 import { ManageStoragePage } from './pages/Settings/Storage/ManageStoragePage'
 import { UpdatesPage } from './pages/Settings/Updates/UpdatesPage'
 import { PasswordsPage } from './pages/Settings/Passwords/PasswordsPage'
+import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
 
 // Misc
 import { addLlmUrlByType } from './pages/Settings/Llms/llmProviders'
@@ -196,6 +197,10 @@ const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsPasswords,
       element: <PasswordsPage />,
+    },
+    {
+      path: UrlTree.settingsMeetings,
+      element: <MeetingsPage />,
     },
     {
       path: UrlTree.settingsLlms,
