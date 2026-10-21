@@ -22,7 +22,8 @@
     "pause": "Pause",
     "resume": "Resume",
     "resumeUsage": "Resume now",
-    "settingsFailed": "Could not change Elysia's settings."
+    "settingsFailed": "Could not change Elysia's settings.",
+    "hours": "Hours"
   },
   "tabs": {
     "label": "Elysia's views",
@@ -82,5 +83,17 @@
       "failed": "Failed",
       "cancelled": "Cancelled"
     }
+  },
+  "hours": {
+    "title": "Elysia's hours",
+    "description": "When she may start work on her own. She answers your messages and questions at any time.",
+    "custom": "Her current hours were set another way and are not one daily range; saving replaces them.",
+    "anyTime": "Any time",
+    "days": "Days",
+    "from": "From",
+    "until": "Until",
+    "daylightSaving": "Hours are saved in your current time zone. When daylight saving time starts or ends, they shift by an hour until you save them again.",
+    "cancel": "Cancel",
+    "save": "Save"
   }
 }

@@ -15,7 +15,7 @@ doc is what is built and what comes next.
   queues a turn so she continues the work it was about.
 - **The intake** listens to the event stream and queues `event` turns for what can mean work for her (see
   [Triggers](#triggers)).
-- **Settings**: admins pause and resume her from the panel, and lift a usage-limit hold early.
+- **Settings**: admins pause and resume her from the panel, set her hours, and lift a usage-limit hold early.
 - **Her turns** run on the host runner (`crate::runner`), one at a time ([Turns](#turns)).
 - **The idle loop** brings her back to her own work when nothing is queued ([Idle loop](#idle-loop)).
 
@@ -122,8 +122,11 @@ joins an `event` turn still queued instead of queueing another. A turn carries a
 ## Hours
 
 Her hours are weekly windows of UTC minutes (Monday 00:00 UTC is minute 0), because the server holds no time zones.
-No windows means any time. Only turns she would start herself wait for them. A schedule saved in a local zone
-therefore shifts by an hour against local time when daylight saving starts or ends, until it is saved again.
+No windows means any time. Only turns she would start herself wait for them. The panel's **Hours** dialog edits one
+daily range on chosen days in the viewer's zone and converts it with the zone's current offset
+(`frontend/src/elysia/hours.ts`); a range crossing the end of the UTC week is saved as two windows. A schedule saved
+in a local zone therefore shifts by an hour against local time when daylight saving starts or ends, until it is
+saved again, which the dialog says.
 
 ## Autonomy
 
@@ -149,5 +152,4 @@ Which kinds move up, and when, is not decided.
 ## Roadmap
 
 - Reading changesets and coding sessions, and starting a coding session for work that needs one.
-- Editing her hours in the panel, in the viewer's own zone.
 - Her turns' full logs beside their summaries, expanding like a GitHub Actions step.
