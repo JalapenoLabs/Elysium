@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 import { Modal } from '@heroui/react'
 import { ActionItemSessionForm } from './ActionItemSessionForm'
 import { CreateSessionForm } from './CreateSessionForm'
+import { MissingAgentCredentialAlert } from './MissingAgentCredentialAlert'
 
 type Props = {
   state: UseOverlayStateReturn
@@ -33,6 +34,7 @@ export function CreateSessionModal(props: Props) {
               : t('create.title')
           }</Modal.Heading>
         </Modal.Header>
+        <MissingAgentCredentialAlert />
         {props.actionItemId
           ? <ActionItemSessionForm
             actionItemId={props.actionItemId}

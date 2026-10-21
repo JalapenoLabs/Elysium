@@ -116,6 +116,7 @@ Each belongs to the person who created it and answers nobody else.
 | `id`                        | `UUID`        | UUIDv7, primary key; names its container, volume, and network   |
 | `name`                      | `TEXT`        | 1 to 100 characters, such as "Work Outlook"                     |
 | `start_url`                 | `TEXT`        | `https://`, at most 2048 characters; opened when it is created  |
+| `start_page_opened_at`      | `TIMESTAMPTZ` | When `start_url` was opened in it; null until Chromium first answers |
 | `port`                      | `INTEGER`     | Unique, 59000 to 59007: its media port, and its name on its network |
 | `member_password_encrypted` | `BYTEA`       | Sealed password of the Neko member session the API relays, see `docs/secrets.md` |
 | `created_by`                | `UUID`        | References `users`; the browser's owner, indexed                |
@@ -751,8 +752,8 @@ One run of her session and what started it.
 | Column           | Type                 | Notes                                                                 |
 |------------------|----------------------|-----------------------------------------------------------------------|
 | `id`             | `UUID`               | UUIDv7, primary key                                                   |
-| `trigger_kind`   | `TEXT`               | `message`, `answer`, or `event`; lowercase, so later kinds need no migration |
-| `trigger_detail` | `JSONB`              | A JSON object: `{ messageId }`, `{ questionId }`, or `{ events, omitted }` |
+| `trigger_kind`   | `TEXT`               | `message`, `answer`, `event`, or `idle`; lowercase, so later kinds need no migration |
+| `trigger_detail` | `JSONB`              | A JSON object: `{ messageId }`, `{ questionId }`, `{ events, omitted }`, or `{ workIds }` |
 | `status`         | `elysia_turn_status` | `queued`, `running`, `succeeded`, `failed`, `cancelled`              |
 | `summary`        | `TEXT`               | Up to 1,000 characters on what the turn did                           |
 | `error`          | `TEXT`               | Up to 2,000 characters; set exactly when `failed`                     |

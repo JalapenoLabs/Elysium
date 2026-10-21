@@ -9,18 +9,50 @@ doc is what is built and what comes next.
 - **Her panel** opens beside every page from the **Elysia** button in the topbar, and stays open across pages and
   reloads. It shows her status, what holds her back, her open questions, the work she has taken on, and either the
   conversation or her activity.
-- **The conversation** takes a person's message and queues a turn for her to answer it.
+- **The conversation** takes a person's message and queues a turn; her reply joins the conversation when the turn
+  ends.
 - **Her questions** can be answered with one of her suggestions or in a person's own words, or dismissed. An answer
   queues a turn so she continues the work it was about.
 - **The intake** listens to the event stream and queues `event` turns for what can mean work for her (see
   [Triggers](#triggers)).
 - **Settings**: admins pause and resume her from the panel, and lift a usage-limit hold early.
+- **Her turns** run on the host runner (`crate::runner`), one at a time ([Turns](#turns)).
+- **The idle loop** brings her back to her own work when nothing is queued ([Idle loop](#idle-loop)).
 
-Nothing runs her turns yet: they wait in the queue, and her panel says so. The host runner (`crate::runner`, Claude
-Code on Elysium's host) is what will run them; wiring her to it is next on the roadmap.
+She has no tools of her own yet: she answers from what the prompt carries and what Claude Code can reach in her
+working directory. Her tools are next on the roadmap.
 
-The code is `api/src/elysia/` (status, availability, intake, trigger kinds), `api/src/models/elysia.rs`, and
-`api/src/routes/v1/elysia/`. The frontend is `frontend/src/elysia/`.
+The code is `api/src/elysia/` (status, availability, intake, dispatcher, prompt, runner seam, trigger kinds),
+`api/src/models/elysia.rs`, and `api/src/routes/v1/elysia/`. The frontend is `frontend/src/elysia/`.
+
+## Turns
+
+The dispatcher (`api/src/elysia/dispatcher.rs`) looks at the queue whenever something is queued or a hold changes,
+and every minute. A turn starts when none is running and nothing holds her back, people first: a queued message or
+answer starts before any queued event. Every turn:
+
+- runs as one runner conversation, so the runner never starts two of hers at once, in the workspace's `elysia/`
+  directory, where her files persist;
+- resumes the Claude Code session the previous turn left (`elysia_state.runner_session_id`), so she carries context;
+- appends her standing instructions, `api/src/elysia/instructions.md`, versioned with the code, to Claude Code's
+  system prompt;
+- gets a prompt naming its trigger and carrying what it needs: every message since her last reply, the question and
+  its answer, the batched changes, or the work she is revisiting (`api/src/elysia/prompt.rs`).
+
+Her final text ends with a `Summary:` line. For a message or an answer, the text before it is posted to the
+conversation as her reply; for every turn, the summary is stored for her activity log.
+
+When every Claude credential has reached its usage limit, the turn fails and an identical one is queued, and nothing
+starts before the limit resets: the time Claude's rate-limit report names, or an hour when it names none. A turn
+left running when the API stops is failed at the next start; its trigger is not lost, because the messages or work it
+was about are still there for the next turn.
+
+## Idle loop
+
+When nothing has been queued or run for 30 minutes and she is within her hours, she revisits her own work: what
+she gave up on or was blocked on and nobody touched for two hours, and what is past her estimate of when it would be
+ready and was not revisited in the last two hours. Each piece is recorded as revisited, so it comes back at most
+once per cooldown.
 
 ## Status
 
@@ -37,8 +69,8 @@ When more than one applies, needing a person wins, then running, then a failure.
 tokens in `frontend/src/theme/matter.css`.
 
 Separately, a **hold** says why queued work is not starting, the first of: `paused` (a person paused her),
-`usage-limit` (every Claude credential reached its limit; it lifts at the time shown), `no-runner` (nothing on this
-deployment can run her turns), and `unavailable` (outside her hours).
+`usage-limit` (every Claude credential reached its limit; it lifts at the time shown), and `unavailable` (outside
+her hours).
 
 Each light change worth hearing plays a short tone, synthesized in the browser (`frontend/src/elysia/sounds.ts`): a
 rising one when she needs a person, another when running work finishes, and a falling one when a turn fails. The
@@ -53,6 +85,7 @@ A turn records what started it in `trigger_kind`, text so later sources add kind
 | `message` | A person writing to her           | No                  |
 | `answer`  | A person answering her question   | No                  |
 | `event`   | The intake                        | Yes                 |
+| `idle`    | The idle loop                     | Yes                 |
 
 The intake (`api/src/elysia/intake.rs`) keeps, from the event stream:
 
@@ -95,13 +128,8 @@ Which kinds move up, and when, is not decided.
 
 ## Roadmap
 
-- Running her turns on the host runner, one at a time on one Claude Code session that each turn resumes, with her
-  standing instructions versioned in the repository.
-- Her MCP tools: action items, initiatives, projects, changesets, and coding sessions to read; asking questions,
-  recording and updating her work, and proposing changesets to write. Served by the API to her turns alone, with a
-  token minted per turn.
-- Usage limits: a turn refused because every credential is spent queues again for after the limit resets.
-- The idle loop: with nothing queued, she revisits work she gave up on or was blocked on after a cooldown, and work
-  past her estimate.
+- Her MCP tools, served at `/api/agent-tools/elysia` with a grant minted per turn: action items, initiatives,
+  projects, changesets, and coding sessions to read; asking questions, recording and updating her work, and proposing
+  changesets to write.
 - Editing her hours in the panel, in the viewer's own zone.
 - Her turns' full logs beside their summaries, expanding like a GitHub Actions step.

@@ -134,6 +134,9 @@ struct Inner {
     /// Held across every change to Docker, so a browser being created, checked, and removed
     /// at once never races itself. Eight browsers make this cheap.
     docker: tokio::sync::Mutex<()>,
+    /// The browsers whose start page is being opened, so the task that created one and a
+    /// reconcile pass do not both open it.
+    opening_start_pages: Mutex<HashSet<Uuid>>,
 }
 
 impl std::fmt::Debug for Browsers {
@@ -169,6 +172,7 @@ impl Browsers {
                 statuses: Mutex::new(HashMap::new()),
                 public_address: Mutex::new(None),
                 docker: tokio::sync::Mutex::new(()),
+                opening_start_pages: Mutex::new(HashSet::new()),
             }),
         }
     }
@@ -221,7 +225,8 @@ impl Browsers {
     }
 
     /// Stores a new browser on the lowest free port and starts it in the background, then
-    /// opens `start_url` in it once Chromium answers.
+    /// opens `start_url` in it once Chromium answers. A browser whose start page could not be
+    /// opened yet has it opened by a later reconcile pass.
     ///
     /// # Errors
     /// [`CreateError::PortsExhausted`] when every port is taken, or a database error.
@@ -282,7 +287,7 @@ impl Browsers {
         let browsers = self.clone();
         let created = session.clone();
         tokio::spawn(async move {
-            browsers.bring_up(&created, Some(&start_url)).await;
+            browsers.bring_up(&created).await;
         });
         Ok(session)
     }
@@ -357,7 +362,7 @@ impl Browsers {
             }
         };
         for session in &sessions {
-            self.bring_up(session, None).await;
+            self.bring_up(session).await;
         }
         self.sweep_orphans().await;
     }
@@ -425,10 +430,10 @@ impl Browsers {
         Ok(sessions)
     }
 
-    /// Makes the browser's container match its row and run, then opens `start_url` in it
-    /// when one is given. Records what came of it.
-    async fn bring_up(&self, session: &BrowserSession, start_url: Option<&Url>) {
-        let outcome = self.try_bring_up(session, start_url).await;
+    /// Makes the browser's container match its row and run, then opens its start page in it
+    /// unless that was done already. Records what came of it.
+    async fn bring_up(&self, session: &BrowserSession) {
+        let outcome = self.try_bring_up(session).await;
         match outcome {
             Ok(BringUp::Running) => self.set_status(session, BrowserStatus::RUNNING),
             Ok(BringUp::Removed) => {
@@ -459,11 +464,7 @@ impl Browsers {
         }
     }
 
-    async fn try_bring_up(
-        &self,
-        session: &BrowserSession,
-        start_url: Option<&Url>,
-    ) -> anyhow::Result<BringUp> {
+    async fn try_bring_up(&self, session: &BrowserSession) -> anyhow::Result<BringUp> {
         let member_password = session
             .member_password(&self.inner.cipher)
             .context("the browser's stored password does not open with this encryption key")?;
@@ -477,21 +478,67 @@ impl Browsers {
 
         let docker = self.inner.docker.lock().await;
         // A removal may have run while this waited for the lock; bringing the browser back
-        // then would leave a container no row owns.
-        if !self.still_stored(session.id).await? {
+        // then would leave a container no row owns. The row read here is also the current
+        // word on whether its start page is still owed.
+        let Some(current) = self.stored(session.id).await? else {
             return Ok(BringUp::Removed);
-        }
+        };
         self.inner.containers.ensure_image().await?;
         self.inner.containers.ensure(&spec).await?;
         drop(docker);
 
-        if let Some(start_url) = start_url {
-            self.inner
-                .neko
-                .open_start_page(spec.port, start_url)
-                .await?;
+        if current.start_page_opened_at.is_none() {
+            self.open_start_page(&current).await?;
         }
         Ok(BringUp::Running)
+    }
+
+    /// Opens the browser's start page and records that it did. Skipped while another task is
+    /// already opening it; Chromium would otherwise show it twice.
+    async fn open_start_page(&self, session: &BrowserSession) -> anyhow::Result<()> {
+        let claimed = self
+            .inner
+            .opening_start_pages
+            .lock()
+            .expect(LOCK_POISONED)
+            .insert(session.id);
+        if !claimed {
+            event!(
+                name: "browser.start_page.skipped",
+                Level::DEBUG,
+                browser.session.id = %session.id,
+                "another task is already opening this browser's start page",
+            );
+            return Ok(());
+        }
+
+        let opened = self.try_open_start_page(session).await;
+        self.inner
+            .opening_start_pages
+            .lock()
+            .expect(LOCK_POISONED)
+            .remove(&session.id);
+        opened
+    }
+
+    async fn try_open_start_page(&self, session: &BrowserSession) -> anyhow::Result<()> {
+        let start_url =
+            Url::parse(&session.start_url).context("the stored start page is not a URL")?;
+        self.inner
+            .neko
+            .open_start_page(port_of(session), &start_url)
+            .await?;
+
+        let mut connection = self
+            .inner
+            .database
+            .get()
+            .await
+            .context("no database connection available")?;
+        browser_session::record_start_page_opened(&mut connection, session.id)
+            .await
+            .context("cannot record that the start page opened")?;
+        Ok(())
     }
 
     /// The address browsers advertise. A lookup that fails falls back to the last one that
@@ -520,14 +567,14 @@ impl Browsers {
         }
     }
 
-    async fn still_stored(&self, id: Uuid) -> anyhow::Result<bool> {
+    async fn stored(&self, id: Uuid) -> anyhow::Result<Option<BrowserSession>> {
         let mut connection = self
             .inner
             .database
             .get()
             .await
             .context("no database connection available")?;
-        let stored = browser_session::exists(&mut connection, id).await?;
+        let stored = browser_session::find(&mut connection, id).await?;
         Ok(stored)
     }
 

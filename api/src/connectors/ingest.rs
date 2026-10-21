@@ -151,7 +151,10 @@ impl Ingest {
             .get()
             .await
             .context("no database connection available")?;
-        let browser = browser_session::find(&mut connection, account.browser_session_id).await?;
+        // Removing a browser removes its accounts, so one missing here was removed mid-pass.
+        let browser = browser_session::find(&mut connection, account.browser_session_id)
+            .await?
+            .context("the account's browser was removed while it was read")?;
         drop(connection);
 
         let connector = Webmail::new(service(kind), self.inner.devtools.clone());

@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::trigger;
+use super::{Elysia, trigger};
 use crate::database::Pool;
 use crate::models::elysia::{self, NewTurn};
 use crate::models::user::SYSTEM_USER_ID;
@@ -98,6 +98,7 @@ pub fn merge_events(detail: &Value, changes: Vec<Value>, omitted: u64) -> Value 
 pub struct IntakeContext {
     pub database: Pool,
     pub events: EventBus,
+    pub elysia: Elysia,
 }
 
 /// Listens to the bus until `shutdown`, queueing batches as `event` turns.
@@ -180,6 +181,7 @@ async fn queue(context: &IntakeContext, changes: Vec<Value>, missed: u64) -> any
         .events
         .publish(&ServerEvent::ElysiaTurnUpserted(TurnResponse::from(turn)));
     publish_snapshot(&context.events, &mut connection).await?;
+    context.elysia.wake();
     Ok(())
 }
 
@@ -197,6 +199,9 @@ mod tests {
                 .await
                 .expect("Postgres accepts connections"),
             events: EventBus::new(),
+            elysia: Elysia::new(crate::elysia::runner::TurnRunner::Scripted(
+                std::sync::Arc::default(),
+            )),
         };
 
         queue(&context, vec![json!({ "type": "first" })], 0)

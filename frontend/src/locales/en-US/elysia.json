@@ -13,7 +13,6 @@
   "hold": {
     "paused": "Paused. She starts nothing until resumed.",
     "usageLimit": "Usage limit reached. She resumes at {{time}}.",
-    "noRunner": "Nothing can run her turns on this deployment yet. Your messages wait for her.",
     "unavailable": "Outside her hours. She still answers your messages."
   },
   "panel": {
