@@ -22,6 +22,7 @@
 //! Nothing here matches on whether a session is Coding or Studio beyond the instructions
 //! Studio's agents get and the collection after a Studio turn.
 
+pub mod desktop;
 #[cfg(test)]
 mod live_tests;
 pub mod scrub;
@@ -331,6 +332,7 @@ impl Sessions {
             arguments: Vec::new(),
             environment: Vec::new(),
         });
+        mcp_servers.push(desktop::server(session.id));
 
         let resume = session
             .harness_session_id

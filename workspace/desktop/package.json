@@ -1,0 +1,9 @@
+{
+  "name": "elysium-desktop-tools",
+  "private": true,
+  "description": "The computer control MCP server every agent turn drives its desktop with. Installed with npm ci from the lockfile beside this file, so every transitive version is pinned.",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "computer-use-mcp": "1.8.0"
+  }
+}

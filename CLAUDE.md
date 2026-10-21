@@ -120,6 +120,9 @@ Everything else follows these rules:
   call re-checks the database. nginx never routes that path.
 - Every agent can 3D model. Blender is baked into the workspace image, and every turn starts a Blender of its own
   through a stdio MCP launcher, so no two turns share a scene. See `docs/coding.md`, Blender.
+- Every turn also has a desktop of its own (virtual display, window manager, Firefox) that it drives with mouse,
+  keyboard, and screenshots through the `desktop` MCP server, started and stopped with the turn the same way. See
+  `docs/coding.md`, The desktop.
 - Secret values given to a turn are scrubbed from its events before they are recorded or published.
 - Every completed or failed turn is summarized in one or two sentences by a small model, as a text turn on the runner
   (no tools, no settings, its own conversation), and the conversation collapses each turn to that summary. A summary
@@ -279,9 +282,10 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Elysia's panel sits beside every page, opened from the topbar: her status color (orange running, red errored, pink
   needs you, green done), what holds her back, her questions, her work, the conversation, and her activity. See
   `docs/elysia.md`.
-- Everything that starts her is a turn in `elysia_turns`, queued by a person's message or answer, or by her intake,
-  which batches relevant event-stream changes into one `event` turn. Turns run one at a time on one resumed Claude Code
-  session; running them on the host runner is next on the roadmap, and until then they wait in the queue.
+- Everything that starts her is a turn in `elysia_turns`, queued by a person's message or answer, by her intake
+  (relevant event-stream changes batched into one `event` turn), or by her idle loop. Turns run one at a time on the
+  host runner, on one Claude Code session each turn resumes, with her standing instructions in
+  `api/src/elysia/instructions.md`.
 - Her hours are UTC minute-of-week windows, because the server holds no time zones. Only turns she would start herself
   wait for them; a person's message never does.
 - Her own changes never trigger her, and outward actions go through changesets. Which kinds of action start in which

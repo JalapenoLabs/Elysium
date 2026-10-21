@@ -73,6 +73,10 @@ once, since another credential would fail the same way. When every credential is
 `usage-limited`, still carrying the session id to resume later. The CLI holds the credential itself, so an agent can
 read it from its environment.
 
+With no usable credential a turn still runs once, on whatever login the workspace holds, and normally fails with the
+CLI's "Not logged in". The New session dialog warns before that happens and links to Settings, LLMs; its check
+(`hasAgentCredential` in `frontend/src/pages/Settings/Llms/llmPresentation.ts`) mirrors the runner's.
+
 ### Liveness
 
 | Policy            | Value      | Why                                                           |
@@ -185,6 +189,38 @@ MCP server against it, so every turn models in a Blender of its own and no two t
 - There is no window, so the screenshot and navigation tools fail. Rendering works.
 - After a Studio turn, `/opt/elysium/bin/export-glb` exports each `.blend` the turn changed to a `.glb` beside it; see
   `docs/studio.md`.
+
+## The desktop
+
+Every turn has a desktop of its own: a screen the agent drives with mouse, keyboard, and screenshots, for what no web
+page, CLI, or API covers. Its tools are the `desktop` MCP server's (`mcp__desktop__computer`), from
+[computer-use-mcp](https://github.com/domdomegg/computer-use-mcp), whose one `computer` tool mirrors Anthropic's own
+computer use tool, which Claude is trained on: `key`, `type`, `mouse_move`, the clicks, `left_click_drag`, `scroll`,
+`get_screenshot`, and `get_cursor_position`.
+
+| Part              | What                                                                   |
+|-------------------|------------------------------------------------------------------------|
+| Display           | Xvfb at 1280 by 800, 24-bit, the size Claude's computer use is tuned for |
+| Window manager    | Openbox                                                                |
+| Browser           | Firefox ESR 153.4.0, from Mozilla's tarball, checksum-verified; updates, telemetry, and first-run pages are off by policy |
+| Control           | computer-use-mcp 1.8.0 on Node, installed with `npm ci` from `workspace/desktop/package-lock.json`, so every transitive version is pinned; it types through `xdotool`, so text follows the keyboard layout |
+| View              | x11vnc, view-only, on a Unix socket alone (no TCP port)                |
+
+Everything is installed by `workspace/desktop/install.sh` into the workspace image. Each turn's `desktop` server is
+`elysium-desktop-mcp`, a stdio launcher Claude Code starts with the turn. It starts Xvfb on a free display number, then
+Openbox, x11vnc on the session's socket (`/workspace/.elysium/desktops/session-<id>.sock`, `api/src/sessions/desktop.rs`),
+and Firefox on a fresh profile, then runs computer-use-mcp against the display. The runner stops the turn's process
+group when the turn ends, which takes the whole desktop with it, so no two turns share a screen and nothing a turn left
+open reaches the next. A session's turns run one after another, so its socket names one desktop at a time.
+
+- A desktop lives only as long as its turn. Work that must outlast it, such as a download, is saved in the session's
+  directory.
+- Turns separate screens, not privileges, as with Blender: every turn runs as `agent`.
+- Firefox's content sandbox cannot create user namespaces inside the workspace container and runs with the reduced
+  sandbox Firefox falls back to. The workspace container is the boundary that matters.
+- Each desktop costs about 300 MB while Firefox is open; eight concurrent turns are the ceiling.
+
+The roadmap is a live view in the web app: people watching a turn's desktop as the agent works.
 
 ## Projects
 

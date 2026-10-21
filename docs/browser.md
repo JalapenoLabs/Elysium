@@ -86,7 +86,8 @@ So the frontend speaks Neko's protocol directly, which is small and documented i
   point (Latin-1 as is, anything above as `0x01000000` plus the code point), and named keys come from one typed
   lookup table (`Enter` is `0xff0d`).
 - **Paste** sends `clipboard/set` with the text, then control and V, so a password manager on the user's own machine
-  works in the remote page.
+  works in the remote page. The clipboard travels over the signaling socket and the keys over the data channel,
+  which nothing orders, so the keys wait until Neko's `clipboard/updated` reports the new text, or one second.
 
 ## Authentication
 
@@ -172,8 +173,9 @@ extension is installed, so the browser is a plain Chromium.
 - **Adding one** stores it on the lowest free port with a generated member password and answers at once as
   `starting`. In the background the API pulls Neko's image if Docker lacks it, creates the browser's network, volume,
   and container, joins itself and nginx to the network, copies the setup files in, and starts it. Once Chromium's
-  DevTools port answers, it opens the browser's start page in a new tab. Each change of status is published as
-  `browserSession.upserted`.
+  DevTools port answers, it opens the browser's start page in a new tab and records that in
+  `start_page_opened_at`. Until it is recorded, every reconcile pass tries again, so a DevTools port that answered
+  late or an API restart does not lose it. Each change of status is published as `browserSession.upserted`.
 - **The reconciler** runs once at startup and then every 10 seconds over every browser. It recreates whatever is
   missing, starts a stopped container, rejoins nginx and the API to each network, and replaces a container whose spec
   changed: another image, public address, or setup file. The spec is a hash in the container's
@@ -200,11 +202,16 @@ one from a preset (Outlook, Gmail) or any https page. Adding one goes straight t
 is running. The client is `frontend/src/browser/`:
 
 - `NekoConnection` opens the stream route, answers Neko's offer, holds the WebRTC peer, and asks for control on
-  connecting (Neko hosts implicitly, so the first viewer to ask gets the pointer and keyboard).
+  connecting (Neko hosts implicitly, so the first viewer to ask gets the pointer and keyboard). It tracks the keys
+  and buttons held on the remote desktop. Once closed it detaches from its socket and peer, so reconnecting never
+  hears from the old connection.
 - `BrowserStream` draws the video and turns what happens on it into input: pointer moves through `toDesktopPoint`,
-  which undoes the letterboxing of `object-fit: contain`; buttons by X11 number; the wheel as whole steps; keys as
+  which undoes the letterboxing of `object-fit: contain`; buttons by X11 number; the wheel as whole steps through
+  `toScrollSteps`, which carries travel short of a step to the next event and reads pixel and line deltas; keys as
   keysyms through `toKeysym` while the video has focus; and a paste as `clipboard/set` followed by control and V.
-  The remote pointer's shape arrives on the data channel as a PNG and becomes the element's CSS cursor.
+  The pointer is captured while a button is down, so a release outside the video still arrives, and whatever is
+  held is released when the video loses focus or the capture. The remote pointer's shape arrives on the data
+  channel as a PNG and becomes the element's CSS cursor.
 - `nekoInput` encodes the data channel's binary messages; its tests pin the byte layouts.
 
 Every client hears every browser's events, so the event stream keeps only the signed-in person's own browsers in
