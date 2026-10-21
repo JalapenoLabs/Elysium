@@ -14,6 +14,8 @@ use uuid::{Uuid, uuid};
 use crate::action_items::Actor;
 use crate::crypto::{Cipher, generate_key};
 use crate::database::migrations::{self, MigrationCommand};
+use crate::elysia::Elysia;
+use crate::elysia::runner::TurnRunner;
 
 /// The person tests act as. [`migrated_database`] creates their account, so rows naming
 /// them as creator satisfy `created_by`'s foreign key.
@@ -226,7 +228,7 @@ pub async fn app_state_with_storage(
         cipher,
         version,
         events,
-        elysia: crate::elysia::Elysia::new(crate::elysia::runner::TurnRunner::Host(runner.clone())),
+        elysia: Elysia::new(TurnRunner::Host(runner.clone()), sessions.grants().clone()),
         github,
         jira,
         links,
