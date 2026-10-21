@@ -707,8 +707,8 @@ One run of her session and what started it.
 | Column           | Type                 | Notes                                                                 |
 |------------------|----------------------|-----------------------------------------------------------------------|
 | `id`             | `UUID`               | UUIDv7, primary key                                                   |
-| `trigger_kind`   | `TEXT`               | `message`, `answer`, or `event`; lowercase, so later kinds need no migration |
-| `trigger_detail` | `JSONB`              | A JSON object: `{ messageId }`, `{ questionId }`, or `{ events, omitted }` |
+| `trigger_kind`   | `TEXT`               | `message`, `answer`, `event`, or `idle`; lowercase, so later kinds need no migration |
+| `trigger_detail` | `JSONB`              | A JSON object: `{ messageId }`, `{ questionId }`, `{ events, omitted }`, or `{ workIds }` |
 | `status`         | `elysia_turn_status` | `queued`, `running`, `succeeded`, `failed`, `cancelled`              |
 | `summary`        | `TEXT`               | Up to 1,000 characters on what the turn did                           |
 | `error`          | `TEXT`               | Up to 2,000 characters; set exactly when `failed`                     |
