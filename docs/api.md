@@ -238,7 +238,7 @@ browser does not answer. See `docs/browser.md` for what it relays.
 
 ### `/api/v1/connectors` and `/api/v1/timeline`
 
-A `ConnectorAccount` has `id`, `kind` (`outlook`), `browserSessionId`, `signInState` (`signed_in`, `signed_out`, or
+A `ConnectorAccount` has `id`, `kind` (`outlook` or `gmail`), `browserSessionId`, `signInState` (`signed_in`, `signed_out`, or
 `unknown`), `lastPolledAt`, `lastError`, `isActive`, `createdBy`, `createdAt`, and `updatedAt`. `POST` requires
 `kind` and `browserSessionId`, answers `400` when the browser is not the caller's and `409` when it already has a
 connector.
