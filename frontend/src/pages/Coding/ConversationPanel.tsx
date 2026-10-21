@@ -4,7 +4,7 @@ import type { IDockviewPanelProps } from 'dockview-react'
 import type { ConversationPanelParams } from './codingLayout'
 
 // Core
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -15,6 +15,7 @@ import { selectSessionTimeline } from '../../store/sessionEventsSlice'
 // User interface
 import { Button, Chip, Spinner, toast } from '@heroui/react'
 import { ConversationTimeline } from './ConversationTimeline'
+import { DesktopView } from './DesktopView'
 import { PromptComposer } from './PromptComposer'
 import { SessionActionItemLink } from './SessionActionItemLink'
 
@@ -36,6 +37,7 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
   const timeline = useAppSelector((state) => selectSessionTimeline(state, sessionId))
 
   const history = useSessionHistoryLoader(sessionId)
+  const [ isWatchingDesktop, setIsWatchingDesktop ] = useState(false)
 
   const title = session?.title
   useEffect(() => {
@@ -87,10 +89,28 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
           <SessionActionItemLink actionItemId={session.actionItemId} />
         </div>}
       </div>
-      <Chip size='sm' variant='soft' color={activityStateChipColors[state]}>{
-        t(activityStateLabelKeys[state])
-      }</Chip>
+      <div className='flex shrink-0 items-center gap-2'>
+        <Button
+          size='sm'
+          variant='outline'
+          isDisabled={state !== 'running' && !isWatchingDesktop}
+          onPress={() => setIsWatchingDesktop((previous) => !previous)}
+        >
+          <span>{
+            isWatchingDesktop
+              ? t('desktop.hide')
+              : t('desktop.watch')
+          }</span>
+        </Button>
+        <Chip size='sm' variant='soft' color={activityStateChipColors[state]}>{
+          t(activityStateLabelKeys[state])
+        }</Chip>
+      </div>
     </div>
+
+    {isWatchingDesktop && <div className='shrink-0 border-b border-separator p-3'>
+      <DesktopView sessionId={sessionId} />
+    </div>}
 
     <div className='min-h-0 flex-1'>
       {isLoading && <div className='grid h-full place-items-center'>

@@ -25,6 +25,7 @@ pub mod mail_account;
 pub mod mail_domain;
 pub mod mail_server;
 pub mod meeting;
+pub mod password_vault;
 pub mod project;
 pub mod session_event;
 pub mod storage_location;

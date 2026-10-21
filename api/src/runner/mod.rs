@@ -37,6 +37,7 @@ pub mod events;
 pub mod files;
 #[cfg(test)]
 mod live_tests;
+pub mod socket;
 mod turn;
 pub mod workspace;
 

@@ -67,6 +67,8 @@ The version byte identifies the envelope format and key generation. Today only v
 | `github_credentials` | `token_encrypted` | `github_credentials.token:<id>` |
 | `jira_credentials` | `token_encrypted` | `jira_credentials.token:<id>` |
 | `environment_variables` | `value_encrypted` | `environment_variables.value:<id>` |
+| `password_vault` | `client_secret_encrypted` | `password_vault.client_secret` (one row) |
+| `password_vault` | `master_password_encrypted` | `password_vault.master_password` (one row) |
 
 ## Roadmap
 

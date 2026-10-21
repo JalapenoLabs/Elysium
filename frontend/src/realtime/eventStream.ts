@@ -25,6 +25,11 @@ import { llmDeleted, llmUpserted } from '../store/llmsSlice'
 import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSlice'
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
+import {
+  passwordVaultDeleted,
+  passwordVaultStatusUpdated,
+  passwordVaultUpdated,
+} from '../store/passwordVaultSlice'
 import { projectDeleted, projectUpserted } from '../store/projectsSlice'
 import { eventStreamLost, eventStreamOpened } from '../store/realtimeSlice'
 import { sessionEventReceived, turnSummaryReceived } from '../store/sessionEventsSlice'
@@ -156,6 +161,9 @@ const handlers: Handlers = {
   'user.upserted': (event) => store.dispatch(userUpserted(event.data)),
   'user.deleted': (event) => store.dispatch(userDeleted(event.data.id)),
   'workspaceSettings.updated': (event) => store.dispatch(workspaceSettingsUpdated(event.data)),
+  'passwordVault.updated': (event) => store.dispatch(passwordVaultUpdated(event.data)),
+  'passwordVault.deleted': () => store.dispatch(passwordVaultDeleted()),
+  'passwordVault.status': (event) => store.dispatch(passwordVaultStatusUpdated(event.data)),
 }
 
 function dispatchServerEvent(data: string) {

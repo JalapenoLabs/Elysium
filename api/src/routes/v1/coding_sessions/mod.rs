@@ -14,6 +14,7 @@ mod list_coding_sessions;
 mod list_session_events;
 mod rename_coding_session;
 mod start_turn;
+mod watch_desktop;
 
 pub use create_coding_session::{CreateCodingSessionRequest, create};
 pub use list_coding_sessions::{find, list};
@@ -44,6 +45,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/{id}/events", get(list_session_events::handle))
         .route("/{id}/turns", post(start_turn::handle))
+        .route("/{id}/desktop", get(watch_desktop::handle))
 }
 
 /// A session as clients see it.

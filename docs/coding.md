@@ -120,8 +120,9 @@ Each session is its own conversation on the runner, so its turns run one after a
 - **A Blender of its own**, the `blender` MCP server (see below).
 - **Studio's instructions** as `--append-system-prompt`, for a Studio session.
 
-As the turn runs, every event is scrubbed of the turn's secret values (the GitHub token and every secret environment
-variable of six characters or more become `[secret]`), given the session's next sequence, recorded, and only then
+As the turn runs, every event is scrubbed of the turn's secret values (the GitHub token, every secret environment
+variable, and every password and code the password vault handed to any agent, each of six characters or more, become
+`[secret]`), given the session's next sequence, recorded, and only then
 published as `session.event`. A client that refetches history after a live event therefore always finds it. When
 the turn ends, the Claude session it reported is kept on the row, a Studio session's deliverables are collected, and
 the grant is revoked.
@@ -133,9 +134,10 @@ is true: a restart ends every turn.
 ### Elysium's tools
 
 Some of an agent's tools answer from Elysium's own data: `elysium_work` for the project's action items and
-initiatives (`docs/action-items.md`), given to every turn of a session with a project, and `elysium_storage` for its
-storage locations (`docs/storage.md`), given when the project may use one. A third server, `elysia`, is Elysia's own
-and is given only to her turns (`docs/elysia.md`). They are served at
+initiatives (`docs/action-items.md`), given to every turn of a session with a project, `elysium_storage` for its
+storage locations (`docs/storage.md`), given when the project may use one, and `elysium_passwords` for the logins
+agents sign in with (`docs/passwords.md`), given to every turn while the password vault is ready. Another server,
+`elysia`, is Elysia's own and is given only to her turns (`docs/elysia.md`). They are served at
 `/api/agent-tools/{server}` (`api/src/tools/endpoint.rs`), one stateless Streamable HTTP MCP server each, which the
 workspace reaches as `http://api:8080` on `elysium-agents`. nginx answers `404` for the path, so it is never on the
 public origin.
@@ -225,7 +227,25 @@ open reaches the next. A session's turns run one after another, so its socket na
   sandbox Firefox falls back to. The workspace container is the boundary that matters.
 - Each desktop costs about 300 MB while Firefox is open; eight concurrent turns are the ceiling.
 
-The roadmap is a live view in the web app: people watching a turn's desktop as the agent works.
+### Watching it live
+
+A conversation's Watch desktop button shows the running turn's desktop as the agent works. The view is noVNC 1.7.0 in
+the web app, view-only, speaking VNC over one WebSocket, `GET /api/v1/coding-sessions/{id}/desktop`
+(`api/src/routes/v1/coding_sessions/watch_desktop.rs`). The API answers it only from Elysium's own origin, checks that
+the session's desktop socket is up (`404` otherwise, which is the case between turns), and relays bytes between the
+WebSocket and a `docker exec` of `socat` bridged to the socket (`api/src/runner/socket.rs`,
+`crate::sessions::desktop::relay`). Nothing in the workspace listens on the network, and nothing new is published.
+
+- **View-only twice over.** x11vnc runs `-viewonly`, so nothing a viewer sends moves the agent's mouse or types into its
+  screen, and the client is view-only too.
+- **It ends with the turn.** When the turn's desktop stops, the socket closes and the view says so; reconnecting
+  during the next turn shows that turn's desktop.
+- **Who may watch.** Anyone who may see the session, as with its conversation. Password fields are masked on the
+  screen as in any browser, and the vault's secrets never appear there in the clear.
+- **Not Neko.** The remote browser's WebRTC streaming (`docs/browser.md`) captures the X display inside each Neko
+  container. A turn's desktop has to live in the workspace, beside the agent's files and tools, and streaming it
+  through Neko would mean a container per turn and a media port from the eight sign-in browsers share. VNC over the
+  API's own WebSocket needs neither.
 
 ## Projects
 

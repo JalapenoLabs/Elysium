@@ -86,6 +86,10 @@ pub mod sql_types {
     pub struct MailAccountKind;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "password_server"))]
+    pub struct PasswordServer;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "project_cover_fit"))]
     pub struct ProjectCoverFit;
 
@@ -674,6 +678,28 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::PasswordServer;
+
+    password_vault (singleton) {
+        singleton -> Bool,
+        server -> PasswordServer,
+        server_url -> Nullable<Text>,
+        client_id -> Text,
+        client_secret_encrypted -> Bytea,
+        master_password_encrypted -> Bytea,
+        account_email -> Text,
+        collection_id -> Nullable<Uuid>,
+        collection_name -> Nullable<Text>,
+        organization_id -> Nullable<Uuid>,
+        checked_at -> Timestamptz,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::ProjectCoverFit;
     use super::sql_types::GithubAccess;
 
@@ -953,6 +979,7 @@ diesel::joinable!(mail_servers -> users (created_by));
 diesel::joinable!(meetings -> connector_accounts (connector_account_id));
 diesel::joinable!(meetings -> storage_locations (storage_location_id));
 diesel::joinable!(meetings -> users (created_by));
+diesel::joinable!(password_vault -> users (created_by));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
 diesel::joinable!(projects -> users (created_by));
 diesel::joinable!(session_events -> coding_sessions (session_id));
@@ -1011,6 +1038,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_domains,
     mail_servers,
     meetings,
+    password_vault,
     projects,
     session_events,
     storage_location_projects,

@@ -18,6 +18,7 @@ use crate::github::Github;
 use crate::jira::Jira;
 use crate::mail::Mail;
 use crate::meetings::Meetings;
+use crate::passwords::Passwords;
 use crate::realtime::EventBus;
 use crate::runner::Runner;
 use crate::sessions::Sessions;
@@ -54,6 +55,8 @@ pub struct AppState {
     /// Meetings read from meeting sources and cut into timeline segments. See
     /// `crate::meetings`.
     pub meetings: Meetings,
+    /// The password vault agents sign in to things with. See `crate::passwords`.
+    pub passwords: Passwords,
     /// Runs agent turns in the workspace container. See `crate::runner`.
     pub runner: Runner,
     /// Coding and Studio sessions' turns, events, and activity. See `crate::sessions`.

@@ -222,6 +222,10 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
+    # What the API keeps between restarts: the Bitwarden CLI's state, so it stays signed in as
+    # the same device. See docs/passwords.md.
+    volumes:
+      - api-data:/var/lib/elysium
     # Long enough for the graceful drain to finish before Docker escalates to SIGKILL.
     stop_grace_period: 30s
 
@@ -335,3 +339,5 @@ networks:
 volumes:
   postgres-data:
   redis-data:
+  # The API's own state, such as the Bitwarden CLI's. See docs/passwords.md.
+  api-data:

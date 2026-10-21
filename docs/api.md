@@ -11,6 +11,12 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/ping`                           | `200` text `pong`                                   |
 | GET    | `/api/version`                        | `200` JSON, see below                               |
 | GET    | `/api/v1/events`                      | Server-sent event stream, see `docs/realtime.md`    |
+| GET    | `/api/v1/password-vault`              | `200` `{ vault: PasswordVault \| null, status }`; admins |
+| PUT    | `/api/v1/password-vault`              | `200` `{ vault, status, collections }`; signs in first |
+| DELETE | `/api/v1/password-vault`              | `204`; the CLI signs out                            |
+| GET    | `/api/v1/password-vault/collections`  | `200` `{ collections: Collection[] }`, as the CLI answers |
+| PUT    | `/api/v1/password-vault/collection`   | `200` `{ vault, status }`; the collection agents read |
+| POST   | `/api/v1/password-vault/sync`         | `200` `{ status }`                                  |
 | GET    | `/api/v1/browser-sessions`            | `200` `{ browserSessions: BrowserSession[] }`, the caller's, oldest first |
 | POST   | `/api/v1/browser-sessions`            | `201` `{ browserSession }`, `starting`              |
 | GET    | `/api/v1/browser-sessions/{id}`       | `200` `{ browserSession }`                          |
@@ -154,6 +160,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/coding-sessions/{id}`        | `204`; stops its turns, removes its directory       |
 | GET    | `/api/v1/coding-sessions/{id}/events` | `200` `{ events: SessionEvent[], truncated }`       |
 | POST   | `/api/v1/coding-sessions/{id}/turns`  | `201` `{ turn }`; queues a prompt                   |
+| GET    | `/api/v1/coding-sessions/{id}/desktop` | WebSocket: the running turn's desktop as VNC, view-only |
 | GET    | `/api/v1/auth/status`                 | `200` `{ signupOpen, firstSignUp }`; needs no session |
 | GET    | `/api/v1/me`                          | `200` `{ user, hasSecondFactor, mfaEnrollmentRequired }`; pending people too |
 | GET    | `/api/v1/users`                       | `200` `{ users: User[] }`, by name, machines included |
@@ -240,6 +247,22 @@ running. It answers `409` with code `browser_ports_exhausted` when all eight med
 
 `stream` is a WebSocket upgrade. It requires Elysium's own `Origin`, answers `403` otherwise, and `502` when the
 browser does not answer. See `docs/browser.md` for what it relays.
+
+### `/api/v1/password-vault`
+
+Admins only; see `docs/passwords.md`. A `PasswordVault` has `server` (`bitwarden-us`, `bitwarden-eu`, or
+`self-hosted`), `serverUrl` (a self-hosted server's, else null), `clientId`, `accountEmail`, `collection` (`{ id,
+name, organizationId }`, or null until chosen), `checkedAt`, `createdBy`, `createdAt`, and `updatedAt`. `status` is
+`{ state, error, lastSyncedAt }`, with `state` one of `unconfigured`, `starting`, `ready`, or `failed`. The client
+secret and master password are never returned.
+
+`PUT` takes `server`, `serverUrl` (required for, and only for, `self-hosted`: https, no credentials, query, or
+fragment), `clientId` (starting `user.`), and `clientSecret` and `masterPassword`, each required the first time and
+kept when left out afterwards. It signs the CLI in and unlocks before storing anything: a refusal answers `400`
+`Bitwarden refused: <its words>`, and a CLI that cannot reach the server `502`. The chosen collection is kept when
+the account and server are unchanged and still reach it. `collection` takes `{ collectionId }`, one the account
+reaches now, or `null` to clear it. `collections` and `sync` answer `503` until the vault is ready, and every route
+`404` when no vault is set up.
 
 ### `/api/v1/connectors` and `/api/v1/timeline`
 
@@ -507,6 +530,12 @@ one of `agentMessage`, `agentThinking`, `toolStarted`, `toolCompleted`, `turnSta
 
 `events` answers `{ events, truncated, summaries }`. A `TurnSummary` has `sessionId`, `turnId`, `summary` (one line,
 at most 400 characters), and `createdAt`; see `docs/coding.md`, Turn summaries. Behavior, policy, and history limits are in `docs/coding.md`.
+
+### `/api/v1/coding-sessions/{id}/desktop`
+
+A WebSocket upgrade carrying the running turn's desktop as VNC (RFB) bytes in binary messages, view-only. It requires
+Elysium's own `Origin` (`403` otherwise), answers `404` for an unknown session or when no turn is running, and `502`
+when the workspace cannot be reached. See `docs/coding.md`, The desktop.
 
 ### Errors
 

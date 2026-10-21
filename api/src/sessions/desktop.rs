@@ -10,10 +10,17 @@
 //! the desktop with it.
 //!
 //! A session's turns run one after another, so the session's socket path names one desktop at a
-//! time, and the live view finds it there.
+//! time, and the live view finds it there: [`relay`] carries the VNC protocol between a viewer's
+//! WebSocket and the socket, byte for byte. The VNC server is view-only, so whatever a viewer
+//! sends cannot move the agent's mouse or type into its screen.
 
+use axum::extract::ws::{Message, WebSocket};
+use futures_util::{SinkExt as _, StreamExt as _};
 use secrecy::SecretString;
+use tokio::io::AsyncWriteExt as _;
+use tracing::{Level, event};
 
+use crate::runner::socket::SocketConnection;
 use crate::runner::{EnvironmentEntry, McpServer, WorkspacePath};
 
 /// The turn's MCP server name, so its tools read as `mcp__desktop__computer`.
@@ -41,6 +48,64 @@ pub fn server(session_id: i64) -> McpServer {
             key: "ELYSIUM_DESKTOP_SOCKET".to_owned(),
             value: SecretString::from(socket(session_id).absolute()),
         }],
+    }
+}
+
+/// Relays a desktop's VNC stream between `viewer` and `connection` until either closes or
+/// `until` completes. Binary messages are VNC bytes in both directions; anything else a viewer
+/// sends is ignored.
+pub async fn relay(
+    viewer: WebSocket,
+    connection: SocketConnection,
+    until: impl Future<Output = ()> + Send,
+) {
+    let (mut to_viewer, mut from_viewer) = viewer.split();
+    let SocketConnection {
+        mut output,
+        mut input,
+    } = connection;
+
+    let to_viewer_side = async {
+        while let Some(chunk) = output.next().await {
+            match chunk {
+                Ok(bytes) => {
+                    if to_viewer.send(Message::Binary(bytes)).await.is_err() {
+                        return;
+                    }
+                }
+                Err(error) => {
+                    event!(
+                        name: "sessions.desktop.stream_failure",
+                        Level::WARN,
+                        error.message = %error,
+                        "a desktop's stream broke",
+                    );
+                    break;
+                }
+            }
+        }
+        // The desktop went away, as it does when its turn ends.
+        let _closed = to_viewer.send(Message::Close(None)).await;
+    };
+    let to_desktop_side = async {
+        while let Some(message) = from_viewer.next().await {
+            match message {
+                Ok(Message::Binary(bytes)) => {
+                    if input.write_all(&bytes).await.is_err() {
+                        break;
+                    }
+                }
+                Ok(Message::Close(_)) | Err(_) => break,
+                Ok(Message::Text(_) | Message::Ping(_) | Message::Pong(_)) => {}
+            }
+        }
+        let _closed = input.shutdown().await;
+    };
+
+    tokio::select! {
+        () = to_viewer_side => {}
+        () = to_desktop_side => {}
+        () = until => {}
     }
 }
 

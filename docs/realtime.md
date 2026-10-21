@@ -65,6 +65,9 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `user.upserted`      | `User`                   | Someone signed up, was approved, changed role, or was disabled or enabled |
 | `user.deleted`       | `{ id }`                 | A pending sign-up was rejected                             |
 | `workspaceSettings.updated` | `WorkspaceSettings` | Sign-up was opened or closed, or the authenticator rule changed |
+| `passwordVault.updated` | `PasswordVault`  | The vault was connected, its credentials replaced, or its collection chosen |
+| `passwordVault.deleted` | none             | The vault was removed                                      |
+| `passwordVault.status`  | `VaultStatus`    | The vault's CLI began starting, became ready, failed, or synced |
 
 Payload shapes are the same JSON the REST routes return; see `docs/api.md` and `docs/coding.md`.
 
