@@ -11,7 +11,6 @@ import type { JiraCredential } from '../api/routes/jiraRoutes'
 import type { Llm } from '../api/routes/llmRoutes'
 import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRoutes'
 import type { Project } from '../api/routes/projectRoutes'
-import type { Satellite, SatelliteStatus } from '../api/routes/satelliteRoutes'
 import type { StorageLocation } from '../api/routes/storageRoutes'
 import type { StudioAsset, StudioFeedback, StudioItem } from '../api/routes/studioRoutes'
 import type { UpdatesStatus } from '../api/routes/updateRoutes'
@@ -65,19 +64,12 @@ export type ServerEvent =
   | { type: 'mailDomain.deleted', data: { id: string } }
   | { type: 'project.upserted', data: Project }
   | { type: 'project.deleted', data: { id: string } }
-  | { type: 'satellite.upserted', data: Satellite }
-  // Its sessions stay; each arrives again as `session.upserted` with no satellite.
-  | { type: 'satellite.deleted', data: { id: string } }
-  | { type: 'satellite.status', data: SatelliteStatus }
   | { type: 'storageLocation.upserted', data: StorageLocation }
   | { type: 'storageLocation.deleted', data: { id: string } }
   | { type: 'session.upserted', data: CodingSession }
   | { type: 'session.deleted', data: { id: number } }
   | { type: 'session.event', data: SessionEvent }
-  // Live events for this session may have been missed; refetch its history.
-  | { type: 'session.resync', data: { id: number } }
-  // Created, renamed, pinned, continued, or restored, or a file it holds changed its counts
-  // or thumbnail.
+  // Created, renamed, pinned, or restored, or a file it holds changed its counts or thumbnail.
   | { type: 'studioItem.upserted', data: StudioItem }
   // Soft or permanent; the event does not say which.
   | { type: 'studioItem.deleted', data: { id: string } }

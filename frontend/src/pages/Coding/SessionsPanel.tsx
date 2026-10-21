@@ -11,7 +11,6 @@ import { shallowEqual } from 'react-redux'
 import { selectCodingSessions } from '../../store/codingSessionsSlice'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { selectProjectNamesById } from '../../store/projectsSlice'
-import { selectSatelliteNamesById } from '../../store/satellitesSlice'
 import { selectSessionsView, sessionsViewChanged } from '../../store/sessionsViewSlice'
 
 // User interface
@@ -23,7 +22,7 @@ import { SessionsToolbar } from './SessionsToolbar'
 import { SessionTiles } from './SessionTiles'
 
 // Misc
-import { useCodingSessionsLoader, useProjectsLoader, useSatellitesLoader } from '../../hooks/useServerData'
+import { useCodingSessionsLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { UrlTree } from '../../urls'
 import { useCodingActions } from './codingActionsContext'
@@ -31,14 +30,13 @@ import {
   describeSession,
   searchSessionSummaries,
   SESSION_NUMBER_COLUMN_SIZING,
-  threadStateChipColors,
+  activityStateChipColors,
 } from './sessionPresentation'
 
 const SESSION_COLUMN_KEYS = [
   'number',
   'title',
   'project',
-  'satellite',
   'state',
   'lastActivity',
   'rowActions',
@@ -49,7 +47,6 @@ const columnLabelKeys = {
   number: 'sessions.number',
   title: 'sessions.title',
   project: 'sessions.project',
-  satellite: 'sessions.satellite',
   state: 'sessions.state',
   lastActivity: 'sessions.lastActivity',
   rowActions: 'common:actions.moreActions',
@@ -58,9 +55,8 @@ const columnLabelKeys = {
 // Starting widths in pixels, sized for the panel's default half of the workspace.
 const columnSizes = {
   number: SESSION_NUMBER_COLUMN_SIZING.size,
-  title: 220,
-  project: 150,
-  satellite: 150,
+  title: 260,
+  project: 170,
   state: 120,
   lastActivity: 170,
   rowActions: 56,
@@ -72,14 +68,13 @@ const sortValue = {
   number: (summary: SessionSummary) => String(summary.session.id),
   title: (summary: SessionSummary) => summary.session.title,
   project: (summary: SessionSummary) => summary.projectName,
-  satellite: (summary: SessionSummary) => summary.satelliteName,
   state: (summary: SessionSummary) => summary.stateLabel,
-  lastActivity: (summary: SessionSummary) => summary.session.thread?.lastActivityAt ?? '',
+  lastActivity: (summary: SessionSummary) => summary.session.activity.lastActivityAt ?? '',
   rowActions: null,
 } as const satisfies Record<SessionColumnKey, ((summary: SessionSummary) => string) | null>
 
-// The overview panel: every coding session across every satellite, with its live
-// thread state, as a table or as tiles. Opening one focuses its conversation panel.
+// The overview panel: every coding session, with what it is doing now, as a table or as
+// tiles. Opening one focuses its conversation panel.
 export function SessionsPanel() {
   const { t, i18n } = useTranslation([ 'coding', 'common' ])
   const actions = useCodingActions()
@@ -92,8 +87,6 @@ export function SessionsPanel() {
   const sessionsStatus = useCodingSessionsLoader()
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
   const projectsStatus = useProjectsLoader()
-  const satelliteNames = useAppSelector(selectSatelliteNamesById, shallowEqual)
-  const satellitesStatus = useSatellitesLoader()
 
   // Both views and the search read the same summaries, derived once per change.
   const summaries = useMemo(() => {
@@ -104,19 +97,18 @@ export function SessionsPanel() {
     })
     const context = {
       projectNames,
-      satelliteNames,
       formatInstant: (instant: string) => dateFormatter.format(new Date(instant)),
     }
     return sessions.map((session) => describeSession(session, t, context))
-  }, [ sessions, projectNames, satelliteNames, t, i18n.language ])
+  }, [ sessions, projectNames, t, i18n.language ])
 
   const listedSummaries = useMemo(
     () => searchSessionSummaries(summaries, search),
     [ summaries, search ],
   )
 
-  // The columns read only the summaries, so satellite status polls never rebuild them,
-  // which would reset the table's sorting.
+  // The columns read only the summaries, so activity updates never rebuild them, which
+  // would reset the table's sorting.
   const managedColumns = useMemo(() => {
     const renderCell = {
       number: (summary: SessionSummary) => <span className='block text-right tabular-nums'>{
@@ -129,8 +121,11 @@ export function SessionsPanel() {
         summary.session.title
       }</Link>,
       project: (summary: SessionSummary) => summary.projectName,
-      satellite: (summary: SessionSummary) => summary.satelliteName,
-      state: (summary: SessionSummary) => <Chip size='sm' variant='soft' color={threadStateChipColors[summary.state]}>{
+      state: (summary: SessionSummary) => <Chip
+        size='sm'
+        variant='soft'
+        color={activityStateChipColors[summary.state]}
+      >{
         summary.stateLabel
       }</Chip>,
       lastActivity: (summary: SessionSummary) => summary.lastActivity,
@@ -195,7 +190,6 @@ export function SessionsPanel() {
       <div className='max-w-sm text-center'>
         <SessionsEmptyState
           hasProjects={projectsStatus === 'loaded' && Object.keys(projectNames).length > 0}
-          hasSatellites={satellitesStatus === 'loaded' && Object.keys(satelliteNames).length > 0}
           onCreateSession={() => actions.createSession()}
         />
       </div>
@@ -219,7 +213,7 @@ export function SessionsPanel() {
     {listedSummaries.length > 0 && view === 'table' && <SmartTable
       ids={{
         tableElementId: 'coding-sessions-table',
-        tableLocalStorageId: 'elysium.coding.sessions.table.v2',
+        tableLocalStorageId: 'elysium.coding.sessions.table.v3',
       }}
       tableAriaLabel={t('sessions.label')}
       data={listedSummaries}
@@ -239,11 +233,10 @@ export function SessionsPanel() {
 
 type SessionsEmptyStateProps = {
   hasProjects: boolean
-  hasSatellites: boolean
   onCreateSession: () => void
 }
 
-// A session needs a project and a satellite; point at whichever is missing first.
+// A session needs a project; point at it when there is none.
 function SessionsEmptyState(props: SessionsEmptyStateProps) {
   const { t } = useTranslation('coding')
 
@@ -251,13 +244,6 @@ function SessionsEmptyState(props: SessionsEmptyStateProps) {
     return <>
       <p className='relaxed text-sm opacity-70'>{t('sessions.noProjects')}</p>
       <Link href={UrlTree.projects} className='text-sm text-link'>{t('sessions.openProjects')}</Link>
-    </>
-  }
-
-  if (!props.hasSatellites) {
-    return <>
-      <p className='relaxed text-sm opacity-70'>{t('sessions.noSatellites')}</p>
-      <Link href={UrlTree.settingsSatellites} className='text-sm text-link'>{t('sessions.openSatelliteSettings')}</Link>
     </>
   }
 

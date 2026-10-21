@@ -1,7 +1,7 @@
 # Realtime
 
 Every open page holds one server-sent event stream, `GET /api/v1/events`. It is how the frontend stays current: a
-write in one tab, a satellite coming online, and an agent's output all arrive through it. Components never poll.
+write in one tab, a mailbox being checked, and an agent's output all arrive through it. Components never poll.
 
 ## Protocol
 
@@ -36,9 +36,6 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `mailDomain.deleted` | `{ id }`                 | A domain was removed                                       |
 | `project.upserted`   | `Project`                | A project was created or changed                           |
 | `project.deleted`    | `{ id }`                 | A project was deleted                                      |
-| `satellite.upserted` | `Satellite`              | A satellite was created or changed (status arrives later)  |
-| `satellite.deleted`  | `{ id }`                 | A satellite was deleted; each of its sessions follows as `session.upserted` with `satelliteId: null` |
-| `satellite.status`   | `SatelliteStatus`        | A poll found different reachability, version, or load      |
 | `elysia.updated`     | `Elysia`                 | Her status, settings, open questions, or work changed     |
 | `elysiaMessage.created` | `ElysiaMessage`      | A person or Elysia added to the conversation              |
 | `elysiaTurn.upserted` | `ElysiaTurn`            | One of her turns was queued, started, ended, or cancelled |
@@ -50,11 +47,10 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `jiraCredential.deleted`  | `{ id }`         | A Jira credential was deleted                              |
 | `storageLocation.upserted` | `StorageLocation`  | A storage location was added or changed                    |
 | `storageLocation.deleted`  | `{ id }`           | A storage location was deleted                             |
-| `session.upserted`   | `CodingSession`          | A session was created or renamed, or its thread changed    |
+| `session.upserted`   | `CodingSession`          | A session was created or renamed, or what it is doing changed |
 | `session.deleted`    | `{ id }`                 | A session was deleted; `id` is the session's number        |
-| `session.event`      | `SessionEvent`           | A thread emitted an event                                  |
-| `session.resync`     | `{ id }`                 | Live events for that session may have been missed          |
-| `studioItem.upserted` | `StudioItem`            | A Studio item was created, renamed, pinned, continued, or restored |
+| `session.event`      | `SessionEvent`           | A session's turn reported an event, already recorded       |
+| `studioItem.upserted` | `StudioItem`            | A Studio item was created, renamed, pinned, or restored    |
 | `studioItem.deleted` | `{ id }`                 | A Studio item was deleted, softly or for good              |
 | `studioAsset.created` | `StudioAsset`           | A file was pulled from a workspace into a Studio item      |
 | `studioFeedback.created` | `StudioFeedback`     | A prompt with a drawing was sent to a Studio item          |
@@ -91,14 +87,15 @@ Delivery is at most once. Nothing is stored or replayed, and the stream carries 
 
 - A client that connects or reconnects receives `hello` and refetches everything it shows.
 - A client more than 4096 events behind receives `resync` in place of what it missed, and refetches.
-- `session.resync` covers the gap when the API itself lost a satellite's stream and could not resume it.
+- A `session.event` is recorded before it is published, so a client that refetches a session's history after one
+  always finds it.
 
 The bus is an in-process `tokio::sync::broadcast` channel (`api/src/realtime.rs`). An event published on one API
 process never reaches clients of another, so the API runs as a single replica.
 
 ## Shutdown
 
-Streams end when shutdown begins. The shutdown signal cancels a token that every stream, fleet watcher, and the link
+Streams end when shutdown begins. The shutdown signal cancels a token that every stream, agent turn, and the link
 watcher observes, so open streams do not hold up the graceful drain. Browsers reconnect on their own and receive `hello`
 from the next process.
 

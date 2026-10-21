@@ -8,7 +8,6 @@
 mod action_items;
 mod activity;
 mod auth;
-mod blender;
 mod cli;
 mod config;
 mod connections;
@@ -17,7 +16,6 @@ mod database;
 mod elysia;
 mod environment;
 mod errors;
-mod fleet;
 mod git_info;
 mod github;
 mod images;
@@ -35,6 +33,7 @@ mod routes;
 )]
 mod runner;
 mod server;
+mod sessions;
 mod shutdown;
 mod state;
 mod storage;
@@ -105,7 +104,7 @@ fn init_tracing() {
 /// Whether an event passes the ceiling on rmcp's own logging, which no `RUST_LOG` can lift.
 ///
 /// rmcp logs every MCP request in full at debug and its messages at trace, arguments included,
-/// and a tool's arguments can carry a secret (a satellite's bearer secret). Every rmcp target,
+/// and a tool's arguments can carry a secret (a storage location's file, a token). Every rmcp target,
 /// its modules included, is therefore held at info whatever `RUST_LOG` names; everything else
 /// is left to `RUST_LOG`.
 fn within_rmcp_ceiling(target: &str, level: Level) -> bool {

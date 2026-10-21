@@ -188,10 +188,10 @@ request's URL.
 ## Agent tools
 
 A coding session's agent lists, describes, downloads, uploads, and deletes files in its project's locations through
-MCP tools that Elysium answers itself. The satellite cannot reach Elysium, so the tools are declared on the thread as
-the relayed MCP server `elysium_storage`, and each call travels over the relay socket Elysium opens to the satellite
-(see `docs/coding.md`). The tools live in `api/src/tools/storage.rs`; `api/src/tools/mod.rs` holds the table that both
-declares them on a new thread and dispatches their calls, so a declared tool always has a handler.
+MCP tools that Elysium answers itself, the MCP server `elysium_storage` served to the workspace at
+`/api/agent-tools/elysium_storage` under the turn's grant (see `docs/coding.md`). The tools live in
+`api/src/tools/storage.rs`; `api/src/tools/mod.rs` holds the table that both lists them and dispatches their calls,
+so a listed tool always has a handler.
 
 | Tool                | Arguments                                            | Answers                                         |
 |---------------------|------------------------------------------------------|-------------------------------------------------|
@@ -203,26 +203,24 @@ declares them on a new thread and dispatches their calls, so a declared tool alw
 | `storage_delete`    | `locationId`, `path`                                 | `{ deleted }`                                   |
 
 Every tool has a JSON Schema that refuses properties it does not name. `path` and `directory` are relative to the
-location's directory, as in [Paths](#paths); `workspacePath` is relative to the workspace root and checked by the
-satellite. Answers are JSON text, with entries shaped as in [File operations](#file-operations). An agent edits a
+location's directory, as in [Paths](#paths); `workspacePath` is relative to the session's directory, and one that
+leads outside it is refused. Answers are JSON text, with entries shaped as in [File operations](#file-operations). An agent edits a
 stored file by downloading it, changing the copy, and uploading it back. No access key, directory prefix, or provider
 setting ever reaches the agent.
 
 ### Which locations a session reaches
 
-A thread declares `elysium_storage` only when its project has a location when the session is created: one for every
-project (`*`), or one linked to the project. A Studio session without a project reaches only locations for every
+A turn gets `elysium_storage` only when its project has a location as the turn starts: one for every project
+(`*`), or one linked to the project. A Studio session without a project reaches only locations for every
 project. Every call checks again against the database as it is then
 (`storage_location::find_for_project`), so a location unlinked from the project or deleted after the session started is
-refused, and one added later is usable by a session that already declares the server.
+refused, and one added later is usable from the session's next turn.
 
 ### Transfers
 
-A download streams the provider's body into the satellite's workspace file route, and an upload streams the workspace
-file into the provider. Neither is held in memory. Both need the length up front: the satellite requires a declared
-`Content-Length` on a write, and so does every provider upload. A file over 5 GiB is refused before a byte moves. The
-satellite waits about 15 minutes for a call, so a very large file on a slow link can outlast the call; the server's
-instructions tell the agent so.
+A download streams the provider's body into the workspace through `docker exec`, and an upload streams the
+workspace file into the provider. Neither is held in memory. An upload needs the length up front, as every provider
+does, so the file's size is read first. A file over 5 GiB is refused before a byte moves.
 
 ### Failures
 
@@ -238,7 +236,7 @@ database and decryption failures are logged under `tools.call.internal_failure` 
 | A file over 5 GiB                                       | Its size and the limit                                     |
 | The provider refusing the access key                    | That only Elysium's operator can change it, with what to check |
 | The provider refusing otherwise                         | The provider's message                                     |
-| The satellite refusing a workspace path or file         | The satellite's message, such as a missing or non-regular file |
+| A workspace path outside the session's directory, or missing | That the path is refused or that no file is there |
 
 ## Roadmap
 

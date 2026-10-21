@@ -2,8 +2,9 @@
 
 //! `DELETE /api/v1/projects/{id}`: delete a project that no session belongs to.
 //!
-//! Deleting a project never takes its sessions with it. Each session owns a thread on
-//! a satellite, and those are destroyed deliberately, one session at a time.
+//! Deleting a project never takes its sessions with it. Each session owns a directory in the
+//! workspace and the history of its turns, which are removed deliberately, one session at a
+//! time.
 //!
 //! Its action items and initiatives stay, taken out of the project in the same
 //! transaction, each with the removal in its history and on the event stream.

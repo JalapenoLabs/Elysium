@@ -39,7 +39,7 @@ use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tracing::{Level, event};
 
-const CONTAINER_NAME: &str = "elysium-workspace";
+pub(super) const CONTAINER_NAME: &str = "elysium-workspace";
 const VOLUME_NAME: &str = "elysium-workspace";
 const NETWORK_NAME: &str = "elysium-agents";
 /// What other containers on [`NETWORK_NAME`] call the workspace.
@@ -51,9 +51,9 @@ const MANAGED_LABEL: (&str, &str) = ("dev.elysium.managed", "workspace");
 pub const AGENT_USER: &str = "agent";
 
 /// How long a control script (killing a turn, reaping old ones, fetching the configuration
-/// repository) may take. Generous for a slow `git fetch`; turns themselves are not bounded by
-/// it.
-const SCRIPT_TIMEOUT: Duration = Duration::from_secs(300);
+/// repository, moving a file) may take unless its caller says otherwise. Generous for a slow
+/// `git fetch`; turns themselves are not bounded by it.
+pub const SCRIPT_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// Longest output a control script's report keeps, from its end, where errors are.
 const SCRIPT_OUTPUT_TAIL: usize = 4_000;
@@ -64,8 +64,8 @@ pub enum WorkspaceError {
     Docker(#[from] DockerError),
     #[error("the workspace exec did not attach its output")]
     Detached,
-    #[error("a workspace script took longer than {} seconds", SCRIPT_TIMEOUT.as_secs())]
-    ScriptTimeout,
+    #[error("a workspace script took longer than {0} seconds")]
+    ScriptTimeout(u64),
 }
 
 /// One process to run in the workspace.
@@ -95,6 +95,11 @@ impl WorkspaceContainer {
     /// `image` is a full reference such as `jalapenolabs/elysium-workspace:v1.2.0`.
     pub const fn new(docker: Docker, image: String) -> Self {
         Self { docker, image }
+    }
+
+    /// The Docker client, for the file operations in `super::files`.
+    pub(super) const fn docker(&self) -> &Docker {
+        &self.docker
     }
 
     /// Pulls the image if Docker lacks it, then makes sure the container runs it.
@@ -229,8 +234,8 @@ impl WorkspaceContainer {
         Ok(inspected.exit_code)
     }
 
-    /// Runs a short `bash` script with `arguments` as its positional parameters and returns
-    /// what it printed.
+    /// Runs a `bash` script with `arguments` as its positional parameters and returns what it
+    /// printed, giving up after `timeout`.
     ///
     /// # Errors
     /// Propagates Docker's refusal, or [`WorkspaceError::ScriptTimeout`].
@@ -240,6 +245,7 @@ impl WorkspaceContainer {
         script: &str,
         arguments: &[&str],
         environment: Vec<String>,
+        timeout: Duration,
     ) -> Result<ScriptOutput, WorkspaceError> {
         let mut argv = vec![
             "bash".to_owned(),
@@ -270,9 +276,9 @@ impl WorkspaceContainer {
                 output: tail(&output, SCRIPT_OUTPUT_TAIL),
             })
         };
-        tokio::time::timeout(SCRIPT_TIMEOUT, run)
+        tokio::time::timeout(timeout, run)
             .await
-            .map_err(|_elapsed| WorkspaceError::ScriptTimeout)?
+            .map_err(|_elapsed| WorkspaceError::ScriptTimeout(timeout.as_secs()))?
     }
 }
 

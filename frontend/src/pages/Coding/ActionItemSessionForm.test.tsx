@@ -22,13 +22,11 @@ import { makeActionItem } from '../../testFixtures'
 const loaderStatus = vi.hoisted(() => ({
   actionItem: 'loaded',
   projects: 'loaded',
-  satellites: 'loaded',
 }))
 
 vi.mock('../../hooks/useServerData', () => ({
   useActionItemLoader: () => loaderStatus.actionItem,
   useProjectsLoader: () => loaderStatus.projects,
-  useSatellitesLoader: () => loaderStatus.satellites,
 }))
 
 // The form itself presets from what is loaded when it mounts; this stands in for it so the
@@ -53,7 +51,6 @@ describe('ActionItemSessionForm', () => {
   beforeEach(() => {
     loaderStatus.actionItem = 'loaded'
     loaderStatus.projects = 'loaded'
-    loaderStatus.satellites = 'loaded'
   })
 
   it('waits for the projects before mounting the form, which presets its project from them', () => {
@@ -68,19 +65,12 @@ describe('ActionItemSessionForm', () => {
     expect(screen.getByText('Form for Fix the login bug')).toBeTruthy()
   })
 
-  it('waits for the satellites too', () => {
-    loaderStatus.satellites = 'loading'
-    renderFor('login', [ makeActionItem({ id: 'login', title: 'Fix the login bug' }) ])
-
-    expect(screen.queryByText('Form for Fix the login bug')).toBeNull()
-  })
-
   it('says so instead of mounting a form it could never submit when the projects fail to load', () => {
     loaderStatus.projects = 'failed'
     renderFor('login', [ makeActionItem({ id: 'login', title: 'Fix the login bug', projectIds: [ 'elysium' ]}) ])
 
     expect(screen.queryByText('Form for Fix the login bug')).toBeNull()
-    expect(screen.getByText('Projects or satellites could not be loaded. Close this and try again.')).toBeTruthy()
+    expect(screen.getByText('Projects could not be loaded. Close this and try again.')).toBeTruthy()
   })
 
   it('starts nothing from a deleted item', () => {

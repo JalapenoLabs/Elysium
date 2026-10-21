@@ -1,7 +1,5 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ParseKeys } from 'i18next'
-import type { CodingSession, StudioContinuation } from '../../api/routes/codingSessionRoutes'
 import type { StudioFeedback, StudioItem } from '../../api/routes/studioRoutes'
 
 // Core
@@ -19,29 +17,6 @@ import { StudioSessionTimeline } from './StudioSessionTimeline'
 
 // Misc
 import { useFollowingScroll } from '../Coding/useFollowingScroll'
-
-// `unknown` covers a session that does not say how it continued.
-const continuationLabelKeys = {
-  imported: 'conversation.continuedImported',
-  brief: 'conversation.continuedBrief',
-  unknown: 'conversation.continued',
-} as const satisfies Record<StudioContinuation | 'unknown', ParseKeys<'studio'>>
-
-type DividerProps = {
-  session: CodingSession
-}
-
-// Marks where one thread ended and the next carried the item on, saying how.
-function ContinuationDivider(props: DividerProps) {
-  const { t } = useTranslation('studio')
-  const labelKey = continuationLabelKeys[props.session.continuation ?? 'unknown']
-
-  return <div role='separator' className='my-6 flex items-center gap-3 text-xs opacity-60'>
-    <span className='h-px flex-1 bg-separator' />
-    <span className='max-w-md text-center'>{t(labelKey)}</span>
-    <span className='h-px flex-1 bg-separator' />
-  </div>
-}
 
 type Props = {
   item: StudioItem
@@ -88,7 +63,7 @@ export function StudioConversation(props: Props) {
       }</p>}
 
       {sessions.map((session, index) => <Fragment key={session.id}>
-        {index > 0 && <ContinuationDivider session={session} />}
+        {index > 0 && <div role='separator' className='my-6 h-px bg-separator' />}
         <StudioSessionTimeline
           itemId={itemId}
           session={session}

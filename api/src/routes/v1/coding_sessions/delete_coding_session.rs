@@ -1,10 +1,10 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `DELETE /api/v1/coding-sessions/{id}`: destroy the thread and forget the session.
+//! `DELETE /api/v1/coding-sessions/{id}`: stop the session's turns, remove its directory,
+//! and forget it.
 //!
-//! A thread that already expired or was destroyed, or whose satellite was deleted, does not
-//! block the delete. Any other satellite failure does, so a session is never forgotten while
-//! its thread still runs. Deleting takes the session's kept history with it.
+//! Deleting takes the session's kept history with it. A directory that will not go is logged
+//! and left in the workspace; it never blocks the delete.
 //!
 //! A Studio item's sessions are its conversation, so they go only with their item.
 
@@ -36,19 +36,7 @@ pub async fn handle(
         ));
     }
 
-    // A session whose satellite was deleted has no thread left to destroy.
-    if let Some(satellite_id) = session.satellite_id {
-        let client = state.fleet.client(satellite_id).await?;
-        let destroyed = match client.threads().attach(session.thread_id.as_str()).await {
-            Ok(handle) => handle.destroy().await.map(drop),
-            Err(error) => Err(error),
-        };
-        match destroyed {
-            Ok(()) => {}
-            Err(error) if error.is_gone() || error.is_not_found() => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
+    state.sessions.remove(id).await;
 
     let mut connection = state
         .database
@@ -57,7 +45,6 @@ pub async fn handle(
         .context("no database connection available")?;
     coding_session::delete(&mut connection, id).await?;
 
-    state.fleet.forget_session(id);
     state.events.publish(&ServerEvent::SessionDeleted { id });
 
     Ok(StatusCode::NO_CONTENT)

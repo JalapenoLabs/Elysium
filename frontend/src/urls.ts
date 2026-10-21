@@ -49,7 +49,6 @@ export const UrlTree = {
   settingsJiraNew: '/settings/jira/new',
   settingsJiraEdit: '/settings/jira/:credentialId/edit',
   settingsJiraDoneTransitions: '/settings/jira/:credentialId/done-transitions',
-  settingsSatellites: '/settings/satellites',
   settingsEmail: '/settings/email',
   settingsStorage: '/settings/storage',
   settingsStorageNew: '/settings/storage/new',

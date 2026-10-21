@@ -6,18 +6,17 @@
 //! request stands alone, so any API replica can answer it and nothing is kept between calls.
 //! Every request carries an OAuth access token Hydra issued, checked by [`bearer`] before the
 //! server sees it. The server is [`workspace`], and its tools are grouped by what they act on:
-//! [`projects`], [`satellites`], and [`sessions`].
+//! [`projects`] and [`sessions`].
 //!
 //! Clients find out how to get a token from the protected resource metadata
 //! ([`protected_resource_metadata`]), which names Hydra as the authorization server. See
 //! `docs/mcp.md`.
 //!
-//! These are not the tools coding agents use on satellites (`crate::tools`), which are relayed
-//! through the satellite and scoped to a session's project.
+//! These are not the tools coding agents use (`crate::tools`), which are served to the
+//! workspace and scoped to a session's project.
 
 pub mod bearer;
 mod projects;
-mod satellites;
 mod sessions;
 pub mod workspace;
 

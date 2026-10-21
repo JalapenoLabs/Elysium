@@ -25,7 +25,6 @@ import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice
 import { mailServerUpdated } from '../store/mailServerSlice'
 import { projectDeleted, projectUpserted } from '../store/projectsSlice'
 import { eventStreamLost, eventStreamOpened } from '../store/realtimeSlice'
-import { satelliteDeleted, satelliteStatusReported, satelliteUpserted } from '../store/satellitesSlice'
 import { sessionEventReceived } from '../store/sessionEventsSlice'
 import { storageLocationDeleted, storageLocationUpserted } from '../store/storageLocationsSlice'
 import { studioAssetCreated } from '../store/studioAssetsSlice'
@@ -108,16 +107,11 @@ const handlers: Handlers = {
   'mailDomain.deleted': (event) => store.dispatch(mailDomainDeleted(event.data.id)),
   'project.upserted': (event) => store.dispatch(projectUpserted(event.data)),
   'project.deleted': (event) => store.dispatch(projectDeleted(event.data.id)),
-  'satellite.upserted': (event) => store.dispatch(satelliteUpserted(event.data)),
-  'satellite.deleted': (event) => store.dispatch(satelliteDeleted(event.data.id)),
-  'satellite.status': (event) => store.dispatch(satelliteStatusReported(event.data)),
   'storageLocation.upserted': (event) => store.dispatch(storageLocationUpserted(event.data)),
   'storageLocation.deleted': (event) => store.dispatch(storageLocationDeleted(event.data.id)),
   'session.upserted': (event) => store.dispatch(codingSessionUpserted(event.data)),
   'session.deleted': (event) => store.dispatch(codingSessionDeleted(event.data.id)),
   'session.event': (event) => store.dispatch(sessionEventReceived(event.data)),
-  // Revalidates only if a conversation panel holds this session's history key.
-  'session.resync': (event) => void mutate(`v1/coding-sessions/${event.data.id}/events`),
   'studioItem.upserted': (event) => store.dispatch(studioItemUpserted(event.data)),
   // The event carries only the id and does not say whether the delete was soft, so the
   // deleted list and the item's own page reload, each only if a view shows it: a soft delete

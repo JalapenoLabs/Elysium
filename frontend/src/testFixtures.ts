@@ -11,7 +11,6 @@ import type { Changeset, ChangesetOperation } from './api/routes/changesetRoutes
 import type { CodingSession } from './api/routes/codingSessionRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
 import type { Project } from './api/routes/projectRoutes'
-import type { Satellite } from './api/routes/satelliteRoutes'
 import type { StorageLocation } from './api/routes/storageRoutes'
 import type { StudioAsset, StudioFeedback, StudioItem } from './api/routes/studioRoutes'
 import type { User } from './api/routes/userRoutes'
@@ -124,8 +123,6 @@ export function makeChangeset(overrides: Partial<Changeset> & Pick<Changeset, 'i
 export function makeCodingSession(overrides: Partial<CodingSession> & Pick<CodingSession, 'id'>): CodingSession {
   return {
     projectId: 'project',
-    satelliteId: 'satellite',
-    threadId: `thread-${overrides.id}`,
     title: `Session ${overrides.id}`,
     githubCredentialId: null,
     actionItemId: null,
@@ -133,7 +130,7 @@ export function makeCodingSession(overrides: Partial<CodingSession> & Pick<Codin
     createdAt: CREATED_AT,
     createdBy: CREATED_BY,
     updatedAt: CREATED_AT,
-    thread: null,
+    activity: { state: 'idle', queueDepth: 0, currentTurnId: null, lastActivityAt: null },
     ...overrides,
   }
 }
@@ -286,24 +283,3 @@ export function makeStorageLocation(
   }
 }
 
-export function makeSatellite(overrides: Partial<Satellite> & Pick<Satellite, 'id'>): Satellite {
-  return {
-    name: overrides.id,
-    description: '',
-    url: 'http://satellite.test',
-    isActive: true,
-    createdBy: CREATED_BY,
-    createdAt: CREATED_AT,
-    updatedAt: CREATED_AT,
-    status: {
-      satelliteId: overrides.id,
-      reachable: true,
-      version: '1.0.0',
-      runningThreads: 0,
-      maxConcurrentThreads: 4,
-      error: null,
-      setup: { state: 'succeeded', isCurrent: true, failureOutput: null },
-    },
-    ...overrides,
-  }
-}

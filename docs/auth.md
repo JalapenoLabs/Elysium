@@ -247,7 +247,6 @@ Every top-level table has `created_by UUID NOT NULL REFERENCES users`:
 - mail_domains
 - mail_servers
 - projects
-- satellites
 - storage_locations
 
 Join and child tables inherit their parent's creator. Every new top-level table gets the column too.
