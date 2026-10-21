@@ -52,8 +52,10 @@ Code here keeps to it:
 - `Topbar` spans the content column. It has a search field and, on the right, the Elysia button, the live updates
   dot, and the settings gear. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
   green while the event stream is connected and amber while it reconnects.
-- `ElysiaPanel` (`src/elysia/`) sits on the right while it is open: her status, questions, work, and the
-  conversation or her activity. The Elysia button toggles it, and `startElysiaPanelSync` remembers it per browser.
+- `ElysiaPanel` (`src/elysia/`) is on the right while it is open: her status, questions, work, and the
+  conversation or her activity. `AppShell` places it: beside the page from `2xl` up, floating over the page's right
+  edge below that (pages lay out by viewport breakpoints, so squeezing them beside a 26rem panel breaks their
+  columns), and full width below `sm`. The panel fills whatever it is given. The Elysia button toggles it, and `startElysiaPanelSync` remembers it per browser.
   `useElysiaSounds` plays her tones as her light changes. See `docs/elysia.md`.
 - The routed page renders in `main` through `<Outlet />`. By default `main` is a padded, scrolling column. A route
   whose `handle` is `{ layout: 'workspace' }` (typed as `RouteLayoutHandle` in `src/router.tsx`) gets the whole
