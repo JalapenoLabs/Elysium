@@ -32,4 +32,5 @@ pub mod studio_feedback;
 pub mod studio_item;
 pub mod studio_reservation;
 pub mod timeline_record;
+pub mod turn_summary;
 pub mod user;

@@ -76,6 +76,7 @@ export function StudioSessionTimeline(props: Props) {
     }</p>}
     <TimelineEventList
       events={timeline.events}
+      summariesByTurnId={timeline.summariesByTurnId}
       renderAfterEvent={renderDrawing}
     />
   </>

@@ -143,6 +143,28 @@ revoked when the turn ends, and a restart revokes them all.
 
 Logs name each call by session, server, tool, and call id, never by its arguments, which can be large.
 
+## Turn summaries
+
+Conversations read like a GitHub Actions log: every prompt stays visible, and the work it started collapses to one
+row headed by a one or two sentence summary, which expands to the turn's full events (`api/src/sessions/summary.rs`).
+
+- **Which turns.** Turns that complete or fail. A cancelled, interrupted, or usage-limited turn's state says what
+  happened, and the conversation shows it translated.
+- **Input.** While the turn runs, its follower gathers a digest from the events it already scrubbed: the prompt (its
+  first 2,000 characters), the tools called in order (the first 60 by name, then a count), how the turn ended, and the
+  agent's final message and error, each cut down. Nothing is read back from the database.
+- **The model.** `claude-haiku-5-5`, through the runner like every turn: the official CLI on the same credential stack.
+  The summary is a text turn (`TurnMode::Text`): no built-in tools (`--tools=`), no MCP servers (`--strict-mcp-config`),
+  no user, project, or local settings (`--setting-sources=`), so the agents' configuration repository never steers it,
+  its own system prompt, and no session kept (`--no-session-persistence`). It runs in a conversation of its own in
+  `/workspace/.elysium/summaries`, so it never waits behind the session's next prompt, though it takes one of the eight
+  turn slots, and holds an agent turn activity, for its few seconds.
+- **Keeping it.** The answer is collapsed to one line of at most 400 characters, recorded in `turn_summaries`, and
+  published as `session.summary`. The events route answers a session's summaries with its history.
+- **Failure.** A summary that fails (no credential, an empty answer, a database error) is logged as
+  `sessions.summary.failure` and left out. The row then shows the first line of the agent's final message, or the
+  turn's state. It never touches the turn's own outcome.
+
 ## Blender
 
 Every agent can 3D model: model, render, and inspect `.blend` files through Blender's MCP tools (`mcp__blender__*`).
@@ -219,12 +241,15 @@ left out of the conversation.
 
 `frontend/src/pages/Coding/` holds the page. It is a Dockview workspace (`dockview-react`) with two panel types:
 
-- **Sessions** is the overview: every session, its number, project, what it is doing now, and last activity, as a table (uikit's `SmartTable`) or as tiles, switched from the panel's toolbar and remembered per
-  browser. A title, or anywhere on a tile, opens that session's conversation. See `docs/frontend.md`.
+- **Sessions** is the overview: every session, its number, project, what it is doing now, and last activity, as a
+  table (uikit's `SmartTable`) or as tiles, switched from the panel's toolbar and remembered per browser. A title, or
+  anywhere on a tile, opens that session's conversation. See `docs/frontend.md`.
 - **Conversation** is one session, headed by its title and number ("Session 12"), and by a link to the action item
   it was started from, if any. It loads history through SWR when it opens and drops its events from
   Redux when it closes; a reopened panel shows SWR's buffered history while the fresh copy loads. Prompts and agent messages
-  render as chat bubbles; tool calls, thinking, and turn results as compact lines with details folded away. Event
+  render as chat bubbles; tool calls, thinking, and turn results as compact lines with details folded away. Each
+  turn's work sits under its prompt behind a row with its summary (see Turn summaries): open while the turn runs,
+  closed once it ends, and opened again by clicking it (`TimelineEventList`, grouping in `timelineTurns.ts`). Event
   types without a renderer show their wire name. Enter sends the composer's prompt; Shift+Enter adds a line.
 
 The first conversation opens beside Sessions; later ones open as tabs in its group. Panels can be dragged, split,
@@ -240,5 +265,3 @@ so the workspace follows light and dark mode.
 - Rendering agent messages as Markdown.
 - Answering an agent's questions and deciding proposed plans from the conversation.
 - Cancelling a running turn from the conversation.
-- A one or two sentence summary of every turn, written by a small model, shown as a collapsed row that expands to the
-  turn's full log.

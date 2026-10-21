@@ -490,7 +490,10 @@ and answers `{ turnId, status, prompt, queuedAt }`; the turn's progress arrives 
 A `SessionEvent` has `sessionId` (the session's number), `sequence`, `turnId`, `occurredAt`, `type` (such as
 `agent.message`), and `payload`. `payload` is null for event types the API does not render; otherwise its `kind` is
 one of `agentMessage`, `agentThinking`, `toolStarted`, `toolCompleted`, `turnStarted`, `turnCompleted`, or
-`incident`. Field shapes are in `api/src/sessions/views.rs`. Behavior, policy, and history limits are in `docs/coding.md`.
+`incident`. Field shapes are in `api/src/sessions/views.rs`.
+
+`events` answers `{ events, truncated, summaries }`. A `TurnSummary` has `sessionId`, `turnId`, `summary` (one line,
+at most 400 characters), and `createdAt`; see `docs/coding.md`, Turn summaries. Behavior, policy, and history limits are in `docs/coding.md`.
 
 ### Errors
 

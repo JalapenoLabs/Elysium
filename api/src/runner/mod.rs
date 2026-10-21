@@ -203,6 +203,20 @@ pub struct TurnRequest {
     pub environment: Vec<EnvironmentEntry>,
     /// `None` leaves the choice to Claude Code and its settings.
     pub model: Option<String>,
+    pub mode: TurnMode,
+}
+
+/// What kind of Claude Code a turn runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TurnMode {
+    /// An agent: every built-in tool, the workspace's `~/.claude` (settings, skills, CLAUDE.md),
+    /// and a session the next turn can resume.
+    Agent,
+    /// Text in, text out, for work such as summarizing a turn: no built-in tools, no settings
+    /// or MCP servers beyond the request's own, `system_prompt` in place of Claude Code's,
+    /// and nothing kept to resume. An agent's configuration must not steer it, and a session
+    /// nobody resumes would only fill the transcripts directory.
+    Text { system_prompt: String },
 }
 
 /// A submitted turn.

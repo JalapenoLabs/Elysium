@@ -55,6 +55,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `session.upserted`   | `CodingSession`          | A session was created or renamed, or what it is doing changed |
 | `session.deleted`    | `{ id }`                 | A session was deleted; `id` is the session's number        |
 | `session.event`      | `SessionEvent`           | A session's turn reported an event, already recorded       |
+| `session.summary`    | `TurnSummary`            | A finished turn's summary was written                      |
 | `studioItem.upserted` | `StudioItem`            | A Studio item was created, renamed, pinned, or restored    |
 | `studioItem.deleted` | `{ id }`                 | A Studio item was deleted, softly or for good              |
 | `studioAsset.created` | `StudioAsset`           | A file was pulled from a workspace into a Studio item      |

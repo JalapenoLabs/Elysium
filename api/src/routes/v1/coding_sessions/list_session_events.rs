@@ -18,8 +18,8 @@ use serde_json::{Value, json};
 
 use crate::errors::ApiError;
 use crate::models::session_event::StoredEvent;
-use crate::models::{coding_session, session_event};
-use crate::sessions::views::SessionEvent;
+use crate::models::{coding_session, session_event, turn_summary};
+use crate::sessions::views::{SessionEvent, TurnSummaryView};
 use crate::state::AppState;
 
 /// Most events one response carries. A long session's streamed output runs to
@@ -138,9 +138,23 @@ pub async fn handle(
         rendered_only: false,
     };
     let page = read_events(&state, id, window).await?;
-    Ok(Json(
-        json!({ "events": page.events, "truncated": page.truncated }),
-    ))
+    let summaries: Vec<TurnSummaryView> = {
+        let mut connection = state
+            .database
+            .get()
+            .await
+            .context("no database connection available")?;
+        turn_summary::for_session(&mut connection, id)
+            .await?
+            .into_iter()
+            .map(TurnSummaryView::from)
+            .collect()
+    };
+    Ok(Json(json!({
+        "events": page.events,
+        "truncated": page.truncated,
+        "summaries": summaries,
+    })))
 }
 
 /// Reads the session `id`'s recorded events over `window`, up to the latest recorded when the
