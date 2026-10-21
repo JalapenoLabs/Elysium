@@ -9,14 +9,15 @@
 //! Each server is a [`ToolServer`]: its name, the instructions the agent reads, and a table
 //! of [`Tool`]s. The same table lists the tools to the agent and dispatches a call to them,
 //! so a listed tool always has a handler. Each tool set is one module with its own
-//! table, listed in [`SERVERS`]: [`storage`] for the project's storage locations, [`work`]
-//! for its action items and initiatives, and [`passwords`] for the logins agents may sign in
-//! with.
+//! table, listed in [`SERVERS`]: [`storage`] for the project's storage locations and
+//! [`work`] for its action items and initiatives, both for coding sessions, [`elysia`]
+//! for Elysia's own turns, and [`passwords`] for the logins any agent may sign in with.
 //!
 //! Results are JSON text. A failure answers the agent with what to fix, never with an
 //! internal error chain: database and decryption failures are logged here and reported
 //! as a fixed message.
 
+pub mod elysia;
 pub mod endpoint;
 pub mod grants;
 pub mod passwords;
@@ -76,6 +77,46 @@ impl std::fmt::Debug for ToolContext {
 pub enum CallScope {
     /// A coding or Studio session's agent.
     Session(SessionScope),
+    /// One of Elysia's turns. She acts for the whole workspace, so nothing narrows her reach.
+    Elysia(ElysiaScope),
+}
+
+impl CallScope {
+    /// The session a session's tool runs for.
+    ///
+    /// # Errors
+    /// Returns [`ToolError::WrongAgent`] for Elysia, whose turns have tools of their own.
+    pub fn session(&self) -> Result<&SessionScope, ToolError> {
+        match self {
+            Self::Session(session) => Ok(session),
+            Self::Elysia(_) => Err(ToolError::WrongAgent("coding sessions")),
+        }
+    }
+
+    /// The turn one of Elysia's tools runs for.
+    ///
+    /// # Errors
+    /// Returns [`ToolError::WrongAgent`] for a coding session.
+    pub fn elysia(&self) -> Result<&ElysiaScope, ToolError> {
+        match self {
+            Self::Elysia(elysia) => Ok(elysia),
+            Self::Session(_) => Err(ToolError::WrongAgent("Elysia")),
+        }
+    }
+
+    /// Who called, for logs: `session:<n>` or `elysia:<turn>`.
+    pub fn label(&self) -> String {
+        match self {
+            Self::Session(session) => format!("session:{}", session.session_id),
+            Self::Elysia(elysia) => format!("elysia:{}", elysia.turn_id),
+        }
+    }
+}
+
+/// One of Elysia's turns.
+#[derive(Debug, Clone, Copy)]
+pub struct ElysiaScope {
+    pub turn_id: Uuid,
 }
 
 /// A session whose agent called: its project, which decides what the call may reach, the
@@ -120,7 +161,12 @@ pub struct ToolServer {
 }
 
 /// Every server Elysium serves, looked up by name when a call arrives.
-pub const SERVERS: [&ToolServer; 3] = [&storage::SERVER, &work::SERVER, &passwords::SERVER];
+pub const SERVERS: [&ToolServer; 4] = [
+    &storage::SERVER,
+    &work::SERVER,
+    &elysia::SERVER,
+    &passwords::SERVER,
+];
 
 /// Why a call could not be carried out. `Display` is what the agent reads, so every
 /// message says what to change.
@@ -129,6 +175,9 @@ pub enum ToolError {
     /// No server or tool by that name is served for this session.
     #[error("{0}")]
     Unknown(String),
+    /// The tool belongs to another kind of agent, named here.
+    #[error("this tool is for {0}; use the tools your own server lists")]
+    WrongAgent(&'static str),
     /// The arguments, or what they name, cannot be used as given.
     #[error("{0}")]
     Invalid(String),
@@ -191,11 +240,10 @@ pub async fn dispatch(
     arguments_json: &str,
 ) -> ToolOutput {
     let Some(found) = find_tool(server, tool) else {
-        let CallScope::Session(session) = scope;
         event!(
             name: "tools.call.unknown",
             Level::WARN,
-            session.id = %session.session_id,
+            tool.caller = scope.label(),
             tool.server = server,
             tool.name = tool,
             "a call named a tool Elysium does not serve",
@@ -241,11 +289,10 @@ pub fn internal(
     operation: &'static str,
     error: &dyn std::fmt::Display,
 ) -> ToolError {
-    let CallScope::Session(session) = scope;
     event!(
         name: "tools.call.internal_failure",
         Level::ERROR,
-        session.id = %session.session_id,
+        tool.caller = scope.label(),
         tool.operation = operation,
         error.message = %error,
         "a tool call failed inside Elysium",

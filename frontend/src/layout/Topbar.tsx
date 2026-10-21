@@ -10,6 +10,7 @@ import { buttonVariants, Kbd, Link, SearchField, Tooltip } from '@heroui/react'
 import { LuSettings } from 'react-icons/lu'
 import { ElysiaToggle } from '../elysia/ElysiaToggle'
 import { LiveUpdatesIndicator } from './LiveUpdatesIndicator'
+import { MobileNavigation } from './MobileNavigation'
 import { UserMenu } from './UserMenu'
 
 // Misc
@@ -43,10 +44,11 @@ export function Topbar() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
-  return <header className='level shrink-0 px-10 py-3'>
+  return <header className='level shrink-0 gap-2 px-4 py-3 md:px-10'>
+    <MobileNavigation />
     <SearchField
       aria-label={t('common:search.label')}
-      className='w-full max-w-sm'
+      className='w-full min-w-0 max-w-sm'
     >
       <SearchField.Group className='bg-default shadow-none'>
         <SearchField.SearchIcon />
@@ -54,12 +56,13 @@ export function Topbar() {
           ref={searchInputRef}
           placeholder={t('common:search.placeholder')}
         />
-        <Kbd className='mr-2'>
+        {/* Phones have no keyboard to press it on. */}
+        <Kbd className='mr-2 hidden md:inline-flex'>
           <Kbd.Content>{SEARCH_SHORTCUT_KEY}</Kbd.Content>
         </Kbd>
       </SearchField.Group>
     </SearchField>
-    <div className='level-right gap-3'>
+    <div className='level-right shrink-0 gap-1 md:gap-3'>
       <ElysiaToggle />
       <LiveUpdatesIndicator />
       <Tooltip delay={300}>

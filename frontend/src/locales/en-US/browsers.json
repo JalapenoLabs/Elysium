@@ -55,6 +55,25 @@
     "failed": "The browser failed to start.",
     "missing": "This browser does not exist, or it is not yours."
   },
+  "connectors": {
+    "title": "{{service}} mail",
+    "offer": "Elysium can read this mailbox: new mail lands in your inbox as it arrives. What is already there is recorded without filling your inbox.",
+    "reading": "Elysium reads this mailbox every minute without opening anything, so your mail stays unread.",
+    "start": "Read this mailbox",
+    "stop": "Stop reading",
+    "kinds": {
+      "outlook": "Outlook"
+    },
+    "signIn": {
+      "signedIn": "Signed in",
+      "signedOut": "Signed out",
+      "unknown": "Not read yet"
+    },
+    "toasts": {
+      "started": "Elysium is reading this mailbox.",
+      "stopped": "Elysium stopped reading this mailbox."
+    }
+  },
   "stream": {
     "label": "The browser's screen",
     "connecting": "Connecting",

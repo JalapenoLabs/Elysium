@@ -4,7 +4,7 @@
 import { apiClient } from '../index'
 
 // Mirrors `Light` in api/src/elysia/status.rs: the color Elysia shows.
-export const ELYSIA_LIGHTS = [ 'running', 'errored', 'needs-you', 'done' ] as const
+export const ELYSIA_LIGHTS = [ 'running', 'errored', 'needs-you', 'held', 'done' ] as const
 export type ElysiaLight = typeof ELYSIA_LIGHTS[number]
 
 // Mirrors `Hold` in api/src/elysia/status.rs: why queued work is not starting.

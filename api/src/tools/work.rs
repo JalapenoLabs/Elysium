@@ -173,7 +173,7 @@ impl TryFrom<&CallScope> for WorkScope {
     /// Work is scoped to a project. A Studio session without one never declares these tools,
     /// so a call from one is refused rather than answered from no project at all.
     fn try_from(scope: &CallScope) -> Result<Self, ToolError> {
-        let CallScope::Session(session) = scope;
+        let session = scope.session()?;
         let Some(project_id) = session.project_id else {
             return Err(ToolError::Invalid(
                 "this session belongs to no project, so it has no action items or initiatives"
@@ -580,7 +580,7 @@ async fn run_link_pull_request(
         observation: remote.observation(),
     };
 
-    let CallScope::Session(session) = scope;
+    let session = scope.session()?;
     let now = Utc::now();
     let mut connection = context
         .database
@@ -988,7 +988,7 @@ fn history_view(entry: &HistoryEntry, names: &HashMap<Uuid, String>) -> Value {
     })
 }
 
-mod propose;
+pub(in crate::tools) mod propose;
 
 #[cfg(test)]
 mod tests;

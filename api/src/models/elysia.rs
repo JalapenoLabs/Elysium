@@ -165,6 +165,44 @@ pub struct Work {
     pub updated_at: DateTime<Utc>,
 }
 
+/// A question Elysia asks.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = elysia_questions)]
+pub struct NewQuestion {
+    pub id: Uuid,
+    pub prompt: String,
+    pub options: Value,
+    pub action_item_id: Option<Uuid>,
+    pub created_by: Uuid,
+}
+
+/// Work Elysia takes on.
+#[derive(Debug, Insertable)]
+#[diesel(table_name = elysia_work)]
+pub struct NewWork {
+    pub id: Uuid,
+    pub title: String,
+    pub detail: String,
+    pub ready_at: Option<DateTime<Utc>>,
+    pub action_item_id: Option<Uuid>,
+    pub created_by: Uuid,
+}
+
+/// A change Elysia reports on her work. `None` leaves a column untouched; `ready_at` as
+/// `Some(None)` clears the estimate.
+#[derive(Debug, Default, AsChangeset)]
+#[diesel(table_name = elysia_work)]
+pub struct WorkChanges {
+    pub title: Option<String>,
+    pub detail: Option<String>,
+    pub status: Option<WorkStatus>,
+    #[expect(
+        clippy::option_option,
+        reason = "Diesel reads the outer None as skip and Some(None) as setting NULL"
+    )]
+    pub ready_at: Option<Option<DateTime<Utc>>>,
+}
+
 /// The state row.
 ///
 /// # Errors
@@ -554,4 +592,48 @@ pub async fn unfinished_work(connection: &mut AsyncPgConnection) -> QueryResult<
         .order(elysia_work::updated_at.desc())
         .load(connection)
         .await
+}
+
+/// Asks a question.
+///
+/// # Errors
+/// Propagates any database error, including more than four suggested answers.
+pub async fn insert_question(
+    connection: &mut AsyncPgConnection,
+    question: NewQuestion,
+) -> QueryResult<Question> {
+    diesel::insert_into(elysia_questions::table)
+        .values(question)
+        .returning(Question::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Takes on a piece of work.
+///
+/// # Errors
+/// Propagates any database error, including a title outside 1 to 200 characters.
+pub async fn insert_work(connection: &mut AsyncPgConnection, work: NewWork) -> QueryResult<Work> {
+    diesel::insert_into(elysia_work::table)
+        .values(work)
+        .returning(Work::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Reports a change to the work `id`. `None` when it is missing.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn update_work(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    changes: WorkChanges,
+) -> QueryResult<Option<Work>> {
+    diesel::update(elysia_work::table.find(id))
+        .set(changes)
+        .returning(Work::as_returning())
+        .get_result(connection)
+        .await
+        .optional()
 }

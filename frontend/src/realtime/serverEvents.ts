@@ -3,6 +3,7 @@
 import type { ActionItem, ActionItemComment, ActionItemLink, HistoryEntry } from '../api/routes/actionItemRoutes'
 import type { BrowserSession } from '../api/routes/browserSessionRoutes'
 import type { Changeset } from '../api/routes/changesetRoutes'
+import type { ConnectorAccount } from '../api/routes/connectorRoutes'
 import type { Initiative, InitiativeLink } from '../api/routes/initiativeRoutes'
 import type { CodingSession, SessionEvent, TurnSummary } from '../api/routes/codingSessionRoutes'
 import type { Elysia, ElysiaMessage, ElysiaTurn } from '../api/routes/elysiaRoutes'
@@ -44,6 +45,14 @@ export type ServerEvent =
   // A browser was added, or began starting, running, or failing.
   | { type: 'browserSession.upserted', data: BrowserSession }
   | { type: 'browserSession.deleted', data: { id: string } }
+  // A connector account was added, or its last read found its sign-in changed.
+  | { type: 'connectorAccount.upserted', data: ConnectorAccount }
+  | { type: 'connectorAccount.deleted', data: { id: string } }
+  // Something was ingested onto someone's timeline. Never its content, which its owner loads.
+  | {
+    type: 'timelineRecord.created',
+    data: { id: string, sourceKind: string, createdBy: string, actionItemId: string | null },
+  }
   // An entry an item's or an initiative's write recorded.
   | { type: 'history.appended', data: HistoryEntry }
   // A changeset was proposed, decided on, applied, or undone.

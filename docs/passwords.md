@@ -81,7 +81,8 @@ ready; a vault that becomes ready mid-turn is granted from the next turn.
 Every call reads the chosen collection from the database as it is now, and every item is checked against it before
 anything of it leaves the API: a login, not in the trash, in that collection (`api/src/passwords/items.rs`). The
 CLI's own filter only decides what is fetched. A login moved out of the collection, or a collection changed mid-turn,
-is refused at the next call. Calls are logged by session, tool, and item id, never by what they answered.
+is refused at the next call. Calls are logged by caller (a session or one of Elysia's turns), tool, and item id,
+never by what they answered.
 
 Every password and code handed to an agent is remembered for 24 hours (at most 1,000 at once), and every turn's
 recorded and published output is scrubbed of them as it is of secret environment variables (`docs/coding.md`). The

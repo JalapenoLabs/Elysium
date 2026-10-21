@@ -32,7 +32,7 @@ use crate::routes::v1::changesets::publish_changeset;
 use crate::tools::{CallScope, ToolContext, ToolError, internal, parse_arguments};
 
 /// What the tool answers after staging, so the agent does not wait for the outcome.
-const STAGED_MESSAGE: &str = "Staged for the user's review. Nothing changes until the user \
+pub(in crate::tools) const STAGED_MESSAGE: &str = "Staged for the user's review. Nothing changes until the user \
     approves it, in whole or in part; you are not told when they do. Tell the user in your \
     reply that you proposed these changes.";
 
@@ -280,7 +280,7 @@ pub(super) async fn stage(
 
 /// What the agent is told was staged: each operation's position, kind, and the earlier
 /// operations it depends on.
-fn staged_answer(staged: &Staged) -> Value {
+pub(in crate::tools) fn staged_answer(staged: &Staged) -> Value {
     let parsed: Vec<Operation> = staged
         .operations
         .iter()
@@ -310,9 +310,23 @@ fn staged_answer(staged: &Staged) -> Value {
     })
 }
 
+/// Who proposes, which decides the kinds of change and fields the schema offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::tools) enum Proposing {
+    /// A coding session: it links its pull requests, and what it creates joins its project.
+    Session,
+    /// Elysia: she names the projects what she creates joins, and links no pull requests.
+    Elysia,
+}
+
+/// The work tool's schema, for a coding session.
+pub(super) fn schema() -> Value {
+    schema_for(Proposing::Session)
+}
+
 /// The tool's arguments as a JSON Schema: a summary and the operations, each a change with
 /// its reason and, where there is one, the quote and source it came from.
-pub(super) fn schema() -> Value {
+pub(in crate::tools) fn schema_for(proposing: Proposing) -> Value {
     json!({
         "type": "object",
         "properties": {
@@ -325,7 +339,7 @@ pub(super) fn schema() -> Value {
                 "items": {
                     "type": "object",
                     "properties": {
-                        "change": { "oneOf": change_schemas() },
+                        "change": { "oneOf": change_schemas(proposing) },
                         "reason": text_schema(2000, "Why the user should make this change."),
                         "quote": text_schema(
                             2000,
@@ -346,26 +360,33 @@ pub(super) fn schema() -> Value {
     })
 }
 
-/// One schema per kind of change an agent may propose.
-fn change_schemas() -> Vec<Value> {
+/// One schema per kind of change `proposing` may propose.
+fn change_schemas(proposing: Proposing) -> Vec<Value> {
     let priority = json!({ "type": "string", "enum": ["urgent", "high", "normal", "low"] });
     let notes = json!({ "type": "string", "maxLength": 20000 });
-    vec![
-        change_schema(
-            "create-item",
-            json!({
-                "title": text_schema(500, "The item's title."),
-                "notes": notes,
-                "priority": priority,
-                "dueAt": date_schema("When it is due, with an offset."),
-                "initiatives": {
-                    "type": "array",
-                    "items": target_schema("initiative"),
-                    "description": "Initiatives it joins.",
-                },
-            }),
-            &["title"],
-        ),
+    let mut create_item = json!({
+        "title": text_schema(500, "The item's title."),
+        "notes": notes,
+        "priority": priority,
+        "dueAt": date_schema("When it is due, with an offset."),
+        "initiatives": {
+            "type": "array",
+            "items": target_schema("initiative"),
+            "description": "Initiatives it joins.",
+        },
+    });
+    let mut create_initiative = json!({
+        "name": text_schema(200, "The initiative's name."),
+        "description": notes,
+        "targetAt": date_schema("When it should be achieved, with an offset."),
+    });
+    if proposing == Proposing::Elysia {
+        create_item["projectIds"] = projects_schema("item");
+        create_initiative["projectIds"] = projects_schema("initiative");
+    }
+
+    let mut schemas = vec![
+        change_schema("create-item", create_item, &["title"]),
         change_schema(
             "update-item",
             json!({
@@ -396,17 +417,6 @@ fn change_schemas() -> Vec<Value> {
             &["item", "body"],
         ),
         change_schema(
-            "link-pull-request",
-            json!({
-                "item": target_schema("item"),
-                "url": text_schema(
-                    2048,
-                    "The pull request's URL, such as https://github.com/owner/name/pull/12.",
-                ),
-            }),
-            &["item", "url"],
-        ),
-        change_schema(
             "add-to-initiative",
             json!({ "item": target_schema("item"), "initiative": target_schema("initiative") }),
             &["item", "initiative"],
@@ -416,16 +426,31 @@ fn change_schemas() -> Vec<Value> {
             json!({ "item": target_schema("item"), "initiative": target_schema("initiative") }),
             &["item", "initiative"],
         ),
-        change_schema(
-            "create-initiative",
+        change_schema("create-initiative", create_initiative, &["name"]),
+    ];
+    if proposing == Proposing::Session {
+        schemas.push(change_schema(
+            "link-pull-request",
             json!({
-                "name": text_schema(200, "The initiative's name."),
-                "description": notes,
-                "targetAt": date_schema("When it should be achieved, with an offset."),
+                "item": target_schema("item"),
+                "url": text_schema(
+                    2048,
+                    "The pull request's URL, such as https://github.com/owner/name/pull/12.",
+                ),
             }),
-            &["name"],
-        ),
-    ]
+            &["item", "url"],
+        ));
+    }
+    schemas
+}
+
+/// The projects a created item or initiative joins, by id.
+fn projects_schema(what: &str) -> Value {
+    json!({
+        "type": "array",
+        "items": { "type": "string", "format": "uuid" },
+        "description": format!("The projects the {what} joins."),
+    })
 }
 
 /// A change of one `kind` with its `properties`, the `required` ones and its kind required.

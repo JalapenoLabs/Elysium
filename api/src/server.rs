@@ -32,8 +32,10 @@ use crate::auth::kratos::Kratos;
 use crate::auth::{Auth, hook_key};
 use crate::browser::Browsers;
 use crate::browser::container::BrowserContainers;
+use crate::browser::devtools::Devtools;
 use crate::browser::neko::Neko;
 use crate::config::Config;
+use crate::connectors::ingest::Ingest;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::database::migrations;
@@ -143,6 +145,13 @@ pub async fn serve() -> Result<()> {
     )?;
     // Brings every browser back up, and keeps them up, until shutdown.
     let browser_reconciler = browsers.start(shutdown.clone());
+    // Reads every connector account through its browser, onto the timeline.
+    let ingest = Ingest::new(
+        database.clone(),
+        events.clone(),
+        Devtools::new(http.clone()),
+    )
+    .start(shutdown.clone());
 
     let passwords = build_passwords(database.clone(), Arc::clone(&cipher), events.clone());
     // Signs the CLI in and unlocks the stored vault, then keeps it up, until shutdown.
@@ -185,7 +194,7 @@ pub async fn serve() -> Result<()> {
     });
 
     // After the runner, which runs her turns.
-    let elysia = Elysia::new(TurnRunner::Host(runner.clone()));
+    let elysia = Elysia::new(TurnRunner::Host(runner.clone()), sessions.grants().clone());
     let elysia_tasks = elysia.start(database.clone(), events.clone(), shutdown.clone());
 
     let state = AppState {
@@ -245,6 +254,14 @@ pub async fn serve() -> Result<()> {
             Level::ERROR,
             error.message = %error,
             "the password vault's keeper ended abnormally",
+        );
+    }
+    if let Err(error) = ingest.await {
+        event!(
+            name: "connectors.ingest.join.failed",
+            Level::ERROR,
+            error.message = %error,
+            "the connector ingest loop ended abnormally",
         );
     }
     if let Err(error) = browser_reconciler.await {
@@ -425,7 +442,7 @@ pub(crate) fn build_browsers(
         database,
         cipher,
         events,
-        BrowserContainers::new(build_docker(config)?),
+        BrowserContainers::new(build_docker(config)?, &config.encryption_key),
         Neko::new(http),
         config.public_url.clone(),
     ))

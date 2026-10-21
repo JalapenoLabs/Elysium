@@ -16,6 +16,7 @@
   --color-elysia-running: var(--elysia-running);
   --color-elysia-errored: var(--elysia-errored);
   --color-elysia-needs-you: var(--elysia-needs-you);
+  --color-elysia-held: var(--elysia-held);
   --color-elysia-done: var(--elysia-done);
 }
 
@@ -67,10 +68,12 @@
   --chart-scope: #267fb5;
   --chart-resolved: #5e9a2e;
 
-  /* Elysia's status, at a glance: orange running, red errored, pink needs you, green done. */
+  /* Elysia's status, at a glance: orange running, red errored, pink needs you, grey held,
+     green done. */
   --elysia-running: #d9822b;
   --elysia-errored: var(--danger);
   --elysia-needs-you: #d6489a;
+  --elysia-held: var(--muted);
   --elysia-done: var(--success);
 }
 
@@ -132,6 +135,7 @@
   --elysia-running: #f0a35e;
   --elysia-errored: var(--danger);
   --elysia-needs-you: #f28ac4;
+  --elysia-held: var(--muted);
   --elysia-done: var(--success);
 }
 

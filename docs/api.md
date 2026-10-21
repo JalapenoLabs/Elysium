@@ -22,6 +22,12 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/browser-sessions/{id}`       | `200` `{ browserSession }`                          |
 | DELETE | `/api/v1/browser-sessions/{id}`       | `204`; removes the container and its profile        |
 | GET    | `/api/v1/browser-sessions/{id}/stream` | WebSocket: the browser's signaling, see `docs/browser.md` |
+| GET    | `/api/v1/connectors`                  | `200` `{ connectors: ConnectorAccount[] }`, the caller's |
+| POST   | `/api/v1/connectors`                  | `201` `{ connector }`; reads a service through a browser |
+| DELETE | `/api/v1/connectors/{id}`             | `204`; its records stay on the timeline             |
+| GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[] }`, the caller's, newest first |
+| PUT    | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record }`; the caller attributes it to a project |
+| DELETE | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record }`                            |
 | GET    | `/api/v1/action-items`                | `200` `{ items: ActionItem[] }`, newest first       |
 | POST   | `/api/v1/action-items`                | `201` `{ item }`                                    |
 | GET    | `/api/v1/action-items/next`           | `200` `{ items: ActionItem[], inboxCount }`, in Next's order |
@@ -251,6 +257,19 @@ kept when left out afterwards. It signs the CLI in and unlocks before storing an
 the account and server are unchanged and still reach it. `collection` takes `{ collectionId }`, one the account
 reaches now, or `null` to clear it. `collections` and `sync` answer `503` until the vault is ready, and every route
 `404` when no vault is set up.
+
+### `/api/v1/connectors` and `/api/v1/timeline`
+
+A `ConnectorAccount` has `id`, `kind` (`outlook`), `browserSessionId`, `signInState` (`signed_in`, `signed_out`, or
+`unknown`), `lastPolledAt`, `lastError`, `isActive`, `createdBy`, `createdAt`, and `updatedAt`. `POST` requires
+`kind` and `browserSessionId`, answers `400` when the browser is not the caller's and `409` when it already has a
+connector.
+
+A `TimelineRecord` has `id`, `sourceKind`, `connectorAccountId`, `externalId`, `occurredAt`, `actor`, `title`,
+`body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
+attributedBy, createdAt }`), `createdBy`, and `createdAt`. `GET /timeline` takes `projectId`, `before` (an
+`occurredAt`, for the next page), and `limit` (1 to 200, default 50). Every route answers the record's owner alone.
+See `docs/connectors.md`.
 
 ### `/api/v1/mail`
 
@@ -581,11 +600,12 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/sessions/`          | Coding and Studio sessions on the runner: directories, turns, recorded events, activity |
 | `src/jira/`              | Jira Cloud's REST API and Atlassian Document Format |
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
-| `src/browser/`           | The browsers the host streams: their containers, the reconciler, Neko's API, and the stream relay |
+| `src/browser/`           | The browsers the host streams: their containers, the reconciler, Neko's API, the stream relay, and the DevTools client |
+| `src/connectors/`        | The connector trait, the webmail connector and its page scripts, and the ingest loop |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
 | `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), the link watcher, and changesets' operations, dependencies, and decisions |
-| `src/tools/`             | The MCP servers agents call at `/api/agent-tools`: `elysium_storage` and `elysium_work`, see `docs/coding.md` |
+| `src/tools/`             | The MCP servers agents call at `/api/agent-tools`: `elysium_storage`, `elysium_work`, and Elysia's `elysia`, see `docs/coding.md` |
 
 ## Logging
 

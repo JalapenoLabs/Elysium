@@ -164,14 +164,16 @@ export function CodingPage() {
 
   return <CodingActionsContext.Provider value={actions}>
     <div className='flex h-full flex-col'>
-      <div className='level shrink-0 border-b border-separator px-6 py-2'>
+      <div className='level shrink-0 gap-2 border-b border-separator px-4 py-2 md:px-6'>
         <h1 className='text-lg font-semibold'>{
           t('title')
         }</h1>
         <div className='level-right gap-2'>
+          {/* Below sm the two layout buttons keep only their icons, so New session fits. */}
           <Button
             size='sm'
             variant='ghost'
+            aria-label={t('panels.sessions')}
             onPress={() => {
               if (dockviewApiRef.current) {
                 showSessionsPanel(dockviewApiRef.current, t('panels.sessions'))
@@ -179,15 +181,16 @@ export function CodingPage() {
             }}
           >
             <LuLayoutPanelLeft className='size-4' aria-hidden />
-            <span>{t('panels.sessions')}</span>
+            <span className='hidden sm:inline'>{t('panels.sessions')}</span>
           </Button>
           <Button
             size='sm'
             variant='ghost'
+            aria-label={t('layout.reset')}
             onPress={resetLayout}
           >
             <LuRotateCcw className='size-4' aria-hidden />
-            <span>{t('layout.reset')}</span>
+            <span className='hidden sm:inline'>{t('layout.reset')}</span>
           </Button>
           <Button
             size='sm'

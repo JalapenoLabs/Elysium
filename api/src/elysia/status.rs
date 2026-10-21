@@ -4,9 +4,10 @@
 //! anything, is holding her back.
 //!
 //! The color follows the vision (`docs/vision.md`): orange while she runs, red when her last
-//! turn failed, pink when she needs a person, green when she is done. When more than one
-//! applies, needing a person wins, because it is the one only a person can clear; then
-//! running, because what she does now supersedes how her last turn ended.
+//! turn failed, pink when she needs a person, green when she is done, and grey while work is
+//! queued but held back. When more than one applies, needing a person wins, because it is the
+//! one only a person can clear; then running, because what she does now supersedes how her
+//! last turn ended; then held, because waiting work is not done.
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -21,6 +22,8 @@ pub enum Light {
     Errored,
     /// She asked a question nobody has answered. Pink.
     NeedsYou,
+    /// Work is queued, and a hold keeps it from starting. Grey.
+    Held,
     /// Nothing is running, failing, or waiting on a person. Green.
     Done,
 }
@@ -50,6 +53,8 @@ pub enum Hold {
 #[derive(Debug, Clone, Copy)]
 pub struct StatusInputs {
     pub is_running: bool,
+    /// Whether any turn is queued.
+    pub is_queued: bool,
     pub last_turn_failed: bool,
     pub open_questions: usize,
     pub paused: bool,
@@ -68,16 +73,6 @@ pub struct Status {
 
 /// Derives the status from `inputs`.
 pub fn derive(inputs: &StatusInputs) -> Status {
-    let light = if inputs.open_questions > 0 {
-        Light::NeedsYou
-    } else if inputs.is_running {
-        Light::Running
-    } else if inputs.last_turn_failed {
-        Light::Errored
-    } else {
-        Light::Done
-    };
-
     let usage_limit = inputs
         .usage_paused_until
         .filter(|until| *until > inputs.now)
@@ -92,6 +87,18 @@ pub fn derive(inputs: &StatusInputs) -> Status {
         None
     };
 
+    let light = if inputs.open_questions > 0 {
+        Light::NeedsYou
+    } else if inputs.is_running {
+        Light::Running
+    } else if inputs.is_queued && hold.is_some() {
+        Light::Held
+    } else if inputs.last_turn_failed {
+        Light::Errored
+    } else {
+        Light::Done
+    };
+
     Status { light, hold }
 }
 
@@ -104,6 +111,7 @@ mod tests {
     fn idle() -> StatusInputs {
         StatusInputs {
             is_running: false,
+            is_queued: false,
             last_turn_failed: false,
             open_questions: 0,
             paused: false,
@@ -141,6 +149,32 @@ mod tests {
         let asking = StatusInputs {
             open_questions: 1,
             ..running
+        };
+        assert_eq!(derive(&asking).light, Light::NeedsYou);
+    }
+
+    #[test]
+    fn held_queued_work_is_not_done() {
+        let held = StatusInputs {
+            is_queued: true,
+            paused: true,
+            ..idle()
+        };
+        assert_eq!(derive(&held).light, Light::Held);
+
+        let free = StatusInputs {
+            is_queued: true,
+            ..idle()
+        };
+        assert_eq!(
+            derive(&free).light,
+            Light::Done,
+            "about to start, nothing holds it"
+        );
+
+        let asking = StatusInputs {
+            open_questions: 1,
+            ..held
         };
         assert_eq!(derive(&asking).light, Light::NeedsYou);
     }

@@ -10,7 +10,7 @@
 //! out the current code. Every password and code handed out is scrubbed from what turns print
 //! (`crate::passwords::Revealed`).
 //!
-//! Logs name each call by tool and item id, never by what it returned.
+//! Logs name each call by caller, tool, and item id, never by what it returned.
 
 use futures_util::FutureExt as _;
 use secrecy::ExposeSecret;
@@ -152,11 +152,10 @@ async fn collection(context: &ToolContext, scope: &CallScope) -> Result<Uuid, To
 }
 
 fn log_call(scope: &CallScope, tool: &'static str, item_id: Option<Uuid>) {
-    let CallScope::Session(session) = scope;
     event!(
         name: "tools.passwords.call",
         Level::INFO,
-        session.id = session.session_id,
+        tool.caller = scope.label(),
         tool.name = tool,
         item.id = item_id.map(|id| id.to_string()),
         "an agent read the password vault",

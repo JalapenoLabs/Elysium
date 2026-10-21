@@ -15,6 +15,7 @@ export const lightDotClassNames = {
   'running': 'bg-elysia-running animate-pulse',
   'errored': 'bg-elysia-errored',
   'needs-you': 'bg-elysia-needs-you animate-pulse',
+  'held': 'bg-elysia-held',
   'done': 'bg-elysia-done',
 } as const satisfies Record<ElysiaLight, string>
 
@@ -22,6 +23,7 @@ export const lightTextClassNames = {
   'running': 'text-elysia-running',
   'errored': 'text-elysia-errored',
   'needs-you': 'text-elysia-needs-you',
+  'held': 'text-elysia-held',
   'done': 'text-elysia-done',
 } as const satisfies Record<ElysiaLight, string>
 
@@ -29,6 +31,7 @@ export const lightLabelKeys = {
   'running': 'light.running',
   'errored': 'light.errored',
   'needs-you': 'light.needs-you',
+  'held': 'light.held',
   'done': 'light.done',
 } as const satisfies Record<ElysiaLight, ParseKeys<'elysia'>>
 

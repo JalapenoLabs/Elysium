@@ -11,6 +11,7 @@ import { useAppSelector } from '../../../store/hooks'
 // User interface
 import { Breadcrumbs, Chip, Spinner } from '@heroui/react'
 import { BrowserStream } from '../../../browser/BrowserStream'
+import { MailReadingSection } from './MailReadingSection'
 
 // Misc
 import { useBrowserSessionsLoader } from '../../../hooks/useServerData'
@@ -52,6 +53,8 @@ export function BrowserSessionPage() {
         t(stateLabelKeys[state])
       }</Chip>
     </div>
+
+    <MailReadingSection browserSession={browserSession} />
 
     <p className='compact text-sm opacity-70'>{t('session.hint')}</p>
 

@@ -17,6 +17,7 @@ import { Button, Tabs, toast, Tooltip } from '@heroui/react'
 import { LuX } from 'react-icons/lu'
 import { ElysiaActivity } from './ElysiaActivity'
 import { ElysiaConversation } from './ElysiaConversation'
+import { ElysiaHoursDialog } from './ElysiaHoursDialog'
 import { ElysiaQuestionCard } from './ElysiaQuestionCard'
 import { ElysiaWorkList } from './ElysiaWorkList'
 
@@ -36,6 +37,7 @@ export function ElysiaPanel() {
   const isAdmin = useAppSelector(selectIsAdmin)
   const [ view, setView ] = useState<View>('conversation')
   const [ isSaving, setIsSaving ] = useState(false)
+  const [ isHoursOpen, setIsHoursOpen ] = useState(false)
   const timeFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
 
   async function changeSettings(body: Parameters<typeof updateElysiaSettings>[0]) {
@@ -64,7 +66,8 @@ export function ElysiaPanel() {
 
   return <aside
     aria-label={t('panel.label')}
-    className='flex w-[26rem] shrink-0 flex-col border-l border-separator bg-sidebar px-4 py-3'
+    // AppShell decides the panel's width and placement; the panel fills what it is given.
+    className='flex h-full w-full flex-col border-l border-separator bg-sidebar px-4 py-3'
   >
     <header className='compact level'>
       <div className='level-left gap-2'>
@@ -75,6 +78,9 @@ export function ElysiaPanel() {
         </div>
       </div>
       <div className='level-right gap-1'>
+        {isAdmin && elysia && <Button size='sm' variant='ghost' onPress={() => setIsHoursOpen(true)}>
+          <span>{t('panel.hours')}</span>
+        </Button>}
         {isAdmin && elysia && <Button
           size='sm'
           variant='ghost'
@@ -149,5 +155,12 @@ export function ElysiaPanel() {
     {view === 'conversation'
       ? <ElysiaConversation activeTurns={elysia?.activeTurns ?? []} />
       : <ElysiaActivity />}
+
+    {/* Mounted only while open, so it starts from the hours as they are now. */}
+    {isHoursOpen && elysia && <ElysiaHoursDialog
+      isOpen
+      onOpenChange={setIsHoursOpen}
+      availability={elysia.availability}
+    />}
   </aside>
 }
