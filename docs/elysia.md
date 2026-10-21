@@ -153,3 +153,5 @@ Which kinds move up, and when, is not decided.
 
 - Reading changesets and coding sessions, and starting a coding session for work that needs one.
 - Her turns' full logs beside their summaries, expanding like a GitHub Actions step.
+- The password vault's `elysium_passwords` server on her turns while the vault is ready, with her replies and
+  summaries scrubbed of every password and code it reveals, as coding sessions' events are.
