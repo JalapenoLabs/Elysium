@@ -37,7 +37,7 @@ export function AppShell() {
         <main className={
           isWorkspace
             ? 'min-h-0 flex-1 overflow-hidden border-t border-separator'
-            : 'flex-1 overflow-y-auto px-10 pt-4 pb-16'
+            : 'flex-1 overflow-y-auto px-4 pt-4 pb-16 md:px-10'
         }>
           <Outlet />
         </main>

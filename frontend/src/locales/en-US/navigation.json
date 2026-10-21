@@ -7,6 +7,7 @@
     "studio": "Studio"
   },
   "topbar": {
+    "openNavigation": "Open navigation",
     "settings": "Settings",
     "liveUpdates": {
       "connecting": "Connecting to live updates…",

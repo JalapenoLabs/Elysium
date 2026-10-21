@@ -45,8 +45,10 @@ Code here keeps to it:
 
 `src/layout/AppShell.tsx` is the root route's element and renders on every page:
 
-- `Sidebar` sits on the left: the brand, then the primary navigation from `src/layout/navigation.ts`. Add
-  top-level areas to that list, not to the component.
+- `Sidebar` sits on the left from `md` up: the brand, then the primary navigation from `src/layout/navigation.ts`.
+  Add top-level areas to that list, not to the component. Below `md` it is hidden, and `MobileNavigation` puts a
+  menu button at the start of the topbar that opens the same `SidebarNavigation` in a drawer from the left; following
+  a link closes it.
 - `Topbar` spans the content column. It has a search field and, on the right, the Elysia button, the live updates
   dot, and the settings gear. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
   green while the event stream is connected and amber while it reconnects.
@@ -56,6 +58,10 @@ Code here keeps to it:
 - The routed page renders in `main` through `<Outlet />`. By default `main` is a padded, scrolling column. A route
   whose `handle` is `{ layout: 'workspace' }` (typed as `RouteLayoutHandle` in `src/router.tsx`) gets the whole
   content area and manages its own scrolling instead; the Coding page does.
+
+Every page works at 375px. The shell pads `main` and the topbar `px-4` below `md` and `px-10` from it, and page
+headers keep their primary action on screen, dropping secondary buttons to icons with an `aria-label` where they
+would not fit.
 
 `AppShell` also mounts HeroUI's `RouterProvider`, wired to React Router's `navigate` and `useHref`. That makes any
 HeroUI `Link` `href` a client-side navigation. It also mounts the toast region.
