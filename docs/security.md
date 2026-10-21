@@ -55,6 +55,16 @@ The proxy narrows the surface but does not make it safe: creating a container is
 signed in can therefore reach the host through the mail routes, which is one more reason every account is approved
 by an admin.
 
+## Auto-update
+
+The updater (`updater/updater.sh`) is the one container that mounts the Docker socket, because it runs compose. It
+is off unless the operator turns on the `auto-update` profile. It publishes nothing and listens on nothing: it only
+calls the API's `/internal/updater` routes, which nginx never forwards, with a key derived from the encryption key.
+
+What the API can make it do is narrow. An instruction names two versions, each checked as `X.Y.Z` before use; the
+image repositories, where the configuration comes from, and every command are fixed in the script or in the release
+itself. A compromised API could make it apply or roll back a published release of Elysium, and nothing else.
+
 ## Sign-in
 
 Kratos holds passwords (Argon2id), passkeys, authenticator apps, and sessions; the API never sees a password.

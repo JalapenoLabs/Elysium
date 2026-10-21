@@ -1,5 +1,6 @@
 # Build context is the repository root so the builder can read .git for /api/version
-# and the frontend stage can read frontend/. Only api/, frontend/, and .git are copied in.
+# and the frontend stage can read frontend/. Only api/, frontend/, .git, and the
+# deployment's configuration (compose.yml, nginx/, kratos/, hydra/, updater/) are copied in.
 #
 # Two final stages:
 # - `server`, the API alone. The development stack builds this one; there nginx sends
@@ -53,6 +54,10 @@ COPY api/migrations ./migrations
 COPY api/src ./src
 # Last, because every commit changes it and nothing above depends on it.
 COPY .git /workspace/.git
+# The release this image is published as, such as 1.4.2, which build.rs bakes into the
+# binary for /api/version and auto-update. Empty for main and local builds, which are not
+# releases. A build argument reaches RUN as an environment variable.
+ARG ELYSIUM_RELEASE=""
 RUN cargo build --release --locked
 
 FROM debian:trixie-slim AS server
@@ -70,6 +75,14 @@ CMD ["elysium-api"]
 
 FROM server AS app
 COPY --from=frontend /workspace/frontend/dist /usr/share/elysium/web
+# Everything a deployment runs beside the image, so one release carries its own
+# configuration and the updater installs both together. Read with:
+#   docker run --rm --entrypoint tar <image> -C /usr/share/elysium/deployment -cf - .
+COPY compose.yml /usr/share/elysium/deployment/compose.yml
+COPY nginx /usr/share/elysium/deployment/nginx
+COPY kratos /usr/share/elysium/deployment/kratos
+COPY hydra /usr/share/elysium/deployment/hydra
+COPY updater /usr/share/elysium/deployment/updater
 # The API serves this build at every path outside /api, and refuses to start when the
 # directory has no index.html.
 ENV FRONTEND_DIR=/usr/share/elysium/web

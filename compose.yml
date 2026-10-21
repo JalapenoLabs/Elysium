@@ -263,6 +263,26 @@ services:
     networks:
       - docker-control
 
+  # Auto-update, off unless COMPOSE_PROFILES includes auto-update. It asks the API every
+  # minute whether to apply a release, and carries the update out: back up the databases,
+  # install the release's configuration, bring the stack up, and roll back when it does not
+  # come up healthy. It holds the Docker socket itself, since it runs compose; the API never
+  # does, and the updater answers nothing: it only calls out. See docs/infrastructure.md.
+  updater:
+    container_name: elysium-updater
+    image: docker:29.9.1-cli@sha256:6fae2214c3121a28d5aa639d09032f61310b7c9c75ffbad1025f261a1b621800
+    profiles: ["auto-update"]
+    entrypoint: ["/bin/sh", "/deployment/updater/updater.sh"]
+    restart: unless-stopped
+    environment:
+      # The updater's key for the API's /internal/updater routes is derived from it.
+      ELYSIUM_ENCRYPTION_KEY: ${ELYSIUM_ENCRYPTION_KEY:?ELYSIUM_ENCRYPTION_KEY is not set}
+      TZ: UTC
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The deployment directory: its compose files, .env, configuration, and backups.
+      - .:/deployment
+
   redis:
     container_name: elysium-redis
     image: redis:8.10.1-alpine
