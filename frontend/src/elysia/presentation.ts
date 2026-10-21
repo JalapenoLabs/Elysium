@@ -35,7 +35,6 @@ export const lightLabelKeys = {
 export const holdLabelKeys = {
   'paused': 'hold.paused',
   'usage-limit': 'hold.usageLimit',
-  'no-runner': 'hold.noRunner',
   'unavailable': 'hold.unavailable',
 } as const satisfies Record<ElysiaHold['kind'], ParseKeys<'elysia'>>
 

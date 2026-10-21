@@ -65,5 +65,6 @@ pub async fn handle(
     }
 
     let response = publish_snapshot(&state.events, &mut connection).await?;
+    state.elysia.wake();
     Ok(Json(json!({ "elysia": response })))
 }

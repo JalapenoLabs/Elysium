@@ -266,9 +266,10 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Elysia's panel sits beside every page, opened from the topbar: her status color (orange running, red errored, pink
   needs you, green done), what holds her back, her questions, her work, the conversation, and her activity. See
   `docs/elysia.md`.
-- Everything that starts her is a turn in `elysia_turns`, queued by a person's message or answer, or by her intake,
-  which batches relevant event-stream changes into one `event` turn. Turns run one at a time on one resumed Claude Code
-  session; running them on the host runner is next on the roadmap, and until then they wait in the queue.
+- Everything that starts her is a turn in `elysia_turns`, queued by a person's message or answer, by her intake
+  (relevant event-stream changes batched into one `event` turn), or by her idle loop. Turns run one at a time on the
+  host runner, on one Claude Code session each turn resumes, with her standing instructions in
+  `api/src/elysia/instructions.md`.
 - Her hours are UTC minute-of-week windows, because the server holds no time zones. Only turns she would start herself
   wait for them; a person's message never does.
 - Her own changes never trigger her, and outward actions go through changesets. Which kinds of action start in which
