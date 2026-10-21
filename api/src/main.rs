@@ -24,6 +24,7 @@ mod images;
 mod jira;
 mod mail;
 mod mcp;
+mod meetings;
 mod middleware;
 mod models;
 mod oauth;

@@ -1,9 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `/api/v1/connectors`: the services Elysium reads as the signed-in person, each through one
-//! of their browsers. See `crate::connectors` and `docs/connectors.md`.
+//! of their browsers or with a credential they gave it. See `crate::connectors`,
+//! `docs/connectors.md`, and `docs/meetings.md`.
 //!
-//! An account belongs to whoever owns its browser, and every route answers them alone.
+//! An account belongs to whoever created it, and every route answers them alone. A
+//! credential is never returned.
 
 mod create_connector_account;
 mod delete_connector_account;
@@ -33,7 +35,13 @@ pub fn router() -> Router<AppState> {
 pub struct ConnectorAccountResponse {
     id: Uuid,
     kind: String,
-    browser_session_id: Uuid,
+    /// The browser it reads through, or `null` for an account that signs in with a
+    /// credential.
+    browser_session_id: Option<Uuid>,
+    /// Whether it signs in with a credential Elysium holds.
+    has_credential: bool,
+    /// Where it keeps files, such as meeting recordings.
+    storage_location_id: Option<Uuid>,
     /// `signed_in`, `signed_out`, or `unknown`, as last read.
     sign_in_state: String,
     last_polled_at: Option<DateTime<Utc>>,
@@ -51,6 +59,8 @@ impl ConnectorAccountResponse {
             id: account.id,
             kind: account.kind,
             browser_session_id: account.browser_session_id,
+            has_credential: account.credential_encrypted.is_some(),
+            storage_location_id: account.storage_location_id,
             sign_in_state: account.sign_in_state,
             last_polled_at: account.last_polled_at,
             last_error: account.last_error,

@@ -106,6 +106,15 @@ pub enum ServerEvent {
         /// The inbox item it raised, when it raised one.
         action_item_id: Option<Uuid>,
     },
+    /// A meeting was read, or its processing moved on. Never its title or transcript, for
+    /// the same reason as a record's content; its owner's pages load it by id.
+    #[serde(rename = "meeting.changed")]
+    MeetingChanged {
+        id: Uuid,
+        /// `pending`, `recorded`, `segmented`, `done`, or `failed`.
+        state: String,
+        created_by: Uuid,
+    },
     /// A write to an item or initiative recorded this in its history.
     #[serde(rename = "history.appended")]
     HistoryAppended(HistoryEntryResponse),

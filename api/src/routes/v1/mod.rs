@@ -17,6 +17,7 @@ pub mod jira_credentials;
 pub mod llms;
 pub mod mail;
 mod me;
+pub mod meetings;
 pub mod oauth;
 pub mod password_vault;
 pub mod projects;
@@ -64,6 +65,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/jira-credentials", jira_credentials::router())
         .nest("/llms", llms::router())
         .nest("/mail", mail::router())
+        .nest("/meetings", meetings::router())
         .nest("/projects", projects::router())
         .nest("/storage-locations", storage_locations::router())
         .nest("/timeline", timeline::router())

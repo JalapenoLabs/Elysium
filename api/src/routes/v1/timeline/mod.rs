@@ -4,7 +4,9 @@
 //! first. See `docs/connectors.md`.
 
 mod attribute_record;
+mod get_record;
 mod list_timeline;
+mod stream_record_media;
 
 use axum::Router;
 use axum::routing::{get, put};
@@ -17,10 +19,14 @@ use crate::models::timeline_record::{Attribution, TimelineRecord};
 use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(list_timeline::handle)).route(
-        "/{id}/projects/{project_id}",
-        put(attribute_record::attribute).delete(attribute_record::unattribute),
-    )
+    Router::new()
+        .route("/", get(list_timeline::handle))
+        .route("/{id}", get(get_record::handle))
+        .route("/{id}/media", get(stream_record_media::handle))
+        .route(
+            "/{id}/projects/{project_id}",
+            put(attribute_record::attribute).delete(attribute_record::unattribute),
+        )
 }
 
 /// A record as its owner sees it.

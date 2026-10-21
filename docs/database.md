@@ -142,13 +142,17 @@ Each belongs to the person who created it and answers nobody else.
 
 ### `connector_accounts`
 
-Services Elysium reads through one of a person's browsers; see `docs/connectors.md`.
+Services Elysium reads as one of its people, through one of their browsers or with a credential they gave it; see
+`docs/connectors.md` and `docs/meetings.md`. Exactly one of `browser_session_id` and `credential_encrypted` is set
+(`connector_accounts_one_sign_in`).
 
 | Column                      | Type          | Notes                                                           |
 |-----------------------------|---------------|-----------------------------------------------------------------|
 | `id`                        | `UUID`        | UUIDv7, primary key                                             |
-| `kind`                      | `TEXT`        | The connector, such as `outlook`                                |
-| `browser_session_id`        | `UUID`        | Unique; references `browser_sessions`, cascading                |
+| `kind`                      | `TEXT`        | The connector, such as `outlook` or `fireflies`                 |
+| `browser_session_id`        | `UUID`        | Unique; references `browser_sessions`, cascading; `NULL` for an account that signs in with a credential |
+| `credential_encrypted`      | `BYTEA`       | Sealed credential, such as an API key, bound to the row's id, see `docs/secrets.md` |
+| `storage_location_id`       | `UUID`        | References `storage_locations`: where it keeps files, such as meeting recordings |
 | `sign_in_state`             | `TEXT`        | `signed_in`, `signed_out`, or `unknown`, as last read           |
 | `cursor`                    | `JSONB`       | Where the last read left off, in the connector's terms          |
 | `last_polled_at`            | `TIMESTAMPTZ` | When it was last read                                           |
@@ -189,6 +193,35 @@ Which projects a record is about. Primary key `(timeline_record_id, project_id)`
 | `confidence`         | `REAL`        | 0 to 1; a person's attribution is 1                         |
 | `attributed_by`      | `TEXT`        | The actor, as history writes it (`user:<id>`, `elysia`)     |
 | `created_at`         | `TIMESTAMPTZ` | Set on insert                                               |
+
+### `meetings`
+
+Meetings read from a meeting source, and how far each one's processing got; see `docs/meetings.md`. Unique on
+`(connector_account_id, external_id)`; unfinished meetings are indexed for the processing loop. `recording_path` and
+`storage_location_id` are set together (`meetings_recording_fields`).
+
+| Column                   | Type          | Notes                                                                   |
+|--------------------------|---------------|-------------------------------------------------------------------------|
+| `id`                     | `UUID`        | UUIDv7, primary key                                                     |
+| `connector_account_id`   | `UUID`        | References `connector_accounts`; set to `NULL` when the account goes    |
+| `source_kind`            | `TEXT`        | The source, such as `fireflies`                                         |
+| `external_id`            | `TEXT`        | The source's id, at most 1024 characters                                |
+| `title`                  | `TEXT`        | At most 2048 characters                                                 |
+| `started_at`             | `TIMESTAMPTZ` | When it started                                                         |
+| `duration_ms`            | `BIGINT`      | How long it ran, when the source says                                   |
+| `organizer`              | `TEXT`        | Who organized it, as the source shows them                              |
+| `participants`           | `JSONB`       | An array of strings                                                     |
+| `url`                    | `TEXT`        | Its page at the source                                                  |
+| `transcript`             | `JSONB`       | An array of `{ startMs, endMs, speaker, text }`                         |
+| `storage_location_id`    | `UUID`        | References `storage_locations`: where its recording is kept             |
+| `recording_path`         | `TEXT`        | The recording's path there; `NULL` when there is none                   |
+| `recording_content_type` | `TEXT`        | The recording's media type                                              |
+| `segments`               | `JSONB`       | Elysia's topic segments; `NULL` until she has read it                   |
+| `state`                  | `TEXT`        | `pending`, `recorded`, `segmented`, `done`, or `failed`                 |
+| `attempts`               | `INTEGER`     | How many times its current step failed                                  |
+| `last_error`             | `TEXT`        | Why the last attempt failed, or `NULL`                                  |
+| `created_by`             | `UUID`        | References `users`; whose meeting it is                                 |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
 
 ### `mail_servers`
 

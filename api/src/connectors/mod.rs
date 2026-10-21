@@ -26,21 +26,48 @@ use crate::models::browser_session::BrowserSession;
 pub enum ConnectorKind {
     Outlook,
     Gmail,
+    /// Meetings recorded and transcribed by Fireflies.ai, read with its owner's API key. See
+    /// `crate::meetings`.
+    Fireflies,
+}
+
+/// How a connector signs in, which decides what its account holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignIn {
+    /// Through one of the person's browsers, which keeps its own session.
+    Browser,
+    /// With a credential the person gave Elysium, such as an API key, sealed on the account.
+    Credential,
 }
 
 impl ConnectorKind {
+    /// Every kind, for parsing.
+    const ALL: [Self; 3] = [Self::Outlook, Self::Gmail, Self::Fireflies];
+
+    /// The kinds that read mail through a browser, which `ingest` reads.
+    pub const WEBMAIL: [Self; 2] = [Self::Outlook, Self::Gmail];
+
+    /// The kinds that read meetings, which `crate::meetings` reads.
+    pub const MEETINGS: [Self; 1] = [Self::Fireflies];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Outlook => "outlook",
             Self::Gmail => "gmail",
+            Self::Fireflies => "fireflies",
+        }
+    }
+
+    pub const fn sign_in(self) -> SignIn {
+        match self {
+            Self::Outlook | Self::Gmail => SignIn::Browser,
+            Self::Fireflies => SignIn::Credential,
         }
     }
 
     /// The kind stored as `text`, if it is one.
     pub fn parse(text: &str) -> Option<Self> {
-        [Self::Outlook, Self::Gmail]
-            .into_iter()
-            .find(|kind| kind.as_str() == text)
+        Self::ALL.into_iter().find(|kind| kind.as_str() == text)
     }
 }
 

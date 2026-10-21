@@ -138,13 +138,19 @@ impl Ingest {
             .get()
             .await
             .context("no database connection available")?;
-        Ok(connector_account::list_active(&mut connection).await?)
+        let kinds = ConnectorKind::WEBMAIL.map(ConnectorKind::as_str);
+        Ok(connector_account::list_active(&mut connection, &kinds).await?)
     }
 
     /// Reads one account and records what came of it, a failed read included.
     async fn read_account(&self, account: &ConnectorAccount) -> anyhow::Result<()> {
         let kind = ConnectorKind::parse(&account.kind)
             .with_context(|| format!("unknown connector kind {:?}", account.kind))?;
+        let webmail = service(kind)
+            .with_context(|| format!("{:?} is not a webmail connector", account.kind))?;
+        let browser_session_id = account
+            .browser_session_id
+            .context("a webmail account reads through a browser, and this one has none")?;
         let mut connection = self
             .inner
             .database
@@ -152,12 +158,12 @@ impl Ingest {
             .await
             .context("no database connection available")?;
         // Removing a browser removes its accounts, so one missing here was removed mid-pass.
-        let browser = browser_session::find(&mut connection, account.browser_session_id)
+        let browser = browser_session::find(&mut connection, browser_session_id)
             .await?
             .context("the account's browser was removed while it was read")?;
         drop(connection);
 
-        let connector = Webmail::new(service(kind), self.inner.devtools.clone());
+        let connector = Webmail::new(webmail, self.inner.devtools.clone());
         let outcome = match connector.read(&browser).await {
             Ok(reading) => {
                 let baselined = is_baselined(account);

@@ -49,6 +49,7 @@ use crate::mail::dns::DnsChecker;
 use crate::mail::hosting::Hosting;
 use crate::mail::stalwart::Stalwart;
 use crate::mail::stalwart::container::StalwartContainer;
+use crate::meetings::{Meetings, MeetingsDeps};
 use crate::oauth::hydra::Hydra;
 use crate::passwords::{self, Passwords, PasswordsDeps};
 use crate::realtime::EventBus;
@@ -193,6 +194,18 @@ pub async fn serve() -> Result<()> {
         }
     });
 
+    // Meetings, segmented by text turns on the runner and cut into clips in its workspace.
+    let meetings = Meetings::new(MeetingsDeps {
+        database: database.clone(),
+        events: events.clone(),
+        cipher: Arc::clone(&cipher),
+        storage: storage.clone(),
+        runner: runner.clone(),
+        workspace: sessions.workspace().clone(),
+        http: http.clone(),
+    })?;
+    let meeting_loop = meetings.start(shutdown.clone());
+
     // After the runner, which runs her turns.
     let elysia = Elysia::new(TurnRunner::Host(runner.clone()), sessions.grants().clone());
     let elysia_tasks = elysia.start(database.clone(), events.clone(), shutdown.clone());
@@ -211,6 +224,7 @@ pub async fn serve() -> Result<()> {
         jira,
         links,
         mail,
+        meetings,
         passwords,
         runner: runner.clone(),
         sessions: sessions.clone(),
@@ -262,6 +276,14 @@ pub async fn serve() -> Result<()> {
             Level::ERROR,
             error.message = %error,
             "the connector ingest loop ended abnormally",
+        );
+    }
+    if let Err(error) = meeting_loop.await {
+        event!(
+            name: "meetings.loop.join.failed",
+            Level::ERROR,
+            error.message = %error,
+            "the meetings loop ended abnormally",
         );
     }
     if let Err(error) = browser_reconciler.await {
