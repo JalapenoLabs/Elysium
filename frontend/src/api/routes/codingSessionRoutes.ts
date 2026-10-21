@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Misc
-import { SESSION_HISTORY_TIMEOUT_MS } from '../../constants'
+import { API_BASE_PATH, SESSION_HISTORY_TIMEOUT_MS } from '../../constants'
 import { apiClient } from '../index'
 
 // Mirrors the views in api/src/sessions/views.rs. Timestamps are UTC ISO 8601 strings.
@@ -168,4 +168,13 @@ export function startTurn(sessionId: number, prompt: string) {
   return apiClient
     .post(`v1/coding-sessions/${sessionId}/turns`, { json: { prompt }})
     .json<StartTurnResponse>()
+}
+
+// The WebSocket a running turn's desktop is watched over, on the page's own origin. It answers
+// 404 while no turn is running.
+export function getDesktopViewUrl(sessionId: number) {
+  const scheme = location.protocol === 'https:'
+    ? 'wss:'
+    : 'ws:'
+  return `${scheme}//${location.host}${API_BASE_PATH}/v1/coding-sessions/${sessionId}/desktop`
 }

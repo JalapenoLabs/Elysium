@@ -170,5 +170,11 @@
     "deleted": "{{title}} deleted",
     "promptFailed": "The prompt could not be sent"
   },
-  "watermark": "Open a session from the Sessions panel."
+  "watermark": "Open a session from the Sessions panel.",
+  "desktop": {
+    "watch": "Watch desktop",
+    "hide": "Hide desktop",
+    "ended": "The turn's desktop is not running. A desktop exists only while a turn runs.",
+    "reconnect": "Reconnect"
+  }
 }

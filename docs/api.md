@@ -143,6 +143,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/coding-sessions/{id}`        | `204`; stops its turns, removes its directory       |
 | GET    | `/api/v1/coding-sessions/{id}/events` | `200` `{ events: SessionEvent[], truncated }`       |
 | POST   | `/api/v1/coding-sessions/{id}/turns`  | `201` `{ turn }`; queues a prompt                   |
+| GET    | `/api/v1/coding-sessions/{id}/desktop` | WebSocket: the running turn's desktop as VNC, view-only |
 | GET    | `/api/v1/auth/status`                 | `200` `{ signupOpen, firstSignUp }`; needs no session |
 | GET    | `/api/v1/me`                          | `200` `{ user, hasSecondFactor, mfaEnrollmentRequired }`; pending people too |
 | GET    | `/api/v1/users`                       | `200` `{ users: User[] }`, by name, machines included |
@@ -475,6 +476,12 @@ one of `agentMessage`, `agentThinking`, `toolStarted`, `toolCompleted`, `turnSta
 
 `events` answers `{ events, truncated, summaries }`. A `TurnSummary` has `sessionId`, `turnId`, `summary` (one line,
 at most 400 characters), and `createdAt`; see `docs/coding.md`, Turn summaries. Behavior, policy, and history limits are in `docs/coding.md`.
+
+### `/api/v1/coding-sessions/{id}/desktop`
+
+A WebSocket upgrade carrying the running turn's desktop as VNC (RFB) bytes in binary messages, view-only. It requires
+Elysium's own `Origin` (`403` otherwise), answers `404` for an unknown session or when no turn is running, and `502`
+when the workspace cannot be reached. See `docs/coding.md`, The desktop.
 
 ### Errors
 
