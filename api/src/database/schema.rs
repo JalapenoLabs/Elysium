@@ -229,6 +229,7 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        start_page_opened_at -> Nullable<Timestamptz>,
     }
 }
 

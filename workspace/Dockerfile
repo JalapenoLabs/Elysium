@@ -48,6 +48,12 @@ RUN useradd --create-home --uid 1001 --shell /bin/bash agent
 COPY blender/ /tmp/blender/
 RUN sh /tmp/blender/install.sh && rm -rf /tmp/blender
 
+# A desktop of its own for every turn: a virtual display, a window manager, Firefox, a view-only
+# VNC server the live view watches through, and the computer control MCP server the agent drives
+# it with. Each turn's launcher (elysium-desktop-mcp) starts and stops its own. See docs/coding.md.
+COPY desktop/ /tmp/desktop/
+RUN sh /tmp/desktop/install.sh && rm -rf /tmp/desktop
+
 # The official Claude Code CLI, pinned, with its self-updater off: the image is the version.
 ARG CLAUDE_CODE_VERSION=2.1.292
 RUN npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
