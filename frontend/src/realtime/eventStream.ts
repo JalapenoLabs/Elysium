@@ -25,7 +25,7 @@ import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice
 import { mailServerUpdated } from '../store/mailServerSlice'
 import { projectDeleted, projectUpserted } from '../store/projectsSlice'
 import { eventStreamLost, eventStreamOpened } from '../store/realtimeSlice'
-import { sessionEventReceived } from '../store/sessionEventsSlice'
+import { sessionEventReceived, turnSummaryReceived } from '../store/sessionEventsSlice'
 import { storageLocationDeleted, storageLocationUpserted } from '../store/storageLocationsSlice'
 import { studioAssetCreated } from '../store/studioAssetsSlice'
 import { studioFeedbackCreated } from '../store/studioFeedbackSlice'
@@ -112,6 +112,7 @@ const handlers: Handlers = {
   'session.upserted': (event) => store.dispatch(codingSessionUpserted(event.data)),
   'session.deleted': (event) => store.dispatch(codingSessionDeleted(event.data.id)),
   'session.event': (event) => store.dispatch(sessionEventReceived(event.data)),
+  'session.summary': (event) => store.dispatch(turnSummaryReceived(event.data)),
   'studioItem.upserted': (event) => store.dispatch(studioItemUpserted(event.data)),
   // The event carries only the id and does not say whether the delete was soft, so the
   // deleted list and the item's own page reload, each only if a view shows it: a soft delete

@@ -134,10 +134,19 @@ export function deleteCodingSession(sessionId: number) {
     .delete(`v1/coding-sessions/${sessionId}`)
 }
 
+// A finished turn's one or two sentence summary, written by a small model after the turn.
+export type TurnSummary = {
+  sessionId: number
+  turnId: string
+  summary: string
+  createdAt: string
+}
+
 export type ListSessionEventsResponse = {
   events: SessionEvent[]
   // True when older events were left out; only the latest few thousand are returned.
   truncated: boolean
+  summaries: TurnSummary[]
 }
 
 export function listSessionEvents(sessionId: number) {
