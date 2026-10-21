@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { PayloadAction } from '@reduxjs/toolkit'
-import type { ListSessionEventsResponse, SessionEvent } from '../api/routes/codingSessionRoutes'
+import type { ListSessionEventsResponse, SessionEvent, TurnSummary } from '../api/routes/codingSessionRoutes'
 import type { RootState } from './index'
 
 // Core
@@ -22,6 +22,8 @@ export type SessionTimeline = {
   events: SessionEvent[]
   // Older events exist but were not loaded.
   truncated: boolean
+  // Each finished turn's summary, by turn id.
+  summariesByTurnId: Record<string, string>
 }
 
 type SessionEventsState = {
@@ -39,7 +41,12 @@ export const sessionEventsSlice = createSlice({
     // A conversation panel opened. Live events that arrive while its history loads are
     // kept and merged with that history.
     sessionTimelineOpened(state, action: PayloadAction<number>) {
-      state.bySessionId[action.payload] ??= { isHistoryLoaded: false, events: [], truncated: false }
+      state.bySessionId[action.payload] ??= {
+        isHistoryLoaded: false,
+        events: [],
+        truncated: false,
+        summariesByTurnId: {},
+      }
     },
     sessionHistoryLoaded(state, action: PayloadAction<{ sessionId: number, history: ListSessionEventsResponse }>) {
       const timeline = state.bySessionId[action.payload.sessionId]
@@ -49,6 +56,9 @@ export const sessionEventsSlice = createSlice({
       }
       mergeEvents(timeline, action.payload.history.events)
       timeline.truncated ||= action.payload.history.truncated
+      for (const summary of action.payload.history.summaries) {
+        timeline.summariesByTurnId[summary.turnId] = summary.summary
+      }
       timeline.isHistoryLoaded = true
     },
     sessionEventReceived(state, action: PayloadAction<SessionEvent>) {
@@ -57,6 +67,13 @@ export const sessionEventsSlice = createSlice({
         return
       }
       mergeEvents(timeline, [ action.payload ])
+    },
+    turnSummaryReceived(state, action: PayloadAction<TurnSummary>) {
+      const timeline = state.bySessionId[action.payload.sessionId]
+      if (!timeline) {
+        return
+      }
+      timeline.summariesByTurnId[action.payload.turnId] = action.payload.summary
     },
     // A conversation panel closed; its events are not worth keeping in memory.
     sessionTimelineReleased(state, action: PayloadAction<number>) {
@@ -121,6 +138,7 @@ export const {
   sessionTimelineOpened,
   sessionHistoryLoaded,
   sessionEventReceived,
+  turnSummaryReceived,
   sessionTimelineReleased,
 } = sessionEventsSlice.actions
 

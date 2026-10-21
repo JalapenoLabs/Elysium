@@ -814,6 +814,17 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    turn_summaries (session_id, turn_id) {
+        session_id -> Int8,
+        turn_id -> Uuid,
+        summary -> Text,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     user_events (id) {
         id -> Uuid,
         user_id -> Nullable<Uuid>,
@@ -928,6 +939,7 @@ diesel::joinable!(timeline_record_projects -> timeline_records (timeline_record_
 diesel::joinable!(timeline_records -> action_items (action_item_id));
 diesel::joinable!(timeline_records -> connector_accounts (connector_account_id));
 diesel::joinable!(timeline_records -> users (created_by));
+diesel::joinable!(turn_summaries -> coding_sessions (session_id));
 diesel::joinable!(workspace_settings -> users (updated_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -973,6 +985,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     studio_storage_reservations,
     timeline_record_projects,
     timeline_records,
+    turn_summaries,
     user_events,
     users,
     workspace_settings,

@@ -376,6 +376,18 @@ Every event a session's turns reported, scrubbed of the turn's secrets. The prim
 | `occurred_at` | `TIMESTAMPTZ` | When Elysium received it                                 |
 | `payload`     | `JSONB`       | The runner's event (`RunnerEvent`), rendered when read   |
 
+### `turn_summaries`
+
+A finished turn's one or two sentence summary; see `docs/coding.md`, Turn summaries. A child of `coding_sessions`, so
+it inherits its session's creator. The primary key is `(session_id, turn_id)`; recording again replaces the summary.
+
+| Column       | Type          | Notes                                                    |
+|--------------|---------------|----------------------------------------------------------|
+| `session_id` | `BIGINT`      | References `coding_sessions`; deleted with the session   |
+| `turn_id`    | `UUID`        | The turn it summarizes                                   |
+| `summary`    | `TEXT`        | 1 to 500 characters; Elysium keeps at most 400           |
+| `created_at` | `TIMESTAMPTZ` | Set on insert                                            |
+
 ### `studio_items`
 
 Studio's single assets; see `docs/studio.md`.

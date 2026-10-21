@@ -163,6 +163,7 @@ async fn run_attempts(
             mcp_servers: request.mcp_servers.clone(),
             credential: credential.map(|credential| credential.secret.clone()),
             environment: request.environment.clone(),
+            mode: request.mode.clone(),
         };
 
         let report = match run_attempt(&inner.executor, command, events, cancellation).await {
@@ -521,7 +522,7 @@ mod tests {
     use super::super::command::CredentialSecret;
     use super::super::configuration::ConfigurationSource;
     use super::super::{
-        ConversationId, CredentialSource, TurnRequest, TurnTicket, WorkspacePath, lock,
+        ConversationId, CredentialSource, TurnMode, TurnRequest, TurnTicket, WorkspacePath, lock,
     };
     use super::fake::{FakeWorkspace, Script};
     use super::*;
@@ -561,6 +562,7 @@ mod tests {
             system_prompt_append: None,
             environment: Vec::new(),
             model: None,
+            mode: TurnMode::Agent,
         }
     }
 
