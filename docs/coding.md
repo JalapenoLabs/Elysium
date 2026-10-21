@@ -170,6 +170,12 @@ row headed by a one or two sentence summary, which expands to the turn's full ev
   `sessions.summary.failure` and left out. The row then shows the first line of the agent's final message, or the
   turn's state. It never touches the turn's own outcome.
 
+## Media
+
+The workspace image carries `ffmpeg`, from Ubuntu's archive. Agents use it for their own audio and video work, and
+Elysium cuts meeting recordings into segment clips with it, in each meeting's scratch directory under
+`.elysium/meetings/` (`docs/meetings.md`).
+
 ## Blender
 
 Every agent can 3D model: model, render, and inspect `.blend` files through Blender's MCP tools (`mcp__blender__*`).

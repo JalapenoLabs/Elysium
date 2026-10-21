@@ -17,9 +17,14 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/browser-sessions/{id}`       | `204`; removes the container and its profile        |
 | GET    | `/api/v1/browser-sessions/{id}/stream` | WebSocket: the browser's signaling, see `docs/browser.md` |
 | GET    | `/api/v1/connectors`                  | `200` `{ connectors: ConnectorAccount[] }`, the caller's |
-| POST   | `/api/v1/connectors`                  | `201` `{ connector }`; reads a service through a browser |
+| POST   | `/api/v1/connectors`                  | `201` `{ connector }`; reads a service through a browser or with an API key |
 | DELETE | `/api/v1/connectors/{id}`             | `204`; its records stay on the timeline             |
+| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, the caller's 100 newest |
+| GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
+| POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; resumes a failed meeting, `404` for one that has not failed |
 | GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[] }`, the caller's, newest first |
+| GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`                                  |
+| GET    | `/api/v1/timeline/{id}/media`         | The record's clip, streamed from storage; `404` when it has none |
 | PUT    | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record }`; the caller attributes it to a project |
 | DELETE | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record }`                            |
 | GET    | `/api/v1/action-items`                | `200` `{ items: ActionItem[] }`, newest first       |
@@ -238,16 +243,24 @@ browser does not answer. See `docs/browser.md` for what it relays.
 
 ### `/api/v1/connectors` and `/api/v1/timeline`
 
-A `ConnectorAccount` has `id`, `kind` (`outlook` or `gmail`), `browserSessionId`, `signInState` (`signed_in`, `signed_out`, or
-`unknown`), `lastPolledAt`, `lastError`, `isActive`, `createdBy`, `createdAt`, and `updatedAt`. `POST` requires
-`kind` and `browserSessionId`, answers `400` when the browser is not the caller's and `409` when it already has a
-connector.
+A `ConnectorAccount` has `id`, `kind` (`outlook`, `gmail`, or `fireflies`), `browserSessionId` (`null` for an account
+that signs in with a credential), `hasCredential`, `storageLocationId`, `signInState` (`signed_in`, `signed_out`, or
+`unknown`), `lastPolledAt`, `lastError`, `isActive`, `createdBy`, `createdAt`, and `updatedAt`; a credential is never
+returned. `POST` takes `kind` and what that kind signs in with: `browserSessionId` for Outlook and Gmail, or `apiKey`
+and `storageLocationId` for Fireflies. A field the kind does not take is refused. It answers `400` when the browser
+is not the caller's, the storage location does not exist, or Fireflies refuses the key, `409` when the browser already
+has a connector, and `502` when Fireflies cannot be reached.
+
+A `Meeting` has `id`, `connectorAccountId`, `sourceKind`, `title`, `startedAt`, `durationMs`, `organizer`,
+`participants`, `url`, `state` (`pending`, `recorded`, `segmented`, `done`, or `failed`), `attempts`, `lastError`,
+`hasRecording`, `segmentCount`, `createdAt`, and `updatedAt`. Its transcript is not served; its segments reach the
+timeline. See `docs/meetings.md`.
 
 A `TimelineRecord` has `id`, `sourceKind`, `connectorAccountId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
 attributedBy, createdAt }`), `createdBy`, and `createdAt`. `GET /timeline` takes `projectId`, `before` (an
-`occurredAt`, for the next page), and `limit` (1 to 200, default 50). Every route answers the record's owner alone.
-See `docs/connectors.md`.
+`occurredAt`, for the next page), and `limit` (1 to 200, default 50). `GET /timeline/{id}/media` streams the clip in
+`media.clip`, privately cached for good. Every route answers the record's owner alone. See `docs/connectors.md`.
 
 ### `/api/v1/mail`
 
@@ -580,6 +593,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/browser/`           | The browsers the host streams: their containers, the reconciler, Neko's API, the stream relay, and the DevTools client |
 | `src/connectors/`        | The connector trait, the webmail connector and its page scripts, and the ingest loop |
+| `src/meetings/`          | Meeting sources (Fireflies), the listing and processing loop, segmentation, and clips cut with `ffmpeg` |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
 | `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), the link watcher, and changesets' operations, dependencies, and decisions |

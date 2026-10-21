@@ -174,6 +174,21 @@ Everything else follows these rules:
   watcher. The first read baselines the mailbox without raising anything.
 - `timelineRecord.created` carries ids and kinds, never content, because every client hears every event. It is the
   seam Elysia's triage builds on.
+- A connector account signs in through a browser or with a credential (an API key), exactly one, which its kind
+  decides. A credential is checked with the service before it is stored, sealed bound to the row, and never returned.
+
+## Meetings
+
+- Meetings are read from a meeting source as their person (`api/src/meetings/`): today Fireflies, with the person's
+  own API key, so nothing is installed into an organization. Every meeting belongs to a connector account, which is
+  what keeps it and its segments from being recorded twice. See `docs/meetings.md`.
+- Each meeting is recorded (transcript, and the recording uploaded to the account's storage location), segmented by
+  Elysia in one text turn on the runner, and published: `ffmpeg` cuts each segment's clip in the workspace container,
+  and each segment becomes a timeline record with its excerpt, summary, span, and clip, attributed to its projects.
+- Nothing the segmentation answer says is trusted: segments must lie inside the meeting in order, and attributions
+  must name projects that were offered. A failed step is retried each pass, three times, then retried by the person.
+- Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id, state,
+  and owner, never its title or transcript.
 
 ## Storage
 

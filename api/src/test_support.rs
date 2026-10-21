@@ -218,6 +218,17 @@ pub async fn app_state_with_storage(
         &shutdown,
     )
     .expect("the runner builds without reaching Docker");
+    // Its loop is never started, so no test reaches Fireflies or the workspace through it.
+    let meetings = crate::meetings::Meetings::new(crate::meetings::MeetingsDeps {
+        database: database.clone(),
+        events: events.clone(),
+        cipher: Arc::clone(&cipher),
+        storage: storage.clone(),
+        runner: runner.clone(),
+        workspace: sessions.workspace().clone(),
+        http: http.clone(),
+    })
+    .expect("the meetings service builds without reaching anything");
 
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
@@ -233,6 +244,7 @@ pub async fn app_state_with_storage(
         jira,
         links,
         mail,
+        meetings,
         runner,
         sessions,
         storage,

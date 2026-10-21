@@ -296,7 +296,7 @@ diesel::table! {
     connector_accounts (id) {
         id -> Uuid,
         kind -> Text,
-        browser_session_id -> Uuid,
+        browser_session_id -> Nullable<Uuid>,
         sign_in_state -> Text,
         cursor -> Jsonb,
         last_polled_at -> Nullable<Timestamptz>,
@@ -305,6 +305,8 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        credential_encrypted -> Nullable<Bytea>,
+        storage_location_id -> Nullable<Uuid>,
     }
 }
 
@@ -644,6 +646,34 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    meetings (id) {
+        id -> Uuid,
+        connector_account_id -> Nullable<Uuid>,
+        source_kind -> Text,
+        external_id -> Text,
+        title -> Text,
+        started_at -> Timestamptz,
+        duration_ms -> Nullable<Int8>,
+        organizer -> Text,
+        participants -> Jsonb,
+        url -> Nullable<Text>,
+        transcript -> Jsonb,
+        storage_location_id -> Nullable<Uuid>,
+        recording_path -> Nullable<Text>,
+        recording_content_type -> Nullable<Text>,
+        segments -> Nullable<Jsonb>,
+        state -> Text,
+        attempts -> Int4,
+        last_error -> Nullable<Text>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::ProjectCoverFit;
     use super::sql_types::GithubAccess;
 
@@ -889,6 +919,7 @@ diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> studio_items (studio_item_id));
 diesel::joinable!(coding_sessions -> users (created_by));
 diesel::joinable!(connector_accounts -> browser_sessions (browser_session_id));
+diesel::joinable!(connector_accounts -> storage_locations (storage_location_id));
 diesel::joinable!(connector_accounts -> users (created_by));
 diesel::joinable!(deployment_updates -> users (created_by));
 diesel::joinable!(elysia_messages -> users (created_by));
@@ -919,6 +950,9 @@ diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
 diesel::joinable!(mail_accounts -> users (created_by));
 diesel::joinable!(mail_domains -> users (created_by));
 diesel::joinable!(mail_servers -> users (created_by));
+diesel::joinable!(meetings -> connector_accounts (connector_account_id));
+diesel::joinable!(meetings -> storage_locations (storage_location_id));
+diesel::joinable!(meetings -> users (created_by));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
 diesel::joinable!(projects -> users (created_by));
 diesel::joinable!(session_events -> coding_sessions (session_id));
@@ -976,6 +1010,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_accounts,
     mail_domains,
     mail_servers,
+    meetings,
     projects,
     session_events,
     storage_location_projects,

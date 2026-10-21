@@ -1,8 +1,9 @@
 # Connectors and the timeline
 
 A connector is a service Elysium reads as its user. What every connector reads lands on one timeline, as one kind of
-record, attributed to projects. Today two connectors exist, Outlook and Gmail, which read through a browser the person
-signed in to (`docs/browser.md`).
+record, attributed to projects. Today three connectors exist: Outlook and Gmail, which read through a browser the
+person signed in to (`docs/browser.md`), and Fireflies, which reads meetings with the person's own API key
+(`docs/meetings.md`).
 
 ## The connector trait
 
@@ -36,14 +37,22 @@ checked against a feed shaped like Gmail's, served locally, not yet against a si
 
 ## Accounts
 
-A connector account is a connector bound to one of its owner's browsers, at most one per browser
-(`connector_accounts`, `docs/database.md`). It belongs to whoever owns the browser, and removing the browser removes
-it. On the browser's page in Settings, Browser sign-ins, a browser started on a mailbox a connector reads offers
+A connector account (`connector_accounts`, `docs/database.md`) signs in one of two ways, and each kind says which
+(`ConnectorKind::sign_in`):
+
+- **Through a browser**: bound to one of its owner's browsers, at most one per browser. Removing the browser removes
+  it.
+- **With a credential**: the person's own API key, checked with the service before it is stored, then sealed bound to
+  the row (`docs/secrets.md`) and never returned. Such an account also names the storage location it keeps files in.
+  Meeting sources sign in this way; see `docs/meetings.md`.
+
+An account belongs to whoever created it. On the browser's page in Settings, Browser sign-ins, a browser started on a mailbox a connector reads offers
 "Read this mailbox", and shows the account's sign-in state and last error once it reads.
 
 ## Ingest
 
-`api/src/connectors/ingest.rs` reads every active account once a minute (`INGEST_INTERVAL`), until shutdown:
+`api/src/connectors/ingest.rs` reads every active webmail account once a minute (`INGEST_INTERVAL`), until
+shutdown; meeting accounts have their own loop (`docs/meetings.md`). On each read:
 
 - Each item becomes a timeline record. An item its account already recorded is skipped, by the account and the
   provider's own id, so reading the same mailbox again records nothing twice.
@@ -87,4 +96,4 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
   records to projects.
 - History for attributions, so a correction can be undone like any other edit.
 - Project pages showing their timeline, meeting segments included.
-- More connectors: Slack and Teams through the browser, meetings from recordings and transcripts.
+- More connectors: Slack and Teams through the browser, and Google Meet and Teams recordings (`docs/meetings.md`).
