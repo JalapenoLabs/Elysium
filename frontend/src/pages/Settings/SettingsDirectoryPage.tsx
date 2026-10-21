@@ -9,6 +9,7 @@ import { useAppSelector } from '../../store/hooks'
 
 // User interface
 import {
+  LuAppWindow,
   LuBot,
   LuGithub,
   LuHardDrive,
@@ -49,6 +50,12 @@ export function SettingsDirectoryPage() {
           title={t('items.security.title')}
           description={t('items.security.description')}
           href={UrlTree.settingsSecurity}
+        />
+        <SettingsDirectoryItem
+          icon={LuAppWindow}
+          title={t('items.browsers.title')}
+          description={t('items.browsers.description')}
+          href={UrlTree.settingsBrowsers}
         />
         <SettingsDirectoryItem
           icon={LuPlug}
