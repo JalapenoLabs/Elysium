@@ -120,6 +120,9 @@ Everything else follows these rules:
   call re-checks the database. nginx never routes that path.
 - Every agent can 3D model. Blender is baked into the workspace image, and every turn starts a Blender of its own
   through a stdio MCP launcher, so no two turns share a scene. See `docs/coding.md`, Blender.
+- Every turn also has a desktop of its own (virtual display, window manager, Firefox) that it drives with mouse,
+  keyboard, and screenshots through the `desktop` MCP server, started and stopped with the turn the same way. See
+  `docs/coding.md`, The desktop.
 - Secret values given to a turn are scrubbed from its events before they are recorded or published.
 - Every completed or failed turn is summarized in one or two sentences by a small model, as a text turn on the runner
   (no tools, no settings, its own conversation), and the conversation collapses each turn to that summary. A summary

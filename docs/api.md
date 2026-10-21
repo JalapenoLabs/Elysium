@@ -583,7 +583,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
 | `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), the link watcher, and changesets' operations, dependencies, and decisions |
-| `src/tools/`             | The MCP servers agents call at `/api/agent-tools`: `elysium_storage` and `elysium_work`, see `docs/coding.md` |
+| `src/tools/`             | The MCP servers agents call at `/api/agent-tools`: `elysium_storage`, `elysium_work`, and Elysia's `elysia`, see `docs/coding.md` |
 
 ## Logging
 

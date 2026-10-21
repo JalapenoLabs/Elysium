@@ -39,6 +39,7 @@ use crate::models::elysia::{self, NewTurn, Turn, TurnStatus, Work, WorkStatus};
 use crate::models::user::{self, ELYSIA_USER_ID, SYSTEM_USER_ID};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::elysia::{MessageResponse, TurnResponse, publish_snapshot};
+use crate::tools::{self, CallScope, ElysiaScope};
 
 /// How often the queue is looked at without being woken. Holds lift on their own (a usage
 /// limit resets, her hours begin), and this is how soon she notices.
@@ -215,6 +216,12 @@ async fn run_turn(
     // The runner may take minutes; no connection is held meanwhile.
     drop(connection);
 
+    // Her tools, for this turn alone: dropping the grant when the turn ends revokes it.
+    let grant = context.elysia.grants().grant(
+        CallScope::Elysia(ElysiaScope { turn_id: turn.id }),
+        &[&tools::elysia::SERVER],
+    );
+
     event!(
         name: "elysia.turn.started",
         Level::INFO,
@@ -230,8 +237,10 @@ async fn run_turn(
             prompt: prompt::render(&turn_context, Utc::now()),
             instructions: prompt::INSTRUCTIONS.to_owned(),
             resume,
+            mcp_servers: grant.mcp_servers(),
         })
         .await;
+    drop(grant);
 
     let mut connection = context.database.get().await?;
     let finished = record_outcome(context, &mut connection, &turn, outcome).await?;
@@ -577,7 +586,7 @@ mod tests {
         let context = DispatchContext {
             database,
             events: EventBus::new(),
-            elysia: Elysia::new(runner),
+            elysia: Elysia::new(runner, crate::tools::grants::Grants::new()),
         };
         (context, connection)
     }

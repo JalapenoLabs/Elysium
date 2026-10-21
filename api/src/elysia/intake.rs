@@ -199,9 +199,10 @@ mod tests {
                 .await
                 .expect("Postgres accepts connections"),
             events: EventBus::new(),
-            elysia: Elysia::new(crate::elysia::runner::TurnRunner::Scripted(
-                std::sync::Arc::default(),
-            )),
+            elysia: Elysia::new(
+                crate::elysia::runner::TurnRunner::Scripted(std::sync::Arc::default()),
+                crate::tools::grants::Grants::new(),
+            ),
         };
 
         queue(&context, vec![json!({ "type": "first" })], 0)
