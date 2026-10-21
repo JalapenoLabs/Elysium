@@ -5,11 +5,13 @@
 //! She acts for the whole workspace, so nothing narrows what she reads: every live action
 //! item, initiative, and project. What she writes is her own record: the questions she asks
 //! a person and the work she has taken on, which her panel shows the moment she writes it.
-//! Changes to items and initiatives are proposed as changesets, which arrive with the next
-//! set of tools; she cannot change them directly.
+//! Changes to items and initiatives she proposes as changesets ([`propose`]), which a person
+//! approves before anything is written; she cannot change them directly.
 //!
 //! Each tool's database work is a function of a connection, so it is tested against Postgres
 //! without a turn; the `run_*` wrappers only parse, connect, and announce.
+
+mod propose;
 
 use std::collections::HashMap;
 
@@ -36,11 +38,14 @@ pub const SERVER: ToolServer = ToolServer {
         and keep it current with elysia_work_update: ready when a person should review it, \
         blocked when you cannot go on, gave-up when you stop trying, done when nothing is left. \
         When only a person can unblock you, ask with elysia_ask; their answer starts your next \
-        turn. People see all of this in your panel as soon as you write it.",
+        turn. When action items or initiatives should be created, updated, resolved, dismissed, \
+        commented on, or moved between initiatives, propose it with elysia_propose_changes, \
+        giving each change its reason: a person reviews it and applies what they approve. \
+        People see all of this in your panel and the changeset review as soon as you write it.",
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 5] = [
+const TOOLS: [Tool; 6] = [
     Tool {
         name: "elysia_overview",
         description: "Shows the workspace: every action item in the inbox or open, newest \
@@ -76,6 +81,17 @@ const TOOLS: [Tool; 5] = [
             status, or when you expect it ready (null clears the estimate).",
         input_schema: work_update_schema,
         run: |context, scope, arguments| run_work_update(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "elysia_propose_changes",
+        description: "Proposes changes to action items and initiatives for a person to review: \
+            creating, updating, resolving, dismissing, or commenting on items, moving items into \
+            or out of initiatives, and creating initiatives, in the projects you name. Nothing \
+            changes until a person approves; they may approve some operations and reject \
+            others. An operation can act on what an earlier one creates by naming \
+            {\"operation\": n}. Answers the staged changeset.",
+        input_schema: propose::schema,
+        run: |context, scope, arguments| propose::run(context, scope, arguments).boxed(),
     },
 ];
 

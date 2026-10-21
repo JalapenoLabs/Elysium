@@ -59,9 +59,12 @@ refuse her, and hers refuse them.
 | `elysia_ask`         | Asks a person a question with up to four suggested answers                    |
 | `elysia_work_start`  | Records work she takes on, with when she expects it ready                     |
 | `elysia_work_update` | Updates that record: where it stands, its status, its estimate                |
+| `elysia_propose_changes` | Proposes a changeset of changes to items and initiatives, for a person to approve |
 
 What she writes shows in her panel at once. She reads every live item, initiative, and project, since she acts for
-the whole workspace. She cannot change items or initiatives yet.
+the whole workspace. She changes items and initiatives only by proposing a changeset (`docs/action-items.md`),
+proposed as `elysia`, which may name any live item, initiative, or project; what she creates joins the projects she
+names. Linking provider issues and pull requests stays a person's to do.
 
 ## Idle loop
 
@@ -144,7 +147,6 @@ Which kinds move up, and when, is not decided.
 
 ## Roadmap
 
-- Proposing changesets from her turns, workspace-wide, as `work_propose_changes` does for a project's sessions.
 - Reading changesets and coding sessions, and starting a coding session for work that needs one.
 - Editing her hours in the panel, in the viewer's own zone.
 - Her turns' full logs beside their summaries, expanding like a GitHub Actions step.

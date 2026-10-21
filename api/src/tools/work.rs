@@ -988,7 +988,7 @@ fn history_view(entry: &HistoryEntry, names: &HashMap<Uuid, String>) -> Value {
     })
 }
 
-mod propose;
+pub(in crate::tools) mod propose;
 
 #[cfg(test)]
 mod tests;
