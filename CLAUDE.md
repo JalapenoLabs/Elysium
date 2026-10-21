@@ -232,6 +232,19 @@ Everything else follows these rules:
 - Keys that Elysium sets for GitHub or the runner, and keys that would pick the model credential, are refused, by one
   rule table in `api/src/environment/` that the frontend mirrors.
 
+## Passwords
+
+- Agents sign in to things on their own with logins from one Bitwarden or Vaultwarden account, managed under Settings,
+  Passwords by admins. Its API key and master password are application secrets, sealed in Postgres. See
+  `docs/passwords.md`.
+- The official CLI (`bw`, pinned in the API image) runs inside the API's own container, never the workspace: one-shot
+  commands sign it in, and one `bw serve` on the container's loopback answers everything else. Its state is on the
+  API's data volume, so a restart keeps it signed in as the same device.
+- Agents read one collection, chosen from those the account reaches, through the `elysium_passwords` tools. Every call
+  re-checks the item against the collection in the database. TOTP seeds are never shown, only current codes.
+- Every password and code handed to an agent is scrubbed from every turn's recorded output, as secret environment
+  variables are.
+
 ## Action items
 
 The core and its frontend are built: items, initiatives, memberships, comments, history, Next, and progress, under

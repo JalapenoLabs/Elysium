@@ -12,6 +12,7 @@ import type { GithubCredential } from '../api/routes/githubRoutes'
 import type { JiraCredential } from '../api/routes/jiraRoutes'
 import type { Llm } from '../api/routes/llmRoutes'
 import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRoutes'
+import type { PasswordVault, VaultStatus } from '../api/routes/passwordVaultRoutes'
 import type { Project } from '../api/routes/projectRoutes'
 import type { StorageLocation } from '../api/routes/storageRoutes'
 import type { StudioAsset, StudioFeedback, StudioItem } from '../api/routes/studioRoutes'
@@ -98,5 +99,10 @@ export type ServerEvent =
   // A pending sign-up was rejected.
   | { type: 'user.deleted', data: { id: string } }
   | { type: 'workspaceSettings.updated', data: WorkspaceSettings }
+  // The password vault was set up, its collection chosen, or its credentials replaced.
+  | { type: 'passwordVault.updated', data: PasswordVault }
+  | { type: 'passwordVault.deleted' }
+  // What the vault's CLI is doing changed: starting, ready, failed, or a sync finished.
+  | { type: 'passwordVault.status', data: VaultStatus }
 
 export type ServerEventType = ServerEvent['type']

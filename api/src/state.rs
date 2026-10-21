@@ -17,6 +17,7 @@ use crate::elysia::Elysia;
 use crate::github::Github;
 use crate::jira::Jira;
 use crate::mail::Mail;
+use crate::passwords::Passwords;
 use crate::realtime::EventBus;
 use crate::runner::Runner;
 use crate::sessions::Sessions;
@@ -50,6 +51,8 @@ pub struct AppState {
     /// Action item links, through one provider trait, and the watcher's wake signal.
     pub links: Links,
     pub mail: Mail,
+    /// The password vault agents sign in to things with. See `crate::passwords`.
+    pub passwords: Passwords,
     /// Runs agent turns in the workspace container. See `crate::runner`.
     pub runner: Runner,
     /// Coding and Studio sessions' turns, events, and activity. See `crate::sessions`.

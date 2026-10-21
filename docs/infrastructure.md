@@ -68,6 +68,10 @@ the same release, and runs every agent turn in it by `docker exec`; `docker-prox
 because agents need the internet, and nginx is not on it. The development stack builds the image as
 `elysium-workspace:dev` (service `workspace-image`) before the API starts. See `docs/coding.md`.
 
+The API keeps one volume of its own, `api-data` at `/var/lib/elysium`: the Bitwarden CLI's state, so it stays signed
+in as the same device across restarts. Removing it only makes the CLI sign in again at the next start. See
+`docs/passwords.md`.
+
 `oauth-broker/` is a separate deployable with its own `compose.yml` and .env; it is not part of this
 stack.
 
@@ -119,7 +123,8 @@ and `elysium-api`, built from the checkout, in development.
 Built from the repository root so `.git` can be copied into the builder for `/api/version`. `api/migrations` is
 copied in as well, because the binary embeds the SQL. `cargo-chef` caches compiled dependencies in their own
 layer. Source and `.git` are copied afterwards, so a commit only rebuilds the crate itself. The runtime image is
-`debian:trixie-slim` with `ca-certificates` and `curl` for the healthcheck, running as a non-root user.
+`debian:trixie-slim` with `ca-certificates`, `curl` for the healthcheck, and the Bitwarden CLI (`bw`, from its own
+stage, pinned and checked against its published digest; see `docs/passwords.md`), running as a non-root user.
 
 `api/Dockerfile` ends in two stages:
 

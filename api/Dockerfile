@@ -60,13 +60,35 @@ COPY .git /workspace/.git
 ARG ELYSIUM_RELEASE=""
 RUN cargo build --release --locked
 
+# The official Bitwarden CLI, which the API runs to reach the password vault agents sign in
+# with (docs/passwords.md). The OSS build, GPL-3.0 and run as a separate program, pinned to a
+# release at least two weeks old and checked against the digest GitHub publishes for it.
+FROM debian:trixie-slim AS bitwarden-cli
+ARG BW_VERSION=2026.9.1
+ARG BW_SHA256=b90c0fc86bcf11c0b194aa3f0a89344738af0512cb267c39ad3250c5edd71663
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+  && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL -o /tmp/bw.zip \
+    "https://github.com/bitwarden/clients/releases/download/cli-v${BW_VERSION}/bw-oss-linux-${BW_VERSION}.zip" \
+  && echo "${BW_SHA256}  /tmp/bw.zip" | sha256sum --check --strict \
+  && unzip -q /tmp/bw.zip -d /tmp/bw \
+  && install -m 0755 /tmp/bw/bw /usr/local/bin/bw \
+  && rm -rf /tmp/bw.zip /tmp/bw
+
 FROM debian:trixie-slim AS server
 # ca-certificates: outbound TLS. curl: the compose healthcheck.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl \
   && rm -rf /var/lib/apt/lists/* \
-  && useradd --system --no-create-home --shell /usr/sbin/nologin elysium
+  && useradd --system --no-create-home --shell /usr/sbin/nologin elysium \
+  && install -d -o elysium -g elysium -m 0700 /var/lib/elysium
+COPY --from=bitwarden-cli /usr/local/bin/bw /usr/local/bin/bw
 COPY --from=builder /workspace/api/target/release/elysium-api /usr/local/bin/elysium-api
+# What the API keeps between restarts: the Bitwarden CLI's state, so the CLI stays signed in
+# as the same device. compose.yml mounts a volume here; a new volume copies this directory's
+# owner and mode.
+VOLUME /var/lib/elysium
 USER elysium
 EXPOSE 8080
 # Exec form keeps the binary as PID 1 so SIGTERM reaches its graceful shutdown handler.

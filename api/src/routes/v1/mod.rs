@@ -18,6 +18,7 @@ pub mod llms;
 pub mod mail;
 mod me;
 pub mod oauth;
+pub mod password_vault;
 pub mod projects;
 pub mod storage_locations;
 pub mod studio_items;
@@ -69,6 +70,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/studio-items", studio_items::router())
         .nest("/coding-sessions", coding_sessions::router())
         .nest("/oauth", oauth::router())
+        .nest("/password-vault", password_vault::router())
         .nest("/updates", updates::router())
         .nest("/users", users::router())
         .nest("/workspace-settings", workspace_settings::router())

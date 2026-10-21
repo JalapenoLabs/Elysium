@@ -3,10 +3,12 @@
 //! Keeps a turn's secrets out of what Elysium records and shows of it.
 //!
 //! A turn's environment carries secrets: the session's GitHub token and every environment
-//! variable marked secret. The agent can read them and may print one, in a command it runs or
-//! in what it says. Before an event is recorded or published, every string in it has each
-//! secret replaced with [`REDACTED`]. The agent still holds the secrets; this only keeps them
-//! out of the history, the event stream, and the browser.
+//! variable marked secret. During the turn it may also be handed more: the passwords and
+//! one-time codes the password vault's tools answer, which every turn's scrubber reads from the
+//! vault's [`Revealed`] list as it goes. The agent can read them and may print one, in a command
+//! it runs or in what it says. Before an event is recorded or published, every string in it has
+//! each secret replaced with [`REDACTED`]. The agent still holds the secrets; this only keeps
+//! them out of the history, the event stream, and the browser.
 //!
 //! Values shorter than [`MIN_SECRET_CHARACTERS`] are not scrubbed: replacing every `1` or
 //! `yes` would garble the conversation and protect nothing.
@@ -14,6 +16,7 @@
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 
+use crate::passwords::Revealed;
 use crate::runner::RunnerEvent;
 
 /// What a secret is replaced with.
@@ -26,6 +29,8 @@ const MIN_SECRET_CHARACTERS: usize = 6;
 #[derive(Debug, Default)]
 pub struct Scrubber {
     secrets: Vec<SecretString>,
+    /// Secrets handed out during turns, read as each event is scrubbed.
+    revealed: Option<Revealed>,
 }
 
 impl Scrubber {
@@ -37,13 +42,23 @@ impl Scrubber {
             .filter(|secret| secret.expose_secret().chars().count() >= MIN_SECRET_CHARACTERS)
             .collect();
         secrets.sort_by_key(|secret| std::cmp::Reverse(secret.expose_secret().len()));
-        Self { secrets }
+        Self {
+            secrets,
+            revealed: None,
+        }
+    }
+
+    /// Also scrubs every secret in `revealed`, including those added after this scrubber was
+    /// made.
+    pub fn with_revealed(mut self, revealed: Revealed) -> Self {
+        self.revealed = Some(revealed);
+        self
     }
 
     /// `event` with every secret replaced. An event that cannot be read as JSON is returned
     /// as it is, which only an event type without a JSON form could cause.
     pub fn scrub(&self, event: RunnerEvent) -> RunnerEvent {
-        if self.secrets.is_empty() {
+        if self.secrets.is_empty() && self.revealed.is_none() {
             return event;
         }
         let Ok(mut value) = serde_json::to_value(&event) else {
@@ -62,10 +77,14 @@ impl Scrubber {
 
     fn scrub_string(&self, text: &mut String) {
         for secret in &self.secrets {
-            let exposed = secret.expose_secret();
-            if text.contains(exposed) {
-                *text = text.replace(exposed, REDACTED);
-            }
+            replace_secret(text, secret.expose_secret());
+        }
+        if let Some(revealed) = &self.revealed {
+            revealed.each(|secret| {
+                if secret.chars().count() >= MIN_SECRET_CHARACTERS {
+                    replace_secret(text, secret);
+                }
+            });
         }
     }
 
@@ -84,6 +103,12 @@ impl Scrubber {
             }
             Value::Null | Value::Bool(_) | Value::Number(_) => {}
         }
+    }
+}
+
+fn replace_secret(text: &mut String, secret: &str) {
+    if text.contains(secret) {
+        *text = text.replace(secret, REDACTED);
     }
 }
 
@@ -118,6 +143,29 @@ mod tests {
             panic!("the event keeps its kind");
         };
         assert_eq!(text, "abc is too short to scrub");
+    }
+
+    #[test]
+    fn secrets_revealed_during_the_turn_are_scrubbed_too() {
+        let revealed = Revealed::default();
+        let scrubber = Scrubber::new([]).with_revealed(revealed.clone());
+        revealed.add(&SecretString::from("vault-password-1"));
+        revealed.add(&SecretString::from("492039"));
+        let RunnerEvent::ToolCompleted { output_preview, .. } =
+            scrubber.scrub(RunnerEvent::ToolCompleted {
+                tool_call_id: "toolu_2".to_owned(),
+                tool_name: "mcp__elysium_passwords__passwords_login".to_owned(),
+                ok: true,
+                output_preview: r#"{"login":{"password":"vault-password-1"}} then 492039"#
+                    .to_owned(),
+            })
+        else {
+            panic!("the event keeps its kind");
+        };
+        assert_eq!(
+            output_preview,
+            r#"{"login":{"password":"[secret]"}} then [secret]"#
+        );
     }
 
     #[test]
