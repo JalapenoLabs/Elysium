@@ -19,7 +19,8 @@ use uuid::Uuid;
 
 use crate::models::user::ELYSIA_USER_ID;
 use crate::runner::{
-    self, ConversationId, HarnessSessionId, RunnerEvent, TurnOutcome, TurnRequest, WorkspacePath,
+    self, ConversationId, HarnessSessionId, RunnerEvent, TurnMode, TurnOutcome, TurnRequest,
+    WorkspacePath,
 };
 
 /// Where her turns run, relative to the workspace root.
@@ -123,6 +124,7 @@ async fn run_on_host(
             system_prompt_append: Some(turn.instructions),
             environment: Vec::new(),
             model: None,
+            mode: TurnMode::Agent,
         })
         .map_err(|error| RunnerError::Refused(error.to_string()))?;
 
