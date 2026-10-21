@@ -12,6 +12,7 @@ import { historyAppended } from '../store/actionItemHistorySlice'
 import { actionItemLinkDeleted, actionItemLinkUpserted } from '../store/actionItemLinksSlice'
 import { initiativeLinkDeleted, initiativeLinkUpserted } from '../store/initiativeLinksSlice'
 import { actionItemDeleted, actionItemUpserted } from '../store/actionItemsSlice'
+import { browserSessionDeleted, browserSessionUpserted } from '../store/browserSessionsSlice'
 import { changesetUpserted } from '../store/changesetsSlice'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
 import { elysiaMessageCreated, elysiaTurnUpserted, elysiaUpdated } from '../store/elysiaSlice'
@@ -25,7 +26,7 @@ import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice
 import { mailServerUpdated } from '../store/mailServerSlice'
 import { projectDeleted, projectUpserted } from '../store/projectsSlice'
 import { eventStreamLost, eventStreamOpened } from '../store/realtimeSlice'
-import { sessionEventReceived } from '../store/sessionEventsSlice'
+import { sessionEventReceived, turnSummaryReceived } from '../store/sessionEventsSlice'
 import { storageLocationDeleted, storageLocationUpserted } from '../store/storageLocationsSlice'
 import { studioAssetCreated } from '../store/studioAssetsSlice'
 import { studioFeedbackCreated } from '../store/studioFeedbackSlice'
@@ -87,6 +88,15 @@ const handlers: Handlers = {
     void mutate('v1/initiatives?deleted=true')
     void mutate(`v1/initiatives/${event.data.id}`)
   },
+  // Every client hears every browser's events, but a browser belongs to its owner alone, and
+  // only the owner's pages list it.
+  'browserSession.upserted': (event) => {
+    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
+      return
+    }
+    store.dispatch(browserSessionUpserted(event.data))
+  },
+  'browserSession.deleted': (event) => store.dispatch(browserSessionDeleted(event.data.id)),
   'history.appended': (event) => store.dispatch(historyAppended(event.data)),
   'changeset.upserted': (event) => store.dispatch(changesetUpserted(event.data)),
   'elysia.updated': (event) => store.dispatch(elysiaUpdated(event.data)),
@@ -112,6 +122,7 @@ const handlers: Handlers = {
   'session.upserted': (event) => store.dispatch(codingSessionUpserted(event.data)),
   'session.deleted': (event) => store.dispatch(codingSessionDeleted(event.data.id)),
   'session.event': (event) => store.dispatch(sessionEventReceived(event.data)),
+  'session.summary': (event) => store.dispatch(turnSummaryReceived(event.data)),
   'studioItem.upserted': (event) => store.dispatch(studioItemUpserted(event.data)),
   // The event carries only the id and does not say whether the delete was soft, so the
   // deleted list and the item's own page reload, each only if a view shows it: a soft delete

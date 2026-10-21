@@ -121,6 +121,9 @@ Everything else follows these rules:
 - Every agent can 3D model. Blender is baked into the workspace image, and every turn starts a Blender of its own
   through a stdio MCP launcher, so no two turns share a scene. See `docs/coding.md`, Blender.
 - Secret values given to a turn are scrubbed from its events before they are recorded or published.
+- Every completed or failed turn is summarized in one or two sentences by a small model, as a text turn on the runner
+  (no tools, no settings, its own conversation), and the conversation collapses each turn to that summary. A summary
+  that fails is logged and left out; it never changes the turn.
 
 ## Mail
 
@@ -150,8 +153,8 @@ Everything else follows these rules:
   member session, never an administrator's.
 - nginx stays the single ingress: it passes the media ports, `59000-59007` over UDP and TCP, to the browser that owns
   each one, on every interface. Signaling never leaves the API's authenticated stream route.
-- The web app's sign-in panel, on the roadmap, speaks Neko's protocol itself: Neko's own client cannot run under
-  the web app's CSP.
+- The web app's sign-in panel (Settings, Browser sign-ins) speaks Neko's protocol itself: Neko's own client cannot
+  run under the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
 
 ## Storage

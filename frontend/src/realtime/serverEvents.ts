@@ -1,9 +1,10 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ActionItem, ActionItemComment, ActionItemLink, HistoryEntry } from '../api/routes/actionItemRoutes'
+import type { BrowserSession } from '../api/routes/browserSessionRoutes'
 import type { Changeset } from '../api/routes/changesetRoutes'
 import type { Initiative, InitiativeLink } from '../api/routes/initiativeRoutes'
-import type { CodingSession, SessionEvent } from '../api/routes/codingSessionRoutes'
+import type { CodingSession, SessionEvent, TurnSummary } from '../api/routes/codingSessionRoutes'
 import type { Elysia, ElysiaMessage, ElysiaTurn } from '../api/routes/elysiaRoutes'
 import type { EnvironmentVariable } from '../api/routes/environmentRoutes'
 import type { GithubCredential } from '../api/routes/githubRoutes'
@@ -39,6 +40,9 @@ export type ServerEvent =
   | { type: 'initiative.upserted', data: Initiative }
   // Soft: the initiative can be restored.
   | { type: 'initiative.deleted', data: { id: string } }
+  // A browser was added, or began starting, running, or failing.
+  | { type: 'browserSession.upserted', data: BrowserSession }
+  | { type: 'browserSession.deleted', data: { id: string } }
   // An entry an item's or an initiative's write recorded.
   | { type: 'history.appended', data: HistoryEntry }
   // A changeset was proposed, decided on, applied, or undone.
@@ -69,6 +73,7 @@ export type ServerEvent =
   | { type: 'session.upserted', data: CodingSession }
   | { type: 'session.deleted', data: { id: number } }
   | { type: 'session.event', data: SessionEvent }
+  | { type: 'session.summary', data: TurnSummary }
   // Created, renamed, pinned, or restored, or a file it holds changed its counts or thumbnail.
   | { type: 'studioItem.upserted', data: StudioItem }
   // Soft or permanent; the event does not say which.

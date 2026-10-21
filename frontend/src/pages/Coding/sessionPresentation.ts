@@ -34,6 +34,15 @@ export const turnStateLabelKeys = {
   'usage-limited': 'turnStates.usage-limited',
 } as const satisfies Record<TurnState, ParseKeys<'coding'>>
 
+export const turnStateChipColors = {
+  'queued': 'default',
+  'completed': 'success',
+  'failed': 'danger',
+  'cancelled': 'default',
+  'interrupted': 'warning',
+  'usage-limited': 'warning',
+} as const satisfies Record<TurnState, ChipColor>
+
 export type SessionTranslate = TFunction<'coding'>
 
 export type SessionContext = {

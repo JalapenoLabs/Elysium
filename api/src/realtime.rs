@@ -45,7 +45,7 @@ use crate::routes::v1::studio_items::{
 };
 use crate::routes::v1::users::UserResponse;
 use crate::routes::v1::workspace_settings::WorkspaceSettingsResponse;
-use crate::sessions::views::SessionEvent;
+use crate::sessions::views::{SessionEvent, TurnSummaryView};
 use crate::updates::UpdatesStatus;
 
 /// How many serialized events a slow client may fall behind before it is told to
@@ -150,6 +150,9 @@ pub enum ServerEvent {
     SessionDeleted { id: i64 },
     #[serde(rename = "session.event")]
     SessionEvent(Box<SessionEvent>),
+    /// A finished turn's summary was written.
+    #[serde(rename = "session.summary")]
+    TurnSummarized(TurnSummaryView),
     /// An item was created, renamed, pinned, or restored, or its files changed its
     /// thumbnail or counts.
     #[serde(rename = "studioItem.upserted")]

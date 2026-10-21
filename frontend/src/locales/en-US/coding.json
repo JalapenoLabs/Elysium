@@ -50,6 +50,11 @@
     "projectPlaceholder": "Choose a project",
     "sessionTitle": "Title",
     "sessionTitleHint": "Defaults to the first line of the prompt.",
+    "missingCredential": {
+      "title": "No Claude credential is set up",
+      "body": "The agent signs in to Claude with one. Without it, this session's turns fail.",
+      "link": "Add one under Settings, LLMs"
+    },
     "repositories": {
       "label": "Repositories",
       "private": "Private",
@@ -153,6 +158,7 @@
     "toolFailed": "{{tool}} failed",
     "unnamedTool": "Tool",
     "turnFinished": "Turn {{status}}",
+    "turnWorking": "Working…",
     "incident": "Incident: {{message}}",
     "otherEvent": "{{type}}",
     "composer": {

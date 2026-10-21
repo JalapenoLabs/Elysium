@@ -7,6 +7,7 @@
 //! it. When the turn starts and ends, the session's activity changes and is announced. When it
 //! ends, the Claude session it reported is kept on the row for the next turn to resume, a Studio
 //! session's deliverables are collected, and the turn's tool grant is dropped with the follower.
+//! Last, a turn that completed or failed is summarized (`super::summary`).
 
 use chrono::Utc;
 use tokio::sync::mpsc;
@@ -14,6 +15,7 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::scrub::Scrubber;
+use super::summary::{self, Digest};
 use super::views::{ActivityState, SessionEvent};
 use super::{Sessions, lock};
 use crate::models::coding_session;
@@ -38,8 +40,10 @@ pub(super) struct Follower {
 impl Follower {
     /// Records and publishes `events` until the turn's last.
     pub async fn follow(self, mut events: mpsc::Receiver<RunnerEvent>) {
+        let mut digest = Digest::default();
         while let Some(runner_event) = events.recv().await {
             let runner_event = self.scrubber.scrub(runner_event);
+            digest.observe(&runner_event);
             match &runner_event {
                 RunnerEvent::TurnStarted { .. } => self.started().await,
                 RunnerEvent::Finished(outcome) => {
@@ -47,6 +51,16 @@ impl Follower {
                     self.finished(outcome).await;
                     // The turn is over: its tools stop answering it.
                     drop(self.grant);
+                    if summary::deserves_summary(outcome.status) {
+                        summary::summarize(
+                            &self.sessions,
+                            self.session_id,
+                            self.turn_id,
+                            &digest,
+                            outcome,
+                        )
+                        .await;
+                    }
                     return;
                 }
                 _ => {}
