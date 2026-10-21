@@ -44,3 +44,13 @@ export function getLlmStatus(llm: Llm, now: number): LlmStatus {
 
   return 'inactive'
 }
+
+// The types agent turns can run on: the Claude Code CLI takes a subscription token or an
+// API key. Mirrors `secret_for` in api/src/runner/credentials.rs.
+const AGENT_LLM_TYPES: ReadonlySet<LlmType> = new Set([ 'claude-api-token', 'claude-code-oauth' ])
+
+// Whether an agent turn has a credential to run on, decided as the runner decides it. Without
+// one the turn still starts, on whatever login the workspace holds, and normally fails.
+export function hasAgentCredential(llms: Llm[], now: number) {
+  return llms.some((llm) => AGENT_LLM_TYPES.has(llm.type) && getLlmStatus(llm, now) === 'active')
+}
