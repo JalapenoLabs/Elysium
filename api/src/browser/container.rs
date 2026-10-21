@@ -698,7 +698,11 @@ mod tests {
         let mut rekeyed = spec();
         rekeyed.member_password = SecretString::from("another-password");
         for changed in [moved, renumbered, rekeyed] {
-            assert_ne!(original, spec_fingerprint(&changed, DEPLOYMENT), "{changed:?}");
+            assert_ne!(
+                original,
+                spec_fingerprint(&changed, DEPLOYMENT),
+                "{changed:?}"
+            );
         }
         assert_ne!(original, spec_fingerprint(&spec(), "another-deployment"));
     }
