@@ -2,12 +2,12 @@
 
 //! Which environment variable keys Elysium refuses, and why.
 //!
-//! Environment variables are handed to every coding session's satellite thread, on top of
-//! what Elysium and the satellite set themselves. Some keys cannot mean anything useful
-//! there: Elysium sets them, the satellite refuses them, or the satellite overwrites them.
-//! Accepting one would store a variable that silently never reaches the agent, or, worse,
-//! one that fails a thread at creation. [`key_refusal`] is the one gate for all of them, so
-//! the routes that store variables and the code that opens threads agree on the rules.
+//! Environment variables are handed to every agent turn, beneath what Elysium sets itself
+//! (`crate::runner`, `crate::sessions`). Some keys cannot mean anything useful there: Elysium
+//! sets them for every turn, so a stored value would never reach the agent, or would change
+//! which model credential a turn runs on behind the LLM settings' back. [`key_refusal`] is the
+//! one gate for all of them, so the routes that store variables and the code that starts turns
+//! agree on the rules.
 //!
 //! The rules are a lookup table, `REFUSED_KEYS`, matched top to bottom. Keys are matched
 //! with their exact case, as processes see them: `PATH` and `Path` are different variables.
@@ -23,14 +23,12 @@ pub enum KeyRefusal {
     Malformed,
     /// Elysium sets this key itself, for GitHub.
     ReservedForElysium,
-    /// The satellite refuses every `ARSOX_*` key: it holds the satellite's own secret.
-    ReservedForSatellite,
-    /// Shaped like a model provider's credential, which the satellite refuses because its
-    /// LLM proxy presents the credential on the agent's behalf.
-    ProviderCredential,
-    /// The satellite sets this key after every declared variable, so a stored value would
-    /// never reach the agent.
-    OverriddenBySatellite,
+    /// The runner sets this key for every turn: its configuration directory, or Elysium's
+    /// own `ELYSIUM_*` wiring.
+    ReservedForRunner,
+    /// Decides which model credential, or which endpoint, a turn's CLI uses. Turns run on the
+    /// credentials under Settings, LLMs, in priority order.
+    ModelCredential,
 }
 
 impl KeyRefusal {
@@ -42,16 +40,12 @@ impl KeyRefusal {
                  underscores, up to 128 characters"
             }
             Self::ReservedForElysium => "is reserved for Elysium, which sets it for GitHub",
-            Self::ReservedForSatellite => {
-                "is reserved for the satellite: no ARSOX_ variable is ever passed to an agent"
+            Self::ReservedForRunner => {
+                "is reserved for Elysium's runner, which sets it for every agent turn"
             }
-            Self::ProviderCredential => {
-                "is shaped like a model provider credential, which the satellite's LLM proxy \
-                 presents on the agent's behalf"
-            }
-            Self::OverriddenBySatellite => {
-                "is set by the satellite for every thread, so a value stored here would never \
-                 reach the agent"
+            Self::ModelCredential => {
+                "decides the model credential an agent runs on; add credentials under \
+                 Settings, LLMs instead"
             }
         }
     }
@@ -62,8 +56,6 @@ impl KeyRefusal {
 enum KeyPattern {
     Exact(&'static str),
     Prefix(&'static str),
-    /// See [`is_provider_credential`].
-    ProviderCredential,
 }
 
 impl KeyPattern {
@@ -71,7 +63,6 @@ impl KeyPattern {
         match self {
             Self::Exact(refused) => key == *refused,
             Self::Prefix(prefix) => key.starts_with(prefix),
-            Self::ProviderCredential => is_provider_credential(key),
         }
     }
 }
@@ -83,8 +74,8 @@ struct KeyRule {
 }
 
 /// Every refused key, in the order they are checked.
-const REFUSED_KEYS: [KeyRule; 14] = [
-    // Elysium hands a thread its GitHub token through these. `GIT_CONFIG_` covers
+const REFUSED_KEYS: [KeyRule; 9] = [
+    // Elysium hands a turn its GitHub token through these. `GIT_CONFIG_` covers
     // `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`, and the numbered `GIT_CONFIG_KEY_<n>` and
     // `GIT_CONFIG_VALUE_<n>` git reads alongside it.
     KeyRule {
@@ -99,54 +90,34 @@ const REFUSED_KEYS: [KeyRule; 14] = [
         pattern: KeyPattern::Prefix("GIT_CONFIG_"),
         refusal: KeyRefusal::ReservedForElysium,
     },
-    // Refused by the satellite when a thread is created (`declared_key_refusal` in
-    // arsox-satellite's `crates/arsox-satellite/src/harness/spawn.rs`).
+    // The workspace image points Claude Code at the configuration repository's checkout, and
+    // the turn script reads Elysium's own variables (`ELYSIUM_MCP_CONFIG`).
     KeyRule {
-        pattern: KeyPattern::Prefix("ARSOX_"),
-        refusal: KeyRefusal::ReservedForSatellite,
+        pattern: KeyPattern::Exact("CLAUDE_CONFIG_DIR"),
+        refusal: KeyRefusal::ReservedForRunner,
     },
     KeyRule {
-        pattern: KeyPattern::ProviderCredential,
-        refusal: KeyRefusal::ProviderCredential,
+        pattern: KeyPattern::Prefix("ELYSIUM_"),
+        refusal: KeyRefusal::ReservedForRunner,
     },
-    // Set by the satellite after everything a thread declares (`environment_for` in the same
-    // file): the exec broker's `PATH`, the egress proxy in both cases, since tools disagree
-    // about which spelling they read, and the LLM proxy's base URLs.
+    // What Claude Code reads to choose its credential and endpoint. The runner sets the
+    // credential for every attempt and fails over between them; a stored one would override
+    // that or be overridden by it.
     KeyRule {
-        pattern: KeyPattern::Exact("PATH"),
-        refusal: KeyRefusal::OverriddenBySatellite,
-    },
-    KeyRule {
-        pattern: KeyPattern::Exact("HTTP_PROXY"),
-        refusal: KeyRefusal::OverriddenBySatellite,
+        pattern: KeyPattern::Exact("CLAUDE_CODE_OAUTH_TOKEN"),
+        refusal: KeyRefusal::ModelCredential,
     },
     KeyRule {
-        pattern: KeyPattern::Exact("http_proxy"),
-        refusal: KeyRefusal::OverriddenBySatellite,
+        pattern: KeyPattern::Exact("ANTHROPIC_API_KEY"),
+        refusal: KeyRefusal::ModelCredential,
     },
     KeyRule {
-        pattern: KeyPattern::Exact("HTTPS_PROXY"),
-        refusal: KeyRefusal::OverriddenBySatellite,
-    },
-    KeyRule {
-        pattern: KeyPattern::Exact("https_proxy"),
-        refusal: KeyRefusal::OverriddenBySatellite,
-    },
-    KeyRule {
-        pattern: KeyPattern::Exact("NO_PROXY"),
-        refusal: KeyRefusal::OverriddenBySatellite,
-    },
-    KeyRule {
-        pattern: KeyPattern::Exact("no_proxy"),
-        refusal: KeyRefusal::OverriddenBySatellite,
+        pattern: KeyPattern::Exact("ANTHROPIC_AUTH_TOKEN"),
+        refusal: KeyRefusal::ModelCredential,
     },
     KeyRule {
         pattern: KeyPattern::Exact("ANTHROPIC_BASE_URL"),
-        refusal: KeyRefusal::OverriddenBySatellite,
-    },
-    KeyRule {
-        pattern: KeyPattern::Exact("OPENAI_BASE_URL"),
-        refusal: KeyRefusal::OverriddenBySatellite,
+        refusal: KeyRefusal::ModelCredential,
     },
 ];
 
@@ -179,34 +150,6 @@ fn is_well_formed(key: &str) -> bool {
         && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
-/// Whether a key is shaped like a model provider's credential.
-///
-/// A mirror of `is_provider_credential` in arsox-satellite's
-/// `crates/arsox-satellite/src/harness/spawn.rs`, which refuses a thread declaring such a key:
-/// the satellite's LLM proxy holds the provider credential, so an agent never needs one and
-/// must never be handed one. Matched on shape rather than by name, as the satellite does, so
-/// the two agree on keys neither has listed. Keep the two lists in step.
-fn is_provider_credential(key: &str) -> bool {
-    const VENDORS: [&str; 6] = [
-        "ANTHROPIC_",
-        "OPENAI_",
-        "AWS_",
-        "AZURE_",
-        "GOOGLE_",
-        "DEEPSEEK_",
-    ];
-    const SECRETS: [&str; 5] = [
-        "API_KEY",
-        "AUTH_TOKEN",
-        "ACCESS_KEY",
-        "SECRET",
-        "CREDENTIALS",
-    ];
-
-    VENDORS.iter().any(|vendor| key.starts_with(vendor))
-        && SECRETS.iter().any(|secret| key.contains(secret))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,7 +160,10 @@ mod tests {
             "NPM_TOKEN",
             "DATABASE_URL",
             "AWS_REGION",
+            "AWS_SECRET_ACCESS_KEY",
+            "OPENAI_API_KEY",
             "ANTHROPIC_MODEL",
+            "PATH",
             "_PRIVATE",
             "CI",
             "Path",
@@ -266,46 +212,29 @@ mod tests {
     }
 
     #[test]
-    fn keys_the_satellite_refuses_are_refused_here_too() {
-        assert_eq!(
-            key_refusal("ARSOX_SECRET"),
-            Some(KeyRefusal::ReservedForSatellite)
-        );
+    fn keys_the_runner_sets_are_reserved() {
         for key in [
-            "ANTHROPIC_API_KEY",
-            "ANTHROPIC_AUTH_TOKEN",
-            "OPENAI_API_KEY",
-            "AWS_SECRET_ACCESS_KEY",
-            "AZURE_CLIENT_SECRET",
-            "GOOGLE_APPLICATION_CREDENTIALS",
-            "DEEPSEEK_API_KEY",
+            "CLAUDE_CONFIG_DIR",
+            "ELYSIUM_MCP_CONFIG",
+            "ELYSIUM_ANYTHING",
         ] {
             assert_eq!(
                 key_refusal(key),
-                Some(KeyRefusal::ProviderCredential),
+                Some(KeyRefusal::ReservedForRunner),
                 "{key}"
             );
         }
     }
 
     #[test]
-    fn keys_the_satellite_overrides_are_refused_in_either_case_it_sets() {
+    fn keys_that_choose_the_model_credential_are_refused() {
         for key in [
-            "PATH",
-            "HTTP_PROXY",
-            "http_proxy",
-            "HTTPS_PROXY",
-            "https_proxy",
-            "NO_PROXY",
-            "no_proxy",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
             "ANTHROPIC_BASE_URL",
-            "OPENAI_BASE_URL",
         ] {
-            assert_eq!(
-                key_refusal(key),
-                Some(KeyRefusal::OverriddenBySatellite),
-                "{key}"
-            );
+            assert_eq!(key_refusal(key), Some(KeyRefusal::ModelCredential), "{key}");
         }
     }
 }

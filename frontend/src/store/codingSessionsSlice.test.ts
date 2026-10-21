@@ -17,7 +17,6 @@ import {
   selectSessionCountsByProjectId,
   selectStudioItemSessions,
 } from './codingSessionsSlice'
-import { satelliteDeleted } from './satellitesSlice'
 
 // Misc
 import { makeCodingSession } from '../testFixtures'
@@ -37,17 +36,6 @@ describe('codingSessionsLoaded', () => {
 
     expect(ids(selectCodingSessions(store.getState()))).toEqual([ 3 ])
     expect(ids(selectStudioItemSessions(store.getState(), 'banana'))).toEqual([ 1 ])
-  })
-})
-
-describe('satelliteDeleted', () => {
-  it('keeps the satellite\'s sessions, which the API republishes without it', () => {
-    const store = createAppStore()
-    store.dispatch(codingSessionsLoaded([ makeCodingSession({ id: 1, satelliteId: 'gone' }) ]))
-    store.dispatch(satelliteDeleted('gone'))
-    store.dispatch(codingSessionUpserted(makeCodingSession({ id: 1, satelliteId: null })))
-
-    expect(selectCodingSessionById(store.getState(), 1)?.satelliteId).toBeNull()
   })
 })
 

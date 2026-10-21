@@ -11,7 +11,7 @@ import { SessionRowActions } from './SessionRowActions'
 
 // Misc
 import { useCodingActions } from './codingActionsContext'
-import { threadStateChipColors } from './sessionPresentation'
+import { activityStateChipColors } from './sessionPresentation'
 
 // The title's overlay stretches across the whole card, so clicking anywhere on a tile opens
 // the session, as the title does in the table. The row menu sits above the overlay, since
@@ -59,15 +59,13 @@ export function SessionTiles(props: Props) {
             className='compact'
             size='sm'
             variant='soft'
-            color={threadStateChipColors[summary.state]}
+            color={activityStateChipColors[summary.state]}
           >{
             summary.stateLabel
           }</Chip>
           <dl className='grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm'>
             <dt className='opacity-60'>{t('sessions.project')}</dt>
             <dd className='truncate'>{summary.projectName}</dd>
-            <dt className='opacity-60'>{t('sessions.satellite')}</dt>
-            <dd className='truncate'>{summary.satelliteName}</dd>
           </dl>
         </Card.Content>
         <Card.Footer className='gap-2 text-xs opacity-70'>

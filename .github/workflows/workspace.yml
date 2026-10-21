@@ -45,11 +45,11 @@ jobs:
         run: |
           set -euo pipefail
           version="$(cat frontend/.nvmrc)"
-          if ! grep --quiet --fixed-strings "FROM node:${version}-" workspace/Dockerfile; then
-            echo "::error::workspace/Dockerfile does not build with Node ${version} from frontend/.nvmrc."
+          if ! grep --quiet --line-regexp --fixed-strings "ARG NODE_VERSION=${version}" workspace/Dockerfile; then
+            echo "::error::workspace/Dockerfile does not install Node ${version} from frontend/.nvmrc."
             exit 1
           fi
-          echo "workspace/Dockerfile builds with Node ${version}."
+          echo "workspace/Dockerfile installs Node ${version}."
 
       - name: Build the image
         run: docker build --tag "${IMAGE}" workspace
@@ -72,6 +72,10 @@ jobs:
             claude --version
             gh --version | head -n 1
             git --version
+            node --version
+            blender --version | head -n 1
+            test -x /usr/local/bin/elysium-blender-mcp
+            test -x /opt/elysium/bin/export-glb
             test "$(stat -c %U /workspace/.elysium/turns)" = agent
             test "$(readlink /home/agent/.claude)" = /workspace/.claude
           '

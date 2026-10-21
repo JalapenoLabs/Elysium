@@ -21,7 +21,6 @@ import llms from './locales/en-US/llms.json'
 import navigation from './locales/en-US/navigation.json'
 import oauth from './locales/en-US/oauth.json'
 import projects from './locales/en-US/projects.json'
-import satellites from './locales/en-US/satellites.json'
 import settings from './locales/en-US/settings.json'
 import storage from './locales/en-US/storage.json'
 import studio from './locales/en-US/studio.json'
@@ -51,7 +50,6 @@ export const resources = {
     navigation,
     oauth,
     projects,
-    satellites,
     settings,
     storage,
     studio,

@@ -1,16 +1,15 @@
 # Coding
 
-The Coding area runs agent sessions on Arsox satellites. A satellite is a self-hosted worker
-(`JalapenoLabs/arsox-satellites`) that runs Claude or Codex in a workspace and reports everything it does as one
-typed event stream. Satellites are registered under Settings, Manage satellites; sessions are started and followed
-on the Coding page.
+The Coding area runs agent sessions on Elysium's own host: the official Claude Code CLI, in a workspace container
+the API owns. Sessions are started and followed on the Coding page; Studio items (`docs/studio.md`) are sessions too.
 
 ## The runner
 
 `api/src/runner/` runs agent turns on Elysium's own host: the official `claude` CLI, headless
 (`claude -p --output-format stream-json --verbose`), in the agent workspace container. Coding sessions, Studio, and
 Elysia all submit turns to it (`state.runner.submit(TurnRequest)`) and read the turn's events from the ticket it
-returns. The roadmap is for every turn to run here, with Arsox satellites as an optional path to remote compute.
+returns. Only the CLI itself runs turns, on a subscription token or an API key; the Agent SDK is never used with
+subscription credentials.
 
 ### Where turns run, and why there
 
@@ -71,8 +70,8 @@ refused (an invalid key, an expired token, not logged in) hands the turn to the 
 `credentialRolledOver`. If the attempt had begun a Claude session, the next one resumes it with a prompt to continue
 where it stopped, so no work is lost; otherwise it runs the original prompt. Any other failure ends the turn at
 once, since another credential would fail the same way. When every credential is spent the turn finishes
-`usage-limited`, still carrying the session id to resume later. Unlike a satellite's proxy, the CLI holds the
-credential itself, so an agent can read it from its environment.
+`usage-limited`, still carrying the session id to resume later. The CLI holds the credential itself, so an agent can
+read it from its environment.
 
 ### Liveness
 
@@ -93,258 +92,140 @@ with `RUNNER_TEST_DOCKER_URL` naming a `docker-socket-proxy` with `EXEC=1`, `RUN
 such as `elysium-workspace:dev`, and an `elysium-agents` network, it runs a turn without a credential and expects the
 CLI to report that it is not logged in. It creates the real `elysium-workspace` container and volume.
 
-## Terms
+## Sessions on the runner
 
-| Elysium          | Arsox   | Meaning                                                                   |
-|------------------|---------|---------------------------------------------------------------------------|
-| Project          | —       | What sessions are grouped under, stored in `projects`                     |
-| Satellite        | —       | A satellite's URL and bearer secret, stored in `satellites`               |
-| Coding session   | Thread  | An agent conversation with its own workspace; Elysium stores a pointer    |
-| Prompt           | Turn    | One request to the agent. Turns queue behind the one running              |
-| Session event    | Event   | Something the thread did: a message, a tool call, a turn finishing        |
+`api/src/sessions/` is everything between a session's row and the runner. A session is three things:
 
-## The API is the only satellite client
+- **A directory**, `/workspace/sessions/<id>`, that every turn works in. Its repositories are cloned into
+  `repos/<name>` when the session is created, Studio drawings land in `feedback/`, and whatever the agent leaves there
+  stays until the session is deleted.
+- **A Claude session**, `harness_session_id` on the row: the session id the last turn reported, resumed by the next
+  turn with `--resume`. Claude keeps the transcript in `/workspace/.claude`, so a session carries on across restarts
+  of the API and of the workspace.
+- **Its events**, recorded in `session_events` (see History).
 
-Satellites speak protobuf and authenticate with a bearer secret that must never reach a browser. The frontend
-therefore never contacts a satellite. The API talks to them with the Rust SDK, `arsox-sdk`, a git dependency
-pinned to a commit of the satellites repository's `develop` branch. The API converts every contract type into JSON views
-in `api/src/fleet/views.rs`, so no route or client depends on the wire format.
+Each session is its own conversation on the runner, so its turns run one after another and never two at once.
 
-To upgrade the SDK, change the `rev` in `api/Cargo.toml`. `api/.cargo/config.toml` sets `git-fetch-with-cli`,
-because Cargo's built-in git client cannot fetch a pinned revision of that repository.
+### A turn
 
-## Satellites
+`POST /api/v1/coding-sessions/{id}/turns` queues a turn and answers at once. The turn carries:
 
-A satellite has a name, description, URL, sealed secret, and active flag. The URL is where the API reaches it, so
-inside compose it is a container address such as `http://arsox:8080`.
+- **The environment:** every workspace environment variable, then the session's GitHub token as `GH_TOKEN` with the
+  git config that routes git through `gh` (`docs/environment.md`, `docs/github.md`).
+- **Elysium's tools**, under a grant for this turn alone (see below).
+- **A Blender of its own**, the `blender` MCP server (see below).
+- **Studio's instructions** as `--append-system-prompt`, for a Studio session.
 
-`POST /api/v1/satellites/{id}/test` connects with the saved settings and reports the satellite version, proto
-version, and thread load. It works for inactive satellites too.
+As the turn runs, every event is scrubbed of the turn's secret values (the GitHub token and every secret environment
+variable of six characters or more become `[secret]`), given the session's next sequence, recorded, and only then
+published as `session.event`. A client that refetches history after a live event therefore always finds it. When
+the turn ends, the Claude session it reported is kept on the row, a Studio session's deliverables are collected, and
+the grant is revoked.
 
-## The fleet
+What a session is doing (`idle`, `queued`, or `running`, with its queue depth and current turn) is kept in memory
+and published as `session.upserted` whenever it changes. A restart forgets it, and every session reads `idle`, which
+is true: a restart ends every turn.
 
-`api/src/fleet/mod.rs` keeps one client per active satellite, created on first use and dropped whenever the
-satellite changes or stops answering. Two kinds of watcher run under it.
+### Elysium's tools
 
-- **Satellite watcher**, one per active satellite. Every 3 seconds it reads the satellite's status and lists the
-  threads Elysium opened (metadata `elysium.managed=true`). It publishes `satellite.status` when reachability or
-  load changes, and `session.upserted` when a session's thread changes state.
-- **Session watcher**, one per session on an active satellite. It follows the thread's event stream from the
-  latest event and publishes each one as `session.event`. After a dropped stream it resumes from the last event it
-  delivered. If it cannot, it tails from the latest event and publishes `session.resync`. When the satellite no
-  longer has the thread, it marks the session `expired` or `destroyed` and stops.
+Some of an agent's tools answer from Elysium's own data: `elysium_work` for the project's action items and
+initiatives (`docs/action-items.md`), given to every turn of a session with a project, and `elysium_storage` for its
+storage locations (`docs/storage.md`), given when the project may use one. They are served at
+`/api/agent-tools/{server}` (`api/src/tools/endpoint.rs`), one stateless Streamable HTTP MCP server each, which the
+workspace reaches as `http://api:8080` on `elysium-agents`. nginx answers `404` for the path, so it is never on the
+public origin.
 
-Polling stands in for the satellite's control stream, which the Rust SDK does not expose yet. Watchers start at
-boot for every active satellite, restart when a satellite is saved, and stop when it is deactivated or deleted.
+Before each turn the API mints a grant (`api/src/tools/grants.rs`): a 256-bit bearer token naming the session's
+scope and the servers the turn may use. The token travels in the turn's MCP configuration; only its SHA-256 is held.
+A request without a live grant answers `401`, and one for a server the grant does not name `404`. Every call is then
+checked against the database as before: the session's project, its action item, its storage locations. The grant is
+revoked when the turn ends, and a restart revokes them all.
+
+Logs name each call by session, server, tool, and call id, never by its arguments, which can be large.
 
 ## Blender
 
-Every coding agent can 3D model: model, render, and inspect `.blend` files through Blender's MCP tools
-(`mcp__blender__*`). Nothing about Blender is in the satellite image; Elysium supplies it through two Arsox features.
-The code is `api/src/blender/`.
+Every agent can 3D model: model, render, and inspect `.blend` files through Blender's MCP tools (`mcp__blender__*`).
+Blender 5.2.2, Blender Lab's MCP server, and its bridge extension are baked into the workspace image
+(`workspace/blender/install.sh`, with the MCP server's hash-locked dependencies in `requirements.txt`), every download
+pinned and checksum- or commit-verified.
 
-- **The setup script** (`api/src/blender/setup.sh`, with the MCP server's hash-locked dependencies in
-  `requirements.txt` beside it) installs Blender 5.2.2, Blender Lab's MCP server, and its bridge extension, every
-  download pinned and checksum- or commit-verified. The satellite watcher compares the script hash each satellite
-  reports with Elysium's and hands the script over (`PUT /v1/setup`) when they differ, so a new satellite, a replaced
-  container, or a new Elysium build is caught up within one poll. The satellite runs it as root at every container
-  start and whenever it changes, and holds turns until it finishes. The script is idempotent: each piece records the
-  version it installed and skips a matching one, so a restart that kept `/opt` costs nothing and a replaced container
-  downloads everything again (about 45 seconds).
-- **Two thread services** start with every turn, on loopback ports the satellite assigns, and stop when the turn ends:
-  `blender-bridge` (headless Blender with the extension listening) and `blender-mcp` (the MCP server, handed the
-  bridge's port through `ARSOX_SERVICE_BLENDER_BRIDGE_PORT`). The thread's `blender` MCP server targets
-  `blender-mcp`, so every turn models in a Blender of its own and no two threads share a scene.
+Each turn's `blender` MCP server is `elysium-blender-mcp`, a stdio launcher Claude Code starts for the turn and stops
+when it ends. It starts headless Blender with the bridge on a free loopback port, waits for it to listen, then runs the
+MCP server against it, so every turn models in a Blender of its own and no two turns share a scene.
 
-What that means for agents and operators:
-
-- A scene lives only as long as its turn. Work that must outlast the turn is saved to a `.blend` in the workspace.
-- Services separate processes and scenes, not privileges. Every thread's agent runs as the same account, so one could
-  dial another concurrently running turn's loopback port. Arsox's roadmap has per-member network namespaces for that.
+- A scene lives only as long as its turn. Work that must outlast the turn is saved to a `.blend` in the session's
+  directory.
+- Turns separate processes and scenes, not privileges. Every agent runs as `agent`, so one could dial another running
+  turn's loopback port.
 - There is no window, so the screenshot and navigation tools fail. Rendering works.
-- A satellite whose setup failed, or that is still installing, starts turns without Blender: the services fail their
-  readiness probe (a degraded incident), the MCP server fails to connect, and the turn carries on. Settings,
-  Satellites shows each satellite's setup as Pending, Installing, Ready, or Failed, with the end of a failed script's
-  output on hover. A failed script runs again when the container restarts or the script changes.
-
-## Tool relay
-
-Some of an agent's tools answer from Elysium's own data: `elysium_work` for the project's action items and
-initiatives (`docs/action-items.md`), declared on every thread, and `elysium_storage` for its storage locations
-(`docs/storage.md`), declared when the project has one. A satellite cannot reach Elysium, so Elysium declares those
-tools on the thread as relayed MCP servers (`ThreadSettings.relayed_mcp_servers`) and answers their calls over a socket
-it opens to the satellite. Every byte travels Elysium to satellite, as every other call does; Elysium listens for
-nothing new.
-
-- **Relay**, one per session on an active satellite, beside its session watcher and under the same cancellation, so
-  both start, restart, and stop together (`api/src/fleet/relay.rs`). It opens `GET /v1/threads/{id}/relay` and runs
-  each call in its own task, so a slow download holds up nothing. A cancellation from the satellite (the call's
-  deadline passed, its turn ended) aborts that call's task. Calls are never retried: an agent that wants one again
-  calls again.
-- A dropped socket reconnects with the session watcher's backoff, 1 to 30 seconds. Calls in flight on it are
-  abandoned; the satellite has already failed them to the agent.
-- A thread the satellite no longer has ends its relay, as it ends its watcher.
-- A thread that declared no relayed servers refuses the socket with `409 RELAY_NOT_DECLARED`. Every thread declares
-  `elysium_work`, so only a thread created before it can refuse, such as one whose project had no storage location
-  then. A thread's settings never change, so that refusal ends its relay for good instead of reconnecting. Elysium
-  keeps no record of what a thread declared, and reading the thread's settings would cost the same one request, so
-  the refusal is how it finds out.
-
-The satellite keeps no calls for a client that is not attached. While Elysium is down or reconnecting, a call to a
-relayed tool fails at once, and the agent reads that no client is attached to answer it. Nothing is replayed later.
-
-Logs name each call by session, server, tool, and call id (`coding.relay.call.completed`), never by its arguments,
-which can be large.
+- After a Studio turn, `/opt/elysium/bin/export-glb` exports each `.blend` the turn changed to a `.glb` beside it; see
+  `docs/studio.md`.
 
 ## Projects
 
 Every Coding session belongs to one project, chosen when the session is created. Projects have a unique name and
 a description, and are managed on the Projects page in the sidebar. A project cannot be deleted while any
-session belongs to it: each session owns a running thread, which is destroyed deliberately by deleting the
-session. A Studio item's sessions have the item's project, which is optional (see `docs/studio.md`); the Coding
+session belongs to it: each session owns a directory and the history of its turns, which are removed deliberately by
+deleting the session. A Studio item's sessions have the item's project, which is optional (see `docs/studio.md`); the Coding
 area lists only sessions that belong to no Studio item.
 
 ## Sessions
 
 Sessions are numbered 1, 2, 3, ... in the order they are created, and the number is the session's id everywhere:
-routes, events, and the Coding page's URLs. Creating a session reserves its number from the table's identity sequence
-(`nextval`) before the thread is opened, then records the row with that number. A create that fails after the
-reservation, such as a satellite refusing the thread, leaves a gap in the numbering; numbers are never reused.
+routes, events, the workspace directory, and the Coding page's URLs. Creating a session reserves its number from the
+table's identity sequence (`nextval`), records the row, and clones its repositories. A create that fails after the
+reservation leaves a gap in the numbering; numbers are never reused.
 
-The thread carries the number in its metadata as `elysium.session_id`, for anyone reading the satellite directly.
-Nothing matches on it: two Elysium installs can share a satellite, and each numbers its sessions from 1. The satellite
-watcher finds a session's thread by its thread id among the threads of the session's own satellite.
-
-The satellite's idempotency key is a fresh UUIDv7 for each create request, never the number, since numbers repeat
-across installs and after a database reset. It makes the SDK's retries of that one request safe; a client that sends
-the create again opens a second thread.
-
-A create may carry the first prompt, which the API queues as the thread's first turn once the row is recorded and the
-session's watcher and relay are started, so the relayed tools the turn asks for have Elysium attached as early as it
-can be. The relay still connects on its own task, so a tool call the agent makes in the moment before it attaches
-fails like any call with no client attached; an agent reaches its first tool call only after a model round trip, far
-longer than the connect. If the row cannot be recorded or the turn cannot be queued, the API destroys the thread and
-removes the row instead of leaving either behind, so a create yields a session with its first turn queued or nothing.
-A session removed that way is announced as `session.deleted`, since the satellite poll may already have announced it.
+A create may carry the first prompt, which the API queues as the session's first turn once the row is recorded and
+the repositories are cloned. If a clone fails, the API removes the directory and the row instead of leaving either
+behind, and answers `502` with git's message, so a create yields a usable session or nothing.
 
 A session can be started from an action item. It then belongs to one of the item's projects, or any project when the
 item has none, records the item, and requires a first prompt, which follows the item's context in the first turn. See
 [Coding sessions](action-items.md#coding-sessions).
 
-Every thread is opened with Elysium's policy, constants in `api/src/routes/v1/coding_sessions/mod.rs`:
-
-| Setting                   | Value     | Why                                                               |
-|---------------------------|-----------|-------------------------------------------------------------------|
-| Idle TTL                  | 7 days    | Satellites require one so forgotten workspaces are collected      |
-| Cost ceiling per thread   | 25 USD    | Satellites require an explicit budget; unbounded must be typed    |
-| Wall clock per turn       | 60 min    | Ends a stuck turn                                                 |
-| Tokens per turn           | unlimited | Bounded by the two ceilings above                                 |
-
 ### Repositories
 
 A session clones up to 16 repositories (https, http, ssh, or `git@` URLs), in the order given, each into the
-workspace's `repos/` directory under a name taken from the URL's last segment without `.git`. Each may name the base
+session's `repos/` directory under a name taken from the URL's last segment without `.git`. Each may name the base
 branch its work starts from; without one the remote's default branch is used.
 
-- **Limit.** The satellite sets none, but clones run one after another before the thread is usable, and the first
-  that fails parks the thread with `REPO_CLONE_FAILED`. Sixteen (`MAX_REPOSITORIES`) covers a service with its
-  libraries and keeps that bounded.
-- **Directory names.** The satellite checks that each name is safe, not that the names differ, so two repositories
-  that would share a directory, ignoring case, answer `400` naming both URLs. The same repository listed twice
-  (github.com names compared ignoring case, over HTTPS or SSH alike) is refused the same way and says so.
-- **SSH.** Elysium holds no SSH keys: a github.com SSH remote is cloned over HTTPS (see `docs/github.md`), and an
-  SSH remote on any other host is refused.
+- **Limit.** Clones run one after another before the create answers, within 30 minutes in all. Sixteen
+  (`MAX_REPOSITORIES`) covers a service with its libraries and keeps that bounded.
+- **Directory names.** Two repositories that would share a directory, ignoring case, answer `400` naming both URLs.
+  The same repository listed twice (github.com names compared ignoring case, over HTTPS or SSH alike) is refused the
+  same way and says so.
+- **SSH.** Elysium holds no SSH keys: a github.com SSH remote is cloned over HTTPS with the session's GitHub token
+  (see `docs/github.md`), and an SSH remote on any other host is refused.
 
 The New session form mirrors every rule before sending (`createSessionFormSchema.ts`, `sessionRepositories.ts`).
 
-## Model credentials
-
-A thread is opened with Elysium's stored LLM credentials as its model endpoints, in priority order. The satellite
-tries the first and moves to the next when it will not answer. The list is failover, never a pool, so later entries
-are only reached when the ones above them are spent.
-
-### Rolling over a spent credential
-
-The point of the stack is a credential that runs out, not one that is briefly busy. A subscription whose quota is
-spent keeps refusing for hours, and every second spent waiting on it is a second the credential behind it would
-have served. So Elysium declares a shorter retry policy than the satellite's own default of ten attempts over
-about six minutes:
-
-| Setting            | Value | Why                                                                        |
-|--------------------|-------|----------------------------------------------------------------------------|
-| Attempts           | 3     | Enough that a momentary burst limit does not cost a failover               |
-| First wait         | 5s    | The satellite's own first wait                                             |
-| Longest wait       | 15s   | Also the ceiling a provider's `Retry-After` is clamped to                  |
-
-Only 429, the rate and usage limit, and 529, Anthropic's overload, are waited on at all. Every other refusal rolls
-over at once, including a rejected credential (401 or 403) and an unreachable host, because a credential that is
-wrong is wrong on the tenth attempt too.
-
-Nothing about a rollover is silent. A request a later credential answers records a `recovered` incident naming
-every credential given up on, so a stack quietly running on its fallback is visible. When the list runs out the
-turn ends with `LLM_ALL_ENDPOINTS_EXHAUSTED`; the thread and its workspace survive, so a turn submitted after
-adding a credential resumes from there.
-
-One list carries one request shape, because failover relays the harness's request body unchanged. The highest
-priority usable credential therefore decides the thread's harness and family: `claude-api-token` and
-`claude-code-oauth` run Claude, `chatgpt-api-token` and `chatgpt-oauth` run Codex, and the other family's
-credentials are left out of that thread.
-
-Inactive and expired credentials are skipped. A `chatgpt-oauth` credential holds a whole `~/.codex/auth.json`, and
-the API reads the access and refresh tokens out of it; a file it cannot parse is skipped rather than sent. With no
-usable credential the thread declares no endpoint, and the satellite falls back to whatever credential it holds
-itself.
-
-Credentials never reach an agent either way: the satellite's proxy strips what the CLI presents and attaches the
-real one on the way out. The shaping rules live in `api/src/routes/v1/coding_sessions/model_stack.rs`.
-
-A thread is also opened with an environment: every workspace environment variable, then the session's GitHub token
-as `GH_TOKEN` with the git config that lets `git` use it, and that token as the clone credential for each
-`https://github.com/` repository. Unlike LLM credentials, the agent can read all of it. See `docs/environment.md`
-and `docs/github.md`.
-
-Deleting a session destroys its thread first. A thread that already expired or was destroyed, or whose satellite
-was deleted, does not block the delete; any other satellite failure does, so a session is never forgotten while its
-thread still runs. Deleting takes the session's kept history with it. A Studio item's sessions are deleted only
-with their item.
-
-Deleting a satellite keeps its sessions: each loses only its `satellite_id`, and clients hear a `session.upserted`
-for it. Their threads are not destroyed and end on their idle TTL, since an unreachable satellite could otherwise
-never be deleted. A session without a satellite has no thread to reach; its history stays readable, and a Studio
-item continues on another satellite with its next prompt.
+Deleting a session cancels its turns, removes its directory, and takes its kept history with it. A Studio item's
+sessions are deleted only with their item.
 
 ## History
 
-Satellites own no data: they keep a thread's events only while the thread lives, and delete its workspace when it
-ends. Elysium keeps what a thread needs to carry on.
-
-- **Events.** The session watcher records every event it receives in `session_events` before publishing it, as the
-  protobuf `ThreadEvent` the satellite sent, so a later build renders old events with whatever it knows then.
-  `GET /api/v1/coding-sessions/{id}/events` reads the latest 5000 from there, and works after the thread is gone.
-  Clients merge history with live events on `sequence`.
-- **Resuming the stream.** A watcher resumes from the last event kept, so a restart replays only what it missed, and
-  a session never seen before is caught up from its first event. Events up to the thread's latest sequence when the
-  stream opened are recorded without being published one by one; once caught up, the watcher publishes
-  `session.resync` and clients refetch. A resume point the satellite no longer honors leaves a gap in the kept
-  history: the watcher tails from the latest event and publishes `session.resync`.
-- **The harness session.** After every turn, Elysium exports the thread's harness session (Claude's transcript,
-  Codex's rollout) and keeps the latest in `session_transcripts`, compressed with zstd and sealed, because it holds
-  everything the agent read and the satellite does not scrub it. A transcript over 64 MiB sealed is refused and
-  logged rather than cut short. Studio imports it into a new thread to continue an item; see `docs/studio.md`.
+`session_events` keeps every event a session's turns reported, as the runner's own event in JSON (`RunnerEvent`),
+with the turn it belongs to. It is rendered into the view clients show (`api/src/sessions/views.rs`) when it is read
+or published, so a later build renders old events with whatever it knows then.
+`GET /api/v1/coding-sessions/{id}/events` reads the latest 5000, and clients merge history with live events on
+`sequence`. The view kinds are `turnStarted`, `agentMessage`, `agentThinking`, `toolStarted`, `toolCompleted`,
+`turnCompleted` (with the turn's state: `completed`, `failed`, `cancelled`, `interrupted`, or `usage-limited`), and
+`incident` for a credential rollover. Rate limit notices and lines the runner did not understand are kept too, and
+left out of the conversation.
 
 ## Frontend
 
 `frontend/src/pages/Coding/` holds the page. It is a Dockview workspace (`dockview-react`) with two panel types:
 
-- **Sessions** is the overview: every session, its number, project and satellite, live thread state, and last
-  activity, as a table (uikit's `SmartTable`) or as tiles, switched from the panel's toolbar and remembered per
+- **Sessions** is the overview: every session, its number, project, what it is doing now, and last activity, as a table (uikit's `SmartTable`) or as tiles, switched from the panel's toolbar and remembered per
   browser. A title, or anywhere on a tile, opens that session's conversation. See `docs/frontend.md`.
-- **Conversation** is one session, headed by its title, satellite, and number ("Local · Thread 12"), and by a link to
-  the action item it was started from, if any. It loads history through SWR when it opens and drops its events from
+- **Conversation** is one session, headed by its title and number ("Session 12"), and by a link to the action item
+  it was started from, if any. It loads history through SWR when it opens and drops its events from
   Redux when it closes; a reopened panel shows SWR's buffered history while the fresh copy loads. Prompts and agent messages
   render as chat bubbles; tool calls, thinking, and turn results as compact lines with details folded away. Event
-  types without a renderer show their wire name. Enter sends the composer's prompt; Shift+Enter adds a line. A
-  thread that has ended shows no composer.
+  types without a renderer show their wire name. Enter sends the composer's prompt; Shift+Enter adds a line.
 
 The first conversation opens beside Sessions; later ones open as tabs in its group. Panels can be dragged, split,
 and floated. The layout is saved per browser under `elysium.coding.layout.v2`; Reset layout clears it. A restored
@@ -354,38 +235,10 @@ Panels render through portals, so they read page actions (open, create, rename, 
 `CodingActionsContext` rather than props. `src/theme/dockview.css` maps Dockview's variables to the Matter tokens,
 so the workspace follows light and dark mode.
 
-## Running a satellite locally
-
-The satellite image is not published. Build it from a clone of `JalapenoLabs/arsox-satellites` (`develop`) with
-`docker build --tag arsox-satellite:<commit> .`, then run it from its own compose file outside this repository,
-published only on the `docker0` bridge address. Elysium installs Blender on it at runtime, so the plain image is the
-right one:
-
-```yaml
-services:
-  arsox-local:
-    image: arsox-satellite:<commit>
-    restart: unless-stopped
-    ports: [ "172.17.0.1:8090:8080" ]
-    env_file:
-      - path: arsox-local-secret.conf    # ARSOX_SECRET=<a long random value>
-      - path: model-credentials.conf     # ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY
-        required: false
-    volumes: [ "arsox-local-db:/var/arsox", "arsox-local-workspace:/workspace" ]
-volumes:
-  arsox-local-db:
-  arsox-local-workspace:
-```
-
-Register it as `http://172.17.0.1:8090` with the same secret. The API container reaches the host's bridge address,
-so the satellite neither listens on the LAN nor joins Elysium's compose network, which would stop
-`docker compose down` from removing that network. Satellites on other machines publish a port on the LAN and are
-registered by that address. Without the volumes, a restarted satellite forgets its threads, and Elysium marks
-their sessions destroyed.
-
 ## Roadmap
 
 - Rendering agent messages as Markdown.
 - Answering an agent's questions and deciding proposed plans from the conversation.
-- Cancelling a running turn.
-- Following the satellite control stream once the Rust SDK exposes it, replacing the status poll.
+- Cancelling a running turn from the conversation.
+- A one or two sentence summary of every turn, written by a small model, shown as a collapsed row that expands to the
+  turn's full log.

@@ -14,7 +14,7 @@ mod read_asset;
 mod read_feedback_image;
 mod restore_studio_item;
 mod send_turn;
-pub mod thread;
+pub mod session;
 mod update_studio_item;
 
 use std::collections::{HashMap, HashSet};
@@ -229,7 +229,7 @@ impl From<StudioFeedback> for StudioFeedbackResponse {
     }
 }
 
-/// An item's sessions as clients see them, with their threads' last known state.
+/// An item's sessions as clients see them, with what each is doing now.
 pub fn session_responses(
     state: &AppState,
     sessions: Vec<CodingSession>,
@@ -237,8 +237,8 @@ pub fn session_responses(
     sessions
         .into_iter()
         .map(|session| {
-            let thread = state.fleet.thread_status(session.id);
-            CodingSessionResponse::new(session, thread)
+            let activity = state.sessions.activity(session.id);
+            CodingSessionResponse::new(session, activity)
         })
         .collect()
 }

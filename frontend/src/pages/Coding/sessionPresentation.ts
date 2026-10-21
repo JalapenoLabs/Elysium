@@ -1,33 +1,21 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ParseKeys, TFunction } from 'i18next'
-import type { CodingSession, ThreadState, TurnState } from '../../api/routes/codingSessionRoutes'
+import type { ActivityState, CodingSession, TurnState } from '../../api/routes/codingSessionRoutes'
 
 type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
 
-export const threadStateLabelKeys = {
-  'unknown': 'threadStates.unknown',
-  'provisioning': 'threadStates.provisioning',
-  'idle': 'threadStates.idle',
-  'running': 'threadStates.running',
-  'awaiting-input': 'threadStates.awaiting-input',
-  'watching': 'threadStates.watching',
-  'paused': 'threadStates.paused',
-  'expired': 'threadStates.expired',
-  'destroyed': 'threadStates.destroyed',
-} as const satisfies Record<ThreadState, ParseKeys<'coding'>>
+export const activityStateLabelKeys = {
+  idle: 'activityStates.idle',
+  queued: 'activityStates.queued',
+  running: 'activityStates.running',
+} as const satisfies Record<ActivityState, ParseKeys<'coding'>>
 
-export const threadStateChipColors = {
-  'unknown': 'default',
-  'provisioning': 'default',
-  'idle': 'success',
-  'running': 'accent',
-  'awaiting-input': 'warning',
-  'watching': 'accent',
-  'paused': 'default',
-  'expired': 'danger',
-  'destroyed': 'danger',
-} as const satisfies Record<ThreadState, ChipColor>
+export const activityStateChipColors = {
+  idle: 'success',
+  queued: 'default',
+  running: 'accent',
+} as const satisfies Record<ActivityState, ChipColor>
 
 // The session number column, in pixels: wide enough for four digits and the sort icon.
 // Set in full because uikit's SmartTable otherwise holds every column to at least 160.
@@ -37,25 +25,19 @@ export const SESSION_NUMBER_COLUMN_SIZING = {
   maxSize: 120,
 } as const
 
-// A thread in one of these states can no longer take prompts.
-export const CLOSED_THREAD_STATES: readonly ThreadState[] = [ 'expired', 'destroyed' ]
-
 export const turnStateLabelKeys = {
-  unknown: 'turnStates.unknown',
-  queued: 'turnStates.queued',
-  running: 'turnStates.running',
-  completed: 'turnStates.completed',
-  failed: 'turnStates.failed',
-  cancelled: 'turnStates.cancelled',
-  interrupted: 'turnStates.interrupted',
-  watching: 'turnStates.watching',
+  'queued': 'turnStates.queued',
+  'completed': 'turnStates.completed',
+  'failed': 'turnStates.failed',
+  'cancelled': 'turnStates.cancelled',
+  'interrupted': 'turnStates.interrupted',
+  'usage-limited': 'turnStates.usage-limited',
 } as const satisfies Record<TurnState, ParseKeys<'coding'>>
 
 export type SessionTranslate = TFunction<'coding'>
 
 export type SessionContext = {
   projectNames: Record<string, string>
-  satelliteNames: Record<string, string>
   // Renders a UTC instant in the viewer's locale and time zone.
   formatInstant: (instant: string) => string
 }
@@ -65,8 +47,7 @@ export type SessionContext = {
 export type SessionSummary = {
   session: CodingSession
   projectName: string
-  satelliteName: string
-  state: ThreadState
+  state: ActivityState
   stateLabel: string
   lastActivity: string
 }
@@ -76,33 +57,25 @@ export function describeSession(
   t: SessionTranslate,
   context: SessionContext,
 ): SessionSummary {
-  // The thread is null until the API's first poll sees it.
-  const state = session.thread?.state ?? 'unknown'
-  const lastActivityAt = session.thread?.lastActivityAt
+  const lastActivityAt = session.activity.lastActivityAt
   const lastActivity = lastActivityAt
     ? context.formatInstant(lastActivityAt)
     : t('sessions.never')
-
-  // A deleted satellite leaves its sessions behind without one.
-  const satelliteName = session.satelliteId
-    ? context.satelliteNames[session.satelliteId] ?? ''
-    : t('sessions.satelliteDeleted')
 
   return {
     session,
     projectName: session.projectId
       ? context.projectNames[session.projectId] ?? ''
       : '',
-    satelliteName,
-    state,
-    stateLabel: t(threadStateLabelKeys[state]),
+    state: session.activity.state,
+    stateLabel: t(activityStateLabelKeys[session.activity.state]),
     lastActivity,
   }
 }
 
-// The summaries whose number, title, project, satellite, state, or last activity contains
-// `search`, case-insensitively and in their given order: what either view shows, as the
-// viewer reads it.
+// The summaries whose number, title, project, state, or last activity contains `search`,
+// case-insensitively and in their given order: what either view shows, as the viewer
+// reads it.
 export function searchSessionSummaries(summaries: SessionSummary[], search: string): SessionSummary[] {
   const needle = search.trim().toLocaleLowerCase()
   if (!needle) {
@@ -114,7 +87,6 @@ export function searchSessionSummaries(summaries: SessionSummary[], search: stri
       String(summary.session.id),
       summary.session.title,
       summary.projectName,
-      summary.satelliteName,
       summary.stateLabel,
       summary.lastActivity,
     ].join('\n')

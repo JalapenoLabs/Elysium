@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ThreadStatus } from '../../api/routes/codingSessionRoutes'
+import type { SessionActivity } from '../../api/routes/codingSessionRoutes'
 import type { SessionContext, SessionTranslate } from './sessionPresentation'
 
 // Core
@@ -16,14 +16,12 @@ type Context = {
   context: SessionContext
 }
 
-function makeThread(overrides: Partial<ThreadStatus>): ThreadStatus {
+function makeActivity(overrides: Partial<SessionActivity>): SessionActivity {
   return {
     state: 'idle',
     queueDepth: 0,
     currentTurnId: null,
-    latestSequence: 0,
     lastActivityAt: null,
-    expiresAt: null,
     ...overrides,
   }
 }
@@ -34,42 +32,38 @@ describe('describeSession', () => {
     testContext.t = i18next.getFixedT(null, 'coding')
     testContext.context = {
       projectNames: { elysium: 'Elysium' },
-      satelliteNames: { forge: 'Forge' },
       formatInstant: (instant) => `<${instant}>`,
     }
   })
 
-  it<Context>('names the project, satellite, state, and last activity', ({ t, context }) => {
+  it<Context>('names the project, state, and last activity', ({ t, context }) => {
     const session = makeCodingSession({
       id: 4,
       projectId: 'elysium',
-      satelliteId: 'forge',
-      thread: makeThread({ state: 'awaiting-input', lastActivityAt: '2026-09-20T12:00:00.000Z' }),
+      activity: makeActivity({ state: 'running', lastActivityAt: '2026-09-20T12:00:00.000Z' }),
     })
 
     expect(describeSession(session, t, context)).toEqual({
       session,
       projectName: 'Elysium',
-      satelliteName: 'Forge',
-      state: 'awaiting-input',
-      stateLabel: 'Needs input',
+      state: 'running',
+      stateLabel: 'Running',
       lastActivity: '<2026-09-20T12:00:00.000Z>',
     })
   })
 
-  it<Context>('reads a session the API has not polled yet as unknown with no activity', ({ t, context }) => {
+  it<Context>('reads a session that has not run yet as idle with no activity', ({ t, context }) => {
     const summary = describeSession(makeCodingSession({ id: 1, projectId: 'elysium' }), t, context)
 
-    expect(summary.state).toBe('unknown')
-    expect(summary.stateLabel).toBe('Unknown')
+    expect(summary.state).toBe('idle')
+    expect(summary.stateLabel).toBe('Idle')
     expect(summary.lastActivity).toBe('No activity yet')
   })
 
-  it<Context>('leaves the name blank for a project or satellite it does not know', ({ t, context }) => {
-    const summary = describeSession(makeCodingSession({ id: 1, projectId: 'gone', satelliteId: 'gone' }), t, context)
+  it<Context>('leaves the name blank for a project it does not know', ({ t, context }) => {
+    const summary = describeSession(makeCodingSession({ id: 1, projectId: 'gone' }), t, context)
 
     expect(summary.projectName).toBe('')
-    expect(summary.satelliteName).toBe('')
   })
 })
 
@@ -78,7 +72,6 @@ describe('searchSessionSummaries', () => {
     testContext.t = i18next.getFixedT(null, 'coding')
     testContext.context = {
       projectNames: { elysium: 'Elysium', farworlds: 'Farworlds' },
-      satelliteNames: { forge: 'Forge', anvil: 'Anvil' },
       formatInstant: (instant) => instant,
     }
   })
@@ -89,14 +82,12 @@ describe('searchSessionSummaries', () => {
         id: 12,
         title: 'Fix the login page',
         projectId: 'elysium',
-        satelliteId: 'forge',
-        thread: makeThread({ state: 'running', lastActivityAt: '2026-09-20T09:00:00.000Z' }),
+        activity: makeActivity({ state: 'running', lastActivityAt: '2026-09-20T09:00:00.000Z' }),
       }),
       makeCodingSession({
         id: 3,
         title: 'Write the storage docs',
         projectId: 'farworlds',
-        satelliteId: 'anvil',
       }),
     ].map((session) => describeSession(session, t, context))
   }
@@ -112,13 +103,13 @@ describe('searchSessionSummaries', () => {
     expect(ids(searchSessionSummaries(summaries, '   '))).toEqual([ 12, 3 ])
   })
 
-  it<Context>('matches the title, project, satellite, and state as shown, ignoring case', (testContext) => {
+  it<Context>('matches the title, project, and state as shown, ignoring case', (testContext) => {
     const summaries = describeAll(testContext)
 
     expect(ids(searchSessionSummaries(summaries, 'LOGIN'))).toEqual([ 12 ])
     expect(ids(searchSessionSummaries(summaries, 'farworlds'))).toEqual([ 3 ])
-    expect(ids(searchSessionSummaries(summaries, 'anvil'))).toEqual([ 3 ])
     expect(ids(searchSessionSummaries(summaries, 'running'))).toEqual([ 12 ])
+    expect(ids(searchSessionSummaries(summaries, 'idle'))).toEqual([ 3 ])
     expect(ids(searchSessionSummaries(summaries, 'no activity'))).toEqual([ 3 ])
   })
 

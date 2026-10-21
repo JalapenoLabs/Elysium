@@ -1,13 +1,13 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Tools for coding sessions: an agent working on a project's repositories, in a thread on a
-//! satellite.
+//! Tools for coding sessions: an agent working on a project's repositories in Elysium's
+//! workspace.
 //!
 //! They call the coding session routes' own functions (`routes::v1::coding_sessions`), so a
-//! session started here opens its thread, records its creator, and reaches the browser exactly
-//! as one started in the Coding area does.
+//! session started here prepares its directory, records its creator, and reaches the browser
+//! exactly as one started in the Coding area does.
 //!
-//! A thread's history is thousands of small events, far more than a model should read at
+//! A session's history is thousands of small events, far more than a model should read at
 //! once, so `sessions_events` answers the latest few of those Elysium renders, and a client
 //! follows along by asking for what came after the last sequence it saw.
 
@@ -79,8 +79,8 @@ impl Workspace {
     #[tool(
         name = "sessions_list",
         description = "Lists the coding sessions, newest first: each one's number, title, \
-            project, satellite, the action item it was started from, and its thread's latest \
-            state (running, idle, waiting on a question, or ended)."
+            project, the action item it was started from, and what it is doing now (idle, \
+            queued, or running a turn)."
     )]
     async fn sessions_list(&self) -> Result<CallToolResult, ErrorData> {
         let sessions = coding_sessions::list(&self.state).await;
@@ -89,7 +89,7 @@ impl Workspace {
 
     #[tool(
         name = "sessions_get",
-        description = "Shows one coding session and its thread's latest state."
+        description = "Shows one coding session and what it is doing now."
     )]
     async fn sessions_get(
         &self,
@@ -101,11 +101,10 @@ impl Workspace {
 
     #[tool(
         name = "sessions_create",
-        description = "Starts a coding session: opens a thread on a satellite for a project, \
-            clones the repositories given, and, with a prompt, queues it as the agent's first \
-            turn. A session started from an action item must have a prompt, and its first turn \
-            carries the item's context. Find ids with projects_list and satellites_list. Needs \
-            write access."
+        description = "Starts a coding session for a project: clones the repositories given \
+            into its directory and, with a prompt, queues it as the agent's first turn. A \
+            session started from an action item must have a prompt, and its first turn carries \
+            the item's context. Find project ids with projects_list. Needs write access."
     )]
     async fn sessions_create(
         &self,

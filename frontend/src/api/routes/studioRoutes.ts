@@ -11,7 +11,7 @@ import { apiClient } from '../index'
 export type StudioItem = {
   id: string
   title: string
-  // The first prompt, kept for the brief a continued thread may start with.
+  // The first prompt the item was created with.
   prompt: string
   projectId: string | null
   // Where every file of the item is kept.
@@ -108,7 +108,6 @@ type CreateStudioItemRequest = {
   title?: string
   projectId?: string
   storageLocationId: string
-  satelliteId: string
 }
 
 type CreateStudioItemResponse = {
@@ -155,9 +154,6 @@ export function restoreStudioItem(itemId: string) {
 
 export type SendStudioTurnRequest = {
   prompt: string
-  // The satellite to continue on when the item's latest thread has ended. Absent lets the
-  // API pick the previous one, and it answers 409 when it knows of none usable.
-  satelliteId?: string
   // The image, or the model's `.glb`, a drawing was made over.
   sourceAssetId?: string
   // model-viewer's `getCameraOrbit().toString()` when the view drawn over was a model's.
@@ -169,7 +165,7 @@ export type SendStudioTurnRequest = {
 }
 
 type SendStudioTurnResponse = {
-  // The session the turn runs in: a new one when the latest thread had ended.
+  // The session the turn runs in: the item's, opened now when it had none.
   session: CodingSession
   turn: {
     turnId: string
@@ -179,8 +175,6 @@ type SendStudioTurnResponse = {
   }
   // Recorded only for a prompt with a drawing.
   feedback: StudioFeedback | null
-  // The turn opened a new session on the item.
-  continued: boolean
 }
 
 // Always multipart, so a drawn prompt and a plain one travel the same way. The browser
@@ -188,9 +182,6 @@ type SendStudioTurnResponse = {
 export function sendStudioTurn(itemId: string, request: SendStudioTurnRequest) {
   const body = new FormData()
   body.set('prompt', request.prompt)
-  if (request.satelliteId) {
-    body.set('satelliteId', request.satelliteId)
-  }
   if (request.sourceAssetId) {
     body.set('sourceAssetId', request.sourceAssetId)
   }

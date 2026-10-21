@@ -2,8 +2,8 @@
 
 //! `POST /api/v1/studio-items/{id}/restore`: bring back a softly deleted item.
 //!
-//! Its thread was destroyed when it was deleted, so its next prompt continues it on a new
-//! one (see `docs/studio.md`, Continuing).
+//! Deleting cancelled its session's turns and kept its directory, so its next prompt carries
+//! on where the last one stopped (see `docs/studio.md`, Deleting).
 
 use anyhow::Context;
 use axum::Json;

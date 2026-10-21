@@ -15,7 +15,7 @@ const BASE_BRANCH_MAX_CHARACTERS = 255
 const PROMPT_MAX_CHARACTERS = 100_000
 
 // The API clones into a directory named after the URL's last segment, and accepts
-// only the git URL forms a satellite can fetch.
+// only the git URL forms the workspace can fetch.
 const REPOSITORY_URL_PATTERN = /^(https?:\/\/|ssh:\/\/|git@)\S+\/[\w.-]+?(\.git)?\/?$/
 
 // Elysium holds no SSH keys. The API clones a github.com SSH remote over HTTPS instead and
@@ -56,9 +56,6 @@ export function createSessionFormSchema(t: TFunction<'coding'>, options: Session
     projectId: z
       .string()
       .min(1, { error: t('create.errors.projectRequired') }),
-    satelliteId: z
-      .string()
-      .min(1, { error: t('create.errors.satelliteRequired') }),
     // Optional here: a blank title falls back to the prompt's first line on submit.
     title: z
       .string()

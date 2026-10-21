@@ -28,9 +28,6 @@ export function createStudioItemFormSchema(t: TFunction<'studio'>) {
     storageLocationId: z
       .string()
       .min(1, { error: t('create.errors.locationRequired') }),
-    satelliteId: z
-      .string()
-      .min(1, { error: t('create.errors.satelliteRequired') }),
   })
 }
 

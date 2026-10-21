@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/coding-sessions`: every Coding session (Studio's are left out), newest first, with its thread state.
+//! `GET /api/v1/coding-sessions`: every Coding session (Studio's are left out), newest first,
+//! with what each is doing now.
 //!
 //! [`find`] answers one session the same way; the MCP server reads it, and no route needs it.
 
@@ -19,7 +20,7 @@ pub async fn handle(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
     Ok(Json(json!({ "sessions": sessions })))
 }
 
-/// Every Coding session, newest first, with the fleet's latest view of its thread.
+/// Every Coding session, newest first, with what it is doing now.
 ///
 /// # Errors
 /// An internal error when the database cannot be reached.
@@ -34,14 +35,14 @@ pub async fn list(state: &AppState) -> Result<Vec<CodingSessionResponse>, ApiErr
         .await?
         .into_iter()
         .map(|session| {
-            let thread = state.fleet.thread_status(session.id);
-            CodingSessionResponse::new(session, thread)
+            let activity = state.sessions.activity(session.id);
+            CodingSessionResponse::new(session, activity)
         })
         .collect();
     Ok(sessions)
 }
 
-/// The session `id`, with the fleet's latest view of its thread.
+/// The session `id`, with what it is doing now.
 ///
 /// # Errors
 /// `404` for an unknown session.
@@ -54,6 +55,6 @@ pub async fn find(state: &AppState, id: i64) -> Result<CodingSessionResponse, Ap
     let session = coding_session::find(&mut connection, id).await?;
     Ok(CodingSessionResponse::new(
         session,
-        state.fleet.thread_status(id),
+        state.sessions.activity(id),
     ))
 }
