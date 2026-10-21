@@ -80,6 +80,17 @@ add nothing to that.
 
 See `docs/browser.md`.
 
+## Connectors
+
+- A connector account, and every timeline record it ingests, belongs to the person whose browser it reads through;
+  every connector and timeline route answers them alone.
+- `timelineRecord.created` carries ids and kinds, never a message's content, since every client of the event stream
+  hears every event. The inbox item a message raises is an action item like any other, which every workspace member
+  can see; per-person items are on the roadmap with owners as users.
+- A connector reads a page over the browser's DevTools port, which only the API reaches (above).
+
+See `docs/connectors.md`.
+
 ## Auto-update
 
 The updater (`updater/updater.sh`) is the one container that mounts the Docker socket, because it runs compose. It

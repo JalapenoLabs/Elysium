@@ -6,7 +6,7 @@ on the host afterwards, which keeps the session alive. Connectors then read and 
 Elysium uses each service as its user does and never installs anything into an organization.
 
 Today the API runs a browser per signed-in account and relays its stream, and the web app streams it to its owner
-under Settings, Browser sign-ins; the connectors that read through it are on the roadmap. The facts below were
+under Settings, Browser sign-ins; Outlook is read through it (`docs/connectors.md`). The facts below were
 verified against the pinned versions.
 
 ## Neko
@@ -225,7 +225,6 @@ Redux.
 
 ## Roadmap
 
-- The connector trait and the timeline record.
-- Outlook and Gmail ingest through the signed-in browser, over the DevTools Protocol.
+- Gmail ingest through the signed-in browser; Outlook is read today (`docs/connectors.md`).
 - An explicit public address, for hosts whose public name does not resolve to where media can reach them.
 - Elysia's triage turn and drafting, driving the same browser.

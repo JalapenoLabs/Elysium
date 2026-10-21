@@ -14,6 +14,7 @@ import { initiativeLinkDeleted, initiativeLinkUpserted } from '../store/initiati
 import { actionItemDeleted, actionItemUpserted } from '../store/actionItemsSlice'
 import { browserSessionDeleted, browserSessionUpserted } from '../store/browserSessionsSlice'
 import { changesetUpserted } from '../store/changesetsSlice'
+import { connectorAccountDeleted, connectorAccountUpserted } from '../store/connectorAccountsSlice'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
 import { elysiaMessageCreated, elysiaTurnUpserted, elysiaUpdated } from '../store/elysiaSlice'
 import { environmentVariableDeleted, environmentVariableUpserted } from '../store/environmentVariablesSlice'
@@ -97,6 +98,22 @@ const handlers: Handlers = {
     store.dispatch(browserSessionUpserted(event.data))
   },
   'browserSession.deleted': (event) => store.dispatch(browserSessionDeleted(event.data.id)),
+  // Like browsers, a connector account is its owner's alone.
+  'connectorAccount.upserted': (event) => {
+    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
+      return
+    }
+    store.dispatch(connectorAccountUpserted(event.data))
+  },
+  'connectorAccount.deleted': (event) => store.dispatch(connectorAccountDeleted(event.data.id)),
+  // The event carries no content; a page showing its owner's timeline reloads it. The inbox
+  // item it raised arrives as its own `actionItem.upserted`.
+  'timelineRecord.created': (event) => {
+    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
+      return
+    }
+    void mutate((key) => typeof key === 'string' && key.startsWith('v1/timeline'))
+  },
   'history.appended': (event) => store.dispatch(historyAppended(event.data)),
   'changeset.upserted': (event) => store.dispatch(changesetUpserted(event.data)),
   'elysia.updated': (event) => store.dispatch(elysiaUpdated(event.data)),

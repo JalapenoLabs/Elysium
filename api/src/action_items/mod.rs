@@ -31,6 +31,7 @@ use std::fmt;
 
 use uuid::Uuid;
 
+use crate::connectors::ConnectorKind;
 use crate::models::action_item::ActionItemState;
 use crate::models::action_item_link::LinkProvider;
 use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, SYSTEM_USER_ID};
@@ -54,6 +55,9 @@ pub enum Actor {
     Session(i64),
     /// The watcher, recording a change it read from this provider.
     Watcher(LinkProvider),
+    /// A connector, raising an item for something it read, such as new mail. Written as the
+    /// watcher of that service (`watcher:outlook`): it records what already happened there.
+    Connector(ConnectorKind),
 }
 
 impl Actor {
@@ -64,7 +68,7 @@ impl Actor {
             Self::User(id) => id,
             Self::Elysia => ELYSIA_USER_ID,
             Self::Session(_) => CODING_AGENT_USER_ID,
-            Self::Watcher(_) => SYSTEM_USER_ID,
+            Self::Watcher(_) | Self::Connector(_) => SYSTEM_USER_ID,
         }
     }
 }
@@ -80,6 +84,7 @@ impl fmt::Display for Actor {
             Self::Elysia => formatter.write_str("elysia"),
             Self::Session(number) => write!(formatter, "session:{number}"),
             Self::Watcher(provider) => write!(formatter, "watcher:{}", provider.as_str()),
+            Self::Connector(kind) => write!(formatter, "watcher:{}", kind.as_str()),
         }
     }
 }
