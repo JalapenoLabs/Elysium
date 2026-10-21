@@ -403,7 +403,7 @@ pub(crate) fn build_browsers(
         database,
         cipher,
         events,
-        BrowserContainers::new(build_docker(config)?),
+        BrowserContainers::new(build_docker(config)?, &config.encryption_key),
         Neko::new(http),
         config.public_url.clone(),
     ))

@@ -181,6 +181,12 @@ extension is installed, so the browser is a plain Chromium.
   is replaced too, and one whose setup files fail to copy in is removed at once, since the label claims they are in
   place. Each pass ends by removing whatever Docker holds for a browser no row owns. A failure marks the browser
   `failed` with the reason until a pass succeeds.
+- **Ownership** is a `dev.elysium.deployment` label on every container, network, and volume: the hex SHA-256 of
+  `elysium/browser/deployment:` and `ELYSIUM_ENCRYPTION_KEY`, a purpose of its own beside Kratos's and Hydra's. The
+  removal at the end of a pass lists only what carries this deployment's label, so a deployment never removes a
+  browser, or the profile someone signed in on, that another deployment on the same Docker host created. The label
+  is part of the spec hash, so a container without it is replaced to gain it. Two deployments still cannot both run
+  browsers on one host: nginx's container name and the media ports are fixed.
 - **Status** is kept in memory and starts as `starting` when the API starts; the first pass sets it.
 - **Removing one** removes its container, network, and volume, then its row, in a task of its own so a request that
   is given up on does not stop it halfway, and holding Docker's lock throughout. A reconcile pass waiting for the
