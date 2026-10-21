@@ -39,6 +39,8 @@ pub struct ElysiaTurn {
     pub instructions: String,
     /// The session the previous turn left, so she carries context. `None` starts fresh.
     pub resume: Option<String>,
+    /// Her tool server, under the turn's grant.
+    pub mcp_servers: Vec<runner::McpServer>,
 }
 
 /// How a turn ended, in Elysia's terms.
@@ -118,7 +120,7 @@ async fn run_on_host(
             prompt: turn.prompt,
             working_directory,
             resume,
-            mcp_servers: Vec::new(),
+            mcp_servers: turn.mcp_servers,
             allowed_tools: None,
             system_prompt_append: Some(turn.instructions),
             environment: Vec::new(),

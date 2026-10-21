@@ -249,7 +249,7 @@ async fn run_locations(
     arguments: &str,
 ) -> Result<Value, ToolError> {
     let NoArguments {} = parse_arguments(arguments)?;
-    let CallScope::Session(session) = scope;
+    let session = scope.session()?;
     let mut connection = context
         .database
         .get()
@@ -328,7 +328,7 @@ async fn run_download(
 ) -> Result<Value, ToolError> {
     let arguments: DownloadArguments = parse_arguments(arguments)?;
     let (location, access_key) = open_location(context, scope, arguments.location_id).await?;
-    let CallScope::Session(session) = scope;
+    let session = scope.session()?;
     copy_to_workspace(
         &context.storage,
         &context.workspace,
@@ -348,7 +348,7 @@ async fn run_upload(
     let arguments: UploadArguments = parse_arguments(arguments)?;
     // The location is checked first, so a call it refuses never opens the workspace file.
     let (location, access_key) = open_location(context, scope, arguments.location_id).await?;
-    let CallScope::Session(session) = scope;
+    let session = scope.session()?;
     copy_to_location(
         &context.storage,
         &context.workspace,
@@ -371,7 +371,7 @@ async fn open_location(
     scope: &CallScope,
     location_id: Uuid,
 ) -> Result<(StorageLocation, SecretString), ToolError> {
-    let CallScope::Session(session) = scope;
+    let session = scope.session()?;
     let mut connection = context
         .database
         .get()

@@ -130,7 +130,8 @@ is true: a restart ends every turn.
 
 Some of an agent's tools answer from Elysium's own data: `elysium_work` for the project's action items and
 initiatives (`docs/action-items.md`), given to every turn of a session with a project, and `elysium_storage` for its
-storage locations (`docs/storage.md`), given when the project may use one. They are served at
+storage locations (`docs/storage.md`), given when the project may use one. A third server, `elysia`, is Elysia's own
+and is given only to her turns (`docs/elysia.md`). They are served at
 `/api/agent-tools/{server}` (`api/src/tools/endpoint.rs`), one stateless Streamable HTTP MCP server each, which the
 workspace reaches as `http://api:8080` on `elysium-agents`. nginx answers `404` for the path, so it is never on the
 public origin.
