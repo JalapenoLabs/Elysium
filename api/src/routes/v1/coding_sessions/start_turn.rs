@@ -1,8 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/coding-sessions/{id}/turns`: send a prompt to the session's thread.
+//! `POST /api/v1/coding-sessions/{id}/turns`: send a prompt to the session's agent.
 //!
-//! The satellite queues the turn behind any that are running. Its progress arrives as
+//! The turn queues behind any the session has unfinished. Its progress arrives as
 //! `session.event`s on the event stream, not in this response.
 
 use anyhow::Context;
@@ -15,11 +15,13 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use validator::Validate;
 
-use super::{satellite_of, validate_not_blank};
+use super::validate_not_blank;
 use crate::errors::ApiError;
-use crate::fleet::views::TurnView;
 use crate::models::coding_session;
+use crate::sessions::TurnExtras;
+use crate::sessions::views::TurnView;
 use crate::state::AppState;
+use crate::studio::instructions::INSTRUCTIONS;
 
 /// A prompt for a session's agent.
 #[derive(Debug, Deserialize, Validate, JsonSchema)]
@@ -45,10 +47,11 @@ pub async fn handle(
     Ok((StatusCode::CREATED, Json(json!({ "turn": turn }))))
 }
 
-/// Sends a prompt to the session `id`'s thread, which queues it behind any turn running.
+/// Sends a prompt to session `id`, queued behind any turn it has unfinished.
 ///
 /// # Errors
-/// The request's validation errors, `404` for an unknown session, or the satellite's refusal.
+/// The request's validation errors, `404` for an unknown session, and `503` while Elysium
+/// shuts down.
 pub async fn start_turn(
     state: &AppState,
     id: i64,
@@ -64,8 +67,14 @@ pub async fn start_turn(
     let session = coding_session::find(&mut connection, id).await?;
     drop(connection);
 
-    let client = state.fleet.client(satellite_of(&session)?).await?;
-    let handle = client.threads().attach(session.thread_id.as_str()).await?;
-    let turn = handle.start_turn(body.prompt).await?;
-    Ok(TurnView::from(turn.queued()))
+    // A Studio session reached this way still works as Studio's agents do.
+    let extras = TurnExtras {
+        system_prompt_append: session
+            .studio_item_id
+            .map(|_studio_item| INSTRUCTIONS.to_owned()),
+    };
+    state
+        .sessions
+        .start_turn(&session, body.prompt, extras)
+        .await
 }

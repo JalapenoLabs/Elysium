@@ -8,18 +8,21 @@ import { generatePath, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
 // Redux
+import { selectIsAdmin } from '../../../store/authSlice'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { llmDeleted, llmUpserted, selectAllLlms } from '../../../store/llmsSlice'
+import { selectWorkspaceSettings } from '../../../store/workspaceSettingsSlice'
 
 // User interface
 import { Breadcrumbs, Button, Dropdown, Label, Spinner, toast } from '@heroui/react'
 import { LuChevronDown, LuPlus } from 'react-icons/lu'
+import { AgentConfigurationSettings } from './AgentConfigurationSettings'
 import { LlmTable } from './LlmTable'
 
 // Misc
 import { deleteLlm, updateLlm } from '../../../api/routes/llmRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
-import { useLlmsLoader } from '../../../hooks/useServerData'
+import { useLlmsLoader, useWorkspaceSettingsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 import { LLM_TYPES, llmTypeLabelKeys } from './llmPresentation'
 import { addLlmUrlByType } from './llmProviders'
@@ -29,6 +32,7 @@ export function ManageLlmsPage() {
   const dispatch = useAppDispatch()
   const llms = useAppSelector(selectAllLlms)
   const status = useLlmsLoader()
+  const isAdmin = useAppSelector(selectIsAdmin)
 
   const navigate = useNavigate()
   const confirm = useConfirm()
@@ -127,5 +131,22 @@ export function ManageLlmsPage() {
         onDelete={confirmDelete}
       />}
     </section>
+
+    {isAdmin && <AgentConfigurationSection />}
   </div>
+}
+
+// Admins only, as the workspace settings are.
+function AgentConfigurationSection() {
+  const { t } = useTranslation('llms')
+  const status = useWorkspaceSettingsLoader()
+  const settings = useAppSelector(selectWorkspaceSettings)
+
+  return <section className='relaxed pt-10'>
+    <h2 className='text-xl font-semibold'>{t('agentConfiguration.heading')}</h2>
+    <p className='compact mt-1 max-w-2xl text-sm opacity-70'>{t('agentConfiguration.description')}</p>
+    {settings && <AgentConfigurationSettings settings={settings} />}
+    {!settings && status === 'loading' && <Spinner size='sm' />}
+    {status === 'failed' && <p className='text-sm text-danger'>{t('agentConfiguration.loadError')}</p>}
+  </section>
 }

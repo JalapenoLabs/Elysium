@@ -13,7 +13,6 @@ import { useNavigate } from 'react-router'
 import { codingSessionUpserted } from '../../store/codingSessionsSlice'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { selectAllProjects } from '../../store/projectsSlice'
-import { selectAllSatellites } from '../../store/satellitesSlice'
 import { selectAllStorageLocations } from '../../store/storageLocationsSlice'
 import { studioItemUpserted } from '../../store/studioItemsSlice'
 
@@ -39,7 +38,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { createStudioItem } from '../../api/routes/studioRoutes'
-import { useProjectsLoader, useSatellitesLoader, useStorageLocationsLoader } from '../../hooks/useServerData'
+import { useProjectsLoader, useStorageLocationsLoader } from '../../hooks/useServerData'
 import { getStudioItemUrl } from '../../urls'
 import { createStudioItemFormSchema } from './studioItemFormSchema'
 import { getDefaultStudioLocationId, getStudioLocationChoices } from './studioStorage'
@@ -51,23 +50,16 @@ type Props = {
   onCreated: () => void
 }
 
-// The New item form: the first prompt, an optional title and project, where the files are
-// kept, and the satellite the agent runs on. Creating it starts the first turn.
+// The New item form: the first prompt, an optional title and project, and where the files
+// are kept. Creating it starts the first turn.
 export function CreateStudioItemForm(props: Props) {
   const { t } = useTranslation([ 'studio', 'common' ])
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   useProjectsLoader()
-  useSatellitesLoader()
   useStorageLocationsLoader()
   const projects = useAppSelector(selectAllProjects)
-  const satellites = useAppSelector(selectAllSatellites)
   const locations = useAppSelector(selectAllStorageLocations)
-
-  const activeSatellites = useMemo(
-    () => satellites.filter((satellite) => satellite.isActive),
-    [ satellites ],
-  )
 
   const resolver = useMemo(() => zodResolver(createStudioItemFormSchema(t)), [ t ])
   const form = useForm<StudioItemFormValues>({
@@ -77,16 +69,12 @@ export function CreateStudioItemForm(props: Props) {
       title: '',
       projectId: '',
       storageLocationId: getDefaultStudioLocationId(getStudioLocationChoices(locations, null)),
-      // A lone satellite is the only possible choice; preselect it.
-      satelliteId: activeSatellites.length === 1
-        ? activeSatellites[0].id
-        : '',
     },
   })
 
-  const [ prompt, title, projectId, storageLocationId, satelliteId ] = useWatch({
+  const [ prompt, title, projectId, storageLocationId ] = useWatch({
     control: form.control,
-    name: [ 'prompt', 'title', 'projectId', 'storageLocationId', 'satelliteId' ],
+    name: [ 'prompt', 'title', 'projectId', 'storageLocationId' ],
   })
   const errors = form.formState.errors
   const locationChoices = getStudioLocationChoices(locations, projectId || null)
@@ -113,7 +101,6 @@ export function CreateStudioItemForm(props: Props) {
         title: values.title || undefined,
         projectId: values.projectId || undefined,
         storageLocationId: values.storageLocationId,
-        satelliteId: values.satelliteId,
       })
       dispatch(studioItemUpserted(item))
       dispatch(codingSessionUpserted(session))
@@ -122,8 +109,8 @@ export function CreateStudioItemForm(props: Props) {
       navigate(getStudioItemUrl(item.id))
     }
     catch (error) {
-      // A refused item (400), such as a location the project may not use, and a satellite
-      // that refused the thread (502) both say what went wrong.
+      // A refused item (400), such as a location the project may not use, and an unavailable
+      // workspace (502) both say what went wrong.
       const message = getApiErrorMessage(error)
       if (!message) {
         console.debug('CreateStudioItemForm failed to create an item', { error })
@@ -233,37 +220,6 @@ export function CreateStudioItemForm(props: Props) {
         <FieldError>{errors.storageLocationId?.message}</FieldError>
       </Select>
 
-      {/* Satellite */}
-      <Select
-        isRequired
-        isInvalid={Boolean(errors.satelliteId)}
-        placeholder={t('create.satellitePlaceholder')}
-        value={satelliteId || null}
-        onChange={(key) => form.setValue(
-          'satelliteId',
-          String(key ?? ''),
-          { shouldDirty: true, shouldValidate: true },
-        )}
-      >
-        <Label>{t('create.satellite')}</Label>
-        <Select.Trigger>
-          <Select.Value />
-          <Select.Indicator />
-        </Select.Trigger>
-        <Select.Popover>
-          <ListBox>{
-            activeSatellites.map((satellite) => <ListBox.Item
-              key={satellite.id}
-              id={satellite.id}
-              textValue={satellite.name}
-            >
-              {satellite.name}
-              <ListBox.ItemIndicator />
-            </ListBox.Item>)
-          }</ListBox>
-        </Select.Popover>
-        <FieldError>{errors.satelliteId?.message}</FieldError>
-      </Select>
     </Modal.Body>
     <Modal.Footer>
       <Button slot='close' variant='tertiary'>
@@ -271,7 +227,7 @@ export function CreateStudioItemForm(props: Props) {
       </Button>
       <Button
         type='submit'
-        isDisabled={!prompt.trim() || !storageLocationId || !satelliteId}
+        isDisabled={!prompt.trim() || !storageLocationId}
         isPending={form.formState.isSubmitting}
       >
         <span>{t('common:actions.create')}</span>

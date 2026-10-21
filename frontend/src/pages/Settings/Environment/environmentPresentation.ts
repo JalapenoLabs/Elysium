@@ -14,32 +14,19 @@ export const MASKED_VALUE = '••••••'
 export type KeyRefusal =
   | 'malformed'
   | 'reservedForElysium'
-  | 'reservedForSatellite'
-  | 'providerCredential'
-  | 'overriddenBySatellite'
+  | 'reservedForRunner'
+  | 'modelCredential'
 
 export const keyRefusalMessageKeys = {
   malformed: 'form.errors.keyRefusal.malformed',
   reservedForElysium: 'form.errors.keyRefusal.reservedForElysium',
-  reservedForSatellite: 'form.errors.keyRefusal.reservedForSatellite',
-  providerCredential: 'form.errors.keyRefusal.providerCredential',
-  overriddenBySatellite: 'form.errors.keyRefusal.overriddenBySatellite',
+  reservedForRunner: 'form.errors.keyRefusal.reservedForRunner',
+  modelCredential: 'form.errors.keyRefusal.modelCredential',
 } as const satisfies Record<KeyRefusal, ParseKeys<'environment'>>
 
 type KeyRule = {
   matches: (key: string) => boolean
   refusal: KeyRefusal
-}
-
-// Mirrors `is_provider_credential` in the satellite, by way of api/src/environment/mod.rs:
-// a vendor's prefix and a word that marks a credential, matched on shape so a key neither
-// side has listed is still caught.
-function isProviderCredential(key: string) {
-  const vendors = [ 'ANTHROPIC_', 'OPENAI_', 'AWS_', 'AZURE_', 'GOOGLE_', 'DEEPSEEK_' ]
-  const markers = [ 'API_KEY', 'AUTH_TOKEN', 'ACCESS_KEY', 'SECRET', 'CREDENTIALS' ]
-
-  return vendors.some((vendor) => key.startsWith(vendor))
-    && markers.some((marker) => key.includes(marker))
 }
 
 // Mirrors `REFUSED_KEYS` in api/src/environment/mod.rs, which explains each rule. Keys match
@@ -49,19 +36,14 @@ const REFUSED_KEYS: readonly KeyRule[] = [
   { matches: (key) => key === 'GH_TOKEN', refusal: 'reservedForElysium' },
   { matches: (key) => key === 'GITHUB_TOKEN', refusal: 'reservedForElysium' },
   { matches: (key) => key.startsWith('GIT_CONFIG_'), refusal: 'reservedForElysium' },
-  // The satellite refuses these when a thread is created.
-  { matches: (key) => key.startsWith('ARSOX_'), refusal: 'reservedForSatellite' },
-  { matches: isProviderCredential, refusal: 'providerCredential' },
-  // The satellite sets these after every variable a thread declares.
-  { matches: (key) => key === 'PATH', refusal: 'overriddenBySatellite' },
-  { matches: (key) => key === 'HTTP_PROXY', refusal: 'overriddenBySatellite' },
-  { matches: (key) => key === 'http_proxy', refusal: 'overriddenBySatellite' },
-  { matches: (key) => key === 'HTTPS_PROXY', refusal: 'overriddenBySatellite' },
-  { matches: (key) => key === 'https_proxy', refusal: 'overriddenBySatellite' },
-  { matches: (key) => key === 'NO_PROXY', refusal: 'overriddenBySatellite' },
-  { matches: (key) => key === 'no_proxy', refusal: 'overriddenBySatellite' },
-  { matches: (key) => key === 'ANTHROPIC_BASE_URL', refusal: 'overriddenBySatellite' },
-  { matches: (key) => key === 'OPENAI_BASE_URL', refusal: 'overriddenBySatellite' },
+  // The runner sets these for every turn.
+  { matches: (key) => key === 'CLAUDE_CONFIG_DIR', refusal: 'reservedForRunner' },
+  { matches: (key) => key.startsWith('ELYSIUM_'), refusal: 'reservedForRunner' },
+  // These would decide the model credential or endpoint a turn runs on.
+  { matches: (key) => key === 'CLAUDE_CODE_OAUTH_TOKEN', refusal: 'modelCredential' },
+  { matches: (key) => key === 'ANTHROPIC_API_KEY', refusal: 'modelCredential' },
+  { matches: (key) => key === 'ANTHROPIC_AUTH_TOKEN', refusal: 'modelCredential' },
+  { matches: (key) => key === 'ANTHROPIC_BASE_URL', refusal: 'modelCredential' },
 ]
 
 // Why `key` cannot be stored, or null when it can. Length is checked by the caller, so its

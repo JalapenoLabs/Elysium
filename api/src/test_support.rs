@@ -102,7 +102,7 @@ pub fn location_for_every_project(
 }
 
 /// A whole [`AppState`] against `database_url` and the Redis at `TEST_REDIS_URL`, for tests that
-/// drive the router itself. Kratos, satellites, and mail point nowhere reachable: a test that
+/// drive the router itself. Kratos, Docker, and mail point nowhere reachable: a test that
 /// needs them fakes them, and one that keeps files uses [`app_state_with_storage`].
 ///
 /// # Panics
@@ -113,14 +113,10 @@ pub async fn app_state(database_url: &SecretString) -> crate::state::AppState {
 }
 
 /// [`app_state`] keeping files through `storage`, such as the storage module's fake Bunny
-/// zone. The fleet is built with it too, so the files its watchers keep land there as well.
+/// zone. The sessions service is built with it too, so the files Studio keeps land there.
 ///
 /// # Panics
 /// Panics when `TEST_REDIS_URL` is unset or Redis refuses the connection.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one fixture assembling every service the router needs, read top to bottom"
-)]
 pub async fn app_state_with_storage(
     database_url: &SecretString,
     storage: crate::storage::Storage,
@@ -131,7 +127,6 @@ pub async fn app_state_with_storage(
 
     use crate::action_items::links::Links;
     use crate::config::{Config, MailConfig};
-    use crate::fleet::Fleet;
     use crate::github::Github;
     use crate::jira::Jira;
     use crate::realtime::EventBus;
@@ -177,14 +172,6 @@ pub async fn app_state_with_storage(
     let github = Github::new(http.clone());
     let jira = Jira::new(http.clone());
     let links = Links::new(database.clone(), Arc::clone(&cipher), &jira, &github);
-    let fleet = Fleet::new(
-        database.clone(),
-        Arc::clone(&cipher),
-        events.clone(),
-        storage.clone(),
-        links.clone(),
-        shutdown.clone(),
-    );
     let mail = crate::server::build_mail(
         &config,
         http.clone(),
@@ -204,11 +191,15 @@ pub async fn app_state_with_storage(
         version: Arc::clone(&version),
         encryption_key: config.encryption_key.clone(),
     });
-    let runner = crate::server::build_runner(
+    let (runner, sessions) = crate::server::build_agents(
         &config,
-        database.clone(),
-        Arc::clone(&cipher),
-        activity.clone(),
+        crate::server::AgentServices {
+            database: database.clone(),
+            cipher: Arc::clone(&cipher),
+            events: events.clone(),
+            storage: storage.clone(),
+            activity: activity.clone(),
+        },
         &shutdown,
     )
     .expect("the runner builds without reaching Docker");
@@ -221,12 +212,12 @@ pub async fn app_state_with_storage(
         cipher,
         version,
         events,
-        fleet,
         github,
         jira,
         links,
         mail,
         runner,
+        sessions,
         storage,
         updates,
         shutdown,
@@ -279,28 +270,15 @@ pub fn multipart_form(parts: &[(&str, &[u8])]) -> (String, Vec<u8>) {
     (content_type, body)
 }
 
-/// What [`studio_item_with_session`] creates.
-#[derive(Debug)]
-pub struct StudioFixture {
-    pub satellite_id: Uuid,
-    pub item: crate::models::studio_item::StudioItem,
-    /// The item's one session, on the satellite's [`THREAD_ID`](crate::fleet::fake_satellite::THREAD_ID).
-    pub session: crate::models::coding_session::CodingSession,
-}
-
 /// A Studio item named "Banana", first asked to "Model a banana", whose files go to the storage
-/// module's fake Bunny zone, with one session on a satellite at `satellite_url`.
+/// module's fake Bunny zone.
 ///
 /// Secrets are sealed with `cipher`, which must be the one the code under test opens them with.
-pub async fn studio_item_with_session(
+pub async fn studio_item(
     connection: &mut AsyncPgConnection,
     cipher: &Cipher,
-    satellite_url: &str,
-) -> StudioFixture {
-    use crate::fleet::fake_satellite::THREAD_ID;
-    use crate::models::coding_session::{self, NewCodingSession};
+) -> crate::models::studio_item::StudioItem {
     use crate::models::project::ProjectScope;
-    use crate::models::satellite::{self, NewSatellite};
     use crate::models::storage_location::{
         self, BunnyStorageRegion, NewStorageLocation, StorageProvider,
     };
@@ -325,7 +303,7 @@ pub async fn studio_item_with_session(
     )
     .await
     .expect("location");
-    let item = studio_item::create(
+    studio_item::create(
         connection,
         &NewStudioItem {
             created_by: TEST_PERSON_ID,
@@ -337,44 +315,5 @@ pub async fn studio_item_with_session(
         },
     )
     .await
-    .expect("item");
-    let satellite_id = satellite::create(
-        connection,
-        cipher,
-        &NewSatellite {
-            created_by: TEST_PERSON_ID,
-            name: "orbit".to_owned(),
-            description: String::new(),
-            url: satellite_url.to_owned(),
-            secret: SecretString::from("satellite-secret"),
-            is_active: true,
-        },
-    )
-    .await
-    .expect("satellite")
-    .id;
-    let session_id = coding_session::reserve_id(connection)
-        .await
-        .expect("reserve");
-    let session = coding_session::create(
-        connection,
-        &NewCodingSession {
-            created_by: TEST_PERSON_ID,
-            id: session_id,
-            project_id: None,
-            satellite_id,
-            thread_id: THREAD_ID.to_owned(),
-            title: "Banana".to_owned(),
-            github_credential_id: None,
-            action_item_id: None,
-            studio_item_id: Some(item.id),
-        },
-    )
-    .await
-    .expect("session");
-    StudioFixture {
-        satellite_id,
-        item,
-        session,
-    }
+    .expect("item")
 }

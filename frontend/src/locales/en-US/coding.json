@@ -12,16 +12,12 @@
     "number": "#",
     "title": "Title",
     "project": "Project",
-    "satellite": "Satellite",
     "state": "State",
     "lastActivity": "Last activity",
     "never": "No activity yet",
-    "satelliteDeleted": "Satellite deleted",
     "empty": "No coding sessions yet. Start one to put an agent to work.",
     "noProjects": "Create a project before starting a session. Every session belongs to one.",
     "openProjects": "Go to projects",
-    "noSatellites": "Add a satellite in settings before starting a session.",
-    "openSatelliteSettings": "Manage satellites",
     "loadError": "Coding sessions could not be loaded.",
     "open": "Open",
     "numbered": "#{{number}}",
@@ -35,33 +31,23 @@
       "tiles": "Tiles"
     }
   },
-  "threadStates": {
-    "unknown": "Unknown",
-    "provisioning": "Provisioning",
+  "activityStates": {
     "idle": "Idle",
-    "running": "Running",
-    "awaiting-input": "Needs input",
-    "watching": "Watching",
-    "paused": "Paused",
-    "expired": "Expired",
-    "destroyed": "Destroyed"
+    "queued": "Queued",
+    "running": "Running"
   },
   "turnStates": {
-    "unknown": "Finished",
     "queued": "Queued",
-    "running": "Running",
     "completed": "Completed",
     "failed": "Failed",
     "cancelled": "Cancelled",
     "interrupted": "Interrupted",
-    "watching": "Watching"
+    "usage-limited": "Out of usage"
   },
   "create": {
     "title": "New coding session",
     "project": "Project",
     "projectPlaceholder": "Choose a project",
-    "satellite": "Satellite",
-    "satellitePlaceholder": "Choose a satellite",
     "sessionTitle": "Title",
     "sessionTitleHint": "Defaults to the first line of the prompt.",
     "repositories": {
@@ -77,7 +63,7 @@
         "selected_one": "{{count}} repository picked",
         "selected_other": "{{count}} repositories picked",
         "noMatches": "No repositories match your search.",
-        "hint": "Optional. Cloned into the session's workspace, most recently pushed first.",
+        "hint": "Optional. Cloned into the session's directory, most recently pushed first.",
         "loading": "Loading the token's repositories…",
         "failed": "GitHub could not be reached to list repositories. Add them by URL instead.",
         "empty": "This token cannot see any repositories. Add them by URL instead.",
@@ -112,12 +98,11 @@
       "promptHint": "What the agent should do about the item.",
       "missing": "This action item could not be found.",
       "deleted": "This action item is deleted. Restore it before starting a session from it.",
-      "presetFailed": "Projects or satellites could not be loaded. Close this and try again."
+      "presetFailed": "Projects could not be loaded. Close this and try again."
     },
     "errors": {
       "promptRequired": "Say what the agent should do about the item.",
       "projectRequired": "Choose a project.",
-      "satelliteRequired": "Choose a satellite.",
       "titleTooLong": "Use 200 characters or fewer.",
       "repositoryUrlInvalid": "Enter a repository URL such as https://github.com/org/repo.git.",
       "repositoryUrlSshHost": "Elysium has no SSH keys. Use the repository's https URL.",
@@ -149,7 +134,7 @@
   },
   "delete": {
     "title": "Delete {{title}}?",
-    "body": "The session's thread is destroyed on its satellite, along with its workspace. This cannot be undone."
+    "body": "The session's turns stop, and its directory, with its clones and history, is removed. This cannot be undone."
   },
   "conversation": {
     "fromItem": "From {{title}}",
@@ -168,19 +153,15 @@
     "toolFailed": "{{tool}} failed",
     "unnamedTool": "Tool",
     "turnFinished": "Turn {{status}}",
-    "plan": "Proposed plan",
-    "question": "The agent is asking",
-    "budgetWarning": "This session has used {{percent}}% of its budget.",
     "incident": "Incident: {{message}}",
     "otherEvent": "{{type}}",
-    "thread": "Thread {{number}}",
     "composer": {
       "label": "Prompt",
       "placeholder": "Tell the agent what to do next",
       "hint": "Enter to send, Shift+Enter for a new line",
-      "send": "Send",
-      "closed": "This session's thread has ended, so it can no longer take prompts."
-    }
+      "send": "Send"
+    },
+    "number": "Session {{number}}"
   },
   "toasts": {
     "created": "{{title}} started",

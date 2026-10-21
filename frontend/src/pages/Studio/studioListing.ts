@@ -1,10 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { CodingSession, ThreadState } from '../../api/routes/codingSessionRoutes'
+import type { ActivityState, CodingSession } from '../../api/routes/codingSessionRoutes'
 import type { StudioItem } from '../../api/routes/studioRoutes'
-
-// Misc
-import { CLOSED_THREAD_STATES } from '../Coding/sessionPresentation'
 
 // The grid's filters, kept in the address so a filtered grid survives opening an item and
 // coming back.
@@ -63,25 +60,12 @@ export type TileThumbnail =
   // No image, and nothing running that would make one.
   | { kind: 'empty' }
 
-// Thread states in which the agent is, or is about to be, at work.
-const WORKING_THREAD_STATES = [ 'provisioning', 'running' ] as const
-
-// Whether the agent is at work on an item, from its newest session: a turn runs or waits, or
-// the thread was just started and the API has not polled it yet, with its first turn queued.
+// Whether the agent is at work on an item, from its newest session: a turn runs or waits.
 export function isSessionWorking(latestSession: CodingSession | undefined) {
   if (!latestSession) {
     return false
   }
-
-  const thread = latestSession.thread
-  if (!thread) {
-    return true
-  }
-  if (CLOSED_THREAD_STATES.includes(thread.state)) {
-    return false
-  }
-  const isRunning = WORKING_THREAD_STATES.some((state) => state === thread.state)
-  return isRunning || thread.queueDepth > 0
+  return latestSession.activity.state !== 'idle'
 }
 
 // The API already chose the image (`api/src/studio/thumbnail.rs`), so this only decides what
@@ -96,13 +80,7 @@ export function getTileThumbnail(item: StudioItem, latestSession: CodingSession 
   return { kind: 'empty' }
 }
 
-// The thread state a tile's chip shows, or null for no chip. An item with no session has no
-// thread to report, and a thread the API has not polled yet, or one whose satellite reported
-// no known state, has no state worth naming: the thumbnail already says when work is under way.
-export function getTileThreadState(latestSession: CodingSession | undefined): ThreadState | null {
-  const state = latestSession?.thread?.state
-  if (!state || state === 'unknown') {
-    return null
-  }
-  return state
+// What a tile's chip shows, or null for no chip: an item with no session has nothing to report.
+export function getTileActivityState(latestSession: CodingSession | undefined): ActivityState | null {
+  return latestSession?.activity.state ?? null
 }

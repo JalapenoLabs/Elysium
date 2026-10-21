@@ -13,8 +13,8 @@ import { StudioThumbnail } from './StudioThumbnail'
 
 // Misc
 import { getStudioItemUrl } from '../../urls'
-import { threadStateChipColors, threadStateLabelKeys } from '../Coding/sessionPresentation'
-import { getTileThreadState, getTileThumbnail } from './studioListing'
+import { activityStateChipColors, activityStateLabelKeys } from '../Coding/sessionPresentation'
+import { getTileActivityState, getTileThumbnail } from './studioListing'
 
 // The title's overlay stretches across the whole card, so clicking anywhere on a tile opens
 // the item; Restore sits above it, since a button cannot live inside a link. As on the
@@ -26,16 +26,16 @@ const TILE_TITLE_CLASS_NAME = [
 
 type Props = {
   item: StudioItem
-  // The item's newest session, whose thread the tile reports; absent until one loads.
+  // The item's newest session, whose activity the tile reports; absent until one loads.
   latestSession: CodingSession | undefined
 }
 
-// One item in the grid: its picture, title, live thread state when there is one to report,
+// One item in the grid: its picture, title, what its agent is doing when there is one to report,
 // and how many images and models it holds.
 export function StudioItemTile(props: Props) {
   const { t, i18n } = useTranslation([ 'studio', 'coding' ])
   const item = props.item
-  const threadState = getTileThreadState(props.latestSession)
+  const activityState = getTileActivityState(props.latestSession)
   const thumbnail = getTileThumbnail(item, props.latestSession)
 
   return <Card className='relative h-full overflow-hidden p-0 transition-transform hover:-translate-y-0.5'>
@@ -54,12 +54,12 @@ export function StudioItemTile(props: Props) {
         }</Link>
       </Card.Title>
       <div className='flex flex-wrap items-center gap-2 text-xs'>
-        {threadState && !item.deletedAt && <Chip
+        {activityState && !item.deletedAt && <Chip
           size='sm'
           variant='soft'
-          color={threadStateChipColors[threadState]}
+          color={activityStateChipColors[activityState]}
         >{
-          t(threadStateLabelKeys[threadState], { ns: 'coding' })
+          t(activityStateLabelKeys[activityState], { ns: 'coding' })
         }</Chip>}
         <span className='opacity-70'>{t('grid.images', { count: item.imageCount })}</span>
         <span className='opacity-70'>{t('grid.models', { count: item.modelCount })}</span>

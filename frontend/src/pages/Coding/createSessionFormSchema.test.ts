@@ -13,7 +13,6 @@ const t = i18next.getFixedT(DEFAULT_LOCALE, 'coding')
 
 const VALUES = {
   projectId: 'project',
-  satelliteId: 'satellite',
   title: '',
   repositories: [],
   prompt: '',

@@ -111,9 +111,6 @@ copied in as well, because the binary embeds the SQL. `cargo-chef` caches compil
 layer. Source and `.git` are copied afterwards, so a commit only rebuilds the crate itself. The runtime image is
 `debian:trixie-slim` with `ca-certificates` and `curl` for the healthcheck, running as a non-root user.
 
-The `arsox-sdk` dependency comes from git, so the build stages install `git` and copy `api/.cargo/config.toml`,
-which makes Cargo fetch through the git CLI.
-
 `api/Dockerfile` ends in two stages:
 
 - `server`, the API alone. The development stack builds this one, so a frontend edit never rebuilds the API.

@@ -3,8 +3,8 @@
 //! `GET /api/v1/studio-items`: the grid. `?deleted=true` lists softly deleted items instead
 //! of live ones.
 //!
-//! Each item's sessions come with it, so a tile shows its thread's state without a second
-//! request.
+//! Each item's sessions come with it, so a tile shows what its agent is doing without a
+//! second request.
 
 use anyhow::Context;
 use axum::Json;

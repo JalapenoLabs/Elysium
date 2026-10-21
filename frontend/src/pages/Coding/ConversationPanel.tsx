@@ -10,7 +10,6 @@ import { useTranslation } from 'react-i18next'
 // Redux
 import { selectCodingSessionById } from '../../store/codingSessionsSlice'
 import { useAppSelector } from '../../store/hooks'
-import { selectSatelliteById } from '../../store/satellitesSlice'
 import { selectSessionTimeline } from '../../store/sessionEventsSlice'
 
 // User interface
@@ -22,11 +21,11 @@ import { SessionActionItemLink } from './SessionActionItemLink'
 // Misc
 import { getUpstreamErrorMessage } from '../../api/errors'
 import { startTurn } from '../../api/routes/codingSessionRoutes'
-import { useCodingSessionsLoader, useSatellitesLoader, useSessionHistoryLoader } from '../../hooks/useServerData'
-import { CLOSED_THREAD_STATES, threadStateChipColors, threadStateLabelKeys } from './sessionPresentation'
+import { useCodingSessionsLoader, useSessionHistoryLoader } from '../../hooks/useServerData'
+import { activityStateChipColors, activityStateLabelKeys } from './sessionPresentation'
 
-// One session's conversation: its history from the satellite, live events from the
-// event stream, and a composer for the next prompt. Its events stay in Redux only
+// One session's conversation: its kept history, live events from the event stream, and a
+// composer for the next prompt. Its events stay in Redux only
 // while this panel is open.
 export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelParams>) {
   const { t } = useTranslation([ 'coding', 'common' ])
@@ -34,9 +33,6 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
 
   const session = useAppSelector((state) => selectCodingSessionById(state, sessionId))
   const sessionsStatus = useCodingSessionsLoader()
-  useSatellitesLoader()
-  const satelliteId = session?.satelliteId ?? ''
-  const satellite = useAppSelector((state) => selectSatelliteById(state, satelliteId))
   const timeline = useAppSelector((state) => selectSessionTimeline(state, sessionId))
 
   const history = useSessionHistoryLoader(sessionId)
@@ -59,8 +55,7 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
     }</div>
   }
 
-  const state = session.thread?.state ?? 'unknown'
-  const isClosed = CLOSED_THREAD_STATES.includes(state)
+  const state = session.activity.state
   const hasHistory = Boolean(timeline?.isHistoryLoaded)
   const isLoading = !hasHistory && !history.error
 
@@ -86,16 +81,14 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
       <div className='min-w-0'>
         <div className='truncate text-sm font-semibold'>{session.title}</div>
         <div className='truncate text-xs opacity-60'>{
-          [ satellite?.name, t('conversation.thread', { number: session.id }) ]
-            .filter(Boolean)
-            .join(' · ')
+          t('conversation.number', { number: session.id })
         }</div>
         {session.actionItemId && <div className='truncate text-xs'>
           <SessionActionItemLink actionItemId={session.actionItemId} />
         </div>}
       </div>
-      <Chip size='sm' variant='soft' color={threadStateChipColors[state]}>{
-        t(threadStateLabelKeys[state])
+      <Chip size='sm' variant='soft' color={activityStateChipColors[state]}>{
+        t(activityStateLabelKeys[state])
       }</Chip>
     </div>
 
@@ -125,7 +118,6 @@ export function ConversationPanel(props: IDockviewPanelProps<ConversationPanelPa
 
     <PromptComposer
       onSend={sendPrompt}
-      isClosed={isClosed}
     />
   </div>
 }

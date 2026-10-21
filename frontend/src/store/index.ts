@@ -23,7 +23,6 @@ import { mailDomainsSlice } from './mailDomainsSlice'
 import { mailServerSlice } from './mailServerSlice'
 import { projectsSlice } from './projectsSlice'
 import { realtimeSlice } from './realtimeSlice'
-import { satellitesSlice } from './satellitesSlice'
 import { sessionEventsSlice } from './sessionEventsSlice'
 import { sessionsViewSlice } from './sessionsViewSlice'
 import { storageLocationsSlice } from './storageLocationsSlice'
@@ -65,7 +64,6 @@ export function createAppStore() {
       [mailServerSlice.name]: mailServerSlice.reducer,
       [projectsSlice.name]: projectsSlice.reducer,
       [realtimeSlice.name]: realtimeSlice.reducer,
-      [satellitesSlice.name]: satellitesSlice.reducer,
       [sessionEventsSlice.name]: sessionEventsSlice.reducer,
       [sessionsViewSlice.name]: sessionsViewSlice.reducer,
       [storageLocationsSlice.name]: storageLocationsSlice.reducer,

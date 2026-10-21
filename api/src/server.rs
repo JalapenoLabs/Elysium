@@ -3,9 +3,9 @@
 //! The HTTP server: startup, middleware stack, and graceful shutdown.
 //!
 //! Startup order: configuration, encryption key, schema check, store connections
-//! (with retry), fleet watchers, the link watcher, the update checker, router, listener.
-//! Shutdown order is the reverse: a signal cancels the shutdown token, which ends every
-//! event stream, fleet watcher, the link watcher, and the update checker; the server stops
+//! (with retry), the agent runner, the link watcher, Elysia's intake, the update checker,
+//! router, listener. Shutdown order is the reverse: a signal cancels the shutdown token, which
+//! ends every event stream, agent turn, the link watcher, and the update checker; the server stops
 //! accepting and drains in-flight requests; the watchers are awaited; then the Postgres
 //! pool closes and the Redis connection drops.
 
@@ -35,7 +35,6 @@ use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::database::migrations;
 use crate::elysia::intake::{self, IntakeContext};
-use crate::fleet::Fleet;
 use crate::github::Github;
 use crate::jira::Jira;
 use crate::mail::Mail;
@@ -48,8 +47,10 @@ use crate::oauth::hydra::Hydra;
 use crate::realtime::EventBus;
 use crate::runner::Runner;
 use crate::runner::workspace::WorkspaceContainer;
+use crate::sessions::{Sessions, SessionsDeps};
 use crate::state::AppState;
 use crate::storage::Storage;
+use crate::tools::grants::Grants;
 use crate::updates::{Updates, UpdatesDeps};
 use crate::version::VersionInfo;
 use crate::{connections, middleware, routes, shutdown, web_app};
@@ -103,26 +104,14 @@ pub async fn serve() -> Result<()> {
         .user_agent(concat!("elysium-api/", env!("CARGO_PKG_VERSION")))
         .build()
         .context("cannot build the HTTP client")?;
-    // Built before the fleet starts, because the fleet's relays answer agents' storage
-    // tool calls with it.
     let storage = Storage::new(http.clone());
 
     let github = Github::new(http.clone());
     let jira = Jira::new(http.clone());
-    // Built before the fleet too: an agent links its pull request through it.
     let links = Links::new(database.clone(), Arc::clone(&cipher), &jira, &github);
 
     let shutdown = CancellationToken::new();
     let events = EventBus::new();
-    let fleet = Fleet::new(
-        database.clone(),
-        Arc::clone(&cipher),
-        events.clone(),
-        storage.clone(),
-        links.clone(),
-        shutdown.clone(),
-    );
-    fleet.start().await?;
     let watch = WatchContext {
         database: database.clone(),
         events: events.clone(),
@@ -158,11 +147,15 @@ pub async fn serve() -> Result<()> {
         encryption_key: config.encryption_key.clone(),
     });
     let update_checks = updates.start(shutdown.clone());
-    let runner = build_runner(
+    let (runner, sessions) = build_agents(
         &config,
-        database.clone(),
-        Arc::clone(&cipher),
-        activity.clone(),
+        AgentServices {
+            database: database.clone(),
+            cipher: Arc::clone(&cipher),
+            events: events.clone(),
+            storage: storage.clone(),
+            activity: activity.clone(),
+        },
         &shutdown,
     )?;
     // Pulls the workspace image and fetches `~/.claude` ahead of the first turn, which
@@ -187,12 +180,12 @@ pub async fn serve() -> Result<()> {
         cipher,
         version,
         events,
-        fleet: fleet.clone(),
         github,
         jira,
         links,
         mail,
         runner: runner.clone(),
+        sessions: sessions.clone(),
         storage,
         updates,
         shutdown: shutdown.clone(),
@@ -223,9 +216,8 @@ pub async fn serve() -> Result<()> {
     .await
     .context("http server failed")?;
 
-    fleet.shutdown().await;
-    event!(name: "fleet.shutdown.complete", Level::INFO, "fleet watchers stopped");
     runner.shutdown().await;
+    sessions.shutdown().await;
     event!(name: "runner.shutdown.complete", Level::INFO, "agent turns stopped");
     watcher.stopped().await;
     if let Err(error) = elysia_intake.await {
@@ -273,14 +265,24 @@ pub(crate) fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
     }
 }
 
-/// The runner, whose turns run in the workspace container through Docker.
-pub(crate) fn build_runner(
+/// What the runner and the sessions service share with the rest of the API.
+#[derive(Clone)]
+pub(crate) struct AgentServices {
+    pub database: Pool,
+    pub cipher: Arc<Cipher>,
+    pub events: EventBus,
+    pub storage: Storage,
+    /// Where running turns say the stack is busy.
+    pub activity: Activities,
+}
+
+/// The runner, whose turns run in the workspace container through Docker, and the sessions
+/// service that runs sessions' turns on it.
+pub(crate) fn build_agents(
     config: &Config,
-    database: Pool,
-    cipher: Arc<Cipher>,
-    activity: Activities,
+    services: AgentServices,
     shutdown: &CancellationToken,
-) -> Result<Runner> {
+) -> Result<(Runner, Sessions)> {
     // Connecting is lazy: nothing reaches Docker until the workspace is prepared.
     let docker = Docker::connect_with_http(
         config.docker.as_str().trim_end_matches('/'),
@@ -289,7 +291,23 @@ pub(crate) fn build_runner(
     )
     .context("DOCKER_URL is invalid")?;
     let workspace = WorkspaceContainer::new(docker, config.workspace_image.clone());
-    Ok(Runner::new(workspace, database, cipher, activity, shutdown))
+    let runner = Runner::new(
+        workspace.clone(),
+        services.database.clone(),
+        Arc::clone(&services.cipher),
+        services.activity,
+        shutdown,
+    );
+    let sessions = Sessions::new(SessionsDeps {
+        database: services.database,
+        cipher: services.cipher,
+        events: services.events,
+        runner: runner.clone(),
+        workspace,
+        grants: Grants::new(),
+        storage: services.storage,
+    });
+    Ok((runner, sessions))
 }
 
 /// The mail services. The broker and Stalwart share `http`.

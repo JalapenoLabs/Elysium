@@ -442,10 +442,9 @@ how it ended and any provider write it still owes; after undoing, what undo kept
 
 ## Coding sessions
 
-Coding agents reach action items through one relayed MCP server, `elysium_work` (`api/src/tools/work.rs`). It is
-declared on every session's thread, whether or not the thread also declares `elysium_storage`, which it does only when
-the project has a storage location (`docs/storage.md`). Every thread therefore has a relay, and `docs/coding.md`'s
-`409 RELAY_NOT_DECLARED` path is left only for threads created before `elysium_work`. It speaks Elysium's terms
+Coding agents reach action items through one MCP server, `elysium_work` (`api/src/tools/work.rs`), served to the
+workspace at `/api/agent-tools/elysium_work` (see `docs/coding.md`). Every turn of a session with a project gets it,
+beside `elysium_storage` when the project has a storage location (`docs/storage.md`). It speaks Elysium's terms
 (items, initiatives, projects, comments), and never a provider's; the provider behind a link is Elysium's business.
 Every call is scoped to the session's project and re-checked against the database, the way storage tools are.
 
