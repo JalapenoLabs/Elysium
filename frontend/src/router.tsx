@@ -49,7 +49,6 @@ import { ManageJiraPage } from './pages/Settings/Jira/ManageJiraPage'
 import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
-import { ManageSatellitesPage } from './pages/Settings/Satellites/ManageSatellitesPage'
 import { ConnectedAppsPage } from './pages/Settings/ConnectedApps/ConnectedAppsPage'
 import { SecurityPage } from './pages/Settings/Security/SecurityPage'
 import { ManageUsersPage } from './pages/Settings/Users/ManageUsersPage'
@@ -234,10 +233,6 @@ const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsJiraDoneTransitions,
       element: <JiraDoneTransitionsPage />,
-    },
-    {
-      path: UrlTree.settingsSatellites,
-      element: <ManageSatellitesPage />,
     },
     {
       path: UrlTree.settingsEmail,

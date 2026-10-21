@@ -1,34 +1,42 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Every event a session's thread emitted, kept after the thread is gone.
+//! Every event a session's turns reported, kept for as long as the session.
 //!
-//! Satellites keep a thread's events only while the thread lives, so Elysium records each
-//! one as its session watcher receives it (`crate::fleet`), and a session's history is read
-//! from here. Events are stored as the satellite encoded them, a protobuf `ThreadEvent`,
-//! rather than as Elysium's JSON view: a later build renders old events with whatever it
-//! knows then, including payloads this one leaves unrendered.
+//! Events are stored as the runner reported them (`crate::runner::RunnerEvent`), as JSON,
+//! rather than as the view clients see: a later build renders old events with whatever it knows
+//! then. Sequences are Elysium's own, strictly increasing per session (`crate::sessions`).
 
-use arsox_sdk::proto::event::v1::ThreadEvent;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::upsert::on_constraint;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
-use prost::Message as _;
+use serde_json::Value;
 use tracing::{Level, event};
+use uuid::Uuid;
 
 use crate::database::schema::session_events;
+use crate::runner::RunnerEvent;
+
+/// One recorded event.
+#[derive(Debug, Clone)]
+pub struct StoredEvent {
+    pub sequence: u64,
+    pub turn_id: Option<Uuid>,
+    pub occurred_at: DateTime<Utc>,
+    pub event: RunnerEvent,
+}
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = session_events)]
 struct NewSessionEvent {
     session_id: i64,
     sequence: i64,
-    occurred_at: Option<DateTime<Utc>>,
-    event: Vec<u8>,
+    occurred_at: DateTime<Utc>,
+    turn_id: Option<Uuid>,
+    payload: Value,
 }
 
-/// Records one event. An event already recorded, as a replay after a reconnect delivers
-/// again, is left as it is.
+/// Records `stored`. An event already recorded under its sequence is left as it is.
 ///
 /// # Errors
 /// Propagates any database error, including a foreign key violation for a session that was
@@ -36,15 +44,16 @@ struct NewSessionEvent {
 pub async fn record(
     connection: &mut AsyncPgConnection,
     session_id: i64,
-    thread_event: &ThreadEvent,
+    stored: &StoredEvent,
 ) -> QueryResult<()> {
+    let payload = serde_json::to_value(&stored.event)
+        .map_err(|error| diesel::result::Error::SerializationError(Box::new(error)))?;
     let row = NewSessionEvent {
         session_id,
-        sequence: sequence_to_column(thread_event.sequence),
-        occurred_at: thread_event.occurred_at.as_ref().and_then(|timestamp| {
-            DateTime::from_timestamp(timestamp.epoch_seconds, timestamp.nanos)
-        }),
-        event: thread_event.encode_to_vec(),
+        sequence: sequence_to_column(stored.sequence),
+        occurred_at: stored.occurred_at,
+        turn_id: stored.turn_id,
+        payload,
     };
     diesel::insert_into(session_events::table)
         .values(row)
@@ -55,8 +64,7 @@ pub async fn record(
     Ok(())
 }
 
-/// The last sequence recorded for a session, where its watcher resumes; `None` before its
-/// first event.
+/// The last sequence recorded for a session; `None` before its first event.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -72,11 +80,10 @@ pub async fn latest_sequence(
     Ok(latest.map(sequence_from_column))
 }
 
+type Row = (i64, Option<Uuid>, DateTime<Utc>, Value);
+
 /// A session's most recent events, oldest first, at most `limit` of them, and whether older
 /// ones were left out.
-///
-/// An event whose stored bytes no longer decode is skipped and logged: one bad row must not
-/// hide the rest of a conversation.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -84,45 +91,23 @@ pub async fn latest(
     connection: &mut AsyncPgConnection,
     session_id: i64,
     limit: usize,
-) -> QueryResult<(Vec<ThreadEvent>, bool)> {
+) -> QueryResult<(Vec<StoredEvent>, bool)> {
     let fetch = i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX);
-    let mut rows: Vec<(i64, Vec<u8>)> = session_events::table
+    let mut rows: Vec<Row> = session_events::table
         .filter(session_events::session_id.eq(session_id))
         .order(session_events::sequence.desc())
         .limit(fetch)
-        .select((session_events::sequence, session_events::event))
+        .select(columns())
         .load(connection)
         .await?;
 
     let truncated = rows.len() > limit;
     rows.truncate(limit);
     rows.reverse();
-
     Ok((decode_rows(session_id, rows), truncated))
 }
 
-/// Decodes stored events in order, skipping and logging any that no longer decode.
-fn decode_rows(session_id: i64, rows: Vec<(i64, Vec<u8>)>) -> Vec<ThreadEvent> {
-    let mut events = Vec::with_capacity(rows.len());
-    for (sequence, bytes) in rows {
-        match ThreadEvent::decode(bytes.as_slice()) {
-            Ok(thread_event) => events.push(thread_event),
-            Err(error) => event!(
-                name: "session_event.decode.failure",
-                Level::ERROR,
-                session.id = session_id,
-                event.sequence = sequence,
-                error.message = %error,
-                "a stored thread event no longer decodes; it was left out of the history",
-            ),
-        }
-    }
-    events
-}
-
 /// A session's events after `after_sequence`, oldest first.
-///
-/// An event whose stored bytes no longer decode is skipped and logged, as in [`latest`].
 ///
 /// # Errors
 /// Propagates any database error.
@@ -130,19 +115,57 @@ pub async fn after(
     connection: &mut AsyncPgConnection,
     session_id: i64,
     after_sequence: u64,
-) -> QueryResult<Vec<ThreadEvent>> {
-    let rows: Vec<(i64, Vec<u8>)> = session_events::table
+) -> QueryResult<Vec<StoredEvent>> {
+    let rows: Vec<Row> = session_events::table
         .filter(session_events::session_id.eq(session_id))
         .filter(session_events::sequence.gt(sequence_to_column(after_sequence)))
         .order(session_events::sequence.asc())
-        .select((session_events::sequence, session_events::event))
+        .select(columns())
         .load(connection)
         .await?;
     Ok(decode_rows(session_id, rows))
 }
 
-/// Sequences are `u64` on the wire and `BIGINT` in Postgres. A satellite would have to emit
-/// 2^63 events on one thread to overflow, so the conversion saturates rather than fails.
+const fn columns() -> (
+    session_events::sequence,
+    session_events::turn_id,
+    session_events::occurred_at,
+    session_events::payload,
+) {
+    (
+        session_events::sequence,
+        session_events::turn_id,
+        session_events::occurred_at,
+        session_events::payload,
+    )
+}
+
+/// Decodes stored events in order. An event this build no longer reads is skipped and logged:
+/// one bad row must not hide the rest of a conversation.
+fn decode_rows(session_id: i64, rows: Vec<Row>) -> Vec<StoredEvent> {
+    let mut events = Vec::with_capacity(rows.len());
+    for (sequence, turn_id, occurred_at, payload) in rows {
+        match serde_json::from_value::<RunnerEvent>(payload) {
+            Ok(event) => events.push(StoredEvent {
+                sequence: sequence_from_column(sequence),
+                turn_id,
+                occurred_at,
+                event,
+            }),
+            Err(error) => event!(
+                name: "session_event.decode.failure",
+                Level::ERROR,
+                session.id = session_id,
+                event.sequence = sequence,
+                error.message = %error,
+                "a stored event no longer decodes; it was left out of the history",
+            ),
+        }
+    }
+    events
+}
+
+/// Sequences start at 1 and grow by one per event, so they never reach `i64::MAX`.
 fn sequence_to_column(sequence: u64) -> i64 {
     i64::try_from(sequence).unwrap_or(i64::MAX)
 }
@@ -154,48 +177,27 @@ fn sequence_from_column(sequence: i64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use arsox_sdk::proto::event::v1::{AgentMessage, thread_event};
-    use secrecy::SecretString;
-    use uuid::Uuid;
-
     use super::*;
     use crate::models::coding_session::{self, NewCodingSession};
     use crate::models::project::{self, NewProject};
-    use crate::models::satellite::{self, NewSatellite};
-    use crate::test_support::{cipher, migrated_database};
+    use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
-    fn message(sequence: u64, text: &str) -> ThreadEvent {
-        ThreadEvent {
+    fn message(sequence: u64, text: &str) -> StoredEvent {
+        StoredEvent {
             sequence,
-            r#type: "agent.message".to_owned(),
-            payload: Some(thread_event::Payload::AgentMessage(AgentMessage {
+            turn_id: Some(Uuid::now_v7()),
+            occurred_at: Utc::now(),
+            event: RunnerEvent::AgentMessage {
                 text: text.to_owned(),
-                ..AgentMessage::default()
-            })),
-            ..ThreadEvent::default()
+            },
         }
     }
 
     async fn session(connection: &mut AsyncPgConnection) -> i64 {
-        let satellite_id = satellite::create(
-            connection,
-            &cipher(),
-            &NewSatellite {
-                created_by: crate::test_support::TEST_PERSON_ID,
-                name: "orbit".to_owned(),
-                description: String::new(),
-                url: "http://arsox:8080".to_owned(),
-                secret: SecretString::from("bearer"),
-                is_active: true,
-            },
-        )
-        .await
-        .expect("satellite")
-        .id;
         let project_id = project::create(
             connection,
             &NewProject {
-                created_by: crate::test_support::TEST_PERSON_ID,
+                created_by: TEST_PERSON_ID,
                 name: "Elysium".to_owned(),
                 description: String::new(),
             },
@@ -204,13 +206,11 @@ mod tests {
         .expect("project")
         .id;
         let new_session = NewCodingSession {
-            created_by: crate::test_support::TEST_PERSON_ID,
+            created_by: TEST_PERSON_ID,
             id: coding_session::reserve_id(connection)
                 .await
                 .expect("reserve"),
             project_id: Some(project_id),
-            satellite_id,
-            thread_id: Uuid::now_v7().to_string(),
             title: "Session".to_owned(),
             github_credential_id: None,
             action_item_id: None,
@@ -225,12 +225,11 @@ mod tests {
     #[test]
     fn sequences_round_trip_through_the_column() {
         assert_eq!(sequence_from_column(sequence_to_column(42)), 42);
-        assert_eq!(sequence_to_column(u64::MAX), i64::MAX);
     }
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn events_are_kept_once_and_read_back_newest_last() {
+    async fn events_are_kept_once_and_read_back_in_order() {
         let (_url, mut connection) = migrated_database().await;
         let session_id = session(&mut connection).await;
         assert_eq!(
@@ -249,11 +248,9 @@ mod tests {
             .await
             .expect("record");
         }
-        // A replay after a reconnect delivers an event again; the first copy stands.
-        record(&mut connection, session_id, &message(3, "replayed"))
+        record(&mut connection, session_id, &message(3, "again"))
             .await
             .expect("a duplicate is ignored");
-
         assert_eq!(
             latest_sequence(&mut connection, session_id)
                 .await
@@ -265,14 +262,15 @@ mod tests {
         assert!(!truncated);
         let sequences: Vec<u64> = all.iter().map(|event| event.sequence).collect();
         assert_eq!(sequences, [1, 2, 3, 4, 5]);
-        let Some(thread_event::Payload::AgentMessage(third)) = &all[2].payload else {
-            panic!("the payload decodes: {:?}", all[2]);
-        };
-        assert_eq!(third.text, "m3");
+        assert!(matches!(&all[2].event, RunnerEvent::AgentMessage { text } if text == "m3"));
 
         let (recent, truncated) = latest(&mut connection, session_id, 2).await.expect("read");
         assert!(truncated);
         let sequences: Vec<u64> = recent.iter().map(|event| event.sequence).collect();
+        assert_eq!(sequences, [4, 5]);
+
+        let rest = after(&mut connection, session_id, 3).await.expect("read");
+        let sequences: Vec<u64> = rest.iter().map(|event| event.sequence).collect();
         assert_eq!(sequences, [4, 5]);
     }
 
@@ -284,7 +282,6 @@ mod tests {
         record(&mut connection, session_id, &message(1, "hello"))
             .await
             .expect("record");
-
         coding_session::delete(&mut connection, session_id)
             .await
             .expect("delete");

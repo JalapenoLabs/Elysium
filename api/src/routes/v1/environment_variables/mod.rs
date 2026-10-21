@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `/api/v1/environment-variables`: the global environment variables every coding
-//! session's satellite thread receives.
+//! `/api/v1/environment-variables`: the global environment variables every agent turn
+//! receives.
 //!
 //! A secret variable's value is write-only over HTTP, and a non-secret one's is returned as
 //! plaintext. Every value is sealed in storage either way.
@@ -41,12 +41,12 @@ pub fn router() -> Router<AppState> {
 }
 
 /// Upper bound on a stored value, 32 KiB. Enough for a certificate chain or a small config
-/// file, while keeping every thread's environment, which is sent to the satellite whole,
-/// far below what a process accepts.
+/// file, while keeping every turn's environment, which reaches the CLI whole, far below what
+/// a process accepts.
 const VALUE_MAX_BYTES: usize = 32 * 1024;
 
-/// Refused whenever a secret would end up with an empty value. The satellite scrubs a
-/// secret's value from thread output, and scrubbing the empty string has nothing to match.
+/// Refused whenever a secret would end up with an empty value. Elysium scrubs a secret's
+/// value from what it records of a turn, and scrubbing the empty string has nothing to match.
 /// A blank secret field in the editor also means "keep the stored value", so an empty
 /// secret is never what someone meant.
 const EMPTY_SECRET_MESSAGE: &str = "a secret variable needs a value";

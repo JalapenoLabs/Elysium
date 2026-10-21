@@ -13,7 +13,6 @@ import { codingSessionUpserted } from '../../store/codingSessionsSlice'
 import { selectAllGithubCredentials, selectDefaultGithubCredential } from '../../store/githubCredentialsSlice'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { selectAllProjects } from '../../store/projectsSlice'
-import { selectAllSatellites } from '../../store/satellitesSlice'
 
 // User interface
 import {
@@ -42,7 +41,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { createCodingSession } from '../../api/routes/codingSessionRoutes'
-import { useGithubCredentialsLoader, useProjectsLoader, useSatellitesLoader } from '../../hooks/useServerData'
+import { useGithubCredentialsLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { getActionItemViewUrl } from '../../urls'
 import { resolveProjectGithubCredentialId } from '../Settings/Github/githubPresentation'
 import { useCodingActions } from './codingActionsContext'
@@ -70,18 +69,12 @@ export function CreateSessionForm(props: Props) {
   const dispatch = useAppDispatch()
   const codingActions = useCodingActions()
   useProjectsLoader()
-  useSatellitesLoader()
   useGithubCredentialsLoader()
   const projects = useAppSelector(selectAllProjects)
   const githubCredentials = useAppSelector(selectAllGithubCredentials)
   const workspaceDefault = useAppSelector(selectDefaultGithubCredential)
-  const satellites = useAppSelector(selectAllSatellites)
   const actionItem = props.actionItem
 
-  const activeSatellites = useMemo(
-    () => satellites.filter((satellite) => satellite.isActive),
-    [ satellites ],
-  )
   const projectChoices = useMemo(
     () => getSessionProjectChoices(actionItem, projects),
     [ actionItem, projects ],
@@ -97,12 +90,9 @@ export function CreateSessionForm(props: Props) {
   const form = useForm<CreateSessionFormValues>({
     resolver,
     defaultValues: {
-      // A lone project or satellite is the only possible choice; preselect it.
+      // A lone project is the only possible choice; preselect it.
       projectId: projectChoices.length === 1
         ? projectChoices[0].id
-        : '',
-      satelliteId: activeSatellites.length === 1
-        ? activeSatellites[0].id
         : '',
       title: actionItem?.title.slice(0, SESSION_TITLE_MAX_CHARACTERS) ?? '',
       repositories: [],
@@ -117,11 +107,10 @@ export function CreateSessionForm(props: Props) {
     const title = values.title || promptFirstLine || t('create.untitled')
 
     try {
-      // The API queues the prompt as the thread's first turn, after the item's context
+      // The API queues the prompt as the session's first turn, after the item's context
       // when the session is started from one.
       const { session } = await createCodingSession({
         projectId: values.projectId,
-        satelliteId: values.satelliteId,
         title,
         repositories: values.repositories.map((repository) => ({
           url: repository.url,
@@ -141,8 +130,8 @@ export function CreateSessionForm(props: Props) {
     }
     catch (error) {
       // A refused session (400), such as a repository GitHub or the API will not take, an
-      // item deleted meanwhile (409), and a satellite that refused the thread (502) all say
-      // what went wrong.
+      // item deleted meanwhile (409), and a clone or workspace that failed (502) all say what
+      // went wrong.
       const message = getApiErrorMessage(error)
       if (!message) {
         console.debug('CreateSessionForm failed to start a session', { error })
@@ -153,9 +142,9 @@ export function CreateSessionForm(props: Props) {
 
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
-  const [ projectId, satelliteId, title, repositories, prompt, githubChoice ] = useWatch({
+  const [ projectId, title, repositories, prompt, githubChoice ] = useWatch({
     control: form.control,
-    name: [ 'projectId', 'satelliteId', 'title', 'repositories', 'prompt', 'githubChoice' ],
+    name: [ 'projectId', 'title', 'repositories', 'prompt', 'githubChoice' ],
   })
 
   // The token the project would hand this session, and the one the session will start with.
@@ -227,38 +216,6 @@ export function CreateSessionForm(props: Props) {
         <FieldError>{errors.projectId?.message}</FieldError>
       </Select>
 
-      {/* Satellite */}
-      <Select
-        isRequired
-        isInvalid={Boolean(errors.satelliteId)}
-        placeholder={t('create.satellitePlaceholder')}
-        value={satelliteId || null}
-        onChange={(key) => form.setValue(
-          'satelliteId',
-          String(key ?? ''),
-          { shouldDirty: true, shouldValidate: true },
-        )}
-      >
-        <Label>{t('create.satellite')}</Label>
-        <Select.Trigger>
-          <Select.Value />
-          <Select.Indicator />
-        </Select.Trigger>
-        <Select.Popover>
-          <ListBox>{
-            activeSatellites.map((satellite) => <ListBox.Item
-              key={satellite.id}
-              id={satellite.id}
-              textValue={satellite.name}
-            >
-              {satellite.name}
-              <ListBox.ItemIndicator />
-            </ListBox.Item>)
-          }</ListBox>
-        </Select.Popover>
-        <FieldError>{errors.satelliteId?.message}</FieldError>
-      </Select>
-
       {/* Title */}
       <TextField
         autoFocus={!actionItem}
@@ -320,7 +277,7 @@ export function CreateSessionForm(props: Props) {
       </Button>
       <Button
         type='submit'
-        isDisabled={!projectId || !satelliteId || isMissingPrompt || Boolean(errors.repositories)}
+        isDisabled={!projectId || isMissingPrompt || Boolean(errors.repositories)}
         isPending={form.formState.isSubmitting}
       >
         <span>{t('common:actions.create')}</span>

@@ -1,22 +1,21 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/coding-sessions`: open a thread on a satellite and record it.
+//! `POST /api/v1/coding-sessions`: start a session for a project.
 //!
-//! How the thread is opened and recorded is shared with Studio (see `open`). A prompt, when
-//! given, is queued as the thread's first turn. A session started from an action item must
-//! have one, and its first turn carries the item's context ahead of it (see `first_turn`).
-//! If the satellite refuses that turn, the session is discarded whole, so a create either
-//! yields a session with its first turn queued or nothing.
+//! The session's number is reserved and its row recorded, then its repositories are cloned
+//! into its directory (`crate::sessions`), and a prompt, when given, is queued as its first
+//! turn. A session started from an action item must have one, and its first turn carries the
+//! item's context ahead of it (see `first_turn`). If cloning or queuing fails, the directory
+//! and the row are removed again, so a create either yields a session with its first turn
+//! queued or nothing.
 //!
 //! A session clones any number of repositories up to [`MAX_REPOSITORIES`], each into its own
-//! directory under the workspace's `repos/`. The satellite checks that each name is safe but
-//! not that the names differ, so two repositories that would share a directory are refused
-//! here, while the caller is still listening, rather than failing a clone minutes later.
+//! directory under `repos/`. Two repositories that would share a directory are refused here,
+//! while the caller is still listening, rather than failing a clone minutes later.
 
 use std::collections::hash_map::{Entry, HashMap};
 
 use anyhow::Context;
-use arsox_sdk::proto::settings::v1::Repo;
 use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
@@ -25,33 +24,31 @@ use chrono::Utc;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tracing::{Level, event};
 use uuid::Uuid;
 use validator::{Validate, ValidationError};
 
-use super::github_token::{self, SessionChoice, SessionToken};
-use super::open::{self, SessionOpening};
-use super::{CodingSessionResponse, ThreadPlan, thread_settings, validate_not_blank};
-use super::{first_turn, model_stack};
+use super::github_token::{self, SessionChoice};
+use super::{CodingSessionResponse, first_turn, validate_not_blank};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::github::Repository;
-use crate::models::environment_variable;
-use crate::models::llm;
-use crate::models::{project, satellite, storage_location};
+use crate::models::coding_session::{self, CodingSession, NewCodingSession};
+use crate::models::project;
+use crate::realtime::ServerEvent;
+use crate::sessions::{RepositoryClone, TurnExtras};
 use crate::state::AppState;
 
-/// A coding session to start: a thread opened on a satellite for a project.
+/// A coding session to start for a project.
 #[derive(Debug, Deserialize, Validate, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateCodingSessionRequest {
     /// The project the session works for.
     project_id: Uuid,
-    /// The satellite the session's thread runs on.
-    satellite_id: Uuid,
     /// What the session is called.
     #[validate(length(min = 1, max = 200), custom(function = "validate_not_blank"))]
     title: String,
-    /// The repositories the satellite clones into the thread's workspace, in order.
+    /// The repositories cloned into the session's directory, in order.
     #[serde(default)]
     #[validate(length(max = MAX_REPOSITORIES), nested)]
     repositories: Vec<RepositoryRequest>,
@@ -64,7 +61,7 @@ pub struct CreateCodingSessionRequest {
         reason = "absent, null, and an id are three distinct requests"
     )]
     github_credential_id: Option<Option<Uuid>>,
-    /// The first prompt, queued as the thread's first turn. Large enough for a pasted stack
+    /// The first prompt, queued as the session's first turn. Large enough for a pasted stack
     /// trace or spec, as a later turn's is.
     #[validate(
         length(min = 1, max = 100_000),
@@ -78,16 +75,16 @@ pub struct CreateCodingSessionRequest {
 
 /// The most repositories one session clones.
 ///
-/// The satellite sets no limit of its own. Clones run one after another before the thread is
-/// usable, and the first that fails parks the thread, so a long list is slow to start and
-/// fragile; sixteen covers a service with its libraries while keeping that bounded.
+/// Clones run one after another before the session is usable, and the first that fails
+/// refuses the session, so a long list is slow to start and fragile; sixteen covers a service
+/// with its libraries while keeping that bounded.
 const MAX_REPOSITORIES: u64 = 16;
 
 /// One repository to clone. `Serialize` because a length error on the list reports it.
 #[derive(Debug, Deserialize, Serialize, Validate, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepositoryRequest {
-    /// Git URL the satellite clones from.
+    /// Git URL to clone from.
     #[validate(length(max = 2048), custom(function = "validate_repository_url"))]
     url: String,
     /// The branch the work starts from; absent uses the remote's default branch.
@@ -105,12 +102,12 @@ pub async fn handle(
     Ok((StatusCode::CREATED, Json(json!({ "session": session }))))
 }
 
-/// Opens a thread for a new session as `actor`, records it, queues its first turn, and
-/// announces it. See the module documentation for the order and what is undone on failure.
+/// Starts a session as `actor`: records it, clones its repositories, queues its first turn,
+/// and announces it. See the module documentation for the order and what is undone on failure.
 ///
 /// # Errors
-/// The request's validation errors, `404` for an unknown project, satellite, or item, or the
-/// satellite's refusal.
+/// The request's validation errors, `404` for an unknown project or item, `400` for a
+/// repository that will not clone, and `502` when the workspace is not available.
 pub async fn create(
     state: &AppState,
     actor: Uuid,
@@ -124,14 +121,7 @@ pub async fn create(
         .get()
         .await
         .context("no database connection available")?;
-    // Both parents are looked up before a thread exists: an unknown id answers 404
-    // here instead of opening a thread the insert would then refuse.
     let project = project::find(&mut connection, body.project_id).await?;
-    let satellite = satellite::find(&mut connection, body.satellite_id).await?;
-    let credentials = llm::list(&mut connection).await?;
-    let storage_locations =
-        storage_location::list_for_project(&mut connection, Some(project.id)).await?;
-    // An item is checked, and its context read, before a thread exists.
     let first_turn = first_turn::build(
         &mut connection,
         &project,
@@ -140,62 +130,78 @@ pub async fn create(
         Utc::now(),
     )
     .await?;
-
-    let variables =
-        environment_variable::thread_environment(&mut connection, &state.cipher).await?;
-    let github = github_token::open(
+    let github_credential_id = github_token::resolve(
         &mut connection,
         &state.cipher,
         &project,
         SessionChoice::from_request(body.github_credential_id),
     )
     .await?;
+    let new_session = NewCodingSession {
+        created_by: actor,
+        id: coding_session::reserve_id(&mut connection).await?,
+        project_id: Some(project.id),
+        title: body.title,
+        github_credential_id,
+        action_item_id: body.action_item_id,
+        studio_item_id: None,
+    };
+    let session = coding_session::create(&mut connection, &new_session).await?;
     drop(connection);
 
-    let repositories = body
+    let clones: Vec<RepositoryClone> = body
         .repositories
         .into_iter()
-        .map(|repository| repository_to_clone(repository, github.as_ref()))
+        .map(repository_to_clone)
         .collect();
-    let stack = model_stack::build(
-        &model_stack::open_credentials(credentials, &state.cipher),
-        Utc::now(),
-    );
-    let settings = thread_settings(ThreadPlan {
-        repositories,
-        stack,
-        variables: &variables,
-        github_token: github.as_ref().map(|github| &github.token),
-        has_storage_locations: !storage_locations.is_empty(),
-        has_project: true,
-        ..ThreadPlan::default()
-    });
-
-    let opened = open::open(
-        state,
-        SessionOpening {
-            created_by: actor,
-            satellite_id: satellite.id,
-            settings,
-            title: body.title,
-            project_id: Some(project.id),
-            github_credential_id: github.map(|github| github.credential_id),
-            action_item_id: body.action_item_id,
-            studio_item_id: None,
-        },
-    )
-    .await?;
-    if let Some(first_turn) = first_turn
-        && let Err(turn_error) = opened.handle.start_turn(first_turn).await
-    {
-        open::discard(state, &opened).await;
-        return Err(turn_error.into());
+    let started = start(state, &session, &clones, first_turn).await;
+    if let Err(error) = started {
+        discard(state, &session).await;
+        return Err(error);
     }
-    open::announce(state, &opened);
-    Ok(CodingSessionResponse::new(
-        opened.session,
-        Some(opened.thread),
-    ))
+
+    let response = CodingSessionResponse::new(session.clone(), state.sessions.activity(session.id));
+    state
+        .events
+        .publish(&ServerEvent::SessionUpserted(response.clone()));
+    Ok(response)
+}
+
+/// Clones the session's repositories, then queues its first turn when it has one.
+async fn start(
+    state: &AppState,
+    session: &CodingSession,
+    clones: &[RepositoryClone],
+    first_turn: Option<String>,
+) -> Result<(), ApiError> {
+    state.sessions.prepare(session, clones).await?;
+    if let Some(prompt) = first_turn {
+        state
+            .sessions
+            .start_turn(session, prompt, TurnExtras::default())
+            .await?;
+    }
+    Ok(())
+}
+
+/// Removes a session that could not be started: its turns, its directory, and its row.
+async fn discard(state: &AppState, session: &CodingSession) {
+    state.sessions.remove(session.id).await;
+    let deleted = match state.database.get().await {
+        Ok(mut connection) => coding_session::delete(&mut connection, session.id)
+            .await
+            .map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    };
+    if let Err(message) = deleted {
+        event!(
+            name: "coding_session.create.orphaned_row",
+            Level::ERROR,
+            session.id = %session.id,
+            error.message = %message,
+            "could not remove a session that was not started; delete it by hand",
+        );
+    }
 }
 
 /// Refuses a list in which two repositories would clone into the same directory.
@@ -245,24 +251,19 @@ fn repository_identity(url: &str) -> String {
     trimmed.strip_suffix(".git").unwrap_or(trimmed).to_owned()
 }
 
-/// The repository the satellite clones into the workspace, with the session's GitHub token
-/// as its credential when GitHub accepts one for that URL.
-fn repository_to_clone(repository: RepositoryRequest, github: Option<&SessionToken>) -> Repo {
-    let clone_url = github_token::clone_url(&repository.url);
-    Repo {
-        name: repository_directory(&repository.url)
+/// The repository as the session clones it: a github.com SSH remote over HTTPS.
+fn repository_to_clone(repository: RepositoryRequest) -> RepositoryClone {
+    RepositoryClone {
+        directory: repository_directory(&repository.url)
             .expect("validation guarantees a directory name")
             .to_owned(),
-        auth: github.and_then(|github| github_token::clone_auth(&clone_url, &github.token)),
-        url: clone_url,
+        url: github_token::clone_url(&repository.url),
         base_branch: repository.base_branch,
-        ..Repo::default()
     }
 }
 
 /// The directory a repository is cloned into: the URL's last path segment without
-/// `.git`. The satellite refuses names that could escape the workspace, so only
-/// plain names are accepted.
+/// `.git`. Only plain names are accepted, so none can escape the session's directory.
 fn repository_directory(url: &str) -> Option<&str> {
     let last_segment = url.trim_end_matches('/').rsplit(['/', ':']).next()?;
     let name = last_segment.strip_suffix(".git").unwrap_or(last_segment);
@@ -301,8 +302,6 @@ fn validate_repository_url(url: &str) -> Result<(), ValidationError> {
 
 #[cfg(test)]
 mod tests {
-    use secrecy::SecretString;
-
     use super::*;
 
     #[test]
@@ -332,7 +331,6 @@ mod tests {
         let repositories: Vec<Value> = urls.iter().map(|url| json!({ "url": url })).collect();
         serde_json::from_value(json!({
             "projectId": Uuid::nil(),
-            "satelliteId": Uuid::nil(),
             "title": "A",
             "repositories": repositories,
         }))
@@ -343,7 +341,6 @@ mod tests {
     fn bodies_validate_titles_and_repository_urls() {
         let valid: CreateCodingSessionRequest = serde_json::from_value(json!({
             "projectId": Uuid::nil(),
-            "satelliteId": Uuid::nil(),
             "title": "Fix the login bug",
             "repositories": [
                 { "url": "https://github.com/JalapenoLabs/Elysium.git", "baseBranch": "main" },
@@ -354,16 +351,14 @@ mod tests {
         valid.validate().expect("valid body");
         refuse_shared_directories(&valid.repositories).expect("distinct directories");
 
-        let none: CreateCodingSessionRequest = serde_json::from_value(
-            json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "A" }),
-        )
-        .expect("parses");
+        let none: CreateCodingSessionRequest =
+            serde_json::from_value(json!({ "projectId": Uuid::nil(), "title": "A" }))
+                .expect("parses");
         assert!(none.repositories.is_empty());
 
-        let blank_title: CreateCodingSessionRequest = serde_json::from_value(
-            json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "  " }),
-        )
-        .expect("parses");
+        let blank_title: CreateCodingSessionRequest =
+            serde_json::from_value(json!({ "projectId": Uuid::nil(), "title": "  " }))
+                .expect("parses");
         assert!(
             blank_title
                 .validate()
@@ -392,7 +387,6 @@ mod tests {
 
         serde_json::from_value::<CreateCodingSessionRequest>(json!({
             "projectId": Uuid::nil(),
-            "satelliteId": Uuid::nil(),
             "title": "A",
             "repositoryUrl": "https://github.com/JalapenoLabs/Elysium.git",
         }))
@@ -434,115 +428,8 @@ mod tests {
     }
 
     #[test]
-    fn new_threads_declare_the_ceilings_the_satellite_requires() {
-        let settings = thread_settings(ThreadPlan {
-            has_project: true,
-            ..ThreadPlan::default()
-        });
-        assert!(settings.idle_ttl.is_some());
-        let budget = settings.budget.expect("budget is set");
-        assert!(budget.max_tokens_per_turn.is_some());
-        assert!(budget.max_cost_per_thread.is_some());
-        assert!(budget.max_wall_clock_per_turn.is_some());
-        assert!(settings.repos.is_empty());
-        assert!(settings.env.is_empty() && settings.github.is_none());
-    }
-
-    #[test]
-    fn every_thread_declares_the_work_tools_and_storage_only_with_a_location() {
-        let names = |settings: &arsox_sdk::proto::settings::v1::ThreadSettings| -> Vec<String> {
-            settings
-                .relayed_mcp_servers
-                .iter()
-                .map(|server| server.name.clone())
-                .collect()
-        };
-
-        let without = thread_settings(ThreadPlan {
-            has_project: true,
-            ..ThreadPlan::default()
-        });
-        assert_eq!(names(&without), ["elysium_work"]);
-
-        let with = thread_settings(ThreadPlan {
-            has_storage_locations: true,
-            has_project: true,
-            ..ThreadPlan::default()
-        });
-        assert_eq!(names(&with), ["elysium_storage", "elysium_work"]);
-        let servers = [crate::tools::storage::SERVER, crate::tools::work::SERVER];
-        for (declared, server) in with.relayed_mcp_servers.iter().zip(servers) {
-            assert_eq!(declared.tools.len(), server.tools.len(), "{}", server.name);
-            for tool in &declared.tools {
-                let schema: serde_json::Value =
-                    serde_json::from_str(&tool.input_schema_json).expect("schemas are JSON");
-                assert_eq!(schema["type"], "object", "{}", tool.name);
-            }
-        }
-    }
-
-    #[test]
-    fn every_thread_declares_its_own_blender_and_the_mcp_server_that_reaches_it() {
-        let settings = thread_settings(ThreadPlan {
-            has_project: true,
-            ..ThreadPlan::default()
-        });
-        let services: Vec<&str> = settings
-            .services
-            .iter()
-            .map(|service| service.name.as_str())
-            .collect();
-        assert_eq!(services, ["blender-bridge", "blender-mcp"]);
-
-        let [server] = settings.mcp_servers.as_slice() else {
-            panic!("one MCP server is declared: {:?}", settings.mcp_servers);
-        };
-        assert_eq!(server.name, "blender");
-        let endpoint = server
-            .service
-            .as_ref()
-            .expect("the server targets a service");
-        assert_eq!(endpoint.service, "blender-mcp");
-    }
-
-    #[test]
-    fn workspace_variables_come_before_the_ones_elysium_sets() {
-        use crate::models::environment_variable::ThreadVariable;
-
-        let variables = [
-            ThreadVariable {
-                key: "NPM_TOKEN".to_owned(),
-                value: SecretString::from("npm-secret"),
-                is_secret: true,
-            },
-            ThreadVariable {
-                key: "NODE_ENV".to_owned(),
-                value: SecretString::from("development"),
-                is_secret: false,
-            },
-        ];
-        let token = SecretString::from("github_pat_example");
-        let settings = thread_settings(ThreadPlan {
-            variables: &variables,
-            github_token: Some(&token),
-            has_project: true,
-            ..ThreadPlan::default()
-        });
-
-        let keys: Vec<&str> = settings
-            .env
-            .iter()
-            .map(|variable| variable.key.as_str())
-            .collect();
-        assert_eq!(&keys[..3], ["NPM_TOKEN", "NODE_ENV", "GH_TOKEN"]);
-        assert_eq!(settings.env[0].is_secret, Some(true));
-        assert_eq!(settings.env[1].is_secret, Some(false));
-        assert!(settings.github.is_some());
-    }
-
-    #[test]
     fn a_first_prompt_is_optional_and_never_blank() {
-        let base = json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "A" });
+        let base = json!({ "projectId": Uuid::nil(), "title": "A" });
 
         let none: CreateCodingSessionRequest =
             serde_json::from_value(base.clone()).expect("parses");
@@ -568,7 +455,7 @@ mod tests {
 
     #[test]
     fn github_credential_ids_distinguish_absent_null_and_an_id() {
-        let base = json!({ "projectId": Uuid::nil(), "satelliteId": Uuid::nil(), "title": "A" });
+        let base = json!({ "projectId": Uuid::nil(), "title": "A" });
 
         let absent: CreateCodingSessionRequest =
             serde_json::from_value(base.clone()).expect("parses");

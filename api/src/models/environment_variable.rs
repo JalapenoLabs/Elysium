@@ -1,12 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Global environment variables, passed into every coding session's satellite thread.
+//! Global environment variables, passed into every agent turn.
 //!
 //! Every value is sealed here, bound to the row's id, before the insert or update leaves the
 //! process, whether the variable is secret or not. One path for every row keeps the table
 //! uniform and means a variable can become secret without its value moving. Callers hand
 //! in a [`SecretString`] and only ever get one back, from [`EnvironmentVariable::value`] or
-//! [`thread_environment`].
+//! [`turn_environment`].
 //!
 //! Which keys may be stored is decided by [`crate::environment::key_refusal`], before a
 //! request reaches these queries.
@@ -28,8 +28,8 @@ pub struct EnvironmentVariable {
     pub id: Uuid,
     pub key: String,
     pub value_encrypted: Vec<u8>,
-    /// Hidden from every response, and scrubbed from thread output by the satellite. The
-    /// agent can still read it.
+    /// Hidden from every response, and scrubbed from what Elysium records and shows of a turn.
+    /// The agent can still read it.
     pub is_secret: bool,
     pub description: String,
     pub created_at: DateTime<Utc>,
@@ -68,13 +68,14 @@ impl EnvironmentVariableChanges {
     }
 }
 
-/// One variable as a satellite thread receives it, decrypted.
+/// One variable as an agent turn receives it, decrypted.
 #[derive(Debug)]
-pub struct ThreadVariable {
+pub struct TurnVariable {
     pub key: String,
     pub value: SecretString,
-    /// Whether the satellite scrubs the value from what the thread outputs: its logs,
-    /// events, and rendered commands. It does **not** hide the value from the agent, which
+    /// Whether Elysium scrubs the value from what it records and shows of a turn: its events
+    /// and rendered commands (`crate::sessions::scrub`). It does **not** hide the value from
+    /// the agent, which
     /// runs with every variable in its environment and can print, use, or send it anywhere
     /// its tools reach. A value that must stay hidden from the agent does not belong here.
     pub is_secret: bool,
@@ -151,19 +152,19 @@ pub async fn find(
         .await
 }
 
-/// Every variable, decrypted and ordered by key, ready to hand to a satellite thread.
+/// Every variable, decrypted and ordered by key, ready to hand to an agent turn.
 ///
-/// Secret only means the satellite scrubs a value from the thread's output; see
-/// [`ThreadVariable::is_secret`]. The agent reads every value.
+/// Secret only means Elysium scrubs a value from what it records of a turn; see
+/// [`TurnVariable::is_secret`]. The agent reads every value.
 ///
 /// # Errors
 /// Propagates database errors, and fails naming the key of any value that will not open,
 /// which only a changed encryption key or altered row can cause. The value itself is never
 /// part of the error.
-pub async fn thread_environment(
+pub async fn turn_environment(
     connection: &mut AsyncPgConnection,
     cipher: &Cipher,
-) -> anyhow::Result<Vec<ThreadVariable>> {
+) -> anyhow::Result<Vec<TurnVariable>> {
     let variables = list(connection)
         .await
         .context("failed to load environment variables")?;
@@ -177,7 +178,7 @@ pub async fn thread_environment(
                     variable.key
                 )
             })?;
-            Ok(ThreadVariable {
+            Ok(TurnVariable {
                 key: variable.key,
                 value,
                 is_secret: variable.is_secret,
@@ -414,7 +415,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn the_thread_environment_is_every_variable_decrypted_by_key() {
+    async fn the_turn_environment_is_every_variable_decrypted_by_key() {
         let (_url, mut connection) = migrated_database().await;
         let cipher = cipher();
 
@@ -432,7 +433,7 @@ mod tests {
             .expect("insert");
         }
 
-        let environment = thread_environment(&mut connection, &cipher)
+        let environment = turn_environment(&mut connection, &cipher)
             .await
             .expect("every value opens");
         let received: Vec<(&str, &str, bool)> = environment
@@ -458,7 +459,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn a_value_that_will_not_open_fails_the_thread_environment_by_key() {
+    async fn a_value_that_will_not_open_fails_the_turn_environment_by_key() {
         let (_url, mut connection) = migrated_database().await;
         let cipher = cipher();
         create(
@@ -469,7 +470,7 @@ mod tests {
         .await
         .expect("insert");
 
-        let error = thread_environment(&mut connection, &crate::test_support::cipher())
+        let error = turn_environment(&mut connection, &crate::test_support::cipher())
             .await
             .expect_err("another key cannot open the value");
         let message = format!("{error:#}");

@@ -3,10 +3,9 @@
 //! `DELETE /api/v1/studio-items/{id}`: hide an item until it is restored, or with
 //! `?permanently=true`, remove it for good.
 //!
-//! Either way its live thread is destroyed first, which stops its cost and frees the
-//! satellite's disk. A thread that already ended, or whose satellite was deleted or
-//! deactivated, is past destroying; any other satellite failure stops the delete, so an item
-//! never disappears while its thread still runs.
+//! Either way its sessions' turns are cancelled first, which stops their cost. Hiding keeps
+//! the sessions' directories, so a restored item carries on where it left off; a permanent
+//! delete removes them too.
 //!
 //! A permanent delete removes every file of the item from its storage location before any
 //! row, and stops at the first file the provider refuses, so no rows vanish while their files
@@ -23,8 +22,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
-use crate::fleet::ClientError;
-use crate::models::coding_session::{self, CodingSession};
+use crate::models::coding_session;
 use crate::models::studio_item::{self, StudioItem};
 use crate::models::{storage_location, studio_asset, studio_feedback};
 use crate::realtime::ServerEvent;
@@ -54,7 +52,7 @@ pub async fn handle(
     drop(connection);
 
     for session in &sessions {
-        destroy_thread(&state, session).await?;
+        state.sessions.stop(session.id);
     }
 
     if !query.permanently {
@@ -78,37 +76,13 @@ pub async fn handle(
     drop(connection);
 
     for session in sessions {
-        state.fleet.forget_session(session.id);
+        state.sessions.remove(session.id).await;
         state
             .events
             .publish(&ServerEvent::SessionDeleted { id: session.id });
     }
     state.events.publish(&ServerEvent::StudioItemDeleted { id });
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// Destroys a session's thread, if it still has one to destroy.
-///
-/// # Errors
-/// Answers as the satellite does when it refuses for any reason but the thread being gone.
-async fn destroy_thread(state: &AppState, session: &CodingSession) -> Result<(), ApiError> {
-    let Some(satellite_id) = session.satellite_id else {
-        return Ok(());
-    };
-    let client = match state.fleet.client(satellite_id).await {
-        Ok(client) => client,
-        // Elysium reaches no thread on an inactive satellite; it expires on its idle TTL.
-        Err(ClientError::Inactive) => return Ok(()),
-        Err(error) => return Err(error.into()),
-    };
-    let destroyed = match client.threads().attach(session.thread_id.as_str()).await {
-        Ok(handle) => handle.destroy().await.map(drop),
-        Err(error) => Err(error),
-    };
-    match destroyed {
-        Err(error) if !(error.is_gone() || error.is_not_found()) => Err(error.into()),
-        _ => Ok(()),
-    }
 }
 
 /// Removes every file an item keeps in its storage location: its assets and both images of

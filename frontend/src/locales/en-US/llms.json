@@ -6,6 +6,14 @@
     "add": "Add LLM",
     "addMenu": "Choose a provider"
   },
+  "agentConfiguration": {
+    "heading": "Agent configuration",
+    "description": "Every agent turn runs Claude Code with the configuration in this repository: its CLAUDE.md, skills, and settings. Elysium fetches it when the API starts and whenever this changes. A github.com repository is read with the default GitHub token.",
+    "repository": "Configuration repository",
+    "repositoryHint": "An https git URL without credentials. Leave blank to use Claude Code's defaults.",
+    "saved": "Agent configuration saved",
+    "loadError": "The agent configuration could not be loaded."
+  },
   "table": {
     "label": "LLM credentials",
     "name": "Name",
