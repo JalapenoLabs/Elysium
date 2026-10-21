@@ -11,7 +11,6 @@ export type ElysiaLight = typeof ELYSIA_LIGHTS[number]
 export type ElysiaHold =
   | { kind: 'paused' }
   | { kind: 'usage-limit', until: string }
-  | { kind: 'no-runner' }
   | { kind: 'unavailable' }
 
 // Mirrors the enums in api/src/models/elysia.rs.

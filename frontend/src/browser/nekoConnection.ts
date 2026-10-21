@@ -44,10 +44,19 @@ type SystemInit = {
   screen_size?: ScreenSize
 }
 
+type ClipboardData = {
+  text?: string
+}
+
 // The data channel's server-to-viewer operation for a new cursor image (`payload/send.go`).
 const CURSOR_IMAGE_OPERATION = 0x02
 // The header (operation, length) and the image's size and hot spot before its PNG bytes.
 const CURSOR_IMAGE_PREFIX_BYTES = 3 + 8
+
+// How long a paste waits for Neko to confirm the remote clipboard holds its text before
+// pressing control and V regardless. Neko confirms within milliseconds; a browser that stays
+// quiet still gets the keystroke.
+const CLIPBOARD_CONFIRM_TIMEOUT_MS = 1_000
 
 export class NekoConnection {
   private readonly url: string
@@ -58,6 +67,15 @@ export class NekoConnection {
   // Candidates can arrive before the offer, and wait for it.
   private pendingCandidates: RTCIceCandidateInit[] = []
   private cursorUrl: string | null = null
+  // A closed connection is never opened again, and nothing it still receives reaches the
+  // listeners, which by then belong to its replacement.
+  private isClosed = false
+  // What is pressed on the remote desktop, so it can be released when the stream loses the
+  // input: a key held while focus leaves, or a button held when the pointer is let go.
+  private readonly heldKeys = new Set<number>()
+  private readonly heldButtons = new Set<number>()
+  // The paste waiting for Neko to confirm the clipboard holds its text.
+  private clipboardConfirmation: { text: string, confirm: () => void } | null = null
 
   constructor(url: string, listeners: ConnectionListeners) {
     this.url = url
@@ -78,12 +96,33 @@ export class NekoConnection {
   }
 
   close() {
-    this.socket?.close()
-    this.peer?.close()
+    if (this.isClosed) {
+      return
+    }
+    this.isClosed = true
+
+    // The socket's own close event and a failing peer would otherwise call back in later,
+    // after the component has moved on to another connection.
+    if (this.socket) {
+      this.socket.onmessage = null
+      this.socket.onclose = null
+      this.socket.onerror = null
+      this.socket.close()
+    }
+    if (this.peer) {
+      this.peer.onicecandidate = null
+      this.peer.onconnectionstatechange = null
+      this.peer.ontrack = null
+      this.peer.ondatachannel = null
+      this.peer.close()
+    }
     this.socket = null
     this.peer = null
     this.channel = null
     this.pendingCandidates = []
+    this.heldKeys.clear()
+    this.heldButtons.clear()
+    this.clipboardConfirmation?.confirm()
     if (this.cursorUrl) {
       URL.revokeObjectURL(this.cursorUrl)
       this.cursorUrl = null
@@ -100,21 +139,77 @@ export class NekoConnection {
   }
 
   key(keysym: number, isDown: boolean) {
+    if (isDown) {
+      this.heldKeys.add(keysym)
+    }
+    else {
+      this.heldKeys.delete(keysym)
+    }
     this.sendInput(encodeKey(keysym, isDown))
   }
 
   button(button: number, isDown: boolean) {
+    if (isDown) {
+      this.heldButtons.add(button)
+    }
+    else {
+      this.heldButtons.delete(button)
+    }
     this.sendInput(encodeButton(button, isDown))
+  }
+
+  // Releases every pointer button still held on the remote desktop.
+  releaseButtons() {
+    for (const button of [ ...this.heldButtons ]) {
+      this.button(button, false)
+    }
+  }
+
+  // Releases every key and pointer button still held on the remote desktop, for when the
+  // stream loses the input and their releases would go elsewhere.
+  releaseAll() {
+    for (const keysym of [ ...this.heldKeys ]) {
+      this.key(keysym, false)
+    }
+    this.releaseButtons()
   }
 
   // Puts `text` on the remote clipboard and presses control and V, so a password manager on
   // the viewer's own machine fills the remote page.
-  paste(text: string) {
+  //
+  // The clipboard travels over the signaling socket and the keys over the data channel, which
+  // nothing orders, and the keys' path is shorter. So the keys wait for Neko to report the
+  // clipboard changed to this text, or for the timeout.
+  async paste(text: string) {
+    const isConfirmed = this.confirmClipboard(text)
     this.send({ event: 'clipboard/set', payload: { text }})
+    await isConfirmed
+    if (this.isClosed) {
+      return
+    }
     this.key(PASTE_KEYSYMS.control, true)
     this.key(PASTE_KEYSYMS.letterV, true)
     this.key(PASTE_KEYSYMS.letterV, false)
     this.key(PASTE_KEYSYMS.control, false)
+  }
+
+  // Resolves once Neko reports the remote clipboard holds `text`, or after
+  // `CLIPBOARD_CONFIRM_TIMEOUT_MS`. A newer paste takes over, and this one waits out its time.
+  private confirmClipboard(text: string) {
+    return new Promise<void>((resolve) => {
+      const confirm = () => {
+        window.clearTimeout(timeout)
+        if (this.clipboardConfirmation?.confirm === confirm) {
+          this.clipboardConfirmation = null
+        }
+        resolve()
+      }
+      const timeout = window.setTimeout(() => {
+        console.debug('NekoConnection pasted before Neko confirmed the clipboard')
+        confirm()
+      }, CLIPBOARD_CONFIRM_TIMEOUT_MS)
+      this.clipboardConfirmation = { text, confirm }
+    })
   }
 
   private send(message: NekoMessage) {
@@ -135,6 +230,9 @@ export class NekoConnection {
   }
 
   private async receive(data: unknown) {
+    if (this.isClosed) {
+      return
+    }
     if (typeof data !== 'string') {
       console.debug('NekoConnection ignored a binary signaling message')
       return
@@ -169,6 +267,15 @@ export class NekoConnection {
         return
       }
       this.pendingCandidates.push(candidate)
+      return
+    }
+
+    // Neko reports every change of the remote clipboard to the viewer in control.
+    if (message.event === 'clipboard/updated') {
+      const clipboard = message.payload as ClipboardData
+      if (this.clipboardConfirmation && clipboard.text === this.clipboardConfirmation.text) {
+        this.clipboardConfirmation.confirm()
+      }
       return
     }
 
