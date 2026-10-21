@@ -1,15 +1,14 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Tools Elysium serves to coding agents, relayed through their satellites.
+//! Tools Elysium serves to agents: MCP servers that answer from Elysium's own data.
 //!
-//! A satellite cannot reach Elysium, so an agent's MCP tools that need Elysium's data are
-//! declared on the thread as relayed MCP servers. The agent calls them like any MCP tool;
-//! the satellite forwards each call over a socket Elysium opened to it (see
-//! `crate::fleet::relay`), and Elysium answers there.
+//! Agents run in the workspace container and reach these servers over HTTP at
+//! `/api/agent-tools/{server}` ([`endpoint`]), with a bearer token their turn was granted
+//! ([`grants`]). The grant carries the [`CallScope`] every call runs for.
 //!
 //! Each server is a [`ToolServer`]: its name, the instructions the agent reads, and a table
-//! of [`Tool`]s. The same table declares the tools on a new thread and dispatches a call to
-//! them, so a declared tool always has a handler. Each tool set is one module with its own
+//! of [`Tool`]s. The same table lists the tools to the agent and dispatches a call to them,
+//! so a listed tool always has a handler. Each tool set is one module with its own
 //! table, listed in [`SERVERS`]: [`storage`] for the project's storage locations and
 //! [`work`] for its action items and initiatives.
 //!
@@ -17,13 +16,13 @@
 //! internal error chain: database and decryption failures are logged here and reported
 //! as a fixed message.
 
+pub mod endpoint;
+pub mod grants;
 pub mod storage;
 pub mod work;
 
 use std::sync::Arc;
 
-use arsox_sdk::client::ThreadHandle;
-use arsox_sdk::proto::settings::v1::{RelayedMcpServer, RelayedTool};
 use futures_util::future::BoxFuture;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -34,6 +33,8 @@ use crate::action_items::links::Links;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::realtime::EventBus;
+use crate::runner::WorkspacePath;
+use crate::runner::workspace::WorkspaceContainer;
 use crate::storage::Storage;
 
 /// The services tool calls use. Cheap to clone; clones share every connection.
@@ -46,6 +47,8 @@ pub struct ToolContext {
     pub events: EventBus,
     /// Links to Jira and GitHub, for the tool that links a session's pull request.
     pub links: Links,
+    /// Where a session's files are read and written.
+    pub workspace: WorkspaceContainer,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -62,36 +65,26 @@ impl std::fmt::Debug for ToolContext {
     }
 }
 
-/// Who a call is made for: the coding session whose agent called, its project, which
-/// decides what the call may reach, the action item it was started from, and its thread,
-/// whose workspace files the call may read and write.
+/// Who a call is made for. Each server's tools accept the scopes they serve and answer any
+/// other with what the tool is for.
+#[derive(Debug, Clone)]
+pub enum CallScope {
+    /// A coding or Studio session's agent.
+    Session(SessionScope),
+}
+
+/// A session whose agent called: its project, which decides what the call may reach, the
+/// action item it was started from, and its directory, whose files the call may read and
+/// write.
 ///
 /// A Studio session may have no project; it then reaches only the storage locations for
 /// every project, and no work at all.
-#[derive(Clone)]
-pub struct CallScope {
+#[derive(Debug, Clone)]
+pub struct SessionScope {
     pub session_id: i64,
     pub project_id: Option<Uuid>,
     pub action_item_id: Option<Uuid>,
-    pub workspace: ThreadHandle,
-}
-
-/// Written by hand because the SDK's derived `Debug` for a thread handle prints the
-/// satellite's bearer secret; only the thread's id is shown.
-impl std::fmt::Debug for CallScope {
-    #[expect(
-        clippy::renamed_function_params,
-        reason = "`f` is a shorthand name; the project spells names out"
-    )]
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("CallScope")
-            .field("session_id", &self.session_id)
-            .field("project_id", &self.project_id)
-            .field("action_item_id", &self.action_item_id)
-            .field("thread_id", &self.workspace.id())
-            .finish()
-    }
+    pub directory: WorkspacePath,
 }
 
 /// One tool: what the agent is told about it, and what runs when it is called.
@@ -115,31 +108,14 @@ pub type Run = for<'call> fn(
 /// A relayed MCP server: a named set of tools with the instructions that explain them.
 #[derive(Debug, Clone, Copy)]
 pub struct ToolServer {
-    /// 1 to 64 letters, digits, underscores, or hyphens, not starting with `arsox`.
+    /// 1 to 64 letters, digits, underscores, or hyphens: an MCP server name and a URL segment.
     pub name: &'static str,
     pub instructions: &'static str,
     pub tools: &'static [Tool],
 }
 
-/// Every server Elysium can relay, looked up by name when a call arrives.
+/// Every server Elysium serves, looked up by name when a call arrives.
 pub const SERVERS: [&ToolServer; 2] = [&storage::SERVER, &work::SERVER];
-
-/// A server as a thread declares it, so the satellite serves its tools to the agent.
-pub fn relayed_server(server: &ToolServer) -> RelayedMcpServer {
-    RelayedMcpServer {
-        name: server.name.to_owned(),
-        instructions: server.instructions.to_owned(),
-        tools: server
-            .tools
-            .iter()
-            .map(|tool| RelayedTool {
-                name: tool.name.to_owned(),
-                description: tool.description.to_owned(),
-                input_schema_json: (tool.input_schema)().to_string(),
-            })
-            .collect(),
-    }
-}
 
 /// Why a call could not be carried out. `Display` is what the agent reads, so every
 /// message says what to change.
@@ -171,7 +147,7 @@ pub enum ToolError {
     /// The storage provider refused or could not be reached, in its own words.
     #[error("{0}")]
     Provider(String),
-    /// The satellite could not read or write the workspace file.
+    /// The workspace file could not be read or written.
     #[error("the workspace file could not be transferred: {0}")]
     Workspace(String),
     /// Elysium itself failed; the details are logged, never sent to the agent.
@@ -179,7 +155,7 @@ pub enum ToolError {
     Internal,
 }
 
-/// A call's answer, ready for the relay.
+/// A call's answer, ready for the endpoint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolOutput {
     pub text: String,
@@ -210,10 +186,11 @@ pub async fn dispatch(
     arguments_json: &str,
 ) -> ToolOutput {
     let Some(found) = find_tool(server, tool) else {
+        let CallScope::Session(session) = scope;
         event!(
             name: "tools.call.unknown",
             Level::WARN,
-            session.id = %scope.session_id,
+            session.id = %session.session_id,
             tool.server = server,
             tool.name = tool,
             "a call named a tool Elysium does not serve",
@@ -259,10 +236,11 @@ pub fn internal(
     operation: &'static str,
     error: &dyn std::fmt::Display,
 ) -> ToolError {
+    let CallScope::Session(session) = scope;
     event!(
         name: "tools.call.internal_failure",
         Level::ERROR,
-        session.id = %scope.session_id,
+        session.id = %session.session_id,
         tool.operation = operation,
         error.message = %error,
         "a tool call failed inside Elysium",
@@ -276,8 +254,9 @@ mod tests {
 
     use super::*;
 
-    /// The satellite's rule for relayed server and tool names.
-    fn is_relay_name(name: &str) -> bool {
+    /// MCP clients, Claude Code among them, accept tool and server names of this shape, and
+    /// a server's name is a URL path segment.
+    fn is_tool_name(name: &str) -> bool {
         (1..=64).contains(&name.len())
             && name.chars().all(|character| {
                 character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
@@ -285,11 +264,10 @@ mod tests {
     }
 
     #[test]
-    fn every_server_and_tool_has_a_name_the_satellite_accepts() {
+    fn every_server_and_tool_has_a_name_clients_accept() {
         let mut server_names = HashSet::new();
         for server in SERVERS {
-            assert!(is_relay_name(server.name), "{}", server.name);
-            assert!(!server.name.starts_with("arsox"), "{}", server.name);
+            assert!(is_tool_name(server.name), "{}", server.name);
             assert!(
                 server_names.insert(server.name),
                 "{} is listed twice",
@@ -299,7 +277,7 @@ mod tests {
 
             let mut tool_names = HashSet::new();
             for tool in server.tools {
-                assert!(is_relay_name(tool.name), "{}", tool.name);
+                assert!(is_tool_name(tool.name), "{}", tool.name);
                 assert!(
                     tool_names.insert(tool.name),
                     "{} is listed twice",

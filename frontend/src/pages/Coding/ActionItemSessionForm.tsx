@@ -12,25 +12,23 @@ import { Button, Modal, Spinner } from '@heroui/react'
 import { CreateSessionForm } from './CreateSessionForm'
 
 // Misc
-import { useActionItemLoader, useProjectsLoader, useSatellitesLoader } from '../../hooks/useServerData'
+import { useActionItemLoader, useProjectsLoader } from '../../hooks/useServerData'
 
 type Props = {
   actionItemId: string
   onCreated: () => void
 }
 
-// The New session form for a session started from an action item, once the item, the
-// projects, and the satellites are loaded. The form presets its project, title, and
-// satellite from them when it mounts, and an item in one project fixes the project picker,
-// so a form mounted before the projects arrive could never be submitted. A deleted item
+// The New session form for a session started from an action item, once the item and the
+// projects are loaded. The form presets its project and title from them when it mounts, and
+// an item in one project fixes the project picker, so a form mounted before the projects
+// arrive could never be submitted. A deleted item
 // starts nothing, as the API refuses it.
 export function ActionItemSessionForm(props: Props) {
   const { t } = useTranslation([ 'coding', 'common' ])
   const status = useActionItemLoader(props.actionItemId)
   const projectsStatus = useProjectsLoader()
-  const satellitesStatus = useSatellitesLoader()
   const actionItem = useAppSelector((state) => selectActionItemById(state, props.actionItemId))
-  const presetStatuses = [ projectsStatus, satellitesStatus ]
 
   if (!actionItem && status === 'loading') {
     return <LoadingBody />
@@ -43,10 +41,10 @@ export function ActionItemSessionForm(props: Props) {
     } />
   }
   // A form mounted without them could never be submitted, so a failed load says so instead.
-  if (presetStatuses.includes('failed')) {
+  if (projectsStatus === 'failed') {
     return <MessageBody message={t('create.fromItem.presetFailed')} />
   }
-  if (presetStatuses.includes('loading')) {
+  if (projectsStatus === 'loading') {
     return <LoadingBody />
   }
 

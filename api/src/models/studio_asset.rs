@@ -218,28 +218,6 @@ pub async fn find_for_item(
         .await
 }
 
-/// The newest version of every path an item holds, which is what a continued item's new
-/// workspace is seeded with.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn latest_per_path(
-    connection: &mut AsyncPgConnection,
-    studio_item_id: Uuid,
-) -> QueryResult<Vec<StudioAsset>> {
-    studio_assets::table
-        .filter(studio_assets::studio_item_id.eq(studio_item_id))
-        .distinct_on(studio_assets::artifact_path)
-        .order((
-            studio_assets::artifact_path,
-            studio_assets::created_at.desc(),
-            studio_assets::id.desc(),
-        ))
-        .select(StudioAsset::as_select())
-        .load(connection)
-        .await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

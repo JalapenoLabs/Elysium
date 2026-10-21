@@ -16,7 +16,6 @@ import {
   LuMail,
   LuPlug,
   LuRefreshCw,
-  LuSatellite,
   LuShieldCheck,
   LuSquareKanban,
   LuUser,
@@ -77,12 +76,6 @@ export function SettingsDirectoryPage() {
           title={t('items.llms.title')}
           description={t('items.llms.description')}
           href={UrlTree.settingsLlms}
-        />
-        <SettingsDirectoryItem
-          icon={LuSatellite}
-          title={t('items.satellites.title')}
-          description={t('items.satellites.description')}
-          href={UrlTree.settingsSatellites}
         />
         <SettingsDirectoryItem
           icon={LuMail}

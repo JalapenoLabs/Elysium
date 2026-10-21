@@ -13,8 +13,6 @@ import {
   LuCircleAlert,
   LuCircleCheck,
   LuCircleX,
-  LuListChecks,
-  LuMessageCircleQuestion,
   LuWrench,
 } from 'react-icons/lu'
 
@@ -62,7 +60,7 @@ const renderers: Renderers = {
 
   agentMessage: (payload, { t }) => <div className={`rounded-bl-sm bg-surface-secondary ${BUBBLE_CLASS_NAME}`}>
     <div className='mb-0.5 text-xs font-semibold opacity-60'>{
-      payload.author?.role ?? t('conversation.agent')
+      t('conversation.agent')
     }</div>
     <div className='text-sm whitespace-pre-wrap break-words'>{payload.text}</div>
   </div>,
@@ -123,35 +121,6 @@ const renderers: Renderers = {
     {payload.summary && <p className='mt-2 text-sm whitespace-pre-wrap opacity-80'>{payload.summary}</p>}
     {payload.error && <p className='mt-2 text-sm text-danger'>{payload.error}</p>}
   </div>,
-
-  planProposed: (payload, { t }) => <div className='rounded-xl border border-separator p-3'>
-    <div className='level-left compact gap-1.5 text-xs font-semibold'>
-      <LuListChecks className='size-3.5' aria-hidden />
-      <span>{t('conversation.plan')}</span>
-    </div>
-    <div className='text-sm whitespace-pre-wrap'>{payload.body}</div>
-  </div>,
-
-  questionAsked: (payload, { t }) => <div className='rounded-xl border border-warning/50 p-3'>
-    <div className='level-left compact gap-1.5 text-xs font-semibold text-warning'>
-      <LuMessageCircleQuestion className='size-3.5' aria-hidden />
-      <span>{t('conversation.question')}</span>
-    </div>
-    <ul className='flex flex-col gap-2 text-sm'>{
-      payload.questions.map((question) => <li key={question.title}>
-        <div className='font-medium'>{question.title}</div>
-        {question.detail && <div className='opacity-70'>{question.detail}</div>}
-        {question.options.length > 0 && <div className='mt-1 text-xs opacity-70'>{
-          question.options.join(' · ')
-        }</div>}
-      </li>)
-    }</ul>
-  </div>,
-
-  budgetWarning: (payload, { t }) => <p className='level-left gap-1.5 text-xs text-warning'>
-    <LuCircleAlert className='size-3.5' aria-hidden />
-    <span>{t('conversation.budgetWarning', { percent: payload.percentUsed })}</span>
-  </p>,
 
   incident: (payload, { t }) => <p className='level-left gap-1.5 text-xs text-danger'>
     <LuCircleAlert className='size-3.5 shrink-0' aria-hidden />

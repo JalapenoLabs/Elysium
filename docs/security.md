@@ -3,8 +3,8 @@
 ## Trust boundary
 
 Every API route but `GET /api/v1/auth/status` requires a Kratos session and an approved account; see
-`docs/auth.md`. Everyone signed in shares one workspace: its LLM and satellite routes write credentials, its coding
-routes drive agents on satellites, and its mail routes reach the Docker host. An account is therefore trusted with all
+`docs/auth.md`. Everyone signed in shares one workspace: its LLM routes write credentials, its coding routes drive
+agents in the workspace container, and its mail routes reach the Docker host. An account is therefore trusted with all
 of that, which is why admins approve every sign-up and can close sign-up entirely.
 
 nginx publishes the web on `127.0.0.1` by default. `WEB_BIND_ADDRESS` publishes it on another address, for a network
@@ -22,13 +22,17 @@ only component that can set `X-Real-IP` and `X-Forwarded-For`. The rate limiter 
 the logs trust those headers for that reason alone. Publishing the API port directly
 would let a client forge them.
 
-## Satellites
+## Agents
 
-- The API connects to whatever URL a satellite is registered with. That is intended, since satellites are
-  operator infrastructure, and it is one more reason every account is approved by an admin.
-- Satellite secrets never leave the API. Browsers talk only to the API, which holds the one client per satellite.
-- Satellite errors shown to clients (`502` messages, `satellite.status` errors) come from the satellite's contract
-  errors and transport failures, which never contain the secret.
+- Agents run with every permission, as `agent` in the `elysium-workspace` container, never in the API's container,
+  which holds `ELYSIUM_ENCRYPTION_KEY` and the database's credentials. See `docs/coding.md`.
+- An agent can read everything its turn was given: the model credential, the session's GitHub token, and every
+  environment variable. Nothing that must stay hidden from agents is given to a turn.
+- The workspace shares `elysium-agents` with the API alone, so it reaches no other service: not Postgres, Redis,
+  Kratos, Hydra, or `docker-proxy`. Agents reach Elysium only at `/api/agent-tools`, with a per-turn grant scoped to
+  their session, and nginx answers `404` for that path on the public origin.
+- The API reads and writes workspace files through `docker exec` as `agent`, confined to a session's directory by
+  `realpath`, so a symlink an agent plants cannot point the API elsewhere. The API never mounts the volume.
 - The event stream carries agent output, including tool input and output previews. It is served on the same
   origin as everything else and shares the API's trust boundary.
 
@@ -83,6 +87,16 @@ See `docs/browser.md`.
 - A connector reads a page over the browser's DevTools port, which only the API reaches (above).
 
 See `docs/connectors.md`.
+
+## Auto-update
+
+The updater (`updater/updater.sh`) is the one container that mounts the Docker socket, because it runs compose. It
+is off unless the operator turns on the `auto-update` profile. It publishes nothing and listens on nothing: it only
+calls the API's `/internal/updater` routes, which nginx never forwards, with a key derived from the encryption key.
+
+What the API can make it do is narrow. An instruction names two versions, each checked as `X.Y.Z` before use; the
+image repositories, where the configuration comes from, and every command are fixed in the script or in the release
+itself. A compromised API could make it apply or roll back a published release of Elysium, and nothing else.
 
 ## Sign-in
 

@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ThreadStatus } from '../../api/routes/codingSessionRoutes'
+import type { CodingSession, SessionActivity } from '../../api/routes/codingSessionRoutes'
 
 // Core
 import { describe, expect, it } from 'vitest'
@@ -9,23 +9,15 @@ import { describe, expect, it } from 'vitest'
 import { makeCodingSession, makeStudioItem } from '../../testFixtures'
 import {
   filterStudioItems,
-  getTileThreadState,
+  getTileActivityState,
   getTileThumbnail,
   NO_PROJECT,
   readStudioFilters,
   writeStudioFilters,
 } from './studioListing'
 
-function makeThread(overrides: Partial<ThreadStatus>): ThreadStatus {
-  return {
-    state: 'idle',
-    queueDepth: 0,
-    currentTurnId: null,
-    latestSequence: 0,
-    lastActivityAt: null,
-    expiresAt: null,
-    ...overrides,
-  }
+function withActivity(session: CodingSession, overrides: Partial<SessionActivity>): CodingSession {
+  return { ...session, activity: { ...session.activity, ...overrides }}
 }
 
 describe('readStudioFilters and writeStudioFilters', () => {
@@ -74,49 +66,29 @@ describe('getTileThumbnail', () => {
     expect(getTileThumbnail(item, undefined)).toEqual({ kind: 'image', assetId: 'asset' })
   })
 
-  it('shows the working placeholder while a just-started thread has not been polled', () => {
-    const item = makeStudioItem({ id: 'item' })
-    expect(getTileThumbnail(item, session)).toEqual({ kind: 'working' })
-  })
-
   it('shows the working placeholder while a turn runs or waits', () => {
     const item = makeStudioItem({ id: 'item' })
-    const running = { ...session, thread: makeThread({ state: 'running' }) }
-    const queued = { ...session, thread: makeThread({ state: 'idle', queueDepth: 1 }) }
+    const running = withActivity(session, { state: 'running' })
+    const queued = withActivity(session, { state: 'queued', queueDepth: 1 })
     expect(getTileThumbnail(item, running)).toEqual({ kind: 'working' })
     expect(getTileThumbnail(item, queued)).toEqual({ kind: 'working' })
   })
 
   it('shows an empty frame when nothing is running', () => {
     const item = makeStudioItem({ id: 'item' })
-    const idle = { ...session, thread: makeThread({ state: 'idle' }) }
-    const expired = { ...session, thread: makeThread({ state: 'expired', queueDepth: 2 }) }
-    expect(getTileThumbnail(item, idle)).toEqual({ kind: 'empty' })
-    expect(getTileThumbnail(item, expired)).toEqual({ kind: 'empty' })
+    expect(getTileThumbnail(item, session)).toEqual({ kind: 'empty' })
     expect(getTileThumbnail(item, undefined)).toEqual({ kind: 'empty' })
   })
 })
 
-describe('getTileThreadState', () => {
+describe('getTileActivityState', () => {
   it('shows no chip for an item with no session', () => {
-    expect(getTileThreadState(undefined)).toBeNull()
+    expect(getTileActivityState(undefined)).toBeNull()
   })
 
-  it('shows no chip for a thread the API has not polled yet', () => {
-    const session = makeCodingSession({ id: 1, studioItemId: 'item', thread: null })
+  it.each([ 'idle', 'queued', 'running' ] as const)('shows a %s session\'s state', (state) => {
+    const session = withActivity(makeCodingSession({ id: 1, studioItemId: 'item' }), { state })
 
-    expect(getTileThreadState(session)).toBeNull()
-  })
-
-  it('does not present an unknown state as a state', () => {
-    const session = makeCodingSession({ id: 1, studioItemId: 'item', thread: makeThread({ state: 'unknown' }) })
-
-    expect(getTileThreadState(session)).toBeNull()
-  })
-
-  it.each([ 'running', 'idle', 'expired' ] as const)('shows a %s thread\'s state', (state) => {
-    const session = makeCodingSession({ id: 1, studioItemId: 'item', thread: makeThread({ state }) })
-
-    expect(getTileThreadState(session)).toBe(state)
+    expect(getTileActivityState(session)).toBe(state)
   })
 })

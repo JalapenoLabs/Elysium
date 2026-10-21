@@ -1,0 +1,50 @@
+# Copyright © 2026 Jalapeno Labs
+
+# Cuts a release every morning from the newest commit on main whose checks all passed, and
+# starts publish.yml on its tag. Deployments running auto-update apply it within the hour.
+# It is not a check and never required. See docs/ci.md.
+name: Release
+
+# No pull_request trigger: this writes a tag, so nothing a pull request controls reaches it.
+on:
+  schedule:
+    # 09:00 UTC: early morning in the Americas, so a deployment updates before its workday.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to raise.
+        type: choice
+        options: [ patch, minor, major ]
+        default: patch
+
+# The token pushes the tag and starts publish.yml on it, and reads the candidate's checks.
+# It reads no secret.
+permissions:
+  contents: write
+  actions: write
+  checks: read
+
+# Two runs at once could cut the same version twice.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Cut release
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Cut the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUMP: ${{ inputs.bump || 'patch' }}
+        run: .github/scripts/cut-release.sh

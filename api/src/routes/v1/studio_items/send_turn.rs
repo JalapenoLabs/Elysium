@@ -3,21 +3,17 @@
 //! `POST /api/v1/studio-items/{id}/turns`: send a prompt, with or without a drawing.
 //!
 //! The body is always `multipart/form-data`, so a plain prompt and a drawn one travel the same
-//! way. Fields: `prompt` (required), `satelliteId` (where a continued item runs), and for a
-//! drawing `annotated` (the drawing flattened over the view, PNG), `capture` (the clean view,
-//! PNG), `sourceAssetId` (the file drawn over), and `cameraOrbit` (the 3D viewer's orbit).
+//! way. Fields: `prompt` (required), and for a drawing `annotated` (the drawing flattened over
+//! the view, PNG), `capture` (the clean view, PNG), `sourceAssetId` (the file drawn over), and
+//! `cameraOrbit` (the 3D viewer's orbit).
 //!
-//! The turn runs in the item's live thread, or in a new session that continues the item when
-//! the latest thread has ended (`crate::studio::continuation`), whose brief, when it needs
-//! one, opens the prompt. A drawing is uploaded into the workspace at
-//! `feedback/<feedbackId>/annotated.png` and attached to the turn, so the harness reads it as
-//! an image; both images are kept in the item's storage location and recorded as a
-//! `studio_feedback` row before the turn starts, which names its turn once the satellite
-//! accepts it. See `docs/studio.md`, Feedback.
+//! The turn runs in the item's session, behind any it has unfinished. A drawing is written into
+//! the session's directory at `feedback/<feedbackId>/annotated.png`, and the prompt tells the
+//! agent to look at it there; both images are kept in the item's storage location and recorded
+//! as a `studio_feedback` row before the turn starts, which names its turn once it is queued.
+//! See `docs/studio.md`, Feedback.
 
 use anyhow::Context;
-use arsox_sdk::client::{ThreadHandle, TurnOptions};
-use arsox_sdk::proto::turn::v1::TurnAttachment;
 use axum::Json;
 use axum::extract::multipart::{Field, Multipart, MultipartRejection};
 use axum::extract::rejection::PathRejection;
@@ -30,10 +26,10 @@ use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::{StudioFeedbackResponse, StudioItemResponse};
+use super::{StudioFeedbackResponse, session};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::fleet::views::TurnView;
+use crate::models::coding_session::CodingSession;
 use crate::models::storage_location::{self, StorageLocation};
 use crate::models::studio_asset;
 use crate::models::studio_feedback::{self, StudioFeedback};
@@ -41,13 +37,12 @@ use crate::models::studio_item::{self, StudioItem};
 use crate::models::studio_reservation::{self, Room};
 use crate::realtime::ServerEvent;
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
-use crate::routes::v1::coding_sessions::open::{self, OpenedSession};
+use crate::sessions::Sessions;
+use crate::sessions::views::TurnView;
 use crate::state::AppState;
-use crate::studio::continuation::{self, Continued, ItemThread};
 
-/// The largest drawing. It is handed to the harness as an image, and Arsox refuses a turn
-/// attachment past 3.75 MiB because the model APIs do; a viewer capture downscaled to fit
-/// keeps every stroke legible.
+/// The largest drawing. The agent reads it as an image, and the model APIs refuse an image
+/// past 3.75 MiB; a viewer capture downscaled to fit keeps every stroke legible.
 pub const MAX_ANNOTATED_BYTES: usize = 3_932_160;
 
 /// The largest clean capture. It is only kept, never sent to the agent, so it may be a full
@@ -71,7 +66,6 @@ const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 #[derive(Debug, Default)]
 struct TurnForm {
     prompt: String,
-    satellite_id: Option<Uuid>,
     source_asset_id: Option<Uuid>,
     camera_orbit: Option<String>,
     annotated: Option<Bytes>,
@@ -83,7 +77,6 @@ struct TurnForm {
 struct DrawingRequest<'request> {
     item: &'request StudioItem,
     actor: Uuid,
-    workspace: &'request ThreadHandle,
     session_id: i64,
     form: &'request TurnForm,
 }
@@ -92,7 +85,8 @@ struct DrawingRequest<'request> {
 #[derive(Debug)]
 struct Drawing {
     feedback: StudioFeedback,
-    attachment: TurnAttachment,
+    /// Where the agent finds it, relative to the session's directory.
+    workspace_path: String,
     location: StorageLocation,
 }
 
@@ -132,65 +126,32 @@ pub async fn handle(
         ));
     }
 
-    let item_thread =
-        continuation::thread_for_turn(&state, &item, current.id(), form.satellite_id).await?;
+    let item_session = session::for_turn(&state, &item, current.id()).await?;
+    let (turn, feedback) = start_turn(&state, &item, current.id(), &form, &item_session).await?;
 
-    // A session this request continued the item on exists only for this turn: if the turn never
-    // starts, it is discarded, so the next prompt continues the item afresh with its brief or
-    // import instead of finding a live thread that never heard of the item's past.
-    let started = start_turn(&state, &item, current.id(), &form, &item_thread).await;
-    let (turn, feedback) = match started {
-        Ok(started) => started,
-        Err(error) => {
-            if item_thread.continued.is_some() {
-                let opened = OpenedSession {
-                    session: item_thread.session.clone(),
-                    handle: item_thread.handle.clone(),
-                    thread: item_thread.thread.clone(),
-                };
-                open::discard(&state, &opened).await;
-            }
-            return Err(error);
-        }
-    };
-    let continued = item_thread.continued.is_some();
-    if continued {
-        announce_item(&state, &item).await;
-    }
-
-    let session = CodingSessionResponse::new(item_thread.session, Some(item_thread.thread));
+    let activity = state.sessions.activity(item_session.id);
+    let session = CodingSessionResponse::new(item_session, activity);
     Ok((
         StatusCode::CREATED,
         Json(json!({
             "session": session,
             "turn": turn,
             "feedback": feedback,
-            "continued": continued,
         })),
     ))
 }
 
-/// Starts the turn in `item_thread`: the brief ahead of the prompt when the item continued
-/// with one, and the drawing, once kept, attached.
+/// Starts the turn in `item_session`, with the drawing, once kept, named in the prompt.
 ///
 /// # Errors
-/// The failures of keeping the drawing and the satellite's refusal of the turn, which takes the
-/// drawing with it.
+/// The failures of keeping the drawing and of queuing the turn, which takes the drawing with it.
 async fn start_turn(
     state: &AppState,
     item: &StudioItem,
     actor: Uuid,
     form: &TurnForm,
-    item_thread: &ItemThread,
+    item_session: &CodingSession,
 ) -> Result<(TurnView, Option<StudioFeedbackResponse>), ApiError> {
-    let mut attachments = Vec::new();
-    let mut prompt = String::new();
-    if let Some(Continued::Brief(brief)) = &item_thread.continued {
-        prompt.push_str(&brief.text);
-        attachments.extend(brief.thumbnail.clone());
-    }
-    prompt.push_str(&form.prompt);
-
     let drawing = match form.annotated.clone() {
         Some(annotated) => Some(
             keep_drawing(
@@ -198,8 +159,7 @@ async fn start_turn(
                 DrawingRequest {
                     item,
                     actor,
-                    workspace: &item_thread.handle,
-                    session_id: item_thread.session.id,
+                    session_id: item_session.id,
                     form,
                 },
                 annotated,
@@ -208,26 +168,32 @@ async fn start_turn(
         ),
         None => None,
     };
-    if let Some(drawing) = &drawing {
-        attachments.push(drawing.attachment.clone());
-    }
-
-    let options = TurnOptions {
-        attachments,
-        ..TurnOptions::default()
+    let prompt = match &drawing {
+        Some(drawing) => format!(
+            "{}\n\nThe user drew over a view of the asset: look at {} before you start.",
+            form.prompt, drawing.workspace_path
+        ),
+        None => form.prompt.clone(),
     };
-    let turn = match item_thread.handle.start_turn_with(prompt, options).await {
-        Ok(turn) => TurnView::from(turn.queued()),
+
+    let started = state
+        .sessions
+        .start_turn(item_session, prompt, session::turn_extras())
+        .await;
+    let turn = match started {
+        Ok(turn) => turn,
         Err(error) => {
             if let Some(drawing) = &drawing {
                 forget_drawing(state, drawing).await;
             }
-            return Err(error.into());
+            return Err(error);
         }
     };
 
     let feedback = match drawing {
-        Some(drawing) => Some(record_turn(state, drawing.feedback, &turn.turn_id).await),
+        Some(drawing) => {
+            Some(record_turn(state, drawing.feedback, &turn.turn_id.to_string()).await)
+        }
         None => None,
     };
     Ok((turn, feedback))
@@ -253,7 +219,6 @@ async fn read_form(mut multipart: Multipart) -> Result<TurnForm, ApiError> {
                 form.prompt = text(field, &name, MAX_PROMPT_CHARS * 4).await?;
                 has_prompt = true;
             }
-            "satelliteId" => form.satellite_id = Some(uuid(field, &name).await?),
             "sourceAssetId" => form.source_asset_id = Some(uuid(field, &name).await?),
             "cameraOrbit" => {
                 form.camera_orbit = Some(text(field, &name, MAX_CAMERA_ORBIT_CHARS).await?);
@@ -327,14 +292,14 @@ async fn png(field: Field<'_>, name: &str, limit: usize) -> Result<Bytes, ApiErr
     Ok(bytes)
 }
 
-/// Keeps both images in the item's storage location, records the drawn prompt, and uploads
-/// the drawing into the workspace to be attached to the turn. The images' bytes are reserved in
+/// Keeps both images in the item's storage location, records the drawn prompt, and writes the
+/// drawing into the session's directory for the agent to look at. The images' bytes are reserved in
 /// the location first, so concurrent uploads cannot pass its limit together. Anything kept is
 /// removed again when a later step fails.
 ///
 /// # Errors
 /// `409` when the images would pass the location's storage limit, and the failures of the
-/// provider, the database, and the satellite.
+/// provider, the database, and the workspace.
 async fn keep_drawing(
     state: &AppState,
     request: DrawingRequest<'_>,
@@ -385,7 +350,6 @@ async fn keep_drawing_in(
     let DrawingRequest {
         item,
         actor,
-        workspace,
         session_id,
         form,
     } = request;
@@ -410,10 +374,12 @@ async fn keep_drawing_in(
 
     let workspace_path = format!("feedback/{feedback_id}/annotated.png");
     let annotated_size = annotated.len() as u64;
-    let written = workspace
+    let written = state
+        .sessions
+        .workspace()
         .write_file(
+            &Sessions::directory(session_id),
             &workspace_path,
-            annotated_size,
             stream::once(async move { Ok::<_, std::io::Error>(annotated) }),
         )
         .await;
@@ -458,11 +424,7 @@ async fn keep_drawing_in(
 
     Ok(Drawing {
         feedback,
-        attachment: TurnAttachment {
-            path: workspace_path,
-            content_type: Some("image/png".to_owned()),
-            size_bytes: annotated_size,
-        },
+        workspace_path,
         location,
     })
 }
@@ -558,7 +520,7 @@ async fn remove_files(state: &AppState, location: &StorageLocation, paths: &[&st
     }
 }
 
-/// Forgets a drawing whose turn the satellite refused: its row, then its files.
+/// Forgets a drawing whose turn could not be queued: its row, then its files.
 async fn forget_drawing(state: &AppState, drawing: &Drawing) {
     match state.database.get().await {
         Ok(mut connection) => {
@@ -619,37 +581,6 @@ async fn record_turn(
         .publish(&ServerEvent::StudioFeedbackCreated(response.clone()));
     response
 }
-
-/// Tells clients the item changed: it continued on a new session.
-async fn announce_item(state: &AppState, item: &StudioItem) {
-    let assets = match state.database.get().await {
-        Ok(mut connection) => studio_asset::list_for_items(&mut connection, &[item.id])
-            .await
-            .map_err(|error| error.to_string()),
-        Err(error) => Err(error.to_string()),
-    };
-    match assets {
-        Ok(assets) => {
-            let references: Vec<_> = assets.iter().collect();
-            state
-                .events
-                .publish(&ServerEvent::StudioItemUpserted(StudioItemResponse::new(
-                    item.clone(),
-                    &references,
-                )));
-        }
-        Err(message) => event!(
-            name: "studio.item.announce_failure",
-            Level::WARN,
-            studio_item.id = %item.id,
-            error.message = %message,
-            "could not announce an item that continued on a new session",
-        ),
-    }
-}
-
-#[cfg(test)]
-mod flow_tests;
 
 #[cfg(test)]
 mod tests {
@@ -742,8 +673,8 @@ mod tests {
 
     #[tokio::test]
     async fn an_unknown_field_is_refused() {
-        form(&[("prompt", b"Fix it"), ("satelite", b"typo")])
+        form(&[("prompt", b"Fix it"), ("satelliteId", b"gone")])
             .await
-            .expect_err("a misspelled field is refused");
+            .expect_err("a field the form no longer takes is refused");
     }
 }

@@ -12,8 +12,7 @@ The full vision is `docs/vision.md`. Read it before designing any feature.
 - Elysia should work without being fed. Events (mail, meetings, chat, provider changes) create work, Elysia starts
   it on her own, and she reports back when something is ready for review.
 - Claude is the agent. Codex is for occasional automated tasks only.
-- The roadmap is for coding sessions to run Claude Code directly on Elysium's host by default, with Arsox satellites
-  optional for remote compute.
+- Coding sessions run Claude Code directly on Elysium's host. Remote compute for agents is optional and not built.
 - Seraphim's autonomous loop (take the next work when idle, fix failing CI, address review, revive dead turns, ask
   when blocked) moves into Elysium redesigned, not ported as is.
 - Elysium uses services the way its user does, signed in as that user, and never installs anything into an
@@ -41,9 +40,11 @@ The full vision is `docs/vision.md`. Read it before designing any feature.
 - Agent turns run the official `claude` CLI in the workspace container (`workspace/Dockerfile`), which the API
   creates through `docker-proxy` and reaches by `docker exec`, never inside the API's own container. Callers submit
   turns to `crate::runner`. See `docs/coding.md`.
-- Releases update themselves: the API decides when, and an updater on the host carries it out. It never restarts the
-  stack while work is running; anything a restart would cut short, such as an agent turn, holds an activity
-  (`api/src/activity.rs`) while it runs. See `docs/infrastructure.md`.
+- Releases update themselves: the API decides when, and the updater (compose profile `auto-update`) carries it out,
+  backing up the databases and rolling back a release that does not come up healthy. It never restarts the stack
+  while work is running; anything a restart would cut short, such as an agent turn, holds an activity
+  (`api/src/activity.rs`) while it runs. Each API image carries the deployment's configuration, so a release brings
+  its own, and the updater owns `ELYSIUM_VERSION` in `.env`. See `docs/infrastructure.md`.
 - The web app's pages carry a strict Content Security Policy set by the API: no inline scripts, no eval, nothing
   from another origin. Frontend code keeps to it. See `docs/security.md`.
 
@@ -57,6 +58,7 @@ The full vision is `docs/vision.md`. Read it before designing any feature.
 - `RUST_LOG`, which is optional
 - `ELYSIUM_PUBLIC_URL`, which is optional: the origin browsers use, `http://localhost:4000` unless set
 - `ELYSIUM_VERSION`, which is optional: the published release the production stack runs, `latest` unless set
+- `COMPOSE_PROFILES`, which is optional: `auto-update` turns on the updater
 - `WEB_PORT` and `WEB_BIND_ADDRESS`, which are optional: where nginx publishes the web, `127.0.0.1:4000` unless set
 
 Everything else follows these rules:
@@ -99,26 +101,26 @@ Everything else follows these rules:
 - Every token is bound to `/api/mcp` and checked on every call: active, granting `workspace:read`, and naming an active,
   approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
 - A tool never reimplements a route: it calls the function the route's handler calls, so a change made over MCP is
-  validated, recorded, and announced exactly as one made in the browser. Tools exist for projects (read), satellites,
-  and coding sessions; Studio items, action items, and initiatives are on the roadmap.
+  validated, recorded, and announced exactly as one made in the browser. Tools exist for projects (read) and coding
+  sessions; Studio items, action items, and initiatives are on the roadmap.
 
-## Satellites are reached only through the API
+## Agents run on the host
 
-- Arsox satellites run coding sessions. The frontend never contacts one: satellites speak protobuf and hold a
-  bearer secret that must not reach a browser. The API is their only client, through `arsox-sdk`.
-- Satellite secrets are application secrets, sealed in Postgres like LLM tokens.
-- Thread policy (idle TTL, budget ceilings) is code constants, not configuration. See `docs/coding.md`.
-- A thread is opened with Elysium's active LLM credentials as an ordered failover stack, highest priority first,
-  so a credential that runs out hands the turn to the next one.
-- Every coding agent can 3D model. Blender is never baked into the satellite image: Elysium hands every satellite a
-  setup script (Arsox runs it as root at each container start) and declares per-turn Blender services on every
-  thread, so no two threads share a scene. See `docs/coding.md`.
-- Satellites own no data and treat every thread as ephemeral. Elysium keeps what a thread needs to carry on: every
-  event in Postgres as the watcher receives it, the harness session (sealed) after every turn, and a Studio item's
-  files in its storage location. A new thread picks up from what Elysium hands it. Deleting a satellite keeps its
-  sessions. See `docs/coding.md`, History.
-- When a satellite lacks something Elysium needs, it is built into Arsox (the satellite and its SDK) as a general
-  feature, not worked around in Elysium.
+- Agent turns run the official Claude Code CLI, on a subscription token or an API key, in the `elysium-workspace`
+  container the API owns. The Agent SDK is never used with subscription credentials. See `docs/coding.md`.
+- Agents never run in the API's container, and the workspace shares a network with the API alone. Workspace files
+  are read and written through `docker exec` as `agent`, confined by `realpath`; the API never mounts the volume.
+- A session is a directory in the workspace (`sessions/<id>`), the Claude session its turns resume, and its events in
+  `session_events`. Turns of one session run one at a time; at most eight run at once.
+- A turn runs on Elysium's active Claude credentials as an ordered failover stack, highest priority first, so a
+  credential that runs out hands the turn to the next one, resuming the same Claude session.
+- Turn policy (heartbeat, concurrency, clone and script timeouts) is code constants, not configuration.
+- Agents' `~/.claude` is checked out from the configuration repository named in the workspace settings.
+- Elysium's tools reach agents at `/api/agent-tools/{server}`, under a per-turn grant scoped to the session, and every
+  call re-checks the database. nginx never routes that path.
+- Every agent can 3D model. Blender is baked into the workspace image, and every turn starts a Blender of its own
+  through a stdio MCP launcher, so no two turns share a scene. See `docs/coding.md`, Blender.
+- Secret values given to a turn are scrubbed from its events before they are recorded or published.
 
 ## Mail
 
@@ -174,23 +176,18 @@ Everything else follows these rules:
   every endpoint fixed in code; local storage is planned. See `docs/storage.md`.
 - Access keys are application secrets, sealed in Postgres. Routes never match on the provider; `api/src/storage/`
   does.
-- Coding agents reach their project's locations through the `elysium_storage` MCP tools, which Elysium answers over a
-  relay socket it opens to the satellite; nothing listens for the satellite. Every call re-checks the location against
-  the project in the database. See `api/src/tools/` and `docs/storage.md`.
+- Coding agents reach their project's locations through the `elysium_storage` MCP tools at `/api/agent-tools`. Every
+  call re-checks the location against the project in the database. See `api/src/tools/` and `docs/storage.md`.
 
 ## Studio
 
 - Studio (`/studio`) is where agents make single assets: a 3D model, a render, a 2D image, one per item, with no git
   repositories. Coding is for multi-repository, long-lived work with pull requests. See `docs/studio.md`.
-- A Studio item runs on coding sessions (`coding_sessions.studio_item_id`); its project is optional and its storage
-  location is required. The Coding page lists only sessions without an item.
-- Agents deliver files into the workspace's `artifacts/`; Arsox announces them at the end of each turn and Elysium
-  pulls each into the item's storage location, keeping every version. Elysium, not the agent, exports every `.blend`
-  to `.glb` through a turn-end hook installed by the setup script.
-- Drawn feedback reaches the agent as an Arsox turn attachment, the harness's native image input. A prompt without a
-  drawing attaches nothing.
-- An item whose thread ended continues on a new thread with its next prompt: the files are copied back into the
-  workspace and the harness session is imported when the harness family matches, or a brief is sent when it does not.
+- A Studio item runs on one coding session (`coding_sessions.studio_item_id`) whose directory keeps its work; its
+  project is optional and its storage location is required. The Coding page lists only sessions without an item.
+- Agents deliver files into their session's `artifacts/`. After every turn Elysium exports every `.blend` to `.glb`
+  itself, then pulls each new or changed file into the item's storage location, keeping every version.
+- Drawn feedback is written into the session's `feedback/` directory, and the prompt names the file.
 
 ## GitHub
 
@@ -198,7 +195,7 @@ Everything else follows these rules:
   Tokens are application secrets, sealed in Postgres. See `docs/github.md`.
 - A coding session starts with one token or none, chosen by the workspace default, overridden by the project, and
   overridden again when the session starts. The agent gets it as `GH_TOKEN`, with git routed through `gh` by
-  `GIT_CONFIG_*` variables; no satellite change is involved.
+  `GIT_CONFIG_*` variables.
 - Every write checks the token with GitHub first and stores what it answers: the account, its scopes, and the expiry.
   `api/src/github/` is the only caller, and `api.github.com` is fixed in code; GitHub Enterprise Server is not
   supported.
@@ -222,13 +219,12 @@ Everything else follows these rules:
 
 ## Environment variables
 
-- Global environment variables, managed under Settings, Environment variables, are passed into every coding session's
-  satellite thread. See `docs/environment.md`.
-- Every value is sealed in Postgres, secret or not. Secret means Elysium never returns the value and the satellite
-  scrubs it from thread output; the agent can always read it, so nothing that must stay hidden from the agent belongs
-  here.
-- Keys that Elysium sets, the satellite refuses, or the satellite overrides are refused, by one rule table in
-  `api/src/environment/` that the frontend mirrors.
+- Global environment variables, managed under Settings, Environment variables, are passed into every turn of every
+  coding session. See `docs/environment.md`.
+- Every value is sealed in Postgres, secret or not. Secret means Elysium never returns the value and scrubs it from
+  session events; the agent can always read it, so nothing that must stay hidden from the agent belongs here.
+- Keys that Elysium sets for GitHub or the runner, and keys that would pick the model credential, are refused, by one
+  rule table in `api/src/environment/` that the frontend mirrors.
 
 ## Action items
 
@@ -265,10 +261,10 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   until it lands or the user cancels it. The item's own change always stands.
 - A Jira project's done transition is stored as the `done` status it leads into, chosen by the user only when the
   project has more than one.
-- Coding agents use one relayed MCP server, `elysium_work`, declared on every thread, in Elysium's terms and scoped to
-  the session's project, re-checked on every call. Its direct writes are comments and linking the pull request the
-  agent opened to its session's item; an agent's link never becomes the primary. Every other change it proposes as a
-  changeset with `work_propose_changes`.
+- Coding agents use one MCP server, `elysium_work`, given to every turn of a session with a project, in Elysium's
+  terms and scoped to the session's project, re-checked on every call. Its direct writes are comments and linking the
+  pull request the agent opened to its session's item; an agent's link never becomes the primary. Every other change
+  it proposes as a changeset with `work_propose_changes`.
 - A session started from an item records it, and its first turn carries the item's context ahead of the user's
   prompt.
 - Every row records who created it. Ownership (`owner_kind`, `waiting_on`) is still text; making it reference users
@@ -341,6 +337,8 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   commit SHA.
 - The one exception is `publish.yml`, which reads the organization's Docker Hub token (`DOCKERHUB_USERNAME`
   variable, `DOCKERHUB_TOKEN` secret). It never triggers on a pull request, and leaves no login on the runners.
+- `release.yml` cuts a `vX.Y.Z` tag daily from the newest green commit on `main` and starts `publish.yml` on it. Its
+  token may push tags and start workflows; it reads no secret and never triggers on a pull request.
 - Tools are pinned in one place and verified: Rust by each crate's `rust-toolchain.toml`, Node by `frontend/.nvmrc`,
   Yarn by `packageManager`, the Diesel CLI by `DIESEL_VERSION` in `api.yml`. Dockerfiles must use the same Rust and
   Node versions; the image checks fail when they drift.

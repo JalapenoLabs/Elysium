@@ -95,6 +95,8 @@ export type WorkspaceSettings = {
   signupOpen: boolean
   // Whether every person must set up an authenticator app.
   requireMfa: boolean
+  // The https git repository agents' Claude Code configuration is checked out from, if any.
+  agentConfigurationRepository: string | null
   updatedBy: string
   updatedAt: string
 }
@@ -112,6 +114,8 @@ export function getWorkspaceSettings() {
 type UpdateWorkspaceSettingsRequest = {
   signupOpen?: boolean
   requireMfa?: boolean
+  // Null clears it.
+  agentConfigurationRepository?: string | null
 }
 
 export function updateWorkspaceSettings(body: UpdateWorkspaceSettingsRequest) {

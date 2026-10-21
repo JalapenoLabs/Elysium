@@ -73,8 +73,9 @@ A session starts with one token, or none, chosen at three levels:
 Following the level above and choosing no token are different choices: a project that must never reach GitHub stays
 that way when a workspace default is added later. Deleting a token a project chose leaves that project with
 `specific` access and no token; it follows the workspace default from then on, and the project page says so. Deleting
-the default leaves the workspace without one. A session records the token its thread started with, since a thread
-takes its environment once; a deleted token leaves that record empty.
+the default leaves the workspace without one. A session records the token it was started with and opens it again
+for every turn, so a token edited under Settings reaches the next turn; a deleted token leaves that record empty and
+the session's later turns without one.
 
 `POST /api/v1/coding-sessions` takes `githubCredentialId`: absent follows the project, `null` asks for no token, and
 an id names one. `api/src/routes/v1/coding_sessions/github_token.rs` resolves the choice and opens the token. A token
@@ -82,12 +83,11 @@ that cannot be decrypted refuses the session rather than starting the agent with
 
 ## How the agent gets the token
 
-Only one token per session, set in the thread's environment. No satellite change is involved:
+Only one token per session, set in each turn's environment and in the environment of the session's clones:
 
-- `GH_TOKEN` holds the token, declared secret, so the satellite scrubs it from events, incidents, and output, and
-  scans pushes for it. `gh` reads it on its own.
-- `git` does not read `GH_TOKEN`, so the thread also declares git config through the environment, which git 2.31 and
-  later reads (the satellite image ships Ubuntu 24.04's git 2.43):
+- `GH_TOKEN` holds the token, and Elysium scrubs it from the session's events. `gh` reads it on its own.
+- `git` does not read `GH_TOKEN`, so the turn also carries git config through the environment, which git 2.31 and
+  later reads (the workspace image ships Ubuntu 24.04's git 2.43):
 
   | Variable             | Value                                  |
   |----------------------|----------------------------------------|
@@ -97,13 +97,11 @@ Only one token per session, set in the thread's environment. No satellite change
   | `GIT_CONFIG_KEY_1`   | `credential.https://github.com.helper` |
   | `GIT_CONFIG_VALUE_1` | `!gh auth git-credential`              |
 
-  These are declared not secret, since an unset flag means secret and would scrub the helper from logs. Nothing is
-  written into the workspace. The satellite's pre-push hook lives in repository config, so the two never meet.
-- The satellite's own clones of the session's repositories run before the agent and do not see its environment, so
-  each github.com repository also gets the token as `repos[].auth`. Elysium holds no SSH keys, so a github.com SSH
-  remote (`git@github.com:` or `ssh://git@github.com/`) is cloned from its `https://github.com/` URL instead
-  (`github_token::clone_url`), and the workspace's `origin` is HTTPS, the remote the `gh` credential helper serves.
-- The token also goes in `ThreadSettings.github`, which the satellite scrubs and its planned `gh` broker will use.
+  Nothing is written into the workspace.
+- The session's clones run with the same environment, so a private github.com repository clones with the token.
+  Elysium holds no SSH keys, so a github.com SSH remote (`git@github.com:` or `ssh://git@github.com/`) is cloned from
+  its `https://github.com/` URL instead (`github_token::clone_url`), and the workspace's `origin` is HTTPS, the remote
+  the `gh` credential helper serves.
 
 An agent can read every variable in its environment, so it holds the token. Scope each token to what its sessions
 need.
@@ -204,8 +202,8 @@ for agents that read or change GitHub Actions.
 
 ## Roadmap
 
-- GitHub App installation tokens, issued per turn for an hour, so a session never holds a long-lived token. Needs the
-  satellite to accept a fresh token per turn.
+- GitHub App installation tokens, issued per turn for an hour, so a session never holds a long-lived token. Turns
+  already take their token afresh.
 - More than one token per session, chosen per repository owner, if sessions spanning owners with fine-grained tokens
   become common.
 - Repository, pull request, and issue views built on the stored tokens, beyond the pickers and links above.
