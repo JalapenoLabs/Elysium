@@ -23,6 +23,8 @@ pub struct BrowserSession {
     pub name: String,
     /// The page the browser opens when it is created.
     pub start_url: String,
+    /// When `start_url` was opened in it; unset until Chromium first answered.
+    pub start_page_opened_at: Option<DateTime<Utc>>,
     /// The host port its media arrives on, which also names its container on the network.
     pub port: i32,
     pub member_password_encrypted: Vec<u8>,
@@ -125,14 +127,36 @@ pub async fn find_owned(
         .await
 }
 
-/// Whether the browser `id` is still stored.
+/// The browser `id` as it is stored now, or `None` once it is removed.
 ///
 /// # Errors
 /// Propagates any database error.
-pub async fn exists(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<bool> {
-    diesel::select(diesel::dsl::exists(browser_sessions::table.find(id)))
-        .get_result(connection)
+pub async fn find(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+) -> QueryResult<Option<BrowserSession>> {
+    browser_sessions::table
+        .find(id)
+        .select(BrowserSession::as_select())
+        .first(connection)
         .await
+        .optional()
+}
+
+/// Records that the browser's start page was opened, unless that was already recorded.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn record_start_page_opened(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+) -> QueryResult<()> {
+    diesel::update(browser_sessions::table.find(id))
+        .filter(browser_sessions::start_page_opened_at.is_null())
+        .set(browser_sessions::start_page_opened_at.eq(diesel::dsl::now))
+        .execute(connection)
+        .await?;
+    Ok(())
 }
 
 /// The ports browsers already hold.
@@ -185,4 +209,59 @@ pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult
         return Err(diesel::result::Error::NotFound);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
+
+    // The start page was opened only by the call that created a browser, so a browser whose
+    // DevTools port did not answer in time, or whose API restarted first, never showed it.
+    // Whether it is still owed now lives on the row, for every later pass to read.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn the_start_page_stays_owed_until_it_is_recorded_opened() {
+        let (_url, mut connection) = migrated_database().await;
+        let new_session = NewBrowserSession {
+            id: Uuid::now_v7(),
+            name: "Work Outlook".to_owned(),
+            start_url: "https://outlook.office.com/mail/".to_owned(),
+            port: 59000,
+            member_password: SecretString::from("a-generated-password"),
+            created_by: TEST_PERSON_ID,
+        };
+        let created = create(&mut connection, &cipher(), new_session)
+            .await
+            .expect("insert");
+        assert!(created.start_page_opened_at.is_none());
+
+        record_start_page_opened(&mut connection, created.id)
+            .await
+            .expect("record");
+        let opened = find(&mut connection, created.id)
+            .await
+            .expect("select")
+            .expect("still stored")
+            .start_page_opened_at
+            .expect("recorded");
+
+        // A second task finishing later does not move it.
+        record_start_page_opened(&mut connection, created.id)
+            .await
+            .expect("record again");
+        let reread = find(&mut connection, created.id)
+            .await
+            .expect("select")
+            .expect("still stored");
+        assert_eq!(reread.start_page_opened_at, Some(opened));
+
+        delete(&mut connection, created.id).await.expect("delete");
+        assert!(
+            find(&mut connection, created.id)
+                .await
+                .expect("select")
+                .is_none()
+        );
+    }
 }
