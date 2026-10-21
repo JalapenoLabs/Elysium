@@ -116,8 +116,9 @@ Each session is its own conversation on the runner, so its turns run one after a
 - **A Blender of its own**, the `blender` MCP server (see below).
 - **Studio's instructions** as `--append-system-prompt`, for a Studio session.
 
-As the turn runs, every event is scrubbed of the turn's secret values (the GitHub token and every secret environment
-variable of six characters or more become `[secret]`), given the session's next sequence, recorded, and only then
+As the turn runs, every event is scrubbed of the turn's secret values (the GitHub token, every secret environment
+variable, and every password and code the password vault handed to any agent, each of six characters or more, become
+`[secret]`), given the session's next sequence, recorded, and only then
 published as `session.event`. A client that refetches history after a live event therefore always finds it. When
 the turn ends, the Claude session it reported is kept on the row, a Studio session's deliverables are collected, and
 the grant is revoked.
@@ -129,8 +130,9 @@ is true: a restart ends every turn.
 ### Elysium's tools
 
 Some of an agent's tools answer from Elysium's own data: `elysium_work` for the project's action items and
-initiatives (`docs/action-items.md`), given to every turn of a session with a project, and `elysium_storage` for its
-storage locations (`docs/storage.md`), given when the project may use one. They are served at
+initiatives (`docs/action-items.md`), given to every turn of a session with a project, `elysium_storage` for its
+storage locations (`docs/storage.md`), given when the project may use one, and `elysium_passwords` for the logins
+agents sign in with (`docs/passwords.md`), given to every turn while the password vault is ready. They are served at
 `/api/agent-tools/{server}` (`api/src/tools/endpoint.rs`), one stateless Streamable HTTP MCP server each, which the
 workspace reaches as `http://api:8080` on `elysium-agents`. nginx answers `404` for the path, so it is never on the
 public origin.

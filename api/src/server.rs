@@ -10,7 +10,7 @@
 //! pool closes and the Redis connection drops.
 
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -47,6 +47,7 @@ use crate::mail::hosting::Hosting;
 use crate::mail::stalwart::Stalwart;
 use crate::mail::stalwart::container::StalwartContainer;
 use crate::oauth::hydra::Hydra;
+use crate::passwords::{self, Passwords, PasswordsDeps};
 use crate::realtime::EventBus;
 use crate::runner::Runner;
 use crate::runner::workspace::WorkspaceContainer;
@@ -149,6 +150,10 @@ pub async fn serve() -> Result<()> {
     // Brings every browser back up, and keeps them up, until shutdown.
     let browser_reconciler = browsers.start(shutdown.clone());
 
+    let passwords = build_passwords(database.clone(), Arc::clone(&cipher), events.clone());
+    // Signs the CLI in and unlocks the stored vault, then keeps it up, until shutdown.
+    let vault_keeper = passwords.start(shutdown.clone());
+
     let activity = Activities::new();
     let updates = Updates::new(UpdatesDeps {
         database: database.clone(),
@@ -167,6 +172,7 @@ pub async fn serve() -> Result<()> {
             events: events.clone(),
             storage: storage.clone(),
             activity: activity.clone(),
+            passwords: passwords.clone(),
         },
         &shutdown,
     )?;
@@ -197,6 +203,7 @@ pub async fn serve() -> Result<()> {
         jira,
         links,
         mail,
+        passwords,
         runner: runner.clone(),
         sessions: sessions.clone(),
         storage,
@@ -233,6 +240,14 @@ pub async fn serve() -> Result<()> {
     sessions.shutdown().await;
     event!(name: "runner.shutdown.complete", Level::INFO, "agent turns stopped");
     watcher.stopped().await;
+    if let Err(error) = vault_keeper.await {
+        event!(
+            name: "passwords.vault.join.failure",
+            Level::ERROR,
+            error.message = %error,
+            "the password vault's keeper ended abnormally",
+        );
+    }
     if let Err(error) = browser_reconciler.await {
         event!(
             name: "browser.reconcile.join.failed",
@@ -295,6 +310,8 @@ pub(crate) struct AgentServices {
     pub storage: Storage,
     /// Where running turns say the stack is busy.
     pub activity: Activities,
+    /// The password vault, whose tools turns are granted and whose secrets they are scrubbed of.
+    pub passwords: Passwords,
 }
 
 /// The runner, whose turns run in the workspace container through Docker, and the sessions
@@ -327,6 +344,7 @@ pub(crate) fn build_agents(
         workspace,
         grants: Grants::new(),
         storage: services.storage,
+        passwords: services.passwords,
     });
     Ok((runner, sessions))
 }
@@ -389,6 +407,18 @@ fn build_docker(config: &Config) -> Result<Docker> {
         API_DEFAULT_VERSION,
     )
     .context("DOCKER_URL is invalid")
+}
+
+/// The password vault, run through the CLI the API image carries, on its own loopback.
+pub(crate) fn build_passwords(database: Pool, cipher: Arc<Cipher>, events: EventBus) -> Passwords {
+    Passwords::new(PasswordsDeps {
+        database,
+        cipher,
+        events,
+        binary: PathBuf::from(passwords::CLI_BINARY),
+        directory: PathBuf::from(passwords::CLI_DIRECTORY),
+        serve_port: passwords::cli::SERVE_PORT,
+    })
 }
 
 /// The browsers the host streams. They share `http` with every other outbound call.

@@ -25,6 +25,7 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use crate::mail::hosting::MailServerStatus;
+use crate::passwords::VaultStatus;
 use crate::routes::v1::action_items::{
     ActionItemLinkResponse, ActionItemResponse, CommentResponse, HistoryEntryResponse,
 };
@@ -38,6 +39,7 @@ use crate::routes::v1::initiatives::{InitiativeLinkResponse, InitiativeResponse}
 use crate::routes::v1::jira_credentials::JiraCredentialResponse;
 use crate::routes::v1::llms::LlmResponse;
 use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
+use crate::routes::v1::password_vault::PasswordVaultResponse;
 use crate::routes::v1::projects::ProjectResponse;
 use crate::routes::v1::storage_locations::StorageLocationResponse;
 use crate::routes::v1::studio_items::{
@@ -178,6 +180,14 @@ pub enum ServerEvent {
     UserDeleted { id: Uuid },
     #[serde(rename = "workspaceSettings.updated")]
     WorkspaceSettingsUpdated(WorkspaceSettingsResponse),
+    /// The password vault was set up, its collection chosen, or its credentials replaced.
+    #[serde(rename = "passwordVault.updated")]
+    PasswordVaultUpdated(PasswordVaultResponse),
+    #[serde(rename = "passwordVault.deleted")]
+    PasswordVaultDeleted,
+    /// What the vault's CLI is doing changed: starting, ready, failed, or a sync finished.
+    #[serde(rename = "passwordVault.status")]
+    PasswordVaultStatus(VaultStatus),
 }
 
 impl ServerEvent {

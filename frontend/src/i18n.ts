@@ -19,6 +19,7 @@ import jira from './locales/en-US/jira.json'
 import llms from './locales/en-US/llms.json'
 import navigation from './locales/en-US/navigation.json'
 import oauth from './locales/en-US/oauth.json'
+import passwords from './locales/en-US/passwords.json'
 import projects from './locales/en-US/projects.json'
 import settings from './locales/en-US/settings.json'
 import storage from './locales/en-US/storage.json'
@@ -47,6 +48,7 @@ export const resources = {
     llms,
     navigation,
     oauth,
+    passwords,
     projects,
     settings,
     storage,

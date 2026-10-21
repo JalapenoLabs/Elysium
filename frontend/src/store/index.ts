@@ -22,6 +22,7 @@ import { mailAccountsSlice } from './mailAccountsSlice'
 import { mailDomainsSlice } from './mailDomainsSlice'
 import { mailServerSlice } from './mailServerSlice'
 import { projectsSlice } from './projectsSlice'
+import { passwordVaultSlice } from './passwordVaultSlice'
 import { realtimeSlice } from './realtimeSlice'
 import { sessionEventsSlice } from './sessionEventsSlice'
 import { sessionsViewSlice } from './sessionsViewSlice'
@@ -65,6 +66,7 @@ export function createAppStore() {
       [projectsSlice.name]: projectsSlice.reducer,
       [realtimeSlice.name]: realtimeSlice.reducer,
       [sessionEventsSlice.name]: sessionEventsSlice.reducer,
+      [passwordVaultSlice.name]: passwordVaultSlice.reducer,
       [sessionsViewSlice.name]: sessionsViewSlice.reducer,
       [storageLocationsSlice.name]: storageLocationsSlice.reducer,
       [studioAssetsSlice.name]: studioAssetsSlice.reducer,

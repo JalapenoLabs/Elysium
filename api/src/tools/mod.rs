@@ -9,8 +9,9 @@
 //! Each server is a [`ToolServer`]: its name, the instructions the agent reads, and a table
 //! of [`Tool`]s. The same table lists the tools to the agent and dispatches a call to them,
 //! so a listed tool always has a handler. Each tool set is one module with its own
-//! table, listed in [`SERVERS`]: [`storage`] for the project's storage locations and
-//! [`work`] for its action items and initiatives.
+//! table, listed in [`SERVERS`]: [`storage`] for the project's storage locations, [`work`]
+//! for its action items and initiatives, and [`passwords`] for the logins agents may sign in
+//! with.
 //!
 //! Results are JSON text. A failure answers the agent with what to fix, never with an
 //! internal error chain: database and decryption failures are logged here and reported
@@ -18,6 +19,7 @@
 
 pub mod endpoint;
 pub mod grants;
+pub mod passwords;
 pub mod storage;
 pub mod work;
 
@@ -32,6 +34,7 @@ use uuid::Uuid;
 use crate::action_items::links::Links;
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::passwords::Passwords;
 use crate::realtime::EventBus;
 use crate::runner::WorkspacePath;
 use crate::runner::workspace::WorkspaceContainer;
@@ -49,6 +52,8 @@ pub struct ToolContext {
     pub links: Links,
     /// Where a session's files are read and written.
     pub workspace: WorkspaceContainer,
+    /// The password vault, for the logins agents sign in with.
+    pub passwords: Passwords,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -115,7 +120,7 @@ pub struct ToolServer {
 }
 
 /// Every server Elysium serves, looked up by name when a call arrives.
-pub const SERVERS: [&ToolServer; 2] = [&storage::SERVER, &work::SERVER];
+pub const SERVERS: [&ToolServer; 3] = [&storage::SERVER, &work::SERVER, &passwords::SERVER];
 
 /// Why a call could not be carried out. `Display` is what the agent reads, so every
 /// message says what to change.

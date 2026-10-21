@@ -46,7 +46,9 @@ use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::errors::ApiError;
 use crate::models::coding_session::CodingSession;
+use crate::models::environment_variable::TurnVariable;
 use crate::models::{environment_variable, storage_location};
+use crate::passwords::Passwords;
 use crate::realtime::EventBus;
 use crate::routes::v1::coding_sessions::github_token;
 use crate::runner::workspace::{AGENT_USER, WorkspaceContainer};
@@ -112,6 +114,7 @@ struct Inner {
     workspace: WorkspaceContainer,
     grants: Grants,
     storage: Storage,
+    passwords: Passwords,
     /// What each session is doing, and its unfinished turns, for sessions that have had a turn
     /// since the API started. A session not here is idle.
     live: Mutex<HashMap<i64, Live>>,
@@ -150,6 +153,9 @@ pub struct SessionsDeps {
     pub workspace: WorkspaceContainer,
     pub grants: Grants,
     pub storage: Storage,
+    /// The password vault: its tools are granted while it is ready, and every turn's output is
+    /// scrubbed of what it handed out.
+    pub passwords: Passwords,
 }
 
 impl std::fmt::Debug for SessionsDeps {
@@ -177,6 +183,7 @@ impl Sessions {
                 workspace: deps.workspace,
                 grants: deps.grants,
                 storage: deps.storage,
+                passwords: deps.passwords,
                 live: Mutex::new(HashMap::new()),
                 sequences: tokio::sync::Mutex::new(HashMap::new()),
                 tracker: TaskTracker::new(),
@@ -301,23 +308,7 @@ impl Sessions {
             .is_empty();
         drop(connection);
 
-        let mut secrets = Vec::new();
-        let mut environment = Vec::with_capacity(variables.len() + 6);
-        for variable in variables {
-            if variable.is_secret {
-                secrets.push(SecretString::from(
-                    variable.value.expose_secret().to_owned(),
-                ));
-            }
-            environment.push(EnvironmentEntry {
-                key: variable.key,
-                value: variable.value,
-            });
-        }
-        if let Some(token) = &github {
-            environment.extend(github_token::environment(token));
-            secrets.push(SecretString::from(token.expose_secret().to_owned()));
-        }
+        let (environment, secrets) = turn_environment(variables, github.as_ref());
 
         let directory = Self::directory(session.id);
         let grant = self.inner.grants.grant(
@@ -327,7 +318,11 @@ impl Sessions {
                 action_item_id: session.action_item_id,
                 directory: directory.clone(),
             }),
-            &tool_servers(session.project_id.is_some(), has_storage),
+            &tool_servers(ToolAccess {
+                has_project: session.project_id.is_some(),
+                has_storage,
+                has_passwords: self.inner.passwords.is_ready(),
+            }),
         );
         let mut mcp_servers = grant.mcp_servers();
         mcp_servers.push(McpServer::Stdio {
@@ -376,7 +371,7 @@ impl Sessions {
             session_id: session.id,
             studio_item_id: session.studio_item_id,
             turn_id: ticket.turn_id,
-            scrubber: Scrubber::new(secrets),
+            scrubber: Scrubber::new(secrets).with_revealed(self.inner.passwords.revealed()),
             grant,
         };
         self.inner
@@ -493,13 +488,54 @@ impl Sessions {
 
 /// The tool servers a turn may call: the work tools when the session has a project, the
 /// storage tools when that project reaches a storage location.
-fn tool_servers(has_project: bool, has_storage: bool) -> Vec<&'static ToolServer> {
-    let mut servers = Vec::with_capacity(2);
-    if has_project {
+/// A turn's environment: every workspace variable, then the session's GitHub token with the
+/// git configuration that routes git through `gh`. Also answers the secrets among them, which
+/// the turn's output is scrubbed of.
+fn turn_environment(
+    variables: Vec<TurnVariable>,
+    github: Option<&SecretString>,
+) -> (Vec<EnvironmentEntry>, Vec<SecretString>) {
+    let mut secrets = Vec::new();
+    let mut environment = Vec::with_capacity(variables.len() + 6);
+    for variable in variables {
+        if variable.is_secret {
+            secrets.push(SecretString::from(
+                variable.value.expose_secret().to_owned(),
+            ));
+        }
+        environment.push(EnvironmentEntry {
+            key: variable.key,
+            value: variable.value,
+        });
+    }
+    if let Some(token) = github {
+        environment.extend(github_token::environment(token));
+        secrets.push(SecretString::from(token.expose_secret().to_owned()));
+    }
+    (environment, secrets)
+}
+
+/// Which of Elysium's tool servers a turn may use.
+#[derive(Debug, Clone, Copy)]
+struct ToolAccess {
+    /// Work tools need a project to scope items and initiatives to.
+    has_project: bool,
+    /// Storage tools need a location the project may use.
+    has_storage: bool,
+    /// Password tools need a vault that is up; one set up mid-turn is granted from the next.
+    has_passwords: bool,
+}
+
+fn tool_servers(access: ToolAccess) -> Vec<&'static ToolServer> {
+    let mut servers = Vec::with_capacity(3);
+    if access.has_project {
         servers.push(&tools::work::SERVER);
     }
-    if has_storage {
+    if access.has_storage {
         servers.push(&tools::storage::SERVER);
+    }
+    if access.has_passwords {
+        servers.push(&tools::passwords::SERVER);
     }
     servers
 }
@@ -519,16 +555,28 @@ mod tests {
     }
 
     #[test]
-    fn work_tools_need_a_project_and_storage_tools_a_location() {
-        let names = |servers: Vec<&'static ToolServer>| -> Vec<&'static str> {
-            servers.iter().map(|server| server.name).collect()
+    fn each_tool_server_is_granted_when_what_it_needs_is_there() {
+        let names = |has_project, has_storage, has_passwords| -> Vec<&'static str> {
+            tool_servers(ToolAccess {
+                has_project,
+                has_storage,
+                has_passwords,
+            })
+            .iter()
+            .map(|server| server.name)
+            .collect()
         };
         assert_eq!(
-            names(tool_servers(true, true)),
-            ["elysium_work", "elysium_storage"]
+            names(true, true, true),
+            ["elysium_work", "elysium_storage", "elysium_passwords"]
         );
-        assert_eq!(names(tool_servers(true, false)), ["elysium_work"]);
-        assert!(names(tool_servers(false, false)).is_empty());
-        assert_eq!(names(tool_servers(false, true)), ["elysium_storage"]);
+        assert_eq!(names(true, false, false), ["elysium_work"]);
+        assert!(names(false, false, false).is_empty());
+        assert_eq!(names(false, true, false), ["elysium_storage"]);
+        assert_eq!(
+            names(false, false, true),
+            ["elysium_passwords"],
+            "a session without a project still signs in to things"
+        );
     }
 }

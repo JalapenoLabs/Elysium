@@ -29,6 +29,7 @@ import { studioAssetsLoaded } from '../store/studioAssetsSlice'
 import { studioFeedbackLoaded } from '../store/studioFeedbackSlice'
 import { deletedStudioItemsLoaded, studioItemsLoaded, studioItemUpserted } from '../store/studioItemsSlice'
 import { updatesStatusUpdated } from '../store/updatesSlice'
+import { passwordVaultLoaded } from '../store/passwordVaultSlice'
 import { usersLoaded } from '../store/usersSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
@@ -56,6 +57,7 @@ import { listGithubCredentials } from '../api/routes/githubRoutes'
 import { listJiraCredentials } from '../api/routes/jiraRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
+import { getPasswordVault } from '../api/routes/passwordVaultRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
 import { getStudioItem, listStudioItems } from '../api/routes/studioRoutes'
@@ -505,6 +507,17 @@ export function useUpdatesLoader(): LoadStatus {
   const { data, error } = useSWR('v1/updates', async () => {
     const response = await getUpdates()
     dispatch(updatesStatusUpdated(response.updates))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// The password vault and its CLI's status. Admins only.
+export function usePasswordVaultLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/password-vault', async () => {
+    const response = await getPasswordVault()
+    dispatch(passwordVaultLoaded(response))
     return response
   })
   return toLoadStatus(data !== undefined, error)

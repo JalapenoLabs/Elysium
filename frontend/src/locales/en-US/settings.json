@@ -50,6 +50,10 @@
     "updates": {
       "title": "Updates",
       "description": "See which release is running, follow auto-update, and check for a new release."
+    },
+    "passwords": {
+      "title": "Passwords",
+      "description": "Connect the Bitwarden or Vaultwarden account agents sign in to things with."
     }
   },
   "personalDetails": {

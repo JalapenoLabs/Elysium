@@ -49,6 +49,8 @@ async fn a_session_clones_runs_a_turn_and_records_every_event() {
         crate::activity::Activities::new(),
         &CancellationToken::new(),
     );
+    let passwords =
+        crate::server::build_passwords(database.clone(), Arc::clone(&cipher), EventBus::new());
     let sessions = Sessions::new(SessionsDeps {
         database: database.clone(),
         cipher,
@@ -57,6 +59,7 @@ async fn a_session_clones_runs_a_turn_and_records_every_event() {
         workspace,
         grants: Grants::new(),
         storage: crate::storage::Storage::new(reqwest::Client::new()),
+        passwords,
     });
 
     let session = live_session(&mut connection).await;

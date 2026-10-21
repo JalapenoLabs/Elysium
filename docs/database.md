@@ -106,6 +106,24 @@ Connected mailboxes; see `docs/mail.md`.
 | `created_at`           | `TIMESTAMPTZ`       | Set on insert                                                   |
 | `updated_at`           | `TIMESTAMPTZ`       | Maintained by trigger                                           |
 
+### `password_vault`
+
+The one Bitwarden or Vaultwarden account agents sign in to things with; see `docs/passwords.md`. One row at most.
+
+| Column                      | Type              | Notes                                                       |
+|-----------------------------|-------------------|-------------------------------------------------------------|
+| `singleton`                 | `BOOLEAN`         | Primary key, always true                                    |
+| `server`                    | `password_server` | `bitwarden_us`, `bitwarden_eu`, or `self_hosted`            |
+| `server_url`                | `TEXT`            | A self-hosted server's https URL, set exactly when `server` is `self_hosted` |
+| `client_id`                 | `TEXT`            | The personal API key's client_id, 1 to 200 characters       |
+| `client_secret_encrypted`   | `BYTEA`           | Sealed, see `docs/secrets.md`                               |
+| `master_password_encrypted` | `BYTEA`           | Sealed, see `docs/secrets.md`                               |
+| `account_email`             | `TEXT`            | The account the key signs in as, as the CLI reported it     |
+| `collection_id`, `collection_name`, `organization_id` | `UUID`, `TEXT`, `UUID` | The one collection agents read; all three set together, or none |
+| `checked_at`                | `TIMESTAMPTZ`     | When the CLI last signed in and unlocked with the credentials |
+| `created_by`                | `UUID`            | References `users`; kept when the credentials are replaced  |
+| `created_at`, `updated_at`  | `TIMESTAMPTZ`     | Set on insert; `updated_at` maintained by trigger           |
+
 ### `browser_sessions`
 
 Browsers the host runs for a person to sign in to their accounts in, one Neko container each; see `docs/browser.md`.

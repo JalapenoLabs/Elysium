@@ -12,6 +12,7 @@ import {
   LuBot,
   LuGithub,
   LuHardDrive,
+  LuKeyRound,
   LuMail,
   LuPlug,
   LuRefreshCw,
@@ -100,6 +101,12 @@ export function SettingsDirectoryPage() {
           description={t('items.environment.description')}
           href={UrlTree.settingsEnvironment}
         />
+        {isAdmin && <SettingsDirectoryItem
+          icon={LuKeyRound}
+          title={t('items.passwords.title')}
+          description={t('items.passwords.description')}
+          href={UrlTree.settingsPasswords}
+        />}
         {isAdmin && <SettingsDirectoryItem
           icon={LuRefreshCw}
           title={t('items.updates.title')}

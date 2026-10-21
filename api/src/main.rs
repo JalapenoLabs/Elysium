@@ -26,6 +26,7 @@ mod mcp;
 mod middleware;
 mod models;
 mod oauth;
+mod passwords;
 mod realtime;
 mod routes;
 #[expect(

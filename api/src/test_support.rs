@@ -204,6 +204,9 @@ pub async fn app_state_with_storage(
         version: Arc::clone(&version),
         encryption_key: config.encryption_key.clone(),
     });
+    // Never started, so no test runs the CLI through it; the vault reads as unconfigured.
+    let passwords =
+        crate::server::build_passwords(database.clone(), Arc::clone(&cipher), events.clone());
     let (runner, sessions) = crate::server::build_agents(
         &config,
         crate::server::AgentServices {
@@ -212,6 +215,7 @@ pub async fn app_state_with_storage(
             events: events.clone(),
             storage: storage.clone(),
             activity: activity.clone(),
+            passwords: passwords.clone(),
         },
         &shutdown,
     )
@@ -230,6 +234,7 @@ pub async fn app_state_with_storage(
         jira,
         links,
         mail,
+        passwords,
         runner,
         sessions,
         storage,
