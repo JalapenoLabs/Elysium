@@ -11,6 +11,11 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/ping`                           | `200` text `pong`                                   |
 | GET    | `/api/version`                        | `200` JSON, see below                               |
 | GET    | `/api/v1/events`                      | Server-sent event stream, see `docs/realtime.md`    |
+| GET    | `/api/v1/browser-sessions`            | `200` `{ browserSessions: BrowserSession[] }`, the caller's, oldest first |
+| POST   | `/api/v1/browser-sessions`            | `201` `{ browserSession }`, `starting`              |
+| GET    | `/api/v1/browser-sessions/{id}`       | `200` `{ browserSession }`                          |
+| DELETE | `/api/v1/browser-sessions/{id}`       | `204`; removes the container and its profile        |
+| GET    | `/api/v1/browser-sessions/{id}/stream` | WebSocket: the browser's signaling, see `docs/browser.md` |
 | GET    | `/api/v1/action-items`                | `200` `{ items: ActionItem[] }`, newest first       |
 | POST   | `/api/v1/action-items`                | `201` `{ item }`                                    |
 | GET    | `/api/v1/action-items/next`           | `200` `{ items: ActionItem[], inboxCount }`, in Next's order |
@@ -210,6 +215,20 @@ An `Llm` has `id`, `name`, `description`, `type`, `priority`, `isActive`, `expir
 A new `secretToken` is re-sealed. An empty body is rejected.
 
 Timestamps sent to the API must include an offset. Responses are always UTC with a `Z` suffix.
+
+### `/api/v1/browser-sessions`
+
+A `BrowserSession` has `id`, `name`, `startUrl`, `port` (its media port), `status`, `createdBy`, `createdAt`, and
+`updatedAt`. `status` is `{ state, error }`: `state` is `starting`, `running`, or `failed`, with `error` set when it
+failed. The password is never returned.
+
+Every route answers only the browser's creator; anyone else's is `404`. `POST` requires `name` (1 to 100 characters,
+not blank) and `startUrl` (`https://` with a host name), answers at once, and the browser opens `startUrl` once it is
+running. It answers `409` with code `browser_ports_exhausted` when all eight media ports are taken. `DELETE` answers
+`502` with Docker's reason when the container cannot be removed, and keeps the row so it can be tried again.
+
+`stream` is a WebSocket upgrade. It requires Elysium's own `Origin`, answers `403` otherwise, and `502` when the
+browser does not answer. See `docs/browser.md` for what it relays.
 
 ### `/api/v1/mail`
 
@@ -531,12 +550,13 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/database/`          | Pool type, migration runner, generated schema    |
 | `src/crypto.rs`          | Secret sealing                                   |
 | `src/errors.rs`          | `ApiError` and its mapping to HTTP responses     |
-| `src/state.rs`           | `AppState`: pool, Redis, cipher, version, bus, runner, sessions, GitHub, Jira, links, mail, storage, shutdown token |
+| `src/state.rs`           | `AppState`: browsers, pool, Redis, cipher, version, bus, runner, sessions, GitHub, Jira, links, mail, storage, shutdown token |
 | `src/realtime.rs`        | Event bus and the `ServerEvent` envelope          |
 | `src/runner/`            | Agent turns: the workspace container, the Claude Code CLI, credentials, and workspace files |
 | `src/sessions/`          | Coding and Studio sessions on the runner: directories, turns, recorded events, activity |
 | `src/jira/`              | Jira Cloud's REST API and Atlassian Document Format |
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
+| `src/browser/`           | The browsers the host streams: their containers, the reconciler, Neko's API, and the stream relay |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
 | `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), the link watcher, and changesets' operations, dependencies, and decisions |

@@ -33,7 +33,7 @@ volume with `docker compose down --volumes`, which destroys the data.
 
 | Service    | Image / build              | Container name     | Notes                                   |
 |------------|----------------------------|--------------------|-----------------------------------------|
-| `nginx`    | `nginx:1.30.4-alpine`      | `elysium-nginx`    | The only published ports: web on `127.0.0.1:4000` by default, mail on 25, 465, 993 |
+| `nginx`    | `nginx:1.30.4-alpine`      | `elysium-nginx`    | The only published ports: web on `127.0.0.1:4000` by default, mail on 25, 465, 993, browser media on 59000-59007 (UDP and TCP) |
 | `frontend` | `frontend/Dockerfile`      | `elysium-frontend` | Development only: Vite dev server       |
 | `migrate`  | the API image              | `elysium-migrate`  | One-shot `migrate run`, then exits; creates Kratos's and Hydra's databases |
 | `kratos-migrate` | `oryd/kratos:v26.2.0` | `elysium-kratos-migrate` | One-shot: Kratos's own migrations      |
@@ -54,6 +54,12 @@ the subnet collides with one on the host.
 The mail server is not a compose service. The API creates its container (`elysium-stalwart`), volumes, and network
 through `docker-proxy` when the mail server is created on the Email settings page, and they live outside the
 compose project. See `docs/mail.md`.
+
+Browsers are not compose services either. The API creates each one's container, profile volume, and network, all
+named `elysium-browser-<id>`, through `docker-proxy`, and joins itself and nginx to that network. Compose drops
+those joins whenever it recreates nginx or the API; the API's reconciler restores them within 10 seconds. The media
+ports `59000-59007` are published on every interface, and a cloud host needs a firewall rule allowing them over UDP
+and TCP. Browsers need Docker Engine 28.0 or later; see `docs/browser.md`.
 
 The agent workspace is not a compose service either. The API creates its container (`elysium-workspace`) and volume
 (`elysium-workspace`) through `docker-proxy` when it starts, from `WORKSPACE_IMAGE`, the `elysium-workspace` image of
@@ -79,7 +85,8 @@ In both, POSTs to Kratos's sign-in, sign-up, and recovery endpoints are throttle
 (`docs/auth.md`).
 
 In both, `/api/v1/events` has its own location with buffering off and a one-hour read timeout, so server-sent events
-arrive immediately and idle streams stay open, and cover uploads have a larger body limit.
+arrive immediately and idle streams stay open, and cover uploads have a larger body limit. A browser's stream,
+`/api/v1/browser-sessions/{id}/stream`, has its own location that passes the WebSocket upgrade.
 
 In both, `/oauth2/` and Hydra's discovery documents (`/.well-known/openid-configuration`,
 `/.well-known/oauth-authorization-server`, `/.well-known/jwks.json`) go to Hydra's public API (`hydra:4444`) unchanged,
@@ -90,8 +97,9 @@ nginx runs its own main configuration, `nginx/nginx.conf`: the image's default p
 can only be proxied from the main context, and the zones that throttle Kratos submissions and OAuth client registration. `nginx/default.conf` holds
 the production HTTP routing and `nginx/development.conf` the development routing, which `compose.dev.yml` mounts in
 its place. Both include `nginx/locations.conf`, the locations they route alike (cover uploads, Kratos, Hydra, the event
-stream), so each file holds only what differs. `nginx/mail.conf` passes the mail ports to Stalwart with the PROXY
-protocol; see `docs/mail.md`.
+stream, a browser's stream), so each file holds only what differs. `nginx/mail.conf` passes the mail ports to
+Stalwart with the PROXY protocol; see `docs/mail.md`. `nginx/browser.conf` passes each media port to the browser
+that owns it; see `docs/browser.md`.
 
 The API has no container name so it could scale, but it must run as one replica today: its event bus is
 in-process (see `docs/realtime.md`).
