@@ -7,6 +7,7 @@ import { initReactI18next } from 'react-i18next'
 // Misc
 import actionItems from './locales/en-US/actionItems.json'
 import auth from './locales/en-US/auth.json'
+import browsers from './locales/en-US/browsers.json'
 import changesets from './locales/en-US/changesets.json'
 import coding from './locales/en-US/coding.json'
 import common from './locales/en-US/common.json'
@@ -36,6 +37,7 @@ export const resources = {
   [DEFAULT_LOCALE]: {
     actionItems,
     auth,
+    browsers,
     changesets,
     coding,
     common,

@@ -1,0 +1,64 @@
+{
+  "title": "Browser sign-ins",
+  "page": {
+    "add": "Add a browser",
+    "description": "Elysium runs a browser for each account you sign in to here, and keeps it signed in. You sign in once, on the real page, and Elysium uses the account as you do.",
+    "empty": "No browsers yet. Add one to sign in to Outlook, Gmail, or any other site.",
+    "loadError": "Your browsers could not be loaded."
+  },
+  "states": {
+    "starting": "Starting",
+    "running": "Running",
+    "failed": "Failed"
+  },
+  "card": {
+    "open": "Open"
+  },
+  "presets": {
+    "outlook": {
+      "label": "Outlook",
+      "name": "Outlook"
+    },
+    "gmail": {
+      "label": "Gmail",
+      "name": "Gmail"
+    },
+    "other": {
+      "label": "Another site",
+      "name": ""
+    }
+  },
+  "form": {
+    "title": "Add a browser",
+    "description": "It opens the page below, where you sign in yourself.",
+    "service": "Service",
+    "name": "Name",
+    "startUrl": "Sign-in page",
+    "submit": "Add browser",
+    "errors": {
+      "nameRequired": "Give the browser a name.",
+      "nameTooLong": "Use 100 characters or fewer.",
+      "startUrlInvalid": "Enter an https:// address with a host name.",
+      "portsExhausted": "Every browser this host can stream is in use. Remove one first."
+    }
+  },
+  "delete": {
+    "title": "Remove {{name}}?",
+    "body": "Its browser and everything it is signed in to on this host are removed. The account itself is untouched; sign in again by adding a new browser."
+  },
+  "toasts": {
+    "deleted": "{{name}} was removed."
+  },
+  "session": {
+    "hint": "Click the picture to use it. Typing and pasting go to the page, so a password manager on this computer works there too.",
+    "starting": "Starting the browser. The first one can take a minute.",
+    "failed": "The browser failed to start.",
+    "missing": "This browser does not exist, or it is not yours."
+  },
+  "stream": {
+    "label": "The browser's screen",
+    "connecting": "Connecting",
+    "disconnected": "The stream disconnected.",
+    "reconnect": "Reconnect"
+  }
+}
