@@ -71,6 +71,7 @@ pub struct ElysiaState {
     /// [`crate::elysia::availability::AvailabilityWindow`]s, as stored.
     pub availability: Value,
     pub usage_paused_until: Option<DateTime<Utc>>,
+    pub runner_session_id: Option<String>,
     pub updated_by: Uuid,
     pub updated_at: DateTime<Utc>,
 }
@@ -158,6 +159,7 @@ pub struct Work {
     pub ready_at: Option<DateTime<Utc>>,
     pub action_item_id: Option<Uuid>,
     pub revisits: i32,
+    pub revisited_at: Option<DateTime<Utc>>,
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -200,6 +202,21 @@ pub async fn set_usage_paused_until(
 ) -> QueryResult<ElysiaState> {
     diesel::update(elysia_state::table)
         .set(elysia_state::usage_paused_until.eq(until))
+        .returning(ElysiaState::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Records the session her next turn resumes.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn set_runner_session_id(
+    connection: &mut AsyncPgConnection,
+    session_id: Option<&str>,
+) -> QueryResult<ElysiaState> {
+    diesel::update(elysia_state::table)
+        .set(elysia_state::runner_session_id.eq(session_id))
         .returning(ElysiaState::as_returning())
         .get_result(connection)
         .await
@@ -298,6 +315,56 @@ pub async fn last_finished_turn(connection: &mut AsyncPgConnection) -> QueryResu
         .optional()
 }
 
+/// Starts the queued turn `id`. `None` when it is no longer queued, such as when it was
+/// cancelled meanwhile.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn start_turn(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Option<Turn>> {
+    diesel::update(
+        elysia_turns::table
+            .find(id)
+            .filter(elysia_turns::status.eq(TurnStatus::Queued)),
+    )
+    .set((
+        elysia_turns::status.eq(TurnStatus::Running),
+        elysia_turns::started_at.eq(diesel::dsl::now),
+    ))
+    .returning(Turn::as_returning())
+    .get_result(connection)
+    .await
+    .optional()
+}
+
+/// Ends the running turn `id`: succeeded with `summary`, or failed with `error`.
+///
+/// # Errors
+/// Propagates any database error, including a turn that is not running.
+pub async fn finish_turn(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    outcome: Result<Option<&str>, &str>,
+) -> QueryResult<Turn> {
+    let (status, summary, error) = match outcome {
+        Ok(summary) => (TurnStatus::Succeeded, summary, None),
+        Err(error) => (TurnStatus::Failed, None, Some(error)),
+    };
+    diesel::update(
+        elysia_turns::table
+            .find(id)
+            .filter(elysia_turns::status.eq(TurnStatus::Running)),
+    )
+    .set((
+        elysia_turns::status.eq(status),
+        elysia_turns::summary.eq(summary),
+        elysia_turns::error.eq(error),
+        elysia_turns::finished_at.eq(diesel::dsl::now),
+    ))
+    .returning(Turn::as_returning())
+    .get_result(connection)
+    .await
+}
+
 /// Withdraws the queued turn `id`. `None` when it is no longer queued.
 ///
 /// # Errors
@@ -316,6 +383,25 @@ pub async fn cancel_turn(
     .get_result(connection)
     .await
     .optional()
+}
+
+/// Fails every turn left running, such as by a restart that ended them midway. Returns them.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn fail_interrupted_turns(
+    connection: &mut AsyncPgConnection,
+    error: &str,
+) -> QueryResult<Vec<Turn>> {
+    diesel::update(elysia_turns::table.filter(elysia_turns::status.eq(TurnStatus::Running)))
+        .set((
+            elysia_turns::status.eq(TurnStatus::Failed),
+            elysia_turns::error.eq(error),
+            elysia_turns::finished_at.eq(diesel::dsl::now),
+        ))
+        .returning(Turn::as_returning())
+        .get_results(connection)
+        .await
 }
 
 /// The oldest queued turn of `trigger_kind`, if any.
@@ -355,6 +441,45 @@ pub async fn set_trigger_detail(
     .get_result(connection)
     .await
     .optional()
+}
+
+/// Every message people sent after Elysia's latest one, oldest first, up to a page.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn messages_since_last_reply(
+    connection: &mut AsyncPgConnection,
+) -> QueryResult<Vec<Message>> {
+    let last_reply: Option<Uuid> = elysia_messages::table
+        .filter(elysia_messages::created_by.eq(ELYSIA_USER_ID))
+        .select(elysia_messages::id)
+        .order(elysia_messages::id.desc())
+        .first(connection)
+        .await
+        .optional()?;
+
+    let mut query = elysia_messages::table
+        .filter(elysia_messages::created_by.ne(ELYSIA_USER_ID))
+        .select(Message::as_select())
+        .order(elysia_messages::id.asc())
+        .limit(MAX_MESSAGE_PAGE)
+        .into_boxed();
+    if let Some(last_reply) = last_reply {
+        query = query.filter(elysia_messages::id.gt(last_reply));
+    }
+    query.load(connection).await
+}
+
+/// One question by id.
+///
+/// # Errors
+/// Propagates any database error, including [`diesel::result::Error::NotFound`].
+pub async fn find_question(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Question> {
+    elysia_questions::table
+        .find(id)
+        .select(Question::as_select())
+        .first(connection)
+        .await
 }
 
 /// Every open question, oldest first.
@@ -401,6 +526,21 @@ pub async fn close_question(
     .get_result(connection)
     .await
     .optional()
+}
+
+/// Records that Elysia came back to the work `id`.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn record_revisit(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Work> {
+    diesel::update(elysia_work::table.find(id))
+        .set((
+            elysia_work::revisits.eq(elysia_work::revisits + 1),
+            elysia_work::revisited_at.eq(diesel::dsl::now),
+        ))
+        .returning(Work::as_returning())
+        .get_result(connection)
+        .await
 }
 
 /// Everything not done, most recently changed first.

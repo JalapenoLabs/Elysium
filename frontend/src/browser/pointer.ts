@@ -36,14 +36,36 @@ export function toDesktopPoint(point: ElementPoint, screen: ScreenSize) {
 // and a mouse wheel's few large ones scroll the remote page alike.
 const PIXELS_PER_SCROLL_STEP = 40
 
-// Whole scroll steps for a wheel event's travel, keeping its direction.
-export function toScrollSteps(deltaPixels: number) {
-  if (!deltaPixels) {
-    return 0
+// How far one unit of a wheel event's `deltaMode` travels, in pixels. A line is one step,
+// as a wheel that reports lines (Firefox on Windows) moves three per notch, as far as a
+// wheel that reports 120 pixels. Pages are rare (a wheel set to scroll a page per notch);
+// one counts as ten steps.
+const pixelsByDeltaMode: Record<number, number> = {
+  0: 1,
+  1: PIXELS_PER_SCROLL_STEP,
+  2: PIXELS_PER_SCROLL_STEP * 10,
+}
+
+export type ScrollSteps = {
+  steps: number
+  // Travel short of a whole step, in pixels, kept for the next event.
+  carry: number
+}
+
+// Whole scroll steps for a wheel event's travel on one axis, adding what earlier events left
+// over. Each event on its own is often short of a step, and rounding each up would scroll
+// a trackpad many times further than it moved, so the remainder carries forward instead.
+export function toScrollSteps(delta: number, deltaMode: number, carry: number): ScrollSteps {
+  const pixelsPerUnit = pixelsByDeltaMode[deltaMode]
+  if (pixelsPerUnit === undefined) {
+    console.debug('toScrollSteps ignored a wheel event of an unknown delta mode', { deltaMode })
+    return { steps: 0, carry }
   }
-  const steps = Math.round(deltaPixels / PIXELS_PER_SCROLL_STEP)
-  if (steps) {
-    return steps
+  const travel = carry + delta * pixelsPerUnit
+  // `Math.trunc` keeps the sign of a negative fraction as -0; no steps is plain 0.
+  const steps = Math.trunc(travel / PIXELS_PER_SCROLL_STEP) || 0
+  return {
+    steps,
+    carry: travel - steps * PIXELS_PER_SCROLL_STEP,
   }
-  return Math.sign(deltaPixels)
 }

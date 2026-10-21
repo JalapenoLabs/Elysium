@@ -38,8 +38,6 @@ pub enum Hold {
     Paused,
     /// Her subscriptions reported a usage limit; work resumes at `until`.
     UsageLimit { until: DateTime<Utc> },
-    /// Nothing can run her turns on this deployment yet.
-    NoRunner,
     /// Outside the hours she may start work on her own. A person's message still starts a turn.
     Unavailable,
 }
@@ -56,7 +54,6 @@ pub struct StatusInputs {
     pub open_questions: usize,
     pub paused: bool,
     pub usage_paused_until: Option<DateTime<Utc>>,
-    pub runner_available: bool,
     pub available: bool,
     pub now: DateTime<Utc>,
 }
@@ -89,8 +86,6 @@ pub fn derive(inputs: &StatusInputs) -> Status {
         Some(Hold::Paused)
     } else if usage_limit.is_some() {
         usage_limit
-    } else if !inputs.runner_available {
-        Some(Hold::NoRunner)
     } else if !inputs.available {
         Some(Hold::Unavailable)
     } else {
@@ -113,7 +108,6 @@ mod tests {
             open_questions: 0,
             paused: false,
             usage_paused_until: None,
-            runner_available: true,
             available: true,
             now: Utc::now(),
         }
@@ -156,7 +150,6 @@ mod tests {
         let inputs = StatusInputs {
             paused: true,
             usage_paused_until: Some(Utc::now() + Duration::hours(1)),
-            runner_available: false,
             available: false,
             ..idle()
         };
@@ -182,14 +175,7 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_runner_is_named_before_her_hours() {
-        let inputs = StatusInputs {
-            runner_available: false,
-            available: false,
-            ..idle()
-        };
-        assert_eq!(derive(&inputs).hold, Some(Hold::NoRunner));
-
+    fn outside_her_hours_is_a_hold() {
         let off_hours = StatusInputs {
             available: false,
             ..idle()

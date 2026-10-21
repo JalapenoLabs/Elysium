@@ -37,7 +37,8 @@ use crate::config::Config;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::database::migrations;
-use crate::elysia::intake::{self, IntakeContext};
+use crate::elysia::Elysia;
+use crate::elysia::runner::TurnRunner;
 use crate::github::Github;
 use crate::jira::Jira;
 use crate::mail::Mail;
@@ -121,13 +122,6 @@ pub async fn serve() -> Result<()> {
         links: links.clone(),
     };
     let watcher = Watcher::start(watch, shutdown.clone());
-    let elysia_intake = tokio::spawn(intake::run(
-        IntakeContext {
-            database: database.clone(),
-            events: events.clone(),
-        },
-        shutdown.clone(),
-    ));
     let mail = build_mail(
         &config,
         http.clone(),
@@ -184,6 +178,10 @@ pub async fn serve() -> Result<()> {
         }
     });
 
+    // After the runner, which runs her turns.
+    let elysia = Elysia::new(TurnRunner::Host(runner.clone()));
+    let elysia_tasks = elysia.start(database.clone(), events.clone(), shutdown.clone());
+
     let state = AppState {
         auth: build_auth(&config, http.clone()),
         browsers,
@@ -193,6 +191,7 @@ pub async fn serve() -> Result<()> {
         cipher,
         version,
         events,
+        elysia,
         github,
         jira,
         links,
@@ -241,14 +240,7 @@ pub async fn serve() -> Result<()> {
             "the browser reconciler ended abnormally",
         );
     }
-    if let Err(error) = elysia_intake.await {
-        event!(
-            name: "elysia.intake.join.failure",
-            Level::ERROR,
-            error.message = %error,
-            "the Elysia intake ended abnormally",
-        );
-    }
+    elysia_tasks.stopped().await;
     if let Err(error) = update_checks.await {
         event!(
             name: "updates.shutdown.failure",
