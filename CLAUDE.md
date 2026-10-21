@@ -264,7 +264,7 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 ## Elysia
 
 - Elysia's panel sits beside every page, opened from the topbar: her status color (orange running, red errored, pink
-  needs you, green done), what holds her back, her questions, her work, the conversation, and her activity. See
+  needs you, grey held, green done), what holds her back, her questions, her work, the conversation, and her activity. See
   `docs/elysia.md`.
 - Everything that starts her is a turn in `elysia_turns`, queued by a person's message or answer, by her intake
   (relevant event-stream changes batched into one `event` turn), or by her idle loop. Turns run one at a time on the

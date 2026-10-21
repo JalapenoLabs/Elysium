@@ -39,7 +39,7 @@ export function ElysiaToggle() {
       onPress={() => dispatch(elysiaPanelToggled())}
     >
       <span className={`block size-2.5 rounded-full ${lightDotClassNames[light]}`} aria-hidden />
-      <span>{t('name')}</span>
+      <span className='hidden sm:inline'>{t('name')}</span>
     </Button>
     <Tooltip.Content>
       <span>{label}</span>

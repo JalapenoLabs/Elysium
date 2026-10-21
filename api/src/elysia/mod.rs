@@ -171,6 +171,9 @@ pub async fn snapshot(connection: &mut AsyncPgConnection) -> diesel::QueryResult
         is_running: active_turns
             .iter()
             .any(|turn| turn.status == TurnStatus::Running),
+        is_queued: active_turns
+            .iter()
+            .any(|turn| turn.status == TurnStatus::Queued),
         last_turn_failed: last_finished.is_some_and(|turn| turn.status == TurnStatus::Failed),
         open_questions: open_questions.len(),
         paused: state.paused,
