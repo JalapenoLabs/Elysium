@@ -40,9 +40,11 @@ The full vision is `docs/vision.md`. Read it before designing any feature.
 - Agent turns run the official `claude` CLI in the workspace container (`workspace/Dockerfile`), which the API
   creates through `docker-proxy` and reaches by `docker exec`, never inside the API's own container. Callers submit
   turns to `crate::runner`. See `docs/coding.md`.
-- Releases update themselves: the API decides when, and an updater on the host carries it out. It never restarts the
-  stack while work is running; anything a restart would cut short, such as an agent turn, holds an activity
-  (`api/src/activity.rs`) while it runs. See `docs/infrastructure.md`.
+- Releases update themselves: the API decides when, and the updater (compose profile `auto-update`) carries it out,
+  backing up the databases and rolling back a release that does not come up healthy. It never restarts the stack
+  while work is running; anything a restart would cut short, such as an agent turn, holds an activity
+  (`api/src/activity.rs`) while it runs. Each API image carries the deployment's configuration, so a release brings
+  its own, and the updater owns `ELYSIUM_VERSION` in `.env`. See `docs/infrastructure.md`.
 - The web app's pages carry a strict Content Security Policy set by the API: no inline scripts, no eval, nothing
   from another origin. Frontend code keeps to it. See `docs/security.md`.
 
@@ -56,6 +58,7 @@ The full vision is `docs/vision.md`. Read it before designing any feature.
 - `RUST_LOG`, which is optional
 - `ELYSIUM_PUBLIC_URL`, which is optional: the origin browsers use, `http://localhost:4000` unless set
 - `ELYSIUM_VERSION`, which is optional: the published release the production stack runs, `latest` unless set
+- `COMPOSE_PROFILES`, which is optional: `auto-update` turns on the updater
 - `WEB_PORT` and `WEB_BIND_ADDRESS`, which are optional: where nginx publishes the web, `127.0.0.1:4000` unless set
 
 Everything else follows these rules:
@@ -318,6 +321,8 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   commit SHA.
 - The one exception is `publish.yml`, which reads the organization's Docker Hub token (`DOCKERHUB_USERNAME`
   variable, `DOCKERHUB_TOKEN` secret). It never triggers on a pull request, and leaves no login on the runners.
+- `release.yml` cuts a `vX.Y.Z` tag daily from the newest green commit on `main` and starts `publish.yml` on it. Its
+  token may push tags and start workflows; it reads no secret and never triggers on a pull request.
 - Tools are pinned in one place and verified: Rust by each crate's `rust-toolchain.toml`, Node by `frontend/.nvmrc`,
   Yarn by `packageManager`, the Diesel CLI by `DIESEL_VERSION` in `api.yml`. Dockerfiles must use the same Rust and
   Node versions; the image checks fail when they drift.
