@@ -69,8 +69,8 @@ What the CLI is doing is kept in memory, published as `passwordVault.status`, an
 
 ## The agents' tools
 
-`elysium_passwords` (`api/src/tools/passwords.rs`) is granted to every turn of every session while the vault is
-ready; a vault that becomes ready mid-turn is granted from the next turn.
+`elysium_passwords` (`api/src/tools/passwords.rs`) is granted to every turn of every session, and to every one of
+Elysia's turns, while the vault is ready; a vault that becomes ready mid-turn is granted from the next turn.
 
 | Tool              | Does                                                                 |
 |-------------------|----------------------------------------------------------------------|
@@ -85,7 +85,8 @@ is refused at the next call. Calls are logged by caller (a session or one of Ely
 never by what they answered.
 
 Every password and code handed to an agent is remembered for 24 hours (at most 1,000 at once), and every turn's
-recorded and published output is scrubbed of them as it is of secret environment variables (`docs/coding.md`). The
+recorded and published output is scrubbed of them as it is of secret environment variables (`docs/coding.md`): a
+session's events, and Elysia's reply, summary, and failures. The
 agent still holds what it was given; scrubbing keeps it out of history, the event stream, and the browser. The tools'
 instructions tell the agent to type secrets straight into the sign-in form and never print, commit, or save them.
 
@@ -95,7 +96,6 @@ See `docs/api.md`. Every route is admin-only.
 
 ## Roadmap
 
-- Granting the tools to Elysia's own turns once they run on the host runner.
 - Custom fields and secure notes, for sites that ask for more than a username and password.
 - Agents saving a new login they created into the collection, through a changeset.
 - A certificate authority for self-hosted servers behind a private CA.
