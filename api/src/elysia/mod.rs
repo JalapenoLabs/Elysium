@@ -43,6 +43,7 @@ use self::status::{Status, StatusInputs};
 use crate::database::Pool;
 use crate::models::elysia::{self, ElysiaState, Question, Turn, TurnStatus, Work};
 use crate::realtime::EventBus;
+use crate::tools::grants::Grants;
 
 /// Elysia's handle in [`crate::state::AppState`]. Cheap to clone; clones share one wake signal
 /// and one runner.
@@ -52,19 +53,28 @@ pub struct Elysia {
     /// dispatcher looks at the queue at once instead of on its next tick.
     wake: Arc<Notify>,
     runner: TurnRunner,
+    /// Where each turn's grant to her tool server is minted; shared with the endpoint that
+    /// answers the calls.
+    grants: Grants,
 }
 
 impl Elysia {
-    pub fn new(runner: TurnRunner) -> Self {
+    pub fn new(runner: TurnRunner, grants: Grants) -> Self {
         Self {
             wake: Arc::new(Notify::new()),
             runner,
+            grants,
         }
     }
 
     /// What runs her turns.
     pub const fn runner(&self) -> &TurnRunner {
         &self.runner
+    }
+
+    /// Where her turns' tool grants are minted.
+    pub const fn grants(&self) -> &Grants {
+        &self.grants
     }
 
     /// Tells the dispatcher to look at the queue now.
@@ -171,6 +181,9 @@ pub async fn snapshot(connection: &mut AsyncPgConnection) -> diesel::QueryResult
         is_running: active_turns
             .iter()
             .any(|turn| turn.status == TurnStatus::Running),
+        is_queued: active_turns
+            .iter()
+            .any(|turn| turn.status == TurnStatus::Queued),
         last_turn_failed: last_finished.is_some_and(|turn| turn.status == TurnStatus::Failed),
         open_questions: open_questions.len(),
         paused: state.paused,

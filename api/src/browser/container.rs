@@ -4,7 +4,7 @@
 //!
 //! Like the mail server, browsers are not part of `compose.yml`: the API creates one when a
 //! person adds it, and keeps it running. Everything is named after the browser's id and
-//! labelled [`MANAGED_LABEL`]:
+//! labelled [`MANAGED_LABEL`] and with this deployment's [`DEPLOYMENT_LABEL`]:
 //!
 //! | Kind      | Name                    | Purpose                                              |
 //! |-----------|-------------------------|------------------------------------------------------|
@@ -21,6 +21,11 @@
 //! `DevTools` forwarder and its supervisord program, and the managed policy. Everything that
 //! shapes the container is hashed into [`SPEC_LABEL`], so a container built from an older
 //! spec (another address, image, or file) is replaced, keeping its profile volume.
+//!
+//! Docker is shared by everything on the host, another Elysium deployment's browsers
+//! included. The reconciler removes what no row owns, so it lists only what carries its own
+//! deployment's label, and never removes a browser, or the profile a person signed in on,
+//! that another deployment created.
 
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
@@ -88,6 +93,9 @@ const NEVER_STARTED_YEAR: &str = "0001-";
 
 const MANAGED_LABEL: (&str, &str) = ("dev.elysium.managed", "browser");
 const SESSION_LABEL: &str = "dev.elysium.browser-session";
+/// Which deployment created the resource: a value derived from its encryption key, which is
+/// what makes a deployment its own. See [`deployment_label`].
+const DEPLOYMENT_LABEL: &str = "dev.elysium.deployment";
 /// A hash of everything [`container_spec`] and [`setup_archive`] depend on.
 const SPEC_LABEL: &str = "dev.elysium.browser-spec";
 
@@ -143,11 +151,16 @@ pub enum ContainerError {
 #[derive(Debug, Clone)]
 pub struct BrowserContainers {
     docker: Docker,
+    /// This deployment's [`DEPLOYMENT_LABEL`] value.
+    deployment: String,
 }
 
 impl BrowserContainers {
-    pub const fn new(docker: Docker) -> Self {
-        Self { docker }
+    pub fn new(docker: Docker, encryption_key: &SecretString) -> Self {
+        Self {
+            docker,
+            deployment: deployment_label(encryption_key),
+        }
     }
 
     /// Pulls the pinned image unless Docker already has it.
@@ -184,7 +197,7 @@ impl BrowserContainers {
         self.ensure_network(&name, spec.session_id).await?;
         self.ensure_volume(&name, spec.session_id).await?;
 
-        let fingerprint = spec_fingerprint(spec);
+        let fingerprint = spec_fingerprint(spec, &self.deployment);
         match self.docker.inspect_container(&name, None).await {
             Ok(existing) => {
                 let current = existing
@@ -220,6 +233,7 @@ impl BrowserContainers {
                 Some(options),
                 container_spec(
                     spec,
+                    self.managed_labels(spec.session_id),
                     &fingerprint,
                     crate::browser::generate_password().expose_secret(),
                 ),
@@ -295,14 +309,21 @@ impl BrowserContainers {
         Ok(())
     }
 
-    /// The ids of every browser Docker holds anything for: a container, network, or volume
-    /// labelled as one. The reconciler removes those no row owns any more.
+    /// The ids of every browser this deployment holds anything for in Docker: a container,
+    /// network, or volume labelled as one of its browsers. The reconciler removes those no row
+    /// owns any more.
     ///
     /// # Errors
     /// [`ContainerError::Docker`] when Docker refuses a listing.
     pub async fn managed_session_ids(&self) -> Result<HashSet<Uuid>, ContainerError> {
-        let label = format!("{}={}", MANAGED_LABEL.0, MANAGED_LABEL.1);
-        let filters = HashMap::from([("label".to_owned(), vec![label])]);
+        // Docker matches a resource only when it carries every label listed.
+        let filters = HashMap::from([(
+            "label".to_owned(),
+            vec![
+                format!("{}={}", MANAGED_LABEL.0, MANAGED_LABEL.1),
+                format!("{DEPLOYMENT_LABEL}={}", self.deployment),
+            ],
+        )]);
         let mut labels: Vec<HashMap<String, String>> = Vec::new();
 
         let containers = ListContainersOptionsBuilder::new()
@@ -368,7 +389,7 @@ impl BrowserContainers {
                     .create_network(NetworkCreateRequest {
                         name: name.to_owned(),
                         driver: Some("bridge".to_owned()),
-                        labels: Some(managed_labels(session_id)),
+                        labels: Some(self.managed_labels(session_id)),
                         ..Default::default()
                     })
                     .await?;
@@ -401,11 +422,19 @@ impl BrowserContainers {
         self.docker
             .create_volume(VolumeCreateRequest {
                 name: Some(name.to_owned()),
-                labels: Some(managed_labels(session_id)),
+                labels: Some(self.managed_labels(session_id)),
                 ..Default::default()
             })
             .await?;
         Ok(())
+    }
+
+    fn managed_labels(&self, session_id: Uuid) -> HashMap<String, String> {
+        HashMap::from([
+            (MANAGED_LABEL.0.to_owned(), MANAGED_LABEL.1.to_owned()),
+            (SESSION_LABEL.to_owned(), session_id.to_string()),
+            (DEPLOYMENT_LABEL.to_owned(), self.deployment.clone()),
+        ])
     }
 
     /// The API's own container. Docker sets `HOSTNAME` to the container's short id.
@@ -460,11 +489,16 @@ pub fn host_name(port: u16) -> String {
     format!("elysium-browser-{port}")
 }
 
-fn managed_labels(session_id: Uuid) -> HashMap<String, String> {
-    HashMap::from([
-        (MANAGED_LABEL.0.to_owned(), MANAGED_LABEL.1.to_owned()),
-        (SESSION_LABEL.to_owned(), session_id.to_string()),
-    ])
+/// The deployment's [`DEPLOYMENT_LABEL`] value: the hex SHA-256 of
+/// `elysium/browser/deployment:<key>`, as `kratos/entrypoint.sh` derives Kratos's secrets
+/// from the same key under their own purposes. Anyone who can reach Docker reads it, which
+/// is harmless: it names the deployment and reveals nothing about the key.
+fn deployment_label(encryption_key: &SecretString) -> String {
+    let digest = Sha256::digest(format!(
+        "elysium/browser/deployment:{}",
+        encryption_key.expose_secret()
+    ));
+    hex::encode(digest)
 }
 
 /// Neko's configuration, as environment variables. The member password is the only way in:
@@ -501,11 +535,11 @@ fn environment(spec: &BrowserSpec, discarded_admin_password: &str) -> Vec<String
 /// `discarded_admin_password` is generated per container by the caller and kept nowhere.
 fn container_spec(
     spec: &BrowserSpec,
+    mut labels: HashMap<String, String>,
     fingerprint: &str,
     discarded_admin_password: &str,
 ) -> ContainerCreateBody {
     let name = resource_name(spec.session_id);
-    let mut labels = managed_labels(spec.session_id);
     labels.insert(SPEC_LABEL.to_owned(), fingerprint.to_owned());
 
     ContainerCreateBody {
@@ -548,11 +582,14 @@ fn setup_archive() -> Result<Vec<u8>, std::io::Error> {
     archive.into_inner()
 }
 
-/// A hash of the image, the media port, the public address, the password, and the setup
-/// files: everything a running container would have to be replaced to change.
-fn spec_fingerprint(spec: &BrowserSpec) -> String {
+/// A hash of the image, the media port, the public address, the password, the setup files,
+/// and the deployment: everything a running container would have to be replaced to change.
+/// Labels are fixed when a container is created, so one without this deployment's is
+/// replaced to carry it.
+fn spec_fingerprint(spec: &BrowserSpec, deployment: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(IMAGE);
+    hasher.update(deployment);
     hasher.update(spec.port.to_be_bytes());
     hasher.update(spec.public_address.to_string());
     hasher.update(spec.member_password.expose_secret());
@@ -574,6 +611,8 @@ mod tests {
 
     use super::*;
 
+    const DEPLOYMENT: &str = "a-deployment";
+
     fn spec() -> BrowserSpec {
         BrowserSpec {
             session_id: Uuid::nil(),
@@ -586,7 +625,7 @@ mod tests {
     #[test]
     fn the_container_publishes_nothing_and_answers_by_its_port() {
         let browser = spec();
-        let body = container_spec(&browser, "fingerprint", "discarded");
+        let body = container_spec(&browser, HashMap::new(), "fingerprint", "discarded");
         let host_config = body.host_config.expect("host config");
         assert!(host_config.port_bindings.is_none());
 
@@ -649,8 +688,8 @@ mod tests {
 
     #[test]
     fn the_fingerprint_is_stable_and_changes_with_each_input() {
-        let original = spec_fingerprint(&spec());
-        assert_eq!(original, spec_fingerprint(&spec()));
+        let original = spec_fingerprint(&spec(), DEPLOYMENT);
+        assert_eq!(original, spec_fingerprint(&spec(), DEPLOYMENT));
 
         let mut moved = spec();
         moved.public_address = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 4));
@@ -659,8 +698,13 @@ mod tests {
         let mut rekeyed = spec();
         rekeyed.member_password = SecretString::from("another-password");
         for changed in [moved, renumbered, rekeyed] {
-            assert_ne!(original, spec_fingerprint(&changed), "{changed:?}");
+            assert_ne!(
+                original,
+                spec_fingerprint(&changed, DEPLOYMENT),
+                "{changed:?}"
+            );
         }
+        assert_ne!(original, spec_fingerprint(&spec(), "another-deployment"));
     }
 
     #[test]
@@ -672,7 +716,7 @@ mod tests {
             hasher.update(contents);
         }
         let files_only = hex::encode(hasher.finalize());
-        assert_ne!(files_only, spec_fingerprint(&spec()));
+        assert_ne!(files_only, spec_fingerprint(&spec(), DEPLOYMENT));
         assert_eq!(SETUP_FILES.len(), 5);
     }
 
@@ -731,6 +775,21 @@ mod tests {
         assert!(start.contains(r#""$profile/SingletonLock""#));
         assert!(start.contains(&format!("profile={PROFILE_DIRECTORY}")));
         assert!(start.contains(r#"exec /usr/bin/chromium "$@""#));
+    }
+
+    // Two deployments on one host each removed the other's browsers, profiles included,
+    // because the sweep listed every browser Docker held. Each now lists only its own.
+    #[test]
+    fn each_deployment_labels_its_browsers_as_its_own() {
+        let ours = deployment_label(&SecretString::from("testkey"));
+        let theirs = deployment_label(&SecretString::from("another-key"));
+        assert_ne!(ours, theirs);
+        // `printf '%s' 'elysium/browser/deployment:testkey' | sha256sum`
+        assert_eq!(
+            ours,
+            "393cff5de2f68ebe16a05a02310659fdd5f725735ece55d103482a69171e8c35"
+        );
+        assert!(!ours.contains("testkey"));
     }
 
     #[test]

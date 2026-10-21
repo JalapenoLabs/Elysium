@@ -16,6 +16,15 @@ import { Topbar } from './Topbar'
 // Misc
 import { useElysiaSounds } from '../elysia/useElysiaSounds'
 
+// Pages lay out by viewport breakpoints, so a 26rem panel beside them would leave a
+// 1280px screen with a 640px page laid out for 1280px. Only from 2xl does it sit beside
+// the page; below that it floats over the page's right edge, and below sm it takes the
+// whole width.
+const ELYSIA_PANEL_PLACEMENT = [
+  'fixed inset-y-0 right-0 z-40 w-full shadow-xl sm:w-[26rem]',
+  '2xl:static 2xl:z-auto 2xl:shrink-0 2xl:shadow-none',
+].join(' ')
+
 // The persistent frame around every page: navigation on the left, the topbar across
 // the content column, the routed page in the scrollable main area, and Elysia's panel on
 // the right while it is open.
@@ -37,12 +46,14 @@ export function AppShell() {
         <main className={
           isWorkspace
             ? 'min-h-0 flex-1 overflow-hidden border-t border-separator'
-            : 'flex-1 overflow-y-auto px-10 pt-4 pb-16'
+            : 'flex-1 overflow-y-auto px-4 pt-4 pb-16 md:px-10'
         }>
           <Outlet />
         </main>
       </div>
-      {isElysiaOpen && <ElysiaPanel />}
+      {isElysiaOpen && <div className={ELYSIA_PANEL_PLACEMENT}>
+        <ElysiaPanel />
+      </div>}
     </div>
     <Toast.Provider placement='bottom end' />
   </AriaRouterProvider>

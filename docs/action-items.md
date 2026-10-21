@@ -495,7 +495,8 @@ Every call is scoped to the session's project and re-checked against the databas
 
 - Email: completing an item that came from an email marks the thread read, then archives or deletes it; which of the
   two is not decided.
-- Email triage: Elysia reads new mail and proposes items as changesets.
+- Email triage: Elysia reads the mail connectors ingest (`docs/connectors.md`) and proposes what to do with each
+  item as a changeset. Today a new unread message raises an inbox item by itself, recorded as `watcher:<service>`.
 - Meetings: recordings from Slack, Teams, and others are transcribed and uploaded, and Elysia proposes one changeset
   per meeting, citing the transcript.
 - Rules that apply trusted operations without review, loosened as Elysia's track record earns it.

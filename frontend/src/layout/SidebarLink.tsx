@@ -8,6 +8,7 @@ import { NavLink } from 'react-router'
 
 type Props = {
   item: NavigationItem
+  onNavigate?: () => void
 }
 
 export function SidebarLink(props: Props) {
@@ -17,6 +18,7 @@ export function SidebarLink(props: Props) {
   return <NavLink
     to={props.item.href}
     end={props.item.end}
+    onClick={props.onNavigate}
     className={({ isActive }) => [
       'flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors',
       isActive

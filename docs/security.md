@@ -71,11 +71,25 @@ add nothing to that.
   administrator password is generated per container and never kept.
 - Each browser's DevTools port has no authentication, so each browser has its own network, joined only by the API and
   nginx, and nginx forwards only its media port. A compromised browser cannot reach another.
-- A browser's profile volume holds its sign-ins. Removing the browser removes it.
+- A browser's profile volume holds its sign-ins. Removing the browser removes it. The API removes only what carries
+  its own deployment's label, so it never removes another deployment's browser on a shared Docker host. The label is
+  derived from the encryption key under its own purpose and is readable by anyone with Docker access; it reveals
+  nothing about the key.
 - `browserSession.upserted` and `browserSession.deleted` reach every client of the event stream, as every event does:
   the workspace shares one trust boundary. They carry a browser's name, start page, and status, never its password.
 
 See `docs/browser.md`.
+
+## Connectors
+
+- A connector account, and every timeline record it ingests, belongs to the person whose browser it reads through;
+  every connector and timeline route answers them alone.
+- `timelineRecord.created` carries ids and kinds, never a message's content, since every client of the event stream
+  hears every event. The inbox item a message raises is an action item like any other, which every workspace member
+  can see; per-person items are on the roadmap with owners as users.
+- A connector reads a page over the browser's DevTools port, which only the API reaches (above).
+
+See `docs/connectors.md`.
 
 ## Auto-update
 

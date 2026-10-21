@@ -66,7 +66,8 @@ export function ElysiaPanel() {
 
   return <aside
     aria-label={t('panel.label')}
-    className='flex w-[26rem] shrink-0 flex-col border-l border-separator bg-sidebar px-4 py-3'
+    // AppShell decides the panel's width and placement; the panel fills what it is given.
+    className='flex h-full w-full flex-col border-l border-separator bg-sidebar px-4 py-3'
   >
     <header className='compact level'>
       <div className='level-left gap-2'>

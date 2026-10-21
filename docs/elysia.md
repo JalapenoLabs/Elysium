@@ -19,8 +19,7 @@ doc is what is built and what comes next.
 - **Her turns** run on the host runner (`crate::runner`), one at a time ([Turns](#turns)).
 - **The idle loop** brings her back to her own work when nothing is queued ([Idle loop](#idle-loop)).
 
-She has no tools of her own yet: she answers from what the prompt carries and what Claude Code can reach in her
-working directory. Her tools are next on the roadmap.
+- **Her tools** let her read the workspace and keep her own record ([Tools](#tools)).
 
 The code is `api/src/elysia/` (status, availability, intake, dispatcher, prompt, runner seam, trigger kinds),
 `api/src/models/elysia.rs`, and `api/src/routes/v1/elysia/`. The frontend is `frontend/src/elysia/`.
@@ -47,6 +46,23 @@ starts before the limit resets: the time Claude's rate-limit report names, or an
 left running when the API stops is failed at the next start; its trigger is not lost, because the messages or work it
 was about are still there for the next turn.
 
+## Tools
+
+Each turn is granted one tool server, `elysia` (`api/src/tools/elysia.rs`), at `/api/agent-tools/elysia` with a
+token minted for that turn and revoked when it ends (`docs/coding.md`, Elysium's tools). Coding sessions' servers
+refuse her, and hers refuse them.
+
+| Tool                 | Does                                                                          |
+|----------------------|-------------------------------------------------------------------------------|
+| `elysia_overview`    | Every item in the inbox or open, the active initiatives, the projects, and her own questions and work |
+| `elysia_item`        | One item's notes and comments                                                 |
+| `elysia_ask`         | Asks a person a question with up to four suggested answers                    |
+| `elysia_work_start`  | Records work she takes on, with when she expects it ready                     |
+| `elysia_work_update` | Updates that record: where it stands, its status, its estimate                |
+
+What she writes shows in her panel at once. She reads every live item, initiative, and project, since she acts for
+the whole workspace. She cannot change items or initiatives yet.
+
 ## Idle loop
 
 When nothing has been queued or run for 30 minutes and she is within her hours, she revisits her own work: what
@@ -62,10 +78,11 @@ Her color, derived on every read from her turns, questions, and settings (`api/s
 |-------------|--------|----------------------------------------------------|
 | `needs-you` | Pink   | She asked a question nobody has answered           |
 | `running`   | Orange | A turn is running                                  |
+| `held`      | Grey   | Work is queued and a hold keeps it from starting   |
 | `errored`   | Red    | Her last finished turn failed                      |
 | `done`      | Green  | None of the above                                  |
 
-When more than one applies, needing a person wins, then running, then a failure. The colors are the `--elysia-*`
+When more than one applies, needing a person wins, then running, then held, then a failure. The colors are the `--elysia-*`
 tokens in `frontend/src/theme/matter.css`.
 
 Separately, a **hold** says why queued work is not starting, the first of: `paused` (a person paused her),
@@ -131,7 +148,6 @@ Which kinds move up, and when, is not decided.
 
 ## Roadmap
 
-- Her MCP tools, served at `/api/agent-tools/elysia` with a grant minted per turn: action items, initiatives,
-  projects, changesets, and coding sessions to read; asking questions, recording and updating her work, and proposing
-  changesets to write.
+- Proposing changesets from her turns, workspace-wide, as `work_propose_changes` does for a project's sessions.
+- Reading changesets and coding sessions, and starting a coding session for work that needs one.
 - Her turns' full logs beside their summaries, expanding like a GitHub Actions step.

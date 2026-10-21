@@ -7,6 +7,7 @@ mod auth_status;
 pub mod browser_sessions;
 pub mod changesets;
 pub mod coding_sessions;
+pub mod connectors;
 pub mod elysia;
 pub mod environment_variables;
 mod events;
@@ -20,6 +21,7 @@ pub mod oauth;
 pub mod projects;
 pub mod storage_locations;
 pub mod studio_items;
+pub mod timeline;
 mod updates;
 pub mod users;
 pub mod workspace_settings;
@@ -53,6 +55,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/action-items", action_items::router())
         .nest("/browser-sessions", browser_sessions::router())
         .nest("/changesets", changesets::router())
+        .nest("/connectors", connectors::router())
         .nest("/elysia", elysia::router())
         .nest("/environment-variables", environment_variables::router())
         .nest("/github-credentials", github_credentials::router())
@@ -62,6 +65,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/mail", mail::router())
         .nest("/projects", projects::router())
         .nest("/storage-locations", storage_locations::router())
+        .nest("/timeline", timeline::router())
         .nest("/studio-items", studio_items::router())
         .nest("/coding-sessions", coding_sessions::router())
         .nest("/oauth", oauth::router())

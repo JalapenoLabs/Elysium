@@ -18,6 +18,7 @@ import { LuSendHorizontal } from 'react-icons/lu'
 import { listElysiaMessages, sendElysiaMessage } from '../api/routes/elysiaRoutes'
 import { useElysiaMessagesLoader } from '../hooks/useServerData'
 import { useUserNames } from '../hooks/useUserNames'
+import { ELYSIA_MESSAGE_PAGE_SIZE } from '../constants'
 
 // A message's length, as the API bounds it.
 const MESSAGE_MAX_CHARACTERS = 20_000
@@ -38,7 +39,7 @@ export function ElysiaConversation(props: Props) {
   const [ draft, setDraft ] = useState('')
   const [ isSending, setIsSending ] = useState(false)
   const [ isLoadingEarlier, setIsLoadingEarlier ] = useState(false)
-  const [ hasEarlier, setHasEarlier ] = useState(true)
+  const [ hasEarlier, setHasEarlier ] = useState<boolean | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const timeFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' })
 
@@ -90,7 +91,7 @@ export function ElysiaConversation(props: Props) {
     try {
       const response = await listElysiaMessages(oldest.id)
       dispatch(elysiaMessagesLoaded(response.messages))
-      setHasEarlier(Boolean(response.messages.length))
+      setHasEarlier(response.messages.length >= ELYSIA_MESSAGE_PAGE_SIZE)
     }
     catch (error) {
       console.debug('ElysiaConversation failed to load earlier messages', { error })
@@ -110,7 +111,7 @@ export function ElysiaConversation(props: Props) {
       {status === 'loaded' && !messages.length && <p className='compact text-sm opacity-70'>{
         t('conversation.empty')
       }</p>}
-      {Boolean(messages.length) && hasEarlier && <div className='compact flex justify-center'>
+      {(hasEarlier ?? messages.length >= ELYSIA_MESSAGE_PAGE_SIZE) && <div className='compact flex justify-center'>
         <Button size='sm' variant='ghost' isPending={isLoadingEarlier} onPress={() => void loadEarlier()}>
           <span>{t('conversation.earlier')}</span>
         </Button>

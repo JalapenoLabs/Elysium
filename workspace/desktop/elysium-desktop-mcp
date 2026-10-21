@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Copyright © 2026 Jalapeno Labs
+#
+# One turn's desktop, as an MCP server on standard input and output. Claude Code starts it for the
+# turn's `desktop` MCP server and the runner stops the turn's process group when the turn ends, so
+# every turn works on a screen of its own and no two turns share one.
+#
+# It starts a virtual display on a free number, a window manager, Firefox, and a view-only VNC
+# server on the Unix socket ELYSIUM_DESKTOP_SOCKET names, which the API relays to people watching
+# the turn live. Then it runs computer-use-mcp against the display in the foreground. Standard
+# output belongs to the MCP protocol, so everything else writes to standard error.
+
+set -euo pipefail
+
+# 1280 by 800 is the size Claude's computer use is tuned for: screenshots stay legible without
+# being downscaled, and coordinates map one to one.
+readonly SCREEN=1280x800x24
+# How long the display and the VNC server may take to come up.
+readonly START_SECONDS=30
+
+socket="${ELYSIUM_DESKTOP_SOCKET:?ELYSIUM_DESKTOP_SOCKET names where the live view connects}"
+umask 077
+mkdir -p "$(dirname "$socket")"
+rm -f "$socket"
+scratch=$(mktemp -d)
+
+children=()
+cleanup() {
+    for child in "${children[@]}"; do
+        kill "$child" 2>/dev/null || true
+    done
+    rm -rf "$scratch" "$socket"
+}
+trap cleanup EXIT
+
+wait_for() {
+    local description=$1
+    shift
+    for _ in $(seq 1 $((START_SECONDS * 4))); do
+        if "$@"; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    echo "elysium-desktop-mcp: $description did not come up" >&2
+    exit 1
+}
+
+display_answers() {
+    xdpyinfo >/dev/null 2>&1
+}
+
+# Xvfb picks a free display itself and writes its number to the file descriptor it is given.
+Xvfb -displayfd 3 -screen 0 "$SCREEN" -nolisten tcp -noreset 3>"$scratch/display" >&2 2>&1 &
+children+=($!)
+wait_for "the display" test -s "$scratch/display"
+export DISPLAY=":$(cat "$scratch/display")"
+wait_for "the display" display_answers
+
+openbox >&2 2>&1 &
+children+=($!)
+
+# View-only and on a Unix socket alone (-rfbport 0 opens no TCP port): the live view watches, the
+# agent drives, and nothing on the network can connect.
+x11vnc -display "$DISPLAY" -unixsock "$socket" -rfbport 0 -viewonly -shared -forever -nopw \
+    -quiet -noxrecord >&2 2>&1 &
+children+=($!)
+wait_for "the VNC server" test -S "$socket"
+
+firefox --no-remote --profile "$scratch/firefox" about:blank >&2 2>&1 &
+children+=($!)
+
+node /opt/elysium/desktop/node_modules/computer-use-mcp/dist/main.js

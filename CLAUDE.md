@@ -120,6 +120,9 @@ Everything else follows these rules:
   call re-checks the database. nginx never routes that path.
 - Every agent can 3D model. Blender is baked into the workspace image, and every turn starts a Blender of its own
   through a stdio MCP launcher, so no two turns share a scene. See `docs/coding.md`, Blender.
+- Every turn also has a desktop of its own (virtual display, window manager, Firefox) that it drives with mouse,
+  keyboard, and screenshots through the `desktop` MCP server, started and stopped with the turn the same way. See
+  `docs/coding.md`, The desktop.
 - Secret values given to a turn are scrubbed from its events before they are recorded or published.
 - Every completed or failed turn is summarized in one or two sentences by a small model, as a text turn on the runner
   (no tools, no settings, its own conversation), and the conversation collapses each turn to that summary. A summary
@@ -156,6 +159,21 @@ Everything else follows these rules:
 - The web app's sign-in panel (Settings, Browser sign-ins) speaks Neko's protocol itself: Neko's own client cannot
   run under the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
+
+## Connectors and the timeline
+
+- A connector is a service Elysium reads as its user, behind one trait (`api/src/connectors/`): it names its kind
+  and reads what its account shows now. How it signs in and stays signed in belongs to what it reads through. Today
+  Outlook reads through a person's browser over DevTools, with one page script per service; the check is cheap and
+  deterministic, and nothing it does marks mail read. See `docs/connectors.md`.
+- Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
+  projects with a confidence (`timeline_record_projects`). A record is its owner's alone, even about a shared
+  project.
+- Ingest runs every minute. A new unread message raises an inbox item in the same transaction as its record,
+  recorded as `watcher:<service>`: connecting a mailbox is the consent, as linking a container is for the link
+  watcher. The first read baselines the mailbox without raising anything.
+- `timelineRecord.created` carries ids and kinds, never content, because every client hears every event. It is the
+  seam Elysia's triage builds on.
 
 ## Storage
 
@@ -264,7 +282,7 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 ## Elysia
 
 - Elysia's panel sits beside every page, opened from the topbar: her status color (orange running, red errored, pink
-  needs you, green done), what holds her back, her questions, her work, the conversation, and her activity. See
+  needs you, grey held, green done), what holds her back, her questions, her work, the conversation, and her activity. See
   `docs/elysia.md`.
 - Everything that starts her is a turn in `elysia_turns`, queued by a person's message or answer, by her intake
   (relevant event-stream changes batched into one `event` turn), or by her idle loop. Turns run one at a time on the
