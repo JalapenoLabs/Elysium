@@ -36,6 +36,9 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `mailDomain.deleted` | `{ id }`                 | A domain was removed                                       |
 | `project.upserted`   | `Project`                | A project was created or changed                           |
 | `project.deleted`    | `{ id }`                 | A project was deleted                                      |
+| `elysia.updated`     | `Elysia`                 | Her status, settings, open questions, or work changed     |
+| `elysiaMessage.created` | `ElysiaMessage`      | A person or Elysia added to the conversation              |
+| `elysiaTurn.upserted` | `ElysiaTurn`            | One of her turns was queued, started, ended, or cancelled |
 | `environmentVariable.upserted` | `EnvironmentVariable` | An environment variable was added or changed      |
 | `environmentVariable.deleted`  | `{ id }`              | An environment variable was deleted               |
 | `githubCredential.upserted` | `GithubCredential` | A GitHub token was added, changed, or checked             |
@@ -67,7 +70,8 @@ whose `initiativeIds` leave deleted initiatives out. A write that changed nothin
 every action item event to Redux; `actionItem.deleted` and `initiative.deleted` also revalidate the deleted lists,
 `initiative.upserted` the initiative's burnup, and `actionItemLink.upserted` the item's live provider reads, each only
 while a view shows it (`docs/frontend.md`). The link and container events land in the `actionItemLinks` and
-`initiativeLinks` slices, and `changeset.upserted` in the `changesets` slice. The Studio events land in the
+`initiativeLinks` slices, `changeset.upserted` in the `changesets` slice, and the Elysia events in the `elysia`
+slice. Elysia's intake also listens to the stream, on the server, to queue her `event` turns (`docs/elysia.md`). The Studio events land in the
 `studioItems`, `studioAssets`, and `studioFeedback` slices; `studioItem.deleted` also revalidates the deleted items and
 the item's own page, which then shows a soft-deleted item as deleted and a permanently deleted one as missing.
 

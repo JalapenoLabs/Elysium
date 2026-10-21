@@ -3,9 +3,9 @@
 //! The HTTP server: startup, middleware stack, and graceful shutdown.
 //!
 //! Startup order: configuration, encryption key, schema check, store connections
-//! (with retry), fleet watchers, the link watcher, the update checker, router, listener.
-//! Shutdown order is the reverse: a signal cancels the shutdown token, which ends every
-//! event stream, fleet watcher, the link watcher, and the update checker; the server stops
+//! (with retry), the agent runner, the link watcher, Elysia's intake, the update checker,
+//! router, listener. Shutdown order is the reverse: a signal cancels the shutdown token, which
+//! ends every event stream, agent turn, the link watcher, and the update checker; the server stops
 //! accepting and drains in-flight requests; the watchers are awaited; then the Postgres
 //! pool closes and the Redis connection drops.
 
@@ -34,6 +34,7 @@ use crate::config::Config;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::database::migrations;
+use crate::elysia::intake::{self, IntakeContext};
 use crate::github::Github;
 use crate::jira::Jira;
 use crate::mail::Mail;
@@ -117,6 +118,13 @@ pub async fn serve() -> Result<()> {
         links: links.clone(),
     };
     let watcher = Watcher::start(watch, shutdown.clone());
+    let elysia_intake = tokio::spawn(intake::run(
+        IntakeContext {
+            database: database.clone(),
+            events: events.clone(),
+        },
+        shutdown.clone(),
+    ));
     let mail = build_mail(
         &config,
         http.clone(),
@@ -212,6 +220,14 @@ pub async fn serve() -> Result<()> {
     sessions.shutdown().await;
     event!(name: "runner.shutdown.complete", Level::INFO, "agent turns stopped");
     watcher.stopped().await;
+    if let Err(error) = elysia_intake.await {
+        event!(
+            name: "elysia.intake.join.failure",
+            Level::ERROR,
+            error.message = %error,
+            "the Elysia intake ended abnormally",
+        );
+    }
     if let Err(error) = update_checks.await {
         event!(
             name: "updates.shutdown.failure",
