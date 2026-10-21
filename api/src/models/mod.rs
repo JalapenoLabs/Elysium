@@ -7,6 +7,7 @@ pub mod action_item_comment;
 pub mod action_item_event;
 pub mod action_item_link;
 pub mod action_item_link_write;
+pub mod browser_session;
 pub mod changeset;
 pub mod coding_session;
 pub mod deployment_update;

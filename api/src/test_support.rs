@@ -117,6 +117,10 @@ pub async fn app_state(database_url: &SecretString) -> crate::state::AppState {
 ///
 /// # Panics
 /// Panics when `TEST_REDIS_URL` is unset or Redis refuses the connection.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fixture assembling every service the router needs, read top to bottom"
+)]
 pub async fn app_state_with_storage(
     database_url: &SecretString,
     storage: crate::storage::Storage,
@@ -180,6 +184,15 @@ pub async fn app_state_with_storage(
         events.clone(),
     )
     .expect("mail services build without reaching anything");
+    // Its reconciler is never started, so no test reaches Docker through it.
+    let browsers = crate::server::build_browsers(
+        &config,
+        http.clone(),
+        database.clone(),
+        Arc::clone(&cipher),
+        events.clone(),
+    )
+    .expect("browsers build without reaching anything");
 
     let activity = crate::activity::Activities::new();
     let version = Arc::new(VersionInfo::from_build().expect("build metadata parses"));
@@ -206,6 +219,7 @@ pub async fn app_state_with_storage(
 
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
+        browsers,
         database,
         activity,
         redis,

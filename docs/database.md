@@ -106,6 +106,21 @@ Connected mailboxes; see `docs/mail.md`.
 | `created_at`           | `TIMESTAMPTZ`       | Set on insert                                                   |
 | `updated_at`           | `TIMESTAMPTZ`       | Maintained by trigger                                           |
 
+### `browser_sessions`
+
+Browsers the host runs for a person to sign in to their accounts in, one Neko container each; see `docs/browser.md`.
+Each belongs to the person who created it and answers nobody else.
+
+| Column                      | Type          | Notes                                                           |
+|-----------------------------|---------------|-----------------------------------------------------------------|
+| `id`                        | `UUID`        | UUIDv7, primary key; names its container, volume, and network   |
+| `name`                      | `TEXT`        | 1 to 100 characters, such as "Work Outlook"                     |
+| `start_url`                 | `TEXT`        | `https://`, at most 2048 characters; opened when it is created  |
+| `port`                      | `INTEGER`     | Unique, 59000 to 59007: its media port, and its name on its network |
+| `member_password_encrypted` | `BYTEA`       | Sealed password of the Neko member session the API relays, see `docs/secrets.md` |
+| `created_by`                | `UUID`        | References `users`; the browser's owner, indexed                |
+| `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
+
 ### `mail_servers`
 
 The mail server Elysium runs, with the administrator Stalwart issued when it was created; see `docs/mail.md`. At most

@@ -8,6 +8,7 @@
 mod action_items;
 mod activity;
 mod auth;
+mod browser;
 mod cli;
 mod config;
 mod connections;
