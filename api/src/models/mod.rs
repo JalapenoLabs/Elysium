@@ -30,4 +30,5 @@ pub mod studio_asset;
 pub mod studio_feedback;
 pub mod studio_item;
 pub mod studio_reservation;
+pub mod turn_summary;
 pub mod user;

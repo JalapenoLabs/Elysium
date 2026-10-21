@@ -153,6 +153,7 @@
     "toolFailed": "{{tool}} failed",
     "unnamedTool": "Tool",
     "turnFinished": "Turn {{status}}",
+    "turnWorking": "Working…",
     "incident": "Incident: {{message}}",
     "otherEvent": "{{type}}",
     "composer": {

@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! What clients see of a session: its recorded events and what it is doing now.
+//! What clients see of a session: its recorded events, its turns' summaries, and what it is
+//! doing now.
 //!
 //! A session's events are kept as the runner reported them (`crate::runner::RunnerEvent`) and
 //! turned into these views when read or published, so a later build renders old events with
@@ -12,6 +13,7 @@ use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::models::turn_summary::TurnSummary;
 use crate::runner::{RunnerEvent, TurnStatus};
 
 /// One recorded event of a session, as clients render it.
@@ -92,6 +94,27 @@ pub enum ActivityState {
     /// Turns are waiting behind another session's, for a free slot.
     Queued,
     Running,
+}
+
+/// A finished turn's summary (`super::summary`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnSummaryView {
+    pub session_id: i64,
+    pub turn_id: Uuid,
+    pub summary: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<TurnSummary> for TurnSummaryView {
+    fn from(row: TurnSummary) -> Self {
+        Self {
+            session_id: row.session_id,
+            turn_id: row.turn_id,
+            summary: row.summary,
+            created_at: row.created_at,
+        }
+    }
 }
 
 /// A session's current activity, kept in memory and published as it changes.
