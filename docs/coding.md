@@ -219,7 +219,25 @@ open reaches the next. A session's turns run one after another, so its socket na
   sandbox Firefox falls back to. The workspace container is the boundary that matters.
 - Each desktop costs about 300 MB while Firefox is open; eight concurrent turns are the ceiling.
 
-The roadmap is a live view in the web app: people watching a turn's desktop as the agent works.
+### Watching it live
+
+A conversation's Watch desktop button shows the running turn's desktop as the agent works. The view is noVNC 1.7.0 in
+the web app, view-only, speaking VNC over one WebSocket, `GET /api/v1/coding-sessions/{id}/desktop`
+(`api/src/routes/v1/coding_sessions/watch_desktop.rs`). The API answers it only from Elysium's own origin, checks that
+the session's desktop socket is up (`404` otherwise, which is the case between turns), and relays bytes between the
+WebSocket and a `docker exec` of `socat` bridged to the socket (`api/src/runner/socket.rs`,
+`crate::sessions::desktop::relay`). Nothing in the workspace listens on the network, and nothing new is published.
+
+- **View-only twice over.** x11vnc runs `-viewonly`, so nothing a viewer sends moves the agent's mouse or types into its
+  screen, and the client is view-only too.
+- **It ends with the turn.** When the turn's desktop stops, the socket closes and the view says so; reconnecting
+  during the next turn shows that turn's desktop.
+- **Who may watch.** Anyone who may see the session, as with its conversation. Password fields are masked on the
+  screen as in any browser, and the vault's secrets never appear there in the clear.
+- **Not Neko.** The remote browser's WebRTC streaming (`docs/browser.md`) captures the X display inside each Neko
+  container. A turn's desktop has to live in the workspace, beside the agent's files and tools, and streaming it
+  through Neko would mean a container per turn and a media port from the eight sign-in browsers share. VNC over the
+  API's own WebSocket needs neither.
 
 ## Projects
 
