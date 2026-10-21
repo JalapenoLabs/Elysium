@@ -34,6 +34,8 @@ export function BrowserStream(props: Props) {
   const [ cursor, setCursor ] = useState<RemoteCursor | null>(null)
   // Bumping it opens a new connection, which is how "Reconnect" works.
   const [ attempt, setAttempt ] = useState(0)
+  // Wheel travel short of a whole scroll step, per axis, kept for the next wheel event.
+  const scrollCarryRef = useRef({ x: 0, y: 0 })
 
   useEffect(() => {
     const connection = new NekoConnection(getBrowserStreamUrl(props.browserSessionId), {
@@ -92,6 +94,14 @@ export function BrowserStream(props: Props) {
         const point = desktopPoint(event)
         connectionRef.current?.move(point.x, point.y)
       }}
+      // Capturing the pointer while a button is down keeps its release, and the moves of a
+      // drag, coming to the stream when the pointer leaves it; the release would otherwise
+      // never reach the remote desktop.
+      onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)}
+      onLostPointerCapture={() => connectionRef.current?.releaseButtons()}
+      // Focus moving away takes the releases of whatever is held with it: Alt+Tab would
+      // otherwise leave Alt down on the remote page.
+      onBlur={() => connectionRef.current?.releaseAll()}
       onMouseDown={(event) => {
         event.currentTarget.focus()
         const button = pointerButtonByMouseButton[event.button]
@@ -107,11 +117,13 @@ export function BrowserStream(props: Props) {
       }}
       onContextMenu={(event) => event.preventDefault()}
       onWheel={(event) => {
-        connectionRef.current?.scroll(
-          toScrollSteps(event.deltaX),
-          toScrollSteps(event.deltaY),
-          event.ctrlKey,
-        )
+        const carry = scrollCarryRef.current
+        const horizontal = toScrollSteps(event.deltaX, event.deltaMode, carry.x)
+        const vertical = toScrollSteps(event.deltaY, event.deltaMode, carry.y)
+        scrollCarryRef.current = { x: horizontal.carry, y: vertical.carry }
+        if (horizontal.steps || vertical.steps) {
+          connectionRef.current?.scroll(horizontal.steps, vertical.steps, event.ctrlKey)
+        }
       }}
       onKeyDown={(event) => {
         // The viewer's own paste shortcut arrives as a paste event, with the text.
@@ -126,7 +138,7 @@ export function BrowserStream(props: Props) {
         event.preventDefault()
         const text = event.clipboardData.getData('text/plain')
         if (text) {
-          connectionRef.current?.paste(text)
+          void connectionRef.current?.paste(text)
         }
       }}
     />
