@@ -208,7 +208,12 @@ pub async fn serve() -> Result<()> {
 
     // After the runner, which runs her turns.
     let elysia = Elysia::new(TurnRunner::Host(runner.clone()), sessions.grants().clone());
-    let elysia_tasks = elysia.start(database.clone(), events.clone(), shutdown.clone());
+    let elysia_tasks = elysia.start(
+        database.clone(),
+        events.clone(),
+        passwords.clone(),
+        shutdown.clone(),
+    );
 
     let state = AppState {
         auth: build_auth(&config, http.clone()),

@@ -42,6 +42,7 @@ use self::runner::TurnRunner;
 use self::status::{Status, StatusInputs};
 use crate::database::Pool;
 use crate::models::elysia::{self, ElysiaState, Question, Turn, TurnStatus, Work};
+use crate::passwords::Passwords;
 use crate::realtime::EventBus;
 use crate::tools::grants::Grants;
 
@@ -87,8 +88,15 @@ impl Elysia {
         self.wake.notified().await;
     }
 
-    /// Starts the intake and the dispatcher, which run until `shutdown`.
-    pub fn start(&self, database: Pool, events: EventBus, shutdown: CancellationToken) -> Tasks {
+    /// Starts the intake and the dispatcher, which run until `shutdown`. Her turns get the
+    /// password tools while `passwords` is ready.
+    pub fn start(
+        &self,
+        database: Pool,
+        events: EventBus,
+        passwords: Passwords,
+        shutdown: CancellationToken,
+    ) -> Tasks {
         let intake = tokio::spawn(intake::run(
             IntakeContext {
                 database: database.clone(),
@@ -102,6 +110,7 @@ impl Elysia {
                 database,
                 events,
                 elysia: self.clone(),
+                passwords,
             },
             shutdown,
         ));

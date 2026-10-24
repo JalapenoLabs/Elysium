@@ -37,9 +37,11 @@ use super::{Elysia, stored_availability, trigger};
 use crate::database::Pool;
 use crate::models::elysia::{self, NewTurn, Turn, TurnStatus, Work, WorkStatus};
 use crate::models::user::{self, ELYSIA_USER_ID, SYSTEM_USER_ID};
+use crate::passwords::Passwords;
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::elysia::{MessageResponse, TurnResponse, publish_snapshot};
-use crate::tools::{self, CallScope, ElysiaScope};
+use crate::sessions::scrub::Scrubber;
+use crate::tools::{self, CallScope, ElysiaScope, ToolServer};
 
 /// How often the queue is looked at without being woken. Holds lift on their own (a usage
 /// limit resets, her hours begin), and this is how soon she notices.
@@ -108,6 +110,9 @@ pub struct DispatchContext {
     pub database: Pool,
     pub events: EventBus,
     pub elysia: Elysia,
+    /// The password vault: its tools are granted to her turns while it is ready, and what she
+    /// says is scrubbed of every secret it handed out.
+    pub passwords: Passwords,
 }
 
 /// Runs the queue until `shutdown`.
@@ -219,7 +224,7 @@ async fn run_turn(
     // Her tools, for this turn alone: dropping the grant when the turn ends revokes it.
     let grant = context.elysia.grants().grant(
         CallScope::Elysia(ElysiaScope { turn_id: turn.id }),
-        &[&tools::elysia::SERVER],
+        &tool_servers(context.passwords.is_ready()),
     );
 
     event!(
@@ -256,6 +261,16 @@ async fn run_turn(
     Ok(())
 }
 
+/// Her tool servers: her own, and the password vault's while it is ready. A vault that becomes
+/// ready mid-turn is granted from her next turn.
+fn tool_servers(passwords_ready: bool) -> Vec<&'static ToolServer> {
+    let mut servers = vec![&tools::elysia::SERVER];
+    if passwords_ready {
+        servers.push(&tools::passwords::SERVER);
+    }
+    servers
+}
+
 /// Records how a turn ended, and returns it as stored.
 async fn record_outcome(
     context: &DispatchContext,
@@ -263,10 +278,12 @@ async fn record_outcome(
     turn: &Turn,
     outcome: Result<ElysiaOutcome, RunnerError>,
 ) -> anyhow::Result<Turn> {
+    // Nothing she says keeps a password or code the vault handed her in the clear.
+    let scrubber = Scrubber::new([]).with_revealed(context.passwords.revealed());
     let outcome = match outcome {
         Ok(outcome) => outcome,
         Err(error) => {
-            let error = truncate(&error.to_string());
+            let error = truncate(&scrubber.scrub_text(&error.to_string()));
             return Ok(elysia::finish_turn(connection, turn.id, Err(&error)).await?);
         }
     };
@@ -274,7 +291,8 @@ async fn record_outcome(
     match outcome {
         ElysiaOutcome::Completed { result, session_id } => {
             keep_session(connection, session_id.as_deref()).await?;
-            let read_back = prompt::read_back(result.as_deref().unwrap_or_default());
+            let result = scrubber.scrub_text(result.as_deref().unwrap_or_default());
+            let read_back = prompt::read_back(&result);
             if trigger::is_from_person(&turn.trigger_kind)
                 && let Some(reply) = &read_back.reply
             {
@@ -312,7 +330,7 @@ async fn record_outcome(
         }
         ElysiaOutcome::Failed { error, session_id } => {
             keep_session(connection, session_id.as_deref()).await?;
-            let error = truncate(&error);
+            let error = truncate(&scrubber.scrub_text(&error));
             Ok(elysia::finish_turn(connection, turn.id, Err(&error)).await?)
         }
     }
@@ -583,9 +601,15 @@ mod tests {
             .await
             .expect("Postgres accepts connections");
         let runner = TurnRunner::Scripted(Arc::new(Mutex::new(VecDeque::from(outcomes))));
+        let events = EventBus::new();
         let context = DispatchContext {
+            passwords: crate::server::build_passwords(
+                database.clone(),
+                Arc::new(crate::test_support::cipher()),
+                events.clone(),
+            ),
             database,
-            events: EventBus::new(),
+            events,
             elysia: Elysia::new(runner, crate::tools::grants::Grants::new()),
         };
         (context, connection)
@@ -642,6 +666,55 @@ mod tests {
 
         let state = elysia::state(&mut connection).await.expect("state loads");
         assert_eq!(state.runner_session_id.as_deref(), Some("session-1"));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run scripts/verify-migrations.sh"]
+    async fn her_reply_and_summary_never_keep_a_secret_the_vault_handed_out() {
+        let (context, mut connection) = scripted(vec![ElysiaOutcome::Completed {
+            result: Some(
+                "Signed in with pizza-password-123 and code 492039.\nSummary: Used pizza-password-123."
+                    .to_owned(),
+            ),
+            session_id: None,
+        }])
+        .await;
+        let revealed = context.passwords.revealed();
+        revealed.add(&secrecy::SecretString::from("pizza-password-123"));
+        revealed.add(&secrecy::SecretString::from("492039"));
+        let turn = queue_message(&mut connection, "Order the pizza.").await;
+
+        dispatch(&context, &CancellationToken::new())
+            .await
+            .expect("the queue runs");
+
+        let messages = elysia::list_messages(&mut connection, None, 10)
+            .await
+            .expect("messages load");
+        assert_eq!(
+            messages[0].body,
+            "Signed in with [secret] and code [secret]."
+        );
+        let turns = elysia::list_turns(&mut connection, 10)
+            .await
+            .expect("turns load");
+        let finished = turns
+            .iter()
+            .find(|candidate| candidate.id == turn.id)
+            .expect("the turn is listed");
+        assert_eq!(finished.summary.as_deref(), Some("Used [secret]."));
+    }
+
+    #[test]
+    fn the_password_tools_are_granted_only_while_the_vault_is_ready() {
+        let names = |ready| -> Vec<&'static str> {
+            tool_servers(ready)
+                .iter()
+                .map(|server| server.name)
+                .collect()
+        };
+        assert_eq!(names(false), ["elysia"]);
+        assert_eq!(names(true), ["elysia", "elysium_passwords"]);
     }
 
     #[tokio::test]

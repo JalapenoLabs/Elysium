@@ -48,9 +48,11 @@ was about are still there for the next turn.
 
 ## Tools
 
-Each turn is granted one tool server, `elysia` (`api/src/tools/elysia.rs`), at `/api/agent-tools/elysia` with a
+Each turn is granted her own tool server, `elysia` (`api/src/tools/elysia.rs`), at `/api/agent-tools/elysia` with a
 token minted for that turn and revoked when it ends (`docs/coding.md`, Elysium's tools). Coding sessions' servers
-refuse her, and hers refuse them.
+refuse her, and hers refuse them. While the password vault is ready, the turn is also granted `elysium_passwords`,
+the logins agents sign in with (`docs/passwords.md`), and her reply, summary, and any failure are scrubbed of every
+password and code it handed out before they are stored, as coding sessions' events are.
 
 | Tool                 | Does                                                                          |
 |----------------------|-------------------------------------------------------------------------------|
@@ -153,5 +155,3 @@ Which kinds move up, and when, is not decided.
 
 - Reading changesets and coding sessions, and starting a coding session for work that needs one.
 - Her turns' full logs beside their summaries, expanding like a GitHub Actions step.
-- The password vault's `elysium_passwords` server on her turns while the vault is ready, with her replies and
-  summaries scrubbed of every password and code it reveals, as coding sessions' events are.
