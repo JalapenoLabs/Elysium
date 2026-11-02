@@ -58,10 +58,10 @@ export function WorkspaceAccessSettings(props: Props) {
         isDisabled={saving === 'signupOpen'}
         onChange={(isSelected) => save('signupOpen', isSelected)}
       >
-        <Switch.Control>
-          <Switch.Thumb />
-        </Switch.Control>
         <Switch.Content>
+          <Switch.Control>
+            <Switch.Thumb />
+          </Switch.Control>
           <Label>{t('access.signupOpen')}</Label>
         </Switch.Content>
       </Switch>
@@ -73,10 +73,10 @@ export function WorkspaceAccessSettings(props: Props) {
         isDisabled={saving === 'requireMfa' || !canRequireMfa}
         onChange={(isSelected) => save('requireMfa', isSelected)}
       >
-        <Switch.Control>
-          <Switch.Thumb />
-        </Switch.Control>
         <Switch.Content>
+          <Switch.Control>
+            <Switch.Thumb />
+          </Switch.Control>
           <Label>{t('access.requireMfa')}</Label>
         </Switch.Content>
       </Switch>
