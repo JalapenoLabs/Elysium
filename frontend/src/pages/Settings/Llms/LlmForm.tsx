@@ -290,10 +290,10 @@ export function LlmForm(props: Props) {
         isSelected={isActive}
         onChange={(isSelected) => form.setValue('isActive', isSelected, { shouldDirty: true })}
       >
-        <Switch.Control>
-          <Switch.Thumb />
-        </Switch.Control>
         <Switch.Content>
+          <Switch.Control>
+            <Switch.Thumb />
+          </Switch.Control>
           <Label>{t('form.isActive')}</Label>
         </Switch.Content>
       </Switch>

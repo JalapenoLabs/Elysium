@@ -65,11 +65,11 @@ export function InitiativesPage() {
         value={stateFilter}
         onChange={setStateFilter}
       />
-      <Switch className='h-10 flex-row items-center gap-2' isSelected={isShowingDeleted} onChange={setIsShowingDeleted}>
-        <Switch.Control>
-          <Switch.Thumb />
-        </Switch.Control>
+      <Switch className='h-10 justify-center' isSelected={isShowingDeleted} onChange={setIsShowingDeleted}>
         <Switch.Content>
+          <Switch.Control>
+            <Switch.Thumb />
+          </Switch.Control>
           <Label>{t('list.deleted')}</Label>
         </Switch.Content>
       </Switch>
