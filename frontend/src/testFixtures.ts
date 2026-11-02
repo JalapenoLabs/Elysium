@@ -10,6 +10,7 @@ import type {
 import type { Changeset, ChangesetOperation } from './api/routes/changesetRoutes'
 import type { CodingSession } from './api/routes/codingSessionRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
+import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
 import type { Project } from './api/routes/projectRoutes'
 import type { StorageLocation } from './api/routes/storageRoutes'
 import type { StudioAsset, StudioFeedback, StudioItem } from './api/routes/studioRoutes'
@@ -279,6 +280,38 @@ export function makeStorageLocation(
     createdBy: CREATED_BY,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+// A Claude account signed in, with no usage read yet.
+export function makeClaudeAccount(overrides: Partial<ClaudeAccount> = {}): ClaudeAccount {
+  return {
+    email: 'alex@example.com',
+    organizationName: null,
+    subscriptionType: 'max',
+    isSignedIn: true,
+    accessTokenExpiresAt: '2026-10-21T08:00:00Z',
+    lastRefreshedAt: null,
+    lastRefreshError: null,
+    usage: { fiveHour: null, sevenDay: null, readAt: null },
+    usageError: null,
+    ...overrides,
+  }
+}
+
+export function makeLlm(overrides: Partial<Llm> & Pick<Llm, 'id'>): Llm {
+  return {
+    name: overrides.id,
+    description: '',
+    type: 'claude-api-token',
+    priority: 0,
+    isActive: true,
+    expiresAt: null,
+    createdAt: CREATED_AT,
+    createdBy: CREATED_BY,
+    updatedAt: CREATED_AT,
+    account: null,
     ...overrides,
   }
 }

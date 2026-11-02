@@ -229,6 +229,7 @@ mod tests {
             cost_usd_micros: None,
             input_tokens: None,
             output_tokens: None,
+            usage_resets_at: None,
         }
     }
 

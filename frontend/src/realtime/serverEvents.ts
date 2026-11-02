@@ -9,7 +9,7 @@ import type { Elysia, ElysiaMessage, ElysiaTurn } from '../api/routes/elysiaRout
 import type { EnvironmentVariable } from '../api/routes/environmentRoutes'
 import type { GithubCredential } from '../api/routes/githubRoutes'
 import type { JiraCredential } from '../api/routes/jiraRoutes'
-import type { Llm } from '../api/routes/llmRoutes'
+import type { Llm, LlmUsage } from '../api/routes/llmRoutes'
 import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRoutes'
 import type { MeetingState } from '../api/routes/meetingRoutes'
 import type { PasswordVault, VaultStatus } from '../api/routes/passwordVaultRoutes'
@@ -84,6 +84,8 @@ export type ServerEvent =
   | { type: 'jiraCredential.deleted', data: { id: string } }
   | { type: 'llm.upserted', data: Llm }
   | { type: 'llm.deleted', data: { id: string } }
+  // A Claude account's usage changed. Numbers and instants only.
+  | { type: 'llm.usage', data: { id: string, usage: LlmUsage } }
   | { type: 'mailbox.upserted', data: MailAccount }
   | { type: 'mailbox.deleted', data: { id: string } }
   // Also sent for each step while the server is created.

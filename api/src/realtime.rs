@@ -37,7 +37,7 @@ use crate::routes::v1::environment_variables::EnvironmentVariableResponse;
 use crate::routes::v1::github_credentials::GithubCredentialResponse;
 use crate::routes::v1::initiatives::{InitiativeLinkResponse, InitiativeResponse};
 use crate::routes::v1::jira_credentials::JiraCredentialResponse;
-use crate::routes::v1::llms::LlmResponse;
+use crate::routes::v1::llms::{LlmResponse, UsageView};
 use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
 use crate::routes::v1::password_vault::PasswordVaultResponse;
 use crate::routes::v1::projects::ProjectResponse;
@@ -167,6 +167,9 @@ pub enum ServerEvent {
     LlmUpserted(LlmResponse),
     #[serde(rename = "llm.deleted")]
     LlmDeleted { id: Uuid },
+    /// A Claude account's usage changed. Numbers and instants only, never who the account is.
+    #[serde(rename = "llm.usage")]
+    LlmUsage { id: Uuid, usage: UsageView },
     #[serde(rename = "mailbox.upserted")]
     MailAccountUpserted(MailAccountResponse),
     #[serde(rename = "mailbox.deleted")]

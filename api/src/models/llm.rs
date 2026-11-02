@@ -26,7 +26,12 @@ pub enum LlmType {
     ChatgptOauth,
     ChatgptApiToken,
     ClaudeApiToken,
+    /// A `claude setup-token` subscription token, typed in by a person.
     ClaudeCodeOauth,
+    /// A Claude account signed in through OAuth, whose token Elysium keeps fresh itself. Its
+    /// token is never typed: it is created by a sign-in and refreshed by the keeper. See
+    /// `crate::claude_accounts`.
+    ClaudeAccount,
 }
 
 /// A stored credential. `secret_token_encrypted` is an envelope from [`Cipher::seal`].

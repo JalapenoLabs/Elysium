@@ -29,6 +29,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `changeset.upserted` | `Changeset`              | A changeset was proposed, decided on, applied, or undone   |
 | `llm.upserted`       | `Llm`                    | An LLM credential was created or changed                   |
 | `llm.deleted`        | `{ id }`                 | An LLM credential was deleted                              |
+| `llm.usage`          | `{ id, usage }`          | A Claude account's usage changed; numbers and instants only |
 | `mailbox.upserted`   | `MailAccount`            | A mailbox was connected, changed, or checked               |
 | `mailbox.deleted`    | `{ id }`                 | A mailbox was disconnected                                 |
 | `mailServer.updated` | `MailServer`             | The mail server's state changed, including each creation step |

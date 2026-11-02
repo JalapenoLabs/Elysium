@@ -117,6 +117,11 @@ Everything else follows these rules:
   `session_events`. Turns of one session run one at a time; at most eight run at once.
 - A turn runs on Elysium's active Claude credentials as an ordered failover stack, highest priority first, so a
   credential that runs out hands the turn to the next one, resuming the same Claude session.
+- Claude credentials are API keys, `claude setup-token` tokens, or Claude accounts signed in through the official CLI's
+  own login (`claude auth login`, run in the workspace; Elysium never runs an OAuth flow of its own). Elysium is an
+  account's only refresher: turns get its access token alone, and the keeper in `api/src/claude_accounts/` refreshes
+  it under a row lock and reads its usage, so an account whose usage window is spent is skipped until it resets. See
+  `docs/coding.md`, Claude accounts.
 - Turn policy (heartbeat, concurrency, clone and script timeouts) is code constants, not configuration.
 - Agents' `~/.claude` is checked out from the configuration repository named in the workspace settings.
 - Elysium's tools reach agents at `/api/agent-tools/{server}`, under a per-turn grant scoped to the session, and every

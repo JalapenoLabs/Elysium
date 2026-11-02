@@ -9,7 +9,7 @@ use axum::extract::{Path, State};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::LlmResponse;
+use super::response_for;
 use crate::errors::ApiError;
 use crate::models::llm;
 use crate::state::AppState;
@@ -27,5 +27,6 @@ pub async fn handle(
 
     let llm = llm::find(&mut connection, id).await?;
 
-    Ok(Json(json!({ "llm": LlmResponse::from(llm) })))
+    let response = response_for(&mut connection, llm).await?;
+    Ok(Json(json!({ "llm": response })))
 }

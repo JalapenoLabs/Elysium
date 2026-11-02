@@ -167,9 +167,12 @@ pub fn read_outcome(
             result: outcome.result,
             session_id,
         },
+        // Elysium's own reading of the accounts' usage comes first, when the turn never started
+        // because of it; then the reset Claude reported mid-turn; then a default hold.
         runner::TurnStatus::UsageLimited => ElysiaOutcome::UsageLimited {
-            resets_at: rate_limit
-                .and_then(resets_at)
+            resets_at: outcome
+                .usage_resets_at
+                .or_else(|| rate_limit.and_then(resets_at))
                 .filter(|resets_at| *resets_at > now)
                 .unwrap_or(now + DEFAULT_USAGE_HOLD),
             session_id,
@@ -208,6 +211,7 @@ mod tests {
             cost_usd_micros: None,
             input_tokens: None,
             output_tokens: None,
+            usage_resets_at: None,
         }
     }
 
@@ -220,6 +224,22 @@ mod tests {
                 session_id: Some("session-7".to_owned()),
             }
         );
+    }
+
+    #[test]
+    fn a_turn_held_by_stored_usage_resumes_when_elysium_says_it_resets() {
+        let now = Utc::now();
+        let stored_reset = now + TimeDelta::hours(4);
+        let claude_reset = now + TimeDelta::hours(1);
+        let info = json!({ "resetsAt": claude_reset.timestamp() });
+        let mut limited = outcome(runner::TurnStatus::UsageLimited);
+        limited.usage_resets_at = Some(stored_reset);
+
+        let ElysiaOutcome::UsageLimited { resets_at, .. } = read_outcome(limited, Some(&info), now)
+        else {
+            panic!("a usage-limited outcome");
+        };
+        assert_eq!(resets_at, stored_reset);
     }
 
     #[test]

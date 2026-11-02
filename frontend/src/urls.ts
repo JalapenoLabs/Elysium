@@ -37,6 +37,7 @@ export const UrlTree = {
   settingsConnectedApps: '/settings/connected-apps',
   settingsMeetings: '/settings/meetings',
   settingsLlms: '/settings/llms',
+  settingsLlmsAddClaudeAccount: '/settings/llms/add-claude-account',
   settingsLlmsAddCodexOauth: '/settings/llms/add-codex-oauth',
   settingsLlmsAddClaudeCodeOauth: '/settings/llms/add-claude-code-oauth',
   settingsLlmsAddClaudeApiKey: '/settings/llms/add-claude-api-key',

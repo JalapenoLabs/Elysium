@@ -11,6 +11,7 @@ use crate::action_items::links::Links;
 use crate::activity::Activities;
 use crate::auth::Auth;
 use crate::browser::Browsers;
+use crate::claude_accounts::ClaudeAccounts;
 use crate::connectors::Connectors;
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -34,6 +35,9 @@ pub struct AppState {
     pub auth: Auth,
     /// The browsers the host runs for people to sign in to their accounts in.
     pub browsers: Browsers,
+    /// Claude accounts signed in through OAuth: their sign-ins, the keeper that refreshes them,
+    /// and their usage. See `crate::claude_accounts`.
+    pub claude_accounts: ClaudeAccounts,
     /// The connector hub's shared parts: the mailbox reader, sync activity, and check runs.
     pub connectors: Connectors,
     pub database: Pool,

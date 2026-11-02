@@ -76,8 +76,8 @@ router itself refusing every workspace route without a session. Plain `cargo tes
 | `id`                     | `UUID`        | UUIDv7, primary key                                                           |
 | `name`                   | `TEXT`        | 1 to 120 characters, unique                                                   |
 | `description`            | `TEXT`        | Up to 2000 characters, defaults to empty                                      |
-| `type`                   | `llm_type`    | `chatgpt_oauth`, `chatgpt_api_token`, `claude_api_token`, `claude_code_oauth` |
-| `secret_token_encrypted` | `BYTEA`       | Sealed envelope, see `docs/secrets.md`                                        |
+| `type`                   | `llm_type`    | `chatgpt_oauth`, `chatgpt_api_token`, `claude_api_token`, `claude_code_oauth`, `claude_account` |
+| `secret_token_encrypted` | `BYTEA`       | Sealed envelope, see `docs/secrets.md`; a `claude_account`'s current access token |
 | `priority`               | `INTEGER`     | Lower is tried first, defaults to 0                                           |
 | `is_active`              | `BOOLEAN`     | Defaults to true                                                              |
 | `expires_at`             | `TIMESTAMPTZ` | Optional; null means no expiry                                                |
@@ -86,6 +86,28 @@ router itself refusing every workspace route without a session. Plain `cargo tes
 
 The partial index `llms_active_priority_idx` on `(priority, created_at) WHERE is_active` serves the lookup for
 active credentials in priority order.
+
+### `claude_accounts`
+
+What keeps a `claude_account` credential signed in, one row per credential, deleted with it. See `docs/coding.md`,
+Claude accounts. It extends one `llms` row rather than standing on its own, so it has no `created_by` of its own.
+
+| Column                     | Type               | Notes                                                              |
+|----------------------------|--------------------|--------------------------------------------------------------------|
+| `llm_id`                   | `UUID`             | Primary key, references `llms` on delete cascade                   |
+| `account_uuid`             | `UUID`             | Anthropic's account id, unique: signing it in again replaces tokens |
+| `email`                    | `TEXT`             | 1 to 320 characters                                                |
+| `organization_uuid`, `organization_name` | `UUID`, `TEXT` | Optional, as the profile reports them                     |
+| `subscription_type`        | `TEXT`             | Optional, such as `max`                                            |
+| `refresh_token_encrypted`  | `BYTEA`            | Sealed envelope, see `docs/secrets.md`                             |
+| `access_token_expires_at`  | `TIMESTAMPTZ`      | When the access token on the credential lapses                     |
+| `refresh_token_expires_at` | `TIMESTAMPTZ`      | Optional; null when Anthropic did not say                          |
+| `sign_in_state`            | `TEXT`             | `signed_in` or `expired`; only a new sign-in clears `expired`      |
+| `last_refreshed_at`, `last_refresh_error` | `TIMESTAMPTZ`, `TEXT` | The last refresh, and why the last one failed            |
+| `five_hour_utilization`, `seven_day_utilization` | `DOUBLE PRECISION` | Latest usage, as a percentage from 0              |
+| `five_hour_resets_at`, `seven_day_resets_at` | `TIMESTAMPTZ` | When each window resets                                     |
+| `usage_read_at`, `usage_error` | `TIMESTAMPTZ`, `TEXT` | The last usage read, and why the last one failed               |
+| `created_at`, `updated_at` | `TIMESTAMPTZ`      | `updated_at` maintained by trigger                                 |
 
 ### `mail_accounts`
 

@@ -34,6 +34,8 @@ use crate::browser::Browsers;
 use crate::browser::container::BrowserContainers;
 use crate::browser::devtools::Devtools;
 use crate::browser::neko::Neko;
+use crate::claude_accounts::oauth::Anthropic;
+use crate::claude_accounts::{ClaudeAccounts, ClaudeAccountsDeps, TurnSignal};
 use crate::config::Config;
 use crate::connectors::Connectors;
 use crate::connectors::activity::Activity;
@@ -175,6 +177,7 @@ pub async fn serve() -> Result<()> {
         encryption_key: config.encryption_key.clone(),
     });
     let update_checks = updates.start(shutdown.clone());
+    let turn_signal = TurnSignal::default();
     let (runner, sessions) = build_agents(
         &config,
         AgentServices {
@@ -184,9 +187,21 @@ pub async fn serve() -> Result<()> {
             storage: storage.clone(),
             activity: activity.clone(),
             passwords: passwords.clone(),
+            turn_signal: turn_signal.clone(),
         },
         &shutdown,
     )?;
+    // Refreshes every signed-in Claude account and reads its usage, until shutdown. Sign-ins run
+    // the CLI in the same workspace the runner uses.
+    let claude_accounts = ClaudeAccounts::new(ClaudeAccountsDeps {
+        database: database.clone(),
+        cipher: Arc::clone(&cipher),
+        events: events.clone(),
+        anthropic: Anthropic::new(http.clone()),
+        workspace: sessions.workspace().clone(),
+        turn_signal,
+    });
+    let account_keeper = claude_accounts.start(shutdown.clone());
     // Pulls the workspace image and fetches `~/.claude` ahead of the first turn, which
     // would otherwise wait for both.
     let preparing = runner.clone();
@@ -221,6 +236,7 @@ pub async fn serve() -> Result<()> {
     let state = AppState {
         auth: build_auth(&config, http.clone()),
         browsers,
+        claude_accounts,
         connectors: Connectors {
             ingest: mailbox_reader,
             activity: connector_activity,
@@ -275,6 +291,14 @@ pub async fn serve() -> Result<()> {
     sessions.shutdown().await;
     event!(name: "runner.shutdown.complete", Level::INFO, "agent turns stopped");
     watcher.stopped().await;
+    if let Err(error) = account_keeper.await {
+        event!(
+            name: "claude_accounts.keeper.join_failed",
+            Level::ERROR,
+            error.message = %error,
+            "the Claude account keeper ended abnormally",
+        );
+    }
     if let Err(error) = vault_keeper.await {
         event!(
             name: "passwords.vault.join.failure",
@@ -356,6 +380,8 @@ pub(crate) struct AgentServices {
     pub activity: Activities,
     /// The password vault, whose tools turns are granted and whose secrets they are scrubbed of.
     pub passwords: Passwords,
+    /// Rung after every turn, for the Claude account keeper.
+    pub turn_signal: TurnSignal,
 }
 
 /// The runner, whose turns run in the workspace container through Docker, and the sessions
@@ -378,6 +404,7 @@ pub(crate) fn build_agents(
         services.database.clone(),
         Arc::clone(&services.cipher),
         services.activity,
+        services.turn_signal,
         shutdown,
     );
     let sessions = Sessions::new(SessionsDeps {

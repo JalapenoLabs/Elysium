@@ -47,6 +47,7 @@ async fn a_session_clones_runs_a_turn_and_records_every_event() {
         database.clone(),
         Arc::clone(&cipher),
         crate::activity::Activities::new(),
+        crate::claude_accounts::TurnSignal::default(),
         &CancellationToken::new(),
     );
     let passwords =

@@ -91,23 +91,10 @@ pub(super) async fn run(runner: &Runner, queued: QueuedTurn) {
                 format!("the workspace is not available: {error:#}"),
             );
         }
-        let credentials = match inner.credentials.load().await {
+        let credentials = match credentials_for(inner, turn_id).await {
             Ok(credentials) => credentials,
-            Err(error) => {
-                break 'turn TurnOutcome::without_result(
-                    TurnStatus::Failed,
-                    format!("could not read the model credentials: {error:#}"),
-                );
-            }
+            Err(outcome) => break 'turn *outcome,
         };
-        if credentials.is_empty() {
-            event!(
-                name: "runner.turn.no_credential",
-                Level::WARN,
-                turn.id = %turn_id,
-                "no usable Claude credential; the turn runs on whatever login the workspace holds",
-            );
-        }
 
         run_attempts(
             inner,
@@ -120,6 +107,8 @@ pub(super) async fn run(runner: &Runner, queued: QueuedTurn) {
         .await
     };
 
+    // A turn just spent usage, so the keeper reads it while it is fresh.
+    inner.credentials.turn_finished();
     event!(
         name: "runner.turn.finished",
         Level::INFO,
@@ -130,6 +119,51 @@ pub(super) async fn run(runner: &Runner, queued: QueuedTurn) {
         "turn finished",
     );
     send(&events, RunnerEvent::Finished(outcome)).await;
+}
+
+/// The credentials this turn fails over through, or the outcome that ends it before it starts:
+/// the credentials could not be read, or every Claude account that could serve has spent its
+/// usage. With none at all, the turn runs on whatever login the workspace holds.
+async fn credentials_for(
+    inner: &super::Inner,
+    turn_id: uuid::Uuid,
+) -> Result<Vec<ClaudeCredential>, Box<TurnOutcome>> {
+    let loaded = inner.credentials.load().await.map_err(|error| {
+        Box::new(TurnOutcome::without_result(
+            TurnStatus::Failed,
+            format!("could not read the model credentials: {error:#}"),
+        ))
+    })?;
+    if !loaded.usable.is_empty() {
+        return Ok(loaded.usable);
+    }
+    if let Some(resets_at) = loaded.limited_until {
+        // Running on the workspace's own login instead would hide that the accounts are spent.
+        event!(
+            name: "runner.turn.usage_limited",
+            Level::INFO,
+            turn.id = %turn_id,
+            usage.resets_at = %resets_at,
+            "every Claude credential's usage is spent; the turn waits for a reset",
+        );
+        return Err(Box::new(TurnOutcome {
+            usage_resets_at: Some(resets_at),
+            ..TurnOutcome::without_result(
+                TurnStatus::UsageLimited,
+                format!(
+                    "every Claude credential's usage is spent until {}",
+                    resets_at.to_rfc3339()
+                ),
+            )
+        }));
+    }
+    event!(
+        name: "runner.turn.no_credential",
+        Level::WARN,
+        turn.id = %turn_id,
+        "no usable Claude credential; the turn runs on whatever login the workspace holds",
+    );
+    Ok(Vec::new())
 }
 
 async fn run_attempts(
@@ -253,6 +287,7 @@ fn decide<'credentials>(
         cost_usd_micros: None,
         input_tokens: None,
         output_tokens: None,
+        usage_resets_at: None,
     };
     let Some(failure) = &report.failure else {
         return Decision::Finish(finished(TurnStatus::Completed, None));

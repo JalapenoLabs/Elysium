@@ -9,6 +9,7 @@ pub mod action_item_link;
 pub mod action_item_link_write;
 pub mod browser_session;
 pub mod changeset;
+pub mod claude_account;
 pub mod coding_session;
 pub mod connector;
 pub mod connector_check;
