@@ -12,7 +12,7 @@ import { initiativeLinksLoaded } from '../store/initiativeLinksSlice'
 import { actionItemsLoaded, actionItemUpserted, deletedActionItemsLoaded } from '../store/actionItemsSlice'
 import { browserSessionsLoaded } from '../store/browserSessionsSlice'
 import { changesetsLoaded, changesetUpserted } from '../store/changesetsSlice'
-import { connectorAccountsLoaded } from '../store/connectorAccountsSlice'
+import { connectorsLoaded } from '../store/connectorsSlice'
 import { codingSessionsLoaded, codingSessionsUpserted } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
 import { elysiaMessagesLoaded, elysiaTurnsLoaded, elysiaUpdated } from '../store/elysiaSlice'
@@ -55,7 +55,7 @@ import {
 } from '../api/routes/initiativeRoutes'
 import { listBrowserSessions } from '../api/routes/browserSessionRoutes'
 import { getChangeset, listChangesets } from '../api/routes/changesetRoutes'
-import { listConnectorAccounts } from '../api/routes/connectorRoutes'
+import { listConnectors } from '../api/routes/connectorRoutes'
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { getElysia, listElysiaMessages, listElysiaTurns } from '../api/routes/elysiaRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
@@ -157,11 +157,13 @@ export function useBrowserSessionsLoader(): LoadStatus {
   return toLoadStatus(data !== undefined, error)
 }
 
-export function useConnectorAccountsLoader(): LoadStatus {
+// Every connector the person sees: the workspace's Jira and GitHub, and their own mail and
+// meetings.
+export function useConnectorsLoader(): LoadStatus {
   const dispatch = useAppDispatch()
   const { data, error } = useSWR('v1/connectors', async () => {
-    const response = await listConnectorAccounts()
-    dispatch(connectorAccountsLoaded(response.connectors))
+    const response = await listConnectors()
+    dispatch(connectorsLoaded(response.connectors))
     return response
   })
   return toLoadStatus(data !== undefined, error)

@@ -17,9 +17,11 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::connectors::ConnectorKind;
 use crate::crypto::{Cipher, OpenError};
 use crate::database::schema::github_credentials;
 use crate::github::Account;
+use crate::models::connector::{self, AccountRef, NewConnector};
 
 /// How a token was issued, which decides where it is created and what it can be given.
 #[derive(
@@ -196,10 +198,27 @@ pub async fn create(
         checked_at: Utc::now(),
     };
 
-    diesel::insert_into(github_credentials::table)
-        .values(row)
-        .returning(GithubCredential::as_returning())
-        .get_result(connection)
+    let created_by = new_credential.created_by;
+    connection
+        .transaction(async move |connection| {
+            let credential = diesel::insert_into(github_credentials::table)
+                .values(row)
+                .returning(GithubCredential::as_returning())
+                .get_result(connection)
+                .await?;
+            // Every GitHub account carries its GitHub connector, where its reading is shown,
+            // checked, and paused. See `crate::connectors`.
+            connector::create(
+                connection,
+                NewConnector::new(
+                    ConnectorKind::Github.as_str(),
+                    AccountRef::Github(id),
+                    created_by,
+                ),
+            )
+            .await?;
+            Ok(credential)
+        })
         .await
 }
 

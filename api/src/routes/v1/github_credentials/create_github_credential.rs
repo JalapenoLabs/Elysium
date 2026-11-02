@@ -9,6 +9,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use uuid::Uuid;
 use validator::Validate;
 
 use super::{
@@ -16,7 +17,9 @@ use super::{
 };
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::models::github_credential::{self, GithubTokenKind, NewGithubCredential, VerifiedToken};
+use crate::models::github_credential::{
+    self, GithubCredential, GithubTokenKind, NewGithubCredential, VerifiedToken,
+};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -35,6 +38,26 @@ pub async fn handle(
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
+    let credential = create_credential(&state, current.id(), body).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "credential": GithubCredentialResponse::new(credential) })),
+    ))
+}
+
+/// Creates a credential, and with it its GitHub connector, for `created_by`, once GitHub has
+/// accepted the token. The hub's GitHub connectors are made here too
+/// (`crate::connectors::kinds::github`), so both check exactly the same things.
+///
+/// # Errors
+/// [`ApiError::Validation`] for fields out of shape, [`ApiError::BadRequest`] for a token that
+/// is not shaped like its kind or that GitHub refuses, and [`ApiError::BadGateway`] when GitHub
+/// cannot be reached.
+pub async fn create_credential(
+    state: &AppState,
+    created_by: Uuid,
+    body: RequestBody,
+) -> Result<GithubCredential, ApiError> {
     body.validate()?;
 
     if !matches_kind(body.kind, &body.token.0) {
@@ -47,7 +70,7 @@ pub async fn handle(
     // it acts as and says when it expires.
     let account = state.github.verify(&body.token.0).await?;
     let new_credential = NewGithubCredential {
-        created_by: current.id(),
+        created_by,
         name: body.name,
         verified: VerifiedToken {
             kind: body.kind,
@@ -68,11 +91,7 @@ pub async fn handle(
     state.events.publish(&ServerEvent::GithubCredentialUpserted(
         GithubCredentialResponse::new(credential.clone()),
     ));
-
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({ "credential": GithubCredentialResponse::new(credential) })),
-    ))
+    Ok(credential)
 }
 
 #[cfg(test)]

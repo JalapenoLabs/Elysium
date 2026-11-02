@@ -1,19 +1,20 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Reads every active connector account on an interval and puts what it reads on the
+//! Reads every active webmail connector on an interval and puts what it reads on the
 //! timeline.
 //!
 //! # A pass
 //!
-//! For each active account: read it through its connector, store each item as a timeline
-//! record (an item already recorded for the account is skipped, by its external id), and for
-//! each new item that wants attention raise an inbox action item, owned by the account's
+//! For each active connector: read its mailbox through its browser, store each item as a timeline
+//! record (an item already recorded for the connector is skipped, by its external id), and for
+//! each new item that wants attention raise an inbox action item, owned by the connector's
 //! person and recorded as the watcher of that service (`watcher:outlook`). Then store the
-//! account's sign-in state, cursor, and error, and publish what changed.
+//! connector's sign-in state, cursor, and error, and publish what changed. A read that recorded
+//! something, or failed, is reported to `super::activity` as a run.
 //!
 //! # The first read
 //!
-//! An account's first signed-in read records what is already in the mailbox without raising
+//! A connector's first signed-in read records what is already in the mailbox without raising
 //! anything: connecting a mailbox should not fill the inbox with its backlog. The cursor
 //! remembers that it happened (`{"baselined": true}`).
 //!
@@ -35,8 +36,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use super::activity::Activity;
 use super::webmail::{Webmail, service};
-use super::{Connector, ConnectorKind, Read, Reading, SignInState};
+use super::{BrowserReader, ConnectorKind, Read, Reading, SignInState};
 use crate::action_items::Actor;
 use crate::browser::devtools::Devtools;
 use crate::database::Pool;
@@ -45,13 +47,13 @@ use crate::models::action_item::{
 };
 use crate::models::action_item_event::Recorded;
 use crate::models::browser_session;
-use crate::models::connector_account::{self, ConnectorAccount, PollOutcome};
+use crate::models::connector::{self, Connector, PollOutcome};
+use crate::models::connector_run::ConnectorRun;
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::routes::v1::action_items::publish_item_write;
-use crate::routes::v1::connectors::ConnectorAccountResponse;
 
-/// How often every account is read. A minute keeps new mail prompt without reading a page
+/// How often every connector is read. A minute keeps new mail prompt without reading a page
 /// more often than a person glancing at it would.
 const INGEST_INTERVAL: Duration = Duration::from_mins(1);
 
@@ -67,6 +69,7 @@ struct Inner {
     database: Pool,
     events: EventBus,
     devtools: Devtools,
+    activity: Activity,
 }
 
 impl std::fmt::Debug for Ingest {
@@ -80,13 +83,32 @@ impl std::fmt::Debug for Ingest {
 }
 
 impl Ingest {
-    pub fn new(database: Pool, events: EventBus, devtools: Devtools) -> Self {
+    pub fn new(database: Pool, events: EventBus, devtools: Devtools, activity: Activity) -> Self {
         Self {
             inner: Arc::new(Inner {
                 database,
                 events,
                 devtools,
+                activity,
             }),
+        }
+    }
+
+    /// The `DevTools` client every mailbox is read through, for checks that read one.
+    pub fn devtools(&self) -> &Devtools {
+        &self.inner.devtools
+    }
+
+    /// Reads one connector now, as a pass would, for a sync someone asked for.
+    pub async fn read_now(&self, connector: &Connector) {
+        if let Err(error) = self.read_connector(connector).await {
+            event!(
+                name: "connectors.sync.failed",
+                Level::WARN,
+                connector.id = %connector.id,
+                error.message = %format!("{error:#}"),
+                "cannot record a connector's read",
+            );
         }
     }
 
@@ -106,32 +128,32 @@ impl Ingest {
     }
 
     async fn pass(&self) {
-        let accounts = match self.active_accounts().await {
-            Ok(accounts) => accounts,
+        let connectors = match self.active_connectors().await {
+            Ok(connectors) => connectors,
             Err(error) => {
                 event!(
                     name: "connectors.pass.failed",
                     Level::WARN,
                     error.message = %format!("{error:#}"),
-                    "cannot list the connector accounts to read",
+                    "cannot list the connectors to read",
                 );
                 return;
             }
         };
-        for account in accounts {
-            if let Err(error) = self.read_account(&account).await {
+        for connector in connectors {
+            if let Err(error) = self.read_connector(&connector).await {
                 event!(
-                    name: "connectors.account.failed",
+                    name: "connectors.connector.failed",
                     Level::WARN,
-                    connector.account.id = %account.id,
+                    connector.id = %connector.id,
                     error.message = %format!("{error:#}"),
-                    "cannot record a connector account's read",
+                    "cannot record a connector's read",
                 );
             }
         }
     }
 
-    async fn active_accounts(&self) -> anyhow::Result<Vec<ConnectorAccount>> {
+    async fn active_connectors(&self) -> anyhow::Result<Vec<Connector>> {
         let mut connection = self
             .inner
             .database
@@ -139,36 +161,42 @@ impl Ingest {
             .await
             .context("no database connection available")?;
         let kinds = ConnectorKind::WEBMAIL.map(ConnectorKind::as_str);
-        Ok(connector_account::list_active(&mut connection, &kinds).await?)
+        Ok(connector::list_active(&mut connection, &kinds).await?)
     }
 
-    /// Reads one account and records what came of it, a failed read included.
-    async fn read_account(&self, account: &ConnectorAccount) -> anyhow::Result<()> {
-        let kind = ConnectorKind::parse(&account.kind)
-            .with_context(|| format!("unknown connector kind {:?}", account.kind))?;
+    /// Reads one connector and records what came of it, a failed read included.
+    async fn read_connector(&self, connector: &Connector) -> anyhow::Result<()> {
+        let kind = ConnectorKind::parse(&connector.kind)
+            .with_context(|| format!("unknown connector kind {:?}", connector.kind))?;
         let webmail = service(kind)
-            .with_context(|| format!("{:?} is not a webmail connector", account.kind))?;
-        let browser_session_id = account
+            .with_context(|| format!("{:?} is not a webmail connector", connector.kind))?;
+        let browser_session_id = connector
             .browser_session_id
-            .context("a webmail account reads through a browser, and this one has none")?;
+            .context("a webmail connector reads through a browser, and this one has none")?;
         let mut connection = self
             .inner
             .database
             .get()
             .await
             .context("no database connection available")?;
-        // Removing a browser removes its accounts, so one missing here was removed mid-pass.
+        // Removing a browser removes its connectors, so one missing here was removed mid-pass.
         let browser = browser_session::find(&mut connection, browser_session_id)
             .await?
-            .context("the account's browser was removed while it was read")?;
+            .context("the connector's browser was removed while it was read")?;
         drop(connection);
 
-        let connector = Webmail::new(webmail, self.inner.devtools.clone());
-        let outcome = match connector.read(&browser).await {
+        let started = Utc::now();
+        let reader = Webmail::new(webmail, self.inner.devtools.clone());
+        let mut run = None;
+        let outcome = match reader.read(&browser).await {
             Ok(reading) => {
-                let baselined = is_baselined(account);
-                self.record_reading(account, connector.kind(), &reading, baselined)
+                let baselined = is_baselined(connector);
+                let recorded = self
+                    .record_reading(connector, reader.kind(), &reading, baselined)
                     .await?;
+                if recorded > 0 {
+                    run = Some(ConnectorRun::succeeded(connector.id, started, recorded));
+                }
                 PollOutcome {
                     sign_in_state: reading.sign_in.as_str().to_owned(),
                     cursor: next_cursor(baselined, reading.sign_in),
@@ -176,12 +204,19 @@ impl Ingest {
                     last_error: None,
                 }
             }
-            Err(error) => PollOutcome {
-                sign_in_state: SignInState::Unknown.as_str().to_owned(),
-                cursor: account.cursor.clone(),
-                last_polled_at: Some(Utc::now()),
-                last_error: Some(error.to_string()),
-            },
+            Err(error) => {
+                run = Some(ConnectorRun::failed(
+                    connector.id,
+                    started,
+                    &error.to_string(),
+                ));
+                PollOutcome {
+                    sign_in_state: SignInState::Unknown.as_str().to_owned(),
+                    cursor: connector.cursor.clone(),
+                    last_polled_at: Some(Utc::now()),
+                    last_error: Some(error.to_string()),
+                }
+            }
         };
 
         let mut connection = self
@@ -190,28 +225,30 @@ impl Ingest {
             .get()
             .await
             .context("no database connection available")?;
-        let updated = connector_account::record_poll(&mut connection, account.id, outcome).await?;
-        let changed = updated.sign_in_state != account.sign_in_state
-            || updated.last_error != account.last_error;
-        if changed {
-            self.inner
-                .events
-                .publish(&ServerEvent::ConnectorAccountUpserted(
-                    ConnectorAccountResponse::new(updated),
-                ));
+        let updated = connector::record_poll(&mut connection, connector.id, outcome).await?;
+        drop(connection);
+        let changed = updated.sign_in_state != connector.sign_in_state
+            || updated.last_error != connector.last_error;
+        match run {
+            // Recording a run announces the change too.
+            Some(run) => self.inner.activity.record(run).await,
+            None if changed => self.inner.activity.changed(connector.id),
+            None => {}
         }
         Ok(())
     }
 
     /// Stores each new item, oldest first so the timeline reads in order, and raises an inbox
-    /// item for each that wants attention once the account is baselined.
+    /// item for each that wants attention once the connector is baselined. Answers how many
+    /// records it stored.
     async fn record_reading(
         &self,
-        account: &ConnectorAccount,
+        connector: &Connector,
         kind: ConnectorKind,
         reading: &Reading,
         baselined: bool,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<usize> {
+        let mut recorded = 0;
         let mut connection = self
             .inner
             .database
@@ -222,10 +259,11 @@ impl Ingest {
             let raises_item = baselined && read.wants_attention;
             let now = Utc::now();
             let Some((record, raised)) =
-                store_read(&mut connection, account, kind, read, raises_item, now).await?
+                store_read(&mut connection, connector, kind, read, raises_item, now).await?
             else {
                 continue;
             };
+            recorded += 1;
 
             let action_item_id = raised.as_ref().map(|item| item.record.id);
             if let Some(raised) = raised {
@@ -242,22 +280,22 @@ impl Ingest {
                     action_item_id,
                 });
         }
-        Ok(())
+        Ok(recorded)
     }
 }
 
 /// Stores a read as a record and, when `raises_item`, the inbox item it raises, in one
 /// transaction: a record never points at an item that was not written, nor an item lack its
-/// record. Answers nothing for an item the account already recorded.
+/// record. Answers nothing for an item the connector already recorded.
 async fn store_read(
     connection: &mut AsyncPgConnection,
-    account: &ConnectorAccount,
+    connector: &Connector,
     kind: ConnectorKind,
     read: &Read,
     raises_item: bool,
     now: DateTime<Utc>,
 ) -> anyhow::Result<Option<(TimelineRecord, Option<Recorded<ActionItem>>)>> {
-    let new = new_record(account, kind, read);
+    let new = new_record(connector, kind, read);
     let stored = connection
         .transaction(async move |connection| {
             let Some(record) = timeline_record::insert_new(connection, new).await? else {
@@ -278,20 +316,20 @@ async fn store_read(
     Ok(stored)
 }
 
-fn is_baselined(account: &ConnectorAccount) -> bool {
-    account.cursor["baselined"].as_bool().unwrap_or(false)
+fn is_baselined(connector: &Connector) -> bool {
+    connector.cursor["baselined"].as_bool().unwrap_or(false)
 }
 
-/// The cursor after a read: baselined once the account has been read signed in.
+/// The cursor after a read: baselined once the connector has been read signed in.
 fn next_cursor(baselined: bool, sign_in: SignInState) -> serde_json::Value {
     json!({ "baselined": baselined || sign_in == SignInState::SignedIn })
 }
 
-fn new_record(account: &ConnectorAccount, kind: ConnectorKind, read: &Read) -> NewTimelineRecord {
+fn new_record(connector: &Connector, kind: ConnectorKind, read: &Read) -> NewTimelineRecord {
     NewTimelineRecord {
         id: Uuid::now_v7(),
         source_kind: kind.as_str().to_owned(),
-        connector_account_id: Some(account.id),
+        connector_id: Some(connector.id),
         external_id: Some(read.external_id.clone()),
         occurred_at: read.occurred_at.unwrap_or_else(Utc::now),
         actor: read.actor.clone(),
@@ -300,7 +338,7 @@ fn new_record(account: &ConnectorAccount, kind: ConnectorKind, read: &Read) -> N
         url: read.url.clone(),
         media: None,
         metadata: json!({}),
-        created_by: account.created_by,
+        created_by: connector.created_by,
     }
 }
 

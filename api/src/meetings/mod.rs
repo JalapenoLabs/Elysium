@@ -50,16 +50,18 @@ use uuid::Uuid;
 use self::fireflies::Fireflies;
 use self::segmentation::{MeetingContext, ProjectChoice, Segment};
 use self::source::{ListedMeeting, MeetingSource, SourceError, TranscriptLine, is_public_download};
+use crate::connectors::activity::Activity;
 use crate::connectors::{ConnectorKind, SignInState};
 use crate::crypto::Cipher;
 use crate::database::Pool;
-use crate::models::connector_account::{self, ConnectorAccount, PollOutcome};
+use crate::models::connector::{self, Connector, PollOutcome};
+use crate::models::connector_run::ConnectorRun;
 use crate::models::meeting::{self, Meeting, MeetingState, NewMeeting, StoredRecording};
 use crate::models::project;
 use crate::models::storage_location::{self, StorageLocation};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
+use crate::models::token_account;
 use crate::realtime::{EventBus, ServerEvent};
-use crate::routes::v1::connectors::ConnectorAccountResponse;
 use crate::runner::workspace::WorkspaceContainer;
 use crate::runner::{
     ConversationId, Runner, RunnerEvent, TurnMode, TurnRequest, TurnStatus, WorkspacePath,
@@ -101,6 +103,7 @@ pub struct Meetings {
 struct Inner {
     database: Pool,
     events: EventBus,
+    activity: Activity,
     cipher: Arc<Cipher>,
     storage: Storage,
     runner: Runner,
@@ -126,6 +129,7 @@ impl std::fmt::Debug for Meetings {
 pub struct MeetingsDeps {
     pub database: Pool,
     pub events: EventBus,
+    pub activity: Activity,
     pub cipher: Arc<Cipher>,
     pub storage: Storage,
     pub runner: Runner,
@@ -155,6 +159,7 @@ impl Meetings {
                 fireflies: Fireflies::new(deps.http),
                 database: deps.database,
                 events: deps.events,
+                activity: deps.activity,
                 cipher: deps.cipher,
                 storage: deps.storage,
                 runner: deps.runner,
@@ -167,6 +172,21 @@ impl Meetings {
     /// The Fireflies client, for checking a key before an account is saved.
     pub fn fireflies(&self) -> &Fireflies {
         &self.inner.fireflies
+    }
+
+    /// Lists one connector's new meetings now and carries every unfinished meeting forward,
+    /// for a sync someone asked for.
+    pub async fn sync(&self, connector: &Connector) {
+        if let Err(error) = self.poll_account(connector).await {
+            event!(
+                name: "meetings.sync.failed",
+                Level::WARN,
+                connector.id = %connector.id,
+                error.message = %format!("{error:#}"),
+                "cannot record a meeting connector's listing",
+            );
+        }
+        self.process().await;
     }
 
     /// Lists and processes meetings until `shutdown` is cancelled. A pass under way when it
@@ -212,7 +232,7 @@ impl Meetings {
     async fn poll(&self) {
         let kinds = ConnectorKind::MEETINGS.map(ConnectorKind::as_str);
         let accounts = match self.connection().await {
-            Ok(mut connection) => connector_account::list_active(&mut connection, &kinds)
+            Ok(mut connection) => connector::list_active(&mut connection, &kinds)
                 .await
                 .map_err(anyhow::Error::from),
             Err(error) => Err(error),
@@ -234,21 +254,20 @@ impl Meetings {
                 event!(
                     name: "meetings.account.failed",
                     Level::WARN,
-                    connector.account.id = %account.id,
+                    connector.id = %account.id,
                     error.message = %format!("{error:#}"),
-                    "cannot record a meeting account's listing",
+                    "cannot record a meeting connector's listing",
                 );
             }
         }
     }
 
     /// Lists one account's new meetings, stores them, and records how the listing went.
-    async fn poll_account(&self, account: &ConnectorAccount) -> anyhow::Result<()> {
-        let credential = account
-            .credential(&self.inner.cipher)
-            .context("the account's credential cannot be decrypted")?
-            .context("a meeting account signs in with a credential, and this one has none")?;
+    async fn poll_account(&self, account: &Connector) -> anyhow::Result<()> {
+        let credential = self.key_of(account).await?;
         let since = listing_since(account);
+        let started = Utc::now();
+        let mut run = None;
 
         let outcome = match self
             .inner
@@ -257,7 +276,10 @@ impl Meetings {
             .await
         {
             Ok(listed) => {
-                let newest = self.store_listed(account, &listed).await?;
+                let (newest, stored) = self.store_listed(account, &listed).await?;
+                if stored > 0 {
+                    run = Some(ConnectorRun::succeeded(account.id, started, stored));
+                }
                 PollOutcome {
                     sign_in_state: SignInState::SignedIn.as_str().to_owned(),
                     cursor: next_cursor(&account.cursor, newest),
@@ -265,40 +287,59 @@ impl Meetings {
                     last_error: None,
                 }
             }
-            Err(error) => PollOutcome {
-                sign_in_state: match error {
-                    SourceError::Unauthorized(_) => SignInState::SignedOut,
-                    SourceError::NotFound | SourceError::Refused(_) => SignInState::Unknown,
+            Err(error) => {
+                run = Some(ConnectorRun::failed(
+                    account.id,
+                    started,
+                    &error.to_string(),
+                ));
+                PollOutcome {
+                    sign_in_state: match error {
+                        SourceError::Unauthorized(_) => SignInState::SignedOut,
+                        SourceError::NotFound | SourceError::Refused(_) => SignInState::Unknown,
+                    }
+                    .as_str()
+                    .to_owned(),
+                    cursor: account.cursor.clone(),
+                    last_polled_at: Some(Utc::now()),
+                    last_error: Some(error.to_string()),
                 }
-                .as_str()
-                .to_owned(),
-                cursor: account.cursor.clone(),
-                last_polled_at: Some(Utc::now()),
-                last_error: Some(error.to_string()),
-            },
+            }
         };
 
         let mut connection = self.connection().await?;
-        let updated = connector_account::record_poll(&mut connection, account.id, outcome).await?;
-        if updated.sign_in_state != account.sign_in_state
-            || updated.last_error != account.last_error
-        {
-            self.inner
-                .events
-                .publish(&ServerEvent::ConnectorAccountUpserted(
-                    ConnectorAccountResponse::new(updated),
-                ));
+        let updated = connector::record_poll(&mut connection, account.id, outcome).await?;
+        drop(connection);
+        let changed = updated.sign_in_state != account.sign_in_state
+            || updated.last_error != account.last_error;
+        match run {
+            // Recording a run announces the change too.
+            Some(run) => self.inner.activity.record(run).await,
+            None if changed => self.inner.activity.changed(account.id),
+            None => {}
         }
         Ok(())
     }
 
+    /// The API key `connector` lists its meetings with, from the token account it reads through.
+    async fn key_of(&self, connector: &Connector) -> anyhow::Result<secrecy::SecretString> {
+        let token_account_id = connector
+            .token_account_id
+            .context("a meeting connector reads with an API key, and this one has none")?;
+        let mut connection = self.connection().await?;
+        let account = token_account::find(&mut connection, token_account_id).await?;
+        account
+            .credential(&self.inner.cipher)
+            .context("the connector's key cannot be decrypted")
+    }
+
     /// Stores each listed meeting the account has not read, and answers the newest start time
-    /// the listing held.
+    /// the listing held and how many meetings were new.
     async fn store_listed(
         &self,
-        account: &ConnectorAccount,
+        account: &Connector,
         listed: &[ListedMeeting],
-    ) -> anyhow::Result<Option<DateTime<Utc>>> {
+    ) -> anyhow::Result<(Option<DateTime<Utc>>, usize)> {
         let mut connection = self.connection().await?;
         let external_ids: Vec<String> = listed
             .iter()
@@ -309,6 +350,7 @@ impl Meetings {
             .with_context(|| format!("unknown connector kind {:?}", account.kind))?;
 
         let mut newest: Option<DateTime<Utc>> = None;
+        let mut stored_count = 0;
         for listed_meeting in listed {
             newest = newest.max(Some(listed_meeting.started_at));
             if known.contains(&listed_meeting.external_id) {
@@ -318,10 +360,11 @@ impl Meetings {
                 meeting::insert_new(&mut connection, new_meeting(account, kind, listed_meeting))
                     .await?;
             if let Some(stored) = stored {
+                stored_count += 1;
                 self.publish(stored);
             }
         }
-        Ok(newest)
+        Ok((newest, stored_count))
     }
 
     /// Carries every unfinished meeting as far as it goes.
@@ -349,8 +392,13 @@ impl Meetings {
         }
     }
 
-    /// Runs a meeting's steps one after another until it is done, or one fails.
+    /// Runs a meeting's steps one after another until it is done, or one fails. Its connector
+    /// shows as syncing meanwhile, and a meeting that ends done or failed is a run of it.
     async fn carry(&self, mut current: Meeting) {
+        let started = Utc::now();
+        let _syncing = current
+            .connector_id
+            .and_then(|connector_id| self.inner.activity.begin(connector_id));
         loop {
             let id = current.id;
             let step = match current.state() {
@@ -362,6 +410,19 @@ impl Meetings {
             match step {
                 Ok(advanced) => {
                     self.publish(advanced.clone());
+                    if advanced.state() == MeetingState::Done
+                        && let Some(connector_id) = advanced.connector_id
+                    {
+                        let segments = advanced
+                            .segments
+                            .as_ref()
+                            .and_then(Value::as_array)
+                            .map_or(0, Vec::len);
+                        self.inner
+                            .activity
+                            .record(ConnectorRun::succeeded(connector_id, started, segments))
+                            .await;
+                    }
                     current = advanced;
                 }
                 Err(error) => {
@@ -374,6 +435,12 @@ impl Meetings {
                         error.message = %message,
                         "a meeting's processing step failed; the next pass tries again",
                     );
+                    if let Some(connector_id) = current.connector_id {
+                        self.inner
+                            .activity
+                            .record(ConnectorRun::failed(connector_id, started, &message))
+                            .await;
+                    }
                     match self.record_failure(&current, &message).await {
                         Ok(failed) => self.publish(failed),
                         Err(error) => event!(
@@ -398,10 +465,7 @@ impl Meetings {
     /// `pending` to `recorded`: the transcript, and the recording uploaded to storage.
     async fn record(&self, current: &Meeting) -> anyhow::Result<Meeting> {
         let account = self.account_of(current).await?;
-        let credential = account
-            .credential(&self.inner.cipher)
-            .context("the account's credential cannot be decrypted")?
-            .context("the meeting's account has no credential")?;
+        let credential = self.key_of(&account).await?;
         let fetched = self
             .inner
             .fireflies
@@ -657,14 +721,19 @@ impl Meetings {
         Ok(clips)
     }
 
-    async fn account_of(&self, current: &Meeting) -> anyhow::Result<ConnectorAccount> {
-        let account_id = current
-            .connector_account_id
-            .context("the meeting's account was removed")?;
+    async fn account_of(&self, current: &Meeting) -> anyhow::Result<Connector> {
+        let connector_id = current
+            .connector_id
+            .context("the meeting's connector was removed")?;
         let mut connection = self.connection().await?;
-        connector_account::find_owned(&mut connection, account_id, current.created_by)
+        let found = connector::find(&mut connection, connector_id)
             .await
-            .context("the meeting's account was removed")
+            .context("the meeting's connector was removed")?;
+        anyhow::ensure!(
+            found.created_by == current.created_by,
+            "the meeting's connector belongs to someone else"
+        );
+        Ok(found)
     }
 
     async fn location(
@@ -717,7 +786,7 @@ async fn attribute(
 
 /// Where an account's next listing starts: its cursor's newest start time, or
 /// [`FIRST_LISTING_DAYS`] before it was connected.
-fn listing_since(account: &ConnectorAccount) -> DateTime<Utc> {
+fn listing_since(account: &Connector) -> DateTime<Utc> {
     account.cursor["since"]
         .as_str()
         .and_then(|since| DateTime::parse_from_rfc3339(since).ok())
@@ -740,14 +809,10 @@ fn next_cursor(cursor: &Value, newest: Option<DateTime<Utc>>) -> Value {
     }
 }
 
-fn new_meeting(
-    account: &ConnectorAccount,
-    kind: ConnectorKind,
-    listed: &ListedMeeting,
-) -> NewMeeting {
+fn new_meeting(account: &Connector, kind: ConnectorKind, listed: &ListedMeeting) -> NewMeeting {
     NewMeeting {
         id: Uuid::now_v7(),
-        connector_account_id: Some(account.id),
+        connector_id: Some(account.id),
         source_kind: kind.as_str().to_owned(),
         external_id: listed.external_id.clone(),
         title: listed.title.chars().take(2048).collect(),
@@ -792,7 +857,7 @@ fn segment_record(
     NewTimelineRecord {
         id: Uuid::now_v7(),
         source_kind: SEGMENT_SOURCE_KIND.to_owned(),
-        connector_account_id: current.connector_account_id,
+        connector_id: current.connector_id,
         external_id: Some(format!("{}#{index}", current.external_id)),
         occurred_at: current.started_at + chrono::Duration::milliseconds(segment.start_ms),
         actor: speakers.chars().take(ACTOR_MAX_CHARACTERS).collect(),
@@ -821,8 +886,8 @@ mod tests {
     use super::*;
     use crate::meetings::segmentation::SegmentProject;
 
-    fn account(cursor: Value) -> ConnectorAccount {
-        ConnectorAccount {
+    fn account(cursor: Value) -> Connector {
+        Connector {
             id: Uuid::now_v7(),
             kind: "fireflies".to_owned(),
             browser_session_id: None,
@@ -834,15 +899,18 @@ mod tests {
             created_by: Uuid::now_v7(),
             created_at: "2026-10-21T12:00:00Z".parse().expect("a time"),
             updated_at: "2026-10-21T12:00:00Z".parse().expect("a time"),
-            credential_encrypted: Some(vec![1]),
             storage_location_id: Some(Uuid::now_v7()),
+            token_account_id: Some(Uuid::now_v7()),
+            jira_credential_id: None,
+            github_credential_id: None,
+            content: json!({}),
         }
     }
 
     fn meeting() -> Meeting {
         Meeting {
             id: Uuid::now_v7(),
-            connector_account_id: Some(Uuid::now_v7()),
+            connector_id: Some(Uuid::now_v7()),
             source_kind: "fireflies".to_owned(),
             external_id: "01HX".to_owned(),
             title: "Weekly sync".to_owned(),

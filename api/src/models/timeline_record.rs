@@ -22,7 +22,7 @@ use crate::database::schema::{timeline_record_projects, timeline_records};
 pub struct TimelineRecord {
     pub id: Uuid,
     pub source_kind: String,
-    pub connector_account_id: Option<Uuid>,
+    pub connector_id: Option<Uuid>,
     pub external_id: Option<String>,
     pub occurred_at: DateTime<Utc>,
     pub actor: String,
@@ -41,7 +41,7 @@ pub struct TimelineRecord {
 pub struct NewTimelineRecord {
     pub id: Uuid,
     pub source_kind: String,
-    pub connector_account_id: Option<Uuid>,
+    pub connector_id: Option<Uuid>,
     pub external_id: Option<String>,
     pub occurred_at: DateTime<Utc>,
     pub actor: String,
@@ -76,7 +76,7 @@ pub async fn insert_new(
     diesel::insert_into(timeline_records::table)
         .values(record)
         .on_conflict((
-            timeline_records::connector_account_id,
+            timeline_records::connector_id,
             timeline_records::external_id,
         ))
         .do_nothing()

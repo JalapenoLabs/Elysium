@@ -3,7 +3,6 @@
 import type { ActionItem, ActionItemComment, ActionItemLink, HistoryEntry } from '../api/routes/actionItemRoutes'
 import type { BrowserSession } from '../api/routes/browserSessionRoutes'
 import type { Changeset } from '../api/routes/changesetRoutes'
-import type { ConnectorAccount } from '../api/routes/connectorRoutes'
 import type { Initiative, InitiativeLink } from '../api/routes/initiativeRoutes'
 import type { CodingSession, SessionEvent, TurnSummary } from '../api/routes/codingSessionRoutes'
 import type { Elysia, ElysiaMessage, ElysiaTurn } from '../api/routes/elysiaRoutes'
@@ -48,9 +47,19 @@ export type ServerEvent =
   | { type: 'browserSession.deleted', data: { id: string } }
   // A browser went back to its start page, its other tabs closed and its profile kept.
   | { type: 'browserSession.startedOver', data: { id: string, createdBy: string } }
-  // A connector account was added, or its last read found its sign-in changed.
-  | { type: 'connectorAccount.upserted', data: ConnectorAccount }
-  | { type: 'connectorAccount.deleted', data: { id: string } }
+  // A connector changed; its id alone, since its view names whose mail it reads.
+  | { type: 'connector.changed', data: { id: string } }
+  | { type: 'connector.deleted', data: { id: string } }
+  // A check in a run moved on, or (`checkId` null, `state` finished) the run ended.
+  | {
+    type: 'connectorCheckRun.updated'
+    data: {
+      runId: string
+      connectorId: string | null
+      checkId: string | null
+      state: 'queued' | 'running' | 'passed' | 'failed' | 'skipped' | 'finished'
+    }
+  }
   // Something was ingested onto someone's timeline. Never its content, which its owner loads.
   | {
     type: 'timelineRecord.created',

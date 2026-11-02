@@ -11,7 +11,7 @@ export type MeetingState = typeof MEETING_STATES[number]
 // timeline. Only its owner receives it.
 export type Meeting = {
   id: string
-  connectorAccountId: string | null
+  connectorId: string | null
   sourceKind: string
   title: string
   startedAt: string

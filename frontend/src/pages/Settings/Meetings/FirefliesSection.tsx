@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
-import { connectorAccountDeleted, selectAllConnectorAccounts } from '../../../store/connectorAccountsSlice'
+import { connectorDeleted, selectAllConnectors } from '../../../store/connectorsSlice'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { selectAllStorageLocations } from '../../../store/storageLocationsSlice'
 
@@ -15,8 +15,8 @@ import { FirefliesConnectForm } from './FirefliesConnectForm'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
-import { deleteConnectorAccount } from '../../../api/routes/connectorRoutes'
-import { useConnectorAccountsLoader, useStorageLocationsLoader } from '../../../hooks/useServerData'
+import { deleteConnector } from '../../../api/routes/connectorRoutes'
+import { useConnectorsLoader, useStorageLocationsLoader } from '../../../hooks/useServerData'
 import { signInChipColors, signInLabelKeys } from '../Browsers/connectorPresentation'
 
 // The person's Fireflies account: the form to connect it, or how its reads are going and the
@@ -24,9 +24,9 @@ import { signInChipColors, signInLabelKeys } from '../Browsers/connectorPresenta
 export function FirefliesSection() {
   const { t } = useTranslation([ 'meetings', 'browsers', 'common' ])
   const dispatch = useAppDispatch()
-  const accountsStatus = useConnectorAccountsLoader()
+  const accountsStatus = useConnectorsLoader()
   const locationsStatus = useStorageLocationsLoader()
-  const accounts = useAppSelector(selectAllConnectorAccounts)
+  const accounts = useAppSelector(selectAllConnectors)
   const storageLocations = useAppSelector(selectAllStorageLocations)
   const [ isDisconnecting, setIsDisconnecting ] = useState(false)
 
@@ -35,8 +35,8 @@ export function FirefliesSection() {
   async function disconnect(accountId: string) {
     setIsDisconnecting(true)
     try {
-      await deleteConnectorAccount(accountId)
-      dispatch(connectorAccountDeleted(accountId))
+      await deleteConnector(accountId)
+      dispatch(connectorDeleted(accountId))
       toast.success(t('fireflies.disconnectedToast'))
     }
     catch (error) {

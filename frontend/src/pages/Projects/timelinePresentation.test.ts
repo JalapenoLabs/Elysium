@@ -19,7 +19,7 @@ function record(overrides: Partial<TimelineRecord> = {}): TimelineRecord {
   return {
     id: 'record-1',
     sourceKind: 'meeting',
-    connectorAccountId: 'account-1',
+    connectorId: 'connector-1',
     externalId: '01HX#0',
     occurredAt: '2026-10-21T15:01:00Z',
     actor: 'Ada',

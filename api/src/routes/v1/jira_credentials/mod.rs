@@ -12,7 +12,7 @@ pub mod allowlist;
 mod apply_transition;
 mod choose_done_transition;
 mod create_issue;
-mod create_jira_credential;
+pub mod create_jira_credential;
 mod delete_jira_credential;
 mod discover_jira_site;
 mod forget_done_transition;

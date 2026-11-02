@@ -29,14 +29,15 @@ the documented schema and a fixture, not yet against a live account.
 
 ### Accounts
 
-Every meeting belongs to a connector account (`connector_accounts`), the same table browser connectors use. An account
-signs in one of two ways, through a browser or with a credential, and exactly one is set. A Fireflies account holds
-its API key sealed like every application secret (`docs/secrets.md`), bound to the row's id, and names the storage
-location its recordings are kept in. Its key is checked with Fireflies (`user { email }`) before anything is stored,
-so a key Fireflies refuses is never saved.
+A Fireflies key is an account of its own (`token_accounts`, `docs/connectors.md`), sealed like every application
+secret (`docs/secrets.md`) and bound to its row. The Fireflies connector reads through it and names the storage
+location recordings are kept in. A key is checked with Fireflies (`user { email }`) before anything is stored, so a key
+Fireflies refuses is never saved.
 
-Because every meeting has an account, `UNIQUE (connector_account_id, external_id)` on both `meetings` and
-`timeline_records` is what keeps a meeting, and each of its segments, from being recorded twice.
+Every meeting belongs to a connector (`connectors`), the same table mailboxes use. `UNIQUE (connector_id, external_id)`
+on both `meetings` and `timeline_records` is what keeps a meeting, and each of its segments, from being recorded twice.
+A listing that stored meetings, and a meeting that finished or failed, is a run of its connector, and a connector is
+`syncing` while one of its meetings is processed.
 
 ## Processing
 
@@ -132,7 +133,7 @@ streams the clip from storage to the record's owner alone.
 |-----------------------------|--------------------------------------------------------------------------|
 | `meeting.changed`           | A meeting was read or its processing moved on: its id, state, and owner, never its title or transcript |
 | `timelineRecord.created`    | A segment's record was stored                                            |
-| `connectorAccount.upserted` | A meeting account was added, or a listing changed its sign-in state or error |
+| `connector.changed`         | A meeting connector was added, a listing changed its sign-in state or error, or a meeting moved it |
 
 ## Roadmap
 

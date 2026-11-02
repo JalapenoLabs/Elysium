@@ -13,7 +13,6 @@ use crate::action_items::links::tests::{
 use crate::github::fake::{FakeIssue, LOGIN};
 use crate::models::action_item::{ActionItemChanges, Owner};
 use crate::models::action_item_event::list_for_item;
-use crate::models::action_item_link::LinkProvider;
 use crate::models::initiative::NewInitiative;
 use crate::models::initiative_link::{ContainerKind, NewContainer};
 use crate::models::project::{self, NewProject};

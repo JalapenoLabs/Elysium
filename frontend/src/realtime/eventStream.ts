@@ -14,7 +14,12 @@ import { initiativeLinkDeleted, initiativeLinkUpserted } from '../store/initiati
 import { actionItemDeleted, actionItemUpserted } from '../store/actionItemsSlice'
 import { browserSessionDeleted, browserSessionUpserted } from '../store/browserSessionsSlice'
 import { changesetUpserted } from '../store/changesetsSlice'
-import { connectorAccountDeleted, connectorAccountUpserted } from '../store/connectorAccountsSlice'
+import {
+  checkRunLoaded,
+  checkRunProgressed,
+  connectorDeleted,
+  connectorUpserted,
+} from '../store/connectorsSlice'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
 import { elysiaMessageCreated, elysiaTurnUpserted, elysiaUpdated } from '../store/elysiaSlice'
 import { environmentVariableDeleted, environmentVariableUpserted } from '../store/environmentVariablesSlice'
@@ -42,7 +47,11 @@ import { userDeleted, userUpserted } from '../store/usersSlice'
 import { updatesStatusUpdated } from '../store/updatesSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
+// Utility
+import { HTTPError } from 'ky'
+
 // Misc
+import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { EVENT_STREAM_PATH, EVENT_STREAM_RETRY_INITIAL_MS, EVENT_STREAM_RETRY_MAX_MS } from '../constants'
 
@@ -108,14 +117,47 @@ const handlers: Handlers = {
   // Nothing Redux holds changes: the browser's status stays as it was, and its stream shows
   // the new page itself.
   'browserSession.startedOver': () => {},
-  // Like browsers, a connector account is its owner's alone.
-  'connectorAccount.upserted': (event) => {
-    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
+  // The event carries the id alone, since a connector's view names whose mail it reads, so it
+  // is loaded by id; someone else's personal connector answers 404 and is not kept. The hub's
+  // activity feed and accounts list reload with it, if a page shows them.
+  'connector.changed': (event) => {
+    getConnector(event.data.id)
+      .then((response) => store.dispatch(connectorUpserted(response.connector)))
+      .catch((error: unknown) => {
+        if (error instanceof HTTPError && error.response.status === 404) {
+          store.dispatch(connectorDeleted(event.data.id))
+          return
+        }
+        console.debug('A changed connector could not be loaded', {
+          error,
+          connectorId: event.data.id,
+        })
+      })
+    void mutate('v1/connectors/activity')
+    void mutate('v1/accounts')
+  },
+  'connector.deleted': (event) => {
+    store.dispatch(connectorDeleted(event.data.id))
+    void mutate('v1/accounts')
+  },
+  // Moves a followed run's check along; once the run ends, it is loaded again for the
+  // messages its events leave out. A run this client does not follow answers 404 and is
+  // ignored.
+  'connectorCheckRun.updated': (event) => {
+    store.dispatch(checkRunProgressed(event.data))
+    if (event.data.state !== 'finished') {
       return
     }
-    store.dispatch(connectorAccountUpserted(event.data))
+    if (!store.getState().connectors.checkRuns[event.data.runId]) {
+      return
+    }
+    getCheckRun(event.data.runId)
+      .then((response) => store.dispatch(checkRunLoaded(response.run)))
+      .catch((error: unknown) => console.debug('A finished check run could not be loaded', {
+        error,
+        runId: event.data.runId,
+      }))
   },
-  'connectorAccount.deleted': (event) => store.dispatch(connectorAccountDeleted(event.data.id)),
   // The event carries no content; a page showing its owner's timeline reloads it. The inbox
   // item it raised arrives as its own `actionItem.upserted`.
   'timelineRecord.created': (event) => {

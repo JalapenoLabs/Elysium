@@ -35,6 +35,9 @@ use crate::browser::container::BrowserContainers;
 use crate::browser::devtools::Devtools;
 use crate::browser::neko::Neko;
 use crate::config::Config;
+use crate::connectors::Connectors;
+use crate::connectors::activity::Activity;
+use crate::connectors::checks::CheckRuns;
 use crate::connectors::ingest::Ingest;
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -120,10 +123,13 @@ pub async fn serve() -> Result<()> {
 
     let shutdown = CancellationToken::new();
     let events = EventBus::new();
+    // Where every loop that reads a connector reports its syncs.
+    let connector_activity = Activity::new(database.clone(), events.clone());
     let watch = WatchContext {
         database: database.clone(),
         events: events.clone(),
         links: links.clone(),
+        activity: connector_activity.clone(),
     };
     let watcher = Watcher::start(watch, shutdown.clone());
     let mail = build_mail(
@@ -146,13 +152,14 @@ pub async fn serve() -> Result<()> {
     )?;
     // Brings every browser back up, and keeps them up, until shutdown.
     let browser_reconciler = browsers.start(shutdown.clone());
-    // Reads every connector account through its browser, onto the timeline.
-    let ingest = Ingest::new(
+    // Reads every mailbox connector through its browser, onto the timeline.
+    let mailbox_reader = Ingest::new(
         database.clone(),
         events.clone(),
         Devtools::new(http.clone()),
-    )
-    .start(shutdown.clone());
+        connector_activity.clone(),
+    );
+    let ingest = mailbox_reader.start(shutdown.clone());
 
     let passwords = build_passwords(database.clone(), Arc::clone(&cipher), events.clone());
     // Signs the CLI in and unlocks the stored vault, then keeps it up, until shutdown.
@@ -198,6 +205,7 @@ pub async fn serve() -> Result<()> {
     let meetings = Meetings::new(MeetingsDeps {
         database: database.clone(),
         events: events.clone(),
+        activity: connector_activity.clone(),
         cipher: Arc::clone(&cipher),
         storage: storage.clone(),
         runner: runner.clone(),
@@ -213,6 +221,11 @@ pub async fn serve() -> Result<()> {
     let state = AppState {
         auth: build_auth(&config, http.clone()),
         browsers,
+        connectors: Connectors {
+            ingest: mailbox_reader,
+            activity: connector_activity,
+            check_runs: CheckRuns::new(events.clone()),
+        },
         database: database.clone(),
         activity,
         redis: redis.clone(),

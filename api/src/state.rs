@@ -11,6 +11,7 @@ use crate::action_items::links::Links;
 use crate::activity::Activities;
 use crate::auth::Auth;
 use crate::browser::Browsers;
+use crate::connectors::Connectors;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::elysia::Elysia;
@@ -33,6 +34,8 @@ pub struct AppState {
     pub auth: Auth,
     /// The browsers the host runs for people to sign in to their accounts in.
     pub browsers: Browsers,
+    /// The connector hub's shared parts: the mailbox reader, sync activity, and check runs.
+    pub connectors: Connectors,
     pub database: Pool,
     /// Work a restart would cut short, such as agent turns. Auto-update waits for it.
     #[expect(

@@ -197,7 +197,7 @@ extension is installed, so the browser is a plain Chromium.
 - **Resetting** empties the profile and starts the browser again at its start page. Under Docker's lock it marks the
   start page as owed, removes the container and the profile volume, and reports the browser `starting`; the network
   stays, so nginx and the API stay joined to it. Then it brings the browser up as if new, and so would any reconcile
-  pass that got there first. The row, its port, and the connector account reading through it stay; the account reads
+  pass that got there first. The row, its port, and the connector reading through it stay; the connector reads
   `signed_out` until the person signs in again. Removing the volume, rather than clearing data over DevTools, is
   what makes the reset complete: Chromium's own clearing reaches cookies and site storage, but not service workers,
   saved passwords, or whatever else a sign-in left in the profile, and it cannot repair a profile left half written.

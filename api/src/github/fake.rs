@@ -312,6 +312,34 @@ async fn answer(
     match (method, segments.as_slice()) {
         (Method::GET, ["user"]) => axum::Json(json!({ "login": LOGIN })).into_response(),
 
+        // Every repository the fake holds issues in, as the token's own.
+        (Method::GET, ["user", "repos"]) => {
+            let mut repositories: Vec<&str> = state
+                .issues
+                .keys()
+                .map(|(repository, _number)| repository.as_str())
+                .collect();
+            repositories.dedup();
+            let listed: Vec<Value> = repositories
+                .into_iter()
+                .map(|full_name| {
+                    let (owner, name) = full_name.split_once('/').unwrap_or((full_name, ""));
+                    json!({
+                        "full_name": full_name,
+                        "name": name,
+                        "owner": { "login": owner },
+                        "private": false,
+                        "archived": false,
+                        "default_branch": "main",
+                        "clone_url": format!("https://github.com/{full_name}.git"),
+                        "pushed_at": null,
+                        "permissions": { "push": true },
+                    })
+                })
+                .collect();
+            axum::Json(listed).into_response()
+        }
+
         (Method::GET, ["repos", owner, name, "issues"]) => {
             let repository = format!("{owner}/{name}");
             let open_only = parameter(&query, "state").as_deref() == Some("open");

@@ -2,6 +2,7 @@
 
 //! Version 1 resource routes, mounted at `/api/v1`.
 
+pub mod accounts;
 pub mod action_items;
 mod auth_status;
 pub mod browser_sessions;
@@ -54,6 +55,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
 fn workspace_router() -> Router<AppState> {
     Router::new()
         .route("/events", get(events::handle))
+        .nest("/accounts", accounts::router())
         .nest("/action-items", action_items::router())
         .nest("/browser-sessions", browser_sessions::router())
         .nest("/changesets", changesets::router())

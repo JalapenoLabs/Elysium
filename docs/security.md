@@ -82,8 +82,9 @@ See `docs/browser.md`.
 
 ## Connectors
 
-- A connector account, and every timeline record it ingests, belongs to the person whose browser it reads through;
-  every connector and timeline route answers them alone.
+- A mail or meeting connector, and every timeline record it ingests, belongs to the person whose browser or key it
+  reads through; those connectors and every timeline route answer them alone. Jira and GitHub connectors are the
+  workspace's, like their accounts.
 - `timelineRecord.created` carries ids and kinds, never a message's content, since every client of the event stream
   hears every event. The inbox item a message raises is an action item like any other, which every workspace member
   can see; per-person items are on the roadmap with owners as users.

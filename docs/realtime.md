@@ -37,8 +37,9 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `browserSession.upserted` | `BrowserSession` | A browser was added, or began starting, running, or failing |
 | `browserSession.deleted`  | `{ id }`         | A browser and its profile were removed                     |
 | `browserSession.startedOver` | `{ id, createdBy }` | A browser went back to its start page, other tabs closed, profile kept |
-| `connectorAccount.upserted` | `ConnectorAccount` | A connector account was added, or a read changed its sign-in state or error |
-| `connectorAccount.deleted`  | `{ id }`         | A connector account was removed                            |
+| `connector.changed`      | `{ id }`         | A connector was added or changed: paused, content, a sync, a read, its checks; load it by id or error |
+| `connector.deleted`      | `{ id }`         | A connector, or the account it read through, was removed   |
+| `connectorCheckRun.updated` | `{ runId, connectorId, checkId, state }` | A check in a run moved on, or the run ended (`checkId` null, `state` `finished`); load the run for its messages |
 | `timelineRecord.created` | `{ id, sourceKind, createdBy, actionItemId }` | Something was ingested; never its content, see `docs/connectors.md` |
 | `meeting.changed`        | `{ id, state, createdBy }` | A meeting was read or its processing moved on; never its title or transcript, see `docs/meetings.md` |
 | `project.upserted`   | `Project`                | A project was created or changed                           |

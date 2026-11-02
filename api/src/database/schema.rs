@@ -297,7 +297,36 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
-    connector_accounts (id) {
+    connector_check_results (connector_id, check_id) {
+        connector_id -> Uuid,
+        check_id -> Text,
+        state -> Text,
+        count -> Nullable<Int8>,
+        reason -> Nullable<Text>,
+        message -> Nullable<Text>,
+        blocked_by -> Nullable<Text>,
+        ran_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    connector_runs (id) {
+        id -> Uuid,
+        connector_id -> Uuid,
+        started_at -> Timestamptz,
+        finished_at -> Timestamptz,
+        outcome -> Text,
+        records -> Int4,
+        error -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    connectors (id) {
         id -> Uuid,
         kind -> Text,
         browser_session_id -> Nullable<Uuid>,
@@ -309,8 +338,11 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        credential_encrypted -> Nullable<Bytea>,
         storage_location_id -> Nullable<Uuid>,
+        token_account_id -> Nullable<Uuid>,
+        jira_credential_id -> Nullable<Uuid>,
+        github_credential_id -> Nullable<Uuid>,
+        content -> Jsonb,
     }
 }
 
@@ -653,7 +685,7 @@ diesel::table! {
 
     meetings (id) {
         id -> Uuid,
-        connector_account_id -> Nullable<Uuid>,
+        connector_id -> Nullable<Uuid>,
         source_kind -> Text,
         external_id -> Text,
         title -> Text,
@@ -853,7 +885,7 @@ diesel::table! {
     timeline_records (id) {
         id -> Uuid,
         source_kind -> Text,
-        connector_account_id -> Nullable<Uuid>,
+        connector_id -> Nullable<Uuid>,
         external_id -> Nullable<Text>,
         occurred_at -> Timestamptz,
         actor -> Text,
@@ -865,6 +897,22 @@ diesel::table! {
         action_item_id -> Nullable<Uuid>,
         created_by -> Uuid,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    token_accounts (id) {
+        id -> Uuid,
+        kind -> Text,
+        name -> Text,
+        credential_encrypted -> Bytea,
+        identity -> Text,
+        checked_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -944,9 +992,14 @@ diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> studio_items (studio_item_id));
 diesel::joinable!(coding_sessions -> users (created_by));
-diesel::joinable!(connector_accounts -> browser_sessions (browser_session_id));
-diesel::joinable!(connector_accounts -> storage_locations (storage_location_id));
-diesel::joinable!(connector_accounts -> users (created_by));
+diesel::joinable!(connector_check_results -> connectors (connector_id));
+diesel::joinable!(connector_runs -> connectors (connector_id));
+diesel::joinable!(connectors -> browser_sessions (browser_session_id));
+diesel::joinable!(connectors -> github_credentials (github_credential_id));
+diesel::joinable!(connectors -> jira_credentials (jira_credential_id));
+diesel::joinable!(connectors -> storage_locations (storage_location_id));
+diesel::joinable!(connectors -> token_accounts (token_account_id));
+diesel::joinable!(connectors -> users (created_by));
 diesel::joinable!(deployment_updates -> users (created_by));
 diesel::joinable!(elysia_messages -> users (created_by));
 diesel::joinable!(elysia_questions -> action_items (action_item_id));
@@ -976,7 +1029,7 @@ diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
 diesel::joinable!(mail_accounts -> users (created_by));
 diesel::joinable!(mail_domains -> users (created_by));
 diesel::joinable!(mail_servers -> users (created_by));
-diesel::joinable!(meetings -> connector_accounts (connector_account_id));
+diesel::joinable!(meetings -> connectors (connector_id));
 diesel::joinable!(meetings -> storage_locations (storage_location_id));
 diesel::joinable!(meetings -> users (created_by));
 diesel::joinable!(password_vault -> users (created_by));
@@ -999,8 +1052,9 @@ diesel::joinable!(studio_storage_reservations -> users (created_by));
 diesel::joinable!(timeline_record_projects -> projects (project_id));
 diesel::joinable!(timeline_record_projects -> timeline_records (timeline_record_id));
 diesel::joinable!(timeline_records -> action_items (action_item_id));
-diesel::joinable!(timeline_records -> connector_accounts (connector_account_id));
+diesel::joinable!(timeline_records -> connectors (connector_id));
 diesel::joinable!(timeline_records -> users (created_by));
+diesel::joinable!(token_accounts -> users (created_by));
 diesel::joinable!(turn_summaries -> coding_sessions (session_id));
 diesel::joinable!(workspace_settings -> users (updated_by));
 
@@ -1015,7 +1069,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     changeset_operations,
     changesets,
     coding_sessions,
-    connector_accounts,
+    connector_check_results,
+    connector_runs,
+    connectors,
     deployment_updates,
     elysia_messages,
     elysia_questions,
@@ -1049,6 +1105,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     studio_storage_reservations,
     timeline_record_projects,
     timeline_records,
+    token_accounts,
     turn_summaries,
     user_events,
     users,

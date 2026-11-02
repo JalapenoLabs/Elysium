@@ -65,7 +65,7 @@ impl MeetingState {
 #[diesel(table_name = meetings, check_for_backend(diesel::pg::Pg))]
 pub struct Meeting {
     pub id: Uuid,
-    pub connector_account_id: Option<Uuid>,
+    pub connector_id: Option<Uuid>,
     pub source_kind: String,
     pub external_id: String,
     pub title: String,
@@ -102,7 +102,7 @@ impl Meeting {
 #[diesel(table_name = meetings)]
 pub struct NewMeeting {
     pub id: Uuid,
-    pub connector_account_id: Option<Uuid>,
+    pub connector_id: Option<Uuid>,
     pub source_kind: String,
     pub external_id: String,
     pub title: String,
@@ -126,7 +126,7 @@ pub async fn insert_new(
 ) -> QueryResult<Option<Meeting>> {
     diesel::insert_into(meetings::table)
         .values(meeting)
-        .on_conflict((meetings::connector_account_id, meetings::external_id))
+        .on_conflict((meetings::connector_id, meetings::external_id))
         .do_nothing()
         .returning(Meeting::as_returning())
         .get_result(connection)
@@ -141,11 +141,11 @@ pub async fn insert_new(
 /// Propagates any database error.
 pub async fn known_external_ids(
     connection: &mut AsyncPgConnection,
-    connector_account_id: Uuid,
+    connector_id: Uuid,
     external_ids: &[String],
 ) -> QueryResult<Vec<String>> {
     meetings::table
-        .filter(meetings::connector_account_id.eq(connector_account_id))
+        .filter(meetings::connector_id.eq(connector_id))
         .filter(meetings::external_id.eq_any(external_ids))
         .select(meetings::external_id)
         .load(connection)
@@ -347,8 +347,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::models::connector_account::{self, NewConnectorAccount};
+    use crate::connectors::ConnectorKind;
+    use crate::models::connector::{self, AccountRef, NewConnector};
     use crate::models::storage_location;
+    use crate::models::token_account::{self, NewTokenAccount};
     use crate::test_support::{
         TEST_PERSON_ID, cipher, location_for_every_project, migrated_database,
     };
@@ -356,7 +358,7 @@ mod tests {
     fn new_meeting(account_id: Uuid, external_id: &str) -> NewMeeting {
         NewMeeting {
             id: Uuid::now_v7(),
-            connector_account_id: Some(account_id),
+            connector_id: Some(account_id),
             source_kind: "fireflies".to_owned(),
             external_id: external_id.to_owned(),
             title: "Weekly sync".to_owned(),
@@ -368,6 +370,38 @@ mod tests {
             transcript: json!([]),
             created_by: TEST_PERSON_ID,
         }
+    }
+
+    /// A Fireflies key and the connector it feeds, keeping recordings in `location_id`.
+    async fn fireflies_connector(
+        connection: &mut AsyncPgConnection,
+        cipher: &crate::crypto::Cipher,
+        location_id: Uuid,
+        key: &str,
+    ) -> (token_account::TokenAccount, connector::Connector) {
+        let key = token_account::create(
+            connection,
+            NewTokenAccount::new(
+                cipher,
+                "fireflies",
+                "Fireflies",
+                &SecretString::from(key),
+                "ada@example.com",
+                TEST_PERSON_ID,
+            ),
+        )
+        .await
+        .expect("a key");
+        let mut new_connector = NewConnector::new(
+            ConnectorKind::Fireflies.as_str(),
+            AccountRef::Token(key.id),
+            TEST_PERSON_ID,
+        );
+        new_connector.storage_location_id = Some(location_id);
+        let created = connector::create(connection, new_connector)
+            .await
+            .expect("a connector");
+        (key, created)
     }
 
     #[tokio::test]
@@ -382,22 +416,9 @@ mod tests {
         )
         .await
         .expect("a location");
-        let account = connector_account::create(
-            &mut connection,
-            NewConnectorAccount::with_credential(
-                &cipher,
-                "fireflies",
-                &SecretString::from("fireflies-key"),
-                Some(location.id),
-                TEST_PERSON_ID,
-            ),
-        )
-        .await
-        .expect("an account");
-        let credential = account
-            .credential(&cipher)
-            .expect("opens")
-            .expect("a credential");
+        let (key, account) =
+            fireflies_connector(&mut connection, &cipher, location.id, "fireflies-key").await;
+        let credential = key.credential(&cipher).expect("opens");
         assert_eq!(credential.expose_secret(), "fireflies-key");
         assert_eq!(account.browser_session_id, None);
 
@@ -482,21 +503,43 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn an_account_signs_in_exactly_one_way() {
+    async fn a_connector_reads_through_exactly_one_account() {
         let (_url, mut connection) = migrated_database().await;
-        let mut neither = NewConnectorAccount::with_credential(
-            &cipher(),
-            "fireflies",
-            &SecretString::from("key"),
-            None,
-            TEST_PERSON_ID,
-        );
-        neither.credential_encrypted = None;
+        let key = token_account::create(
+            &mut connection,
+            NewTokenAccount::new(
+                &cipher(),
+                "fireflies",
+                "Fireflies",
+                &SecretString::from("key"),
+                "",
+                TEST_PERSON_ID,
+            ),
+        )
+        .await
+        .expect("a key");
+
+        let mut neither = NewConnector::new("fireflies", AccountRef::Token(key.id), TEST_PERSON_ID);
+        neither.token_account_id = None;
         assert!(
-            connector_account::create(&mut connection, neither)
-                .await
-                .is_err(),
-            "an account with no way to sign in is refused"
+            connector::create(&mut connection, neither).await.is_err(),
+            "a connector with no account is refused"
+        );
+
+        connector::create(
+            &mut connection,
+            NewConnector::new("fireflies", AccountRef::Token(key.id), TEST_PERSON_ID),
+        )
+        .await
+        .expect("the first Fireflies connector");
+        assert!(
+            connector::create(
+                &mut connection,
+                NewConnector::new("fireflies", AccountRef::Token(key.id), TEST_PERSON_ID),
+            )
+            .await
+            .is_err(),
+            "an account feeds each kind once"
         );
     }
 

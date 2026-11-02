@@ -32,7 +32,7 @@ export type TimelineRecord = {
   id: string
   // `outlook`, `gmail`, `meeting`, and so on.
   sourceKind: string
-  connectorAccountId: string | null
+  connectorId: string | null
   externalId: string | null
   occurredAt: string
   // Who it came from, as the provider shows them.

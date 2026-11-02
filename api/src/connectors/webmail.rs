@@ -14,7 +14,7 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use super::{Connector, ConnectorError, ConnectorKind, Read, Reading, SignInState};
+use super::{BrowserReader, ConnectorError, ConnectorKind, Read, Reading, SignInState};
 use crate::browser::devtools::{Devtools, DevtoolsError};
 use crate::models::browser_session::BrowserSession;
 
@@ -69,7 +69,7 @@ impl Webmail {
     }
 }
 
-impl Connector for Webmail {
+impl BrowserReader for Webmail {
     fn kind(&self) -> ConnectorKind {
         self.service.kind
     }

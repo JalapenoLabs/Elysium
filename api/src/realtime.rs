@@ -32,7 +32,6 @@ use crate::routes::v1::action_items::{
 use crate::routes::v1::browser_sessions::BrowserSessionResponse;
 use crate::routes::v1::changesets::ChangesetResponse;
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
-use crate::routes::v1::connectors::ConnectorAccountResponse;
 use crate::routes::v1::elysia::{ElysiaResponse, MessageResponse, TurnResponse};
 use crate::routes::v1::environment_variables::EnvironmentVariableResponse;
 use crate::routes::v1::github_credentials::GithubCredentialResponse;
@@ -95,11 +94,23 @@ pub enum ServerEvent {
     /// profile kept. Its status is unchanged, so this is its only announcement.
     #[serde(rename = "browserSession.startedOver")]
     BrowserSessionStartedOver { id: Uuid, created_by: Uuid },
-    /// A connector account was added, or what its last read found about signing in changed.
-    #[serde(rename = "connectorAccount.upserted")]
-    ConnectorAccountUpserted(ConnectorAccountResponse),
-    #[serde(rename = "connectorAccount.deleted")]
-    ConnectorAccountDeleted { id: Uuid },
+    /// A connector was added or changed: paused, resumed, its content, a sync starting or
+    /// ending, a read finding something new, or its checks. Its id alone, since its view names
+    /// whose mailbox or meetings it reads; clients that may see it load it by id.
+    #[serde(rename = "connector.changed")]
+    ConnectorChanged { id: Uuid },
+    #[serde(rename = "connector.deleted")]
+    ConnectorDeleted { id: Uuid },
+    /// A check in a run moved on, or (`checkId` null, `state` `finished`) the run ended. Ids and
+    /// states only: a check's message can name what an account reaches, and the run answers the
+    /// person who started it.
+    #[serde(rename = "connectorCheckRun.updated")]
+    ConnectorCheckRunUpdated {
+        run_id: Uuid,
+        connector_id: Option<Uuid>,
+        check_id: Option<String>,
+        state: String,
+    },
     /// Something was ingested onto someone's timeline. Never its content: every client hears
     /// this, and a person's mail is theirs. Its owner's pages and Elysia load it by id.
     #[serde(rename = "timelineRecord.created")]

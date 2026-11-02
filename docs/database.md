@@ -140,37 +140,84 @@ Each belongs to the person who created it and answers nobody else.
 | `created_by`                | `UUID`        | References `users`; the browser's owner, indexed                |
 | `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
 
-### `connector_accounts`
+### `token_accounts`
 
-Services Elysium reads as one of its people, through one of their browsers or with a credential they gave it; see
-`docs/connectors.md` and `docs/meetings.md`. Exactly one of `browser_session_id` and `credential_encrypted` is set
-(`connector_accounts_one_sign_in`).
+A person's accounts whose whole sign-in is one API key, such as Fireflies; see `docs/connectors.md`.
 
 | Column                      | Type          | Notes                                                           |
 |-----------------------------|---------------|-----------------------------------------------------------------|
 | `id`                        | `UUID`        | UUIDv7, primary key                                             |
-| `kind`                      | `TEXT`        | The connector, such as `outlook` or `fireflies`                 |
-| `browser_session_id`        | `UUID`        | Unique; references `browser_sessions`, cascading; `NULL` for an account that signs in with a credential |
-| `credential_encrypted`      | `BYTEA`       | Sealed credential, such as an API key, bound to the row's id, see `docs/secrets.md` |
+| `kind`                      | `TEXT`        | The provider, such as `fireflies`                               |
+| `name`                      | `TEXT`        | 1 to 120 characters                                             |
+| `credential_encrypted`      | `BYTEA`       | The sealed key, bound to the row's id, see `docs/secrets.md`    |
+| `identity`                  | `TEXT`        | Who the provider said the key belongs to; at most 512 characters |
+| `checked_at`                | `TIMESTAMPTZ` | When the provider last confirmed the key                        |
+| `created_by`                | `UUID`        | References `users`; the account's owner                         |
+| `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
+
+### `connectors`
+
+One use of one account, reading a service as its person; see `docs/connectors.md` and `docs/meetings.md`. Exactly one
+of the four account columns is set (`connectors_one_account`), and each is unique together with `kind`, so an account
+feeds each kind once.
+
+| Column                      | Type          | Notes                                                           |
+|-----------------------------|---------------|-----------------------------------------------------------------|
+| `id`                        | `UUID`        | UUIDv7, primary key                                             |
+| `kind`                      | `TEXT`        | The kind, such as `jira`, `outlook`, or `fireflies`             |
+| `browser_session_id`        | `UUID`        | References `browser_sessions`, cascading: a mailbox's browser   |
+| `token_account_id`          | `UUID`        | References `token_accounts`, cascading: a meeting source's key  |
+| `jira_credential_id`        | `UUID`        | References `jira_credentials`, cascading: Jira's Atlassian account |
+| `github_credential_id`      | `UUID`        | References `github_credentials`, cascading: GitHub's account    |
+| `content`                   | `JSONB`       | What it reads, in its kind's terms, for a kind without a table of its own |
 | `storage_location_id`       | `UUID`        | References `storage_locations`: where it keeps files, such as meeting recordings |
 | `sign_in_state`             | `TEXT`        | `signed_in`, `signed_out`, or `unknown`, as last read           |
-| `cursor`                    | `JSONB`       | Where the last read left off, in the connector's terms          |
+| `cursor`                    | `JSONB`       | Where the last read left off, in the kind's terms               |
 | `last_polled_at`            | `TIMESTAMPTZ` | When it was last read                                           |
 | `last_error`                | `TEXT`        | Why the last read failed, or `NULL`                             |
-| `is_active`                 | `BOOLEAN`     | Read by the ingest loop when true                               |
-| `created_by`                | `UUID`        | References `users`; the browser's owner                         |
+| `is_active`                 | `BOOLEAN`     | False while paused                                              |
+| `created_by`                | `UUID`        | References `users`; its creator                                 |
 | `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
+
+### `connector_check_results`
+
+The last result of each of a connector's checks. Primary key `(connector_id, check_id)`; cascades with the connector.
+
+| Column         | Type          | Notes                                                           |
+|----------------|---------------|-----------------------------------------------------------------|
+| `connector_id` | `UUID`        | References `connectors`                                         |
+| `check_id`     | `TEXT`        | The check, as its kind names it, such as `sign_in`              |
+| `state`        | `TEXT`        | `passed`, `failed`, or `skipped`                                |
+| `count`        | `BIGINT`      | How many it found, for a check that counts                      |
+| `reason`       | `TEXT`        | Why, in Elysium's own terms, such as `no_messages`              |
+| `message`      | `TEXT`        | What the provider said; at most 2048 characters                 |
+| `blocked_by`   | `TEXT`        | The check it waited on, when skipped because that one did not pass |
+| `ran_at`       | `TIMESTAMPTZ` | When it ran                                                     |
+
+### `connector_runs`
+
+Syncs worth showing: those that recorded something, and those that failed. Each connector keeps its newest 50;
+indexed by connector and by start time.
+
+| Column         | Type          | Notes                                                           |
+|----------------|---------------|-----------------------------------------------------------------|
+| `id`           | `UUID`        | UUIDv7, primary key                                             |
+| `connector_id` | `UUID`        | References `connectors`, cascading                              |
+| `started_at`, `finished_at` | `TIMESTAMPTZ` | When it ran                                        |
+| `outcome`      | `TEXT`        | `succeeded` or `failed`                                         |
+| `records`      | `INTEGER`     | How many things it recorded: records, meetings, or linked changes |
+| `error`        | `TEXT`        | Why it failed; at most 2048 characters                          |
 
 ### `timeline_records`
 
-Everything ingested, newest first by `occurred_at` (indexed). Unique on `(connector_account_id, external_id)`, so an
-item is recorded once per account.
+Everything ingested, newest first by `occurred_at` (indexed). Unique on `(connector_id, external_id)`, so an
+item is recorded once per connector.
 
 | Column                 | Type          | Notes                                                                   |
 |------------------------|---------------|-------------------------------------------------------------------------|
 | `id`                   | `UUID`        | UUIDv7, primary key                                                     |
 | `source_kind`          | `TEXT`        | What it is, such as `outlook` or `meeting`                              |
-| `connector_account_id` | `UUID`        | References `connector_accounts`; set to `NULL` when the account goes    |
+| `connector_id`         | `UUID`        | References `connectors`; set to `NULL` when the connector goes          |
 | `external_id`          | `TEXT`        | The provider's id, at most 1024 characters                              |
 | `occurred_at`          | `TIMESTAMPTZ` | When it happened, or when it was read                                   |
 | `actor`                | `TEXT`        | Who it came from, as the provider shows them                            |
@@ -197,13 +244,13 @@ Which projects a record is about. Primary key `(timeline_record_id, project_id)`
 ### `meetings`
 
 Meetings read from a meeting source, and how far each one's processing got; see `docs/meetings.md`. Unique on
-`(connector_account_id, external_id)`; unfinished meetings are indexed for the processing loop. `recording_path` and
+`(connector_id, external_id)`; unfinished meetings are indexed for the processing loop. `recording_path` and
 `storage_location_id` are set together (`meetings_recording_fields`).
 
 | Column                   | Type          | Notes                                                                   |
 |--------------------------|---------------|-------------------------------------------------------------------------|
 | `id`                     | `UUID`        | UUIDv7, primary key                                                     |
-| `connector_account_id`   | `UUID`        | References `connector_accounts`; set to `NULL` when the account goes    |
+| `connector_id`           | `UUID`        | References `connectors`; set to `NULL` when the connector goes          |
 | `source_kind`            | `TEXT`        | The source, such as `fireflies`                                         |
 | `external_id`            | `TEXT`        | The source's id, at most 1024 characters                                |
 | `title`                  | `TEXT`        | At most 2048 characters                                                 |

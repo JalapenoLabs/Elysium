@@ -35,7 +35,7 @@ pub fn router() -> Router<AppState> {
 pub struct TimelineRecordResponse {
     id: Uuid,
     source_kind: String,
-    connector_account_id: Option<Uuid>,
+    connector_id: Option<Uuid>,
     external_id: Option<String>,
     occurred_at: DateTime<Utc>,
     actor: String,
@@ -64,7 +64,7 @@ impl TimelineRecordResponse {
         Self {
             id: record.id,
             source_kind: record.source_kind,
-            connector_account_id: record.connector_account_id,
+            connector_id: record.connector_id,
             external_id: record.external_id,
             occurred_at: record.occurred_at,
             actor: record.actor,

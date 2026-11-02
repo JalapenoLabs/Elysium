@@ -9,10 +9,10 @@ import { useTranslation } from 'react-i18next'
 
 // Redux
 import {
-  connectorAccountDeleted,
-  connectorAccountUpserted,
-  selectAllConnectorAccounts,
-} from '../../../store/connectorAccountsSlice'
+  connectorDeleted,
+  connectorUpserted,
+  selectAllConnectors,
+} from '../../../store/connectorsSlice'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 
 // User interface
@@ -20,8 +20,8 @@ import { Button, Card, Chip, toast } from '@heroui/react'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
-import { createConnectorAccount, deleteConnectorAccount } from '../../../api/routes/connectorRoutes'
-import { useConnectorAccountsLoader } from '../../../hooks/useServerData'
+import { createConnector, deleteConnector } from '../../../api/routes/connectorRoutes'
+import { useConnectorsLoader } from '../../../hooks/useServerData'
 import {
   connectorKindFor,
   connectorLabelKeys,
@@ -38,12 +38,13 @@ type Props = {
 export function MailReadingSection(props: Props) {
   const { t } = useTranslation([ 'browsers', 'common' ])
   const dispatch = useAppDispatch()
-  const status = useConnectorAccountsLoader()
-  const accounts = useAppSelector(selectAllConnectorAccounts)
+  const status = useConnectorsLoader()
+  const connectors = useAppSelector(selectAllConnectors)
   const [ isBusy, setIsBusy ] = useState(false)
 
   const kind = connectorKindFor(props.browserSession.startUrl)
-  const account = accounts.find((candidate) => candidate.browserSessionId === props.browserSession.id)
+  const account = connectors.find((candidate) => candidate.account?.kind === 'browser'
+    && candidate.account.id === props.browserSession.id)
   if (!kind || status !== 'loaded') {
     return null
   }
@@ -51,11 +52,12 @@ export function MailReadingSection(props: Props) {
   async function startReading(connectorKind: WebmailConnectorKind) {
     setIsBusy(true)
     try {
-      const response = await createConnectorAccount({
+      const response = await createConnector({
         kind: connectorKind,
-        browserSessionId: props.browserSession.id,
+        account: { id: props.browserSession.id },
+        content: {},
       })
-      dispatch(connectorAccountUpserted(response.connector))
+      dispatch(connectorUpserted(response.connector))
       toast.success(t('connectors.toasts.started'))
     }
     catch (error) {
@@ -70,8 +72,8 @@ export function MailReadingSection(props: Props) {
   async function stopReading(accountId: string) {
     setIsBusy(true)
     try {
-      await deleteConnectorAccount(accountId)
-      dispatch(connectorAccountDeleted(accountId))
+      await deleteConnector(accountId)
+      dispatch(connectorDeleted(accountId))
       toast.success(t('connectors.toasts.stopped'))
     }
     catch (error) {

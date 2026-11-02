@@ -24,9 +24,20 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/browser-sessions/{id}/start-over` | `204`; its start page in a fresh tab, other tabs closed, profile kept; `502` when Chromium does not answer |
 | POST   | `/api/v1/browser-sessions/{id}/reset` | `202` `{ browserSession }`, `starting`; empties its profile and starts it again |
 | GET    | `/api/v1/browser-sessions/{id}/stream` | WebSocket: the browser's signaling, see `docs/browser.md` |
-| GET    | `/api/v1/connectors`                  | `200` `{ connectors: ConnectorAccount[] }`, the caller's |
+| GET    | `/api/v1/connectors`                  | `200` `{ connectors: Connector[] }`, those the caller sees |
 | POST   | `/api/v1/connectors`                  | `201` `{ connector }`; reads a service through a browser or with an API key |
+| GET    | `/api/v1/connectors/{id}`             | `200` `{ connector }`                                |
+| PATCH  | `/api/v1/connectors/{id}`             | `200` `{ connector }`; `isActive`, `content`, or both |
 | DELETE | `/api/v1/connectors/{id}`             | `204`; its records stay on the timeline             |
+| GET    | `/api/v1/connectors/kinds`            | `200` `{ kinds, accounts }`: every kind's definition |
+| GET    | `/api/v1/connectors/activity`         | `200` `{ runs }`: the newest syncs worth showing     |
+| POST   | `/api/v1/connectors/options`          | `200` `{ fields }`: what each selection field can pick from |
+| POST   | `/api/v1/connectors/checks`           | `202` `{ run }`: checks a connector not stored yet   |
+| GET    | `/api/v1/connectors/check-runs/{runId}` | `200` `{ run }`, to whoever started it             |
+| POST   | `/api/v1/connectors/{id}/checks`      | `202` `{ run }`: runs a stored connector's checks    |
+| POST   | `/api/v1/connectors/{id}/sync`        | `202`: reads it now; `409` when paused or already syncing |
+| GET    | `/api/v1/accounts`                    | `200` `{ accounts }`, with the connectors each feeds |
+| DELETE | `/api/v1/accounts/tokens/{id}`        | `204`; an API key's account and its connectors      |
 | GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, the caller's 100 newest |
 | GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; resumes a failed meeting, `404` for one that has not failed |
@@ -268,20 +279,28 @@ reaches now, or `null` to clear it. `collections` and `sync` answer `503` until 
 
 ### `/api/v1/connectors` and `/api/v1/timeline`
 
-A `ConnectorAccount` has `id`, `kind` (`outlook`, `gmail`, or `fireflies`), `browserSessionId` (`null` for an account
-that signs in with a credential), `hasCredential`, `storageLocationId`, `signInState` (`signed_in`, `signed_out`, or
-`unknown`), `lastPolledAt`, `lastError`, `isActive`, `createdBy`, `createdAt`, and `updatedAt`; a credential is never
-returned. `POST` takes `kind` and what that kind signs in with: `browserSessionId` for Outlook and Gmail, or `apiKey`
-and `storageLocationId` for Fireflies. A field the kind does not take is refused. It answers `400` when the browser
-is not the caller's, the storage location does not exist, or Fireflies refuses the key, `409` when the browser already
-has a connector, and `502` when Fireflies cannot be reached.
+A `Connector` has `id`, `kind`, `scope` (`workspace` or `personal`), `account` (`{ id, kind, name }`), `status`
+(`active`, `syncing`, `error`, or `paused`), `isActive`, `signInState`, `lastSyncAt`, `lastError`, `records`, `content`
+(in its kind's terms; Jira's is its allowlist), `storageLocationId`, `checks` (each check's last result), `lastRun`,
+`createdBy`, and `createdAt`; a secret is never returned. `POST` and `POST /checks` take `{ kind, account, content }`,
+where `account` is `{ id }` for an account the caller has or `{ new: { ...its fields } }`: Jira and GitHub take a new
+account, a mailbox an existing browser, Fireflies either and a `storageLocationId`. A field a kind does not take is
+refused. Creating answers `400` for content or an account the kind cannot use or a secret its provider refuses, `404`
+for an account that is not the caller's, `409` (`account_has_connector`) for an Atlassian or GitHub account, which
+already carries its connector, or for an account that already feeds the kind, and `502` when the provider cannot be
+reached. Someone else's personal connector answers `404`. A `CheckRun` has `id`, `kind`, `connectorId`, `startedAt`,
+`finishedAt`, and `checks`, each `{ checkId, required, state, count, reason, message, blockedBy }`. See
+`docs/connectors.md`.
 
-A `Meeting` has `id`, `connectorAccountId`, `sourceKind`, `title`, `startedAt`, `durationMs`, `organizer`,
+An `Account` has `id`, `kind` (`atlassian`, `github`, `browser`, or `fireflies`), `name`, `identity`, `checkedAt`,
+`isDefault` (GitHub's workspace default), `createdBy`, `createdAt`, and `usedBy` (each `{ connectorId, kind }`).
+
+A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durationMs`, `organizer`,
 `participants`, `url`, `state` (`pending`, `recorded`, `segmented`, `done`, or `failed`), `attempts`, `lastError`,
 `hasRecording`, `segmentCount`, `createdAt`, and `updatedAt`. Its transcript is not served; its segments reach the
 timeline. See `docs/meetings.md`.
 
-A `TimelineRecord` has `id`, `sourceKind`, `connectorAccountId`, `externalId`, `occurredAt`, `actor`, `title`,
+A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
 attributedBy, createdAt }`), `createdBy`, and `createdAt`. `GET /timeline` takes `projectId`, `before` (an
 `occurredAt`, for the next page), and `limit` (1 to 200, default 50). `GET /timeline/{id}/media` streams the clip in
@@ -623,7 +642,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/jira/`              | Jira Cloud's REST API and Atlassian Document Format |
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/browser/`           | The browsers the host streams: their containers, the reconciler, Neko's API, the stream relay, and the DevTools client |
-| `src/connectors/`        | The connector trait, the webmail connector and its page scripts, and the ingest loop |
+| `src/connectors/`        | Accounts, kinds and their checks, sync activity, the webmail reader and its page scripts, and the ingest loop |
 | `src/meetings/`          | Meeting sources (Fireflies), the listing and processing loop, segmentation, and clips cut with `ffmpeg` |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |

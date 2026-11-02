@@ -33,7 +33,7 @@ pub fn router() -> Router<AppState> {
 #[serde(rename_all = "camelCase")]
 pub struct MeetingResponse {
     id: Uuid,
-    connector_account_id: Option<Uuid>,
+    connector_id: Option<Uuid>,
     source_kind: String,
     title: String,
     started_at: DateTime<Utc>,
@@ -63,7 +63,7 @@ impl MeetingResponse {
                 .map(Vec::len),
             has_recording: meeting.recording_path.is_some(),
             id: meeting.id,
-            connector_account_id: meeting.connector_account_id,
+            connector_id: meeting.connector_id,
             source_kind: meeting.source_kind,
             title: meeting.title,
             started_at: meeting.started_at,

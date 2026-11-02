@@ -9,7 +9,7 @@ import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 // Redux
-import { connectorAccountUpserted } from '../../../store/connectorAccountsSlice'
+import { connectorUpserted } from '../../../store/connectorsSlice'
 import { useAppDispatch } from '../../../store/hooks'
 
 // User interface
@@ -33,7 +33,7 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
-import { createConnectorAccount } from '../../../api/routes/connectorRoutes'
+import { createConnector } from '../../../api/routes/connectorRoutes'
 import { createFirefliesFormSchema } from './firefliesFormSchema'
 
 type Props = {
@@ -61,12 +61,12 @@ export function FirefliesConnectForm(props: Props) {
   const onSubmit = form.handleSubmit(async (values) => {
     setRefusal(null)
     try {
-      const response = await createConnectorAccount({
+      const response = await createConnector({
         kind: 'fireflies',
-        apiKey: values.apiKey,
-        storageLocationId: values.storageLocationId,
+        account: { new: { apiKey: values.apiKey }},
+        content: { storageLocationId: values.storageLocationId },
       })
-      dispatch(connectorAccountUpserted(response.connector))
+      dispatch(connectorUpserted(response.connector))
       toast.success(t('fireflies.connectedToast'))
     }
     catch (error) {

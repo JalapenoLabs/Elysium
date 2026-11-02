@@ -10,6 +10,7 @@ use axum::extract::rejection::JsonRejection;
 use axum::http::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use uuid::Uuid;
 use validator::Validate;
 
 use super::{
@@ -18,7 +19,9 @@ use super::{
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::jira::{Site, normalize_site_url};
-use crate::models::jira_credential::{self, Allowed, NewJiraCredential, VerifiedToken};
+use crate::models::jira_credential::{
+    self, Allowed, JiraCredential, NewJiraCredential, VerifiedToken,
+};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -43,6 +46,25 @@ pub async fn handle(
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
+    let (credential, allowed) = create_credential(&state, current.id(), body).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "credential": JiraCredentialResponse::new(credential, allowed) })),
+    ))
+}
+
+/// Creates a credential, and with it its Jira connector, for `created_by`, once Jira has
+/// accepted the token and reported every pick. The hub's Jira connectors are made here too
+/// (`crate::connectors::kinds::jira`), so both check exactly the same things.
+///
+/// # Errors
+/// [`ApiError::Validation`] for fields out of shape, [`ApiError::BadRequest`] for a site that is
+/// not Jira Cloud or a pick Jira does not report, and whatever Jira answered.
+pub async fn create_credential(
+    state: &AppState,
+    created_by: Uuid,
+    body: RequestBody,
+) -> Result<(JiraCredential, Allowed), ApiError> {
     body.validate()?;
 
     let site_url = normalize_site_url(&body.site_url)
@@ -66,7 +88,7 @@ pub async fn handle(
     };
 
     let new_credential = NewJiraCredential {
-        created_by: current.id(),
+        created_by,
         name: body.name,
         verified: VerifiedToken {
             site_url,
@@ -90,11 +112,7 @@ pub async fn handle(
     state
         .events
         .publish(&ServerEvent::JiraCredentialUpserted(response));
-
-    Ok((
-        StatusCode::CREATED,
-        Json(json!({ "credential": JiraCredentialResponse::new(credential, allowed) })),
-    ))
+    Ok((credential, allowed))
 }
 
 #[cfg(test)]

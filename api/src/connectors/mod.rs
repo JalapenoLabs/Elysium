@@ -1,29 +1,63 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Connectors: services Elysium reads as its user, and the timeline everything they read
-//! lands on. See `docs/connectors.md`.
+//! Connectors: services Elysium reads as its user, the accounts it reads them through, and the
+//! timeline everything they read lands on. See `docs/connectors.md`.
 //!
-//! Every connector fills one trait, [`Connector`]: it says whether its account is signed in,
-//! and reads what is new. Today's connectors read a signed-in page in one of the person's
-//! browsers ([`webmail`]); a connector on an API or a CLI fills the same trait. How it signs in
-//! and stays signed in belongs to what it reads through: a browser keeps its own session.
+//! # Accounts and connectors
 //!
-//! [`ingest`] runs every active account on an interval, stores what it reads as timeline
-//! records, raises an inbox item for each new message that wants attention, and publishes
-//! `timelineRecord.created`, which is where Elysia's triage picks up.
+//! An account is how Elysium signs in to a provider as a person ([`AccountKind`]): an
+//! Atlassian or GitHub token, an API key, or a browser the person signed in to. A connector is
+//! one use of one account (`crate::models::connector`): a [`ConnectorKind`], what it reads, and
+//! what its reading has found. One account can feed several connectors, each kind once.
+//!
+//! # Kinds are defined once
+//!
+//! Each kind is one module under [`kinds`] that declares what the hub needs to know about it:
+//! the account it reads through, what it reads, and its ordered checks ([`checks`]). The API
+//! serves those definitions, and the web app renders its forms and check lists from them.
+//!
+//! # Reading
+//!
+//! [`ingest`] reads every active webmail connector on an interval, stores what it reads as
+//! timeline records, raises an inbox item for each new message that wants attention, and
+//! publishes `timelineRecord.created`, which is where Elysia's triage picks up. Meetings have
+//! their own loop (`crate::meetings`), and Jira and GitHub are read by the link watcher
+//! (`crate::action_items::watcher`). [`activity`] is where each of them reports a sync.
 
+pub mod accounts;
+pub mod activity;
+pub mod checks;
 pub mod ingest;
+pub mod kinds;
 pub mod webmail;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use self::activity::Activity;
+use self::checks::CheckRuns;
+use self::ingest::Ingest;
 use crate::models::browser_session::BrowserSession;
 
-/// Every connector. Stored as text in `connector_accounts.kind` and `timeline_records.source_kind`.
+/// What request handlers reach the hub through. Cloning is cheap: each field is a handle.
+#[derive(Debug, Clone)]
+pub struct Connectors {
+    /// Reads mailboxes; a sync someone asks for reads through it.
+    pub ingest: Ingest,
+    /// What is syncing, and where syncs are recorded.
+    pub activity: Activity,
+    /// Check runs the web app is following.
+    pub check_runs: CheckRuns,
+}
+
+/// Every kind of connector. Stored as text in `connectors.kind` and `timeline_records.source_kind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectorKind {
+    /// Jira Cloud issues, read through an Atlassian account by the link watcher.
+    Jira,
+    /// GitHub issues and pull requests, read through a GitHub account by the link watcher.
+    Github,
     Outlook,
     Gmail,
     /// Meetings recorded and transcribed by Fireflies.ai, read with its owner's API key. See
@@ -31,18 +65,15 @@ pub enum ConnectorKind {
     Fireflies,
 }
 
-/// How a connector signs in, which decides what its account holds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SignIn {
-    /// Through one of the person's browsers, which keeps its own session.
-    Browser,
-    /// With a credential the person gave Elysium, such as an API key, sealed on the account.
-    Credential,
-}
-
 impl ConnectorKind {
-    /// Every kind, for parsing.
-    const ALL: [Self; 3] = [Self::Outlook, Self::Gmail, Self::Fireflies];
+    /// Every kind, in the order the hub lists them.
+    pub const ALL: [Self; 5] = [
+        Self::Jira,
+        Self::Github,
+        Self::Outlook,
+        Self::Gmail,
+        Self::Fireflies,
+    ];
 
     /// The kinds that read mail through a browser, which `ingest` reads.
     pub const WEBMAIL: [Self; 2] = [Self::Outlook, Self::Gmail];
@@ -52,16 +83,11 @@ impl ConnectorKind {
 
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::Jira => "jira",
+            Self::Github => "github",
             Self::Outlook => "outlook",
             Self::Gmail => "gmail",
             Self::Fireflies => "fireflies",
-        }
-    }
-
-    pub const fn sign_in(self) -> SignIn {
-        match self {
-            Self::Outlook | Self::Gmail => SignIn::Browser,
-            Self::Fireflies => SignIn::Credential,
         }
     }
 
@@ -71,7 +97,49 @@ impl ConnectorKind {
     }
 }
 
-/// Whether the account was signed in when it was read. Stored as `connector_accounts.sign_in_state`.
+/// How an account signs in, which decides the store it lives in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountKind {
+    /// A site, an account email, and an API token (`jira_credentials`).
+    Atlassian,
+    /// A personal access token (`github_credentials`).
+    Github,
+    /// A browser the person signed in to (`browser_sessions`).
+    Browser,
+    /// A Fireflies API key (`token_accounts`).
+    Fireflies,
+}
+
+impl AccountKind {
+    pub const ALL: [Self; 4] = [
+        Self::Atlassian,
+        Self::Github,
+        Self::Browser,
+        Self::Fireflies,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Atlassian => "atlassian",
+            Self::Github => "github",
+            Self::Browser => "browser",
+            Self::Fireflies => "fireflies",
+        }
+    }
+}
+
+/// Whose a connector is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+    /// Everyone in the workspace sees and manages it, as they do its account.
+    Workspace,
+    /// Its creator's alone: their mail, their meetings.
+    Personal,
+}
+
+/// Whether the account was signed in when it was read. Stored as `connectors.sign_in_state`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignInState {
@@ -125,8 +193,8 @@ pub enum ConnectorError {
     Unexpected(String),
 }
 
-/// A service Elysium reads as its user.
-pub trait Connector {
+/// A service Elysium reads through a browser its person signed in to.
+pub trait BrowserReader {
     fn kind(&self) -> ConnectorKind;
 
     /// Reads what the account shows now, through the browser it is signed in to.

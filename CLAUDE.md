@@ -168,10 +168,21 @@ Everything else follows these rules:
 
 ## Connectors and the timeline
 
-- A connector is a service Elysium reads as its user, behind one trait (`api/src/connectors/`): it names its kind
-  and reads what its account shows now. How it signs in and stays signed in belongs to what it reads through. Today
-  Outlook and Gmail read through a person's browser over DevTools, with one page script per service; the check is
-  cheap and deterministic, and nothing it does marks mail read. See `docs/connectors.md`.
+- Accounts and connectors are separate. An account is how Elysium signs in to a provider as a person: Atlassian
+  (`jira_credentials`), GitHub (`github_credentials`), a signed-in browser (`browser_sessions`), or an API key
+  (`token_accounts`). A connector (`connectors`) is one use of one account: a kind, what it reads, and its reading
+  state. An account feeds each kind once; every Atlassian and GitHub account carries its one connector. See
+  `docs/connectors.md`.
+- Each kind is one module under `api/src/connectors/kinds/` declaring its definition (scope, account, content fields,
+  ordered checks) and its verbs; `kinds/mod.rs` alone matches on the kind. The API serves the definitions and the web
+  app draws forms and check lists from them, naming every id from its translations.
+- Checks run in order, a dependency that did not pass skips what builds on it, and they run before a connector is
+  saved and on demand. Progress is published as ids and states only; a stored connector's last results are kept.
+- Syncs that record something or fail are runs (`connector_runs`), reported through `connectors::activity`; a
+  connector's status is paused, syncing, error, or active. A paused Jira or GitHub connector's account is skipped by
+  the link watcher. `connector.changed` carries an id alone.
+- Outlook and Gmail read through a person's browser over DevTools, with one page script per service; the check is
+  cheap and deterministic, and nothing it does marks mail read.
 - Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
   projects with a confidence (`timeline_record_projects`). A record is its owner's alone, even about a shared
   project.
@@ -180,14 +191,14 @@ Everything else follows these rules:
   watcher. The first read baselines the mailbox without raising anything.
 - `timelineRecord.created` carries ids and kinds, never content, because every client hears every event. It is the
   seam Elysia's triage builds on.
-- A connector account signs in through a browser or with a credential (an API key), exactly one, which its kind
-  decides. A credential is checked with the service before it is stored, sealed bound to the row, and never returned.
+- A new account's secret is checked with its provider before it is stored, sealed bound to its row, and never
+  returned.
 
 ## Meetings
 
 - Meetings are read from a meeting source as their person (`api/src/meetings/`): today Fireflies, with the person's
-  own API key, so nothing is installed into an organization. Every meeting belongs to a connector account, which is
-  what keeps it and its segments from being recorded twice. See `docs/meetings.md`.
+  own API key, so nothing is installed into an organization. Every meeting belongs to a connector, which is what
+  keeps it and its segments from being recorded twice. See `docs/meetings.md`.
 - Each meeting is recorded (transcript, and the recording uploaded to the account's storage location), segmented by
   Elysia in one text turn on the runner, and published: `ffmpeg` cuts each segment's clip in the workspace container,
   and each segment becomes a timeline record with its excerpt, summary, span, and clip, attributed to its projects.
