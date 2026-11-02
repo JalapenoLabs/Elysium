@@ -1,0 +1,220 @@
+{
+  "page": {
+    "title": "Connectors",
+    "description": "Every service Elysium reads as you, the accounts it reads them through, and whether each one works.",
+    "add": "Add connector",
+    "tabs": {
+      "connectors": "Connectors",
+      "accounts": "Accounts"
+    },
+    "search": "Search connectors",
+    "allStatuses": "All statuses",
+    "empty": "No connectors yet. Add one to start reading a service.",
+    "noMatches": "No connector matches."
+  },
+  "summary": {
+    "active": "{{active}} of {{total}} active",
+    "records_one": "{{count}} record",
+    "records_other": "{{count}} records",
+    "errors_one": "{{count}} needs attention",
+    "errors_other": "{{count}} need attention"
+  },
+  "activity": {
+    "title": "Activity",
+    "empty": "Syncs that record something or fail show up here.",
+    "succeeded_one": "Recorded {{count}} item",
+    "succeeded_other": "Recorded {{count}} items",
+    "failed": "Sync failed",
+    "retry": "Retry"
+  },
+  "status": {
+    "active": "Active",
+    "syncing": "Syncing",
+    "error": "Error",
+    "paused": "Paused"
+  },
+  "row": {
+    "account": "Through {{name}}",
+    "noAccount": "Account removed",
+    "lastSync": "Last synced {{when}}",
+    "neverSynced": "Not synced yet",
+    "records_one": "{{count}} record",
+    "records_other": "{{count}} records",
+    "workspace": "Workspace",
+    "personal": "Yours"
+  },
+  "actions": {
+    "menu": "Actions for {{name}}",
+    "open": "Open",
+    "runChecks": "Run checks",
+    "sync": "Sync now",
+    "pause": "Pause",
+    "resume": "Resume",
+    "delete": "Delete",
+    "saved": "Saved",
+    "deleted": "Connector removed",
+    "syncing": "Syncing now",
+    "deleteTitle": "Remove this connector?",
+    "deleteBody": "Elysium stops reading through it. What it already recorded stays on the timeline.",
+    "deleteBodyWithAccount": "A {{kind}} connector goes with its account, so the account is removed too, along with anything else that uses it, such as coding sessions' GitHub token."
+  },
+  "kinds": {
+    "jira": {
+      "name": "Jira",
+      "description": "Issues on a Jira Cloud site, bounded to the projects and boards you pick."
+    },
+    "github": {
+      "name": "GitHub",
+      "description": "Issues and pull requests, read through a personal access token."
+    },
+    "outlook": {
+      "name": "Outlook",
+      "description": "Your Outlook inbox, read through a browser you sign in to."
+    },
+    "gmail": {
+      "name": "Gmail",
+      "description": "Your Gmail inbox, read through a browser you sign in to."
+    },
+    "fireflies": {
+      "name": "Fireflies",
+      "description": "Your recorded meetings, cut into segments on each project's timeline."
+    }
+  },
+  "accountKinds": {
+    "atlassian": "Atlassian account",
+    "github": "GitHub account",
+    "browser": "Browser",
+    "fireflies": "Fireflies key"
+  },
+  "accounts": {
+    "empty": "No accounts yet. Adding a connector adds its account.",
+    "usedBy_one": "Used by {{count}} connector",
+    "usedBy_other": "Used by {{count}} connectors",
+    "unused": "Not used by any connector",
+    "default": "Default for coding",
+    "checked": "Checked {{when}}",
+    "edit": "Edit",
+    "delete": "Delete",
+    "deleted": "Account removed",
+    "deleteTitle": "Remove this account?",
+    "deleteBody": "Every connector it feeds stops. The key stays valid with its provider until you revoke it there."
+  },
+  "fields": {
+    "name": "Name",
+    "siteUrl": "Site URL",
+    "accountEmail": "Account email",
+    "token": "API token",
+    "kind": "Token type",
+    "apiKey": "API key",
+    "projects": "Projects",
+    "boards": "Boards",
+    "storageLocationId": "Storage location",
+    "choices": {
+      "classic": "Classic",
+      "fine-grained": "Fine-grained"
+    },
+    "everything": "Everything it reaches, including what is added later",
+    "truncated": "The provider has more than one listing holds; only the first are shown.",
+    "noOptions": "Nothing to pick from yet. Fill in the account first.",
+    "loadOptions": "Load options",
+    "noStorageLocations": "Add a storage location under Settings, Storage first."
+  },
+  "wizard": {
+    "title": "Add connector",
+    "steps": {
+      "kind": "Kind",
+      "account": "Account",
+      "content": "Content",
+      "checks": "Checks"
+    },
+    "chooseKind": "What should Elysium read?",
+    "chooseAccount": "Which account does it read through?",
+    "newAccount": "A new account",
+    "browserSignIn": "A mailbox is read through a browser you sign in to. Sign in to one under Settings, Browser sign-ins, then pick it here.",
+    "openBrowsers": "Open Browser sign-ins",
+    "noBrowsers": "No browser yet.",
+    "back": "Back",
+    "next": "Next",
+    "runChecks": "Run checks",
+    "save": "Save connector",
+    "saveAnyway": "Save anyway",
+    "requiredFailed": "A required check failed. Fix it, or save anyway and come back to it.",
+    "created": "Connector added"
+  },
+  "checks": {
+    "title": "Connector checks",
+    "progress": "{{done}} of {{total}}",
+    "run": "Run checks",
+    "required": "Required",
+    "never": "These checks have not run yet.",
+    "lastRan": "Last ran {{when}}",
+    "states": {
+      "queued": "Queued",
+      "running": "Testing",
+      "passed": "Passed",
+      "failed": "Failed",
+      "skipped": "Skipped"
+    },
+    "waitsFor": "Waits for {{check}}",
+    "labels": {
+      "sign_in": "Sign in",
+      "list_projects": "List projects",
+      "list_boards": "List boards",
+      "allowlist_reachable": "Reach the chosen projects and boards",
+      "sample_issues": "Sample issues",
+      "read_scopes": "Read token scopes",
+      "list_repositories": "List repositories",
+      "sample_pull_requests": "Sample pull requests",
+      "browser_running": "Browser running",
+      "signed_in": "Signed in",
+      "inbox_readable": "Read the inbox",
+      "sample_message": "Sample messages",
+      "list_meetings": "List recent meetings",
+      "sample_transcript": "Sample a transcript"
+    },
+    "counts": {
+      "list_projects_one": "Reaches {{count}} project",
+      "list_projects_other": "Reaches {{count}} projects",
+      "list_boards_one": "Reaches {{count}} board",
+      "list_boards_other": "Reaches {{count}} boards",
+      "allowlist_reachable_one": "{{count}} project allowed",
+      "allowlist_reachable_other": "{{count}} projects allowed",
+      "sample_issues_one": "{{count}} issue",
+      "sample_issues_other": "{{count}} issues",
+      "read_scopes_one": "{{count}} scope",
+      "read_scopes_other": "{{count}} scopes",
+      "list_repositories_one": "Reaches {{count}} repository",
+      "list_repositories_other": "Reaches {{count}} repositories",
+      "sample_pull_requests_one": "{{count}} pull request",
+      "sample_pull_requests_other": "{{count}} pull requests",
+      "inbox_readable_one": "{{count}} message in view",
+      "inbox_readable_other": "{{count}} messages in view",
+      "sample_message_one": "{{count}} unread",
+      "sample_message_other": "{{count}} unread",
+      "list_meetings_one": "{{count}} meeting in two weeks",
+      "list_meetings_other": "{{count}} meetings in two weeks",
+      "sample_transcript_one": "{{count}} line",
+      "sample_transcript_other": "{{count}} lines"
+    },
+    "reasons": {
+      "fine_grained_scopes": "GitHub does not report a fine-grained token's permissions.",
+      "no_repositories": "The token reaches no repository to sample.",
+      "no_projects_allowed": "No project is allowed, so there is nothing to search.",
+      "allowlist_unresolved": "The allowlist was not resolved.",
+      "sample_unread": "The sample could not be read.",
+      "browser_not_running": "The browser is not running.",
+      "signed_out": "The service is asking you to sign in again.",
+      "mailbox_not_open": "No tab in the browser shows the mailbox.",
+      "no_messages": "The inbox shows no messages to sample.",
+      "no_meetings": "No meeting in the last two weeks to sample.",
+      "meeting_unavailable": "The newest meeting is not available yet."
+    }
+  },
+  "detail": {
+    "content": "What it reads",
+    "save": "Save",
+    "editAccount": "Edit account",
+    "doneStatuses": "Done statuses",
+    "lastError": "Last error"
+  }
+}

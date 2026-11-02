@@ -1,6 +1,7 @@
 # Jira
 
-Elysium reaches Jira Cloud with API tokens, managed on the Jira settings page (`/settings/jira`). Any number of
+Elysium reaches Jira Cloud with API tokens, added and listed in the connector hub (Settings, Connectors, `docs/connectors.md`) and edited on their own page
+(`/settings/jira/:credentialId/edit`). Any number of
 credentials are held at once, each named, so one Elysium can reach a work site and a personal one. A credential
 names the projects and boards it may touch, and every call is bounded by that list.
 

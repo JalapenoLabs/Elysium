@@ -153,6 +153,32 @@ mailbox or meeting source is not read.
 `POST /connectors/{id}/sync` reads a connector now, which is also how a failed sync is retried: a mailbox is read once,
 a meeting source lists and processes, and Jira and GitHub wake the watcher.
 
+## In the web app
+
+Settings, Connectors (`/settings/connectors`, `frontend/src/pages/Settings/Connectors/`) is the hub, modeled on Onyx's
+connectors:
+
+- **The list** shows every connector the person sees with its kind, account, status, last sync, records, and last
+  error, and a gear menu to run its checks, sync it now, pause or resume it, and delete it. A search over kind and
+  account names and a status filter narrow it. Above it, a summary and the activity feed of recent syncs, each failed
+  one with a retry.
+- **Accounts** lists every account with what it feeds; Atlassian, GitHub, and browser accounts are edited on their own
+  pages, and an API key's account is removed here.
+- **Adding** a connector (`/settings/connectors/new`) picks a kind, then an account the person has or a new one, then
+  its content, then runs its checks live before it is saved. A required check that did not pass leaves the save
+  available as "Save anyway".
+- **A connector's page** (`/settings/connectors/:connectorId`) shows its status, last error, checks (stored, or a run
+  started there as it goes), and content to change, with links to its account's own page.
+
+Every form and check list is drawn from `GET /connectors/kinds`: `AccountFields` for a new account's fields,
+`ContentFields` for content (a selection loads its options from `POST /connectors/options` on request), and `CheckList`
+for checks. Names, check labels, count sentences, and reasons come from the `connectors` translations, by id.
+Connectors reach Redux through `useConnectorsLoader` and stay current through `connector.changed`, each loaded by id;
+a followed check run moves along on `connectorCheckRun.updated` and is loaded again when it finishes, for its messages.
+
+Settings, GitHub and Settings, Jira lead to the hub; a GitHub or Jira account's edit page and Jira's done statuses
+stay where they were.
+
 ## Ingest
 
 `api/src/connectors/ingest.rs` reads every active mailbox connector once a minute (`INGEST_INTERVAL`), until shutdown;

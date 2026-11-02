@@ -39,13 +39,9 @@
       "title": "Email",
       "description": "Connect Gmail and Outlook accounts, or create mailboxes on Elysium's own mail server."
     },
-    "github": {
-      "title": "GitHub",
-      "description": "Connect GitHub with personal access tokens, classic or fine-grained."
-    },
-    "jira": {
-      "title": "Jira",
-      "description": "Connect Jira Cloud sites with API tokens, and choose the projects and boards Elysium reads."
+    "connectors": {
+      "title": "Connectors",
+      "description": "Jira, GitHub, mail, and meetings: every service Elysium reads as you, its accounts, and their checks."
     },
     "storage": {
       "title": "Storage",

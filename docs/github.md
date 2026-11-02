@@ -1,6 +1,7 @@
 # GitHub
 
-Elysium reaches GitHub with personal access tokens, managed on the GitHub settings page (`/settings/github`). Any
+Elysium reaches GitHub with personal access tokens, added and listed in the connector hub (Settings, Connectors, `docs/connectors.md`) and edited on their own page
+(`/settings/github/:credentialId/edit`). Any
 number of tokens are held at once, each named, so one Elysium can act as a work account and a personal one. A coding
 session's agent works with one of them through `gh` and `git`.
 

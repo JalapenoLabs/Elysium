@@ -7,6 +7,9 @@ import { createBrowserRouter, Navigate } from 'react-router'
 
 // User interface
 import { AuthGate } from './auth/AuthGate'
+import { AddConnectorPage } from './pages/Settings/Connectors/AddConnectorPage'
+import { ConnectorPage } from './pages/Settings/Connectors/ConnectorPage'
+import { ConnectorsPage } from './pages/Settings/Connectors/ConnectorsPage'
 import { AppShell } from './layout/AppShell'
 import { AuthErrorPage } from './pages/Auth/AuthErrorPage'
 import { AuthLayout } from './pages/Auth/AuthLayout'
@@ -39,13 +42,9 @@ import { ManageEmailPage } from './pages/Settings/Email/ManageEmailPage'
 import { AddEnvironmentVariablePage } from './pages/Settings/Environment/AddEnvironmentVariablePage'
 import { EditEnvironmentVariablePage } from './pages/Settings/Environment/EditEnvironmentVariablePage'
 import { ManageEnvironmentPage } from './pages/Settings/Environment/ManageEnvironmentPage'
-import { AddGithubCredentialPage } from './pages/Settings/Github/AddGithubCredentialPage'
 import { EditGithubCredentialPage } from './pages/Settings/Github/EditGithubCredentialPage'
-import { ManageGithubPage } from './pages/Settings/Github/ManageGithubPage'
-import { AddJiraCredentialPage } from './pages/Settings/Jira/AddJiraCredentialPage'
 import { EditJiraCredentialPage } from './pages/Settings/Jira/EditJiraCredentialPage'
 import { JiraDoneTransitionsPage } from './pages/Settings/Jira/JiraDoneTransitionsPage'
-import { ManageJiraPage } from './pages/Settings/Jira/ManageJiraPage'
 import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
@@ -226,13 +225,26 @@ const workspaceRoutes: RouteObject = {
       path: UrlTree.settingsEnvironmentEdit,
       element: <EditEnvironmentVariablePage />,
     },
+    // The hub lists GitHub and Jira with every other connector, and adds them there.
+    {
+      path: UrlTree.settingsConnectors,
+      element: <ConnectorsPage />,
+    },
+    {
+      path: UrlTree.settingsConnectorNew,
+      element: <AddConnectorPage />,
+    },
+    {
+      path: UrlTree.settingsConnector,
+      element: <ConnectorPage />,
+    },
     {
       path: UrlTree.settingsGithub,
-      element: <ManageGithubPage />,
+      element: <Navigate to={UrlTree.settingsConnectors} replace />,
     },
     {
       path: UrlTree.settingsGithubNew,
-      element: <AddGithubCredentialPage />,
+      element: <Navigate to={UrlTree.settingsConnectorNew} replace />,
     },
     {
       path: UrlTree.settingsGithubEdit,
@@ -240,11 +252,11 @@ const workspaceRoutes: RouteObject = {
     },
     {
       path: UrlTree.settingsJira,
-      element: <ManageJiraPage />,
+      element: <Navigate to={UrlTree.settingsConnectors} replace />,
     },
     {
       path: UrlTree.settingsJiraNew,
-      element: <AddJiraCredentialPage />,
+      element: <Navigate to={UrlTree.settingsConnectorNew} replace />,
     },
     {
       path: UrlTree.settingsJiraEdit,

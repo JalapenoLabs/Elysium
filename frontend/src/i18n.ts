@@ -11,6 +11,7 @@ import browsers from './locales/en-US/browsers.json'
 import changesets from './locales/en-US/changesets.json'
 import coding from './locales/en-US/coding.json'
 import common from './locales/en-US/common.json'
+import connectors from './locales/en-US/connectors.json'
 import elysia from './locales/en-US/elysia.json'
 import email from './locales/en-US/email.json'
 import environment from './locales/en-US/environment.json'
@@ -46,6 +47,7 @@ export const resources = {
     elysia,
     email,
     environment,
+    connectors,
     github,
     initiatives,
     jira,
