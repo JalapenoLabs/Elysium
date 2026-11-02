@@ -2,7 +2,7 @@
   "title": "Manage LLMs",
   "credentials": {
     "heading": "Credentials",
-    "description": "Elysium tries active credentials in priority order, lowest number first. Tokens are encrypted and never shown again after saving.",
+    "description": "Elysium tries active credentials in priority order, lowest number first. Tokens are encrypted and never shown again after saving. A signed-in Claude account is kept signed in by Elysium, which also shows its usage.",
     "add": "Add LLM",
     "addMenu": "Choose a provider"
   },
@@ -20,17 +20,21 @@
     "type": "Type",
     "priority": "Priority",
     "status": "Status",
+    "usage": "Usage",
     "expires": "Expires",
     "never": "Never",
+    "keptSignedIn": "Kept signed in",
     "empty": "No LLMs yet. Add one to get started.",
     "loadError": "LLMs could not be loaded."
   },
   "status": {
     "active": "Active",
     "inactive": "Inactive",
-    "expired": "Expired"
+    "expired": "Expired",
+    "signInExpired": "Sign-in expired"
   },
   "types": {
+    "claude-account": "Claude account (sign in)",
     "chatgpt-oauth": "ChatGPT (OAuth)",
     "chatgpt-api-token": "ChatGPT (API token)",
     "claude-api-token": "Claude (API token)",
@@ -106,6 +110,31 @@
       "create": "Choose Create new secret key and pick a project.",
       "copy": "Copy the key. It starts with sk- and is shown only once.",
       "billing": "Make sure the organization has billing set up, or requests fail."
+    },
+    "claude-account": {
+      "start": "Choose Start sign-in. Elysium starts the Claude Code CLI in its workspace.",
+      "open": "Open Claude's sign-in page and sign in with your Claude subscription.",
+      "code": "Copy the code the page shows and paste it into Code.",
+      "kept": "Elysium refreshes the account from then on. Sign in again only if it shows Sign-in expired."
     }
+  },
+  "usage": {
+    "fiveHour": "Five hours",
+    "sevenDay": "Seven days",
+    "resets": "Resets {{when}}",
+    "notAvailable": "Not available",
+    "notRead": "Not read yet",
+    "readFailed": "Could not be read"
+  },
+  "signIn": {
+    "description": "Elysium signs in with the official Claude Code CLI and keeps the account signed in itself, refreshing it before it lapses. Start the sign-in, open Claude's page, sign in there, and paste the code it shows.",
+    "namePlaceholder": "The account email",
+    "nameHint": "Optional. Leave blank to name it after the account's email.",
+    "start": "Start sign-in",
+    "openPage": "Open Claude's sign-in page",
+    "code": "Code",
+    "codeHint": "Paste the code Claude's page shows after you sign in.",
+    "finish": "Finish sign-in",
+    "signedIn": "{{name}} signed in"
   }
 }

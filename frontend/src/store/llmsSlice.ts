@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { PayloadAction } from '@reduxjs/toolkit'
-import type { Llm } from '../api/routes/llmRoutes'
+import type { Llm, LlmUsage } from '../api/routes/llmRoutes'
 import type { RootState } from './index'
 
 // Core
@@ -22,10 +22,20 @@ export const llmsSlice = createSlice({
     llmDeleted(state, action: PayloadAction<string>) {
       llmsAdapter.removeOne(state, action.payload)
     },
+    // Only an account has usage; an event for a credential not loaded yet is left to the
+    // next load, which carries it.
+    llmUsageUpdated(state, action: PayloadAction<{ id: string, usage: LlmUsage }>) {
+      const account = state.entities[action.payload.id]?.account
+      if (!account) {
+        console.debug('llmUsageUpdated has no account to update', { id: action.payload.id })
+        return
+      }
+      account.usage = action.payload.usage
+    },
   },
 })
 
-export const { llmsLoaded, llmUpserted, llmDeleted } = llmsSlice.actions
+export const { llmsLoaded, llmUpserted, llmDeleted, llmUsageUpdated } = llmsSlice.actions
 
 export const {
   selectAll: selectAllLlms,

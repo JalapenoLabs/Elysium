@@ -21,7 +21,7 @@ import { environmentVariableDeleted, environmentVariableUpserted } from '../stor
 import { githubCredentialDeleted, githubCredentialUpserted } from '../store/githubCredentialsSlice'
 import { initiativeDeleted, initiativeUpserted } from '../store/initiativesSlice'
 import { jiraCredentialDeleted, jiraCredentialUpserted } from '../store/jiraCredentialsSlice'
-import { llmDeleted, llmUpserted } from '../store/llmsSlice'
+import { llmDeleted, llmUpserted, llmUsageUpdated } from '../store/llmsSlice'
 import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSlice'
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
@@ -150,6 +150,7 @@ const handlers: Handlers = {
   'jiraCredential.deleted': (event) => store.dispatch(jiraCredentialDeleted(event.data.id)),
   'llm.upserted': (event) => store.dispatch(llmUpserted(event.data)),
   'llm.deleted': (event) => store.dispatch(llmDeleted(event.data.id)),
+  'llm.usage': (event) => store.dispatch(llmUsageUpdated(event.data)),
   'mailbox.upserted': (event) => store.dispatch(mailAccountUpserted(event.data)),
   'mailbox.deleted': (event) => store.dispatch(mailAccountDeleted(event.data.id)),
   'mailServer.updated': (event) => store.dispatch(mailServerUpdated(event.data)),

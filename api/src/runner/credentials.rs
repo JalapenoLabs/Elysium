@@ -10,6 +10,14 @@
 //! Only Claude credentials qualify, because the runner drives the `claude` CLI. A `ChatGPT`
 //! credential is skipped, as is an inactive or expired one, and one that cannot be decrypted
 //! is skipped and logged.
+//!
+//! A Claude account signed in through OAuth is handed its current access token, never its
+//! refresh token (see `crate::claude_accounts`). It is skipped while its sign-in is expired or
+//! its access token has lapsed, and while Anthropic's latest usage shows a window spent: a turn
+//! started on it would give out at once. When nothing else is usable, the turn is usage-limited
+//! until the earliest of those windows resets.
+
+use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
@@ -18,7 +26,9 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::command::CredentialSecret;
+use crate::claude_accounts::usage;
 use crate::crypto::Cipher;
+use crate::models::claude_account::{self, ClaudeAccount};
 use crate::models::llm::{self, Llm, LlmType};
 
 /// One credential a turn can run on.
@@ -29,6 +39,16 @@ pub struct ClaudeCredential {
     pub secret: CredentialSecret,
 }
 
+/// The credentials a turn can run on, and when the ones held back by usage come back.
+#[derive(Debug, Clone, Default)]
+pub struct LoadedCredentials {
+    /// In the order a turn tries them.
+    pub usable: Vec<ClaudeCredential>,
+    /// The earliest reset among Claude accounts skipped because a usage window is spent;
+    /// `None` when none was.
+    pub limited_until: Option<DateTime<Utc>>,
+}
+
 /// The usable Claude credentials, in the order a turn tries them.
 ///
 /// # Errors
@@ -37,12 +57,45 @@ pub async fn load(
     connection: &mut AsyncPgConnection,
     cipher: &Cipher,
     now: DateTime<Utc>,
-) -> diesel::QueryResult<Vec<ClaudeCredential>> {
+) -> diesel::QueryResult<LoadedCredentials> {
     let stored = llm::list(connection).await?;
+    let accounts: HashMap<Uuid, ClaudeAccount> = claude_account::list(connection)
+        .await?
+        .into_iter()
+        .map(|account| (account.llm_id, account))
+        .collect();
     let mut usable = Vec::with_capacity(stored.len());
+    let mut limited_until: Option<DateTime<Utc>> = None;
     for credential in stored {
         if !is_usable(&credential, now) {
             continue;
+        }
+        if credential.type_ == LlmType::ClaudeAccount {
+            match account_hold(accounts.get(&credential.id), now) {
+                AccountHold::Ready => {}
+                AccountHold::Unavailable(reason) => {
+                    event!(
+                        name: "runner.credential.account_unavailable",
+                        Level::DEBUG,
+                        llm.id = %credential.id,
+                        reason,
+                        "a Claude account was skipped",
+                    );
+                    continue;
+                }
+                AccountHold::UsageLimited(until) => {
+                    event!(
+                        name: "runner.credential.usage_limited",
+                        Level::INFO,
+                        llm.id = %credential.id,
+                        usage.resets_at = %until,
+                        "a Claude account's usage is spent; it was skipped",
+                    );
+                    limited_until =
+                        Some(limited_until.map_or(until, |earliest| earliest.min(until)));
+                    continue;
+                }
+            }
         }
         let token = match credential.secret_token(cipher) {
             Ok(token) => token,
@@ -65,7 +118,35 @@ pub async fn load(
             });
         }
     }
-    Ok(usable)
+    Ok(LoadedCredentials {
+        usable,
+        limited_until,
+    })
+}
+
+/// Whether a Claude account can take a turn now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AccountHold {
+    Ready,
+    /// It cannot serve until someone acts: no account row, an expired sign-in, or a lapsed
+    /// access token the keeper has not renewed.
+    Unavailable(&'static str),
+    /// A usage window is spent until this instant.
+    UsageLimited(DateTime<Utc>),
+}
+
+fn account_hold(account: Option<&ClaudeAccount>, now: DateTime<Utc>) -> AccountHold {
+    let Some(account) = account else {
+        return AccountHold::Unavailable("the credential has no signed-in account");
+    };
+    if !account.is_signed_in() {
+        return AccountHold::Unavailable("the account's sign-in expired");
+    }
+    if account.access_token_expires_at <= now {
+        return AccountHold::Unavailable("the account's access token lapsed");
+    }
+    usage::blocked_until(&account.usage(), now)
+        .map_or(AccountHold::Ready, AccountHold::UsageLimited)
 }
 
 fn is_usable(credential: &Llm, now: DateTime<Utc>) -> bool {
@@ -78,8 +159,11 @@ fn is_usable(credential: &Llm, now: DateTime<Utc>) -> bool {
 /// How the CLI is handed a credential of `type_`; `None` for one it cannot use.
 fn secret_for(type_: LlmType, token: SecretString) -> Option<CredentialSecret> {
     match type_ {
-        // `claude setup-token` mints a subscription token, presented as a bearer.
-        LlmType::ClaudeCodeOauth => Some(CredentialSecret::SubscriptionToken(token)),
+        // `claude setup-token` mints a subscription token, presented as a bearer; a signed-in
+        // account's access token is presented the same way.
+        LlmType::ClaudeCodeOauth | LlmType::ClaudeAccount => {
+            Some(CredentialSecret::SubscriptionToken(token))
+        }
         LlmType::ClaudeApiToken => Some(CredentialSecret::ApiKey(token)),
         LlmType::ChatgptApiToken | LlmType::ChatgptOauth => None,
     }
@@ -89,8 +173,10 @@ fn secret_for(type_: LlmType, token: SecretString) -> Option<CredentialSecret> {
 mod tests {
     use chrono::TimeDelta;
 
+    use secrecy::ExposeSecret;
+
     use super::*;
-    use crate::test_support::TEST_PERSON_ID;
+    use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 
     fn stored(type_: LlmType, is_active: bool, expires_at: Option<DateTime<Utc>>) -> Llm {
         Llm {
@@ -137,6 +223,79 @@ mod tests {
         ));
     }
 
+    fn account(
+        sign_in_state: &str,
+        access_left: TimeDelta,
+        five_hour: Option<f64>,
+    ) -> ClaudeAccount {
+        let now = Utc::now();
+        ClaudeAccount {
+            llm_id: Uuid::now_v7(),
+            account_uuid: Uuid::now_v7(),
+            email: "alex@example.com".to_owned(),
+            organization_uuid: None,
+            organization_name: None,
+            subscription_type: None,
+            refresh_token_encrypted: Vec::new(),
+            access_token_expires_at: now + access_left,
+            refresh_token_expires_at: None,
+            sign_in_state: sign_in_state.to_owned(),
+            last_refreshed_at: None,
+            last_refresh_error: None,
+            five_hour_utilization: five_hour,
+            five_hour_resets_at: five_hour.map(|_utilization| now + TimeDelta::hours(2)),
+            seven_day_utilization: None,
+            seven_day_resets_at: None,
+            usage_read_at: None,
+            usage_error: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn a_signed_in_account_with_room_left_is_ready() {
+        let now = Utc::now();
+        let busy = account(claude_account::SIGNED_IN, TimeDelta::hours(5), Some(40.0));
+        assert_eq!(account_hold(Some(&busy), now), AccountHold::Ready);
+        let unread = account(claude_account::SIGNED_IN, TimeDelta::hours(5), None);
+        assert_eq!(
+            account_hold(Some(&unread), now),
+            AccountHold::Ready,
+            "usage not read yet does not hold an account back"
+        );
+    }
+
+    #[test]
+    fn an_account_whose_window_is_spent_is_held_until_it_resets() {
+        let now = Utc::now();
+        let spent = account(claude_account::SIGNED_IN, TimeDelta::hours(5), Some(100.0));
+        let resets_at = spent.five_hour_resets_at.expect("set");
+        assert_eq!(
+            account_hold(Some(&spent), now),
+            AccountHold::UsageLimited(resets_at)
+        );
+    }
+
+    #[test]
+    fn an_expired_or_lapsed_account_is_unavailable() {
+        let now = Utc::now();
+        let expired = account(claude_account::EXPIRED, TimeDelta::hours(5), None);
+        assert!(matches!(
+            account_hold(Some(&expired), now),
+            AccountHold::Unavailable(_)
+        ));
+        let lapsed = account(claude_account::SIGNED_IN, -TimeDelta::minutes(1), None);
+        assert!(matches!(
+            account_hold(Some(&lapsed), now),
+            AccountHold::Unavailable(_)
+        ));
+        assert!(matches!(
+            account_hold(None, now),
+            AccountHold::Unavailable(_)
+        ));
+    }
+
     #[test]
     fn only_claude_credentials_drive_the_cli() {
         let token = || SecretString::from("token");
@@ -148,7 +307,112 @@ mod tests {
             secret_for(LlmType::ClaudeApiToken, token()),
             Some(CredentialSecret::ApiKey(_))
         ));
+        assert!(matches!(
+            secret_for(LlmType::ClaudeAccount, token()),
+            Some(CredentialSecret::SubscriptionToken(_))
+        ));
         assert!(secret_for(LlmType::ChatgptOauth, token()).is_none());
         assert!(secret_for(LlmType::ChatgptApiToken, token()).is_none());
+    }
+
+    async fn signed_in_account(
+        connection: &mut AsyncPgConnection,
+        cipher: &Cipher,
+        name: &str,
+        priority: i32,
+        five_hour: f64,
+    ) -> Uuid {
+        use crate::models::claude_account::{
+            Identity, NewCredential, SignedIn, Tokens, UsageWindow, UsageWindows,
+        };
+
+        let saved = claude_account::save_sign_in(
+            connection,
+            cipher,
+            NewCredential {
+                name,
+                priority,
+                created_by: TEST_PERSON_ID,
+            },
+            &SignedIn {
+                tokens: Tokens {
+                    access_token: SecretString::from(format!("access-{name}")),
+                    access_token_expires_at: Utc::now() + TimeDelta::hours(6),
+                    refresh_token: SecretString::from(format!("refresh-{name}")),
+                    refresh_token_expires_at: None,
+                },
+                identity: Identity {
+                    account_uuid: Uuid::now_v7(),
+                    email: format!("{name}@example.com"),
+                    organization_uuid: None,
+                    organization_name: None,
+                },
+                subscription_type: None,
+            },
+        )
+        .await
+        .expect("saved");
+        claude_account::record_usage(
+            connection,
+            saved.llm.id,
+            &UsageWindows {
+                five_hour: Some(UsageWindow {
+                    utilization: five_hour,
+                    resets_at: Some(Utc::now() + TimeDelta::hours(2)),
+                }),
+                seven_day: None,
+            },
+            Utc::now(),
+        )
+        .await
+        .expect("usage stored");
+        saved.llm.id
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_spent_account_is_skipped_and_the_next_credential_serves() {
+        let (_url, mut connection) = migrated_database().await;
+        let cipher = cipher();
+        let spent = signed_in_account(&mut connection, &cipher, "spent", 0, 100.0).await;
+        let fresh = signed_in_account(&mut connection, &cipher, "fresh", 1, 20.0).await;
+
+        let loaded = load(&mut connection, &cipher, Utc::now())
+            .await
+            .expect("loaded");
+
+        let ids: Vec<Uuid> = loaded
+            .usable
+            .iter()
+            .map(|credential| credential.id)
+            .collect();
+        assert_eq!(
+            ids,
+            vec![fresh],
+            "the spent account is left out, the next serves"
+        );
+        assert!(!ids.contains(&spent));
+        assert!(loaded.limited_until.is_some());
+        assert!(matches!(
+            &loaded.usable[0].secret,
+            CredentialSecret::SubscriptionToken(token) if token.expose_secret() == "access-fresh"
+        ));
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn when_every_account_is_spent_the_earliest_reset_is_reported() {
+        let (_url, mut connection) = migrated_database().await;
+        let cipher = cipher();
+        signed_in_account(&mut connection, &cipher, "first", 0, 100.0).await;
+        signed_in_account(&mut connection, &cipher, "second", 1, 99.5).await;
+
+        let loaded = load(&mut connection, &cipher, Utc::now())
+            .await
+            .expect("loaded");
+
+        assert!(loaded.usable.is_empty());
+        let resets_at = loaded.limited_until.expect("a reset to wait for");
+        assert!(resets_at > Utc::now() && resets_at <= Utc::now() + TimeDelta::hours(2));
     }
 }

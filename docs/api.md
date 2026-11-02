@@ -92,6 +92,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
 | PATCH  | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
 | DELETE | `/api/v1/llms/{id}`                   | `204`                                               |
+| POST   | `/api/v1/llms/claude-sign-ins`        | `201` `{ signIn: { id, authorizeUrl, expiresAt } }` |
+| POST   | `/api/v1/llms/claude-sign-ins/{id}`   | `201` (new) or `200` (signed in again) `{ llm }`    |
+| DELETE | `/api/v1/llms/claude-sign-ins/{id}`   | `204`                                               |
 | GET    | `/api/v1/mail/capabilities`           | `200` `{ capabilities }`                            |
 | GET    | `/api/v1/mail/server`                 | `200` `{ server }`                                  |
 | POST   | `/api/v1/mail/server`                 | `202` `{ server }`; starts creating the mail server |
@@ -223,10 +226,21 @@ history rather than failing.
 
 ### `/api/v1/llms`
 
-An `Llm` has `id`, `name`, `description`, `type`, `priority`, `isActive`, `expiresAt`, `createdAt`, and
-`updatedAt`. The secret token is never returned.
+An `Llm` has `id`, `name`, `description`, `type`, `priority`, `isActive`, `expiresAt`, `createdAt`, `updatedAt`, and
+`account`. The secret token is never returned.
 
-`type` is one of `chatgpt-oauth`, `chatgpt-api-token`, `claude-api-token`, or `claude-code-oauth`.
+`type` is one of `chatgpt-oauth`, `chatgpt-api-token`, `claude-api-token`, `claude-code-oauth`, or `claude-account`.
+
+`account` is `null` except for a `claude-account`, where it is `{ email, organizationName, subscriptionType,
+isSignedIn, accessTokenExpiresAt, lastRefreshedAt, lastRefreshError, usage, usageError }`. `usage` is
+`{ fiveHour, sevenDay, readAt }`, each window `{ utilization, resetsAt }` or `null`, `utilization` a percentage that can
+pass 100. No token is ever included.
+
+A `claude-account` is created only by signing in: `POST /llms/claude-sign-ins` starts the CLI's sign-in and answers the
+page to open; `POST /llms/claude-sign-ins/{id}` takes `{ code, name?, priority? }`, the code that page shows, and
+answers the credential, named after the account's email unless `name` is given. Both answer `404` for a sign-in that
+is not waiting or is someone else's, and `400` with the CLI's reason for a code it refused. `POST /llms` refuses the
+type, and `PATCH` refuses a `claude-account`'s `secretToken` or `expiresAt` and any change of type to or from it.
 
 `POST` requires `name`, `type`, and `secretToken`. It accepts optional `description` (default empty), `priority`
 (default 0, lower is tried first), `isActive` (default true), and `expiresAt`.

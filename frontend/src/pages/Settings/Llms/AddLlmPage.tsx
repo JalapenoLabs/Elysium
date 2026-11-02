@@ -7,32 +7,40 @@ import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
 // User interface
+import { ClaudeSignInForm } from './ClaudeSignInForm'
 import { LlmEditorLayout } from './LlmEditorLayout'
 import { LlmForm } from './LlmForm'
 
 // Misc
 import { UrlTree } from '../../../urls'
-import { llmTypeLabelKeys } from './llmPresentation'
+import { isTokenTypedByType, llmTypeLabelKeys } from './llmPresentation'
 
 type Props = {
   type: LlmType
 }
 
 // `/settings/llms/add-<provider>`: one page per provider type, so its setup steps
-// always match the token being pasted.
+// always match the token being pasted. A Claude account is signed in instead, and has no
+// token to paste.
 export function AddLlmPage(props: Props) {
   const { t } = useTranslation('llms')
   const navigate = useNavigate()
+  const backToList = () => navigate(UrlTree.settingsLlms)
 
   return <LlmEditorLayout
     title={t('page.addTitle', { type: t(llmTypeLabelKeys[props.type]) })}
     type={props.type}
   >
-    <LlmForm
-      type={props.type}
-      llm={null}
-      onSaved={() => navigate(UrlTree.settingsLlms)}
-      onCancel={() => navigate(UrlTree.settingsLlms)}
-    />
+    {isTokenTypedByType[props.type]
+      ? <LlmForm
+        type={props.type}
+        llm={null}
+        onSaved={backToList}
+        onCancel={backToList}
+      />
+      : <ClaudeSignInForm
+        onSaved={backToList}
+        onCancel={backToList}
+      />}
   </LlmEditorLayout>
 }

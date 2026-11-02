@@ -11,6 +11,7 @@ use crate::action_items::links::Links;
 use crate::activity::Activities;
 use crate::auth::Auth;
 use crate::browser::Browsers;
+use crate::claude_accounts::ClaudeAccounts;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::elysia::Elysia;
@@ -33,6 +34,9 @@ pub struct AppState {
     pub auth: Auth,
     /// The browsers the host runs for people to sign in to their accounts in.
     pub browsers: Browsers,
+    /// Claude accounts signed in through OAuth: their sign-ins, the keeper that refreshes them,
+    /// and their usage. See `crate::claude_accounts`.
+    pub claude_accounts: ClaudeAccounts,
     pub database: Pool,
     /// Work a restart would cut short, such as agent turns. Auto-update waits for it.
     #[expect(

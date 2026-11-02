@@ -49,6 +49,11 @@ pub async fn handle(
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     let Json(body) = body?;
     body.validate()?;
+    if body.llm_type == LlmType::ClaudeAccount {
+        return Err(ApiError::BadRequest(
+            "a Claude account is added by signing in at /api/v1/llms/claude-sign-ins".to_owned(),
+        ));
+    }
 
     let new_llm = NewLlm {
         created_by: current.id(),
@@ -68,12 +73,16 @@ pub async fn handle(
         .context("no database connection available")?;
     let llm = llm::create(&mut connection, &state.cipher, &new_llm).await?;
 
+    // A credential typed in here is never a Claude account, so it has no account to show.
     state
         .events
-        .publish(&ServerEvent::LlmUpserted(LlmResponse::from(llm.clone())));
+        .publish(&ServerEvent::LlmUpserted(LlmResponse::new(
+            llm.clone(),
+            None,
+        )));
     Ok((
         StatusCode::CREATED,
-        Json(json!({ "llm": LlmResponse::from(llm) })),
+        Json(json!({ "llm": LlmResponse::new(llm, None) })),
     ))
 }
 

@@ -262,6 +262,7 @@ mod tests {
             cost_usd_micros: None,
             input_tokens: None,
             output_tokens: None,
+            usage_resets_at: None,
         });
         let view = SessionEvent::new(12, 7, None, Utc::now(), &event);
         let json = serde_json::to_value(&view).expect("serializes");

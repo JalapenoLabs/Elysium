@@ -7,9 +7,8 @@ use axum::Json;
 use axum::extract::State;
 use serde_json::{Value, json};
 
-use super::LlmResponse;
+use super::list_responses;
 use crate::errors::ApiError;
-use crate::models::llm;
 use crate::state::AppState;
 
 pub async fn handle(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
@@ -19,11 +18,7 @@ pub async fn handle(State(state): State<AppState>) -> Result<Json<Value>, ApiErr
         .await
         .context("no database connection available")?;
 
-    let llms: Vec<LlmResponse> = llm::list(&mut connection)
-        .await?
-        .into_iter()
-        .map(LlmResponse::from)
-        .collect();
+    let llms = list_responses(&mut connection).await?;
 
     Ok(Json(json!({ "llms": llms })))
 }

@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Chip } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
+import { ClaudeAccountUsage } from './ClaudeAccountUsage'
 import { LlmRowActions } from './LlmRowActions'
 
 // Misc
@@ -28,7 +29,16 @@ type Props = {
   onDelete: (llm: Llm) => void
 }
 
-const LLM_COLUMN_KEYS = [ 'name', 'type', 'priority', 'status', 'expiresAt', 'createdBy', 'rowActions' ] as const
+const LLM_COLUMN_KEYS = [
+  'name',
+  'type',
+  'priority',
+  'status',
+  'usage',
+  'expiresAt',
+  'createdBy',
+  'rowActions',
+] as const
 type LlmColumnKey = typeof LLM_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
@@ -36,6 +46,7 @@ const columnLabelKeys = {
   type: 'table.type',
   priority: 'table.priority',
   status: 'table.status',
+  usage: 'table.usage',
   expiresAt: 'table.expires',
   createdBy: 'common:table.createdBy',
   rowActions: 'common:actions.moreActions',
@@ -48,7 +59,8 @@ const columnSizes = {
   type: 200,
   priority: 110,
   status: 140,
-  expiresAt: 220,
+  usage: 220,
+  expiresAt: 180,
   createdBy: 160,
   rowActions: 64,
 } as const satisfies Record<LlmColumnKey, number>
@@ -66,10 +78,23 @@ export function LlmTable(props: Props) {
     // Timestamps arrive as UTC; this is the one place they become local time.
     // Expiry is chosen as a date, so the time of day would only be noise.
     const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' })
+    // A signed-in account never expires while Elysium keeps it signed in.
+    const expiryText = (llm: Llm) => {
+      if (llm.account) {
+        return t('table.keptSignedIn')
+      }
+      if (!llm.expiresAt) {
+        return t('table.never')
+      }
+      return dateFormatter.format(new Date(llm.expiresAt))
+    }
 
     const renderCell = {
       name: (llm: Llm) => <div>
         <div className='font-medium'>{llm.name}</div>
+        {llm.account && <div className='max-w-xs truncate text-xs opacity-70'>{
+          llm.account.email
+        }</div>}
         {llm.description && <div className='max-w-xs truncate text-xs opacity-70'>{
           llm.description
         }</div>}
@@ -82,9 +107,11 @@ export function LlmTable(props: Props) {
           t(llmStatusLabelKeys[status])
         }</Chip>
       },
-      expiresAt: (llm: Llm) => llm.expiresAt
-        ? dateFormatter.format(new Date(llm.expiresAt))
-        : t('table.never'),
+      // Only a signed-in account reports usage; Anthropic does not for keys or setup-tokens.
+      usage: (llm: Llm) => llm.account
+        ? <ClaudeAccountUsage account={llm.account} />
+        : <span className='text-sm opacity-70'>{t('usage.notAvailable')}</span>,
+      expiresAt: (llm: Llm) => expiryText(llm),
       createdBy: (llm: Llm) => userNames[llm.createdBy] ?? t('common:table.someone'),
       rowActions: (llm: Llm) => <LlmRowActions
         llm={llm}
@@ -100,9 +127,15 @@ export function LlmTable(props: Props) {
       type: (llm: Llm) => t(llmTypeLabelKeys[llm.type]),
       priority: (llm: Llm) => String(llm.priority),
       status: (llm: Llm) => t(llmStatusLabelKeys[getLlmStatus(llm, now)]),
-      expiresAt: (llm: Llm) => llm.expiresAt
-        ? dateFormatter.format(new Date(llm.expiresAt))
-        : t('table.never'),
+      // Sorts and searches by the five-hour window, the one that runs out first.
+      usage: (llm: Llm) => {
+        const fiveHour = llm.account?.usage.fiveHour
+        if (!fiveHour) {
+          return t('usage.notAvailable')
+        }
+        return `${Math.round(fiveHour.utilization)}%`
+      },
+      expiresAt: (llm: Llm) => expiryText(llm),
       createdBy: (llm: Llm) => userNames[llm.createdBy] ?? '',
       rowActions: null,
     } satisfies Record<LlmColumnKey, ((llm: Llm) => string) | null>
@@ -146,7 +179,7 @@ export function LlmTable(props: Props) {
   return <SmartTable
     ids={{
       tableElementId: 'llm-credentials-table',
-      tableLocalStorageId: 'elysium.settings.llms.table.v2',
+      tableLocalStorageId: 'elysium.settings.llms.table.v3',
     }}
     tableAriaLabel={t('table.label')}
     data={props.llms}

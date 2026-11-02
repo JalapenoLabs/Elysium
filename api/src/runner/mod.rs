@@ -55,10 +55,13 @@ use url::Url;
 use uuid::Uuid;
 
 use self::configuration::ConfigurationSource;
+#[cfg(test)]
 use self::credentials::ClaudeCredential;
+use self::credentials::LoadedCredentials;
 pub use self::events::{HarnessSessionId, RunnerEvent, TurnOutcome, TurnStatus};
 use self::workspace::WorkspaceContainer;
 use crate::activity::Activities;
+use crate::claude_accounts::TurnSignal;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 
@@ -280,6 +283,8 @@ enum CredentialSource {
     Database {
         database: Pool,
         cipher: Arc<Cipher>,
+        /// Tells the Claude account keeper a turn finished, so it reads usage then.
+        turn_signal: TurnSignal,
     },
     #[cfg(test)]
     Fixed(Vec<ClaudeCredential>),
@@ -303,27 +308,41 @@ impl fmt::Debug for CredentialSource {
 }
 
 impl CredentialSource {
-    async fn load(&self) -> anyhow::Result<Vec<ClaudeCredential>> {
+    async fn load(&self) -> anyhow::Result<LoadedCredentials> {
         match self {
-            Self::Database { database, cipher } => {
+            Self::Database {
+                database, cipher, ..
+            } => {
                 let mut connection = database.get().await?;
                 Ok(credentials::load(&mut connection, cipher, chrono::Utc::now()).await?)
             }
             #[cfg(test)]
-            Self::Fixed(credentials) => Ok(credentials.clone()),
+            Self::Fixed(credentials) => Ok(LoadedCredentials {
+                usable: credentials.clone(),
+                limited_until: None,
+            }),
+        }
+    }
+
+    fn turn_finished(&self) {
+        match self {
+            Self::Database { turn_signal, .. } => turn_signal.turn_finished(),
+            #[cfg(test)]
+            Self::Fixed(_credentials) => {}
         }
     }
 }
 
 impl Runner {
     /// A runner whose turns run in `workspace`, with credentials and the configuration
-    /// repository read from `database`. Nothing reaches Docker until [`Self::prepare`] or the
-    /// first turn.
+    /// repository read from `database`. Each finished turn rings `turn_signal`. Nothing reaches
+    /// Docker until [`Self::prepare`] or the first turn.
     pub fn new(
         workspace: WorkspaceContainer,
         database: Pool,
         cipher: Arc<Cipher>,
         activity: Activities,
+        turn_signal: TurnSignal,
         shutdown: &CancellationToken,
     ) -> Self {
         Self::with_parts(
@@ -331,6 +350,7 @@ impl Runner {
             CredentialSource::Database {
                 database: database.clone(),
                 cipher: Arc::clone(&cipher),
+                turn_signal,
             },
             ConfigurationSource::Database { database, cipher },
             activity,

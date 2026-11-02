@@ -218,10 +218,21 @@ pub async fn app_state_with_storage(
             storage: storage.clone(),
             activity: activity.clone(),
             passwords: passwords.clone(),
+            turn_signal: crate::claude_accounts::TurnSignal::default(),
         },
         &shutdown,
     )
     .expect("the runner builds without reaching Docker");
+    // Its keeper is never started, so no test reaches Anthropic through it.
+    let claude_accounts =
+        crate::claude_accounts::ClaudeAccounts::new(crate::claude_accounts::ClaudeAccountsDeps {
+            database: database.clone(),
+            cipher: Arc::clone(&cipher),
+            events: events.clone(),
+            anthropic: crate::claude_accounts::oauth::Anthropic::new(http.clone()),
+            workspace: sessions.workspace().clone(),
+            turn_signal: crate::claude_accounts::TurnSignal::default(),
+        });
     // Its loop is never started, so no test reaches Fireflies or the workspace through it.
     let meetings = crate::meetings::Meetings::new(crate::meetings::MeetingsDeps {
         database: database.clone(),
@@ -237,6 +248,7 @@ pub async fn app_state_with_storage(
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
         browsers,
+        claude_accounts,
         database,
         activity,
         redis,

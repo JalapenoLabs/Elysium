@@ -47,6 +47,9 @@ The version byte identifies the envelope format and key generation. Today only v
 - `Llm::secret_token` is the only way to decrypt an LLM credential, for code that uses it. The runner decrypts the
   active Claude credentials for each turn (`api/src/runner/credentials.rs`) and passes one at a time in the turn's
   `docker exec` environment.
+- `ClaudeAccount::refresh_token` decrypts a signed-in Claude account's refresh token, only inside the keeper's
+  locked refresh. A `claude-account` credential's `secret_token` is its current access token, which the keeper
+  replaces on every refresh; turns get that, never the refresh token. See `docs/coding.md`, Claude accounts.
 - `StorageLocation::access_key` decrypts a storage location's access key, only to call its provider.
 - `GithubCredential::token` decrypts a GitHub token, to call GitHub and to hand a session's turns their token.
 - `JiraCredential::token` decrypts a Jira API token, only to sign in to that credential's site. It is the
@@ -60,6 +63,7 @@ The version byte identifies the envelope format and key generation. Today only v
 | Table        | Column                   | Context                  |
 |--------------|--------------------------|--------------------------|
 | `llms`       | `secret_token_encrypted` | `llms.secret_token:<id>` |
+| `claude_accounts` | `refresh_token_encrypted` | `claude_accounts.refresh_token:<llm id>` |
 | `mail_accounts` | `credential_encrypted` | `mail_accounts.credential:<id>` |
 | `mail_servers` | `admin_secret_encrypted` | `mail_servers.admin_secret:<id>` |
 | `browser_sessions` | `member_password_encrypted` | `browser_sessions.member_password:<id>` |

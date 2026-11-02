@@ -280,6 +280,33 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    claude_accounts (llm_id) {
+        llm_id -> Uuid,
+        account_uuid -> Uuid,
+        email -> Text,
+        organization_uuid -> Nullable<Uuid>,
+        organization_name -> Nullable<Text>,
+        subscription_type -> Nullable<Text>,
+        refresh_token_encrypted -> Bytea,
+        access_token_expires_at -> Timestamptz,
+        refresh_token_expires_at -> Nullable<Timestamptz>,
+        sign_in_state -> Text,
+        last_refreshed_at -> Nullable<Timestamptz>,
+        last_refresh_error -> Nullable<Text>,
+        five_hour_utilization -> Nullable<Float8>,
+        five_hour_resets_at -> Nullable<Timestamptz>,
+        seven_day_utilization -> Nullable<Float8>,
+        seven_day_resets_at -> Nullable<Timestamptz>,
+        usage_read_at -> Nullable<Timestamptz>,
+        usage_error -> Nullable<Text>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     coding_sessions (id) {
         id -> Int8,
         title -> Text,
@@ -939,6 +966,7 @@ diesel::joinable!(action_items -> users (created_by));
 diesel::joinable!(browser_sessions -> users (created_by));
 diesel::joinable!(changeset_operations -> changesets (changeset_id));
 diesel::joinable!(changesets -> projects (project_id));
+diesel::joinable!(claude_accounts -> llms (llm_id));
 diesel::joinable!(coding_sessions -> action_items (action_item_id));
 diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
@@ -1014,6 +1042,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     browser_sessions,
     changeset_operations,
     changesets,
+    claude_accounts,
     coding_sessions,
     connector_accounts,
     deployment_updates,
