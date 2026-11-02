@@ -1,0 +1,41 @@
+# Production built from this checkout, for a deployment that runs main instead of a published
+# release. Layer it over compose.yml, most simply by naming both in .env:
+#
+#   COMPOSE_FILE=compose.yml:compose.build.yml
+#
+# then deploy the checkout's main with:
+#
+#   git pull --ff-only && docker compose up --detach --build --wait
+#
+# Images get local tags, so a build never shadows the published ones. Leave the `auto-update`
+# profile off: the updater installs published releases and would replace this build. See
+# docs/infrastructure.md.
+
+# The `app` stage: the API with the web app's production build and the deployment's
+# configuration, the same image a release publishes.
+x-api-build: &api-build
+  context: .
+  dockerfile: api/Dockerfile
+  target: app
+
+services:
+  migrate:
+    image: elysium-api:local
+    build: *api-build
+
+  api:
+    image: elysium-api:local
+    build: *api-build
+    environment:
+      WORKSPACE_IMAGE: elysium-workspace:local
+    depends_on:
+      workspace-image:
+        condition: service_completed_successfully
+
+  # Builds the agent workspace's image from this checkout and exits. The API creates and runs
+  # the workspace container itself, from this tag.
+  workspace-image:
+    image: elysium-workspace:local
+    build: ./workspace
+    entrypoint: [ "true" ]
+    restart: "no"

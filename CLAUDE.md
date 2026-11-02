@@ -30,6 +30,9 @@ The full vision is `docs/vision.md`. Read it before designing any feature.
 
 ## Images and stacks
 
+- `compose.build.yml` layers over `compose.yml` to build the production images from the checkout under local tags, for
+  a deployment that runs `main` instead of a release: the work instance pulls `main` and rebuilds. See
+  `docs/infrastructure.md`.
 - `compose.yml` is the production stack: it runs the published `jalapenolabs/elysium-api` image, which serves both
   `/api` and the web app's production build, so nginx sends every path to the API. `compose.dev.yml` layers the
   development stack over it: the API built from source (`api/Dockerfile` stage `server`) and the Vite dev server,
@@ -366,8 +369,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 
 - GitHub Actions on the org's self-hosted runners (`[ self-hosted, linux, rocky9, docker ]`). The runners are
   persistent and warm, so workflows never use `actions/cache`. See `docs/ci.md`.
-- `main` takes changes through pull requests and a merge queue. Every workflow runs on `pull_request`, `merge_group`,
-  and pushes to `main`, with no path filters, so a required check can never be left pending.
+- Changes are committed straight to `main` and pushed, with no pull request and no wait on CI. The checks run on every
+  push as an alarm after the fact, and a red run is fixed by the next push. Every workflow still runs on
+  `pull_request`, `merge_group`, and pushes to `main`, with no path filters, for outside contributors' pull requests.
 - Job names are the required check names. Keep them short, stable, and unique across workflows, and update the list
   in `docs/ci.md` when one changes.
 - The repository is public: trigger on `pull_request`, never `pull_request_target`; every job skips pull requests
