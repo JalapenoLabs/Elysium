@@ -52,14 +52,14 @@ export function StudioFiltersBar(props: Props) {
       })}
     />
     <Switch
-      className='h-10 flex-row items-center gap-2'
+      className='h-10 justify-center'
       isSelected={filters.deleted}
       onChange={(isSelected) => props.onChange({ ...filters, deleted: isSelected })}
     >
-      <Switch.Control>
-        <Switch.Thumb />
-      </Switch.Control>
       <Switch.Content>
+        <Switch.Control>
+          <Switch.Thumb />
+        </Switch.Control>
         <Label>{t('filters.deleted')}</Label>
       </Switch.Content>
     </Switch>

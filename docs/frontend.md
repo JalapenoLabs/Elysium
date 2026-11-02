@@ -617,6 +617,9 @@ Workspace, mail server, and broker failures answer `502` with the upstream's mes
 - react-hook-form with a Zod schema. Schemas are built with `t` so validation messages arrive translated.
 - Read field values with `useWatch`, not `form.watch`. The React Compiler lint rejects `watch`.
 - HeroUI v3 field `onChange` handlers receive the value, not a DOM event.
+- A `Switch`'s clickable part is `Switch.Content`, so it wraps the `Switch.Control` and the `Label` together. A
+  `Description` sits beside `Switch.Content`, inside the `Switch`. A control outside `Switch.Content` looks right but
+  does nothing when clicked; `src/bugs/switchClickTarget.test.tsx` fails the build on one.
 - Server conflicts map back to fields. For example, a `409` on create or edit sets an error on `name`.
 - Secret tokens are write-only. The edit form leaves the field blank and sends a token only when one is typed.
 

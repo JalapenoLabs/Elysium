@@ -70,13 +70,13 @@ export function JiraScopeFields(props: Props) {
       isDisabled={props.isProjectsDisabled}
       onChange={(isSelected) => props.onChange({ ...props.value, allProjects: isSelected })}
     >
-      <Switch.Control>
-        <Switch.Thumb />
-      </Switch.Control>
       <Switch.Content>
+        <Switch.Control>
+          <Switch.Thumb />
+        </Switch.Control>
         <Label>{t('scope.allProjects')}</Label>
-        <Description>{t('scope.allProjectsHint')}</Description>
       </Switch.Content>
+      <Description>{t('scope.allProjectsHint')}</Description>
     </Switch>
 
     {!props.value.allProjects && (projectOptions.length
@@ -100,13 +100,13 @@ export function JiraScopeFields(props: Props) {
       isDisabled={props.isBoardsDisabled}
       onChange={(isSelected) => props.onChange({ ...props.value, allBoards: isSelected })}
     >
-      <Switch.Control>
-        <Switch.Thumb />
-      </Switch.Control>
       <Switch.Content>
+        <Switch.Control>
+          <Switch.Thumb />
+        </Switch.Control>
         <Label>{t('scope.allBoards')}</Label>
-        <Description>{t('scope.allBoardsHint')}</Description>
       </Switch.Content>
+      <Description>{t('scope.allBoardsHint')}</Description>
     </Switch>
 
     {!props.value.allBoards && (boardOptions.length
