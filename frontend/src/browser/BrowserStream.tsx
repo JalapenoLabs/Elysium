@@ -147,10 +147,14 @@ export function BrowserStream(props: Props) {
       <Spinner aria-label={t('stream.connecting')} />
     </div>}
 
-    {state === 'disconnected' && <div className='absolute inset-0 grid place-items-center bg-black/70'>
-      <div className='text-center'>
+    {(state === 'disconnected' || state === 'unreachable') && <div
+      className='absolute inset-0 grid place-items-center bg-black/70 p-4'
+    >
+      <div className='max-w-lg text-center'>
         <p className='compact text-sm text-white opacity-80'>{
-          t('stream.disconnected')
+          t(state === 'unreachable'
+            ? 'stream.unreachable'
+            : 'stream.disconnected')
         }</p>
         <Button size='sm' onPress={() => setAttempt((previous) => previous + 1)}>
           <span>{t('stream.reconnect')}</span>

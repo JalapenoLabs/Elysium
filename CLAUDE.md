@@ -159,6 +159,9 @@ Everything else follows these rules:
 - The web app's sign-in panel (Settings, Browser sign-ins) speaks Neko's protocol itself: Neko's own client cannot
   run under the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
+- A browser always has a way out: Start over reopens its start page in a fresh tab and keeps the profile; Reset
+  removes the profile volume, signing it out of everything, and starts it again. A stream whose media never connects
+  says so and names the media ports, rather than spinning.
 
 ## Connectors and the timeline
 

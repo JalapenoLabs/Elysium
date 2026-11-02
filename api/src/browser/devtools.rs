@@ -43,6 +43,8 @@ pub enum DevtoolsError {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Tab {
+    /// Chromium's target id, which `/json/close/<id>` takes.
+    pub id: String,
     #[serde(rename = "type")]
     pub kind: String,
     pub url: String,
@@ -187,6 +189,7 @@ mod tests {
     #[test]
     fn the_socket_is_dialed_at_the_forwarder_not_chromiums_loopback() {
         let tab = Tab {
+            id: "7E3C0A2B".to_owned(),
             kind: "page".to_owned(),
             url: "https://outlook.office.com/mail/".to_owned(),
             web_socket_debugger_url: Some("ws://127.0.0.1:9222/devtools/page/7E3C0A2B".to_owned()),

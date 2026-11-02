@@ -36,6 +36,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `mailDomain.deleted` | `{ id }`                 | A domain was removed                                       |
 | `browserSession.upserted` | `BrowserSession` | A browser was added, or began starting, running, or failing |
 | `browserSession.deleted`  | `{ id }`         | A browser and its profile were removed                     |
+| `browserSession.startedOver` | `{ id, createdBy }` | A browser went back to its start page, other tabs closed, profile kept |
 | `connectorAccount.upserted` | `ConnectorAccount` | A connector account was added, or a read changed its sign-in state or error |
 | `connectorAccount.deleted`  | `{ id }`         | A connector account was removed                            |
 | `timelineRecord.created` | `{ id, sourceKind, createdBy, actionItemId }` | Something was ingested; never its content, see `docs/connectors.md` |

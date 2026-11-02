@@ -62,6 +62,18 @@ export function deleteBrowserSession(browserSessionId: string) {
   return apiClient.delete(`v1/browser-sessions/${browserSessionId}`)
 }
 
+// Back to its start page in a fresh tab, every other tab closed, still signed in.
+export function startOverBrowserSession(browserSessionId: string) {
+  return apiClient.post(`v1/browser-sessions/${browserSessionId}/start-over`)
+}
+
+// Empties its profile, signing it out of everything, and starts it again at its start page.
+export function resetBrowserSession(browserSessionId: string) {
+  return apiClient
+    .post(`v1/browser-sessions/${browserSessionId}/reset`)
+    .json<BrowserSessionResponse>()
+}
+
 // The WebSocket a viewer negotiates the browser's stream over, on the page's own origin.
 export function getBrowserStreamUrl(browserSessionId: string) {
   const scheme = location.protocol === 'https:'
