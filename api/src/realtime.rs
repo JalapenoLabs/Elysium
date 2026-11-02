@@ -91,6 +91,10 @@ pub enum ServerEvent {
     BrowserSessionUpserted(BrowserSessionResponse),
     #[serde(rename = "browserSession.deleted")]
     BrowserSessionDeleted { id: Uuid },
+    /// A browser went back to its start page in a fresh tab, its other pages closed and its
+    /// profile kept. Its status is unchanged, so this is its only announcement.
+    #[serde(rename = "browserSession.startedOver")]
+    BrowserSessionStartedOver { id: Uuid, created_by: Uuid },
     /// A connector account was added, or what its last read found about signing in changed.
     #[serde(rename = "connectorAccount.upserted")]
     ConnectorAccountUpserted(ConnectorAccountResponse),

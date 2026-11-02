@@ -21,6 +21,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/browser-sessions`            | `201` `{ browserSession }`, `starting`              |
 | GET    | `/api/v1/browser-sessions/{id}`       | `200` `{ browserSession }`                          |
 | DELETE | `/api/v1/browser-sessions/{id}`       | `204`; removes the container and its profile        |
+| POST   | `/api/v1/browser-sessions/{id}/start-over` | `204`; its start page in a fresh tab, other tabs closed, profile kept; `502` when Chromium does not answer |
+| POST   | `/api/v1/browser-sessions/{id}/reset` | `202` `{ browserSession }`, `starting`; empties its profile and starts it again |
 | GET    | `/api/v1/browser-sessions/{id}/stream` | WebSocket: the browser's signaling, see `docs/browser.md` |
 | GET    | `/api/v1/connectors`                  | `200` `{ connectors: ConnectorAccount[] }`, the caller's |
 | POST   | `/api/v1/connectors`                  | `201` `{ connector }`; reads a service through a browser or with an API key |

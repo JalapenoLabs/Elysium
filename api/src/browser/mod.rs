@@ -116,6 +116,16 @@ pub enum DeleteError {
     Internal(#[from] anyhow::Error),
 }
 
+/// Why a browser's profile could not be reset. Its row is kept either way; the reconciler
+/// brings back whatever the reset removed.
+#[derive(Debug, thiserror::Error)]
+pub enum ResetError {
+    #[error("Docker refused to reset the browser: {0}")]
+    Docker(#[from] container::ContainerError),
+    #[error(transparent)]
+    Internal(#[from] anyhow::Error),
+}
+
 #[derive(Clone)]
 pub struct Browsers {
     inner: Arc<Inner>,
@@ -332,6 +342,86 @@ impl Browsers {
         self.inner
             .events
             .publish(&ServerEvent::BrowserSessionDeleted { id: session.id });
+        Ok(())
+    }
+
+    /// Sends the browser back to its start page in a fresh tab and closes every other page,
+    /// keeping its profile: the way out of a sign-in that landed somewhere it offers no way
+    /// back from. Announced as `browserSession.startedOver`.
+    ///
+    /// # Errors
+    /// Fails when the stored start page is not a URL, or Chromium does not answer.
+    pub async fn start_over(&self, session: &BrowserSession) -> anyhow::Result<()> {
+        let start_url =
+            Url::parse(&session.start_url).context("the stored start page is not a URL")?;
+        self.inner
+            .neko
+            .start_over(port_of(session), &start_url)
+            .await?;
+        event!(
+            name: "browser.start_over.done",
+            Level::INFO,
+            browser.session.id = %session.id,
+            "a browser started over at its start page",
+        );
+        self.inner
+            .events
+            .publish(&ServerEvent::BrowserSessionStartedOver {
+                id: session.id,
+                created_by: session.created_by,
+            });
+        Ok(())
+    }
+
+    /// Empties the browser's profile, signing it out of everything, and starts it again at
+    /// its start page. The row, its port, and the connector account reading through it stay.
+    ///
+    /// Like a removal, the reset runs as its own task, so a viewer who gives up on the request
+    /// does not stop it halfway. It answers once the old container and profile are gone; the
+    /// new ones start in the background and report through `browserSession.upserted`.
+    ///
+    /// # Errors
+    /// Fails when Docker refuses or the database is unavailable. Whatever was removed by then
+    /// is recreated by the reconciler, from an empty profile if the volume was removed.
+    pub async fn reset(&self, session: &BrowserSession) -> Result<(), ResetError> {
+        let browsers = self.clone();
+        let session = session.clone();
+        tokio::spawn(async move { browsers.reset_profile(&session).await })
+            .await
+            .context("the browser's reset ended abnormally")?
+    }
+
+    async fn reset_profile(&self, session: &BrowserSession) -> Result<(), ResetError> {
+        let docker = self.inner.docker.lock().await;
+        // Cleared before anything is removed, so whichever pass recreates the browser, this
+        // task's or the reconciler's, also opens its start page in the empty profile.
+        let mut connection = self
+            .inner
+            .database
+            .get()
+            .await
+            .context("no database connection available")?;
+        browser_session::clear_start_page_opened(&mut connection, session.id)
+            .await
+            .context("cannot mark the browser's start page as owed")?;
+        drop(connection);
+        self.inner.containers.reset_profile(session.id).await?;
+        // Under the lock, so a reconcile pass cannot report it running before this reports it
+        // starting.
+        self.set_status(session, BrowserStatus::STARTING);
+        drop(docker);
+
+        event!(
+            name: "browser.reset.done",
+            Level::INFO,
+            browser.session.id = %session.id,
+            "a browser's profile was emptied; starting it again",
+        );
+        let browsers = self.clone();
+        let session = session.clone();
+        tokio::spawn(async move {
+            browsers.bring_up(&session).await;
+        });
         Ok(())
     }
 

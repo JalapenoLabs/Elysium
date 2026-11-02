@@ -46,6 +46,8 @@ export type ServerEvent =
   // A browser was added, or began starting, running, or failing.
   | { type: 'browserSession.upserted', data: BrowserSession }
   | { type: 'browserSession.deleted', data: { id: string } }
+  // A browser went back to its start page, its other tabs closed and its profile kept.
+  | { type: 'browserSession.startedOver', data: { id: string, createdBy: string } }
   // A connector account was added, or its last read found its sign-in changed.
   | { type: 'connectorAccount.upserted', data: ConnectorAccount }
   | { type: 'connectorAccount.deleted', data: { id: string } }

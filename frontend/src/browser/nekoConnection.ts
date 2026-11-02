@@ -9,7 +9,10 @@
 import { encodeButton, encodeKey, encodeMove, encodeScroll } from './nekoInput'
 import { PASTE_KEYSYMS } from './keysyms'
 
-export type ConnectionState = 'connecting' | 'connected' | 'disconnected'
+// `unreachable` is the media failing to connect while signaling worked: almost always a
+// firewall in front of the host dropping the browser's media ports.
+export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'unreachable'
+type ClosedState = Extract<ConnectionState, 'disconnected' | 'unreachable'>
 
 export type ScreenSize = {
   width: number
@@ -58,6 +61,12 @@ const CURSOR_IMAGE_PREFIX_BYTES = 3 + 8
 // quiet still gets the keystroke.
 const CLIPBOARD_CONFIRM_TIMEOUT_MS = 1_000
 
+// How long the media may take to connect after the connection opens. Wherever the media
+// ports are reachable it connects within a few seconds. A firewall that drops them leaves
+// ICE checking for half a minute or more before the browser gives up, and the viewer would
+// otherwise watch a spinner all that time.
+export const MEDIA_CONNECT_TIMEOUT_MS = 20_000
+
 export class NekoConnection {
   private readonly url: string
   private readonly listeners: ConnectionListeners
@@ -76,6 +85,10 @@ export class NekoConnection {
   private readonly heldButtons = new Set<number>()
   // The paste waiting for Neko to confirm the clipboard holds its text.
   private clipboardConfirmation: { text: string, confirm: () => void } | null = null
+  // Running until the media first connects. A media path that worked once and then dropped
+  // is a disconnect, not a firewall.
+  private connectTimeout: number | null = null
+  private hasConnected = false
 
   constructor(url: string, listeners: ConnectionListeners) {
     this.url = url
@@ -84,6 +97,10 @@ export class NekoConnection {
 
   open() {
     this.listeners.onState('connecting')
+    this.connectTimeout = window.setTimeout(() => {
+      console.debug('NekoConnection media did not connect in time', { timeoutMs: MEDIA_CONNECT_TIMEOUT_MS })
+      this.close('unreachable')
+    }, MEDIA_CONNECT_TIMEOUT_MS)
     const socket = new WebSocket(this.url)
     this.socket = socket
     socket.onmessage = (message) => {
@@ -95,11 +112,12 @@ export class NekoConnection {
     }
   }
 
-  close() {
+  close(outcome: ClosedState = 'disconnected') {
     if (this.isClosed) {
       return
     }
     this.isClosed = true
+    this.clearConnectTimeout()
 
     // The socket's own close event and a failing peer would otherwise call back in later,
     // after the component has moved on to another connection.
@@ -127,7 +145,14 @@ export class NekoConnection {
       URL.revokeObjectURL(this.cursorUrl)
       this.cursorUrl = null
     }
-    this.listeners.onState('disconnected')
+    this.listeners.onState(outcome)
+  }
+
+  private clearConnectTimeout() {
+    if (this.connectTimeout !== null) {
+      window.clearTimeout(this.connectTimeout)
+      this.connectTimeout = null
+    }
   }
 
   move(x: number, y: number) {
@@ -300,11 +325,15 @@ export class NekoConnection {
     }
     peer.onconnectionstatechange = () => {
       if (peer.connectionState === 'connected') {
+        this.hasConnected = true
+        this.clearConnectTimeout()
         this.listeners.onState('connected')
       }
       if (peer.connectionState === 'failed') {
-        console.debug('NekoConnection peer connection failed')
-        this.close()
+        console.debug('NekoConnection peer connection failed', { hasConnected: this.hasConnected })
+        this.close(this.hasConnected
+          ? 'disconnected'
+          : 'unreachable')
       }
     }
     peer.ontrack = (event) => {

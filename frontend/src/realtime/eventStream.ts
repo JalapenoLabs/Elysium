@@ -105,6 +105,9 @@ const handlers: Handlers = {
     store.dispatch(browserSessionUpserted(event.data))
   },
   'browserSession.deleted': (event) => store.dispatch(browserSessionDeleted(event.data.id)),
+  // Nothing Redux holds changes: the browser's status stays as it was, and its stream shows
+  // the new page itself.
+  'browserSession.startedOver': () => {},
   // Like browsers, a connector account is its owner's alone.
   'connectorAccount.upserted': (event) => {
     if (event.data.createdBy !== store.getState().auth.me?.user.id) {

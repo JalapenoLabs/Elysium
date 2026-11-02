@@ -11,10 +11,12 @@ mod create_browser_session;
 mod delete_browser_session;
 mod get_browser_session;
 mod list_browser_sessions;
+mod reset_browser_session;
+mod start_over_browser_session;
 mod stream_browser_session;
 
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{get, post};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
@@ -33,6 +35,8 @@ pub fn router() -> Router<AppState> {
             "/{id}",
             get(get_browser_session::handle).delete(delete_browser_session::handle),
         )
+        .route("/{id}/start-over", post(start_over_browser_session::handle))
+        .route("/{id}/reset", post(reset_browser_session::handle))
         .route("/{id}/stream", get(stream_browser_session::handle))
 }
 

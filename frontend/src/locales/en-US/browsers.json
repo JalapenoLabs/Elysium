@@ -46,14 +46,25 @@
     "title": "Remove {{name}}?",
     "body": "Its browser and everything it is signed in to on this host are removed. The account itself is untouched; sign in again by adding a new browser."
   },
+  "reset": {
+    "title": "Reset {{name}}?",
+    "body": "This empties the browser's profile, which signs it out of every account it is signed in to on this host. It then starts again at its sign-in page, ready for you to sign in. The accounts themselves are untouched.",
+    "confirm": "Reset browser"
+  },
   "toasts": {
-    "deleted": "{{name}} was removed."
+    "deleted": "{{name}} was removed.",
+    "startedOver": "{{name}} is back at its sign-in page.",
+    "reset": "{{name}} is starting again with an empty profile."
   },
   "session": {
     "hint": "Click the picture to use it. Typing and pasting go to the page, so a password manager on this computer works there too.",
     "starting": "Starting the browser. The first one can take a minute.",
     "failed": "The browser failed to start.",
-    "missing": "This browser does not exist, or it is not yours."
+    "missing": "This browser does not exist, or it is not yours.",
+    "startOver": "Start over",
+    "startOverHint": "Back to the sign-in page, closing every other tab. You stay signed in to whatever you already signed in to.",
+    "reset": "Reset browser",
+    "resetHint": "Sign this browser out of everything and start again from an empty profile."
   },
   "connectors": {
     "title": "{{service}} mail",
@@ -79,6 +90,7 @@
     "label": "The browser's screen",
     "connecting": "Connecting",
     "disconnected": "The stream disconnected.",
+    "unreachable": "The browser is running, but its picture could not reach you. The host must accept its media ports, 59000 to 59007, over both UDP and TCP, from your network.",
     "reconnect": "Reconnect"
   }
 }

@@ -283,6 +283,28 @@ impl BrowserContainers {
         Ok(())
     }
 
+    /// Removes the browser's container and profile volume, keeping its network, so the next
+    /// [`Self::ensure`] starts it from an empty profile: signed out of everything.
+    ///
+    /// Clearing a profile from inside Chromium would leave whatever it holds outside its
+    /// cookie and storage APIs (service workers, saved passwords, extension state, files a
+    /// page wrote), and a profile its own sign-ins may have half corrupted. An empty volume
+    /// leaves nothing behind. The network stays, so nginx and the API stay joined to it.
+    ///
+    /// # Errors
+    /// [`ContainerError::Docker`] when Docker refuses.
+    pub async fn reset_profile(&self, session_id: Uuid) -> Result<(), ContainerError> {
+        let name = resource_name(session_id);
+        self.remove_container(&name).await?;
+        let options = RemoveVolumeOptionsBuilder::new().force(true).build();
+        match self.docker.remove_volume(&name, Some(options)).await {
+            Err(error) if !has_status(&error, 404) => return Err(error.into()),
+            _removed_or_missing => {}
+        }
+        event!(name: "browser.container.profile_reset", Level::INFO, container.name = %name, "profile reset");
+        Ok(())
+    }
+
     /// Whether the Docker Engine honors the gateway priority nginx and the API join browser
     /// networks with. Older engines ignore it silently, and a browser's network can then
     /// become nginx's gateway.
