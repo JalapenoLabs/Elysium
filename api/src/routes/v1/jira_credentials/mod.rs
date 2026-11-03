@@ -227,7 +227,7 @@ impl<'de, Reference: Deserialize<'de>> Deserialize<'de> for Selection<Reference>
             Ok(Wire::Named(references)) => Ok(Self::Only(references)),
             Ok(Wire::Everything(text)) if text == "*" => Ok(Self::All),
             _ => Err(serde::de::Error::custom(
-                "a selection is \"*\" or a list of what Jira reported",
+                "a selection is \"*\" or a list of what the provider reported",
             )),
         }
     }

@@ -79,16 +79,25 @@
       "name": "Gmail",
       "description": "Your Gmail inbox, read through a browser you sign in to."
     },
+    "teams": {
+      "name": "Teams",
+      "description": "Your Teams chats and channels, read through a browser you sign in to."
+    },
     "fireflies": {
       "name": "Fireflies",
       "description": "Your recorded meetings, cut into segments on each project's timeline."
+    },
+    "youtrack": {
+      "name": "YouTrack",
+      "description": "Issues and comments on a YouTrack Cloud site, read with your own permanent token."
     }
   },
   "accountKinds": {
     "atlassian": "Atlassian account",
     "github": "GitHub account",
     "browser": "Browser",
-    "fireflies": "Fireflies key"
+    "fireflies": "Fireflies key",
+    "youtrack": "YouTrack token"
   },
   "accounts": {
     "empty": "No accounts yet. Adding a connector adds its account.",
@@ -113,6 +122,7 @@
     "projects": "Projects",
     "boards": "Boards",
     "spaces": "Spaces",
+    "conversations": "Chats and channels",
     "storageLocationId": "Storage location",
     "choices": {
       "classic": "Classic",
@@ -135,13 +145,14 @@
     "chooseKind": "What should Elysium read?",
     "chooseAccount": "Which account does it read through?",
     "newAccount": "A new account",
-    "browserSignIn": "A mailbox is read through a browser you sign in to. Sign in to one under Settings, Browser sign-ins, then pick it here.",
+    "browserSignIn": "This is read through a browser you sign in to. Sign in to one under Settings, Browser sign-ins, then pick it here.",
     "openBrowsers": "Open Browser sign-ins",
     "noBrowsers": "No browser yet.",
     "noAccount": {
       "atlassian": "No Atlassian account yet. One comes with a Jira connector: add the site as Jira first, then pick its account here.",
       "github": "No GitHub account yet. One comes with a GitHub connector: add it first, then pick its account here.",
-      "fireflies": "No Fireflies key yet. Add a Fireflies connector with a new key first, then pick it here."
+      "fireflies": "No Fireflies key yet. Add a Fireflies connector with a new key first, then pick it here.",
+      "youtrack": "No YouTrack token yet. Add a YouTrack connector with a new token first, then pick it here."
     },
     "back": "Back",
     "next": "Next",
@@ -179,10 +190,12 @@
       "signed_in": "Signed in",
       "inbox_readable": "Read the inbox",
       "sample_message": "Sample messages",
+      "chats_readable": "Read chats and channels",
       "list_meetings": "List recent meetings",
       "sample_transcript": "Sample a transcript",
       "list_spaces": "Reach the chosen spaces",
       "sample_pages": "Sample pages",
+      "sample_page_comments": "Sample comments",
       "sample_comments": "Sample comments"
     },
     "counts": {
@@ -202,6 +215,8 @@
       "sample_pull_requests_other": "{{count}} pull requests",
       "inbox_readable_one": "{{count}} message in view",
       "inbox_readable_other": "{{count}} messages in view",
+      "chats_readable_one": "{{count}} chat or channel",
+      "chats_readable_other": "{{count}} chats and channels",
       "sample_message_one": "{{count}} unread",
       "sample_message_other": "{{count}} unread",
       "list_meetings_one": "{{count}} meeting in two weeks",
@@ -212,8 +227,10 @@
       "list_spaces_other": "Reads {{count}} spaces",
       "sample_pages_one": "{{count}} page changed in 90 days",
       "sample_pages_other": "{{count}} pages changed in 90 days",
-      "sample_comments_one": "{{count}} comment in 90 days",
-      "sample_comments_other": "{{count}} comments in 90 days"
+      "sample_page_comments_one": "{{count}} comment in 90 days",
+      "sample_page_comments_other": "{{count}} comments in 90 days",
+      "sample_comments_one": "{{count}} comment on the newest issue",
+      "sample_comments_other": "{{count}} comments on the newest issue"
     },
     "reasons": {
       "fine_grained_scopes": "GitHub does not report a fine-grained token's permissions.",
@@ -224,11 +241,15 @@
       "browser_not_running": "The browser is not running.",
       "signed_out": "The service is asking you to sign in again.",
       "mailbox_not_open": "No tab in the browser shows the mailbox.",
+      "teams_not_open": "Teams is not open in the browser yet. Elysium opened it; run the checks again once it has loaded.",
+      "teams_store_not_found": "Teams is open, but Elysium did not find the chats it stores.",
       "no_messages": "The inbox shows no messages to sample.",
       "no_meetings": "No meeting in the last two weeks to sample.",
       "meeting_unavailable": "The newest meeting is not available yet.",
       "spaces_unresolved": "The chosen spaces were not resolved.",
-      "no_spaces_chosen": "No space is chosen, so there is nothing to search."
+      "no_spaces_chosen": "No space is chosen, so there is nothing to search.",
+      "projects_unreachable": "The token reaches none of the chosen projects.",
+      "no_issues": "The chosen projects have no issue to sample."
     }
   },
   "detail": {

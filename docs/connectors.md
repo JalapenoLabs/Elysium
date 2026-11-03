@@ -21,6 +21,7 @@ Accounts live in one store per way of signing in, each with the columns and cons
 | `github`     | `github_credentials` | A personal access token                    | The workspace's      |
 | `browser`    | `browser_sessions`   | A browser the person signed in to          | Its creator's        |
 | `fireflies`  | `token_accounts`     | An API key                                 | Its creator's        |
+| `youtrack`   | `token_accounts`     | A site and a permanent token               | Its creator's        |
 
 The stores stay separate rather than becoming one table because each holds what only its provider has: Jira's site
 rule and allowlist, GitHub's default token and token kinds, a browser's port and container. They are also what coding
@@ -28,10 +29,15 @@ sessions, projects, action item links, and the link watcher already point at by 
 those constraints for a blob and move every reference for no change in behavior. `api/src/connectors/accounts.rs`
 reads them together for the hub's Accounts list.
 
-`token_accounts` holds every account whose whole sign-in is one API key, named by its provider (`kind`): Fireflies
-today, and the providers on the roadmap that work the same way. A key is checked with its provider before it is
-stored, sealed bound to its row (`docs/secrets.md`), and never returned. `identity` keeps who the provider said the key
-belongs to.
+`token_accounts` holds every account whose whole sign-in is one API key, named by its provider (`kind`): Fireflies and
+YouTrack today, and the providers on the roadmap that work the same way. A key is checked with its provider before it
+is stored, sealed bound to its row (`docs/secrets.md`), and never returned. `identity` keeps who the provider said the
+key belongs to: an address for Fireflies, the login for YouTrack, which the reader compares authors against.
+
+A provider whose accounts each name their own instance keeps it in `site_url`. YouTrack's is the site the token was
+issued on, and like Jira's site it is validated rather than trusted (`crate::youtrack::normalize_site_url`): `https`,
+a host of one label on `youtrack.cloud`, no path, port, query, or credentials, stored as the origin alone. So no stored
+account can point Elysium at another host. YouTrack Server, on a customer's own host, is not supported.
 
 ## Connectors
 
@@ -48,6 +54,9 @@ table of its own:
   `{"spaces": [{"id", "key", "name"}]}`, each as Confluence reported it when it was picked. It is the connector's own,
   not the account's: the same Atlassian account's Jira allowlist does not bound it, nor it the allowlist.
 - Fireflies' content is the storage location its recordings are kept in, `storage_location_id`, a foreign key.
+- YouTrack's content is the projects it reads, `{"projects": "*"}` or `{"projects": [<project id>, ...]}`. A pick may
+  name a project by its id or short name; what is stored is YouTrack's id, matched against what the token reaches
+  when it is saved, so a project the token cannot see is refused then rather than ignored later.
 
 Its **reading state** is `sign_in_state`, `cursor`, `last_polled_at`, and `last_error`, and `is_active` false means
 paused. Jira and GitHub are read by the link watcher, which records its progress per account in `link_watch_cursors`,
@@ -82,7 +91,9 @@ it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web
 | `github`     | `kinds/github.rs`      | `github`      | New      | None: what the token reaches | The link watcher            |
 | `outlook`    | `kinds/webmail.rs`     | `browser`     | Existing | None: the inbox              | `ingest`                    |
 | `gmail`      | `kinds/webmail.rs`     | `browser`     | Existing | None: the inbox              | `ingest`                    |
+| `teams`      | `kinds/teams.rs`       | `browser`     | Existing | `conversations`              | `ingest`                    |
 | `fireflies`  | `kinds/fireflies.rs`   | `fireflies`   | Either   | `storageLocationId`          | `crate::meetings`           |
+| `youtrack`   | `kinds/youtrack.rs`    | `youtrack`    | Either   | `projects`                   | `crate::youtrack::reader`   |
 
 A definition is structure only: the kind's scope, the account kind it reads through, which accounts a new connector
 takes (`accounts`: a new one made with it, one the person already has, or either), a browser kind's start page, its
@@ -110,7 +121,9 @@ same things.
 
 A new kind adds a `ConnectorKind`, a module with its definition and verbs, a row in `DEFINITIONS` and in each dispatch
 in `kinds/mod.rs`, its name to the web app's `CONNECTOR_KINDS`, and its names and check sentences to the web app's
-`connectors` translations. Its definition's `accounts` decides what the wizard offers, so no page names the kind. A kind whose account is
+`connectors` translations. Its definition's `accounts` decides what the wizard offers, so no page names the kind.
+Check ids share one set of labels and count sentences across kinds, so a check that counts something different takes
+an id of its own: Confluence's `sample_page_comments` beside YouTrack's `sample_comments`. A kind whose account is
 a new provider adds an `AccountKind` and an `AccountDefinition`; when its sign-in is one API key, its key lives in
 `token_accounts`. `kinds/mod.rs`'s tests fail when a kind has no definition, an account kind none, or a check depends
 on one that does not run before it.
@@ -123,10 +136,12 @@ in order (`CheckSpec`): an id, whether the connector is any use without it, and 
 | Kind              | Checks, in order                                                                                  |
 |-------------------|----------------------------------------------------------------------------------------------------|
 | Jira              | `sign_in`, `list_projects`, `list_boards` (optional), `allowlist_reachable`, `sample_issues`        |
-| Confluence        | `sign_in`, `list_spaces` (also proves every chosen space is reached), `sample_pages`, `sample_comments` (optional) |
+| Confluence        | `sign_in`, `list_spaces` (also proves every chosen space is reached), `sample_pages`, `sample_page_comments` (optional) |
 | GitHub            | `sign_in`, `read_scopes` (optional), `list_repositories`, `sample_issues` and `sample_pull_requests` (optional) |
 | Outlook and Gmail | `browser_running`, `signed_in`, `inbox_readable`, `sample_message` (optional)                       |
+| Teams             | `browser_running`, `signed_in`, `chats_readable`, `sample_message` (optional)                       |
 | Fireflies         | `sign_in`, `list_meetings`, `sample_transcript` (optional)                                         |
+| YouTrack          | `sign_in`, `list_projects`, `sample_issues`, `sample_comments` (optional)                          |
 
 `checks::run_in_order` runs them one at a time against one value, so a later check uses what an earlier one fetched.
 A check whose dependency did not pass is skipped and names that dependency (`blockedBy`), so a token Jira refuses fails
@@ -195,8 +210,17 @@ stay where they were.
 
 ## Ingest
 
-`api/src/connectors/ingest.rs` reads every active mailbox connector once a minute (`INGEST_INTERVAL`), until shutdown;
-meeting connectors have their own loop (`docs/meetings.md`).
+`api/src/connectors/ingest.rs` reads every active connector read through a browser (`ConnectorKind::BROWSER_READ`:
+Outlook, Gmail, and Teams) once a minute (`INGEST_INTERVAL`), until shutdown; meeting connectors have their own loop
+(`docs/meetings.md`).
+
+Each browser kind has a reader behind one trait, `BrowserReader`, and `api/src/connectors/readers.rs` is the one place a
+kind meets its reader (`for_kind`). A reader is given its browser, what it kept from its last read, and its connector's
+content (`ReadInput`), and answers a reading: the sign-in state, the items it found, and optionally its state for the
+next read, such as a watermark. Ingest keeps that state in the connector's cursor beside the baseline,
+`{ "baselined": true, "reader": { ... } }`; a reading with no state keeps the old one. A reader whose service has no
+tab open may open one (`Devtools::open_tab`). A new browser kind adds its reader, its row in `for_kind`, and itself to
+`BROWSER_READ`, and a test fails when any of the three is missing.
 
 `api/src/connectors/webmail.rs` reads a mailbox through its browser. Each service is one row of `SERVICES`:
 
@@ -221,7 +245,46 @@ entry's message id, sender, subject, summary, time, and link. Every entry is unr
 the session ended. A date that does not parse is treated as absent, so one odd entry never fails a read. It was
 checked against a feed shaped like Gmail's, served locally, not yet against a signed-in Gmail.
 
-On each read:
+### Teams
+
+`api/src/connectors/teams.rs` reads Microsoft Teams through a browser signed in to Microsoft. The same browser can
+feed Outlook and Teams: Microsoft's sign-in carries over, so a browser signed in for Outlook opens Teams without
+asking again. When no tab shows Teams (`teams.cloud.microsoft`, `teams.microsoft.com`, or `teams.live.com`) and none
+is on a sign-in page, the read opens Teams in a new tab over DevTools and answers `unknown`; the next read finds it
+loaded. A tab on a sign-in page means the session ended (`signed_out`). Nothing is installed into the organization.
+
+**It reads Teams' own local store, not the page.** New Teams keeps the chats and channels it has loaded in
+IndexedDB, in databases named `Teams:conversation-manager:...:<user id>:<tenant>:<locale>` and
+`Teams:replychain-manager:...`. `api/src/connectors/teams.js` runs as the page and reads them in read-only
+transactions. Those records carry what the rendered page shows only in part, and in markup every redesign changes:
+each message's id, sender, arrival time, and mentions, and each conversation's read horizon. Reading them opens no
+chat, so unread messages stay unread. The store is the web client's own, not a published API, so the script reads its
+fields defensively. When it finds no store it says so (`chats_readable` fails as `teams_store_not_found` and its message
+lists the databases the page does hold), so a change to the layout shows up in the checks rather than as silence.
+
+The script only reads. The connector decides what the records mean:
+
+- **What it reads.** Its content is `conversations`, `"*"` for every chat and channel the person sees (the default)
+  or a list of conversation ids, picked from what the browser's Teams has stored (`POST /connectors/options`).
+- **What is new.** Its reader state is a watermark, `{ "since": <ms> }`, the newest arrival it has read. Each read
+  asks for messages after it, less ten minutes in case a message was stored late, and records are deduplicated by
+  `<conversation id>/<message id>`, so a message read twice is stored once. A read answers at most 200 messages, newest
+  first; a larger backlog is read over the next passes.
+- **What wants attention.** A message is unread when it arrived after its conversation's read horizon (the first
+  field of `consumptionhorizon`; a conversation without one counts as unread). An unread message from someone else
+  raises an inbox item when it is in a chat (one-on-one, group, or a meeting's chat), mentions the person, or replies in
+  a channel thread the person wrote in. Other channel messages are recorded without raising anything, and the person's
+  own messages are recorded too. System events (members added, calls) are not recorded.
+- **Each record** is titled with its conversation (a channel's or group's topic, or for a chat without one, who else
+  wrote in it), comes from its sender, holds the message as plain text (the browser parses its HTML), and links to it
+  with Teams' documented message link, `https://teams.microsoft.com/l/message/<conversation>/<message>`.
+
+The script was checked against `api/src/connectors/fixtures/teams.html`, a page that seeds IndexedDB the way Teams lays
+it out, in headless Chromium (`fixtures/evaluate.mjs` runs any page script against a fixture). Its answer,
+`fixtures/teams_page.json`, is what `teams.rs`'s tests read, so the rules above are tested against the script's real
+output. Neither has yet read a signed-in Teams.
+
+### On each read
 
 - Each item becomes a timeline record. An item its connector already recorded is skipped, by the connector and the
   provider's own id, so reading the same mailbox again records nothing twice.
@@ -233,7 +296,7 @@ On each read:
   connecting a mailbox does not fill the inbox with its backlog. Its cursor remembers that (`{"baselined": true}`).
 - A read that fails keeps the cursor and records the reason in `last_error`.
 
-## Confluence
+### Confluence
 
 `api/src/confluence/` is the only caller of Confluence Cloud. It reaches the Atlassian account's own site
 (`https://<site>.atlassian.net/wiki`) with the account's email and API token, the same basic auth Jira takes, through
@@ -289,6 +352,29 @@ None of these calls has been made against a live site yet: the shapes come from 
 `api.atlassian.com/ex/confluence/<cloudId>` (`~/.claude/learnings/jira.md`), which Elysium does not call yet; use a
 classic token.
 
+### YouTrack
+
+`api/src/youtrack/reader.rs` reads every active YouTrack connector every two minutes (`READ_INTERVAL`), until
+shutdown. A read signs in as the token's user, lists the chosen projects' issues most recently updated first
+(`project: JL, WAY sort by: updated desc`, up to four pages of 50), stops at the cursor, and reads the comments on each
+changed issue.
+
+- A new issue is recorded as `issue:<id>`, titled with its key and summary, from its reporter.
+- Each new comment is recorded as `comment:<id>`, titled `Comment on <key> <summary>`, linking to the comment itself.
+- Other changes, such as a state moving, are not recorded: following an issue's state is what linking it to an item
+  is for.
+
+A record that wants attention raises an inbox item recorded as `watcher:youtrack`, in the same transaction:
+
+| Record    | Wants attention when                                                                       |
+|-----------|--------------------------------------------------------------------------------------------|
+| An issue  | It is assigned to the token's user, and someone else reported it                          |
+| A comment | Someone else wrote it, on an issue the user is assigned or reported, or it mentions `@<login>` |
+
+The cursor is the newest update read, in YouTrack's own clock (`{"baselined": true, "since": <ms>}`). The first read
+records nothing and only sets it, so connecting a site does not fill the timeline and the inbox with its history. A
+read the site refuses marks the connector `signed_out`; any other failure keeps the cursor and records the reason.
+
 ## What is published
 
 | Event                        | When                                                                          |
@@ -321,10 +407,15 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
 
 ## Roadmap
 
-- More kinds: YouTrack and Slack with an API key in `token_accounts`, Teams through a Microsoft browser, and Google
-  Meet and Teams recordings (`docs/meetings.md`).
+- More kinds: Slack, and Google Meet and Teams recordings (`docs/meetings.md`).
 - Confluence through Atlassian's gateway (`api.atlassian.com/ex/confluence/<cloudId>`), so scoped API tokens work.
 - Confluence attachments and inline comments, and a mention found by display name as well as account id.
+- Teams: confirming the store's layout against a signed-in Teams, and how much of it Teams keeps. The connector reads
+  only what Teams has stored; if Teams stores a channel's messages only after showing that channel, a channel never
+  opened in that browser is not read. Not yet confirmed either way.
+- YouTrack issues as action item links, through the link-provider trait (`api/src/action_items/links/`), as Jira and
+  GitHub issues are: resolving an item moves its issue to a resolved state, and resolving the issue resolves the item.
+- YouTrack Server, on a customer's own host, beside YouTrack Cloud.
 - GitHub content: picking repositories rather than reading whatever the token reaches.
 - Keeping a token account's `identity` and `checked_at` current from its checks.
 - Elysia's triage on `timelineRecord.created`: classifying each message, drafting replies for review, and attributing

@@ -4,7 +4,16 @@
 import { apiClient } from '../index'
 
 // Mirrors `ConnectorKind` in api/src/connectors/mod.rs, in the order the hub lists them.
-export const CONNECTOR_KINDS = [ 'jira', 'confluence', 'github', 'outlook', 'gmail', 'fireflies' ] as const
+export const CONNECTOR_KINDS = [
+  'jira',
+  'confluence',
+  'github',
+  'outlook',
+  'gmail',
+  'teams',
+  'fireflies',
+  'youtrack',
+] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]
 
 // The kinds that read mail through one of the person's browsers.
@@ -12,7 +21,7 @@ export const WEBMAIL_CONNECTOR_KINDS = [ 'outlook', 'gmail' ] as const satisfies
 export type WebmailConnectorKind = typeof WEBMAIL_CONNECTOR_KINDS[number]
 
 // Mirrors `AccountKind` in api/src/connectors/mod.rs.
-export const ACCOUNT_KINDS = [ 'atlassian', 'github', 'browser', 'fireflies' ] as const
+export const ACCOUNT_KINDS = [ 'atlassian', 'github', 'browser', 'fireflies', 'youtrack' ] as const
 export type AccountKind = typeof ACCOUNT_KINDS[number]
 
 // Mirrors `AccountChoices` in api/src/connectors/kinds/mod.rs: whether a new connector takes a new

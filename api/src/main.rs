@@ -50,6 +50,7 @@ mod tools;
 mod updates;
 mod version;
 mod web_app;
+mod youtrack;
 
 use anyhow::Result;
 use clap::Parser;

@@ -68,6 +68,8 @@ use crate::storage::Storage;
 use crate::tools::grants::Grants;
 use crate::updates::{Updates, UpdatesDeps};
 use crate::version::VersionInfo;
+use crate::youtrack::Youtrack;
+use crate::youtrack::reader::{ReaderDeps, YoutrackReader};
 use crate::{connections, middleware, routes, shutdown, web_app};
 
 /// How long one Docker call may take. Pulling the mail server's image is one call, and
@@ -173,6 +175,15 @@ pub async fn serve() -> Result<()> {
         confluence: Confluence::new(http.clone()),
     });
     let confluence_loop = confluence_reader.start(shutdown.clone());
+    // Reads every YouTrack connector with its owner's token, onto the timeline.
+    let youtrack_reader = YoutrackReader::new(ReaderDeps {
+        database: database.clone(),
+        events: events.clone(),
+        cipher: Arc::clone(&cipher),
+        youtrack: Youtrack::new(http.clone()),
+        activity: connector_activity.clone(),
+    });
+    let youtrack_loop = youtrack_reader.start(shutdown.clone());
 
     let passwords = build_passwords(database.clone(), Arc::clone(&cipher), events.clone());
     // Signs the CLI in and unlocks the stored vault, then keeps it up, until shutdown.
@@ -251,6 +262,7 @@ pub async fn serve() -> Result<()> {
         connectors: Connectors {
             ingest: mailbox_reader,
             confluence: confluence_reader,
+            youtrack: youtrack_reader,
             activity: connector_activity,
             check_runs: CheckRuns::new(events.clone()),
         },
@@ -333,6 +345,14 @@ pub async fn serve() -> Result<()> {
             Level::ERROR,
             error.message = %error,
             "the Confluence reader ended abnormally",
+        );
+    }
+    if let Err(error) = youtrack_loop.await {
+        event!(
+            name: "youtrack.loop.join.failed",
+            Level::ERROR,
+            error.message = %error,
+            "the YouTrack reader loop ended abnormally",
         );
     }
     if let Err(error) = meeting_loop.await {

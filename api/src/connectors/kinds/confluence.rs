@@ -62,7 +62,7 @@ pub const DEFINITION: Definition = Definition {
             depends_on: &["list_spaces"],
         },
         CheckSpec {
-            id: "sample_comments",
+            id: "sample_page_comments",
             required: false,
             depends_on: &["list_spaces"],
         },
@@ -226,7 +226,7 @@ impl Checks for ConfluenceChecks {
             },
             "list_spaces" => self.list_spaces().await,
             "sample_pages" => self.sample(ContentType::Page).await,
-            "sample_comments" => self.sample(ContentType::Comment).await,
+            "sample_page_comments" => self.sample(ContentType::Comment).await,
             unknown => Outcome::failed(format!("Confluence has no check {unknown}")),
         }
     }
