@@ -188,6 +188,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/users/{id}/recovery-link`    | `200` `{ recoveryLink, expiresAt }`; admins          |
 | GET    | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins                         |
 | PATCH  | `/api/v1/workspace-settings`          | `200` `{ settings }`; admins: `signupOpen`, `requireMfa`, `agentConfigurationRepository` (`null` clears) |
+| GET    | `/api/v1/backups`                     | `200` `{ backups }`: where backups go, the next attempt, and history; admins |
+| POST   | `/api/v1/backups`                     | `202` `{ backup }`; admins back up now; `409` `backup_running` or `no_backup_destination` |
+| PUT    | `/api/v1/backups/destination`         | `200` `{ backups }`; admins choose `storageLocationId`, or `null` to stop, after the location answers |
 | GET    | `/api/v1/updates`                     | `200` `{ updates }`: the release running, auto-update's state, and history; admins |
 | POST   | `/api/v1/updates/check`               | `200` `{ updates }` after asking Docker Hub now; admins |
 | POST   | `/api/v1/updates/apply`               | `200` `{ updates }`; admins ask for the newest release, even one that rolled back |
@@ -222,8 +225,9 @@ Refusals carry a stable `code` beside the `message`:
 
 `/internal/kratos/registration` and `/internal/kratos/courier` answer Kratos alone, on the compose network, with the
 hook key it carries. `/internal/updater/instruction` and `/internal/updater/outcome` answer the deployment's updater
-alone, with a key derived the same way (`docs/infrastructure.md`). nginx never forwards any of them. See
-`docs/auth.md`.
+alone, with a key derived the same way (`docs/infrastructure.md`). `/internal/backups` and `/internal/backups/{id}`
+take the same key and let tooling on the host back up before a deploy (`docs/infrastructure.md`, Backups). nginx
+never forwards any of them. See `docs/auth.md`.
 
 Every resource that records its creator returns `createdBy`, a user id; `GET /api/v1/users` names every one.
 

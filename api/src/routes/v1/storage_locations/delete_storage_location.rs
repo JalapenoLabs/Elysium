@@ -4,7 +4,9 @@
 //!
 //! Files already written there are left with the provider; Elysium only stops using it. A
 //! location that Studio items keep files in cannot be deleted: their files would be orphaned
-//! and the items unreadable, so those items are deleted permanently first.
+//! and the items unreadable, so those items are deleted permanently first. Nor can the location
+//! the databases are backed up to, or backups would stop without anyone saying; an admin
+//! chooses another in Settings, Backups first.
 
 use anyhow::Context;
 use axum::extract::rejection::PathRejection;
@@ -32,6 +34,16 @@ pub async fn handle(
     storage_location::delete(&mut connection, id)
         .await
         .map_err(|error| match error {
+            DieselError::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, info)
+                if info.constraint_name()
+                    == Some(storage_location::BACKUP_DESTINATION_CONSTRAINT) =>
+            {
+                ApiError::CodedConflict {
+                    code: "backup_destination",
+                    message: "the databases are backed up to this location; choose another in \
+                              Settings, Backups first",
+                }
+            }
             DieselError::DatabaseError(DatabaseErrorKind::ForeignKeyViolation, _) => {
                 ApiError::Conflict(
                     "Studio items keep files in this location; delete them permanently first",

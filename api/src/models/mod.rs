@@ -14,6 +14,7 @@ pub mod coding_session;
 pub mod connector;
 pub mod connector_check;
 pub mod connector_run;
+pub mod database_backup;
 pub mod deployment_update;
 pub mod elysia;
 pub mod environment_variable;

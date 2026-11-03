@@ -602,10 +602,16 @@ pub async fn update(
         .await
 }
 
+/// The foreign key that keeps the location the databases are backed up to from being deleted
+/// while it is chosen. See `crate::backups`.
+pub const BACKUP_DESTINATION_CONSTRAINT: &str = "workspace_settings_backup_storage_location";
+
 /// Deletes one location. Files already written there stay with the provider.
 ///
 /// # Errors
-/// Returns [`diesel::result::Error::NotFound`] when no row has that id.
+/// Returns [`diesel::result::Error::NotFound`] when no row has that id, and a foreign key
+/// violation while Studio items keep files there or backups go there
+/// ([`BACKUP_DESTINATION_CONSTRAINT`]).
 pub async fn delete(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<()> {
     let deleted = diesel::delete(storage_locations::table.find(id))
         .execute(connection)

@@ -82,6 +82,7 @@ mod tests {
         "/api/v1/action-items",
         "/api/v1/action-items/next",
         "/api/v1/action-items/0199a3c4-0000-7000-8000-000000000001/history",
+        "/api/v1/backups",
         "/api/v1/changesets",
         "/api/v1/environment-variables",
         "/api/v1/github-credentials",
@@ -165,6 +166,7 @@ mod tests {
             "/internal/kratos/registered",
             "/internal/kratos/courier",
             "/internal/updater/outcome",
+            "/internal/backups",
         ] {
             let (status, _) = send(&state, Method::POST, path, None).await;
             assert_eq!(

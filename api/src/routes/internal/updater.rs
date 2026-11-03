@@ -44,7 +44,7 @@ async fn outcome(State(state): State<AppState>, body: String) -> Result<StatusCo
 
 /// Refuses a call without the updater's key. Both sides are hashed before comparing, so the
 /// comparison takes as long whatever the caller sent.
-async fn require_updater_key(
+pub(super) async fn require_updater_key(
     State(state): State<AppState>,
     request: Request,
     next: Next,

@@ -43,8 +43,8 @@ use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, SYSTEM_USER_ID};
 /// and a session's agent also act when a person applies a changeset they proposed
 /// ([`changesets`]).
 ///
-/// Written as `user:<id>`, `elysia`, `session:<n>`, or `watcher:<provider>`. Rows written
-/// before accounts existed say `user` alone, meaning the one person there was.
+/// Written as `user:<id>`, `elysia`, `session:<n>`, `watcher:<provider>`, or `system`. Rows
+/// written before accounts existed say `user` alone, meaning the one person there was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Actor {
     /// The person with this user id.
@@ -58,6 +58,8 @@ pub enum Actor {
     /// A connector, raising an item for something it read, such as new mail. Written as the
     /// watcher of that service (`watcher:outlook`): it records what already happened there.
     Connector(ConnectorKind),
+    /// Elysium itself, reporting on its own work, such as a nightly backup that failed.
+    System,
 }
 
 impl Actor {
@@ -68,7 +70,7 @@ impl Actor {
             Self::User(id) => id,
             Self::Elysia => ELYSIA_USER_ID,
             Self::Session(_) => CODING_AGENT_USER_ID,
-            Self::Watcher(_) | Self::Connector(_) => SYSTEM_USER_ID,
+            Self::Watcher(_) | Self::Connector(_) | Self::System => SYSTEM_USER_ID,
         }
     }
 }
@@ -85,13 +87,14 @@ impl fmt::Display for Actor {
             Self::Session(number) => write!(formatter, "session:{number}"),
             Self::Watcher(provider) => write!(formatter, "watcher:{}", provider.as_str()),
             Self::Connector(kind) => write!(formatter, "watcher:{}", kind.as_str()),
+            Self::System => formatter.write_str("system"),
         }
     }
 }
 
 /// How a recorded actor reads to a person or an agent: a person's name for `user:<id>`, and
-/// the recorded form for everyone else (`elysia`, `session:<n>`, `watcher:<provider>`, and
-/// the `user` of rows written before accounts).
+/// the recorded form for everyone else (`elysia`, `session:<n>`, `watcher:<provider>`,
+/// `system`, and the `user` of rows written before accounts).
 pub fn actor_label(actor: &str, names: &HashMap<Uuid, String>) -> String {
     actor
         .strip_prefix("user:")
@@ -268,6 +271,8 @@ mod tests {
         assert_eq!(Actor::User(person).user_id(), person);
         assert_eq!(Actor::Elysia.to_string(), "elysia");
         assert_eq!(Actor::Session(12).to_string(), "session:12");
+        assert_eq!(Actor::System.to_string(), "system");
+        assert_eq!(Actor::System.user_id(), SYSTEM_USER_ID);
         assert_eq!(
             Actor::Watcher(LinkProvider::Jira).to_string(),
             "watcher:jira"

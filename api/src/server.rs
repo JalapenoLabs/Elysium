@@ -30,6 +30,8 @@ use crate::action_items::watcher::{WatchContext, Watcher};
 use crate::activity::Activities;
 use crate::auth::kratos::Kratos;
 use crate::auth::{Auth, hook_key};
+use crate::backups::dump::{Dumper, POSTGRES_CONTAINER};
+use crate::backups::{self, Backups, BackupsDeps};
 use crate::browser::Browsers;
 use crate::browser::container::BrowserContainers;
 use crate::browser::devtools::Devtools;
@@ -75,6 +77,10 @@ use crate::{connections, middleware, routes, shutdown, web_app};
 /// How long one Docker call may take. Pulling the mail server's image is one call, and
 /// can take minutes on a slow connection.
 const DOCKER_TIMEOUT_SECONDS: u64 = 600;
+
+/// How long one Docker call may take for a backup. A dump is one attached exec stream that
+/// stays open until `pg_dump` has written every table, which on a large database takes a while.
+const BACKUP_DOCKER_TIMEOUT_SECONDS: u64 = 2 * 60 * 60;
 
 /// How long one Docker call may take for the runner. A turn's output is one attached exec
 /// stream that stays open for the whole turn, and the client's timeout covers a request end
@@ -199,6 +205,18 @@ pub async fn serve() -> Result<()> {
         encryption_key: config.encryption_key.clone(),
     });
     let update_checks = updates.start(shutdown.clone());
+    let backups = Backups::new(BackupsDeps {
+        database: database.clone(),
+        cipher: Arc::clone(&cipher),
+        storage: storage.clone(),
+        events: events.clone(),
+        activity: activity.clone(),
+        dumper: build_dumper(&config)?,
+        staging_directory: PathBuf::from(backups::STAGING_DIRECTORY),
+        shutdown: shutdown.clone(),
+    });
+    // Backs the databases up every night, until shutdown.
+    let backup_schedule = backups.start();
     let turn_signal = TurnSignal::default();
     let (runner, sessions) = build_agents(
         &config,
@@ -262,6 +280,7 @@ pub async fn serve() -> Result<()> {
 
     let state = AppState {
         auth: build_auth(&config, http.clone()),
+        backups,
         browsers,
         claude_accounts,
         connectors: Connectors {
@@ -377,6 +396,14 @@ pub async fn serve() -> Result<()> {
         );
     }
     elysia_tasks.stopped().await;
+    if let Err(error) = backup_schedule.await {
+        event!(
+            name: "backups.shutdown.failure",
+            Level::ERROR,
+            error.message = %error,
+            "the backup schedule did not stop cleanly",
+        );
+    }
     if let Err(error) = update_checks.await {
         event!(
             name: "updates.shutdown.failure",
@@ -412,6 +439,22 @@ pub(crate) fn build_auth(config: &Config, http: reqwest::Client) -> Auth {
         hook_key: hook_key::derive(&config.encryption_key),
         public_url: config.public_url.clone(),
     }
+}
+
+/// What dumps the databases for backups: `pg_dump` in the Postgres container `compose.yml`
+/// names, through Docker.
+fn build_dumper(config: &Config) -> Result<Dumper> {
+    // Connecting is lazy: nothing reaches Docker until the first backup.
+    let docker = Docker::connect_with_http(
+        config.docker.as_str().trim_end_matches('/'),
+        BACKUP_DOCKER_TIMEOUT_SECONDS,
+        API_DEFAULT_VERSION,
+    )
+    .context("DOCKER_URL is invalid")?;
+    Ok(Dumper::Docker {
+        docker,
+        container: POSTGRES_CONTAINER.to_owned(),
+    })
 }
 
 /// What the runner and the sessions service share with the rest of the API.

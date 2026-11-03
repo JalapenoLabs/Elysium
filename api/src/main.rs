@@ -8,6 +8,7 @@
 mod action_items;
 mod activity;
 mod auth;
+mod backups;
 mod browser;
 mod claude_accounts;
 mod cli;

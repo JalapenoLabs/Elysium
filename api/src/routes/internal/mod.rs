@@ -1,10 +1,13 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `/internal`: what Kratos and the deployment's updater call. nginx answers `/internal` with
-//! a `404`, so only services on the compose network reach these routes, and each checks a key
-//! its caller carries as well: Kratos's hook key (see `docs/auth.md`) or the updater's (see
-//! `crate::updates`).
+//! `/internal`: what Kratos and the deployment's own tooling call. nginx answers `/internal`
+//! with a `404`, so only the stack's own containers reach these routes (a script on the host
+//! calls them through `docker compose exec api`), and each checks a key its caller carries as
+//! well: Kratos's hook key (see `docs/auth.md`) or the updater's (see `crate::updates`), which
+//! the updater and the tooling that backs up before a deploy (see `crate::backups`) both
+//! derive.
 
+mod backups;
 mod courier;
 mod registered;
 mod registration;
@@ -31,6 +34,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .route("/kratos/courier", post(courier::handle))
         .route_layer(from_fn_with_state(state.clone(), require_hook_key))
         .nest("/updater", updater::router(state))
+        .nest("/backups", backups::router(state))
 }
 
 /// Refuses a call without Kratos's hook key. Both sides are hashed before comparing, so the

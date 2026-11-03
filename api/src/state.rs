@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use crate::action_items::links::Links;
 use crate::activity::Activities;
 use crate::auth::Auth;
+use crate::backups::Backups;
 use crate::browser::Browsers;
 use crate::claude_accounts::ClaudeAccounts;
 use crate::connectors::Connectors;
@@ -33,6 +34,8 @@ use crate::version::VersionInfo;
 pub struct AppState {
     /// Kratos, and what the auth layers check requests against.
     pub auth: Auth,
+    /// The nightly backups of the databases, and Back up now. See `crate::backups`.
+    pub backups: Backups,
     /// The browsers the host runs for people to sign in to their accounts in.
     pub browsers: Browsers,
     /// Claude accounts signed in through OAuth: their sign-ins, the keeper that refreshes them,

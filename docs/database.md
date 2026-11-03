@@ -665,7 +665,7 @@ The history of items and initiatives, one row per change; see `docs/action-items
 | `action_item_id` | `UUID`        | The item it is about, if any; deleted with it                |
 | `initiative_id`  | `UUID`        | The initiative it is about, if any; deleted with it          |
 | `kind`           | `TEXT`        | Lowercase with underscores, such as `state_changed`          |
-| `actor`          | `TEXT`        | `user:<id>`, `elysia`, `session:<n>`, or `watcher:<provider>`; `user` before accounts |
+| `actor`          | `TEXT`        | `user:<id>`, `elysia`, `session:<n>`, `watcher:<provider>`, or `system`; `user` before accounts |
 | `data`           | `JSONB`       | A JSON object shaped by `kind`                               |
 | `created_at`     | `TIMESTAMPTZ` | Written by the API, the moment of the change                 |
 | `changeset_id`   | `UUID`        | The changeset whose applying or undoing made the change; `ON DELETE SET NULL` |
@@ -825,6 +825,7 @@ One row, always present (`singleton` is its key and must be true).
 | `signup_open` | `BOOLEAN`     | Defaults to true; the first person may sign up regardless    |
 | `require_mfa` | `BOOLEAN`     | Defaults to false                                            |
 | `agent_configuration_repository` | `TEXT` | Nullable; the https repository agents' `~/.claude` comes from, no credentials, at most 2048 characters |
+| `backup_storage_location_id` | `UUID` | Nullable; the storage location the databases are backed up to, `NULL` for none. References `storage_locations` through `workspace_settings_backup_storage_location`, so a chosen location cannot be deleted |
 | `updated_by`  | `UUID`        | References `users`                                           |
 | `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                                        |
 
@@ -919,6 +920,24 @@ What Elysia has taken on.
 | `created_by`     | `UUID`               | References `users`                                              |
 | `created_at`     | `TIMESTAMPTZ`        | Set on insert                                                   |
 | `updated_at`     | `TIMESTAMPTZ`        | Maintained by trigger                                           |
+### `database_backups`
+
+Every backup of the databases to a storage location, and how it ended; see `docs/infrastructure.md`, Backups. At most
+one row is `running`, enforced by the partial unique index `database_backups_one_running`; `database_backups_started_at`
+serves the schedule's and Settings' reads.
+
+| Column                | Type                      | Notes                                                            |
+|-----------------------|---------------------------|------------------------------------------------------------------|
+| `id`                  | `UUID`                    | UUIDv7, primary key                                              |
+| `trigger`             | `database_backup_trigger` | `schedule`, `admin`, or `deployment`                             |
+| `status`              | `database_backup_status`  | `running`, `succeeded`, or `failed`                              |
+| `storage_location_id` | `UUID`                    | Where the files went; `ON DELETE SET NULL`, for a location no longer chosen |
+| `started_at`          | `TIMESTAMPTZ`             | To the second: it names the backup's files                      |
+| `finished_at`         | `TIMESTAMPTZ`             | Set exactly once it leaves `running`                             |
+| `size_bytes`          | `BIGINT`                  | Every dump together; set exactly when it succeeded               |
+| `error`               | `TEXT`                    | Why it failed, 1 to 2000 characters; set exactly when it failed  |
+| `created_by`          | `UUID`                    | The admin who asked for it, or the system user for the schedule and a deploy |
+
 ### `deployment_updates`
 
 Every release the updater was told to apply, and how it ended; see `docs/infrastructure.md`. At most one row is

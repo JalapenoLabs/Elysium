@@ -34,6 +34,11 @@ there (see `docs/studio.md`).
 Setting `isStudioDefault: true` on a location moves the mark from any other. A location that Studio items keep files
 in cannot be deleted; delete those items permanently first.
 
+One location may also hold the nightly backups of the databases, chosen by an admin on Settings, Backups. They are
+written under `database-backups/` in the location's directory and do not count toward its storage limit. That
+location cannot be deleted while it is chosen: the API answers `409` with the code `backup_destination`. See
+`docs/infrastructure.md`, Backups.
+
 ## Providers
 
 `api/src/models/storage_location.rs` stores one row per location with a `kind` column and nullable columns for each

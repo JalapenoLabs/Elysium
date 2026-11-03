@@ -34,6 +34,14 @@ pub mod sql_types {
     pub struct ContainerKind;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "database_backup_status"))]
+    pub struct DatabaseBackupStatus;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "database_backup_trigger"))]
+    pub struct DatabaseBackupTrigger;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "deployment_update_status"))]
     pub struct DeploymentUpdateStatus;
 
@@ -370,6 +378,24 @@ diesel::table! {
         jira_credential_id -> Nullable<Uuid>,
         github_credential_id -> Nullable<Uuid>,
         content -> Jsonb,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::DatabaseBackupTrigger;
+    use super::sql_types::DatabaseBackupStatus;
+
+    database_backups (id) {
+        id -> Uuid,
+        trigger -> DatabaseBackupTrigger,
+        status -> DatabaseBackupStatus,
+        storage_location_id -> Nullable<Uuid>,
+        started_at -> Timestamptz,
+        finished_at -> Nullable<Timestamptz>,
+        size_bytes -> Nullable<Int8>,
+        error -> Nullable<Text>,
+        created_by -> Uuid,
     }
 }
 
@@ -997,6 +1023,7 @@ diesel::table! {
         updated_by -> Uuid,
         updated_at -> Timestamptz,
         agent_configuration_repository -> Nullable<Text>,
+        backup_storage_location_id -> Nullable<Uuid>,
     }
 }
 
@@ -1029,6 +1056,8 @@ diesel::joinable!(connectors -> jira_credentials (jira_credential_id));
 diesel::joinable!(connectors -> storage_locations (storage_location_id));
 diesel::joinable!(connectors -> token_accounts (token_account_id));
 diesel::joinable!(connectors -> users (created_by));
+diesel::joinable!(database_backups -> storage_locations (storage_location_id));
+diesel::joinable!(database_backups -> users (created_by));
 diesel::joinable!(deployment_updates -> users (created_by));
 diesel::joinable!(elysia_messages -> users (created_by));
 diesel::joinable!(elysia_questions -> action_items (action_item_id));
@@ -1085,6 +1114,7 @@ diesel::joinable!(timeline_records -> connectors (connector_id));
 diesel::joinable!(timeline_records -> users (created_by));
 diesel::joinable!(token_accounts -> users (created_by));
 diesel::joinable!(turn_summaries -> coding_sessions (session_id));
+diesel::joinable!(workspace_settings -> storage_locations (backup_storage_location_id));
 diesel::joinable!(workspace_settings -> users (updated_by));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -1102,6 +1132,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     connector_check_results,
     connector_runs,
     connectors,
+    database_backups,
     deployment_updates,
     elysia_messages,
     elysia_questions,

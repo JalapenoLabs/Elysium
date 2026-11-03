@@ -53,6 +53,9 @@ Self-improvement (learning from feedback, self-healing connectors) is designed i
   while work is running; anything a restart would cut short, such as an agent turn, holds an activity
   (`api/src/activity.rs`) while it runs. Each API image carries the deployment's configuration, so a release brings
   its own, and the updater owns `ELYSIUM_VERSION` in `.env`. See `docs/infrastructure.md`.
+- The API backs up Elysium's, Kratos's, and Hydra's databases every night (`api/src/backups/`) to the storage
+  location an admin chose, keeping 30 days, whether or not the updater runs. A night that fails raises an inbox item;
+  the restore is step by step in `docs/infrastructure.md`, Backups, and needs the same `ELYSIUM_ENCRYPTION_KEY`.
 - The web app's pages carry a strict Content Security Policy set by the API: no inline scripts, no eval, nothing
   from another origin. Frontend code keeps to it. See `docs/security.md`.
 

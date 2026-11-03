@@ -277,8 +277,21 @@ pub async fn app_state_with_storage(
         check_runs: crate::connectors::checks::CheckRuns::new(events.clone()),
     };
 
+    // Never started, and its dumps are fakes, so no test reaches Docker through it.
+    let backups = crate::backups::Backups::new(crate::backups::BackupsDeps {
+        database: database.clone(),
+        cipher: Arc::clone(&cipher),
+        storage: storage.clone(),
+        events: events.clone(),
+        activity: activity.clone(),
+        dumper: crate::backups::dump::Dumper::Fake { failing: None },
+        staging_directory: std::env::temp_dir().join(format!("elysium-backups-{}", Uuid::now_v7())),
+        shutdown: shutdown.clone(),
+    });
+
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
+        backups,
         browsers,
         claude_accounts,
         connectors,

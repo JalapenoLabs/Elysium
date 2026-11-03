@@ -200,6 +200,8 @@ pub struct WorkspaceSettings {
     /// The git repository every agent's `~/.claude` is checked out from. See
     /// `crate::runner::configuration`.
     pub agent_configuration_repository: Option<String>,
+    /// The storage location the databases are backed up to every night. See `crate::backups`.
+    pub backup_storage_location_id: Option<Uuid>,
 }
 
 /// A partial update of the workspace settings. `None` leaves a setting as it is.
@@ -214,6 +216,12 @@ pub struct WorkspaceSettingsChanges {
         reason = "leave as it is, clear, and set are three distinct changes"
     )]
     pub agent_configuration_repository: Option<Option<String>>,
+    /// `Some(None)` turns backups off.
+    #[expect(
+        clippy::option_option,
+        reason = "leave as it is, clear, and set are three distinct changes"
+    )]
+    pub backup_storage_location_id: Option<Option<Uuid>>,
 }
 
 impl WorkspaceSettingsChanges {
@@ -221,6 +229,7 @@ impl WorkspaceSettingsChanges {
         self.signup_open.is_none()
             && self.require_mfa.is_none()
             && self.agent_configuration_repository.is_none()
+            && self.backup_storage_location_id.is_none()
     }
 }
 
@@ -665,11 +674,13 @@ pub async fn update_workspace_settings(
                         "signupOpen": before.signup_open,
                         "requireMfa": before.require_mfa,
                         "agentConfigurationRepository": before.agent_configuration_repository,
+                        "backupStorageLocationId": before.backup_storage_location_id,
                     },
                     "after": {
                         "signupOpen": after.signup_open,
                         "requireMfa": after.require_mfa,
                         "agentConfigurationRepository": after.agent_configuration_repository,
+                        "backupStorageLocationId": after.backup_storage_location_id,
                     },
                 }),
             )
@@ -1056,7 +1067,7 @@ mod tests {
         let closing = WorkspaceSettingsChanges {
             signup_open: Some(false),
             require_mfa: None,
-            agent_configuration_repository: None,
+            ..WorkspaceSettingsChanges::default()
         };
         let after = update_workspace_settings(&mut connection, closing, ada.id)
             .await
@@ -1073,8 +1084,18 @@ mod tests {
         assert_eq!(
             recorded,
             [json!({
-                "before": { "signupOpen": true, "requireMfa": false, "agentConfigurationRepository": null },
-                "after": { "signupOpen": false, "requireMfa": false, "agentConfigurationRepository": null },
+                "before": {
+                    "signupOpen": true,
+                    "requireMfa": false,
+                    "agentConfigurationRepository": null,
+                    "backupStorageLocationId": null,
+                },
+                "after": {
+                    "signupOpen": false,
+                    "requireMfa": false,
+                    "agentConfigurationRepository": null,
+                    "backupStorageLocationId": null,
+                },
             })]
         );
     }

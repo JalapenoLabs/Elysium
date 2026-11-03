@@ -74,8 +74,8 @@ because agents need the internet, and nginx is not on it. The development stack 
 `elysium-workspace:dev` (service `workspace-image`) before the API starts. See `docs/coding.md`.
 
 The API keeps one volume of its own, `api-data` at `/var/lib/elysium`: the Bitwarden CLI's state, so it stays signed
-in as the same device across restarts. Removing it only makes the CLI sign in again at the next start. See
-`docs/passwords.md`.
+in as the same device across restarts, and each database dump of a running backup until it is uploaded (see Backups
+below). Removing it only makes the CLI sign in again at the next start. See `docs/passwords.md`.
 
 `oauth-broker/` is a separate deployable with its own `compose.yml` and .env; it is not part of this
 stack.
@@ -221,7 +221,8 @@ applying records it as succeeded. Every change is published as `updates.status`.
    agents run in, which is not a compose service. `publish.yml` pushes the API image last, so a release whose API
    tag exists has all of them.
 3. Backs up Elysium's, Kratos's, and Hydra's databases with `pg_dump` into `backups/<time>-<running>/`, keeping the
-   newest five.
+   newest five. This copy stays on the host and exists only to undo the update; the nightly backup off the host is
+   separate (see Backups below).
 4. Installs the configuration in place of the directory's, and points `ELYSIUM_VERSION` at the target. `.env` is
    rewritten in place, so it keeps its owner and mode.
 5. Brings every service but the updater up, pulling only images Docker lacks (every one is a fixed version), and
@@ -238,6 +239,136 @@ applies on its own.
 Compose resolves the stack's bind mounts against the deployment directory and passes the paths to the Docker daemon,
 which reads them on the host. The updater therefore finds where its `/deployment` mount comes from and links that host
 path to it, so compose runs at the path the daemon knows.
+
+## Backups
+
+Every night the API backs up the three databases on the stack's Postgres (Elysium's own, Kratos's, and Hydra's) to a
+storage location off the host, whether or not auto-update is on. The code is `api/src/backups/`.
+
+### Turning them on
+
+An admin chooses the storage location on Settings, Backups (`/settings/backups`): any Bunny Storage zone or S3 bucket
+from Settings, Storage (`docs/storage.md`). The API reaches the location with its saved settings before it is chosen,
+so a wrong key shows at once rather than at night. Until a location is chosen nothing is backed up: the page says so,
+and the API's log warns once a night (`backups.schedule.no_destination`). The location cannot be deleted while it is
+chosen.
+
+### What a backup does
+
+1. Dumps each database with the server's own `pg_dump --format custom`, run in the `postgres` container
+   (`docker exec` through `docker-proxy`), exactly as the updater does, into `/var/lib/elysium/backups` on the API's
+   volume. The server's own binary always matches its version, and the custom format is compressed.
+2. Uploads each dump to `database-backups/<started>-<database>.dump` under the location's directory, such as
+   `database-backups/20261103T080000Z-elysium.dump`, and removes it from the volume.
+3. Once all three are stored, removes every backup in `database-backups/` older than 30 days (`RETENTION_DAYS`).
+   Nothing else in the location is touched: only files in that directory whose whole name has that shape.
+
+A backup holds an activity while it runs, so auto-update never restarts the stack under it. One runs at a time.
+
+### When it runs
+
+- **Nightly** at 08:00 UTC (`BACKUP_TIME`), checked every ten minutes, so an API that was down at 08:00 backs up as
+  soon as it starts. Any backup that succeeded since 08:00, whatever started it, is that night's.
+- **Back up now** on Settings, Backups.
+- **Before a deploy**, by the deployment's own tooling, over `/internal/backups` (see below).
+
+Every attempt is a `database_backups` row (`docs/database.md`), listed on Settings, Backups, and every change is
+published as `backups.status`.
+
+### When it fails
+
+A failed attempt is logged at error level (`backups.run.failure`) with its reason, recorded on its row, and shown on
+Settings, Backups. Whatever it had uploaded is removed again, so the location only ever holds whole backups. A
+scheduled attempt that fails is retried an hour later, three attempts a night in all; when the last fails, an inbox
+item, "Last night's database backup failed", says why, raised as `system`. A backup that a restart cut short is
+recorded as failed when the API next starts, and its files are removed.
+
+### From a script
+
+`/internal/backups` lets tooling on the host back up before it changes the stack, through the API container (nginx
+never routes `/internal`). It speaks plain text and needs the updater's key, the hex SHA-256 of
+`elysium/updater/key:<ELYSIUM_ENCRYPTION_KEY>`:
+
+```sh
+key="$(printf '%s' "elysium/updater/key:$ELYSIUM_ENCRYPTION_KEY" | sha256sum | cut -c1-64)"
+call() { docker compose exec -T api curl -sS -H "x-elysium-updater-key: $key" "$@"; }
+backup="$(call -X POST http://127.0.0.1:8080/internal/backups)"   # running <id>
+until outcome="$(call "http://127.0.0.1:8080/internal/backups/${backup#running }")" \
+  && [ "$outcome" != running ]; do sleep 5; done
+echo "$outcome"                                                   # succeeded, or failed <reason>
+```
+
+`POST` answers `202` with `running <id>`, or `409` with `already-running` or `no-destination`. `GET
+/internal/backups/{id}` answers `running`, `succeeded`, or `failed <reason>`.
+
+### What a backup holds, and what it does not
+
+A backup is the three databases alone. Without the same `ELYSIUM_ENCRYPTION_KEY` it is of little use: every secret
+in Elysium's database is sealed with it, and Kratos and Hydra derive their own secrets from it. Keep a copy of `.env`
+somewhere safe off the host; no backup includes it.
+
+Nothing outside Postgres is backed up: not `api-data` (the Bitwarden CLI signs in again), not the agent workspace's
+volume (session directories and agents' checkouts), not the mail server's volumes, and not the browsers' profiles
+(each browser must be signed in again).
+
+### Restoring a backup
+
+The restore replaces each database whole with its dump, as the updater's rollback does. Everything written since the
+backup is lost.
+
+1. **Have the stack's directory**, with the `.env` whose `ELYSIUM_ENCRYPTION_KEY` the backup was made under. Its
+   Postgres credentials may differ: the restore runs as whoever `.env` names. Run the newest release, or `main`: a
+   restored schema is brought up to date by the `migrate` services, but an older API refuses a newer schema.
+2. **Pick the backup.** List `database-backups/` in the location and take the newest `<started>` that has all three
+   files, one per database. Elysium's own is named for the database it came from, normally `POSTGRES_DB`.
+3. **Download the three files** into `restore/` in the stack's directory, with the location's own credentials:
+
+   ```sh
+   started=20261103T080000Z
+   # Google Cloud Storage, with the location's HMAC key
+   AWS_ACCESS_KEY_ID=<access id> AWS_SECRET_ACCESS_KEY=<secret> aws s3 cp --recursive \
+     --endpoint-url https://storage.googleapis.com --exclude '*' --include "$started-*" \
+     s3://<bucket>/<directory>/database-backups/ restore/
+   # Amazon S3: the same without --endpoint-url, with the IAM user's key
+   # Bunny Storage: one file at a time, with the zone's password, from the region's endpoint
+   curl --fail -H 'AccessKey: <zone password>' -o "restore/$started-elysium.dump" \
+     "https://<endpoint>/<zone>/<directory>/database-backups/$started-elysium.dump"
+   ```
+
+4. **Start Postgres** if it is not running, and stop everything that holds a connection to it:
+
+   ```sh
+   docker compose up --detach --wait postgres
+   docker compose stop nginx api kratos hydra
+   ```
+
+5. **Recreate each database from its dump.** `own` is Elysium's database: `POSTGRES_DB` in `.env`. If the dump came
+   from a deployment whose `POSTGRES_DB` differed, rename that file to match first.
+
+   ```sh
+   own=elysium
+   for database in "$own" kratos hydra; do
+     docker compose exec -T postgres sh -c '
+       psql --username "$POSTGRES_USER" --dbname postgres --quiet --set ON_ERROR_STOP=1 \
+         --command "DROP DATABASE IF EXISTS \"$1\" WITH (FORCE)" \
+         --command "CREATE DATABASE \"$1\"" \
+       && pg_restore --username "$POSTGRES_USER" --dbname "$1" --no-owner --exit-on-error' \
+       restore "$database" < "restore/$started-$database.dump"
+   done
+   ```
+
+6. **Bring the stack back up** with `docker compose up --detach --wait`. The `migrate` services apply any migration
+   newer than the backup on the way.
+7. **Check it**: sign in, and open Settings, Backups, which now lists the history as of the backup. Sign each browser
+   in again on Settings, Browser sign-ins if its profile was lost with the host.
+
+To rehearse a restore without touching a deployment, run two scratch stacks beside each other: a compose project of
+their own (`-p`) with an override renaming every `container_name`, started with `up --wait kratos hydra`, plus the
+`docker-proxy` published on `127.0.0.1` for the first. The opt-in test
+`backups::dump::tests::a_running_stacks_databases_dump_through_docker` dumps the first stack's databases with the
+API's own dump code (`BACKUPS_TEST_DOCKER_URL`, `BACKUPS_TEST_POSTGRES_CONTAINER`, `BACKUPS_TEST_DATABASES`,
+`BACKUPS_TEST_OUTPUT`); steps 4 to 6 then restore them into the second, whose Kratos and Hydra must come up healthy
+and whose `migrate` must find the schema up to date.
 
 ## Time
 

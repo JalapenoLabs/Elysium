@@ -56,6 +56,7 @@ pub async fn handle(
         signup_open: body.signup_open,
         require_mfa: body.require_mfa,
         agent_configuration_repository: repository,
+        ..WorkspaceSettingsChanges::default()
     };
 
     let mut connection = state

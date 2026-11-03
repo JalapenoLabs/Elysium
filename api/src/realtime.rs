@@ -24,6 +24,7 @@ use tokio::sync::broadcast;
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use crate::backups::BackupsStatus;
 use crate::mail::hosting::MailServerStatus;
 use crate::passwords::VaultStatus;
 use crate::routes::v1::action_items::{
@@ -211,6 +212,9 @@ pub enum ServerEvent {
     /// A prompt with a drawing was sent.
     #[serde(rename = "studioFeedback.created")]
     StudioFeedbackCreated(StudioFeedbackResponse),
+    /// The database backups changed: one began or ended, or an admin chose where they go.
+    #[serde(rename = "backups.status")]
+    BackupsStatus(Box<BackupsStatus>),
     /// Auto-update's state changed: a check, an update beginning or ending, or what it
     /// waits for.
     #[serde(rename = "updates.status")]

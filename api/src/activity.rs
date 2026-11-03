@@ -3,7 +3,8 @@
 //! Work in progress that a restart of the stack would cut short.
 //!
 //! Auto-update restarts every container, so it waits until nothing is running that a
-//! restart would interrupt: today, an agent turn on this host. Whatever starts such work
+//! restart would interrupt: an agent turn on this host, or a backup of the databases
+//! (`crate::backups`). Whatever starts such work
 //! calls [`Activities::begin`] and holds the returned [`ActivityGuard`] for as long as the
 //! work runs. Dropping the guard, on success, failure, cancellation, or a panic that
 //! unwinds through it, ends the activity, so a turn can never be left counted by an early
@@ -32,6 +33,8 @@ use serde::Serialize;
 pub enum ActivityKind {
     /// An agent turn running on this host, for a coding session or for Elysia.
     AgentTurn,
+    /// A backup of the databases, which a restart would leave half uploaded.
+    DatabaseBackup,
 }
 
 /// One piece of running work, as Settings shows it.

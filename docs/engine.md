@@ -12,8 +12,8 @@ This doc is the design. Little of it is built; the roadmap is the issues in the 
 - The engine is a separate process, `elysium-engine`, built from the same Rust crate as the API and run as its own
   compose service. The API serves clients alone (the web app, MCP clients); the engine does all background work.
 - Every background loop the API runs today moves into the engine: the link watcher, connector ingest, the meeting
-  reader, the Claude account keeper, the vault keeper, the browser reconciler, mail server hosting, update checks, and
-  Elysia's dispatcher, along with the runner and the worker pool. Either process can crash and restart without the
+  reader, the Claude account keeper, the vault keeper, the browser reconciler, mail server hosting, update checks, the
+  nightly database backups, and Elysia's dispatcher, along with the runner and the worker pool. Either process can crash and restart without the
   other.
 - Postgres is the job queue: steps are claimed with `FOR UPDATE SKIP LOCKED`, with attempts and states on the row.
 - The event stream moves to Redis pub/sub, so the engine's changes reach every browser through the API exactly as the

@@ -95,7 +95,8 @@ restore refuses a deleted item, and a deleted item counts toward no initiative's
 
 Elysium is one workspace shared by everyone who signs in (`docs/auth.md`). Every item and initiative records who
 created it (`createdBy`), and every history entry names its actor: `user:<id>` for a person, `elysia`,
-`session:<number>`, or `watcher:<provider>`. Entries written before accounts say `user` alone.
+`session:<number>`, `watcher:<provider>`, or `system` for Elysium reporting on its own work, such as a night's
+database backup that failed. Entries written before accounts say `user` alone.
 
 Ownership predates accounts and is still recorded as text:
 
