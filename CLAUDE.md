@@ -188,6 +188,11 @@ Everything else follows these rules:
   the link watcher. `connector.changed` carries an id alone.
 - Outlook and Gmail read through a person's browser over DevTools, with one page script per service; the check is
   cheap and deterministic, and nothing it does marks mail read.
+- YouTrack reads a person's YouTrack Cloud site with their own permanent token, a token account that names its site
+  (`token_accounts.site_url`), validated like a Jira site: `https`, one label on `youtrack.cloud`, the origin alone.
+  `crate::youtrack` is the only caller. Every two minutes it records new issues and comments in the chosen projects;
+  one assigned to the person by someone else, or a comment from someone else on their issue or mentioning them,
+  raises an inbox item as `watcher:youtrack`. The first read records nothing.
 - Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
   projects with a confidence (`timeline_record_projects`). A record is its owner's alone, even about a shared
   project.

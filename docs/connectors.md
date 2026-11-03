@@ -20,6 +20,7 @@ Accounts live in one store per way of signing in, each with the columns and cons
 | `github`     | `github_credentials` | A personal access token                    | The workspace's      |
 | `browser`    | `browser_sessions`   | A browser the person signed in to          | Its creator's        |
 | `fireflies`  | `token_accounts`     | An API key                                 | Its creator's        |
+| `youtrack`   | `token_accounts`     | A site and a permanent token               | Its creator's        |
 
 The stores stay separate rather than becoming one table because each holds what only its provider has: Jira's site
 rule and allowlist, GitHub's default token and token kinds, a browser's port and container. They are also what coding
@@ -27,10 +28,15 @@ sessions, projects, action item links, and the link watcher already point at by 
 those constraints for a blob and move every reference for no change in behavior. `api/src/connectors/accounts.rs`
 reads them together for the hub's Accounts list.
 
-`token_accounts` holds every account whose whole sign-in is one API key, named by its provider (`kind`): Fireflies
-today, and the providers on the roadmap that work the same way. A key is checked with its provider before it is
-stored, sealed bound to its row (`docs/secrets.md`), and never returned. `identity` keeps who the provider said the key
-belongs to.
+`token_accounts` holds every account whose whole sign-in is one API key, named by its provider (`kind`): Fireflies and
+YouTrack today, and the providers on the roadmap that work the same way. A key is checked with its provider before it
+is stored, sealed bound to its row (`docs/secrets.md`), and never returned. `identity` keeps who the provider said the
+key belongs to: an address for Fireflies, the login for YouTrack, which the reader compares authors against.
+
+A provider whose accounts each name their own instance keeps it in `site_url`. YouTrack's is the site the token was
+issued on, and like Jira's site it is validated rather than trusted (`crate::youtrack::normalize_site_url`): `https`,
+a host of one label on `youtrack.cloud`, no path, port, query, or credentials, stored as the origin alone. So no stored
+account can point Elysium at another host. YouTrack Server, on a customer's own host, is not supported.
 
 ## Connectors
 
@@ -45,6 +51,9 @@ table of its own:
   `jira_credential_boards`): every call made with that token is bounded by it, whatever reads through the token
   (`docs/jira.md`).
 - Fireflies' content is the storage location its recordings are kept in, `storage_location_id`, a foreign key.
+- YouTrack's content is the projects it reads, `{"projects": "*"}` or `{"projects": [<project id>, ...]}`. A pick may
+  name a project by its id or short name; what is stored is YouTrack's id, matched against what the token reaches
+  when it is saved, so a project the token cannot see is refused then rather than ignored later.
 
 Its **reading state** is `sign_in_state`, `cursor`, `last_polled_at`, and `last_error`, and `is_active` false means
 paused. Jira and GitHub are read by the link watcher, which records its progress per account in `link_watch_cursors`,
@@ -73,6 +82,7 @@ it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web
 | `outlook`   | `kinds/webmail.rs`         | `browser`     | None: the inbox         | `ingest`           |
 | `gmail`     | `kinds/webmail.rs`         | `browser`     | None: the inbox         | `ingest`           |
 | `fireflies` | `kinds/fireflies.rs`       | `fireflies`   | `storageLocationId`     | `crate::meetings`  |
+| `youtrack`  | `kinds/youtrack.rs`        | `youtrack`    | `projects`              | `crate::youtrack::reader` |
 
 A definition is structure only: the kind's scope, the account kind it reads through, a browser kind's start page, its
 content fields (a `selection` picked from what the account reaches, or a `storage_location`), and its ordered checks.
@@ -114,6 +124,7 @@ in order (`CheckSpec`): an id, whether the connector is any use without it, and 
 | GitHub            | `sign_in`, `read_scopes` (optional), `list_repositories`, `sample_issues` and `sample_pull_requests` (optional) |
 | Outlook and Gmail | `browser_running`, `signed_in`, `inbox_readable`, `sample_message` (optional)                       |
 | Fireflies         | `sign_in`, `list_meetings`, `sample_transcript` (optional)                                         |
+| YouTrack          | `sign_in`, `list_projects`, `sample_issues`, `sample_comments` (optional)                          |
 
 `checks::run_in_order` runs them one at a time against one value, so a later check uses what an earlier one fetched.
 A check whose dependency did not pass is skipped and names that dependency (`blockedBy`), so a token Jira refuses fails
@@ -219,6 +230,29 @@ On each read:
   connecting a mailbox does not fill the inbox with its backlog. Its cursor remembers that (`{"baselined": true}`).
 - A read that fails keeps the cursor and records the reason in `last_error`.
 
+### YouTrack
+
+`api/src/youtrack/reader.rs` reads every active YouTrack connector every two minutes (`READ_INTERVAL`), until
+shutdown. A read signs in as the token's user, lists the chosen projects' issues most recently updated first
+(`project: JL, WAY sort by: updated desc`, up to four pages of 50), stops at the cursor, and reads the comments on each
+changed issue.
+
+- A new issue is recorded as `issue:<id>`, titled with its key and summary, from its reporter.
+- Each new comment is recorded as `comment:<id>`, titled `Comment on <key> <summary>`, linking to the comment itself.
+- Other changes, such as a state moving, are not recorded: following an issue's state is what linking it to an item
+  is for.
+
+A record that wants attention raises an inbox item recorded as `watcher:youtrack`, in the same transaction:
+
+| Record    | Wants attention when                                                                       |
+|-----------|--------------------------------------------------------------------------------------------|
+| An issue  | It is assigned to the token's user, and someone else reported it                          |
+| A comment | Someone else wrote it, on an issue the user is assigned or reported, or it mentions `@<login>` |
+
+The cursor is the newest update read, in YouTrack's own clock (`{"baselined": true, "since": <ms>}`). The first read
+records nothing and only sets it, so connecting a site does not fill the timeline and the inbox with its history. A
+read the site refuses marks the connector `signed_out`; any other failure keeps the cursor and records the reason.
+
 ## What is published
 
 | Event                        | When                                                                          |
@@ -251,8 +285,11 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
 
 ## Roadmap
 
-- More kinds: YouTrack and Slack with an API key in `token_accounts`, Confluence on an Atlassian account, Teams through
-  a Microsoft browser, and Google Meet and Teams recordings (`docs/meetings.md`).
+- More kinds: Slack, Confluence on an Atlassian account, Teams through a Microsoft browser, and Google Meet and Teams
+  recordings (`docs/meetings.md`).
+- YouTrack issues as action item links, through the link-provider trait (`api/src/action_items/links/`), as Jira and
+  GitHub issues are: resolving an item moves its issue to a resolved state, and resolving the issue resolves the item.
+- YouTrack Server, on a customer's own host, beside YouTrack Cloud.
 - GitHub content: picking repositories rather than reading whatever the token reaches.
 - Keeping a token account's `identity` and `checked_at` current from its checks.
 - Elysia's triage on `timelineRecord.created`: classifying each message, drafting replies for review, and attributing

@@ -19,6 +19,7 @@ pub mod fireflies;
 pub mod github;
 pub mod jira;
 pub mod webmail;
+pub mod youtrack;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -100,20 +101,22 @@ pub enum AccountFieldType {
 }
 
 /// Every kind, in the order the hub lists them.
-pub const DEFINITIONS: [&Definition; 5] = [
+pub const DEFINITIONS: [&Definition; 6] = [
     &jira::DEFINITION,
     &github::DEFINITION,
     &webmail::OUTLOOK,
     &webmail::GMAIL,
     &fireflies::DEFINITION,
+    &youtrack::DEFINITION,
 ];
 
 /// Every kind of account, with what a new one asks for.
-pub const ACCOUNT_DEFINITIONS: [&AccountDefinition; 4] = [
+pub const ACCOUNT_DEFINITIONS: [&AccountDefinition; 5] = [
     &jira::ACCOUNT,
     &github::ACCOUNT,
     &webmail::ACCOUNT,
     &fireflies::ACCOUNT,
+    &youtrack::ACCOUNT,
 ];
 
 pub fn definition(kind: ConnectorKind) -> &'static Definition {
@@ -179,6 +182,7 @@ pub enum KindChecks {
     Github(github::GithubChecks),
     Webmail(webmail::WebmailChecks),
     Fireflies(fireflies::FirefliesChecks),
+    Youtrack(youtrack::YoutrackChecks),
 }
 
 impl std::fmt::Debug for KindChecks {
@@ -198,6 +202,7 @@ impl Checks for KindChecks {
             Self::Github(checks) => checks.check(id).await,
             Self::Webmail(checks) => checks.check(id).await,
             Self::Fireflies(checks) => checks.check(id).await,
+            Self::Youtrack(checks) => checks.check(id).await,
         }
     }
 }
@@ -221,6 +226,9 @@ pub async fn prepare_checks(
         }
         ConnectorKind::Fireflies => {
             KindChecks::Fireflies(fireflies::prepare_checks(state, current, source).await?)
+        }
+        ConnectorKind::Youtrack => {
+            KindChecks::Youtrack(youtrack::prepare_checks(state, current, source).await?)
         }
     })
 }
@@ -303,6 +311,7 @@ pub async fn create(
             webmail::create(state, current, kind, account, content).await
         }
         ConnectorKind::Fireflies => fireflies::create(state, current, account, content).await,
+        ConnectorKind::Youtrack => youtrack::create(state, current, account, content).await,
     }
 }
 
@@ -313,13 +322,18 @@ pub async fn create(
 /// As [`create`]; a kind with no selection fields answers an empty object.
 pub async fn options(
     state: &AppState,
+    current: &CurrentUser,
     kind: ConnectorKind,
     account: AccountChoice,
 ) -> Result<Value, ApiError> {
-    if kind == ConnectorKind::Jira {
-        return jira::options(state, account).await;
+    match kind {
+        ConnectorKind::Jira => jira::options(state, account).await,
+        ConnectorKind::Youtrack => youtrack::options(state, current, account).await,
+        ConnectorKind::Github
+        | ConnectorKind::Outlook
+        | ConnectorKind::Gmail
+        | ConnectorKind::Fireflies => Ok(Value::Object(serde_json::Map::new())),
     }
-    Ok(Value::Object(serde_json::Map::new()))
 }
 
 /// Replaces what `connector` reads.
@@ -335,6 +349,7 @@ pub async fn update_content(
     match kind_of(connector)? {
         ConnectorKind::Jira => jira::update_content(state, connector, content).await,
         ConnectorKind::Fireflies => fireflies::update_content(state, connector, content).await,
+        ConnectorKind::Youtrack => youtrack::update_content(state, connector, content).await,
         kind @ (ConnectorKind::Github | ConnectorKind::Outlook | ConnectorKind::Gmail) => {
             Err(ApiError::BadRequest(format!(
                 "{} reads everything its account reaches; there is nothing to choose",
@@ -380,6 +395,14 @@ pub fn sync(state: &AppState, connector: &Connector) -> Result<(), ApiError> {
                 drop(syncing);
             });
         }
+        ConnectorKind::Youtrack => {
+            let reader = state.connectors.youtrack.clone();
+            let connector = connector.clone();
+            tokio::spawn(async move {
+                reader.read_now(&connector).await;
+                drop(syncing);
+            });
+        }
     }
     Ok(())
 }
@@ -393,7 +416,10 @@ pub async fn remove(state: &AppState, connector: &Connector) -> Result<(), ApiEr
     match kind_of(connector)? {
         ConnectorKind::Jira => jira::remove(state, connector).await,
         ConnectorKind::Github => github::remove(state, connector).await,
-        ConnectorKind::Outlook | ConnectorKind::Gmail | ConnectorKind::Fireflies => {
+        ConnectorKind::Outlook
+        | ConnectorKind::Gmail
+        | ConnectorKind::Fireflies
+        | ConnectorKind::Youtrack => {
             let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
             crate::models::connector::delete(&mut connection, connector.id).await?;
             Ok(())

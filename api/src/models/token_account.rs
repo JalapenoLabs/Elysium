@@ -37,6 +37,9 @@ pub struct TokenAccount {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The instance the key was issued on, for a provider whose accounts each name one, such as
+    /// a YouTrack Cloud site: an https origin, validated before it is stored.
+    pub site_url: Option<String>,
 }
 
 impl TokenAccount {
@@ -70,6 +73,9 @@ pub struct NewTokenAccount {
     pub identity: String,
     pub checked_at: Option<DateTime<Utc>>,
     pub created_by: Uuid,
+    /// See [`TokenAccount::site_url`]; set it after [`NewTokenAccount::new`] for a provider
+    /// that has one.
+    pub site_url: Option<String>,
 }
 
 impl NewTokenAccount {
@@ -95,6 +101,7 @@ impl NewTokenAccount {
             identity: identity.chars().take(512).collect(),
             checked_at: Some(Utc::now()),
             created_by,
+            site_url: None,
         }
     }
 }
@@ -198,6 +205,7 @@ mod tests {
             created_by: new_account.created_by,
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            site_url: new_account.site_url,
         };
         assert_eq!(
             account

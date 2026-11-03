@@ -22,6 +22,7 @@ const editUrlByKind = {
   github: getGithubCredentialEditUrl,
   browser: getBrowserSessionUrl,
   fireflies: null,
+  youtrack: null,
 } as const satisfies Record<Account['kind'], ((id: string) => string) | null>
 
 // Every account Elysium signs in with, and what each one feeds. Reloaded by the event stream
@@ -81,7 +82,7 @@ export function AccountsList() {
           </div>
           <div className='flex shrink-0 gap-2'>
             {editUrl && <Link href={editUrl(account.id)} className='text-sm'>{t('accounts.edit')}</Link>}
-            {account.kind === 'fireflies' && <Button size='sm' variant='outline' onPress={() => remove(account)}>
+            {!editUrl && <Button size='sm' variant='outline' onPress={() => remove(account)}>
               <span>{t('accounts.delete')}</span>
             </Button>}
           </div>

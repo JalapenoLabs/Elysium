@@ -63,18 +63,6 @@ pub struct AccountSummary {
     pub name: String,
 }
 
-/// The kind of account a connector reads through.
-pub const fn kind_of(account: AccountRef) -> AccountKind {
-    match account {
-        AccountRef::Browser(_) => AccountKind::Browser,
-        // Every token account today is a Fireflies key; a second provider of keys names its
-        // kind from the row, as `list` does.
-        AccountRef::Token(_) => AccountKind::Fireflies,
-        AccountRef::Atlassian(_) => AccountKind::Atlassian,
-        AccountRef::Github(_) => AccountKind::Github,
-    }
-}
-
 /// Every account `person` sees, with the connectors each feeds: the workspace's Atlassian and
 /// GitHub accounts, and `person`'s own browsers and keys.
 ///
@@ -125,10 +113,7 @@ pub async fn list(
         });
     }
     for account in token_account::list_owned(connection, person).await? {
-        let Some(kind) = AccountKind::ALL
-            .into_iter()
-            .find(|kind| kind.as_str() == account.kind)
-        else {
+        let Some(kind) = AccountKind::parse(&account.kind) else {
             continue;
         };
         accounts.push(AccountView {
@@ -175,20 +160,37 @@ pub async fn summaries(
         if summaries.contains_key(&account.id()) {
             continue;
         }
-        let name = match account {
-            AccountRef::Atlassian(id) => jira_credential::find(connection, id).await?.name,
-            AccountRef::Github(id) => github_credential::find(connection, id).await?.name,
-            AccountRef::Browser(id) => browser_session::find(connection, id)
-                .await?
-                .map(|browser| browser.name)
-                .unwrap_or_default(),
-            AccountRef::Token(id) => token_account::find(connection, id).await?.name,
+        let (kind, name) = match account {
+            AccountRef::Atlassian(id) => (
+                AccountKind::Atlassian,
+                jira_credential::find(connection, id).await?.name,
+            ),
+            AccountRef::Github(id) => (
+                AccountKind::Github,
+                github_credential::find(connection, id).await?.name,
+            ),
+            AccountRef::Browser(id) => (
+                AccountKind::Browser,
+                browser_session::find(connection, id)
+                    .await?
+                    .map(|browser| browser.name)
+                    .unwrap_or_default(),
+            ),
+            // A token account names its provider itself; one this build does not know is
+            // left out, as `list` leaves it out.
+            AccountRef::Token(id) => {
+                let token = token_account::find(connection, id).await?;
+                let Some(kind) = AccountKind::parse(&token.kind) else {
+                    continue;
+                };
+                (kind, token.name)
+            }
         };
         summaries.insert(
             account.id(),
             AccountSummary {
                 id: account.id(),
-                kind: kind_of(account),
+                kind,
                 name,
             },
         );

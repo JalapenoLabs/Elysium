@@ -78,13 +78,18 @@
     "fireflies": {
       "name": "Fireflies",
       "description": "Your recorded meetings, cut into segments on each project's timeline."
+    },
+    "youtrack": {
+      "name": "YouTrack",
+      "description": "Issues and comments on a YouTrack Cloud site, read with your own permanent token."
     }
   },
   "accountKinds": {
     "atlassian": "Atlassian account",
     "github": "GitHub account",
     "browser": "Browser",
-    "fireflies": "Fireflies key"
+    "fireflies": "Fireflies key",
+    "youtrack": "YouTrack token"
   },
   "accounts": {
     "empty": "No accounts yet. Adding a connector adds its account.",
@@ -170,7 +175,8 @@
       "inbox_readable": "Read the inbox",
       "sample_message": "Sample messages",
       "list_meetings": "List recent meetings",
-      "sample_transcript": "Sample a transcript"
+      "sample_transcript": "Sample a transcript",
+      "sample_comments": "Sample comments"
     },
     "counts": {
       "list_projects_one": "Reaches {{count}} project",
@@ -194,7 +200,9 @@
       "list_meetings_one": "{{count}} meeting in two weeks",
       "list_meetings_other": "{{count}} meetings in two weeks",
       "sample_transcript_one": "{{count}} line",
-      "sample_transcript_other": "{{count}} lines"
+      "sample_transcript_other": "{{count}} lines",
+      "sample_comments_one": "{{count}} comment on the newest issue",
+      "sample_comments_other": "{{count}} comments on the newest issue"
     },
     "reasons": {
       "fine_grained_scopes": "GitHub does not report a fine-grained token's permissions.",
@@ -207,7 +215,9 @@
       "mailbox_not_open": "No tab in the browser shows the mailbox.",
       "no_messages": "The inbox shows no messages to sample.",
       "no_meetings": "No meeting in the last two weeks to sample.",
-      "meeting_unavailable": "The newest meeting is not available yet."
+      "meeting_unavailable": "The newest meeting is not available yet.",
+      "projects_unreachable": "The token reaches none of the chosen projects.",
+      "no_issues": "The chosen projects have no issue to sample."
     }
   },
   "detail": {

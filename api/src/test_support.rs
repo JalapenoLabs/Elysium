@@ -256,6 +256,15 @@ pub async fn app_state_with_storage(
             crate::browser::devtools::Devtools::new(http.clone()),
             connector_activity.clone(),
         ),
+        youtrack: crate::youtrack::reader::YoutrackReader::new(
+            crate::youtrack::reader::ReaderDeps {
+                database: database.clone(),
+                events: events.clone(),
+                cipher: std::sync::Arc::clone(&cipher),
+                youtrack: crate::youtrack::Youtrack::new(http.clone()),
+                activity: connector_activity.clone(),
+            },
+        ),
         activity: connector_activity,
         check_runs: crate::connectors::checks::CheckRuns::new(events.clone()),
     };

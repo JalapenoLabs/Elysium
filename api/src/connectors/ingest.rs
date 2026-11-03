@@ -286,8 +286,9 @@ impl Ingest {
 
 /// Stores a read as a record and, when `raises_item`, the inbox item it raises, in one
 /// transaction: a record never points at an item that was not written, nor an item lack its
-/// record. Answers nothing for an item the connector already recorded.
-async fn store_read(
+/// record. Answers nothing for an item the connector already recorded. Every reader that puts
+/// what it reads on the timeline stores it through here, YouTrack's included.
+pub(crate) async fn store_read(
     connection: &mut AsyncPgConnection,
     connector: &Connector,
     kind: ConnectorKind,

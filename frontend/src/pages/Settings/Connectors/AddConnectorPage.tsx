@@ -21,7 +21,12 @@ import { ContentFields } from './ContentFields'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
-import { checkConnectorDraft, createConnector, listAccounts } from '../../../api/routes/connectorRoutes'
+import {
+  TOKEN_ACCOUNT_KINDS,
+  checkConnectorDraft,
+  createConnector,
+  listAccounts,
+} from '../../../api/routes/connectorRoutes'
 import { useBrowserSessionsLoader } from '../../../hooks/useServerData'
 import { UrlTree, getConnectorUrl } from '../../../urls'
 import { hasRequiredFailure } from './connectorPresentation'
@@ -56,11 +61,13 @@ export function AddConnectorPage() {
     ? definitions.accountOf(definition.account)
     : null
   // A browser is signed in to on its own page, and Jira and GitHub always come with a new
-  // account, so only mailboxes and keys offer existing accounts.
+  // account, so only mailboxes and keys offer existing accounts, each of the kind's own provider.
   const existing = definition?.account === 'browser'
     ? browsers.map((browser) => ({ id: browser.id, name: browser.name }))
     : (accounts.data?.accounts ?? [])
-      .filter((account) => definition?.account === 'fireflies' && account.kind === 'fireflies')
+      .filter((account) => TOKEN_ACCOUNT_KINDS.some((kind) => {
+        return kind === definition?.account && kind === account.kind
+      }))
       .map((account) => ({ id: account.id, name: account.name }))
   const account: AccountChoice | null = accountId === NEW_ACCOUNT
     ? (definition?.account === 'browser' ? null : { new: fields })
