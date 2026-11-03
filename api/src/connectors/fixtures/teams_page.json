@@ -1,0 +1,112 @@
+{
+  "signedIn": true,
+  "found": true,
+  "me": "8:orgid:aaaa-1111",
+  "conversations": [
+    {
+      "id": "19:aaaa-1111_bbbb-2222@unq.gbl.spaces",
+      "topic": "",
+      "threadType": "",
+      "consumptionHorizon": "1730000100000;1730000100000;111",
+      "lastMessageAtMs": 1730000210000
+    },
+    {
+      "id": "19:channel1@thread.tacv2",
+      "topic": "General",
+      "threadType": "topic",
+      "consumptionHorizon": "1730000100000;1730000100000;333",
+      "lastMessageAtMs": 1730000420000
+    },
+    {
+      "id": "19:group1@thread.v2",
+      "topic": "Launch planning",
+      "threadType": "chat",
+      "consumptionHorizon": "1730000500000;1730000500000;222",
+      "lastMessageAtMs": 1730000310000
+    }
+  ],
+  "messages": [
+    {
+      "id": "1730000420000",
+      "conversationId": "19:channel1@thread.tacv2",
+      "parentId": "1730000410000",
+      "createdAtMs": 1730000420000,
+      "from": "8:orgid:dddd-4444",
+      "fromName": "Linus",
+      "messageType": "RichText/Html",
+      "text": "Unrelated channel chatter",
+      "mentions": null
+    },
+    {
+      "id": "1730000410000",
+      "conversationId": "19:channel1@thread.tacv2",
+      "parentId": "1730000410000",
+      "createdAtMs": 1730000410000,
+      "from": "8:orgid:dddd-4444",
+      "fromName": "Linus",
+      "messageType": "RichText/Html",
+      "text": "Alex can you review?",
+      "mentions": "[{\"@type\":\"http://schema.skype.com/Mention\",\"itemid\":\"0\",\"mri\":\"8:orgid:aaaa-1111\",\"displayName\":\"Alex\"}]"
+    },
+    {
+      "id": "1730000400000",
+      "conversationId": "19:channel1@thread.tacv2",
+      "parentId": "1729999000000",
+      "createdAtMs": 1730000400000,
+      "from": "8:orgid:cccc-3333",
+      "fromName": "Grace Hopper",
+      "messageType": "RichText/Html",
+      "text": "Checklist done",
+      "mentions": null
+    },
+    {
+      "id": "1730000310000",
+      "conversationId": "19:group1@thread.v2",
+      "parentId": "1730000300000",
+      "createdAtMs": 1730000310000,
+      "from": "8:orgid:cccc-3333",
+      "fromName": "Grace Hopper",
+      "messageType": "ThreadActivity/AddMember",
+      "text": "Linus",
+      "mentions": null
+    },
+    {
+      "id": "1730000300000",
+      "conversationId": "19:group1@thread.v2",
+      "parentId": "1730000300000",
+      "createdAtMs": 1730000300000,
+      "from": "8:orgid:cccc-3333",
+      "fromName": "Grace Hopper",
+      "messageType": "RichText/Html",
+      "text": "Notes are in the doc & ready",
+      "mentions": null
+    },
+    {
+      "id": "1730000210000",
+      "conversationId": "19:aaaa-1111_bbbb-2222@unq.gbl.spaces",
+      "parentId": "1730000200000",
+      "createdAtMs": 1730000210000,
+      "from": "8:orgid:aaaa-1111",
+      "fromName": "Alex Navarro",
+      "messageType": "RichText/Html",
+      "text": "Yes",
+      "mentions": null
+    },
+    {
+      "id": "1730000200000",
+      "conversationId": "19:aaaa-1111_bbbb-2222@unq.gbl.spaces",
+      "parentId": "1730000200000",
+      "createdAtMs": 1730000200000,
+      "from": "8:orgid:bbbb-2222",
+      "fromName": "Ada Lovelace",
+      "messageType": "RichText/Html",
+      "text": "Are we launching Friday?",
+      "mentions": null
+    }
+  ],
+  "myThreadIds": [
+    "19:channel1@thread.tacv2/1729999000000",
+    "19:aaaa-1111_bbbb-2222@unq.gbl.spaces/1730000200000"
+  ],
+  "databases": []
+}

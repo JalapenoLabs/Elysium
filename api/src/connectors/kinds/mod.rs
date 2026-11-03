@@ -18,6 +18,7 @@
 pub mod fireflies;
 pub mod github;
 pub mod jira;
+pub mod teams;
 pub mod webmail;
 pub mod youtrack;
 
@@ -101,11 +102,12 @@ pub enum AccountFieldType {
 }
 
 /// Every kind, in the order the hub lists them.
-pub const DEFINITIONS: [&Definition; 6] = [
+pub const DEFINITIONS: [&Definition; 7] = [
     &jira::DEFINITION,
     &github::DEFINITION,
     &webmail::OUTLOOK,
     &webmail::GMAIL,
+    &teams::DEFINITION,
     &fireflies::DEFINITION,
     &youtrack::DEFINITION,
 ];
@@ -181,6 +183,7 @@ pub enum KindChecks {
     Jira(jira::JiraChecks),
     Github(github::GithubChecks),
     Webmail(webmail::WebmailChecks),
+    Teams(teams::TeamsChecks),
     Fireflies(fireflies::FirefliesChecks),
     Youtrack(youtrack::YoutrackChecks),
 }
@@ -201,6 +204,7 @@ impl Checks for KindChecks {
             Self::Jira(checks) => checks.check(id).await,
             Self::Github(checks) => checks.check(id).await,
             Self::Webmail(checks) => checks.check(id).await,
+            Self::Teams(checks) => checks.check(id).await,
             Self::Fireflies(checks) => checks.check(id).await,
             Self::Youtrack(checks) => checks.check(id).await,
         }
@@ -223,6 +227,9 @@ pub async fn prepare_checks(
         ConnectorKind::Github => KindChecks::Github(github::prepare_checks(state, source).await?),
         ConnectorKind::Outlook | ConnectorKind::Gmail => {
             KindChecks::Webmail(webmail::prepare_checks(state, current, kind, source).await?)
+        }
+        ConnectorKind::Teams => {
+            KindChecks::Teams(teams::prepare_checks(state, current, source).await?)
         }
         ConnectorKind::Fireflies => {
             KindChecks::Fireflies(fireflies::prepare_checks(state, current, source).await?)
@@ -310,6 +317,7 @@ pub async fn create(
         ConnectorKind::Outlook | ConnectorKind::Gmail => {
             webmail::create(state, current, kind, account, content).await
         }
+        ConnectorKind::Teams => teams::create(state, current, account, content).await,
         ConnectorKind::Fireflies => fireflies::create(state, current, account, content).await,
         ConnectorKind::Youtrack => youtrack::create(state, current, account, content).await,
     }
@@ -328,6 +336,7 @@ pub async fn options(
 ) -> Result<Value, ApiError> {
     match kind {
         ConnectorKind::Jira => jira::options(state, account).await,
+        ConnectorKind::Teams => teams::options(state, current, account).await,
         ConnectorKind::Youtrack => youtrack::options(state, current, account).await,
         ConnectorKind::Github
         | ConnectorKind::Outlook
@@ -349,6 +358,7 @@ pub async fn update_content(
     match kind_of(connector)? {
         ConnectorKind::Jira => jira::update_content(state, connector, content).await,
         ConnectorKind::Fireflies => fireflies::update_content(state, connector, content).await,
+        ConnectorKind::Teams => teams::update_content(state, connector, content).await,
         ConnectorKind::Youtrack => youtrack::update_content(state, connector, content).await,
         kind @ (ConnectorKind::Github | ConnectorKind::Outlook | ConnectorKind::Gmail) => {
             Err(ApiError::BadRequest(format!(
@@ -379,7 +389,7 @@ pub fn sync(state: &AppState, connector: &Connector) -> Result<(), ApiError> {
             state.links.wake_watcher();
             drop(syncing);
         }
-        ConnectorKind::Outlook | ConnectorKind::Gmail => {
+        ConnectorKind::Outlook | ConnectorKind::Gmail | ConnectorKind::Teams => {
             let ingest = state.connectors.ingest.clone();
             let connector = connector.clone();
             tokio::spawn(async move {
@@ -418,6 +428,7 @@ pub async fn remove(state: &AppState, connector: &Connector) -> Result<(), ApiEr
         ConnectorKind::Github => github::remove(state, connector).await,
         ConnectorKind::Outlook
         | ConnectorKind::Gmail
+        | ConnectorKind::Teams
         | ConnectorKind::Fireflies
         | ConnectorKind::Youtrack => {
             let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;

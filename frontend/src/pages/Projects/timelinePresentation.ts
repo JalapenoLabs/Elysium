@@ -9,6 +9,7 @@ const sourceLabelKeys: Record<string, ParseKeys<'timeline'>> = {
   meeting: 'sources.meeting',
   outlook: 'sources.outlook',
   gmail: 'sources.gmail',
+  teams: 'sources.teams',
 }
 
 export function sourceLabelKey(sourceKind: string): ParseKeys<'timeline'> {

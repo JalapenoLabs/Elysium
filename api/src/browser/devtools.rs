@@ -81,6 +81,39 @@ impl Devtools {
         Ok(tabs.into_iter().filter(|tab| tab.kind == "page").collect())
     }
 
+    /// Opens `url` in a new tab of the browser on `port`, for a reader whose service has no tab
+    /// open, and answers the tab.
+    ///
+    /// # Errors
+    /// [`DevtoolsError::Unreachable`] when the `DevTools` port does not answer or refuses the tab.
+    pub async fn open_tab(&self, port: u16, url: &Url) -> Result<Tab, DevtoolsError> {
+        let mut endpoint = Url::parse(&format!(
+            "http://{}:{DEVTOOLS_PORT}/json/new",
+            host_name(port)
+        ))
+        .expect("a browser's DevTools address parses");
+        // Chromium reads the page to open from the whole query string.
+        endpoint.set_query(Some(url.as_str()));
+        let response = self
+            .http
+            .put(endpoint)
+            .header(HOST, "localhost")
+            .timeout(CALL_TIMEOUT)
+            .send()
+            .await
+            .map_err(|error| DevtoolsError::Unreachable(error.without_url().to_string()))?;
+        if !response.status().is_success() {
+            return Err(DevtoolsError::Unreachable(format!(
+                "Chromium refused to open a tab ({})",
+                response.status()
+            )));
+        }
+        response
+            .json()
+            .await
+            .map_err(|error| DevtoolsError::Unreachable(error.without_url().to_string()))
+    }
+
     /// Evaluates `expression` in the first tab whose address starts with one of `origins`, and
     /// answers its value. A promise is awaited, so the script may `fetch` as the page.
     ///

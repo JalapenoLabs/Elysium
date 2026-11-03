@@ -1,15 +1,18 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Reads every active webmail connector on an interval and puts what it reads on the
-//! timeline.
+//! Reads every active connector read through a browser on an interval and puts what it reads
+//! on the timeline.
 //!
 //! # A pass
 //!
-//! For each active connector: read its mailbox through its browser, store each item as a timeline
+//! For each active connector: read it through its browser, with the reader `readers::for_kind`
+//! answers for its kind, from the state its last read left (`cursor.reader`) and over its
+//! content. Store each item as a timeline
 //! record (an item already recorded for the connector is skipped, by its external id), and for
 //! each new item that wants attention raise an inbox action item, owned by the connector's
 //! person and recorded as the watcher of that service (`watcher:outlook`). Then store the
-//! connector's sign-in state, cursor, and error, and publish what changed. A read that recorded
+//! connector's sign-in state, cursor (`{ baselined, reader }`, the reader's next state), and
+//! error, and publish what changed. A read that recorded
 //! something, or failed, is reported to `super::activity` as a run.
 //!
 //! # The first read
@@ -37,8 +40,8 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::activity::Activity;
-use super::webmail::{Webmail, service};
-use super::{BrowserReader, ConnectorKind, Read, Reading, SignInState};
+use super::readers;
+use super::{BrowserReader, ConnectorKind, Read, ReadInput, Reading, SignInState};
 use crate::action_items::Actor;
 use crate::browser::devtools::Devtools;
 use crate::database::Pool;
@@ -160,7 +163,7 @@ impl Ingest {
             .get()
             .await
             .context("no database connection available")?;
-        let kinds = ConnectorKind::WEBMAIL.map(ConnectorKind::as_str);
+        let kinds = ConnectorKind::BROWSER_READ.map(ConnectorKind::as_str);
         Ok(connector::list_active(&mut connection, &kinds).await?)
     }
 
@@ -168,11 +171,11 @@ impl Ingest {
     async fn read_connector(&self, connector: &Connector) -> anyhow::Result<()> {
         let kind = ConnectorKind::parse(&connector.kind)
             .with_context(|| format!("unknown connector kind {:?}", connector.kind))?;
-        let webmail = service(kind)
-            .with_context(|| format!("{:?} is not a webmail connector", connector.kind))?;
+        let reader = readers::for_kind(kind, &self.inner.devtools)
+            .with_context(|| format!("{:?} is not read through a browser", connector.kind))?;
         let browser_session_id = connector
             .browser_session_id
-            .context("a webmail connector reads through a browser, and this one has none")?;
+            .context("this connector reads through a browser, and has none")?;
         let mut connection = self
             .inner
             .database
@@ -186,9 +189,12 @@ impl Ingest {
         drop(connection);
 
         let started = Utc::now();
-        let reader = Webmail::new(webmail, self.inner.devtools.clone());
+        let input = ReadInput {
+            state: &connector.cursor["reader"],
+            content: &connector.content,
+        };
         let mut run = None;
-        let outcome = match reader.read(&browser).await {
+        let outcome = match reader.read(&browser, input).await {
             Ok(reading) => {
                 let baselined = is_baselined(connector);
                 let recorded = self
@@ -199,7 +205,11 @@ impl Ingest {
                 }
                 PollOutcome {
                     sign_in_state: reading.sign_in.as_str().to_owned(),
-                    cursor: next_cursor(baselined, reading.sign_in),
+                    cursor: next_cursor(
+                        baselined,
+                        reading.sign_in,
+                        reading.state.as_ref().unwrap_or(input.state),
+                    ),
                     last_polled_at: Some(Utc::now()),
                     last_error: None,
                 }
@@ -321,9 +331,17 @@ fn is_baselined(connector: &Connector) -> bool {
     connector.cursor["baselined"].as_bool().unwrap_or(false)
 }
 
-/// The cursor after a read: baselined once the connector has been read signed in.
-fn next_cursor(baselined: bool, sign_in: SignInState) -> serde_json::Value {
-    json!({ "baselined": baselined || sign_in == SignInState::SignedIn })
+/// The cursor after a read: baselined once the connector has been read signed in, and the
+/// reader's own state for its next read.
+fn next_cursor(
+    baselined: bool,
+    sign_in: SignInState,
+    reader: &serde_json::Value,
+) -> serde_json::Value {
+    json!({
+        "baselined": baselined || sign_in == SignInState::SignedIn,
+        "reader": reader,
+    })
 }
 
 fn new_record(connector: &Connector, kind: ConnectorKind, read: &Read) -> NewTimelineRecord {
@@ -380,17 +398,27 @@ mod tests {
 
     #[test]
     fn the_first_signed_in_read_baselines_the_account() {
+        let none = serde_json::Value::Null;
         assert_eq!(
-            next_cursor(false, SignInState::SignedIn),
-            json!({ "baselined": true })
+            next_cursor(false, SignInState::SignedIn, &none),
+            json!({ "baselined": true, "reader": null })
         );
         assert_eq!(
-            next_cursor(false, SignInState::SignedOut),
-            json!({ "baselined": false })
+            next_cursor(false, SignInState::SignedOut, &none),
+            json!({ "baselined": false, "reader": null })
         );
         assert_eq!(
-            next_cursor(true, SignInState::Unknown),
-            json!({ "baselined": true })
+            next_cursor(true, SignInState::Unknown, &none),
+            json!({ "baselined": true, "reader": null })
+        );
+    }
+
+    #[test]
+    fn the_readers_state_is_kept_beside_the_baseline() {
+        let state = json!({ "since": 1_730_000_000_000_i64 });
+        assert_eq!(
+            next_cursor(true, SignInState::SignedIn, &state),
+            json!({ "baselined": true, "reader": { "since": 1_730_000_000_000_i64 } })
         );
     }
 

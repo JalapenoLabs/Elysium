@@ -188,6 +188,9 @@ Everything else follows these rules:
   the link watcher. `connector.changed` carries an id alone.
 - Outlook and Gmail read through a person's browser over DevTools, with one page script per service; the check is
   cheap and deterministic, and nothing it does marks mail read.
+- Teams reads through a Microsoft browser too, the same one Outlook can use, from Teams' own local store (IndexedDB)
+  rather than its page; nothing it does marks a message read. An unread chat message, a mention, or a reply in a
+  channel thread the person wrote in raises an inbox item; other channel messages are only recorded.
 - YouTrack reads a person's YouTrack Cloud site with their own permanent token, a token account that names its site
   (`token_accounts.site_url`), validated like a Jira site: `https`, one label on `youtrack.cloud`, the origin alone.
   `crate::youtrack` is the only caller. Every two minutes it records new issues and comments in the chosen projects;
