@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { BrowserSession } from '../../../api/routes/browserSessionRoutes'
-import type { WebmailConnectorKind } from '../../../api/routes/connectorRoutes'
+import type { BrowserConnectorKind } from '../../../api/routes/connectorRoutes'
 
 // Core
 import { useState } from 'react'
@@ -25,17 +25,19 @@ import { useConnectorsLoader } from '../../../hooks/useServerData'
 import {
   connectorKindFor,
   connectorLabelKeys,
+  readingCopyByKind,
   signInChipColors,
   signInLabelKeys,
+  startingContentByKind,
 } from './connectorPresentation'
 
 type Props = {
   browserSession: BrowserSession
 }
 
-// Whether Elysium reads this browser's mailbox, and the switch to start or stop. Only shown
-// for a browser started on a mailbox a connector can read.
-export function MailReadingSection(props: Props) {
+// Whether Elysium reads what this browser is signed in to (a mailbox, or Slack), and the switch
+// to start or stop. Only shown for a browser started on a page a connector can read.
+export function ConnectorReadingSection(props: Props) {
   const { t } = useTranslation([ 'browsers', 'common' ])
   const dispatch = useAppDispatch()
   const status = useConnectorsLoader()
@@ -43,25 +45,30 @@ export function MailReadingSection(props: Props) {
   const [ isBusy, setIsBusy ] = useState(false)
 
   const kind = connectorKindFor(props.browserSession.startUrl)
-  const account = connectors.find((candidate) => candidate.account?.kind === 'browser'
+  // One browser can feed several kinds (a Microsoft sign-in feeds Outlook and Teams), so the
+  // connector shown here is this page's kind.
+  const account = connectors.find((candidate) => candidate.kind === kind
+    && candidate.account?.kind === 'browser'
     && candidate.account.id === props.browserSession.id)
   if (!kind || status !== 'loaded') {
     return null
   }
 
-  async function startReading(connectorKind: WebmailConnectorKind) {
+  const copy = readingCopyByKind[kind]
+
+  async function startReading(connectorKind: BrowserConnectorKind) {
     setIsBusy(true)
     try {
       const response = await createConnector({
         kind: connectorKind,
         account: { id: props.browserSession.id },
-        content: {},
+        content: { ...startingContentByKind[connectorKind] },
       })
       dispatch(connectorUpserted(response.connector))
-      toast.success(t('connectors.toasts.started'))
+      toast.success(t(copy.started))
     }
     catch (error) {
-      console.debug('MailReadingSection failed to start reading', { error })
+      console.debug('ConnectorReadingSection failed to start reading', { error })
       toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
     }
     finally {
@@ -74,10 +81,10 @@ export function MailReadingSection(props: Props) {
     try {
       await deleteConnector(accountId)
       dispatch(connectorDeleted(accountId))
-      toast.success(t('connectors.toasts.stopped'))
+      toast.success(t(copy.stopped))
     }
     catch (error) {
-      console.debug('MailReadingSection failed to stop reading', { error })
+      console.debug('ConnectorReadingSection failed to stop reading', { error })
       toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
     }
     finally {
@@ -90,7 +97,7 @@ export function MailReadingSection(props: Props) {
       <div className='min-w-0'>
         <div className='flex items-center gap-2'>
           <h2 className='text-base font-semibold'>{
-            t('connectors.title', { service: t(connectorLabelKeys[kind]) })
+            t(copy.title, { service: t(connectorLabelKeys[kind]) })
           }</h2>
           {account && <Chip size='sm' variant='soft' color={signInChipColors[account.signInState]}>{
             t(signInLabelKeys[account.signInState])
@@ -98,8 +105,8 @@ export function MailReadingSection(props: Props) {
         </div>
         <p className='text-sm opacity-70'>{
           account
-            ? t('connectors.reading')
-            : t('connectors.offer')
+            ? t(copy.reading)
+            : t(copy.offer)
         }</p>
         {account?.lastError && <p className='mt-1 text-sm text-danger'>{account.lastError}</p>}
       </div>
@@ -108,7 +115,7 @@ export function MailReadingSection(props: Props) {
           <span>{t('connectors.stop')}</span>
         </Button>
         : <Button size='sm' isPending={isBusy} onPress={() => startReading(kind)}>
-          <span>{t('connectors.start')}</span>
+          <span>{t(copy.start)}</span>
         </Button>}
     </div>
   </Card>

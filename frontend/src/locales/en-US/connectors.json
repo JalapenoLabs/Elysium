@@ -87,6 +87,10 @@
       "name": "Fireflies",
       "description": "Your recorded meetings, cut into segments on each project's timeline."
     },
+    "slack": {
+      "name": "Slack",
+      "description": "Your Slack workspaces, read through a browser you sign in to. Direct messages, mentions, and thread replies land in your inbox."
+    },
     "youtrack": {
       "name": "YouTrack",
       "description": "Issues and comments on a YouTrack Cloud site, read with your own permanent token."
@@ -132,7 +136,12 @@
     "truncated": "The provider has more than one listing holds; only the first are shown.",
     "noOptions": "Nothing to pick from yet. Fill in the account first.",
     "loadOptions": "Load options",
-    "noStorageLocations": "Add a storage location under Settings, Storage first."
+    "noStorageLocations": "Add a storage location under Settings, Storage first.",
+    "conversations": "Conversations",
+    "options": {
+      "slack_workspace": "Whole workspace",
+      "slack_direct_messages": "Direct and group messages"
+    }
   },
   "wizard": {
     "title": "Add connector",
@@ -196,6 +205,8 @@
       "list_spaces": "Reach the chosen spaces",
       "sample_pages": "Sample pages",
       "sample_page_comments": "Sample comments",
+      "workspace_reachable": "Reach the chosen workspaces",
+      "sample_conversation": "Sample a conversation",
       "sample_comments": "Sample comments"
     },
     "counts": {
@@ -229,6 +240,10 @@
       "sample_pages_other": "{{count}} pages changed in 90 days",
       "sample_page_comments_one": "{{count}} comment in 90 days",
       "sample_page_comments_other": "{{count}} comments in 90 days",
+      "workspace_reachable_one": "{{count}} workspace",
+      "workspace_reachable_other": "{{count}} workspaces",
+      "sample_conversation_one": "{{count}} message",
+      "sample_conversation_other": "{{count}} messages",
       "sample_comments_one": "{{count}} comment on the newest issue",
       "sample_comments_other": "{{count}} comments on the newest issue"
     },
@@ -248,6 +263,9 @@
       "meeting_unavailable": "The newest meeting is not available yet.",
       "spaces_unresolved": "The chosen spaces were not resolved.",
       "no_spaces_chosen": "No space is chosen, so there is nothing to search.",
+      "slack_not_open": "No tab in the browser shows Slack. Elysium opened one; run the checks again in a moment.",
+      "no_workspace_reached": "The browser is signed in to none of the chosen workspaces.",
+      "no_conversations": "No conversation it reads has a message to sample.",
       "projects_unreachable": "The token reaches none of the chosen projects.",
       "no_issues": "The chosen projects have no issue to sample."
     }

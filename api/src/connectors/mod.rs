@@ -32,6 +32,7 @@ pub mod checks;
 pub mod ingest;
 pub mod kinds;
 pub mod readers;
+pub mod slack;
 pub mod teams;
 pub mod webmail;
 
@@ -72,6 +73,9 @@ pub enum ConnectorKind {
     /// Microsoft Teams chats and channels, read from Teams' own store in a Microsoft browser.
     /// See [`teams`].
     Teams,
+    /// Slack messages, read through Slack's web client in a browser its person signed in to.
+    /// See [`slack`].
+    Slack,
     /// Meetings recorded and transcribed by Fireflies.ai, read with its owner's API key. See
     /// `crate::meetings`.
     Fireflies,
@@ -85,13 +89,14 @@ pub enum ConnectorKind {
 
 impl ConnectorKind {
     /// Every kind, in the order the hub lists them.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Jira,
         Self::Confluence,
         Self::Github,
         Self::Outlook,
         Self::Gmail,
         Self::Teams,
+        Self::Slack,
         Self::Fireflies,
         Self::Youtrack,
     ];
@@ -103,7 +108,7 @@ impl ConnectorKind {
     pub const LINKS: [Self; 2] = [Self::Jira, Self::Github];
 
     /// Every kind read through a browser, which `ingest` reads through [`readers::for_kind`].
-    pub const BROWSER_READ: [Self; 3] = [Self::Outlook, Self::Gmail, Self::Teams];
+    pub const BROWSER_READ: [Self; 4] = [Self::Outlook, Self::Gmail, Self::Teams, Self::Slack];
 
     /// The kinds that read meetings, which `crate::meetings` reads.
     pub const MEETINGS: [Self; 1] = [Self::Fireflies];
@@ -115,6 +120,7 @@ impl ConnectorKind {
             Self::Outlook => "outlook",
             Self::Gmail => "gmail",
             Self::Teams => "teams",
+            Self::Slack => "slack",
             Self::Fireflies => "fireflies",
             Self::Confluence => "confluence",
             Self::Youtrack => "youtrack",

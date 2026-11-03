@@ -92,6 +92,7 @@ it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web
 | `outlook`    | `kinds/webmail.rs`     | `browser`     | Existing | None: the inbox              | `ingest`                    |
 | `gmail`      | `kinds/webmail.rs`     | `browser`     | Existing | None: the inbox              | `ingest`                    |
 | `teams`      | `kinds/teams.rs`       | `browser`     | Existing | `conversations`              | `ingest`                    |
+| `slack`      | `kinds/slack.rs`       | `browser`     | Existing | `conversations`              | `ingest`                    |
 | `fireflies`  | `kinds/fireflies.rs`   | `fireflies`   | Either   | `storageLocationId`          | `crate::meetings`           |
 | `youtrack`   | `kinds/youtrack.rs`    | `youtrack`    | Either   | `projects`                   | `crate::youtrack::reader`   |
 
@@ -140,6 +141,7 @@ in order (`CheckSpec`): an id, whether the connector is any use without it, and 
 | GitHub            | `sign_in`, `read_scopes` (optional), `list_repositories`, `sample_issues` and `sample_pull_requests` (optional) |
 | Outlook and Gmail | `browser_running`, `signed_in`, `inbox_readable`, `sample_message` (optional)                       |
 | Teams             | `browser_running`, `signed_in`, `chats_readable`, `sample_message` (optional)                       |
+| Slack             | `browser_running`, `signed_in`, `workspace_reachable`, `sample_conversation` (optional)            |
 | Fireflies         | `sign_in`, `list_meetings`, `sample_transcript` (optional)                                         |
 | YouTrack          | `sign_in`, `list_projects`, `sample_issues`, `sample_comments` (optional)                          |
 
@@ -211,7 +213,7 @@ stay where they were.
 ## Ingest
 
 `api/src/connectors/ingest.rs` reads every active connector read through a browser (`ConnectorKind::BROWSER_READ`:
-Outlook, Gmail, and Teams) once a minute (`INGEST_INTERVAL`), until shutdown; meeting connectors have their own loop
+Outlook, Gmail, Teams, and Slack) once a minute (`INGEST_INTERVAL`), until shutdown; meeting connectors have their own loop
 (`docs/meetings.md`).
 
 Each browser kind has a reader behind one trait, `BrowserReader`, and `api/src/connectors/readers.rs` is the one place a
@@ -283,6 +285,49 @@ The script was checked against `api/src/connectors/fixtures/teams.html`, a page 
 it out, in headless Chromium (`fixtures/evaluate.mjs` runs any page script against a fixture). Its answer,
 `fixtures/teams_page.json`, is what `teams.rs`'s tests read, so the rules above are tested against the script's real
 output. Neither has yet read a signed-in Teams.
+
+### Slack
+
+`api/src/connectors/slack.rs` reads Slack through a browser signed in to Slack's web client, `app.slack.com`. Nothing
+is installed into a Slack workspace: a Slack app or bot token would need a workspace admin to approve it, which this
+project never asks for, so the account is the browser and its sign-in, as for mail. A tab elsewhere on `slack.com` (a
+sign-in page, or a workspace's own address, which redirects to one) means the session ended; with no Slack tab at all
+the read opens `https://app.slack.com/client` over DevTools and answers `unknown`, and the next read finds it.
+
+**It reads Slack's own web API, not the page.** The web client keeps each workspace it is signed in to in
+`localStorage.localConfig_v2`, with the session token it sends with every call, and loads everything it shows through
+Slack's web API on the workspace's own host. `api/src/connectors/slack.js` runs as the page and makes the same calls
+with that session, then answers what Slack said; the token never leaves the page, and a workspace stored at any host
+that is not `*.slack.com` is never called. Only read methods can be called (`client.counts`, `conversations.history`,
+`subscriptions.thread.getView`, `users.info`, `conversations.info`, `users.conversations`, `auth.test`), so reading
+never posts and never marks a conversation read. The API was chosen over the DOM because the DOM shows only the
+conversation on screen and its markup changes freely, while the API answers every conversation, by id, with Slack's
+own timestamps, whatever the page shows.
+
+A read is up to three evaluations: `client.counts` for every workspace (each conversation's newest message, and
+whether the person's threads have unread replies); `conversations.history` for each conversation with something newer
+than the connector has read, and the threads view where threads have unread replies; then `users.info` and
+`conversations.info` for names it does not know yet. One read fetches at most 25 conversations, the most recently
+active first; the rest keep their place and are read next time.
+
+- **Its state** is the newest message read in each conversation, by workspace and conversation id, and the names it
+  has looked up. A conversation it has never read is baselined at its newest message, so connecting Slack or joining
+  a channel never pulls its history in.
+- **Content** is `conversations`: `"*"`, or picks of a whole workspace (`T1`), one conversation (`T1/C1`), or a
+  workspace's direct and group messages (`T1/dms`), from what the browser's Slack lists (`POST /connectors/options`).
+  An option whose words are Elysium's rather than Slack's names them by key (`labelKey`, `detailKey`) for the web app.
+- **Each message** becomes a record, its id `team/conversation/ts`, its sender's name as actor, a title naming where
+  it was said (`#launch in Mooreslab`, `Reply in #launch in Mooreslab`, `Ada in a direct message in Mooreslab`),
+  Slack's markup as plain text, and the link Slack's Copy link gives. Joins, topic changes, and similar notices are
+  not recorded.
+- **What wants attention:** a direct or group message, a message that mentions the person, and an unread reply in a
+  thread they follow, unless they wrote it. Other channel messages are only recorded.
+
+The page script is tested in Node against a fixture of the web client, its stored session and a fake web API
+(`api/src/connectors/slack.test.mjs`, run with `node --test api/src/connectors/*.test.mjs`, in CI under
+`Frontend test`); the reading rules are tested in `slack/tests.rs` against answers shaped as Slack's web API gives
+them. Neither has yet read a signed-in Slack: `client.counts` and `subscriptions.thread.getView` are the web client's
+own methods, not Slack's published API, so their shapes are read defensively and are the first thing to confirm.
 
 ### On each read
 
@@ -407,9 +452,11 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
 
 ## Roadmap
 
-- More kinds: Slack, and Google Meet and Teams recordings (`docs/meetings.md`).
+- More kinds: Google Meet and Teams recordings (`docs/meetings.md`).
 - Confluence through Atlassian's gateway (`api.atlassian.com/ex/confluence/<cloudId>`), so scoped API tokens work.
 - Confluence attachments and inline comments, and a mention found by display name as well as account id.
+- Slack: confirming `client.counts` and the threads view against a signed-in Slack, and an Enterprise Grid org,
+  whose workspaces the web client may keep differently in `localConfig_v2`.
 - Teams: confirming the store's layout against a signed-in Teams, and how much of it Teams keeps. The connector reads
   only what Teams has stored; if Teams stores a channel's messages only after showing that channel, a channel never
   opened in that browser is not read. Not yet confirmed either way.

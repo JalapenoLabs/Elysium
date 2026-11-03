@@ -53,7 +53,7 @@ Job names are the check names. Require exactly these in the `main` ruleset:
 | `Broker image`       | `oauth-broker.yml`       | `oauth-broker/Dockerfile` builds and the broker answers `/healthz` |
 | `Frontend typecheck` | `frontend.yml`           | `yarn typecheck`                                                |
 | `Frontend lint`      | `frontend.yml`           | `yarn lint`, the `@jalapenolabs/cli/eslint` ruleset, no warnings |
-| `Frontend test`      | `frontend.yml`           | `yarn test`, the Vitest suite                                   |
+| `Frontend test`      | `frontend.yml`           | `yarn test`, the Vitest suite, and the connector page scripts (`node --test api/src/connectors/*.test.mjs`) |
 | `Frontend build`     | `frontend.yml`           | `yarn build`, the production bundle                             |
 | `Frontend image`     | `frontend.yml`           | `frontend/Dockerfile` builds and the dev server answers         |
 | `Compose config`     | `compose.yml`            | the stacks parse and interpolate, the development override merges |

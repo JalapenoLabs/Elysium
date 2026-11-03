@@ -11,14 +11,17 @@ export const CONNECTOR_KINDS = [
   'outlook',
   'gmail',
   'teams',
+  'slack',
   'fireflies',
   'youtrack',
 ] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]
 
-// The kinds that read mail through one of the person's browsers.
-export const WEBMAIL_CONNECTOR_KINDS = [ 'outlook', 'gmail' ] as const satisfies readonly ConnectorKind[]
-export type WebmailConnectorKind = typeof WEBMAIL_CONNECTOR_KINDS[number]
+// The kinds a browser's own page can start reading. Each is read through one of the person's
+// browsers (`ConnectorKind::BROWSER_READ`); Teams is connected in the hub, through a Microsoft
+// browser started for Outlook.
+export const BROWSER_CONNECTOR_KINDS = [ 'outlook', 'gmail', 'slack' ] as const satisfies readonly ConnectorKind[]
+export type BrowserConnectorKind = typeof BROWSER_CONNECTOR_KINDS[number]
 
 // Mirrors `AccountKind` in api/src/connectors/mod.rs.
 export const ACCOUNT_KINDS = [ 'atlassian', 'github', 'browser', 'fireflies', 'youtrack' ] as const
@@ -179,10 +182,14 @@ export type ConnectorDraft = {
 }
 
 // What a selection field can pick from.
+// The provider's own words come as `label` and `detail`; Elysium's own come as `labelKey` and
+// `detailKey`, keys under `fields.options`.
 export type SelectionOption = {
   id: string | number
-  label: string
-  detail: string | null
+  label?: string
+  labelKey?: string
+  detail?: string | null
+  detailKey?: string
 }
 
 export type SelectionOptions = {

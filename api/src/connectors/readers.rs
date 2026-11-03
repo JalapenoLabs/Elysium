@@ -6,6 +6,7 @@
 //! A new browser kind adds a variant here, its row in [`for_kind`], and itself to
 //! [`ConnectorKind::BROWSER_READ`]; a test fails when a listed kind has no reader.
 
+use super::slack::Slack;
 use super::teams::Teams;
 use super::webmail::{Webmail, service};
 use super::{BrowserReader, ConnectorError, ConnectorKind, ReadInput, Reading};
@@ -17,6 +18,7 @@ use crate::models::browser_session::BrowserSession;
 pub enum Reader {
     Webmail(Webmail),
     Teams(Teams),
+    Slack(Slack),
 }
 
 /// The reader for `kind`, or `None` for a kind not read through a browser.
@@ -26,6 +28,7 @@ pub fn for_kind(kind: ConnectorKind, devtools: &Devtools) -> Option<Reader> {
             service(kind).map(|service| Reader::Webmail(Webmail::new(service, devtools.clone())))
         }
         ConnectorKind::Teams => Some(Reader::Teams(Teams::new(devtools.clone()))),
+        ConnectorKind::Slack => Some(Reader::Slack(Slack::new(devtools.clone()))),
         ConnectorKind::Jira
         | ConnectorKind::Confluence
         | ConnectorKind::Github
@@ -39,6 +42,7 @@ impl BrowserReader for Reader {
         match self {
             Self::Webmail(reader) => reader.kind(),
             Self::Teams(reader) => reader.kind(),
+            Self::Slack(reader) => reader.kind(),
         }
     }
 
@@ -50,6 +54,7 @@ impl BrowserReader for Reader {
         match self {
             Self::Webmail(reader) => reader.read(browser, input).await,
             Self::Teams(reader) => reader.read(browser, input).await,
+            Self::Slack(reader) => reader.read(browser, input).await,
         }
     }
 }

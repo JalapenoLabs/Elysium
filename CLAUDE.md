@@ -202,6 +202,10 @@ Everything else follows these rules:
   `crate::youtrack` is the only caller. Every two minutes it records new issues and comments in the chosen projects;
   one assigned to the person by someone else, or a comment from someone else on their issue or mentioning them,
   raises an inbox item as `watcher:youtrack`. The first read records nothing.
+- Slack reads through a browser signed in to `app.slack.com`, never a Slack app: its page script calls Slack's own
+  web API with the web client's session, which never leaves the page, and only read methods. A direct or group
+  message, a mention, or an unread reply in a followed thread raises an inbox item; a conversation is baselined at
+  its newest message the first time it is read, so no history is pulled in.
 - Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
   projects with a confidence (`timeline_record_projects`). A record is its owner's alone, even about a shared
   project.

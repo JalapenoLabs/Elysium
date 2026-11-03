@@ -19,6 +19,7 @@ pub mod confluence;
 pub mod fireflies;
 pub mod github;
 pub mod jira;
+pub mod slack;
 pub mod teams;
 pub mod webmail;
 pub mod youtrack;
@@ -119,13 +120,14 @@ pub enum AccountFieldType {
 }
 
 /// Every kind, in the order the hub lists them.
-pub const DEFINITIONS: [&Definition; 8] = [
+pub const DEFINITIONS: [&Definition; 9] = [
     &jira::DEFINITION,
     &confluence::DEFINITION,
     &github::DEFINITION,
     &webmail::OUTLOOK,
     &webmail::GMAIL,
     &teams::DEFINITION,
+    &slack::DEFINITION,
     &fireflies::DEFINITION,
     &youtrack::DEFINITION,
 ];
@@ -203,6 +205,7 @@ pub enum KindChecks {
     Github(github::GithubChecks),
     Webmail(webmail::WebmailChecks),
     Teams(teams::TeamsChecks),
+    Slack(slack::SlackChecks),
     Fireflies(fireflies::FirefliesChecks),
     Youtrack(youtrack::YoutrackChecks),
 }
@@ -225,6 +228,7 @@ impl Checks for KindChecks {
             Self::Github(checks) => checks.check(id).await,
             Self::Webmail(checks) => checks.check(id).await,
             Self::Teams(checks) => checks.check(id).await,
+            Self::Slack(checks) => checks.check(id).await,
             Self::Fireflies(checks) => checks.check(id).await,
             Self::Youtrack(checks) => checks.check(id).await,
         }
@@ -253,6 +257,9 @@ pub async fn prepare_checks(
         }
         ConnectorKind::Teams => {
             KindChecks::Teams(teams::prepare_checks(state, current, source).await?)
+        }
+        ConnectorKind::Slack => {
+            KindChecks::Slack(slack::prepare_checks(state, current, source).await?)
         }
         ConnectorKind::Fireflies => {
             KindChecks::Fireflies(fireflies::prepare_checks(state, current, source).await?)
@@ -342,6 +349,7 @@ pub async fn create(
             webmail::create(state, current, kind, account, content).await
         }
         ConnectorKind::Teams => teams::create(state, current, account, content).await,
+        ConnectorKind::Slack => slack::create(state, current, account, content).await,
         ConnectorKind::Fireflies => fireflies::create(state, current, account, content).await,
         ConnectorKind::Youtrack => youtrack::create(state, current, account, content).await,
     }
@@ -362,6 +370,7 @@ pub async fn options(
         ConnectorKind::Jira => jira::options(state, account).await,
         ConnectorKind::Confluence => confluence::options(state, account).await,
         ConnectorKind::Teams => teams::options(state, current, account).await,
+        ConnectorKind::Slack => slack::options(state, current, account).await,
         ConnectorKind::Youtrack => youtrack::options(state, current, account).await,
         ConnectorKind::Github
         | ConnectorKind::Outlook
@@ -385,6 +394,7 @@ pub async fn update_content(
         ConnectorKind::Confluence => confluence::update_content(state, connector, content).await,
         ConnectorKind::Fireflies => fireflies::update_content(state, connector, content).await,
         ConnectorKind::Teams => teams::update_content(state, connector, content).await,
+        ConnectorKind::Slack => slack::update_content(state, connector, content).await,
         ConnectorKind::Youtrack => youtrack::update_content(state, connector, content).await,
         kind @ (ConnectorKind::Github | ConnectorKind::Outlook | ConnectorKind::Gmail) => {
             Err(ApiError::BadRequest(format!(
@@ -415,7 +425,10 @@ pub fn sync(state: &AppState, connector: &Connector) -> Result<(), ApiError> {
             state.links.wake_watcher();
             drop(syncing);
         }
-        ConnectorKind::Outlook | ConnectorKind::Gmail | ConnectorKind::Teams => {
+        ConnectorKind::Outlook
+        | ConnectorKind::Gmail
+        | ConnectorKind::Teams
+        | ConnectorKind::Slack => {
             let ingest = state.connectors.ingest.clone();
             let connector = connector.clone();
             tokio::spawn(async move {
@@ -464,6 +477,7 @@ pub async fn remove(state: &AppState, connector: &Connector) -> Result<(), ApiEr
         | ConnectorKind::Outlook
         | ConnectorKind::Gmail
         | ConnectorKind::Teams
+        | ConnectorKind::Slack
         | ConnectorKind::Fireflies
         | ConnectorKind::Youtrack => {
             let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;

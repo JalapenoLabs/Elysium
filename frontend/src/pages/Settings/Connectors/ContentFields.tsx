@@ -150,8 +150,16 @@ export function ContentFields(props: Props) {
                 <Checkbox.Control>
                   <Checkbox.Indicator />
                 </Checkbox.Control>
-                <span className='text-sm'>{option.label}</span>
-                {option.detail && <span className='ml-2 text-xs opacity-60'>{option.detail}</span>}
+                <span className='text-sm'>{
+                  option.labelKey
+                    ? t(`fields.options.${option.labelKey}`, { defaultValue: option.labelKey })
+                    : option.label
+                }</span>
+                {(option.detailKey || option.detail) && <span className='ml-2 text-xs opacity-60'>{
+                  option.detailKey
+                    ? t(`fields.options.${option.detailKey}`, { defaultValue: option.detailKey })
+                    : option.detail
+                }</span>}
               </Checkbox.Content>
             </Checkbox>
           })}
