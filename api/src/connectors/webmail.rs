@@ -176,6 +176,7 @@ fn parse_page(value: &serde_json::Value) -> Result<Reading, ConnectorError> {
             body: truncate(&message.preview, PREVIEW_MAX_CHARACTERS),
             url: message.url,
             wants_attention: message.unread,
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
         })
         .collect();
     Ok(Reading {

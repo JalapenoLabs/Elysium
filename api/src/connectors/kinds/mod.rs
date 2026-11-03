@@ -15,6 +15,7 @@
 //! `connectors` translations. A kind whose account is a new provider adds an [`AccountKind`] and,
 //! when its sign-in is one API key, keeps that key in `token_accounts`.
 
+pub mod confluence;
 pub mod fireflies;
 pub mod github;
 pub mod jira;
@@ -42,12 +43,28 @@ pub struct Definition {
     pub scope: Scope,
     /// The account it reads through.
     pub account: AccountKind,
+    /// Whether a new connector takes a new account, one the person already has, or either.
+    pub accounts: AccountChoices,
     /// The page a new browser opens at, for a kind that reads through one.
     pub start_url: Option<&'static str>,
     /// What it reads, which its connector's form asks for.
     pub content: &'static [ContentField],
     /// Its checks, in the order they run.
     pub checks: &'static [CheckSpec],
+}
+
+/// Which accounts a new connector of a kind may read through, which its form offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountChoices {
+    /// Only a new one, made with the connector: an Atlassian or GitHub account carries exactly
+    /// one connector of its kind.
+    New,
+    /// Only one the person already has: a browser, signed in to on its own page, or an
+    /// Atlassian account a Jira connector made.
+    Existing,
+    /// Either.
+    Either,
 }
 
 /// One thing a connector's form asks for.
@@ -100,8 +117,9 @@ pub enum AccountFieldType {
 }
 
 /// Every kind, in the order the hub lists them.
-pub const DEFINITIONS: [&Definition; 5] = [
+pub const DEFINITIONS: [&Definition; 6] = [
     &jira::DEFINITION,
+    &confluence::DEFINITION,
     &github::DEFINITION,
     &webmail::OUTLOOK,
     &webmail::GMAIL,
@@ -176,6 +194,7 @@ pub enum Source<'connector> {
 /// One kind's checks, ready to run.
 pub enum KindChecks {
     Jira(jira::JiraChecks),
+    Confluence(confluence::ConfluenceChecks),
     Github(github::GithubChecks),
     Webmail(webmail::WebmailChecks),
     Fireflies(fireflies::FirefliesChecks),
@@ -195,6 +214,7 @@ impl Checks for KindChecks {
     async fn check(&mut self, id: &'static str) -> Outcome {
         match self {
             Self::Jira(checks) => checks.check(id).await,
+            Self::Confluence(checks) => checks.check(id).await,
             Self::Github(checks) => checks.check(id).await,
             Self::Webmail(checks) => checks.check(id).await,
             Self::Fireflies(checks) => checks.check(id).await,
@@ -215,6 +235,9 @@ pub async fn prepare_checks(
 ) -> Result<KindChecks, ApiError> {
     Ok(match kind {
         ConnectorKind::Jira => KindChecks::Jira(jira::prepare_checks(state, source).await?),
+        ConnectorKind::Confluence => {
+            KindChecks::Confluence(confluence::prepare_checks(state, source).await?)
+        }
         ConnectorKind::Github => KindChecks::Github(github::prepare_checks(state, source).await?),
         ConnectorKind::Outlook | ConnectorKind::Gmail => {
             KindChecks::Webmail(webmail::prepare_checks(state, current, kind, source).await?)
@@ -298,6 +321,7 @@ pub async fn create(
 ) -> Result<Connector, ApiError> {
     match kind {
         ConnectorKind::Jira => jira::create(state, current, account, content).await,
+        ConnectorKind::Confluence => confluence::create(state, current, account, content).await,
         ConnectorKind::Github => github::create(state, current, account, content).await,
         ConnectorKind::Outlook | ConnectorKind::Gmail => {
             webmail::create(state, current, kind, account, content).await
@@ -316,10 +340,14 @@ pub async fn options(
     kind: ConnectorKind,
     account: AccountChoice,
 ) -> Result<Value, ApiError> {
-    if kind == ConnectorKind::Jira {
-        return jira::options(state, account).await;
+    match kind {
+        ConnectorKind::Jira => jira::options(state, account).await,
+        ConnectorKind::Confluence => confluence::options(state, account).await,
+        ConnectorKind::Github
+        | ConnectorKind::Outlook
+        | ConnectorKind::Gmail
+        | ConnectorKind::Fireflies => Ok(Value::Object(serde_json::Map::new())),
     }
-    Ok(Value::Object(serde_json::Map::new()))
 }
 
 /// Replaces what `connector` reads.
@@ -334,6 +362,7 @@ pub async fn update_content(
 ) -> Result<Connector, ApiError> {
     match kind_of(connector)? {
         ConnectorKind::Jira => jira::update_content(state, connector, content).await,
+        ConnectorKind::Confluence => confluence::update_content(state, connector, content).await,
         ConnectorKind::Fireflies => fireflies::update_content(state, connector, content).await,
         kind @ (ConnectorKind::Github | ConnectorKind::Outlook | ConnectorKind::Gmail) => {
             Err(ApiError::BadRequest(format!(
@@ -372,6 +401,14 @@ pub fn sync(state: &AppState, connector: &Connector) -> Result<(), ApiError> {
                 drop(syncing);
             });
         }
+        ConnectorKind::Confluence => {
+            let reader = state.connectors.confluence.clone();
+            let connector = connector.clone();
+            tokio::spawn(async move {
+                reader.read_now(&connector).await;
+                drop(syncing);
+            });
+        }
         ConnectorKind::Fireflies => {
             let meetings = state.meetings.clone();
             let connector = connector.clone();
@@ -393,7 +430,10 @@ pub async fn remove(state: &AppState, connector: &Connector) -> Result<(), ApiEr
     match kind_of(connector)? {
         ConnectorKind::Jira => jira::remove(state, connector).await,
         ConnectorKind::Github => github::remove(state, connector).await,
-        ConnectorKind::Outlook | ConnectorKind::Gmail | ConnectorKind::Fireflies => {
+        ConnectorKind::Confluence
+        | ConnectorKind::Outlook
+        | ConnectorKind::Gmail
+        | ConnectorKind::Fireflies => {
             let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
             crate::models::connector::delete(&mut connection, connector.id).await?;
             Ok(())

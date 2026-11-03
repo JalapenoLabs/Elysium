@@ -6,7 +6,8 @@ that up, kept apart on purpose:
 - An **account** is how Elysium signs in to a provider as a person: an Atlassian or GitHub token, an API key, or a
   browser the person signed in to.
 - A **connector** is one use of one account: a kind, what it reads, and what its reading has found. One account can
-  feed several connectors, each kind once: a Microsoft browser can feed Outlook and, later, Teams.
+  feed several connectors, each kind once: an Atlassian account feeds Jira and Confluence, and a Microsoft browser can
+  feed Outlook and, later, Teams.
 
 The code is `api/src/connectors/`; the routes are `/api/v1/connectors` and `/api/v1/accounts` (`docs/api.md`).
 
@@ -42,8 +43,10 @@ A connector's **content** is what it reads, in its kind's own terms. A kind keep
 table of its own:
 
 - Jira's content is its Atlassian account's allowlist, which stays on the account (`jira_credential_projects`,
-  `jira_credential_boards`): every call made with that token is bounded by it, whatever reads through the token
-  (`docs/jira.md`).
+  `jira_credential_boards`): every Jira call made with that token is bounded by it (`docs/jira.md`).
+- Confluence's content is the spaces it reads, in `content` as `{"spaces": "*"}` or
+  `{"spaces": [{"id", "key", "name"}]}`, each as Confluence reported it when it was picked. It is the connector's own,
+  not the account's: the same Atlassian account's Jira allowlist does not bound it, nor it the allowlist.
 - Fireflies' content is the storage location its recordings are kept in, `storage_location_id`, a foreign key.
 
 Its **reading state** is `sign_in_state`, `cursor`, `last_polled_at`, and `last_error`, and `is_active` false means
@@ -53,7 +56,13 @@ so their last sync and last error come from there.
 Every Atlassian and GitHub account carries exactly one connector of its kind, made with it in the same transaction
 (`jira_credential::create`, `github_credential::create`). Links can be made through any such account and the watcher
 reads through each, so the connector is where that reading is shown, checked, and paused. A new Jira or GitHub
-connector is therefore always a new account, and removing one removes its account.
+connector is therefore always a new account, and removing one removes its account, and with it any Confluence
+connector reading through that account.
+
+Because an Atlassian account also feeds Confluence, anything about the link watcher's reading is matched by kind as
+well as account (`ConnectorKind::LINKS`, Jira and GitHub): which accounts the paused connectors stop the watcher on,
+whose watcher pass and errors a connector shows, and whose linked issues it counts. Pausing Confluence never pauses
+the watcher, and Confluence never shows Jira's pass or count.
 
 ### Who sees what
 
@@ -66,15 +75,17 @@ answered `404`.
 Each kind is one module under `api/src/connectors/kinds/` that declares its `Definition` and fills the hub's verbs for
 it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web app never do.
 
-| Kind        | Module                     | Reads through | Content                 | Read by            |
-|-------------|----------------------------|---------------|-------------------------|--------------------|
-| `jira`      | `kinds/jira.rs`            | `atlassian`   | `projects`, `boards`    | The link watcher   |
-| `github`    | `kinds/github.rs`          | `github`      | None: what the token reaches | The link watcher |
-| `outlook`   | `kinds/webmail.rs`         | `browser`     | None: the inbox         | `ingest`           |
-| `gmail`     | `kinds/webmail.rs`         | `browser`     | None: the inbox         | `ingest`           |
-| `fireflies` | `kinds/fireflies.rs`       | `fireflies`   | `storageLocationId`     | `crate::meetings`  |
+| Kind         | Module                 | Reads through | Accounts | Content                      | Read by                     |
+|--------------|------------------------|---------------|----------|------------------------------|-----------------------------|
+| `jira`       | `kinds/jira.rs`        | `atlassian`   | New      | `projects`, `boards`         | The link watcher            |
+| `confluence` | `kinds/confluence.rs`  | `atlassian`   | Existing | `spaces`                     | `crate::confluence::reader` |
+| `github`     | `kinds/github.rs`      | `github`      | New      | None: what the token reaches | The link watcher            |
+| `outlook`    | `kinds/webmail.rs`     | `browser`     | Existing | None: the inbox              | `ingest`                    |
+| `gmail`      | `kinds/webmail.rs`     | `browser`     | Existing | None: the inbox              | `ingest`                    |
+| `fireflies`  | `kinds/fireflies.rs`   | `fireflies`   | Either   | `storageLocationId`          | `crate::meetings`           |
 
-A definition is structure only: the kind's scope, the account kind it reads through, a browser kind's start page, its
+A definition is structure only: the kind's scope, the account kind it reads through, which accounts a new connector
+takes (`accounts`: a new one made with it, one the person already has, or either), a browser kind's start page, its
 content fields (a `selection` picked from what the account reaches, or a `storage_location`), and its ordered checks.
 Account definitions say what a new account asks for (text, email, URL, secret, or a choice). `GET /connectors/kinds`
 serves both, and the web app draws its forms and check lists from them, naming every id from its `connectors`
@@ -98,7 +109,8 @@ same things.
 ### Adding a kind
 
 A new kind adds a `ConnectorKind`, a module with its definition and verbs, a row in `DEFINITIONS` and in each dispatch
-in `kinds/mod.rs`, and its names and check sentences to the web app's `connectors` translations. A kind whose account is
+in `kinds/mod.rs`, its name to the web app's `CONNECTOR_KINDS`, and its names and check sentences to the web app's
+`connectors` translations. Its definition's `accounts` decides what the wizard offers, so no page names the kind. A kind whose account is
 a new provider adds an `AccountKind` and an `AccountDefinition`; when its sign-in is one API key, its key lives in
 `token_accounts`. `kinds/mod.rs`'s tests fail when a kind has no definition, an account kind none, or a check depends
 on one that does not run before it.
@@ -111,6 +123,7 @@ in order (`CheckSpec`): an id, whether the connector is any use without it, and 
 | Kind              | Checks, in order                                                                                  |
 |-------------------|----------------------------------------------------------------------------------------------------|
 | Jira              | `sign_in`, `list_projects`, `list_boards` (optional), `allowlist_reachable`, `sample_issues`        |
+| Confluence        | `sign_in`, `list_spaces` (also proves every chosen space is reached), `sample_pages`, `sample_comments` (optional) |
 | GitHub            | `sign_in`, `read_scopes` (optional), `list_repositories`, `sample_issues` and `sample_pull_requests` (optional) |
 | Outlook and Gmail | `browser_running`, `signed_in`, `inbox_readable`, `sample_message` (optional)                       |
 | Fireflies         | `sign_in`, `list_meetings`, `sample_transcript` (optional)                                         |
@@ -164,9 +177,10 @@ connectors:
   one with a retry.
 - **Accounts** lists every account with what it feeds; Atlassian, GitHub, and browser accounts are edited on their own
   pages, and an API key's account is removed here.
-- **Adding** a connector (`/settings/connectors/new`) picks a kind, then an account the person has or a new one, then
-  its content, then runs its checks live before it is saved. A required check that did not pass leaves the save
-  available as "Save anyway".
+- **Adding** a connector (`/settings/connectors/new`) picks a kind, then an account the person has or a new one, as
+  the kind's `accounts` allows (`offeredAccounts`), then its content, then runs its checks live before it is saved. A
+  kind that only reads through an existing account, with none yet, says how to get one: Confluence's Atlassian
+  account comes with a Jira connector. A required check that did not pass leaves the save available as "Save anyway".
 - **A connector's page** (`/settings/connectors/:connectorId`) shows its status, last error, checks (stored, or a run
   started there as it goes), and content to change, with links to its account's own page.
 
@@ -219,6 +233,62 @@ On each read:
   connecting a mailbox does not fill the inbox with its backlog. Its cursor remembers that (`{"baselined": true}`).
 - A read that fails keeps the cursor and records the reason in `last_error`.
 
+## Confluence
+
+`api/src/confluence/` is the only caller of Confluence Cloud. It reaches the Atlassian account's own site
+(`https://<site>.atlassian.net/wiki`) with the account's email and API token, the same basic auth Jira takes, through
+the account's stored, validated origin. Confluence Data Center is not supported.
+
+| Call                                  | Used for                                                     |
+|---------------------------------------|--------------------------------------------------------------|
+| `GET /wiki/rest/api/user/current`     | `sign_in`: whose token it is                                 |
+| `GET /wiki/api/v2/spaces`             | What spaces can be picked from, and `list_spaces`; cursor paged, 2,500 at most |
+| `GET /wiki/rest/api/content/search`   | Every read of content: pages and comments by CQL, bodies expanded |
+
+**Bounded to the chosen spaces, in one place.** `Confluence::changes` is the only call that reads content, and it takes
+the connector's `SpaceScope`. The scope writes the CQL's `space in (...)` clause, with every key quoted and escaped,
+and every result is checked against it again on the way back, so one from another space is logged and dropped rather
+than recorded. An empty pick sends no search at all. Listing spaces is what a pick is made from, so it is not bounded.
+A next page is followed only when Confluence's `_links.next` is a further page of the same listing or search.
+
+**Reading.** `crate::confluence::reader` reads every active Confluence connector every five minutes (`READ_INTERVAL`),
+until shutdown, and on a sync someone asks for:
+
+- A read asks for pages and comments changed since the last read ended, plus a five minute overlap, oldest first. The
+  window is relative, `lastmodified >= now("-Nm")`, because CQL reads a written date in the account's own time zone.
+- Each change is one record, keyed by its content and version (`page:<id>:<version>`, `comment:<id>:<version>`), so
+  every edit is on the timeline once and the overlap records nothing twice. `metadata` keeps the type, id, version,
+  space, and a comment's page.
+- A read records at most 500 changes; one that stops there ends at its last change, and the next continues from it.
+  The cursor is `{"baselined", "through"}`.
+- A new connector's first reads look back seven days and raise nothing, as a new mailbox's do. It is baselined once a
+  read reaches the end of what matched.
+- A read looks back a month at most, so a connector paused for a long time catches up on the last month.
+- `401` and `403` read as `signed_out`; anything else that fails keeps the cursor and records the reason.
+
+**What raises an inbox item.** A change by someone else that mentions the account's person (`ri:user` with their
+account id), or a comment with a question mark on a page the person created, raises an inbox item for them, recorded as
+`watcher:confluence`, in the same transaction as its record. A page or comment raises one at most once, however often
+it is edited (`timeline_record::has_raised_item`). Everything else is left to Elysia's triage on
+`timelineRecord.created`. The person is the one the Atlassian account's token belongs to (`jira_credentials.account_id`).
+
+**Rendering.** Bodies arrive in storage format, XHTML with Confluence's `ac:` and `ri:` elements, and the record keeps
+plain text (`crate::confluence::storage`, at most 20,000 characters):
+
+- Paragraphs, headings, table rows, tasks, and macros are blocks, separated by one blank line. A list item starts with
+  `- `, `br` is a line break, and the cells of a row are joined by ` | `.
+- Runs of whitespace collapse to one space, except in preformatted text (`pre`, a macro's `ac:plain-text-body`), which
+  keeps its lines.
+- A mention reads as `@user`. A link to a page reads as that page's title, and a link's own text as written.
+- Macro parameters, placeholders, images, and emoticons are dropped.
+- Character references are decoded, numeric ones and the named ones storage format writes; an unknown one is kept.
+
+None of these calls has been made against a live site yet: the shapes come from Atlassian's documentation, and
+`api/src/confluence/tests.rs` proves Elysium's half against a fake shaped the same way. A scoped Atlassian API token
+(the long kind) is refused on the site's own host for Confluence and works only through
+`api.atlassian.com/ex/confluence/<cloudId>` (`~/.claude/learnings/jira.md`), which Elysium does not call yet; use a
+classic token.
+
 ## What is published
 
 | Event                        | When                                                                          |
@@ -251,8 +321,10 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
 
 ## Roadmap
 
-- More kinds: YouTrack and Slack with an API key in `token_accounts`, Confluence on an Atlassian account, Teams through
-  a Microsoft browser, and Google Meet and Teams recordings (`docs/meetings.md`).
+- More kinds: YouTrack and Slack with an API key in `token_accounts`, Teams through a Microsoft browser, and Google
+  Meet and Teams recordings (`docs/meetings.md`).
+- Confluence through Atlassian's gateway (`api.atlassian.com/ex/confluence/<cloudId>`), so scoped API tokens work.
+- Confluence attachments and inline comments, and a mention found by display name as well as account id.
 - GitHub content: picking repositories rather than reading whatever the token reaches.
 - Keeping a token account's `identity` and `checked_at` current from its checks.
 - Elysia's triage on `timelineRecord.created`: classifying each message, drafting replies for review, and attributing

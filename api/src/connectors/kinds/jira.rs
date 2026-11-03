@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::{
-    AccountChoice, AccountDefinition, AccountField, AccountFieldType, ContentField,
+    AccountChoice, AccountChoices, AccountDefinition, AccountField, AccountFieldType, ContentField,
     ContentFieldType, Definition, Source, parse_content, parse_new_account,
 };
 use crate::auth::CurrentUser;
@@ -44,6 +44,7 @@ pub const DEFINITION: Definition = Definition {
     kind: ConnectorKind::Jira,
     scope: Scope::Workspace,
     account: AccountKind::Atlassian,
+    accounts: AccountChoices::New,
     start_url: None,
     content: &[
         ContentField {

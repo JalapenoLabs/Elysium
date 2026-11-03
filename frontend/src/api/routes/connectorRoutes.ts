@@ -4,7 +4,7 @@
 import { apiClient } from '../index'
 
 // Mirrors `ConnectorKind` in api/src/connectors/mod.rs, in the order the hub lists them.
-export const CONNECTOR_KINDS = [ 'jira', 'github', 'outlook', 'gmail', 'fireflies' ] as const
+export const CONNECTOR_KINDS = [ 'jira', 'confluence', 'github', 'outlook', 'gmail', 'fireflies' ] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]
 
 // The kinds that read mail through one of the person's browsers.
@@ -14,6 +14,10 @@ export type WebmailConnectorKind = typeof WEBMAIL_CONNECTOR_KINDS[number]
 // Mirrors `AccountKind` in api/src/connectors/mod.rs.
 export const ACCOUNT_KINDS = [ 'atlassian', 'github', 'browser', 'fireflies' ] as const
 export type AccountKind = typeof ACCOUNT_KINDS[number]
+
+// Mirrors `AccountChoices` in api/src/connectors/kinds/mod.rs: whether a new connector takes a new
+// account, one the person already has, or either.
+export type AccountChoices = 'new' | 'existing' | 'either'
 
 export type SignInState = 'signed_in' | 'signed_out' | 'unknown'
 export type ConnectorScope = 'workspace' | 'personal'
@@ -51,6 +55,7 @@ export type ConnectorKindDefinition = {
   kind: ConnectorKind
   scope: ConnectorScope
   account: AccountKind
+  accounts: AccountChoices
   // The page a new browser opens at, for a kind that reads through one.
   startUrl: string | null
   content: ContentField[]

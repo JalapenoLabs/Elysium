@@ -9,7 +9,13 @@ import { describe, expect, it } from 'vitest'
 import i18next from 'i18next'
 
 // Misc
-import { describeOutcome, filterConnectors, hasRequiredFailure, summarize } from './connectorPresentation'
+import {
+  describeOutcome,
+  filterConnectors,
+  hasRequiredFailure,
+  offeredAccounts,
+  summarize,
+} from './connectorPresentation'
 
 function makeConnector(overrides: Partial<Connector> & Pick<Connector, 'id'>): Connector {
   return {
@@ -103,5 +109,30 @@ describe('hasRequiredFailure', () => {
 
   it('flags a required check that did not pass', () => {
     expect(hasRequiredFailure(specs, [{ ...base, checkId: 'sign_in', state: 'failed' }])).toBe(true)
+  })
+})
+
+describe('offeredAccounts', () => {
+  const browsers = [{ id: 'browser-1', name: 'Work Outlook' }]
+  const accounts = [
+    { id: 'atlassian-1', kind: 'atlassian' as const, name: 'Work' },
+    { id: 'fireflies-1', kind: 'fireflies' as const, name: 'Fireflies' },
+  ]
+
+  it('offers nothing for a kind that always makes its own account', () => {
+    expect(offeredAccounts({ account: 'atlassian', accounts: 'new' }, browsers, accounts)).toEqual([])
+  })
+
+  it('offers the person\'s browsers for a kind read through one', () => {
+    expect(offeredAccounts({ account: 'browser', accounts: 'existing' }, browsers, accounts)).toEqual(browsers)
+  })
+
+  // Confluence reads through the Atlassian account a Jira connector made, so the wizard must
+  // offer it; before kinds declared their account choice, only Fireflies keys were offered.
+  it('offers the hub\'s accounts of the kind\'s account kind', () => {
+    expect(offeredAccounts({ account: 'atlassian', accounts: 'existing' }, browsers, accounts))
+      .toEqual([{ id: 'atlassian-1', name: 'Work' }])
+    expect(offeredAccounts({ account: 'fireflies', accounts: 'either' }, browsers, accounts))
+      .toEqual([{ id: 'fireflies-1', name: 'Fireflies' }])
   })
 })

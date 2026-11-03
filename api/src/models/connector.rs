@@ -20,6 +20,7 @@ use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::connectors::ConnectorKind;
 use crate::database::schema::{browser_sessions, connectors};
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
@@ -235,13 +236,17 @@ pub async fn list_by_account(
     query.load(connection).await
 }
 
-/// The Atlassian and GitHub accounts whose connector is paused, which the link watcher skips.
+/// The Atlassian and GitHub accounts whose Jira or GitHub connector is paused, which the link
+/// watcher skips. Only those kinds count: pausing a Confluence connector on the same Atlassian
+/// account leaves the watcher reading its Jira issues.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn paused_link_accounts(connection: &mut AsyncPgConnection) -> QueryResult<Vec<Uuid>> {
+    let link_kinds = ConnectorKind::LINKS.map(ConnectorKind::as_str);
     let paused: Vec<(Option<Uuid>, Option<Uuid>)> = connectors::table
         .filter(connectors::is_active.eq(false))
+        .filter(connectors::kind.eq_any(link_kinds))
         .filter(
             connectors::jira_credential_id
                 .is_not_null()

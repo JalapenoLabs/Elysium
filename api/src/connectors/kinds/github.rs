@@ -10,7 +10,10 @@
 use secrecy::SecretString;
 use serde_json::Value;
 
-use super::{AccountChoice, AccountDefinition, AccountField, AccountFieldType, Definition, Source};
+use super::{
+    AccountChoice, AccountChoices, AccountDefinition, AccountField, AccountFieldType, Definition,
+    Source,
+};
 use crate::auth::CurrentUser;
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
 use crate::connectors::{AccountKind, ConnectorKind, Scope};
@@ -28,6 +31,7 @@ pub const DEFINITION: Definition = Definition {
     kind: ConnectorKind::Github,
     scope: Scope::Workspace,
     account: AccountKind::Github,
+    accounts: AccountChoices::New,
     start_url: None,
     content: &[],
     checks: &[

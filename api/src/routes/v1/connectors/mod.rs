@@ -33,7 +33,7 @@ use uuid::Uuid;
 
 use crate::connectors::accounts::{self, AccountSummary};
 use crate::connectors::kinds::{self, is_visible};
-use crate::connectors::{Scope, SignInState};
+use crate::connectors::{ConnectorKind, Scope, SignInState};
 use crate::errors::ApiError;
 use crate::models::connector::{self, Connector};
 use crate::models::connector_check::{self, CheckResult};
@@ -239,14 +239,15 @@ pub async fn views(
         let last_sync_at = stored
             .last_polled_at
             .or_else(|| pass.map(|pass| pass.updated_at));
-        let content = match stored.jira_credential_id {
-            // A Jira connector's content is its account's allowlist.
-            Some(credential_id) => {
+        let content = match (kind, stored.jira_credential_id) {
+            // A Jira connector's content is its account's allowlist. Another kind reading
+            // through the same Atlassian account, such as Confluence, keeps its own.
+            (ConnectorKind::Jira, Some(credential_id)) => {
                 let credential = jira_credential::find(&mut connection, credential_id).await?;
                 let allowed = jira_credential::allowed_of(&mut connection, &credential).await?;
                 json!({ "projects": allowed.projects, "boards": allowed.boards })
             }
-            None => stored.content.clone(),
+            _ => stored.content.clone(),
         };
         views.push(ConnectorView {
             id: stored.id,

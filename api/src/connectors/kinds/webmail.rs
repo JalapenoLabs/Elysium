@@ -11,7 +11,7 @@
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::{AccountChoice, AccountDefinition, Definition, Source};
+use super::{AccountChoice, AccountChoices, AccountDefinition, Definition, Source};
 use crate::auth::CurrentUser;
 use crate::browser::{BrowserState, Browsers};
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
@@ -49,6 +49,7 @@ pub const OUTLOOK: Definition = Definition {
     kind: ConnectorKind::Outlook,
     scope: Scope::Personal,
     account: AccountKind::Browser,
+    accounts: AccountChoices::Existing,
     start_url: Some("https://outlook.office.com/mail/"),
     content: &[],
     checks: CHECKS,
@@ -58,6 +59,7 @@ pub const GMAIL: Definition = Definition {
     kind: ConnectorKind::Gmail,
     scope: Scope::Personal,
     account: AccountKind::Browser,
+    accounts: AccountChoices::Existing,
     start_url: Some("https://mail.google.com/mail/"),
     content: &[],
     checks: CHECKS,

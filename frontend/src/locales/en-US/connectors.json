@@ -63,6 +63,10 @@
       "name": "Jira",
       "description": "Issues on a Jira Cloud site, bounded to the projects and boards you pick."
     },
+    "confluence": {
+      "name": "Confluence",
+      "description": "Pages and comments in the spaces you pick, read through a Jira connector's Atlassian account."
+    },
     "github": {
       "name": "GitHub",
       "description": "Issues and pull requests, read through a personal access token."
@@ -108,6 +112,7 @@
     "apiKey": "API key",
     "projects": "Projects",
     "boards": "Boards",
+    "spaces": "Spaces",
     "storageLocationId": "Storage location",
     "choices": {
       "classic": "Classic",
@@ -133,6 +138,11 @@
     "browserSignIn": "A mailbox is read through a browser you sign in to. Sign in to one under Settings, Browser sign-ins, then pick it here.",
     "openBrowsers": "Open Browser sign-ins",
     "noBrowsers": "No browser yet.",
+    "noAccount": {
+      "atlassian": "No Atlassian account yet. One comes with a Jira connector: add the site as Jira first, then pick its account here.",
+      "github": "No GitHub account yet. One comes with a GitHub connector: add it first, then pick its account here.",
+      "fireflies": "No Fireflies key yet. Add a Fireflies connector with a new key first, then pick it here."
+    },
     "back": "Back",
     "next": "Next",
     "runChecks": "Run checks",
@@ -170,7 +180,10 @@
       "inbox_readable": "Read the inbox",
       "sample_message": "Sample messages",
       "list_meetings": "List recent meetings",
-      "sample_transcript": "Sample a transcript"
+      "sample_transcript": "Sample a transcript",
+      "list_spaces": "Reach the chosen spaces",
+      "sample_pages": "Sample pages",
+      "sample_comments": "Sample comments"
     },
     "counts": {
       "list_projects_one": "Reaches {{count}} project",
@@ -194,7 +207,13 @@
       "list_meetings_one": "{{count}} meeting in two weeks",
       "list_meetings_other": "{{count}} meetings in two weeks",
       "sample_transcript_one": "{{count}} line",
-      "sample_transcript_other": "{{count}} lines"
+      "sample_transcript_other": "{{count}} lines",
+      "list_spaces_one": "Reads {{count}} space",
+      "list_spaces_other": "Reads {{count}} spaces",
+      "sample_pages_one": "{{count}} page changed in 90 days",
+      "sample_pages_other": "{{count}} pages changed in 90 days",
+      "sample_comments_one": "{{count}} comment in 90 days",
+      "sample_comments_other": "{{count}} comments in 90 days"
     },
     "reasons": {
       "fine_grained_scopes": "GitHub does not report a fine-grained token's permissions.",
@@ -207,7 +226,9 @@
       "mailbox_not_open": "No tab in the browser shows the mailbox.",
       "no_messages": "The inbox shows no messages to sample.",
       "no_meetings": "No meeting in the last two weeks to sample.",
-      "meeting_unavailable": "The newest meeting is not available yet."
+      "meeting_unavailable": "The newest meeting is not available yet.",
+      "spaces_unresolved": "The chosen spaces were not resolved.",
+      "no_spaces_chosen": "No space is chosen, so there is nothing to search."
     }
   },
   "detail": {

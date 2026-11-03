@@ -13,7 +13,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::{
-    AccountChoice, AccountDefinition, AccountField, AccountFieldType, ContentField,
+    AccountChoice, AccountChoices, AccountDefinition, AccountField, AccountFieldType, ContentField,
     ContentFieldType, Definition, Source, parse_content, parse_new_account,
 };
 use crate::auth::CurrentUser;
@@ -42,6 +42,7 @@ pub const DEFINITION: Definition = Definition {
     kind: ConnectorKind::Fireflies,
     scope: Scope::Personal,
     account: AccountKind::Fireflies,
+    accounts: AccountChoices::Either,
     start_url: None,
     content: &[ContentField {
         id: "storageLocationId",

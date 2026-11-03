@@ -86,6 +86,35 @@ pub async fn insert_new(
         .optional()
 }
 
+/// Whether any record of `connector_id`'s whose external id starts with `prefix` raised an
+/// action item: for a kind that records each version of a thing, whether that thing already
+/// raised one, so editing it again does not raise another.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn has_raised_item(
+    connection: &mut AsyncPgConnection,
+    connector_id: Uuid,
+    prefix: &str,
+) -> QueryResult<bool> {
+    let escaped = prefix
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    diesel::select(diesel::dsl::exists(
+        timeline_records::table
+            .filter(timeline_records::connector_id.eq(connector_id))
+            .filter(
+                timeline_records::external_id
+                    .like(format!("{escaped}%"))
+                    .escape('\\'),
+            )
+            .filter(timeline_records::action_item_id.is_not_null()),
+    ))
+    .get_result(connection)
+    .await
+}
+
 /// Records the action item a record raised.
 ///
 /// # Errors

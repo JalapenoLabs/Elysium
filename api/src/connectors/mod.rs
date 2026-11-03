@@ -22,7 +22,8 @@
 //! timeline records, raises an inbox item for each new message that wants attention, and
 //! publishes `timelineRecord.created`, which is where Elysia's triage picks up. Meetings have
 //! their own loop (`crate::meetings`), and Jira and GitHub are read by the link watcher
-//! (`crate::action_items::watcher`). [`activity`] is where each of them reports a sync.
+//! (`crate::action_items::watcher`), Confluence by its own reader (`crate::confluence::reader`).
+//! [`activity`] is where each of them reports a sync.
 
 pub mod accounts;
 pub mod activity;
@@ -44,6 +45,8 @@ use crate::models::browser_session::BrowserSession;
 pub struct Connectors {
     /// Reads mailboxes; a sync someone asks for reads through it.
     pub ingest: Ingest,
+    /// Reads Confluence spaces; a sync someone asks for, and Confluence's checks, go through it.
+    pub confluence: crate::confluence::reader::Reader,
     /// What is syncing, and where syncs are recorded.
     pub activity: Activity,
     /// Check runs the web app is following.
@@ -63,17 +66,27 @@ pub enum ConnectorKind {
     /// Meetings recorded and transcribed by Fireflies.ai, read with its owner's API key. See
     /// `crate::meetings`.
     Fireflies,
+    /// Pages and comments on a Confluence Cloud site, read through an Atlassian account a Jira
+    /// connector already uses. See `crate::confluence`.
+    Confluence,
 }
 
 impl ConnectorKind {
     /// Every kind, in the order the hub lists them.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Jira,
+        Self::Confluence,
         Self::Github,
         Self::Outlook,
         Self::Gmail,
         Self::Fireflies,
     ];
+
+    /// The kinds the link watcher reads (`crate::action_items::watcher`), which records its
+    /// progress per account rather than on the connector. An Atlassian account can feed other
+    /// kinds too, so anything about the watcher's reading asks for these kinds, never for an
+    /// account alone.
+    pub const LINKS: [Self; 2] = [Self::Jira, Self::Github];
 
     /// The kinds that read mail through a browser, which `ingest` reads.
     pub const WEBMAIL: [Self; 2] = [Self::Outlook, Self::Gmail];
@@ -88,7 +101,13 @@ impl ConnectorKind {
             Self::Outlook => "outlook",
             Self::Gmail => "gmail",
             Self::Fireflies => "fireflies",
+            Self::Confluence => "confluence",
         }
+    }
+
+    /// Whether the link watcher reads this kind. See [`ConnectorKind::LINKS`].
+    pub fn is_link(self) -> bool {
+        Self::LINKS.contains(&self)
     }
 
     /// The kind stored as `text`, if it is one.
@@ -174,6 +193,8 @@ pub struct Read {
     pub url: Option<String>,
     /// Whether it wants attention: an unread message raises an inbox item.
     pub wants_attention: bool,
+    /// What else the record keeps, in its kind's own terms, such as a page's space and version.
+    pub metadata: serde_json::Value,
 }
 
 /// What one read of an account found.

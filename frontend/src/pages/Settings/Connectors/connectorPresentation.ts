@@ -2,11 +2,13 @@
 
 import type { TFunction } from 'i18next'
 import type {
+  Account,
   CheckOutcome,
   CheckSpec,
   CheckState,
   Connector,
   ConnectorKind,
+  ConnectorKindDefinition,
   ConnectorStatus,
 } from '../../../api/routes/connectorRoutes'
 
@@ -91,6 +93,35 @@ export function describeOutcome(
     return t(`checks.counts.${checkId}`, { count: outcome.count, defaultValue: String(outcome.count) })
   }
   return outcome.message ?? ''
+}
+
+// An account a new connector can read through, as the wizard offers it.
+export type OfferedAccount = {
+  id: string
+  name: string
+}
+
+// The accounts the person already has that a new connector of this kind can read through: none
+// for a kind that always makes its own, the person's browsers for one read through a browser,
+// and otherwise the hub's accounts of the kind's account kind.
+export function offeredAccounts(
+  definition: Pick<ConnectorKindDefinition, 'account' | 'accounts'>,
+  browsers: OfferedAccount[],
+  accounts: Pick<Account, 'id' | 'kind' | 'name'>[],
+): OfferedAccount[] {
+  if (definition.accounts === 'new') {
+    return []
+  }
+  if (definition.account === 'browser') {
+    return browsers
+  }
+  const offered: OfferedAccount[] = []
+  for (const account of accounts) {
+    if (account.kind === definition.account) {
+      offered.push({ id: account.id, name: account.name })
+    }
+  }
+  return offered
 }
 
 // Whether a finished run leaves a required check that did not pass.

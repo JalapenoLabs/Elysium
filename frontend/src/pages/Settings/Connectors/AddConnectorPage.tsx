@@ -24,7 +24,7 @@ import { getApiErrorMessage } from '../../../api/errors'
 import { checkConnectorDraft, createConnector, listAccounts } from '../../../api/routes/connectorRoutes'
 import { useBrowserSessionsLoader } from '../../../hooks/useServerData'
 import { UrlTree, getConnectorUrl } from '../../../urls'
-import { hasRequiredFailure } from './connectorPresentation'
+import { hasRequiredFailure, offeredAccounts } from './connectorPresentation'
 import { useConnectorKinds } from './useConnectorKinds'
 
 // The value the account picker holds for a new account.
@@ -55,15 +55,17 @@ export function AddConnectorPage() {
   const accountDefinition = definition
     ? definitions.accountOf(definition.account)
     : null
-  // A browser is signed in to on its own page, and Jira and GitHub always come with a new
-  // account, so only mailboxes and keys offer existing accounts.
-  const existing = definition?.account === 'browser'
-    ? browsers.map((browser) => ({ id: browser.id, name: browser.name }))
-    : (accounts.data?.accounts ?? [])
-      .filter((account) => definition?.account === 'fireflies' && account.kind === 'fireflies')
-      .map((account) => ({ id: account.id, name: account.name }))
+  // Each kind says whether it takes a new account, one the person already has, or either.
+  const offersNew = definition?.accounts !== 'existing'
+  const existing = definition
+    ? offeredAccounts(
+      definition,
+      browsers.map((browser) => ({ id: browser.id, name: browser.name })),
+      accounts.data?.accounts ?? [],
+    )
+    : []
   const account: AccountChoice | null = accountId === NEW_ACCOUNT
-    ? (definition?.account === 'browser' ? null : { new: fields })
+    ? (offersNew ? { new: fields } : null)
     : { id: accountId }
 
   function choose(nextKind: ConnectorKind) {
@@ -147,7 +149,7 @@ export function AddConnectorPage() {
           </Radio.Control>
           <Radio.Content>{candidate.name}</Radio.Content>
         </Radio>)}
-        {definition.account !== 'browser' && <Radio value={NEW_ACCOUNT}>
+        {offersNew && <Radio value={NEW_ACCOUNT}>
           <Radio.Control>
             <Radio.Indicator />
           </Radio.Control>
@@ -162,7 +164,10 @@ export function AddConnectorPage() {
         {' '}
         <Link href={UrlTree.settingsBrowsers}>{t('wizard.openBrowsers')}</Link>
       </p>}
-      {definition.account !== 'browser' && accountId === NEW_ACCOUNT && <AccountFields
+      {!offersNew && definition.account !== 'browser' && !existing.length && <p className='text-sm opacity-70'>{
+        t(`wizard.noAccount.${definition.account}`)
+      }</p>}
+      {offersNew && accountId === NEW_ACCOUNT && <AccountFields
         definition={accountDefinition}
         values={fields}
         onChange={setFields}

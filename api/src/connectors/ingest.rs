@@ -256,35 +256,62 @@ impl Ingest {
             .await
             .context("no database connection available")?;
         for read in reading.items.iter().rev() {
-            let raises_item = baselined && read.wants_attention;
-            let now = Utc::now();
-            let Some((record, raised)) =
-                store_read(&mut connection, connector, kind, read, raises_item, now).await?
-            else {
-                continue;
-            };
-            recorded += 1;
-
-            let action_item_id = raised.as_ref().map(|item| item.record.id);
-            if let Some(raised) = raised {
-                publish_item_write(&self.inner.events, &mut connection, raised, &[], now)
-                    .await
-                    .map_err(|error| anyhow::anyhow!("cannot publish a raised item: {error}"))?;
+            let raised = (baselined && read.wants_attention).then(|| raised_item(read));
+            if record(
+                &mut connection,
+                &self.inner.events,
+                connector,
+                kind,
+                read,
+                raised,
+            )
+            .await?
+            {
+                recorded += 1;
             }
-            self.inner
-                .events
-                .publish(&ServerEvent::TimelineRecordCreated {
-                    id: record.id,
-                    source_kind: record.source_kind,
-                    created_by: record.created_by,
-                    action_item_id,
-                });
         }
         Ok(recorded)
     }
 }
 
-/// Stores a read as a record and, when `raises_item`, the inbox item it raises, in one
+/// Stores `read` as a timeline record of `connector`'s, with the inbox item `raised` when one
+/// is given, and publishes both. Answers whether it was new: an item the connector already
+/// recorded, by its external id, is skipped and nothing is published.
+///
+/// Every connector that ingests records through here, so a record and the item it raises are
+/// always written together and announced the same way.
+///
+/// # Errors
+/// Propagates any database error, and a raised item that cannot be published.
+pub(crate) async fn record(
+    connection: &mut AsyncPgConnection,
+    events: &EventBus,
+    connector: &Connector,
+    kind: ConnectorKind,
+    read: &Read,
+    raised: Option<NewActionItem>,
+) -> anyhow::Result<bool> {
+    let now = Utc::now();
+    let Some((record, raised)) = store_read(connection, connector, kind, read, raised, now).await?
+    else {
+        return Ok(false);
+    };
+    let action_item_id = raised.as_ref().map(|item| item.record.id);
+    if let Some(raised) = raised {
+        publish_item_write(events, connection, raised, &[], now)
+            .await
+            .map_err(|error| anyhow::anyhow!("cannot publish a raised item: {error}"))?;
+    }
+    events.publish(&ServerEvent::TimelineRecordCreated {
+        id: record.id,
+        source_kind: record.source_kind,
+        created_by: record.created_by,
+        action_item_id,
+    });
+    Ok(true)
+}
+
+/// Stores a read as a record and, when `raised` is given, the inbox item it raises, in one
 /// transaction: a record never points at an item that was not written, nor an item lack its
 /// record. Answers nothing for an item the connector already recorded.
 async fn store_read(
@@ -292,7 +319,7 @@ async fn store_read(
     connector: &Connector,
     kind: ConnectorKind,
     read: &Read,
-    raises_item: bool,
+    raised: Option<NewActionItem>,
     now: DateTime<Utc>,
 ) -> anyhow::Result<Option<(TimelineRecord, Option<Recorded<ActionItem>>)>> {
     let new = new_record(connector, kind, read);
@@ -301,13 +328,12 @@ async fn store_read(
             let Some(record) = timeline_record::insert_new(connection, new).await? else {
                 return Ok(None);
             };
-            if !raises_item {
+            let Some(raised) = raised else {
                 return Ok(Some((record, None)));
-            }
-            let created =
-                action_item::create(connection, raised_item(read), Actor::Connector(kind), now)
-                    .await
-                    .map_err(|error| anyhow::anyhow!("cannot raise an inbox item: {error}"))?;
+            };
+            let created = action_item::create(connection, raised, Actor::Connector(kind), now)
+                .await
+                .map_err(|error| anyhow::anyhow!("cannot raise an inbox item: {error}"))?;
             let record =
                 timeline_record::set_action_item(connection, record.id, created.record.id).await?;
             Ok::<_, anyhow::Error>(Some((record, Some(created))))
@@ -337,7 +363,7 @@ fn new_record(connector: &Connector, kind: ConnectorKind, read: &Read) -> NewTim
         body: read.body.clone(),
         url: read.url.clone(),
         media: None,
-        metadata: json!({}),
+        metadata: read.metadata.clone(),
         created_by: connector.created_by,
     }
 }
@@ -374,6 +400,7 @@ mod tests {
             body: "Are we launching Friday?".to_owned(),
             url: None,
             wants_attention: true,
+            metadata: json!({}),
         }
     }
 

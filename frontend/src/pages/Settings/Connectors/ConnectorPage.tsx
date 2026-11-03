@@ -129,9 +129,11 @@ export function ConnectorPage() {
       </div>
     </Card>}
 
-    {accountId && connector.kind === 'jira' && <div className='level-left'>
+    {accountId && definition.account === 'atlassian' && <div className='level-left'>
       <Link href={getJiraCredentialEditUrl(accountId)}>{t('detail.editAccount')}</Link>
-      <Link href={getJiraDoneTransitionsUrl(accountId)}>{t('detail.doneStatuses')}</Link>
+      {connector.kind === 'jira' && <Link href={getJiraDoneTransitionsUrl(accountId)}>{
+        t('detail.doneStatuses')
+      }</Link>}
     </div>}
     {accountId && connector.kind === 'github' && <Link href={getGithubCredentialEditUrl(accountId)}>{
       t('detail.editAccount')

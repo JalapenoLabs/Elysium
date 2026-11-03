@@ -20,7 +20,7 @@ use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::AccountKind;
+use super::{AccountKind, ConnectorKind};
 use crate::database::schema::{action_item_links, link_watch_cursors, timeline_records};
 use crate::models::connector::{AccountRef, Connector};
 use crate::models::link_watch_cursor::LinkWatchCursor;
@@ -217,11 +217,14 @@ pub async fn record_counts(
         .filter_map(|(connector_id, count)| connector_id.map(|id| (id, count)))
         .collect();
 
-    let jira_ids: Vec<Uuid> = connectors
+    // Linked issues belong to the Jira and GitHub connectors, never to another kind reading
+    // through the same account, such as Confluence.
+    let link_connectors: Vec<&Connector> = link_connectors(connectors).collect();
+    let jira_ids: Vec<Uuid> = link_connectors
         .iter()
         .filter_map(|connector| connector.jira_credential_id)
         .collect();
-    let github_ids: Vec<Uuid> = connectors
+    let github_ids: Vec<Uuid> = link_connectors
         .iter()
         .filter_map(|connector| connector.github_credential_id)
         .collect();
@@ -242,7 +245,7 @@ pub async fn record_counts(
         .chain(github_links)
         .filter_map(|(credential_id, count)| credential_id.map(|id| (id, count)))
         .collect();
-    for connector in connectors {
+    for connector in link_connectors {
         let credential_id = connector
             .jira_credential_id
             .or(connector.github_credential_id);
@@ -251,6 +254,15 @@ pub async fn record_counts(
         }
     }
     Ok(counts)
+}
+
+/// The connectors among `connectors` that the link watcher reads: Jira and GitHub. An Atlassian
+/// account can feed Confluence too, so the watcher's counts and passes are matched by kind as
+/// well as account.
+fn link_connectors(connectors: &[Connector]) -> impl Iterator<Item = &Connector> {
+    connectors.iter().filter(|connector| {
+        ConnectorKind::parse(&connector.kind).is_some_and(ConnectorKind::is_link)
+    })
 }
 
 /// The link watcher's last pass over each Atlassian and GitHub account `connectors` read
@@ -263,11 +275,12 @@ pub async fn watcher_passes(
     connection: &mut AsyncPgConnection,
     connectors: &[Connector],
 ) -> QueryResult<HashMap<Uuid, LinkWatchCursor>> {
-    let jira_ids: Vec<Uuid> = connectors
+    let link_connectors: Vec<&Connector> = link_connectors(connectors).collect();
+    let jira_ids: Vec<Uuid> = link_connectors
         .iter()
         .filter_map(|connector| connector.jira_credential_id)
         .collect();
-    let github_ids: Vec<Uuid> = connectors
+    let github_ids: Vec<Uuid> = link_connectors
         .iter()
         .filter_map(|connector| connector.github_credential_id)
         .collect();
@@ -282,7 +295,7 @@ pub async fn watcher_passes(
         .await?;
     let mut passes: HashMap<Uuid, LinkWatchCursor> = HashMap::new();
     for cursor in cursors {
-        let found = connectors.iter().find(|connector| {
+        let found = link_connectors.iter().find(|connector| {
             (cursor.jira_credential_id.is_some()
                 && connector.jira_credential_id == cursor.jira_credential_id)
                 || (cursor.github_credential_id.is_some()

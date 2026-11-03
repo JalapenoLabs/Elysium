@@ -248,7 +248,7 @@ pub async fn app_state_with_storage(
     })
     .expect("the meetings service builds without reaching anything");
 
-    // Never started, so no test reads a mailbox through it.
+    // Never started, so no test reads a mailbox or a Confluence space through them.
     let connectors = crate::connectors::Connectors {
         ingest: crate::connectors::ingest::Ingest::new(
             database.clone(),
@@ -256,6 +256,13 @@ pub async fn app_state_with_storage(
             crate::browser::devtools::Devtools::new(http.clone()),
             connector_activity.clone(),
         ),
+        confluence: crate::confluence::reader::Reader::new(crate::confluence::reader::ReaderDeps {
+            database: database.clone(),
+            cipher: Arc::clone(&cipher),
+            events: events.clone(),
+            activity: connector_activity.clone(),
+            confluence: crate::confluence::Confluence::new(http.clone()),
+        }),
         activity: connector_activity,
         check_runs: crate::connectors::checks::CheckRuns::new(events.clone()),
     };

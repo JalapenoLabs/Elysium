@@ -178,9 +178,11 @@ Everything else follows these rules:
   (`token_accounts`). A connector (`connectors`) is one use of one account: a kind, what it reads, and its reading
   state. An account feeds each kind once; every Atlassian and GitHub account carries its one connector. See
   `docs/connectors.md`.
-- Each kind is one module under `api/src/connectors/kinds/` declaring its definition (scope, account, content fields,
-  ordered checks) and its verbs; `kinds/mod.rs` alone matches on the kind. The API serves the definitions and the web
-  app draws forms and check lists from them, naming every id from its translations.
+- Each kind is one module under `api/src/connectors/kinds/` declaring its definition (scope, account, which accounts a
+  new one takes, content fields, ordered checks) and its verbs; `kinds/mod.rs` alone matches on the kind. The API
+  serves the definitions and the web app draws forms and check lists from them, naming every id from its translations.
+- An Atlassian account feeds Jira and Confluence. Anything about the link watcher's reading (paused accounts, its
+  pass, linked-issue counts) is matched by kind (`ConnectorKind::LINKS`) as well as account, never by account alone.
 - Checks run in order, a dependency that did not pass skips what builds on it, and they run before a connector is
   saved and on demand. Progress is published as ids and states only; a stored connector's last results are kept.
 - Syncs that record something or fail are runs (`connector_runs`), reported through `connectors::activity`; a
@@ -188,6 +190,10 @@ Everything else follows these rules:
   the link watcher. `connector.changed` carries an id alone.
 - Outlook and Gmail read through a person's browser over DevTools, with one page script per service; the check is
   cheap and deterministic, and nothing it does marks mail read.
+- Confluence Cloud reads through an existing Atlassian account, every five minutes, the pages and comments changed in
+  the spaces its connector picked, one record per version. `api/src/confluence/` is its only caller, and
+  `Confluence::changes`, the only call that reads content, is bounded by the picked spaces in its CQL and again on each
+  result. A mention of the person, or a question on their page, raises an inbox item once per page or comment.
 - Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
   projects with a confidence (`timeline_record_projects`). A record is its owner's alone, even about a shared
   project.

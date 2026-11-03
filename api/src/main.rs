@@ -12,6 +12,7 @@ mod browser;
 mod claude_accounts;
 mod cli;
 mod config;
+mod confluence;
 mod connections;
 mod connectors;
 mod crypto;

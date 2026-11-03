@@ -37,6 +37,8 @@ use crate::browser::neko::Neko;
 use crate::claude_accounts::oauth::Anthropic;
 use crate::claude_accounts::{ClaudeAccounts, ClaudeAccountsDeps, TurnSignal};
 use crate::config::Config;
+use crate::confluence::Confluence;
+use crate::confluence::reader::{Reader as ConfluenceReader, ReaderDeps as ConfluenceReaderDeps};
 use crate::connectors::Connectors;
 use crate::connectors::activity::Activity;
 use crate::connectors::checks::CheckRuns;
@@ -162,6 +164,15 @@ pub async fn serve() -> Result<()> {
         connector_activity.clone(),
     );
     let ingest = mailbox_reader.start(shutdown.clone());
+    // Reads every Confluence connector's spaces, onto the timeline.
+    let confluence_reader = ConfluenceReader::new(ConfluenceReaderDeps {
+        database: database.clone(),
+        cipher: Arc::clone(&cipher),
+        events: events.clone(),
+        activity: connector_activity.clone(),
+        confluence: Confluence::new(http.clone()),
+    });
+    let confluence_loop = confluence_reader.start(shutdown.clone());
 
     let passwords = build_passwords(database.clone(), Arc::clone(&cipher), events.clone());
     // Signs the CLI in and unlocks the stored vault, then keeps it up, until shutdown.
@@ -239,6 +250,7 @@ pub async fn serve() -> Result<()> {
         claude_accounts,
         connectors: Connectors {
             ingest: mailbox_reader,
+            confluence: confluence_reader,
             activity: connector_activity,
             check_runs: CheckRuns::new(events.clone()),
         },
@@ -313,6 +325,14 @@ pub async fn serve() -> Result<()> {
             Level::ERROR,
             error.message = %error,
             "the connector ingest loop ended abnormally",
+        );
+    }
+    if let Err(error) = confluence_loop.await {
+        event!(
+            name: "confluence.loop.join.failed",
+            Level::ERROR,
+            error.message = %error,
+            "the Confluence reader ended abnormally",
         );
     }
     if let Err(error) = meeting_loop.await {
