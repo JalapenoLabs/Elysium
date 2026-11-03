@@ -86,7 +86,6 @@ impl Devtools {
     ///
     /// # Errors
     /// [`DevtoolsError::Unreachable`] when the `DevTools` port does not answer or refuses the tab.
-    #[expect(dead_code, reason = "the Teams reader opens Teams with it")]
     pub async fn open_tab(&self, port: u16, url: &Url) -> Result<Tab, DevtoolsError> {
         let mut endpoint = Url::parse(&format!(
             "http://{}:{DEVTOOLS_PORT}/json/new",

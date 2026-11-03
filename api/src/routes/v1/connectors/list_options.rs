@@ -26,10 +26,10 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
-    _current: CurrentUser,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Json(body) = body?;
-    let fields = kinds::options(&state, body.kind, body.account).await?;
+    let fields = kinds::options(&state, &current, body.kind, body.account).await?;
     Ok(Json(json!({ "fields": fields })))
 }

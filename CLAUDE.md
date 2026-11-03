@@ -188,6 +188,9 @@ Everything else follows these rules:
   the link watcher. `connector.changed` carries an id alone.
 - Outlook and Gmail read through a person's browser over DevTools, with one page script per service; the check is
   cheap and deterministic, and nothing it does marks mail read.
+- Teams reads through a Microsoft browser too, the same one Outlook can use, from Teams' own local store (IndexedDB)
+  rather than its page; nothing it does marks a message read. An unread chat message, a mention, or a reply in a
+  channel thread the person wrote in raises an inbox item; other channel messages are only recorded.
 - Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
   projects with a confidence (`timeline_record_projects`). A record is its owner's alone, even about a shared
   project.

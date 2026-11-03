@@ -1,0 +1,158 @@
+<!doctype html>
+<!-- Copyright © 2026 Jalapeno Labs -->
+<!--
+  A page shaped like new Teams' local store, for checking teams.js in a real browser. Serve this
+  directory over HTTP, load it in Chromium, wait for `window.seeded`, then evaluate teams.js
+  applied to `{ "since": 1730000000000, "maxMessages": 200 }`. Its answer is teams_page.json,
+  which the Rust tests in teams.rs read. See docs/connectors.md.
+-->
+<meta charset="utf-8">
+<title>Teams fixture</title>
+<script>
+const me = 'aaaa-1111'
+const suffix = `react-web-client:${me}:tttt:en-us`
+const iso = (ms) => new Date(ms).toISOString()
+
+const conversations = [
+  {
+    id: '19:aaaa-1111_bbbb-2222@unq.gbl.spaces',
+    threadProperties: {},
+    properties: { consumptionhorizon: '1730000100000;1730000100000;111' },
+    lastMessage: { originalarrivaltime: iso(1730000210000) },
+  },
+  {
+    id: '19:group1@thread.v2',
+    threadProperties: { topic: 'Launch planning', threadType: 'chat' },
+    properties: { consumptionhorizon: '1730000500000;1730000500000;222' },
+    lastMessage: { originalarrivaltime: iso(1730000310000) },
+  },
+  {
+    id: '19:channel1@thread.tacv2',
+    threadProperties: { topic: 'General', threadType: 'topic' },
+    properties: { consumptionhorizon: '1730000100000;1730000100000;333' },
+    lastMessage: { originalarrivaltime: iso(1730000420000) },
+  },
+]
+
+const replychains = [
+  {
+    replyChainId: '1730000200000',
+    conversationId: '19:aaaa-1111_bbbb-2222@unq.gbl.spaces',
+    messageMap: {
+      a: {
+        id: '1730000200000',
+        originalArrivalTime: iso(1730000200000),
+        creator: '8:orgid:bbbb-2222',
+        imDisplayName: 'Ada Lovelace',
+        messageType: 'RichText/Html',
+        content: '<p>Are we launching <b>Friday</b>?</p>',
+      },
+      b: {
+        id: '1730000210000',
+        originalArrivalTime: iso(1730000210000),
+        creator: '8:orgid:aaaa-1111',
+        imDisplayName: 'Alex Navarro',
+        messageType: 'RichText/Html',
+        content: '<p>Yes</p>',
+      },
+    },
+  },
+  {
+    replyChainId: '1730000300000',
+    conversationId: '19:group1@thread.v2',
+    messageMap: {
+      c: {
+        id: '1730000300000',
+        originalArrivalTime: iso(1730000300000),
+        creator: '8:orgid:cccc-3333',
+        imDisplayName: 'Grace Hopper',
+        messageType: 'RichText/Html',
+        content: 'Notes are in the doc &amp; ready',
+      },
+      d: {
+        id: '1730000310000',
+        originalArrivalTime: iso(1730000310000),
+        creator: '8:orgid:cccc-3333',
+        imDisplayName: 'Grace Hopper',
+        messageType: 'ThreadActivity/AddMember',
+        content: '<addmember>Linus</addmember>',
+      },
+    },
+  },
+  {
+    replyChainId: '1729999000000',
+    conversationId: '19:channel1@thread.tacv2',
+    messageMap: {
+      e: {
+        id: '1729999000000',
+        originalArrivalTime: iso(1729999000000),
+        creator: '8:orgid:aaaa-1111',
+        imDisplayName: 'Alex Navarro',
+        messageType: 'RichText/Html',
+        content: 'Release checklist',
+      },
+      f: {
+        id: '1730000400000',
+        originalArrivalTime: iso(1730000400000),
+        creator: '8:orgid:cccc-3333',
+        imDisplayName: 'Grace Hopper',
+        messageType: 'RichText/Html',
+        content: 'Checklist done',
+      },
+    },
+  },
+  {
+    replyChainId: '1730000410000',
+    conversationId: '19:channel1@thread.tacv2',
+    messageMap: {
+      g: {
+        id: '1730000410000',
+        originalArrivalTime: iso(1730000410000),
+        creator: '8:orgid:dddd-4444',
+        imDisplayName: 'Linus',
+        messageType: 'RichText/Html',
+        content: '<p><span itemtype="http://schema.skype.com/Mention">Alex</span> can you review?</p>',
+        properties: {
+          mentions: JSON.stringify([
+            { '@type': 'http://schema.skype.com/Mention', itemid: '0', mri: '8:orgid:aaaa-1111', displayName: 'Alex' },
+          ]),
+        },
+      },
+      h: {
+        id: '1730000420000',
+        originalArrivalTime: iso(1730000420000),
+        creator: '8:orgid:dddd-4444',
+        imDisplayName: 'Linus',
+        messageType: 'RichText/Html',
+        content: 'Unrelated channel chatter',
+      },
+    },
+  },
+]
+
+function seed(name, storeName, keyPath, values) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(name, 1)
+    request.onupgradeneeded = () => request.result.createObjectStore(storeName, { keyPath })
+    request.onsuccess = () => {
+      const database = request.result
+      const transaction = database.transaction(storeName, 'readwrite')
+      for (const value of values) {
+        transaction.objectStore(storeName).put(value)
+      }
+      transaction.oncomplete = () => {
+        database.close()
+        resolve()
+      }
+      transaction.onerror = () => reject(transaction.error)
+    }
+    request.onerror = () => reject(request.error)
+  })
+}
+
+window.seeded = Promise.all([
+  seed(`Teams:conversation-manager:${suffix}`, 'conversations', 'id', conversations),
+  seed(`Teams:replychain-manager:${suffix}`, 'replychains', 'replyChainId', replychains),
+  seed('Teams:profiles:unrelated', 'profiles', 'id', [ { id: 'x' } ]),
+]).then(() => true)
+</script>

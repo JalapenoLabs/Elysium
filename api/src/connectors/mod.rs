@@ -31,6 +31,7 @@ pub mod checks;
 pub mod ingest;
 pub mod kinds;
 pub mod readers;
+pub mod teams;
 pub mod webmail;
 
 use chrono::{DateTime, Utc};
@@ -62,6 +63,9 @@ pub enum ConnectorKind {
     Github,
     Outlook,
     Gmail,
+    /// Microsoft Teams chats and channels, read from Teams' own store in a Microsoft browser.
+    /// See [`teams`].
+    Teams,
     /// Meetings recorded and transcribed by Fireflies.ai, read with its owner's API key. See
     /// `crate::meetings`.
     Fireflies,
@@ -69,16 +73,17 @@ pub enum ConnectorKind {
 
 impl ConnectorKind {
     /// Every kind, in the order the hub lists them.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Jira,
         Self::Github,
         Self::Outlook,
         Self::Gmail,
+        Self::Teams,
         Self::Fireflies,
     ];
 
     /// Every kind read through a browser, which `ingest` reads through [`readers::for_kind`].
-    pub const BROWSER_READ: [Self; 2] = [Self::Outlook, Self::Gmail];
+    pub const BROWSER_READ: [Self; 3] = [Self::Outlook, Self::Gmail, Self::Teams];
 
     /// The kinds that read meetings, which `crate::meetings` reads.
     pub const MEETINGS: [Self; 1] = [Self::Fireflies];
@@ -89,6 +94,7 @@ impl ConnectorKind {
             Self::Github => "github",
             Self::Outlook => "outlook",
             Self::Gmail => "gmail",
+            Self::Teams => "teams",
             Self::Fireflies => "fireflies",
         }
     }
@@ -207,10 +213,6 @@ pub struct ReadInput<'connector> {
     /// What the reader answered as [`Reading::state`] last time; `null` before its first read.
     pub state: &'connector serde_json::Value,
     /// The connector's content (`connectors.content`), in its kind's own terms.
-    #[expect(
-        dead_code,
-        reason = "the Teams and Slack readers read it; mailboxes have none"
-    )]
     pub content: &'connector serde_json::Value,
 }
 

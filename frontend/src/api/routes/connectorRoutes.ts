@@ -4,7 +4,7 @@
 import { apiClient } from '../index'
 
 // Mirrors `ConnectorKind` in api/src/connectors/mod.rs, in the order the hub lists them.
-export const CONNECTOR_KINDS = [ 'jira', 'github', 'outlook', 'gmail', 'fireflies' ] as const
+export const CONNECTOR_KINDS = [ 'jira', 'github', 'outlook', 'gmail', 'teams', 'fireflies' ] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]
 
 // The kinds that read mail through one of the person's browsers.

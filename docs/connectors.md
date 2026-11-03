@@ -72,6 +72,7 @@ it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web
 | `github`    | `kinds/github.rs`          | `github`      | None: what the token reaches | The link watcher |
 | `outlook`   | `kinds/webmail.rs`         | `browser`     | None: the inbox         | `ingest`           |
 | `gmail`     | `kinds/webmail.rs`         | `browser`     | None: the inbox         | `ingest`           |
+| `teams`     | `kinds/teams.rs`           | `browser`     | `conversations`         | `ingest`           |
 | `fireflies` | `kinds/fireflies.rs`       | `fireflies`   | `storageLocationId`     | `crate::meetings`  |
 
 A definition is structure only: the kind's scope, the account kind it reads through, a browser kind's start page, its
@@ -113,6 +114,7 @@ in order (`CheckSpec`): an id, whether the connector is any use without it, and 
 | Jira              | `sign_in`, `list_projects`, `list_boards` (optional), `allowlist_reachable`, `sample_issues`        |
 | GitHub            | `sign_in`, `read_scopes` (optional), `list_repositories`, `sample_issues` and `sample_pull_requests` (optional) |
 | Outlook and Gmail | `browser_running`, `signed_in`, `inbox_readable`, `sample_message` (optional)                       |
+| Teams             | `browser_running`, `signed_in`, `chats_readable`, `sample_message` (optional)                       |
 | Fireflies         | `sign_in`, `list_meetings`, `sample_transcript` (optional)                                         |
 
 `checks::run_in_order` runs them one at a time against one value, so a later check uses what an earlier one fetched.
@@ -181,8 +183,17 @@ stay where they were.
 
 ## Ingest
 
-`api/src/connectors/ingest.rs` reads every active mailbox connector once a minute (`INGEST_INTERVAL`), until shutdown;
-meeting connectors have their own loop (`docs/meetings.md`).
+`api/src/connectors/ingest.rs` reads every active connector read through a browser (`ConnectorKind::BROWSER_READ`:
+Outlook, Gmail, and Teams) once a minute (`INGEST_INTERVAL`), until shutdown; meeting connectors have their own loop
+(`docs/meetings.md`).
+
+Each browser kind has a reader behind one trait, `BrowserReader`, and `api/src/connectors/readers.rs` is the one place a
+kind meets its reader (`for_kind`). A reader is given its browser, what it kept from its last read, and its connector's
+content (`ReadInput`), and answers a reading: the sign-in state, the items it found, and optionally its state for the
+next read, such as a watermark. Ingest keeps that state in the connector's cursor beside the baseline,
+`{ "baselined": true, "reader": { ... } }`; a reading with no state keeps the old one. A reader whose service has no
+tab open may open one (`Devtools::open_tab`). A new browser kind adds its reader, its row in `for_kind`, and itself to
+`BROWSER_READ`, and a test fails when any of the three is missing.
 
 `api/src/connectors/webmail.rs` reads a mailbox through its browser. Each service is one row of `SERVICES`:
 
@@ -207,7 +218,46 @@ entry's message id, sender, subject, summary, time, and link. Every entry is unr
 the session ended. A date that does not parse is treated as absent, so one odd entry never fails a read. It was
 checked against a feed shaped like Gmail's, served locally, not yet against a signed-in Gmail.
 
-On each read:
+### Teams
+
+`api/src/connectors/teams.rs` reads Microsoft Teams through a browser signed in to Microsoft. The same browser can
+feed Outlook and Teams: Microsoft's sign-in carries over, so a browser signed in for Outlook opens Teams without
+asking again. When no tab shows Teams (`teams.cloud.microsoft`, `teams.microsoft.com`, or `teams.live.com`) and none
+is on a sign-in page, the read opens Teams in a new tab over DevTools and answers `unknown`; the next read finds it
+loaded. A tab on a sign-in page means the session ended (`signed_out`). Nothing is installed into the organization.
+
+**It reads Teams' own local store, not the page.** New Teams keeps the chats and channels it has loaded in
+IndexedDB, in databases named `Teams:conversation-manager:...:<user id>:<tenant>:<locale>` and
+`Teams:replychain-manager:...`. `api/src/connectors/teams.js` runs as the page and reads them in read-only
+transactions. Those records carry what the rendered page shows only in part, and in markup every redesign changes:
+each message's id, sender, arrival time, and mentions, and each conversation's read horizon. Reading them opens no
+chat, so unread messages stay unread. The store is the web client's own, not a published API, so the script reads its
+fields defensively. When it finds no store it says so (`chats_readable` fails as `teams_store_not_found` and its message
+lists the databases the page does hold), so a change to the layout shows up in the checks rather than as silence.
+
+The script only reads. The connector decides what the records mean:
+
+- **What it reads.** Its content is `conversations`, `"*"` for every chat and channel the person sees (the default)
+  or a list of conversation ids, picked from what the browser's Teams has stored (`POST /connectors/options`).
+- **What is new.** Its reader state is a watermark, `{ "since": <ms> }`, the newest arrival it has read. Each read
+  asks for messages after it, less ten minutes in case a message was stored late, and records are deduplicated by
+  `<conversation id>/<message id>`, so a message read twice is stored once. A read answers at most 200 messages, newest
+  first; a larger backlog is read over the next passes.
+- **What wants attention.** A message is unread when it arrived after its conversation's read horizon (the first
+  field of `consumptionhorizon`; a conversation without one counts as unread). An unread message from someone else
+  raises an inbox item when it is in a chat (one-on-one, group, or a meeting's chat), mentions the person, or replies in
+  a channel thread the person wrote in. Other channel messages are recorded without raising anything, and the person's
+  own messages are recorded too. System events (members added, calls) are not recorded.
+- **Each record** is titled with its conversation (a channel's or group's topic, or for a chat without one, who else
+  wrote in it), comes from its sender, holds the message as plain text (the browser parses its HTML), and links to it
+  with Teams' documented message link, `https://teams.microsoft.com/l/message/<conversation>/<message>`.
+
+The script was checked against `api/src/connectors/fixtures/teams.html`, a page that seeds IndexedDB the way Teams lays
+it out, in headless Chromium (`fixtures/evaluate.mjs` runs any page script against a fixture). Its answer,
+`fixtures/teams_page.json`, is what `teams.rs`'s tests read, so the rules above are tested against the script's real
+output. Neither has yet read a signed-in Teams.
+
+### On each read
 
 - Each item becomes a timeline record. An item its connector already recorded is skipped, by the connector and the
   provider's own id, so reading the same mailbox again records nothing twice.
@@ -251,8 +301,11 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
 
 ## Roadmap
 
-- More kinds: YouTrack and Slack with an API key in `token_accounts`, Confluence on an Atlassian account, Teams through
-  a Microsoft browser, and Google Meet and Teams recordings (`docs/meetings.md`).
+- More kinds: YouTrack and Slack with an API key in `token_accounts`, Confluence on an Atlassian account, and Google
+  Meet and Teams recordings (`docs/meetings.md`).
+- Teams: confirming the store's layout against a signed-in Teams, and how much of it Teams keeps. The connector reads
+  only what Teams has stored; if Teams stores a channel's messages only after showing that channel, a channel never
+  opened in that browser is not read. Not yet confirmed either way.
 - GitHub content: picking repositories rather than reading whatever the token reaches.
 - Keeping a token account's `identity` and `checked_at` current from its checks.
 - Elysia's triage on `timelineRecord.created`: classifying each message, drafting replies for review, and attributing
