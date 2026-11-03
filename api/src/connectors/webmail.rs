@@ -14,7 +14,7 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use super::{BrowserReader, ConnectorError, ConnectorKind, Read, Reading, SignInState};
+use super::{BrowserReader, ConnectorError, ConnectorKind, Read, ReadInput, Reading, SignInState};
 use crate::browser::devtools::{Devtools, DevtoolsError};
 use crate::models::browser_session::BrowserSession;
 
@@ -74,7 +74,13 @@ impl BrowserReader for Webmail {
         self.service.kind
     }
 
-    async fn read(&self, browser: &BrowserSession) -> Result<Reading, ConnectorError> {
+    /// Reads the message list as the mailbox shows it now. A mailbox keeps no state of its
+    /// own between reads and reads no content: it is the whole inbox.
+    async fn read(
+        &self,
+        browser: &BrowserSession,
+        _input: ReadInput<'_>,
+    ) -> Result<Reading, ConnectorError> {
         let port = u16::try_from(browser.port).map_err(|_overflow| {
             ConnectorError::Unexpected("a browser port out of range".to_owned())
         })?;
@@ -91,10 +97,7 @@ impl BrowserReader for Webmail {
             } else {
                 SignInState::Unknown
             };
-            return Ok(Reading {
-                sign_in,
-                items: Vec::new(),
-            });
+            return Ok(Reading::nothing(sign_in));
         }
 
         let value = match self
@@ -104,10 +107,7 @@ impl BrowserReader for Webmail {
         {
             Ok(value) => value,
             Err(DevtoolsError::NoTab(_origins)) => {
-                return Ok(Reading {
-                    sign_in: SignInState::Unknown,
-                    items: Vec::new(),
-                });
+                return Ok(Reading::nothing(SignInState::Unknown));
             }
             Err(error) => return Err(error.into()),
         };
@@ -154,10 +154,7 @@ fn parse_page(value: &serde_json::Value) -> Result<Reading, ConnectorError> {
     let page: Page = serde_json::from_value(value.clone())
         .map_err(|error| ConnectorError::Unexpected(error.to_string()))?;
     if !page.signed_in {
-        return Ok(Reading {
-            sign_in: SignInState::SignedOut,
-            items: Vec::new(),
-        });
+        return Ok(Reading::nothing(SignInState::SignedOut));
     }
 
     let items = page
@@ -181,6 +178,7 @@ fn parse_page(value: &serde_json::Value) -> Result<Reading, ConnectorError> {
     Ok(Reading {
         sign_in: SignInState::SignedIn,
         items,
+        state: None,
     })
 }
 
@@ -289,7 +287,7 @@ mod tests {
             assert_eq!(service(row.kind).map(|found| found.kind), Some(row.kind));
             assert_eq!(ConnectorKind::parse(row.kind.as_str()), Some(row.kind));
         }
-        for kind in ConnectorKind::WEBMAIL {
+        for kind in [ConnectorKind::Outlook, ConnectorKind::Gmail] {
             assert!(service(kind).is_some(), "{kind:?} has a webmail service");
         }
         for kind in ConnectorKind::MEETINGS {
