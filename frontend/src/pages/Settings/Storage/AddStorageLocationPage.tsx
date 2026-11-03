@@ -22,7 +22,6 @@ export function AddStorageLocationPage() {
     <StorageLocationForm
       location={null}
       onSaved={() => navigate(UrlTree.settingsStorage)}
-      onCancel={() => navigate(UrlTree.settingsStorage)}
     />
   </StorageLocationEditorLayout>
 }

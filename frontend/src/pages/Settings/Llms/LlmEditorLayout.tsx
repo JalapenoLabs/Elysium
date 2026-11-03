@@ -7,7 +7,7 @@ import type { LlmType } from '../../../api/routes/llmRoutes'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Breadcrumbs } from '@heroui/react'
+import { SettingsPage } from '../SettingsPage'
 import { LlmSetupChecklist } from './LlmSetupChecklist'
 
 // Misc
@@ -22,18 +22,12 @@ type Props = {
 // Add and edit pages share this frame: the form on the left, and on the right the
 // steps for getting the token. Narrow screens stack them, form first.
 export function LlmEditorLayout(props: Props) {
-  const { t } = useTranslation([ 'llms', 'settings' ])
+  const { t } = useTranslation('llms')
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.settings}>{t('settings:title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item href={UrlTree.settingsLlms}>{t('title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{props.title}</Breadcrumbs.Item>
-    </Breadcrumbs>
-    <h1 className='relaxed text-3xl font-bold'>{
-      props.title
-    }</h1>
-
+  return <SettingsPage
+    title={props.title}
+    parents={[{ label: t('title'), href: UrlTree.settingsLlms }]}
+  >
     <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
       <section>{
         props.children
@@ -42,5 +36,5 @@ export function LlmEditorLayout(props: Props) {
         <LlmSetupChecklist type={props.type} />
       </aside>
     </div>
-  </div>
+  </SettingsPage>
 }

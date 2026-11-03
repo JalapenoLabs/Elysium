@@ -39,6 +39,7 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { createLlm, updateLlm } from '../../../api/routes/llmRoutes'
+import { useSettingsSave } from '../settingsSave'
 import { createLlmFormSchema } from './llmFormSchema'
 import { isTokenTypedByType } from './llmPresentation'
 
@@ -46,14 +47,16 @@ import { isTokenTypedByType } from './llmPresentation'
 // past a token that is valid for exactly that long.
 const ONE_YEAR_IN_DAYS = 365
 
+const LLM_FORM_ID = 'llm-form'
+
 type Props = {
   type: LlmType
   // The credential being edited, or null to create one.
   llm: Llm | null
   onSaved: (llm: Llm) => void
-  onCancel: () => void
 }
 
+// Saved from the page's Save, in the header.
 export function LlmForm(props: Props) {
   const { t } = useTranslation([ 'llms', 'common' ])
   const dispatch = useAppDispatch()
@@ -140,6 +143,12 @@ export function LlmForm(props: Props) {
     }
   })
 
+  useSettingsSave({
+    formId: LLM_FORM_ID,
+    isDirty: form.formState.isDirty,
+    isPending: form.formState.isSubmitting,
+  })
+
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
   const [ name, description, secretToken, priority, isActive, expiresAt ] = useWatch({
@@ -147,7 +156,7 @@ export function LlmForm(props: Props) {
     name: [ 'name', 'description', 'secretToken', 'priority', 'isActive', 'expiresAt' ],
   })
 
-  return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-5'>
+  return <Form id={LLM_FORM_ID} onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-5'>
     {/* Name */}
     <TextField
       autoFocus
@@ -314,18 +323,6 @@ export function LlmForm(props: Props) {
           <Label>{t('form.isActive')}</Label>
         </Switch.Content>
       </Switch>
-    </div>
-
-    <div className='flex justify-end gap-2'>
-      <Button variant='tertiary' onPress={props.onCancel}>
-        <span>{t('common:actions.cancel')}</span>
-      </Button>
-      <Button
-        type='submit'
-        isPending={form.formState.isSubmitting}
-      >
-        <span>{t('common:actions.save')}</span>
-      </Button>
     </div>
   </Form>
 }

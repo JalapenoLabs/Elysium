@@ -8,7 +8,7 @@ import { useAppSelector } from '../../../store/hooks'
 import { selectAccessRefusal, selectMe } from '../../../store/authSlice'
 
 // User interface
-import { Alert, Breadcrumbs, Button, Spinner } from '@heroui/react'
+import { Alert, Button, Spinner } from '@heroui/react'
 import { KratosMessages } from '../../Auth/KratosMessages'
 import { AuthenticatorSection } from './AuthenticatorSection'
 import { LookupCodesSection } from './LookupCodesSection'
@@ -16,9 +16,9 @@ import { PasskeysSection } from './PasskeysSection'
 import { PasswordSection } from './PasswordSection'
 import { ProfileSection } from './ProfileSection'
 import { SessionsSection } from './SessionsSection'
+import { SettingsPage } from '../SettingsPage'
 
 // Misc
-import { UrlTree } from '../../../urls'
 import { useSettingsFlow } from './useSettingsFlow'
 
 // Sign-in & security: the profile, the password, passkeys, the authenticator app, lookup
@@ -26,22 +26,14 @@ import { useSettingsFlow } from './useSettingsFlow'
 // workspace requires an authenticator app, this is the one page someone without one may
 // open, and it says why.
 export function SecurityPage() {
-  const { t } = useTranslation([ 'auth', 'settings', 'common' ])
+  const { t } = useTranslation([ 'auth', 'common' ])
   const me = useAppSelector(selectMe)
   const refusal = useAppSelector(selectAccessRefusal)
   const settings = useSettingsFlow()
   const flow = settings.flow
   const mustEnroll = refusal === 'mfa_enrollment_required' || Boolean(me?.mfaEnrollmentRequired)
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.settings}>{t('settings:title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{t('security.title')}</Breadcrumbs.Item>
-    </Breadcrumbs>
-    <h1 className='relaxed text-3xl font-bold'>{
-      t('security.title')
-    }</h1>
-
+  return <SettingsPage title={t('security.title')}>
     {mustEnroll && <Alert status='warning' className='relaxed'>
       <Alert.Indicator />
       <Alert.Content>
@@ -71,5 +63,5 @@ export function SecurityPage() {
       <PasskeysSection flow={flow} onSubmit={settings.submit} />
       <SessionsSection />
     </>}
-  </div>
+  </SettingsPage>
 }

@@ -48,7 +48,6 @@ export function EditLlmPage() {
       type={llm.type}
       llm={llm}
       onSaved={() => navigate(UrlTree.settingsLlms)}
-      onCancel={() => navigate(UrlTree.settingsLlms)}
     />
   </LlmEditorLayout>
 }

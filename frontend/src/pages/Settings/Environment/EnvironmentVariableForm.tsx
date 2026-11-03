@@ -14,7 +14,6 @@ import { environmentVariableUpserted } from '../../../store/environmentVariables
 
 // User interface
 import {
-  Button,
   Description,
   FieldError,
   Form,
@@ -34,18 +33,20 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { createEnvironmentVariable, updateEnvironmentVariable } from '../../../api/routes/environmentRoutes'
+import { useSettingsSave } from '../settingsSave'
 import { createEnvironmentFormSchema } from './environmentFormSchema'
+
+const ENVIRONMENT_VARIABLE_FORM_ID = 'environment-variable-form'
 
 type Props = {
   // The variable being edited, or null to add a new one.
   variable: EnvironmentVariable | null
   onSaved: () => void
-  onCancel: () => void
 }
 
 // Adds or edits an environment variable, beside a note on who can read it. A secret's value
 // is write-only: when editing one, a blank field keeps the stored value, unless the variable
-// is being made visible, which needs the value again.
+// is being made visible, which needs the value again. Saved from the page's Save, in the header.
 export function EnvironmentVariableForm(props: Props) {
   const { t } = useTranslation([ 'environment', 'common' ])
   const dispatch = useAppDispatch()
@@ -107,6 +108,12 @@ export function EnvironmentVariableForm(props: Props) {
     }
   })
 
+  useSettingsSave({
+    formId: ENVIRONMENT_VARIABLE_FORM_ID,
+    isDirty: form.formState.isDirty,
+    isPending: form.formState.isSubmitting,
+  })
+
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
   const values = useWatch({ control: form.control })
@@ -125,7 +132,12 @@ export function EnvironmentVariableForm(props: Props) {
   }
 
   return <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
-    <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
+    <Form
+      id={ENVIRONMENT_VARIABLE_FORM_ID}
+      onSubmit={onSubmit}
+      validationBehavior='aria'
+      className='flex flex-col gap-4'
+    >
       {/* Key */}
       <TextField
         autoFocus
@@ -183,18 +195,6 @@ export function EnvironmentVariableForm(props: Props) {
         <Description>{t('form.descriptionHint')}</Description>
         <FieldError>{errors.description?.message}</FieldError>
       </TextField>
-
-      <div className='mt-2 flex justify-end gap-2'>
-        <Button variant='tertiary' onPress={props.onCancel}>
-          <span>{t('common:actions.cancel')}</span>
-        </Button>
-        <Button
-          type='submit'
-          isPending={form.formState.isSubmitting}
-        >
-          <span>{t('common:actions.save')}</span>
-        </Button>
-      </div>
     </Form>
 
     <aside className='lg:sticky lg:top-4'>

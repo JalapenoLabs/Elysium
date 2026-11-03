@@ -11,8 +11,9 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { environmentVariableDeleted, selectAllEnvironmentVariables } from '../../../store/environmentVariablesSlice'
 
 // User interface
-import { Breadcrumbs, Button, Spinner, toast } from '@heroui/react'
+import { Button, Spinner, toast } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
+import { SettingsPage } from '../SettingsPage'
 import { EnvironmentVariableTable } from './EnvironmentVariableTable'
 import { EnvironmentVisibilityNote } from './EnvironmentVisibilityNote'
 
@@ -24,7 +25,7 @@ import { getEnvironmentVariableEditUrl, UrlTree } from '../../../urls'
 
 // `/settings/environment`: the global environment variables every coding session receives.
 export function ManageEnvironmentPage() {
-  const { t } = useTranslation([ 'environment', 'settings', 'common' ])
+  const { t } = useTranslation([ 'environment', 'common' ])
   const dispatch = useAppDispatch()
   const confirm = useConfirm()
   const variables = useAppSelector(selectAllEnvironmentVariables)
@@ -54,26 +55,17 @@ export function ManageEnvironmentPage() {
     })
   }
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.settings}>{t('settings:title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{t('title')}</Breadcrumbs.Item>
-    </Breadcrumbs>
+  return <SettingsPage
+    title={t('title')}
+    actions={<Button
+      variant='outline'
+      onPress={() => navigate(UrlTree.settingsEnvironmentNew)}
+    >
+      <LuPlus className='size-4' aria-hidden />
+      <span>{t('variables.add')}</span>
+    </Button>}
+  >
     <section>
-      <div className='level compact items-center'>
-        <h1 className='text-3xl font-bold'>{
-          t('title')
-        }</h1>
-        <Button
-          size='sm'
-          variant='outline'
-          className='shrink-0'
-          onPress={() => navigate(UrlTree.settingsEnvironmentNew)}
-        >
-          <LuPlus className='size-4' aria-hidden />
-          <span>{t('variables.add')}</span>
-        </Button>
-      </div>
       <p className='compact text-sm opacity-70'>{
         t('description')
       }</p>
@@ -95,5 +87,5 @@ export function ManageEnvironmentPage() {
         onDelete={confirmDelete}
       />}
     </section>
-  </div>
+  </SettingsPage>
 }

@@ -45,7 +45,6 @@ export function EditEnvironmentVariablePage() {
       key={variable.id}
       variable={variable}
       onSaved={() => navigate(UrlTree.settingsEnvironment)}
-      onCancel={() => navigate(UrlTree.settingsEnvironment)}
     />
   </EnvironmentVariableEditorLayout>
 }

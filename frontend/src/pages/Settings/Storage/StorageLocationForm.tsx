@@ -14,7 +14,6 @@ import { storageLocationUpserted } from '../../../store/storageLocationsSlice'
 
 // User interface
 import {
-  Button,
   Description,
   FieldError,
   Form,
@@ -42,6 +41,7 @@ import {
   updateStorageLocation,
 } from '../../../api/routes/storageRoutes'
 import { BYTES_PER_GIGABYTE } from '../../../constants'
+import { useSettingsSave } from '../settingsSave'
 import { createStorageFormSchema, keepsAccessKey, toStorageProvider } from './storageFormSchema'
 import {
   accessKeyLabelKeys,
@@ -54,16 +54,17 @@ import {
 // A new AWS bucket's region until one is typed: AWS's default region.
 const DEFAULT_AWS_REGION = 'us-east-1'
 
+const STORAGE_LOCATION_FORM_ID = 'storage-location-form'
+
 type Props = {
   // The location being edited, or null to add a new one.
   location: StorageLocation | null
   onSaved: (location: StorageLocation) => void
-  onCancel: () => void
 }
 
 // Adds or edits a storage location, with the chosen provider's setup steps beside it. The
 // secret is write-only: when editing, a blank field keeps the stored one, unless the new
-// settings need their own.
+// settings need their own. Saved from the page's Save, in the header.
 export function StorageLocationForm(props: Props) {
   const { t } = useTranslation([ 'storage', 'common' ])
   const dispatch = useAppDispatch()
@@ -151,6 +152,12 @@ export function StorageLocationForm(props: Props) {
     }
   })
 
+  useSettingsSave({
+    formId: STORAGE_LOCATION_FORM_ID,
+    isDirty: form.formState.isDirty,
+    isPending: form.formState.isSubmitting,
+  })
+
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
   const values = useWatch({ control: form.control })
@@ -188,7 +195,7 @@ export function StorageLocationForm(props: Props) {
   </TextField>
 
   return <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
-    <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
+    <Form id={STORAGE_LOCATION_FORM_ID} onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
       {/* Name */}
       <TextField
         autoFocus
@@ -404,18 +411,6 @@ export function StorageLocationForm(props: Props) {
         }</Description>
         <FieldError>{errors.accessKey?.message}</FieldError>
       </TextField>
-
-      <div className='mt-2 flex justify-end gap-2'>
-        <Button variant='tertiary' onPress={props.onCancel}>
-          <span>{t('common:actions.cancel')}</span>
-        </Button>
-        <Button
-          type='submit'
-          isPending={form.formState.isSubmitting}
-        >
-          <span>{t('common:actions.save')}</span>
-        </Button>
-      </div>
     </Form>
 
     <aside className='lg:sticky lg:top-4'>

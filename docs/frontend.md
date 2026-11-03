@@ -118,7 +118,52 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s.
-New settings pages add an entry to a section and a route under `/settings`.
+New settings pages add an entry to a section and a route under `/settings`, and render inside `SettingsPage`.
+
+### Settings pages
+
+Every settings subpage renders inside `SettingsPage` (`src/pages/Settings/SettingsPage.tsx`), which holds the saving
+and keyboard rules every one of them follows, so a page only describes itself:
+
+```tsx
+<SettingsPage
+  title={t('page.editTitle', { name })}
+  // Pages between Settings and this one, for the breadcrumbs and Esc. Omit at the top level.
+  parents={[{ label: t('title'), href: UrlTree.settingsLlms }]}
+  // Optional, shown left of Save, such as a list page's Add button.
+  actions={<Button variant='outline'>...</Button>}
+>
+  <LlmForm />
+</SettingsPage>
+```
+
+- **Header.** Breadcrumbs, then the title on the left and the page's actions and Save on the right.
+- **One Save per page.** The form that owns the page's settings registers it, however deep it sits, with
+  `useSettingsSave` (`src/pages/Settings/settingsSave.ts`), and puts the same id on its `<Form>`:
+
+  ```tsx
+  useSettingsSave({
+    formId: LLM_FORM_ID,
+    isDirty: form.formState.isDirty,
+    isPending: form.formState.isSubmitting,
+    // Optional: why Save is disabled, shown in its tooltip; and a label other than Save.
+    blockedReason: null,
+    label: t('actions.connect'),
+  })
+  ```
+
+  Save submits that form (`type='submit' form={formId}`), so Save, Enter, and Ctrl+S share the form's own submit
+  handler and validation. It is enabled while the form is dirty, not pending, and not blocked. Forms keep no save
+  button or cancel button of their own; the breadcrumbs and Esc go back. A page with nothing to save, such as a list,
+  registers nothing and shows no Save.
+- **Floating Save.** While the header's Save is scrolled out of view and the form is dirty, `FloatingSaveCard` offers
+  it in the bottom right. Dismissing it lasts until the header's Save is back in view.
+- **Keyboard.** Esc goes to the last parent, or `/settings`, asking first when the form is dirty. It is left alone
+  when a component already used it (`defaultPrevented`), inside a menu or list box, and while a modal is open, so a
+  modal closes first. Ctrl+S (Cmd+S) never opens the browser's save dialog on a settings page, and presses Save when it
+  can. The rules are `readSettingsShortcut` in `settingsShortcuts.ts`.
+- **Feedback.** A save is confirmed with a toast alone. Nothing a save reports may move the page, so there are no
+  success banners above the form.
 
 ## Accounts
 

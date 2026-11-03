@@ -35,8 +35,11 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { connectPasswordVault, PASSWORD_SERVERS } from '../../../api/routes/passwordVaultRoutes'
+import { useSettingsSave } from '../settingsSave'
 import { createPasswordVaultFormSchema } from './passwordVaultFormSchema'
 import { serverLabelKeys, setupStepKeys } from './passwordsPresentation'
+
+const PASSWORD_VAULT_FORM_ID = 'password-vault-form'
 
 type Props = {
   // The vault whose credentials are being changed, or null to connect one.
@@ -49,6 +52,7 @@ type Props = {
 // Connects the vault, or changes its credentials. The API signs in and unlocks before it
 // stores anything, so a refusal comes back in Bitwarden's own words and is shown above the
 // form. Secrets are write-only: when changing a vault, a blank field keeps the stored one.
+// Connected from the page's Save, in the header.
 export function PasswordVaultForm(props: Props) {
   const { t } = useTranslation([ 'passwords', 'common' ])
   const dispatch = useAppDispatch()
@@ -100,12 +104,19 @@ export function PasswordVaultForm(props: Props) {
     }
   })
 
+  useSettingsSave({
+    formId: PASSWORD_VAULT_FORM_ID,
+    isDirty: form.formState.isDirty,
+    isPending: form.formState.isSubmitting,
+    label: t('actions.connect'),
+  })
+
   const errors = form.formState.errors
   const values = useWatch({ control: form.control })
   const server = values.server ?? 'bitwarden-us'
 
   return <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
-    <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
+    <Form id={PASSWORD_VAULT_FORM_ID} onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
       <h2 className='text-xl font-semibold'>{
         stored
           ? t('form.editHeading')
@@ -218,17 +229,11 @@ export function PasswordVaultForm(props: Props) {
 
       <p className='text-sm opacity-70'>{t('form.checkedHint')}</p>
 
-      <div className='mt-2 flex justify-end gap-2'>
-        {props.onCancel && <Button variant='tertiary' onPress={props.onCancel}>
+      {props.onCancel && <div className='mt-2 flex justify-end'>
+        <Button variant='tertiary' onPress={props.onCancel}>
           <span>{t('common:actions.cancel')}</span>
-        </Button>}
-        <Button
-          type='submit'
-          isPending={form.formState.isSubmitting}
-        >
-          <span>{t('actions.connect')}</span>
         </Button>
-      </div>
+      </div>}
     </Form>
 
     <SetupChecklist

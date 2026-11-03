@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Breadcrumbs } from '@heroui/react'
+import { SettingsPage } from '../SettingsPage'
 
 // Misc
 import { UrlTree } from '../../../urls'
@@ -19,17 +19,12 @@ type Props = {
 // The frame the add and edit pages share: breadcrumbs back to environment variables and the
 // title.
 export function EnvironmentVariableEditorLayout(props: Props) {
-  const { t } = useTranslation([ 'environment', 'settings' ])
+  const { t } = useTranslation('environment')
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.settings}>{t('settings:title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item href={UrlTree.settingsEnvironment}>{t('title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{props.title}</Breadcrumbs.Item>
-    </Breadcrumbs>
-    <h1 className='relaxed text-3xl font-bold'>{
-      props.title
-    }</h1>
-    {props.children}
-  </div>
+  return <SettingsPage
+    title={props.title}
+    parents={[{ label: t('title'), href: UrlTree.settingsEnvironment }]}
+  >{
+      props.children
+    }</SettingsPage>
 }

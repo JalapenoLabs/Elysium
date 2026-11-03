@@ -11,8 +11,9 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { selectAllStorageLocations, storageLocationDeleted } from '../../../store/storageLocationsSlice'
 
 // User interface
-import { Breadcrumbs, Button, Spinner, toast } from '@heroui/react'
+import { Button, Spinner, toast } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
+import { SettingsPage } from '../SettingsPage'
 import { StorageLocationTable } from './StorageLocationTable'
 
 // Misc
@@ -24,7 +25,7 @@ import { getStorageLocationEditUrl, UrlTree } from '../../../urls'
 
 // `/settings/storage`: the external locations Elysium saves files to.
 export function ManageStoragePage() {
-  const { t } = useTranslation([ 'storage', 'settings', 'common' ])
+  const { t } = useTranslation([ 'storage', 'common' ])
   const dispatch = useAppDispatch()
   const confirm = useConfirm()
   const locations = useAppSelector(selectAllStorageLocations)
@@ -73,26 +74,17 @@ export function ManageStoragePage() {
     })
   }
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.settings}>{t('settings:title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{t('title')}</Breadcrumbs.Item>
-    </Breadcrumbs>
+  return <SettingsPage
+    title={t('title')}
+    actions={<Button
+      variant='outline'
+      onPress={() => navigate(UrlTree.settingsStorageNew)}
+    >
+      <LuPlus className='size-4' aria-hidden />
+      <span>{t('locations.add')}</span>
+    </Button>}
+  >
     <section>
-      <div className='level relaxed items-center'>
-        <h1 className='text-3xl font-bold'>{
-          t('title')
-        }</h1>
-        <Button
-          size='sm'
-          variant='outline'
-          className='shrink-0'
-          onPress={() => navigate(UrlTree.settingsStorageNew)}
-        >
-          <LuPlus className='size-4' aria-hidden />
-          <span>{t('locations.add')}</span>
-        </Button>
-      </div>
 
       {status === 'loading' && <div className='grid place-items-center py-16'>
         <Spinner />
@@ -109,5 +101,5 @@ export function ManageStoragePage() {
         onDelete={confirmDelete}
       />}
     </section>
-  </div>
+  </SettingsPage>
 }

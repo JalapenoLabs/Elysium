@@ -14,11 +14,12 @@ import { selectAllMailDomains } from '../../../store/mailDomainsSlice'
 import { selectMailServer } from '../../../store/mailServerSlice'
 
 // User interface
-import { Alert, Breadcrumbs, Spinner, toast, useOverlayState } from '@heroui/react'
+import { Alert, Spinner, toast, useOverlayState } from '@heroui/react'
 import { CreateMailboxModal } from './CreateMailboxModal'
 import { MailAccountTable } from './MailAccountTable'
 import { MailboxSourceActions } from './MailboxSourceActions'
 import { MailServerSection } from './MailServerSection'
+import { SettingsPage } from '../SettingsPage'
 
 // Misc
 import { getUpstreamErrorMessage } from '../../../api/errors'
@@ -32,13 +33,12 @@ import {
 import { useConfirm } from '../../../hooks/useConfirm'
 import { usePrompt } from '../../../hooks/usePrompt'
 import { useMailAccountsLoader } from '../../../hooks/useServerData'
-import { UrlTree } from '../../../urls'
 import { DISPLAY_NAME_MAX_CHARACTERS } from './mailFormSchemas'
 import { mailAccountKindLabelKeys } from './mailPresentation'
 import { useOAuthOutcomeToast } from './useOAuthOutcomeToast'
 
 export function ManageEmailPage() {
-  const { t } = useTranslation([ 'email', 'settings', 'common' ])
+  const { t } = useTranslation([ 'email', 'common' ])
   const dispatch = useAppDispatch()
   const accounts = useAppSelector(selectAllMailAccounts)
   const server = useAppSelector(selectMailServer)
@@ -170,15 +170,7 @@ export function ManageEmailPage() {
     }
   }
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.settings}>{t('settings:title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{t('title')}</Breadcrumbs.Item>
-    </Breadcrumbs>
-    <h1 className='relaxed text-3xl font-bold'>{
-      t('title')
-    }</h1>
-
+  return <SettingsPage title={t('title')}>
     <MailServerSection />
 
     <section>
@@ -234,5 +226,5 @@ export function ManageEmailPage() {
       state={createState}
       domains={domains}
     />
-  </div>
+  </SettingsPage>
 }

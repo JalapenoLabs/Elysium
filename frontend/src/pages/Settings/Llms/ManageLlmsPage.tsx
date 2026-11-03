@@ -14,8 +14,9 @@ import { llmDeleted, llmUpserted, selectAllLlms } from '../../../store/llmsSlice
 import { selectWorkspaceSettings } from '../../../store/workspaceSettingsSlice'
 
 // User interface
-import { Breadcrumbs, Button, Dropdown, Label, Spinner, toast } from '@heroui/react'
+import { Button, Dropdown, Label, Spinner, toast } from '@heroui/react'
 import { LuChevronDown, LuPlus } from 'react-icons/lu'
+import { SettingsPage } from '../SettingsPage'
 import { AgentConfigurationSettings } from './AgentConfigurationSettings'
 import { LlmTable } from './LlmTable'
 
@@ -28,7 +29,7 @@ import { LLM_TYPES, llmTypeLabelKeys } from './llmPresentation'
 import { addLlmUrlByType } from './llmProviders'
 
 export function ManageLlmsPage() {
-  const { t } = useTranslation([ 'llms', 'settings', 'common' ])
+  const { t } = useTranslation([ 'llms', 'common' ])
   const dispatch = useAppDispatch()
   const llms = useAppSelector(selectAllLlms)
   const status = useLlmsLoader()
@@ -74,15 +75,7 @@ export function ManageLlmsPage() {
     }
   }
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.settings}>{t('settings:title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{t('title')}</Breadcrumbs.Item>
-    </Breadcrumbs>
-    <h1 className='relaxed text-3xl font-bold'>{
-      t('title')
-    }</h1>
-
+  return <SettingsPage title={t('title')}>
     <section>
       <div className='level compact items-start'>
         <div>
@@ -133,7 +126,7 @@ export function ManageLlmsPage() {
     </section>
 
     {isAdmin && <AgentConfigurationSection />}
-  </div>
+  </SettingsPage>
 }
 
 // Admins only, as the workspace settings are.

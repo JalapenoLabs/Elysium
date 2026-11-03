@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Breadcrumbs } from '@heroui/react'
+import { SettingsPage } from '../SettingsPage'
 
 // Misc
 import { UrlTree } from '../../../urls'
@@ -19,17 +19,12 @@ type Props = {
 // The frame the add and edit pages share: breadcrumbs back to Storage and the title. The
 // form lays out itself and its provider's setup steps, since it knows the provider.
 export function StorageLocationEditorLayout(props: Props) {
-  const { t } = useTranslation([ 'storage', 'settings' ])
+  const { t } = useTranslation('storage')
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.settings}>{t('settings:title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item href={UrlTree.settingsStorage}>{t('title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{props.title}</Breadcrumbs.Item>
-    </Breadcrumbs>
-    <h1 className='relaxed text-3xl font-bold'>{
-      props.title
-    }</h1>
-    {props.children}
-  </div>
+  return <SettingsPage
+    title={props.title}
+    parents={[{ label: t('title'), href: UrlTree.settingsStorage }]}
+  >{
+      props.children
+    }</SettingsPage>
 }

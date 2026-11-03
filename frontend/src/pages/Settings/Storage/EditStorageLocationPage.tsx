@@ -45,7 +45,6 @@ export function EditStorageLocationPage() {
       key={location.id}
       location={location}
       onSaved={() => navigate(UrlTree.settingsStorage)}
-      onCancel={() => navigate(UrlTree.settingsStorage)}
     />
   </StorageLocationEditorLayout>
 }

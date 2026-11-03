@@ -22,7 +22,6 @@ export function AddEnvironmentVariablePage() {
     <EnvironmentVariableForm
       variable={null}
       onSaved={() => navigate(UrlTree.settingsEnvironment)}
-      onCancel={() => navigate(UrlTree.settingsEnvironment)}
     />
   </EnvironmentVariableEditorLayout>
 }

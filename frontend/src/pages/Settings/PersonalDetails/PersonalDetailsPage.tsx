@@ -4,23 +4,13 @@
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Breadcrumbs } from '@heroui/react'
+import { SettingsPage } from '../SettingsPage'
 import { ThemeSelector } from './ThemeSelector'
-
-// Misc
-import { UrlTree } from '../../../urls'
 
 export function PersonalDetailsPage() {
   const { t } = useTranslation('settings')
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.settings}>{t('title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{t('personalDetails.title')}</Breadcrumbs.Item>
-    </Breadcrumbs>
-    <h1 className='relaxed text-3xl font-bold'>{
-      t('personalDetails.title')
-    }</h1>
+  return <SettingsPage title={t('personalDetails.title')}>
 
     <section>
       <h2 className='text-xl font-semibold'>{
@@ -31,5 +21,5 @@ export function PersonalDetailsPage() {
       }</p>
       <ThemeSelector />
     </section>
-  </div>
+  </SettingsPage>
 }
