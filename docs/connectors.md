@@ -391,8 +391,11 @@ plain text (`crate::confluence::storage`, at most 20,000 characters):
 - Macro parameters, placeholders, images, and emoticons are dropped.
 - Character references are decoded, numeric ones and the named ones storage format writes; an unknown one is kept.
 
-None of these calls has been made against a live site yet: the shapes come from Atlassian's documentation, and
-`api/src/confluence/tests.rs` proves Elysium's half against a fake shaped the same way. A scoped Atlassian API token
+Every field the client reads is typed as Atlassian's OpenAPI specifications declare it, and
+`api/src/confluence/tests.rs` proves Elysium's half against a fake shaped the same way. The two API versions
+disagree on ids: content ids are strings, but a v1 space's id is a number. A search result's `container` is the page
+for a comment and the space for a page, so only a comment's is kept. `api/src/confluence/CLAUDE.md` records
+Confluence's quirks and every way it has broken the reader. A scoped Atlassian API token
 (the long kind) is refused on the site's own host for Confluence and works only through
 `api.atlassian.com/ex/confluence/<cloudId>` (`~/.claude/learnings/jira.md`), which Elysium does not call yet; use a
 classic token.

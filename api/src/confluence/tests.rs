@@ -44,20 +44,40 @@ pub(crate) struct Received {
 
 pub(crate) type Log = Arc<Mutex<Vec<Received>>>;
 
-/// A page in the space with `key`, changed by `by` at version `version`.
+/// A space as v1 expands it inside a result. Its id is a number, unlike every content id.
+fn v1_space(key: &str) -> Value {
+    json!({
+        "id": 131_075,
+        "key": key,
+        "name": format!("Space {key}"),
+        "type": "global",
+        "status": "current",
+        "_expandable": { "homepage": "/rest/api/content/98317" },
+        "_links": { "webui": format!("/spaces/{key}") },
+    })
+}
+
+/// A page in the space with `key`, changed by `by` at version `version`. A page's `container`
+/// is its space, as Confluence Cloud sends it.
 pub(crate) fn page(id: &str, key: &str, version: i64, by: &str, storage: &str) -> Value {
     json!({
         "id": id,
         "type": "page",
+        "status": "current",
         "title": format!("Page {id}"),
-        "space": { "key": key, "name": format!("Space {key}") },
+        "space": v1_space(key),
         "version": {
             "number": version,
             "when": format!("2026-11-02T10:0{version}:00.000Z"),
-            "by": { "accountId": by, "displayName": "Grace Hopper" },
+            "minorEdit": false,
+            "by": { "type": "known", "accountId": by, "displayName": "Grace Hopper" },
         },
-        "history": { "createdBy": { "accountId": by, "displayName": "Grace Hopper" } },
+        "history": {
+            "latest": true,
+            "createdBy": { "type": "known", "accountId": by, "displayName": "Grace Hopper" },
+        },
         "body": { "storage": { "value": storage, "representation": "storage" } },
+        "container": v1_space(key),
         "_links": { "webui": format!("/spaces/{key}/pages/{id}") },
     })
 }
@@ -73,8 +93,9 @@ pub(crate) fn comment(
     json!({
         "id": id,
         "type": "comment",
+        "status": "current",
         "title": format!("Re: Page {page_id}"),
-        "space": { "key": key, "name": format!("Space {key}") },
+        "space": v1_space(key),
         "version": {
             "number": 1,
             "when": "2026-11-02T11:00:00.000Z",
@@ -388,6 +409,84 @@ async fn a_result_carries_its_version_author_link_and_page() {
     let container = comment.container.as_ref().expect("a comment's page");
     assert_eq!(container.id, "101");
     assert_eq!(container.created_by.as_deref(), Some(ACCOUNT_ID));
+}
+
+/// Issue #68: a page's `container` is its space, whose v1 id is a number (`131075`), and a
+/// search holding one failed whole with "invalid type: integer `131075`, expected a string".
+/// The payload is one page as Confluence Cloud's content search answers it.
+#[test]
+fn bug_68_a_page_whose_container_is_its_space_is_read() {
+    let answer = json!({
+        "results": [{
+            "id": "98319",
+            "type": "page",
+            "status": "current",
+            "title": "Launch plan",
+            "space": {
+                "id": 131_075,
+                "key": "ENG",
+                "name": "Engineering",
+                "type": "global",
+                "status": "current",
+                "_expandable": { "settings": "/rest/api/space/ENG/settings" },
+                "_links": { "webui": "/spaces/ENG", "self": "https://acme.atlassian.net/wiki/rest/api/space/ENG" },
+            },
+            "history": {
+                "latest": true,
+                "createdBy": {
+                    "type": "known",
+                    "accountId": COLLEAGUE_ID,
+                    "accountType": "atlassian",
+                    "publicName": "Grace Hopper",
+                    "displayName": "Grace Hopper",
+                    "isExternalCollaborator": false,
+                },
+                "createdDate": "2026-11-01T09:00:00.000Z",
+            },
+            "version": {
+                "by": { "type": "known", "accountId": COLLEAGUE_ID, "displayName": "Grace Hopper" },
+                "when": "2026-11-03T20:35:00.000Z",
+                "friendlyWhen": "just a moment ago",
+                "message": "",
+                "number": 4,
+                "minorEdit": false,
+                "contentTypeModified": false,
+            },
+            "container": {
+                "id": 131_075,
+                "key": "ENG",
+                "name": "Engineering",
+                "type": "global",
+                "status": "current",
+                "history": { "createdBy": { "type": "known", "accountId": COLLEAGUE_ID } },
+                "_links": { "webui": "/spaces/ENG" },
+            },
+            "body": { "storage": { "value": "<p>Ship it.</p>", "representation": "storage" } },
+            "_links": { "webui": "/spaces/ENG/pages/98319/Launch+plan", "tinyui": "/x/DwGAAQ" },
+        }],
+        "start": 0,
+        "limit": 50,
+        "size": 1,
+        "_links": { "base": "https://acme.atlassian.net/wiki", "context": "/wiki" },
+    });
+
+    let reply = Reply {
+        status: StatusCode::OK,
+        body: answer.to_string(),
+    };
+    let body: SearchBody = reply
+        .read("search results")
+        .expect("a page in its space reads");
+    let result = body.results.into_iter().next().expect("one result");
+    let change = into_change(result, SITE_URL).expect("a change");
+
+    assert_eq!(change.id, "98319");
+    assert_eq!(change.space_key, "ENG");
+    assert_eq!(change.version, 4);
+    assert_eq!(
+        change.container, None,
+        "a page's container is its space, never a page it is on"
+    );
 }
 
 #[test]

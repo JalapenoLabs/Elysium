@@ -24,8 +24,11 @@
 //! - `GET /wiki/rest/api/content/search`: pages and comments changed lately, by CQL, with their
 //!   storage-format bodies, paged by `_links.next`.
 //!
-//! These shapes come from Atlassian's documentation and have not been checked against a live
-//! site; the tests prove Elysium's half against a fake shaped the same way.
+//! Every field read is typed as Atlassian's `OpenAPI` specifications declare it (v1
+//! `swagger.v3.json`, v2 `openapi-v2.v3.json`). v1 and v2 disagree on ids: content ids are
+//! strings in both, but a v1 space's id is a number, and a page's `container` is its space. The
+//! tests prove Elysium's half against a fake shaped the same way, and `CLAUDE.md` beside this
+//! file records how Confluence has broken the reader before.
 
 pub mod reader;
 pub mod storage;
@@ -535,14 +538,19 @@ fn into_change(result: ResultBody, site_url: &str) -> Option<Change> {
         .and_then(|links| links.webui)
         .filter(|webui| webui.starts_with('/'))
         .map(|webui| format!("{site_url}/wiki{webui}"));
-    let container = result.container.map(|container| Container {
-        id: container.id,
-        title: container.title.unwrap_or_default(),
-        created_by: container
-            .history
-            .and_then(|history| history.created_by)
-            .and_then(|by| by.account_id),
-    });
+    // A page's container is its space, which `space` already names; only a comment's is the
+    // page it is on.
+    let container = result
+        .container
+        .filter(|_container| content_type == ContentType::Comment)
+        .map(|container| Container {
+            id: container.id,
+            title: container.title.unwrap_or_default(),
+            created_by: container
+                .history
+                .and_then(|history| history.created_by)
+                .and_then(|by| by.account_id),
+        });
     Some(Change {
         id: result.id,
         content_type,
@@ -662,11 +670,33 @@ struct StorageBody {
     value: String,
 }
 
+/// What a result sits in. Atlassian documents `container` as an open object because its shape
+/// follows the content: a comment's is the page it is on, a `Content` whose id is a string, and a
+/// page's is its `Space`, whose v1 id is a number (`131075`). Both are read here, and
+/// [`into_change`] keeps only a comment's.
 #[derive(Debug, Deserialize)]
 struct ContainerBody {
+    #[serde(deserialize_with = "string_or_number")]
     id: String,
     title: Option<String>,
     history: Option<HistoryBody>,
+}
+
+/// An id as text, whether Confluence sent it as a string (content) or a number (a v1 space).
+fn string_or_number<'de, Source: Deserializer<'de>>(
+    deserializer: Source,
+) -> Result<String, Source::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Wire {
+        Text(String),
+        Number(i64),
+    }
+
+    match Wire::deserialize(deserializer)? {
+        Wire::Text(text) => Ok(text),
+        Wire::Number(number) => Ok(number.to_string()),
+    }
 }
 
 #[derive(Debug, Deserialize)]
