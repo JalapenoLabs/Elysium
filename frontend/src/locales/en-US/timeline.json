@@ -9,6 +9,7 @@
     "outlook": "Outlook",
     "gmail": "Gmail",
     "teams": "Teams",
+    "slack": "Slack",
     "other": "Record"
   },
   "segment": {
