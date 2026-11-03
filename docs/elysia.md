@@ -151,7 +151,24 @@ Which kinds move up, and when, is not decided.
 
 ## Roadmap
 
-- Reading changesets and coding sessions, and starting a coding session for work that needs one.
-- Her turns' full logs beside their summaries, expanding like a GitHub Actions step.
-- The password vault's `elysium_passwords` server on her turns while the vault is ready, with her replies and
-  summaries scrubbed of every password and code it reveals, as coding sessions' events are.
+The Elysia milestone holds each of these as an issue.
+
+- Her page is Elysium's main page: her conversation, her status field, and what she is doing now. Things come to the
+  person there: questions, approvals, follow-up drafts, and Next, resolved rather than read, moving on to the next one
+  and pausing while the person is mid-way through something.
+- Briefings: "while you were away" on return, and an optional morning brief.
+- Full messages: attachments, images, pasted screenshots, and files, saved to storage and attributed to projects.
+  Rich replies: citations into the knowledge base, links to Activity, inline diffs, and action buttons.
+- Voice, all on the host, since Anthropic offers no speech API: streaming local Whisper to hear the person,
+  push-to-talk first; a local text-to-speech model to speak, which the person can interrupt; then optional hands-free
+  conversation with a wake word and sound cues.
+- Her controls over the engine and over everything else (connectors, rooms, Activity, action items, settings), each
+  tool calling what its route calls and recording her as the actor. Reading changesets and coding sessions, and
+  starting a coding session for work that needs one.
+- Her memory of the person: preferences, how they like things written, who matters, and corrections they made, kept
+  as a document they can read and edit, apart from the company doc.
+- Proactive reporting: she announces the work she starts with an estimate, and says when it is ready.
+- Notifications away from the page through web push and an installable app, and `ctrl+P` navigation to anything,
+  with her as a target.
+- A configurable name, voice, and persona, "Elysia" by default, changed everywhere she appears.
+- Her turns' full logs, through Activity (`docs/activity.md`).
