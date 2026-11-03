@@ -42,12 +42,15 @@ use self::activity::Activity;
 use self::checks::CheckRuns;
 use self::ingest::Ingest;
 use crate::models::browser_session::BrowserSession;
+use crate::youtrack::reader::YoutrackReader;
 
 /// What request handlers reach the hub through. Cloning is cheap: each field is a handle.
 #[derive(Debug, Clone)]
 pub struct Connectors {
     /// Reads mailboxes; a sync someone asks for reads through it.
     pub ingest: Ingest,
+    /// Reads YouTrack sites, and holds the client their checks and options call.
+    pub youtrack: YoutrackReader,
     /// What is syncing, and where syncs are recorded.
     pub activity: Activity,
     /// Check runs the web app is following.
@@ -73,11 +76,14 @@ pub enum ConnectorKind {
     /// Meetings recorded and transcribed by Fireflies.ai, read with its owner's API key. See
     /// `crate::meetings`.
     Fireflies,
+    /// YouTrack Cloud issues and comments, read with its owner's permanent token. See
+    /// `crate::youtrack`.
+    Youtrack,
 }
 
 impl ConnectorKind {
     /// Every kind, in the order the hub lists them.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Jira,
         Self::Github,
         Self::Outlook,
@@ -85,6 +91,7 @@ impl ConnectorKind {
         Self::Teams,
         Self::Slack,
         Self::Fireflies,
+        Self::Youtrack,
     ];
 
     /// Every kind read through a browser, which `ingest` reads through [`readers::for_kind`].
@@ -102,6 +109,7 @@ impl ConnectorKind {
             Self::Teams => "teams",
             Self::Slack => "slack",
             Self::Fireflies => "fireflies",
+            Self::Youtrack => "youtrack",
         }
     }
 
@@ -123,14 +131,17 @@ pub enum AccountKind {
     Browser,
     /// A Fireflies API key (`token_accounts`).
     Fireflies,
+    /// A YouTrack permanent token and the site it was issued on (`token_accounts`).
+    Youtrack,
 }
 
 impl AccountKind {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Atlassian,
         Self::Github,
         Self::Browser,
         Self::Fireflies,
+        Self::Youtrack,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -139,7 +150,13 @@ impl AccountKind {
             Self::Github => "github",
             Self::Browser => "browser",
             Self::Fireflies => "fireflies",
+            Self::Youtrack => "youtrack",
         }
+    }
+
+    /// The kind stored as `text`, if it is one.
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.as_str() == text)
     }
 }
 

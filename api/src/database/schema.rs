@@ -940,6 +940,7 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        site_url -> Nullable<Text>,
     }
 }
 

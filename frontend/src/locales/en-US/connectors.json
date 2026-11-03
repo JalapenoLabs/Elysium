@@ -86,13 +86,18 @@
     "slack": {
       "name": "Slack",
       "description": "Your Slack workspaces, read through a browser you sign in to. Direct messages, mentions, and thread replies land in your inbox."
+    },
+    "youtrack": {
+      "name": "YouTrack",
+      "description": "Issues and comments on a YouTrack Cloud site, read with your own permanent token."
     }
   },
   "accountKinds": {
     "atlassian": "Atlassian account",
     "github": "GitHub account",
     "browser": "Browser",
-    "fireflies": "Fireflies key"
+    "fireflies": "Fireflies key",
+    "youtrack": "YouTrack token"
   },
   "accounts": {
     "empty": "No accounts yet. Adding a connector adds its account.",
@@ -187,7 +192,8 @@
       "list_meetings": "List recent meetings",
       "sample_transcript": "Sample a transcript",
       "workspace_reachable": "Reach the chosen workspaces",
-      "sample_conversation": "Sample a conversation"
+      "sample_conversation": "Sample a conversation",
+      "sample_comments": "Sample comments"
     },
     "counts": {
       "list_projects_one": "Reaches {{count}} project",
@@ -217,7 +223,9 @@
       "workspace_reachable_one": "{{count}} workspace",
       "workspace_reachable_other": "{{count}} workspaces",
       "sample_conversation_one": "{{count}} message",
-      "sample_conversation_other": "{{count}} messages"
+      "sample_conversation_other": "{{count}} messages",
+      "sample_comments_one": "{{count}} comment on the newest issue",
+      "sample_comments_other": "{{count}} comments on the newest issue"
     },
     "reasons": {
       "fine_grained_scopes": "GitHub does not report a fine-grained token's permissions.",
@@ -235,7 +243,9 @@
       "meeting_unavailable": "The newest meeting is not available yet.",
       "slack_not_open": "No tab in the browser shows Slack. Elysium opened one; run the checks again in a moment.",
       "no_workspace_reached": "The browser is signed in to none of the chosen workspaces.",
-      "no_conversations": "No conversation it reads has a message to sample."
+      "no_conversations": "No conversation it reads has a message to sample.",
+      "projects_unreachable": "The token reaches none of the chosen projects.",
+      "no_issues": "The chosen projects have no issue to sample."
     }
   },
   "detail": {

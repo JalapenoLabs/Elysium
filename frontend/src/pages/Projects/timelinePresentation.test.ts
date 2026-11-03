@@ -42,7 +42,8 @@ describe('sourceLabelKey', () => {
   it('names known kinds and falls back for new ones', () => {
     expect(sourceLabelKey('meeting')).toBe('sources.meeting')
     expect(sourceLabelKey('outlook')).toBe('sources.outlook')
-    expect(sourceLabelKey('slack')).toBe('sources.other')
+    expect(sourceLabelKey('slack')).toBe('sources.slack')
+    expect(sourceLabelKey('a_kind_from_a_newer_build')).toBe('sources.other')
   })
 })
 

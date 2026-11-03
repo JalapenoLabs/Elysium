@@ -1,0 +1,3 @@
+# Product names written in CamelCase that are words in prose, not code, so doc comments need no
+# backticks around them. ".." keeps clippy's own list (GitHub, JavaScript, and the rest).
+doc-valid-idents = ["YouTrack", "JetBrains", ".."]

@@ -4,7 +4,16 @@
 import { apiClient } from '../index'
 
 // Mirrors `ConnectorKind` in api/src/connectors/mod.rs, in the order the hub lists them.
-export const CONNECTOR_KINDS = [ 'jira', 'github', 'outlook', 'gmail', 'teams', 'slack', 'fireflies' ] as const
+export const CONNECTOR_KINDS = [
+  'jira',
+  'github',
+  'outlook',
+  'gmail',
+  'teams',
+  'slack',
+  'fireflies',
+  'youtrack',
+] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]
 
 // The kinds a browser's own page can start reading. Each is read through one of the person's
@@ -14,8 +23,12 @@ export const BROWSER_CONNECTOR_KINDS = [ 'outlook', 'gmail', 'slack' ] as const 
 export type BrowserConnectorKind = typeof BROWSER_CONNECTOR_KINDS[number]
 
 // Mirrors `AccountKind` in api/src/connectors/mod.rs.
-export const ACCOUNT_KINDS = [ 'atlassian', 'github', 'browser', 'fireflies' ] as const
+export const ACCOUNT_KINDS = [ 'atlassian', 'github', 'browser', 'fireflies', 'youtrack' ] as const
 export type AccountKind = typeof ACCOUNT_KINDS[number]
+
+// Accounts that are one key (`token_accounts`): a new connector can reuse one, and the hub removes
+// them itself, since they have no settings page of their own.
+export const TOKEN_ACCOUNT_KINDS = [ 'fireflies', 'youtrack' ] as const satisfies readonly AccountKind[]
 
 export type SignInState = 'signed_in' | 'signed_out' | 'unknown'
 export type ConnectorScope = 'workspace' | 'personal'

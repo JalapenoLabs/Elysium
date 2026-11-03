@@ -191,6 +191,11 @@ Everything else follows these rules:
 - Teams reads through a Microsoft browser too, the same one Outlook can use, from Teams' own local store (IndexedDB)
   rather than its page; nothing it does marks a message read. An unread chat message, a mention, or a reply in a
   channel thread the person wrote in raises an inbox item; other channel messages are only recorded.
+- YouTrack reads a person's YouTrack Cloud site with their own permanent token, a token account that names its site
+  (`token_accounts.site_url`), validated like a Jira site: `https`, one label on `youtrack.cloud`, the origin alone.
+  `crate::youtrack` is the only caller. Every two minutes it records new issues and comments in the chosen projects;
+  one assigned to the person by someone else, or a comment from someone else on their issue or mentioning them,
+  raises an inbox item as `watcher:youtrack`. The first read records nothing.
 - Slack reads through a browser signed in to `app.slack.com`, never a Slack app: its page script calls Slack's own
   web API with the web client's session, which never leaves the page, and only read methods. A direct or group
   message, a mention, or an unread reply in a followed thread raises an inbox item; a conversation is baselined at

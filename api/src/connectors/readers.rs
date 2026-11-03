@@ -29,7 +29,10 @@ pub fn for_kind(kind: ConnectorKind, devtools: &Devtools) -> Option<Reader> {
         }
         ConnectorKind::Teams => Some(Reader::Teams(Teams::new(devtools.clone()))),
         ConnectorKind::Slack => Some(Reader::Slack(Slack::new(devtools.clone()))),
-        ConnectorKind::Jira | ConnectorKind::Github | ConnectorKind::Fireflies => None,
+        ConnectorKind::Jira
+        | ConnectorKind::Github
+        | ConnectorKind::Fireflies
+        | ConnectorKind::Youtrack => None,
     }
 }
 

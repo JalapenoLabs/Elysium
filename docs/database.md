@@ -164,12 +164,13 @@ Each belongs to the person who created it and answers nobody else.
 
 ### `token_accounts`
 
-A person's accounts whose whole sign-in is one API key, such as Fireflies; see `docs/connectors.md`.
+A person's accounts whose whole sign-in is one API key, such as Fireflies and YouTrack; see `docs/connectors.md`.
 
 | Column                      | Type          | Notes                                                           |
 |-----------------------------|---------------|-----------------------------------------------------------------|
 | `id`                        | `UUID`        | UUIDv7, primary key                                             |
-| `kind`                      | `TEXT`        | The provider, such as `fireflies`                               |
+| `kind`                      | `TEXT`        | The provider, such as `fireflies` or `youtrack`                 |
+| `site_url`                  | `TEXT`        | The instance the key was issued on, an https origin; required for `youtrack`, absent for a provider with one fixed host |
 | `name`                      | `TEXT`        | 1 to 120 characters                                             |
 | `credential_encrypted`      | `BYTEA`       | The sealed key, bound to the row's id, see `docs/secrets.md`    |
 | `identity`                  | `TEXT`        | Who the provider said the key belongs to; at most 512 characters |
