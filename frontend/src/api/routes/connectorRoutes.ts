@@ -4,10 +4,12 @@
 import { apiClient } from '../index'
 
 // Mirrors `ConnectorKind` in api/src/connectors/mod.rs, in the order the hub lists them.
-export const CONNECTOR_KINDS = [ 'jira', 'github', 'outlook', 'gmail', 'fireflies', 'slack' ] as const
+export const CONNECTOR_KINDS = [ 'jira', 'github', 'outlook', 'gmail', 'teams', 'slack', 'fireflies' ] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]
 
-// The kinds read through one of the person's browsers. Mirrors `ConnectorKind::BROWSER_READ`.
+// The kinds a browser's own page can start reading. Each is read through one of the person's
+// browsers (`ConnectorKind::BROWSER_READ`); Teams is connected in the hub, through a Microsoft
+// browser started for Outlook.
 export const BROWSER_CONNECTOR_KINDS = [ 'outlook', 'gmail', 'slack' ] as const satisfies readonly ConnectorKind[]
 export type BrowserConnectorKind = typeof BROWSER_CONNECTOR_KINDS[number]
 
@@ -164,8 +166,9 @@ export type ConnectorDraft = {
   content: Record<string, unknown>
 }
 
-// What a selection field can pick from. The provider's own words come as `label` and `detail`;
-// Elysium's own come as `labelKey` and `detailKey`, keys under `fields.options`.
+// What a selection field can pick from.
+// The provider's own words come as `label` and `detail`; Elysium's own come as `labelKey` and
+// `detailKey`, keys under `fields.options`.
 export type SelectionOption = {
   id: string | number
   label?: string

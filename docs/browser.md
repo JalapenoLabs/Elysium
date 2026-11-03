@@ -6,8 +6,8 @@ on the host afterwards, which keeps the session alive. Connectors then read and 
 Elysium uses each service as its user does and never installs anything into an organization.
 
 Today the API runs a browser per signed-in account and relays its stream, and the web app streams it to its owner
-under Settings, Browser sign-ins; Outlook and Gmail are read through it (`docs/connectors.md`). The facts below were
-verified against the pinned versions.
+under Settings, Browser sign-ins; Outlook, Gmail, Teams, and Slack are read through it (`docs/connectors.md`). The
+facts below were verified against the pinned versions.
 
 ## Neko
 
@@ -217,9 +217,10 @@ extension is installed, so the browser is a plain Chromium.
 ## The sign-in panel
 
 Settings, Browser sign-ins (`/settings/browsers`) lists the signed-in person's browsers with their status, and adds
-one from a preset (Outlook, Gmail) or any https page. Adding one goes straight to its page, which streams it once it
-is running, and offers **Start over** (while it runs) and **Reset browser** (unless it is starting), the second
-behind a confirmation that it signs the browser out of everything. The client is `frontend/src/browser/`:
+one from a preset (Outlook, Gmail, Slack) or any https page. Adding one goes straight to its page, which streams it
+once it is running, offers to start reading it when a connector reads what it was started on (a mailbox, or Slack),
+and offers **Start over** (while it runs) and **Reset browser** (unless it is starting), the second behind a
+confirmation that it signs the browser out of everything. The client is `frontend/src/browser/`:
 
 - `NekoConnection` opens the stream route, answers Neko's offer, holds the WebRTC peer, and asks for control on
   connecting (Neko hosts implicitly, so the first viewer to ask gets the pointer and keyboard). It tracks the keys

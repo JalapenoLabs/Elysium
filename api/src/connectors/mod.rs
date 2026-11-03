@@ -18,11 +18,11 @@
 //!
 //! # Reading
 //!
-//! [`ingest`] reads every active connector that reads through a browser on an interval, stores
-//! what it reads as timeline records, raises an inbox item for each new item that wants
-//! attention, and publishes `timelineRecord.created`, which is where Elysia's triage picks up.
-//! [`readers`] picks the [`BrowserReader`] for each kind. Meetings have their own loop
-//! (`crate::meetings`), and Jira and GitHub are read by the link watcher
+//! [`ingest`] reads every active connector read through a browser on an interval, with the
+//! reader [`readers::for_kind`] answers for its kind, stores what it reads as
+//! timeline records, raises an inbox item for each new message that wants attention, and
+//! publishes `timelineRecord.created`, which is where Elysia's triage picks up. Meetings have
+//! their own loop (`crate::meetings`), and Jira and GitHub are read by the link watcher
 //! (`crate::action_items::watcher`). [`activity`] is where each of them reports a sync.
 
 pub mod accounts;
@@ -32,6 +32,7 @@ pub mod ingest;
 pub mod kinds;
 pub mod readers;
 pub mod slack;
+pub mod teams;
 pub mod webmail;
 
 use chrono::{DateTime, Utc};
@@ -63,27 +64,31 @@ pub enum ConnectorKind {
     Github,
     Outlook,
     Gmail,
+    /// Microsoft Teams chats and channels, read from Teams' own store in a Microsoft browser.
+    /// See [`teams`].
+    Teams,
+    /// Slack messages, read through Slack's web client in a browser its person signed in to.
+    /// See [`slack`].
+    Slack,
     /// Meetings recorded and transcribed by Fireflies.ai, read with its owner's API key. See
     /// `crate::meetings`.
     Fireflies,
-    /// Slack messages, read through Slack's web client in a browser its person signed in to.
-    Slack,
 }
 
 impl ConnectorKind {
     /// Every kind, in the order the hub lists them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Jira,
         Self::Github,
         Self::Outlook,
         Self::Gmail,
-        Self::Fireflies,
+        Self::Teams,
         Self::Slack,
+        Self::Fireflies,
     ];
 
-    /// Every kind read through a browser the person signed in to, which `ingest` reads and
-    /// [`readers`] has a reader for.
-    pub const BROWSER_READ: [Self; 3] = [Self::Outlook, Self::Gmail, Self::Slack];
+    /// Every kind read through a browser, which `ingest` reads through [`readers::for_kind`].
+    pub const BROWSER_READ: [Self; 4] = [Self::Outlook, Self::Gmail, Self::Teams, Self::Slack];
 
     /// The kinds that read meetings, which `crate::meetings` reads.
     pub const MEETINGS: [Self; 1] = [Self::Fireflies];
@@ -94,8 +99,9 @@ impl ConnectorKind {
             Self::Github => "github",
             Self::Outlook => "outlook",
             Self::Gmail => "gmail",
-            Self::Fireflies => "fireflies",
+            Self::Teams => "teams",
             Self::Slack => "slack",
+            Self::Fireflies => "fireflies",
         }
     }
 
@@ -190,14 +196,13 @@ pub struct Reading {
     pub sign_in: SignInState,
     /// Newest first, as the provider lists them.
     pub items: Vec<Read>,
-    /// Where the reader's next read should start, in its own terms, such as the newest message
-    /// it read in each conversation. `None` keeps what it had: a read that found the account
-    /// signed out has learned nothing about where to resume.
+    /// The reader's own state for its next read, such as a watermark, stored in the
+    /// connector's cursor as `reader`. `None` keeps the state the read was given.
     pub state: Option<serde_json::Value>,
 }
 
 impl Reading {
-    /// A read that found nothing and learned nothing, as `sign_in`.
+    /// A read that found nothing, keeping the reader's state.
     pub const fn nothing(sign_in: SignInState) -> Self {
         Self {
             sign_in,
@@ -207,21 +212,14 @@ impl Reading {
     }
 }
 
-/// What a reader is told about the connector it reads for.
+/// What a browser reader is given besides its browser: what it kept from its last read, and
+/// what its connector reads.
 #[derive(Debug, Clone, Copy)]
 pub struct ReadInput<'connector> {
-    /// What the reader answered as `Reading::state` last time, or `null` before its first read.
+    /// What the reader answered as [`Reading::state`] last time; `null` before its first read.
     pub state: &'connector serde_json::Value,
-    /// What the connector reads, in its kind's own terms (`connectors.content`).
+    /// The connector's content (`connectors.content`), in its kind's own terms.
     pub content: &'connector serde_json::Value,
-}
-
-impl ReadInput<'static> {
-    /// For a reader that keeps no state and reads everything, such as a mailbox's.
-    pub const NONE: Self = Self {
-        state: &serde_json::Value::Null,
-        content: &serde_json::Value::Null,
-    };
 }
 
 /// A connector could not read its account.
@@ -238,7 +236,7 @@ pub trait BrowserReader {
     fn kind(&self) -> ConnectorKind;
 
     /// Reads what the account shows now, through the browser it is signed in to, from where
-    /// `input.state` left off and bounded to `input.content`.
+    /// `input`'s state says the last read left off.
     fn read(
         &self,
         browser: &BrowserSession,

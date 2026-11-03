@@ -74,8 +74,8 @@ impl BrowserReader for Webmail {
         self.service.kind
     }
 
-    /// A mailbox keeps no state of its own (the connector's records say what was read) and
-    /// reads the whole inbox, so `_input` goes unused.
+    /// Reads the message list as the mailbox shows it now. A mailbox keeps no state of its
+    /// own between reads and reads no content: it is the whole inbox.
     async fn read(
         &self,
         browser: &BrowserSession,
@@ -286,6 +286,9 @@ mod tests {
         for row in &SERVICES {
             assert_eq!(service(row.kind).map(|found| found.kind), Some(row.kind));
             assert_eq!(ConnectorKind::parse(row.kind.as_str()), Some(row.kind));
+        }
+        for kind in [ConnectorKind::Outlook, ConnectorKind::Gmail] {
+            assert!(service(kind).is_some(), "{kind:?} has a webmail service");
         }
         for kind in ConnectorKind::MEETINGS {
             assert!(service(kind).is_none(), "{kind:?} reads meetings, not mail");

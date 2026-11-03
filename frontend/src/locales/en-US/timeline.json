@@ -8,6 +8,7 @@
     "meeting": "Meeting",
     "outlook": "Outlook",
     "gmail": "Gmail",
+    "teams": "Teams",
     "other": "Record"
   },
   "segment": {

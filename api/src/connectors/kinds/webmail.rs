@@ -70,8 +70,8 @@ pub const ACCOUNT: AccountDefinition = AccountDefinition {
     fields: &[],
 };
 
-/// The browser `id`, when `owner` created it.
-async fn owned_browser(
+/// The browser `id`, when `owner` created it. Teams reads through browsers too.
+pub(super) async fn owned_browser(
     state: &AppState,
     id: Uuid,
     owner: Uuid,
@@ -110,9 +110,9 @@ pub async fn prepare_checks(
     })
 }
 
-fn sign_in_first() -> ApiError {
+pub(super) fn sign_in_first() -> ApiError {
     ApiError::BadRequest(
-        "a mailbox is read through a browser: sign in to one under Settings, Browser sign-ins first"
+        "this is read through a browser: sign in to one under Settings, Browser sign-ins first"
             .to_owned(),
     )
 }
@@ -184,9 +184,14 @@ impl WebmailChecks {
     /// The mailbox as the browser shows it, read once.
     async fn read(&mut self) -> Result<Reading, String> {
         if self.reading.is_none() {
+            // A mailbox keeps no state and reads no content.
+            let input = ReadInput {
+                state: &Value::Null,
+                content: &Value::Null,
+            };
             let read = self
                 .reader
-                .read(&self.browser, ReadInput::NONE)
+                .read(&self.browser, input)
                 .await
                 .map_err(|error| error.to_string());
             self.reading = Some(read);

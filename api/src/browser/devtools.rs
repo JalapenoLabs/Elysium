@@ -82,16 +82,17 @@ impl Devtools {
     }
 
     /// Opens `url` in a new tab of the browser on `port`, for a reader whose service has no tab
-    /// open yet. Chromium takes the address as the whole query of `PUT /json/new`.
+    /// open, and answers the tab.
     ///
     /// # Errors
-    /// [`DevtoolsError::Unreachable`] when the `DevTools` port does not answer or refuses.
+    /// [`DevtoolsError::Unreachable`] when the `DevTools` port does not answer or refuses the tab.
     pub async fn open_tab(&self, port: u16, url: &Url) -> Result<Tab, DevtoolsError> {
         let mut endpoint = Url::parse(&format!(
             "http://{}:{DEVTOOLS_PORT}/json/new",
             host_name(port)
         ))
-        .expect("a browser's DevTools URL parses");
+        .expect("a browser's DevTools address parses");
+        // Chromium reads the page to open from the whole query string.
         endpoint.set_query(Some(url.as_str()));
         let response = self
             .http
@@ -103,7 +104,7 @@ impl Devtools {
             .map_err(|error| DevtoolsError::Unreachable(error.without_url().to_string()))?;
         if !response.status().is_success() {
             return Err(DevtoolsError::Unreachable(format!(
-                "opening a tab answered {}",
+                "Chromium refused to open a tab ({})",
                 response.status()
             )));
         }
