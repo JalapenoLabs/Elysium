@@ -46,6 +46,9 @@ COPY api/src ./src
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
+# How many cores Cargo may use. Images build from the repository, not the crate's .cargo/config.toml, so a
+# shared development machine passes --build-arg CARGO_BUILD_JOBS=4; servers and CI keep every core.
+ARG CARGO_BUILD_JOBS=default
 COPY --from=planner /workspace/api/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY api/Cargo.toml api/Cargo.lock api/build.rs api/rust-toolchain.toml ./

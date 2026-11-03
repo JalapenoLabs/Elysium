@@ -409,7 +409,8 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - GitHub Actions on the org's self-hosted runners (`[ self-hosted, linux, rocky9, docker ]`). The runners are
   persistent and warm, so workflows never use `actions/cache`. See `docs/ci.md`.
 - Every build and test run uses at most 4 cores: `jobs = 4` and `RUST_TEST_THREADS = "4"` in each crate's
-  `.cargo/config.toml`, and `--maxWorkers=4` in the frontend's `yarn test`. Run one Docker image build at a time.
+  `.cargo/config.toml`, and `--maxWorkers=4` in the frontend's `yarn test`. Run one Docker image build at a time,
+  with `--build-arg CARGO_BUILD_JOBS=4`.
 - Changes are committed straight to `main` and pushed, with no pull request and no wait on CI. The checks run on every
   push as an alarm after the fact, and a red run is fixed by the next push. Every workflow still runs on
   `pull_request`, `merge_group`, and pushes to `main`, with no path filters, for outside contributors' pull requests.

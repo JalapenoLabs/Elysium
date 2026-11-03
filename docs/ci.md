@@ -34,7 +34,8 @@ every published port is picked by Docker (`--publish 127.0.0.1::<port>`) and rea
 **Every build and test run is capped at 4 cores.** Several agents build in parallel on one machine, locally and on
 the runners, and an uncapped build takes every core. `api/.cargo/config.toml` and `oauth-broker/.cargo/config.toml`
 set `jobs = 4` and `RUST_TEST_THREADS = "4"`, and the frontend's `yarn test` passes `--maxWorkers=4` to Vitest. Docker
-image builds run one at a time on a development machine.
+image builds run one at a time on a development machine, with `--build-arg CARGO_BUILD_JOBS=4`: an image builds
+from the repository rather than the crate's Cargo config, so its `ARG CARGO_BUILD_JOBS` defaults to every core.
 
 ## Required checks
 
