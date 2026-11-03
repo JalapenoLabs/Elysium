@@ -3,7 +3,8 @@
 //! `POST /api/v1/connectors/options`: what each of a kind's selection fields can pick from,
 //! through an account the person has or a new one, `{ kind, account }`. Answers
 //! `{ fields: { <field>: { options: [{ id, label, detail }], truncated } } }`, read from the
-//! provider now. Nothing is stored.
+//! provider now. An option's own words, rather than the provider's, come as `labelKey` or
+//! `detailKey` for the web app to translate. Nothing is stored.
 
 use axum::Json;
 use axum::extract::State;
@@ -26,10 +27,10 @@ pub struct RequestBody {
 
 pub async fn handle(
     State(state): State<AppState>,
-    _current: CurrentUser,
+    current: CurrentUser,
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<Json<Value>, ApiError> {
     let Json(body) = body?;
-    let fields = kinds::options(&state, body.kind, body.account).await?;
+    let fields = kinds::options(&state, &current, body.kind, body.account).await?;
     Ok(Json(json!({ "fields": fields })))
 }

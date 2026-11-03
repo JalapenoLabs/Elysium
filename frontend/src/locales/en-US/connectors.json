@@ -78,6 +78,10 @@
     "fireflies": {
       "name": "Fireflies",
       "description": "Your recorded meetings, cut into segments on each project's timeline."
+    },
+    "slack": {
+      "name": "Slack",
+      "description": "Your Slack workspaces, read through a browser you sign in to. Direct messages, mentions, and thread replies land in your inbox."
     }
   },
   "accountKinds": {
@@ -117,7 +121,12 @@
     "truncated": "The provider has more than one listing holds; only the first are shown.",
     "noOptions": "Nothing to pick from yet. Fill in the account first.",
     "loadOptions": "Load options",
-    "noStorageLocations": "Add a storage location under Settings, Storage first."
+    "noStorageLocations": "Add a storage location under Settings, Storage first.",
+    "conversations": "Conversations",
+    "options": {
+      "slack_workspace": "Whole workspace",
+      "slack_direct_messages": "Direct and group messages"
+    }
   },
   "wizard": {
     "title": "Add connector",
@@ -170,7 +179,9 @@
       "inbox_readable": "Read the inbox",
       "sample_message": "Sample messages",
       "list_meetings": "List recent meetings",
-      "sample_transcript": "Sample a transcript"
+      "sample_transcript": "Sample a transcript",
+      "workspace_reachable": "Reach the chosen workspaces",
+      "sample_conversation": "Sample a conversation"
     },
     "counts": {
       "list_projects_one": "Reaches {{count}} project",
@@ -194,7 +205,11 @@
       "list_meetings_one": "{{count}} meeting in two weeks",
       "list_meetings_other": "{{count}} meetings in two weeks",
       "sample_transcript_one": "{{count}} line",
-      "sample_transcript_other": "{{count}} lines"
+      "sample_transcript_other": "{{count}} lines",
+      "workspace_reachable_one": "{{count}} workspace",
+      "workspace_reachable_other": "{{count}} workspaces",
+      "sample_conversation_one": "{{count}} message",
+      "sample_conversation_other": "{{count}} messages"
     },
     "reasons": {
       "fine_grained_scopes": "GitHub does not report a fine-grained token's permissions.",
@@ -207,7 +222,10 @@
       "mailbox_not_open": "No tab in the browser shows the mailbox.",
       "no_messages": "The inbox shows no messages to sample.",
       "no_meetings": "No meeting in the last two weeks to sample.",
-      "meeting_unavailable": "The newest meeting is not available yet."
+      "meeting_unavailable": "The newest meeting is not available yet.",
+      "slack_not_open": "No tab in the browser shows Slack. Elysium opened one; run the checks again in a moment.",
+      "no_workspace_reached": "The browser is signed in to none of the chosen workspaces.",
+      "no_conversations": "No conversation it reads has a message to sample."
     }
   },
   "detail": {

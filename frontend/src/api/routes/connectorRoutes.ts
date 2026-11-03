@@ -4,12 +4,12 @@
 import { apiClient } from '../index'
 
 // Mirrors `ConnectorKind` in api/src/connectors/mod.rs, in the order the hub lists them.
-export const CONNECTOR_KINDS = [ 'jira', 'github', 'outlook', 'gmail', 'fireflies' ] as const
+export const CONNECTOR_KINDS = [ 'jira', 'github', 'outlook', 'gmail', 'fireflies', 'slack' ] as const
 export type ConnectorKind = typeof CONNECTOR_KINDS[number]
 
-// The kinds that read mail through one of the person's browsers.
-export const WEBMAIL_CONNECTOR_KINDS = [ 'outlook', 'gmail' ] as const satisfies readonly ConnectorKind[]
-export type WebmailConnectorKind = typeof WEBMAIL_CONNECTOR_KINDS[number]
+// The kinds read through one of the person's browsers. Mirrors `ConnectorKind::BROWSER_READ`.
+export const BROWSER_CONNECTOR_KINDS = [ 'outlook', 'gmail', 'slack' ] as const satisfies readonly ConnectorKind[]
+export type BrowserConnectorKind = typeof BROWSER_CONNECTOR_KINDS[number]
 
 // Mirrors `AccountKind` in api/src/connectors/mod.rs.
 export const ACCOUNT_KINDS = [ 'atlassian', 'github', 'browser', 'fireflies' ] as const
@@ -164,11 +164,14 @@ export type ConnectorDraft = {
   content: Record<string, unknown>
 }
 
-// What a selection field can pick from.
+// What a selection field can pick from. The provider's own words come as `label` and `detail`;
+// Elysium's own come as `labelKey` and `detailKey`, keys under `fields.options`.
 export type SelectionOption = {
   id: string | number
-  label: string
-  detail: string | null
+  label?: string
+  labelKey?: string
+  detail?: string | null
+  detailKey?: string
 }
 
 export type SelectionOptions = {

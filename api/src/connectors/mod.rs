@@ -18,10 +18,11 @@
 //!
 //! # Reading
 //!
-//! [`ingest`] reads every active webmail connector on an interval, stores what it reads as
-//! timeline records, raises an inbox item for each new message that wants attention, and
-//! publishes `timelineRecord.created`, which is where Elysia's triage picks up. Meetings have
-//! their own loop (`crate::meetings`), and Jira and GitHub are read by the link watcher
+//! [`ingest`] reads every active connector that reads through a browser on an interval, stores
+//! what it reads as timeline records, raises an inbox item for each new item that wants
+//! attention, and publishes `timelineRecord.created`, which is where Elysia's triage picks up.
+//! [`readers`] picks the [`BrowserReader`] for each kind. Meetings have their own loop
+//! (`crate::meetings`), and Jira and GitHub are read by the link watcher
 //! (`crate::action_items::watcher`). [`activity`] is where each of them reports a sync.
 
 pub mod accounts;
@@ -29,6 +30,8 @@ pub mod activity;
 pub mod checks;
 pub mod ingest;
 pub mod kinds;
+pub mod readers;
+pub mod slack;
 pub mod webmail;
 
 use chrono::{DateTime, Utc};
@@ -63,20 +66,24 @@ pub enum ConnectorKind {
     /// Meetings recorded and transcribed by Fireflies.ai, read with its owner's API key. See
     /// `crate::meetings`.
     Fireflies,
+    /// Slack messages, read through Slack's web client in a browser its person signed in to.
+    Slack,
 }
 
 impl ConnectorKind {
     /// Every kind, in the order the hub lists them.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Jira,
         Self::Github,
         Self::Outlook,
         Self::Gmail,
         Self::Fireflies,
+        Self::Slack,
     ];
 
-    /// The kinds that read mail through a browser, which `ingest` reads.
-    pub const WEBMAIL: [Self; 2] = [Self::Outlook, Self::Gmail];
+    /// Every kind read through a browser the person signed in to, which `ingest` reads and
+    /// [`readers`] has a reader for.
+    pub const BROWSER_READ: [Self; 3] = [Self::Outlook, Self::Gmail, Self::Slack];
 
     /// The kinds that read meetings, which `crate::meetings` reads.
     pub const MEETINGS: [Self; 1] = [Self::Fireflies];
@@ -88,6 +95,7 @@ impl ConnectorKind {
             Self::Outlook => "outlook",
             Self::Gmail => "gmail",
             Self::Fireflies => "fireflies",
+            Self::Slack => "slack",
         }
     }
 
@@ -182,6 +190,38 @@ pub struct Reading {
     pub sign_in: SignInState,
     /// Newest first, as the provider lists them.
     pub items: Vec<Read>,
+    /// Where the reader's next read should start, in its own terms, such as the newest message
+    /// it read in each conversation. `None` keeps what it had: a read that found the account
+    /// signed out has learned nothing about where to resume.
+    pub state: Option<serde_json::Value>,
+}
+
+impl Reading {
+    /// A read that found nothing and learned nothing, as `sign_in`.
+    pub const fn nothing(sign_in: SignInState) -> Self {
+        Self {
+            sign_in,
+            items: Vec::new(),
+            state: None,
+        }
+    }
+}
+
+/// What a reader is told about the connector it reads for.
+#[derive(Debug, Clone, Copy)]
+pub struct ReadInput<'connector> {
+    /// What the reader answered as `Reading::state` last time, or `null` before its first read.
+    pub state: &'connector serde_json::Value,
+    /// What the connector reads, in its kind's own terms (`connectors.content`).
+    pub content: &'connector serde_json::Value,
+}
+
+impl ReadInput<'static> {
+    /// For a reader that keeps no state and reads everything, such as a mailbox's.
+    pub const NONE: Self = Self {
+        state: &serde_json::Value::Null,
+        content: &serde_json::Value::Null,
+    };
 }
 
 /// A connector could not read its account.
@@ -197,9 +237,11 @@ pub enum ConnectorError {
 pub trait BrowserReader {
     fn kind(&self) -> ConnectorKind;
 
-    /// Reads what the account shows now, through the browser it is signed in to.
+    /// Reads what the account shows now, through the browser it is signed in to, from where
+    /// `input.state` left off and bounded to `input.content`.
     fn read(
         &self,
         browser: &BrowserSession,
+        input: ReadInput<'_>,
     ) -> impl Future<Output = Result<Reading, ConnectorError>> + Send;
 }

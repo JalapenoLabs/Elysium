@@ -16,7 +16,9 @@ use crate::auth::CurrentUser;
 use crate::browser::{BrowserState, Browsers};
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
 use crate::connectors::webmail::{Webmail, service};
-use crate::connectors::{AccountKind, BrowserReader, ConnectorKind, Reading, Scope, SignInState};
+use crate::connectors::{
+    AccountKind, BrowserReader, ConnectorKind, ReadInput, Reading, Scope, SignInState,
+};
 use crate::errors::ApiError;
 use crate::models::browser_session::{self, BrowserSession};
 use crate::models::connector::{self, AccountRef, Connector, NewConnector};
@@ -184,7 +186,7 @@ impl WebmailChecks {
         if self.reading.is_none() {
             let read = self
                 .reader
-                .read(&self.browser)
+                .read(&self.browser, ReadInput::NONE)
                 .await
                 .map_err(|error| error.to_string());
             self.reading = Some(read);

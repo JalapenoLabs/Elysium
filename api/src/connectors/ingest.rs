@@ -1,11 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Reads every active webmail connector on an interval and puts what it reads on the
-//! timeline.
+//! Reads every active connector that reads through a browser on an interval and puts what it
+//! reads on the timeline.
 //!
 //! # A pass
 //!
-//! For each active connector: read its mailbox through its browser, store each item as a timeline
+//! For each active connector: read its account through its browser, with the reader its kind has
+//! (`super::readers`), store each item as a timeline
 //! record (an item already recorded for the connector is skipped, by its external id), and for
 //! each new item that wants attention raise an inbox action item, owned by the connector's
 //! person and recorded as the watcher of that service (`watcher:outlook`). Then store the
@@ -17,6 +18,12 @@
 //! A connector's first signed-in read records what is already in the mailbox without raising
 //! anything: connecting a mailbox should not fill the inbox with its backlog. The cursor
 //! remembers that it happened (`{"baselined": true}`).
+//!
+//! # The reader's state
+//!
+//! A reader that keeps its own place, such as the newest message read in each conversation,
+//! answers it as `Reading::state`; the cursor keeps it under `reader` and hands it back on the
+//! next read. A read that answers none keeps the state it had.
 //!
 //! # What is published
 //!
@@ -37,8 +44,8 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::activity::Activity;
-use super::webmail::{Webmail, service};
-use super::{BrowserReader, ConnectorKind, Read, Reading, SignInState};
+use super::readers;
+use super::{BrowserReader, ConnectorKind, Read, ReadInput, Reading, SignInState};
 use crate::action_items::Actor;
 use crate::browser::devtools::Devtools;
 use crate::database::Pool;
@@ -160,7 +167,7 @@ impl Ingest {
             .get()
             .await
             .context("no database connection available")?;
-        let kinds = ConnectorKind::WEBMAIL.map(ConnectorKind::as_str);
+        let kinds = ConnectorKind::BROWSER_READ.map(ConnectorKind::as_str);
         Ok(connector::list_active(&mut connection, &kinds).await?)
     }
 
@@ -168,11 +175,11 @@ impl Ingest {
     async fn read_connector(&self, connector: &Connector) -> anyhow::Result<()> {
         let kind = ConnectorKind::parse(&connector.kind)
             .with_context(|| format!("unknown connector kind {:?}", connector.kind))?;
-        let webmail = service(kind)
-            .with_context(|| format!("{:?} is not a webmail connector", connector.kind))?;
+        let reader = readers::for_kind(kind, &self.inner.devtools)
+            .with_context(|| format!("{:?} is not read through a browser", connector.kind))?;
         let browser_session_id = connector
             .browser_session_id
-            .context("a webmail connector reads through a browser, and this one has none")?;
+            .context("a browser-read connector has no browser")?;
         let mut connection = self
             .inner
             .database
@@ -186,9 +193,12 @@ impl Ingest {
         drop(connection);
 
         let started = Utc::now();
-        let reader = Webmail::new(webmail, self.inner.devtools.clone());
+        let input = ReadInput {
+            state: &connector.cursor["reader"],
+            content: &connector.content,
+        };
         let mut run = None;
-        let outcome = match reader.read(&browser).await {
+        let outcome = match reader.read(&browser, input).await {
             Ok(reading) => {
                 let baselined = is_baselined(connector);
                 let recorded = self
@@ -199,7 +209,7 @@ impl Ingest {
                 }
                 PollOutcome {
                     sign_in_state: reading.sign_in.as_str().to_owned(),
-                    cursor: next_cursor(baselined, reading.sign_in),
+                    cursor: next_cursor(connector, baselined, &reading),
                     last_polled_at: Some(Utc::now()),
                     last_error: None,
                 }
@@ -320,9 +330,18 @@ fn is_baselined(connector: &Connector) -> bool {
     connector.cursor["baselined"].as_bool().unwrap_or(false)
 }
 
-/// The cursor after a read: baselined once the connector has been read signed in.
-fn next_cursor(baselined: bool, sign_in: SignInState) -> serde_json::Value {
-    json!({ "baselined": baselined || sign_in == SignInState::SignedIn })
+/// The cursor after a read: baselined once the connector has been read signed in, and the
+/// reader's state, or what it had when the read answered none.
+fn next_cursor(connector: &Connector, baselined: bool, reading: &Reading) -> serde_json::Value {
+    let reader = reading
+        .state
+        .clone()
+        .unwrap_or_else(|| connector.cursor["reader"].clone());
+    let mut cursor = json!({ "baselined": baselined || reading.sign_in == SignInState::SignedIn });
+    if !reader.is_null() {
+        cursor["reader"] = reader;
+    }
+    cursor
 }
 
 fn new_record(connector: &Connector, kind: ConnectorKind, read: &Read) -> NewTimelineRecord {
@@ -379,18 +398,59 @@ mod tests {
 
     #[test]
     fn the_first_signed_in_read_baselines_the_account() {
+        let connector = connector_with_cursor(json!({}));
         assert_eq!(
-            next_cursor(false, SignInState::SignedIn),
+            next_cursor(&connector, false, &Reading::nothing(SignInState::SignedIn)),
             json!({ "baselined": true })
         );
         assert_eq!(
-            next_cursor(false, SignInState::SignedOut),
+            next_cursor(&connector, false, &Reading::nothing(SignInState::SignedOut)),
             json!({ "baselined": false })
         );
         assert_eq!(
-            next_cursor(true, SignInState::Unknown),
+            next_cursor(&connector, true, &Reading::nothing(SignInState::Unknown)),
             json!({ "baselined": true })
         );
+    }
+
+    #[test]
+    fn a_readers_state_is_kept_until_a_read_answers_a_new_one() {
+        let connector =
+            connector_with_cursor(json!({ "baselined": true, "reader": { "C1": "100.1" } }));
+
+        let signed_out = next_cursor(&connector, true, &Reading::nothing(SignInState::SignedOut));
+        assert_eq!(signed_out["reader"], json!({ "C1": "100.1" }));
+
+        let moved_on = Reading {
+            state: Some(json!({ "C1": "200.2" })),
+            ..Reading::nothing(SignInState::SignedIn)
+        };
+        assert_eq!(
+            next_cursor(&connector, true, &moved_on),
+            json!({ "baselined": true, "reader": { "C1": "200.2" } })
+        );
+    }
+
+    fn connector_with_cursor(cursor: serde_json::Value) -> Connector {
+        let now = Utc::now();
+        Connector {
+            id: Uuid::now_v7(),
+            kind: "outlook".to_owned(),
+            browser_session_id: Some(Uuid::now_v7()),
+            sign_in_state: "signed_in".to_owned(),
+            cursor,
+            last_polled_at: None,
+            last_error: None,
+            is_active: true,
+            created_by: Uuid::now_v7(),
+            created_at: now,
+            updated_at: now,
+            storage_location_id: None,
+            token_account_id: None,
+            jira_credential_id: None,
+            github_credential_id: None,
+            content: json!({}),
+        }
     }
 
     #[test]
