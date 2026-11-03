@@ -20,7 +20,11 @@ This doc is the design. None of it is built; the roadmap is the issues in the Se
 ## Self-healing connectors
 
 - Each connector lives in one folder, `api/src/connectors/<kind>/`: its definition, client, reader, adapter, page
-  script, fixtures, checks, tests, and docs.
+  script, fixtures, checks, tests, docs, and a `CLAUDE.md`.
+- A connector's `CLAUDE.md` is written for the agent that next has to fix it: the provider's quirks, how the
+  connector reads it and why, and every past breakage with its cause and fix. It is the one place this project
+  records history on purpose, because a connector's past failures are the best guide to its next one. A healing
+  worker reads it first and adds what it learned, whether it fixed the adapter or gave up.
 - A connector has a core and an adapter. The core, in Rust and never changed by an agent, holds sign-in, sealed
   secrets, allowlists, and rate limits. The adapter is the part a provider breaks: request building, response
   parsing, and page scripts.
