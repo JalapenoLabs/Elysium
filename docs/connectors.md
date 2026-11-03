@@ -452,6 +452,11 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
 
 ## Roadmap
 
+- A connector is its sign-in. Every connector owns exactly one sign-in, a token or a browser, with nothing shared:
+  Outlook and Teams each get their own browser, and Jira and Confluence each hold their own token. Accounts and
+  Browser sign-ins stop being settings of their own; one Connectors list holds everything, and adding a
+  connector signs in, chooses what it reads, and runs its checks in one flow, a browser's stream included.
+  Existing shared accounts are split, one copy per connector.
 - More kinds: Google Meet and Teams recordings (`docs/meetings.md`).
 - Confluence through Atlassian's gateway (`api.atlassian.com/ex/confluence/<cloudId>`), so scoped API tokens work.
 - Confluence attachments and inline comments, and a mention found by display name as well as account id.
