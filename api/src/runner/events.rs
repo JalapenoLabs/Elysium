@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -145,6 +146,11 @@ pub struct TurnOutcome {
     pub cost_usd_micros: Option<i64>,
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
+    /// For a usage-limited turn that never started because every credential's stored usage is
+    /// spent: when the earliest of them resets. A limit Claude reported mid-turn is in the
+    /// turn's rate-limit events instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_resets_at: Option<DateTime<Utc>>,
 }
 
 impl TurnOutcome {
@@ -158,6 +164,7 @@ impl TurnOutcome {
             cost_usd_micros: None,
             input_tokens: None,
             output_tokens: None,
+            usage_resets_at: None,
         }
     }
 }

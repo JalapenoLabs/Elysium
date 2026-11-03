@@ -64,7 +64,12 @@ The runner keeps nothing: callers record the events they show.
 ### Credentials
 
 A turn runs on the active Claude credentials in priority order (`claude-code-oauth` as a subscription token,
-`claude-api-token` as an API key); ChatGPT credentials, inactive, and expired ones are skipped. An attempt whose
+`claude-account` as its current access token, `claude-api-token` as an API key); ChatGPT credentials, inactive, and
+expired ones are skipped. A `claude-account` is also skipped while its sign-in is expired or its access token has
+lapsed, and while its stored usage shows a window at or past 99% (`SKIP_AT_UTILIZATION` in
+`api/src/claude_accounts/usage.rs`), until that window resets. When every credential that could serve is an account
+held back that way, the turn finishes `usage-limited` at once, with `usageResetsAt` naming the earliest reset, rather
+than running on the workspace's own login. An attempt whose
 credential is spent (a `rejected` rate limit, or a result saying the limit is reached or the credit is gone) or
 refused (an invalid key, an expired token, not logged in) hands the turn to the next credential, reported as
 `credentialRolledOver`. If the attempt had begun a Claude session, the next one resumes it with a prompt to continue
@@ -76,6 +81,34 @@ read it from its environment.
 With no usable credential a turn still runs once, on whatever login the workspace holds, and normally fails with the
 CLI's "Not logged in". The New session dialog warns before that happens and links to Settings, LLMs; its check
 (`hasAgentCredential` in `frontend/src/pages/Settings/Llms/llmPresentation.ts`) mirrors the runner's.
+
+### Claude accounts
+
+A Claude account is signed in through the official CLI and kept alive by Elysium (`api/src/claude_accounts/`), the
+rules ported from the `~/.claude/accounts` desktop switcher.
+
+- **Signing in.** `claude auth login` runs as root in the workspace container, in a directory only root can read
+  (`/root/.elysium/sign-ins/<id>`) with its own throwaway `CLAUDE_CONFIG_DIR`, so no agent can see a login in
+  progress. With no terminal the CLI prints a manual sign-in link whose redirect is Anthropic's own code page, then
+  waits at `Paste code here if prompted >`. It reads a FIFO opened read-write, so `POST
+  /llms/claude-sign-ins` answers the link and `POST /llms/claude-sign-ins/{id}` writes the pasted code into the
+  FIFO from a separate exec, as an environment variable rather than an argument. Elysium then reads the
+  `.credentials.json` the CLI wrote, asks Anthropic's profile endpoint whose account it is, seals the tokens, and
+  removes the directory. A wrong code ends the sign-in; the CLI exits on any answer. A sign-in waits at most 15
+  minutes, and at most eight wait at once.
+- **One refresher.** A turn is handed only the access token, as `CLAUDE_CODE_OAUTH_TOKEN`, never the refresh token:
+  Claude Code rotates the refresh token on every refresh, so a second refresher would strand the first. The keeper
+  (`keeper.rs`) runs every five minutes, after every turn, and after a sign-in. It renews an access token once
+  fewer than three hours remain, so every turn starts with at least that long, and renews regardless once the refresh
+  token is within seven days of expiring. Each refresh holds the account's row lock from reading the old refresh
+  token until the new pair is stored, so two passes never send the same token. A refreshed access token does not cut
+  a running turn short: the one it was handed stays valid until its own expiry.
+- **A refused sign-in.** Anthropic answering `400` or `401` marks the account "Sign-in expired" once, announced on the
+  event stream; the keeper stops trying it until a new sign-in replaces the token. Signing the same account in again
+  keeps its credential, name, and priority. Any other failure is recorded on the account and retried next pass.
+- **Usage.** Each pass reads every signed-in account's five-hour and seven-day windows from Anthropic's usage
+  endpoint and stores them, announcing a change as `llm.usage`. Elysia's usage hold prefers the reset Elysium
+  recorded (`usageResetsAt`) over one Claude reported mid-turn.
 
 ### Liveness
 
@@ -171,6 +204,12 @@ row headed by a one or two sentence summary, which expands to the turn's full ev
 - **Failure.** A summary that fails (no credential, an empty answer, a database error) is logged as
   `sessions.summary.failure` and left out. The row then shows the first line of the agent's final message, or the
   turn's state. It never touches the turn's own outcome.
+
+## Media
+
+The workspace image carries `ffmpeg`, from Ubuntu's archive. Agents use it for their own audio and video work, and
+Elysium cuts meeting recordings into segment clips with it, in each meeting's scratch directory under
+`.elysium/meetings/` (`docs/meetings.md`).
 
 ## Blender
 

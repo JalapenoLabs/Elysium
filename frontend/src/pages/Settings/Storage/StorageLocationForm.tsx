@@ -363,10 +363,10 @@ export function StorageLocationForm(props: Props) {
             { shouldDirty: true, shouldValidate: true },
           )}
         >
-          <Switch.Control>
-            <Switch.Thumb />
-          </Switch.Control>
           <Switch.Content>
+            <Switch.Control>
+              <Switch.Thumb />
+            </Switch.Control>
             <Label>{t('form.noLimit')}</Label>
           </Switch.Content>
         </Switch>

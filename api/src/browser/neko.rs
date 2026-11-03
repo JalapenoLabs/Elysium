@@ -18,9 +18,11 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tracing::{Level, event};
 use url::Url;
 
 use super::container::{DEVTOOLS_PORT, NEKO_HTTP_PORT, host_name};
+use super::devtools::Tab;
 
 /// The signaling socket to one browser, as the API holds it for a viewer.
 pub type Upstream = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -112,7 +114,60 @@ impl Neko {
     /// when Chromium refuses the tab.
     pub async fn open_start_page(&self, port: u16, start_url: &Url) -> Result<(), NekoError> {
         self.wait_for_devtools(port).await?;
+        self.open_tab(port, start_url).await
+    }
 
+    /// Opens `start_url` in a new tab and closes every page that was open before, so a
+    /// sign-in stuck somewhere it offers no way out of starts over. The profile, and every
+    /// account it is signed in to, stays.
+    ///
+    /// The new tab opens first: Chromium exits when its last window closes.
+    ///
+    /// # Errors
+    /// [`NekoError::Http`] when Chromium does not answer or refuses the new tab. A tab that
+    /// refuses to close is logged and left open.
+    pub async fn start_over(&self, port: u16, start_url: &Url) -> Result<(), NekoError> {
+        let tabs: Vec<Tab> = self
+            .http
+            .get(devtools_url(port, "json/list"))
+            .header(HOST, "localhost")
+            .timeout(CALL_TIMEOUT)
+            .send()
+            .await
+            .map_err(|error| NekoError::Http(error.without_url().to_string()))?
+            .json()
+            .await
+            .map_err(|error| NekoError::Http(error.without_url().to_string()))?;
+        self.open_tab(port, start_url).await?;
+
+        for id in page_ids(&tabs) {
+            let closed = self
+                .http
+                .get(devtools_url(port, &format!("json/close/{id}")))
+                .header(HOST, "localhost")
+                .timeout(CALL_TIMEOUT)
+                .send()
+                .await;
+            match closed {
+                Ok(response) if response.status().is_success() => {}
+                Ok(response) => event!(
+                    name: "browser.start_over.tab_kept",
+                    Level::WARN,
+                    http.response.status_code = response.status().as_u16(),
+                    "Chromium refused to close a tab while starting over",
+                ),
+                Err(error) => event!(
+                    name: "browser.start_over.tab_kept",
+                    Level::WARN,
+                    error.message = %error.without_url(),
+                    "Chromium did not answer closing a tab while starting over",
+                ),
+            }
+        }
+        Ok(())
+    }
+
+    async fn open_tab(&self, port: u16, start_url: &Url) -> Result<(), NekoError> {
         // Chromium reads the page to open from the whole query string.
         let mut url = devtools_url(port, "json/new");
         url.set_query(Some(start_url.as_str()));
@@ -155,6 +210,15 @@ impl Neko {
     }
 }
 
+/// The pages among Chromium's targets. Service workers, extensions, and other background
+/// targets are not tabs, and closing one would break the page it serves.
+fn page_ids(tabs: &[Tab]) -> Vec<&str> {
+    tabs.iter()
+        .filter(|tab| tab.kind == "page")
+        .map(|tab| tab.id.as_str())
+        .collect()
+}
+
 fn devtools_url(port: u16, path: &str) -> Url {
     Url::parse(&format!(
         "http://{}:{DEVTOOLS_PORT}/{path}",
@@ -177,5 +241,23 @@ mod tests {
             url.as_str(),
             "http://elysium-browser-59002:9223/json/new?https://outlook.office.com/mail/?folder=inbox&view=list"
         );
+    }
+
+    // Starting over must close the stuck sign-in tabs but never a page's service worker.
+    #[test]
+    fn starting_over_closes_pages_and_leaves_background_targets() {
+        let target = |id: &str, kind: &str| Tab {
+            id: id.to_owned(),
+            kind: kind.to_owned(),
+            url: "https://login.microsoftonline.com/common/login".to_owned(),
+            web_socket_debugger_url: None,
+        };
+        let tabs = [
+            target("A1", "page"),
+            target("B2", "service_worker"),
+            target("C3", "page"),
+            target("D4", "background_page"),
+        ];
+        assert_eq!(page_ids(&tabs), vec!["A1", "C3"]);
     }
 }

@@ -40,6 +40,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { createLlm, updateLlm } from '../../../api/routes/llmRoutes'
 import { createLlmFormSchema } from './llmFormSchema'
+import { isTokenTypedByType } from './llmPresentation'
 
 // 365 days rather than "the same date next year", so a leap year never pushes the expiry
 // past a token that is valid for exactly that long.
@@ -60,6 +61,8 @@ export function LlmForm(props: Props) {
   const mode = props.llm
     ? 'edit'
     : 'create'
+  // A signed-in Claude account has no token to type and no expiry to set.
+  const isTokenTyped = isTokenTypedByType[props.type]
 
   const resolver = useMemo(
     () => zodResolver(createLlmFormSchema(t, mode)),
@@ -95,6 +98,20 @@ export function LlmForm(props: Props) {
     }
 
     try {
+      if (props.llm && !isTokenTyped) {
+        // A signed-in account's token and lifetime belong to its sign-in, so only these change.
+        const response = await updateLlm(props.llm.id, {
+          name: values.name,
+          description: values.description,
+          priority: values.priority,
+          isActive: values.isActive,
+        })
+        dispatch(llmUpserted(response.llm))
+        toast.success(t('toasts.updated', { name: values.name }))
+        props.onSaved(response.llm)
+        return
+      }
+
       if (props.llm) {
         // A blank token means "keep the stored one", so it is only sent when typed.
         const secretToken = values.secretToken.trim()
@@ -156,7 +173,7 @@ export function LlmForm(props: Props) {
     </TextField>
 
     {/* Secret token */}
-    <TextField
+    {isTokenTyped && <TextField
       isRequired={mode === 'create'}
       isInvalid={Boolean(errors.secretToken)}
       type={isTokenRevealed
@@ -192,10 +209,10 @@ export function LlmForm(props: Props) {
       </InputGroup>
       {mode === 'edit' && <Description>{t('form.secretTokenKeep')}</Description>}
       <FieldError>{errors.secretToken?.message}</FieldError>
-    </TextField>
+    </TextField>}
 
     {/* Expiry, entered and shown in the viewer's local time zone */}
-    <div>
+    {isTokenTyped && <div>
       <DatePicker
         granularity='day'
         value={expiresAt}
@@ -259,7 +276,7 @@ export function LlmForm(props: Props) {
           <span>{t('form.clearExpiry')}</span>
         </Button>}
       </div>
-    </div>
+    </div>}
 
     <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
       {/* Priority */}
@@ -290,10 +307,10 @@ export function LlmForm(props: Props) {
         isSelected={isActive}
         onChange={(isSelected) => form.setValue('isActive', isSelected, { shouldDirty: true })}
       >
-        <Switch.Control>
-          <Switch.Thumb />
-        </Switch.Control>
         <Switch.Content>
+          <Switch.Control>
+            <Switch.Thumb />
+          </Switch.Control>
           <Label>{t('form.isActive')}</Label>
         </Switch.Content>
       </Switch>

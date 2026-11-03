@@ -218,14 +218,70 @@ pub async fn app_state_with_storage(
             storage: storage.clone(),
             activity: activity.clone(),
             passwords: passwords.clone(),
+            turn_signal: crate::claude_accounts::TurnSignal::default(),
         },
         &shutdown,
     )
     .expect("the runner builds without reaching Docker");
+    // Its keeper is never started, so no test reaches Anthropic through it.
+    let claude_accounts =
+        crate::claude_accounts::ClaudeAccounts::new(crate::claude_accounts::ClaudeAccountsDeps {
+            database: database.clone(),
+            cipher: Arc::clone(&cipher),
+            events: events.clone(),
+            anthropic: crate::claude_accounts::oauth::Anthropic::new(http.clone()),
+            workspace: sessions.workspace().clone(),
+            turn_signal: crate::claude_accounts::TurnSignal::default(),
+        });
+    // Its loop is never started, so no test reaches Fireflies or the workspace through it.
+    let connector_activity =
+        crate::connectors::activity::Activity::new(database.clone(), events.clone());
+    let meetings = crate::meetings::Meetings::new(crate::meetings::MeetingsDeps {
+        database: database.clone(),
+        events: events.clone(),
+        activity: connector_activity.clone(),
+        cipher: Arc::clone(&cipher),
+        storage: storage.clone(),
+        runner: runner.clone(),
+        workspace: sessions.workspace().clone(),
+        http: http.clone(),
+    })
+    .expect("the meetings service builds without reaching anything");
+
+    // Never started, so no test reads a mailbox, a Confluence space, or a YouTrack site through
+    // them.
+    let connectors = crate::connectors::Connectors {
+        ingest: crate::connectors::ingest::Ingest::new(
+            database.clone(),
+            events.clone(),
+            crate::browser::devtools::Devtools::new(http.clone()),
+            connector_activity.clone(),
+        ),
+        confluence: crate::confluence::reader::Reader::new(crate::confluence::reader::ReaderDeps {
+            database: database.clone(),
+            cipher: Arc::clone(&cipher),
+            events: events.clone(),
+            activity: connector_activity.clone(),
+            confluence: crate::confluence::Confluence::new(http.clone()),
+        }),
+        youtrack: crate::youtrack::reader::YoutrackReader::new(
+            crate::youtrack::reader::ReaderDeps {
+                database: database.clone(),
+                events: events.clone(),
+                cipher: std::sync::Arc::clone(&cipher),
+                youtrack: crate::youtrack::Youtrack::new(http.clone()),
+                activity: connector_activity.clone(),
+            },
+        ),
+        activity: connector_activity,
+        check_runs: crate::connectors::checks::CheckRuns::new(events.clone()),
+    };
 
     crate::state::AppState {
         auth: crate::server::build_auth(&config, http),
         browsers,
+        claude_accounts,
+        connectors,
         database,
         activity,
         redis,
@@ -237,6 +293,7 @@ pub async fn app_state_with_storage(
         jira,
         links,
         mail,
+        meetings,
         passwords,
         runner,
         sessions,

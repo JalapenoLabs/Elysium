@@ -3,15 +3,15 @@
 import type { ActionItem, ActionItemComment, ActionItemLink, HistoryEntry } from '../api/routes/actionItemRoutes'
 import type { BrowserSession } from '../api/routes/browserSessionRoutes'
 import type { Changeset } from '../api/routes/changesetRoutes'
-import type { ConnectorAccount } from '../api/routes/connectorRoutes'
 import type { Initiative, InitiativeLink } from '../api/routes/initiativeRoutes'
 import type { CodingSession, SessionEvent, TurnSummary } from '../api/routes/codingSessionRoutes'
 import type { Elysia, ElysiaMessage, ElysiaTurn } from '../api/routes/elysiaRoutes'
 import type { EnvironmentVariable } from '../api/routes/environmentRoutes'
 import type { GithubCredential } from '../api/routes/githubRoutes'
 import type { JiraCredential } from '../api/routes/jiraRoutes'
-import type { Llm } from '../api/routes/llmRoutes'
+import type { Llm, LlmUsage } from '../api/routes/llmRoutes'
 import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRoutes'
+import type { MeetingState } from '../api/routes/meetingRoutes'
 import type { PasswordVault, VaultStatus } from '../api/routes/passwordVaultRoutes'
 import type { Project } from '../api/routes/projectRoutes'
 import type { StorageLocation } from '../api/routes/storageRoutes'
@@ -45,14 +45,28 @@ export type ServerEvent =
   // A browser was added, or began starting, running, or failing.
   | { type: 'browserSession.upserted', data: BrowserSession }
   | { type: 'browserSession.deleted', data: { id: string } }
-  // A connector account was added, or its last read found its sign-in changed.
-  | { type: 'connectorAccount.upserted', data: ConnectorAccount }
-  | { type: 'connectorAccount.deleted', data: { id: string } }
+  // A browser went back to its start page, its other tabs closed and its profile kept.
+  | { type: 'browserSession.startedOver', data: { id: string, createdBy: string } }
+  // A connector changed; its id alone, since its view names whose mail it reads.
+  | { type: 'connector.changed', data: { id: string } }
+  | { type: 'connector.deleted', data: { id: string } }
+  // A check in a run moved on, or (`checkId` null, `state` finished) the run ended.
+  | {
+    type: 'connectorCheckRun.updated'
+    data: {
+      runId: string
+      connectorId: string | null
+      checkId: string | null
+      state: 'queued' | 'running' | 'passed' | 'failed' | 'skipped' | 'finished'
+    }
+  }
   // Something was ingested onto someone's timeline. Never its content, which its owner loads.
   | {
     type: 'timelineRecord.created',
     data: { id: string, sourceKind: string, createdBy: string, actionItemId: string | null },
   }
+  // A meeting was read, or its processing moved on. Never its title, which its owner loads.
+  | { type: 'meeting.changed', data: { id: string, state: MeetingState, createdBy: string } }
   // An entry an item's or an initiative's write recorded.
   | { type: 'history.appended', data: HistoryEntry }
   // A changeset was proposed, decided on, applied, or undone.
@@ -70,6 +84,8 @@ export type ServerEvent =
   | { type: 'jiraCredential.deleted', data: { id: string } }
   | { type: 'llm.upserted', data: Llm }
   | { type: 'llm.deleted', data: { id: string } }
+  // A Claude account's usage changed. Numbers and instants only.
+  | { type: 'llm.usage', data: { id: string, usage: LlmUsage } }
   | { type: 'mailbox.upserted', data: MailAccount }
   | { type: 'mailbox.deleted', data: { id: string } }
   // Also sent for each step while the server is created.

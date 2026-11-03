@@ -34,7 +34,14 @@ use crate::browser::Browsers;
 use crate::browser::container::BrowserContainers;
 use crate::browser::devtools::Devtools;
 use crate::browser::neko::Neko;
+use crate::claude_accounts::oauth::Anthropic;
+use crate::claude_accounts::{ClaudeAccounts, ClaudeAccountsDeps, TurnSignal};
 use crate::config::Config;
+use crate::confluence::Confluence;
+use crate::confluence::reader::{Reader as ConfluenceReader, ReaderDeps as ConfluenceReaderDeps};
+use crate::connectors::Connectors;
+use crate::connectors::activity::Activity;
+use crate::connectors::checks::CheckRuns;
 use crate::connectors::ingest::Ingest;
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -49,6 +56,7 @@ use crate::mail::dns::DnsChecker;
 use crate::mail::hosting::Hosting;
 use crate::mail::stalwart::Stalwart;
 use crate::mail::stalwart::container::StalwartContainer;
+use crate::meetings::{Meetings, MeetingsDeps};
 use crate::oauth::hydra::Hydra;
 use crate::passwords::{self, Passwords, PasswordsDeps};
 use crate::realtime::EventBus;
@@ -60,6 +68,8 @@ use crate::storage::Storage;
 use crate::tools::grants::Grants;
 use crate::updates::{Updates, UpdatesDeps};
 use crate::version::VersionInfo;
+use crate::youtrack::Youtrack;
+use crate::youtrack::reader::{ReaderDeps, YoutrackReader};
 use crate::{connections, middleware, routes, shutdown, web_app};
 
 /// How long one Docker call may take. Pulling the mail server's image is one call, and
@@ -119,10 +129,13 @@ pub async fn serve() -> Result<()> {
 
     let shutdown = CancellationToken::new();
     let events = EventBus::new();
+    // Where every loop that reads a connector reports its syncs.
+    let connector_activity = Activity::new(database.clone(), events.clone());
     let watch = WatchContext {
         database: database.clone(),
         events: events.clone(),
         links: links.clone(),
+        activity: connector_activity.clone(),
     };
     let watcher = Watcher::start(watch, shutdown.clone());
     let mail = build_mail(
@@ -145,13 +158,32 @@ pub async fn serve() -> Result<()> {
     )?;
     // Brings every browser back up, and keeps them up, until shutdown.
     let browser_reconciler = browsers.start(shutdown.clone());
-    // Reads every connector account through its browser, onto the timeline.
-    let ingest = Ingest::new(
+    // Reads every mailbox connector through its browser, onto the timeline.
+    let mailbox_reader = Ingest::new(
         database.clone(),
         events.clone(),
         Devtools::new(http.clone()),
-    )
-    .start(shutdown.clone());
+        connector_activity.clone(),
+    );
+    let ingest = mailbox_reader.start(shutdown.clone());
+    // Reads every Confluence connector's spaces, onto the timeline.
+    let confluence_reader = ConfluenceReader::new(ConfluenceReaderDeps {
+        database: database.clone(),
+        cipher: Arc::clone(&cipher),
+        events: events.clone(),
+        activity: connector_activity.clone(),
+        confluence: Confluence::new(http.clone()),
+    });
+    let confluence_loop = confluence_reader.start(shutdown.clone());
+    // Reads every YouTrack connector with its owner's token, onto the timeline.
+    let youtrack_reader = YoutrackReader::new(ReaderDeps {
+        database: database.clone(),
+        events: events.clone(),
+        cipher: Arc::clone(&cipher),
+        youtrack: Youtrack::new(http.clone()),
+        activity: connector_activity.clone(),
+    });
+    let youtrack_loop = youtrack_reader.start(shutdown.clone());
 
     let passwords = build_passwords(database.clone(), Arc::clone(&cipher), events.clone());
     // Signs the CLI in and unlocks the stored vault, then keeps it up, until shutdown.
@@ -167,6 +199,7 @@ pub async fn serve() -> Result<()> {
         encryption_key: config.encryption_key.clone(),
     });
     let update_checks = updates.start(shutdown.clone());
+    let turn_signal = TurnSignal::default();
     let (runner, sessions) = build_agents(
         &config,
         AgentServices {
@@ -176,9 +209,21 @@ pub async fn serve() -> Result<()> {
             storage: storage.clone(),
             activity: activity.clone(),
             passwords: passwords.clone(),
+            turn_signal: turn_signal.clone(),
         },
         &shutdown,
     )?;
+    // Refreshes every signed-in Claude account and reads its usage, until shutdown. Sign-ins run
+    // the CLI in the same workspace the runner uses.
+    let claude_accounts = ClaudeAccounts::new(ClaudeAccountsDeps {
+        database: database.clone(),
+        cipher: Arc::clone(&cipher),
+        events: events.clone(),
+        anthropic: Anthropic::new(http.clone()),
+        workspace: sessions.workspace().clone(),
+        turn_signal,
+    });
+    let account_keeper = claude_accounts.start(shutdown.clone());
     // Pulls the workspace image and fetches `~/.claude` ahead of the first turn, which
     // would otherwise wait for both.
     let preparing = runner.clone();
@@ -193,6 +238,19 @@ pub async fn serve() -> Result<()> {
         }
     });
 
+    // Meetings, segmented by text turns on the runner and cut into clips in its workspace.
+    let meetings = Meetings::new(MeetingsDeps {
+        database: database.clone(),
+        events: events.clone(),
+        activity: connector_activity.clone(),
+        cipher: Arc::clone(&cipher),
+        storage: storage.clone(),
+        runner: runner.clone(),
+        workspace: sessions.workspace().clone(),
+        http: http.clone(),
+    })?;
+    let meeting_loop = meetings.start(shutdown.clone());
+
     // After the runner, which runs her turns.
     let elysia = Elysia::new(TurnRunner::Host(runner.clone()), sessions.grants().clone());
     let elysia_tasks = elysia.start(
@@ -205,6 +263,14 @@ pub async fn serve() -> Result<()> {
     let state = AppState {
         auth: build_auth(&config, http.clone()),
         browsers,
+        claude_accounts,
+        connectors: Connectors {
+            ingest: mailbox_reader,
+            confluence: confluence_reader,
+            youtrack: youtrack_reader,
+            activity: connector_activity,
+            check_runs: CheckRuns::new(events.clone()),
+        },
         database: database.clone(),
         activity,
         redis: redis.clone(),
@@ -216,6 +282,7 @@ pub async fn serve() -> Result<()> {
         jira,
         links,
         mail,
+        meetings,
         passwords,
         runner: runner.clone(),
         sessions: sessions.clone(),
@@ -253,6 +320,14 @@ pub async fn serve() -> Result<()> {
     sessions.shutdown().await;
     event!(name: "runner.shutdown.complete", Level::INFO, "agent turns stopped");
     watcher.stopped().await;
+    if let Err(error) = account_keeper.await {
+        event!(
+            name: "claude_accounts.keeper.join_failed",
+            Level::ERROR,
+            error.message = %error,
+            "the Claude account keeper ended abnormally",
+        );
+    }
     if let Err(error) = vault_keeper.await {
         event!(
             name: "passwords.vault.join.failure",
@@ -267,6 +342,30 @@ pub async fn serve() -> Result<()> {
             Level::ERROR,
             error.message = %error,
             "the connector ingest loop ended abnormally",
+        );
+    }
+    if let Err(error) = confluence_loop.await {
+        event!(
+            name: "confluence.loop.join.failed",
+            Level::ERROR,
+            error.message = %error,
+            "the Confluence reader ended abnormally",
+        );
+    }
+    if let Err(error) = youtrack_loop.await {
+        event!(
+            name: "youtrack.loop.join.failed",
+            Level::ERROR,
+            error.message = %error,
+            "the YouTrack reader loop ended abnormally",
+        );
+    }
+    if let Err(error) = meeting_loop.await {
+        event!(
+            name: "meetings.loop.join.failed",
+            Level::ERROR,
+            error.message = %error,
+            "the meetings loop ended abnormally",
         );
     }
     if let Err(error) = browser_reconciler.await {
@@ -326,6 +425,8 @@ pub(crate) struct AgentServices {
     pub activity: Activities,
     /// The password vault, whose tools turns are granted and whose secrets they are scrubbed of.
     pub passwords: Passwords,
+    /// Rung after every turn, for the Claude account keeper.
+    pub turn_signal: TurnSignal,
 }
 
 /// The runner, whose turns run in the workspace container through Docker, and the sessions
@@ -348,6 +449,7 @@ pub(crate) fn build_agents(
         services.database.clone(),
         Arc::clone(&services.cipher),
         services.activity,
+        services.turn_signal,
         shutdown,
     );
     let sessions = Sessions::new(SessionsDeps {

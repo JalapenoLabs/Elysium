@@ -1,9 +1,14 @@
 # Infrastructure
 
-Two stacks share one compose file:
+Three stacks share one compose file:
 
 - **Production**, `compose.yml` alone: runs the published `jalapenolabs/elysium-api` image, which serves the API and
   the web app's production build. `docker compose up --wait` pulls it.
+- **Production from a checkout**, `compose.yml` with `compose.build.yml` layered over it: the same production images,
+  built from the checkout under local tags, for a deployment that runs `main` rather than a release. Set
+  `COMPOSE_FILE=compose.yml:compose.build.yml` in `.env` (adding `compose.override.yml` when the deployment has one),
+  leave the `auto-update` profile off, and deploy with `git pull --ff-only && docker compose up --detach --build --wait`.
+  The work instance at alex.mooreslab.ai runs this way.
 - **Development**, `compose.yml` with `compose.dev.yml` layered over it: builds the API from the checkout and runs
   the web app on the Vite dev server with hot reload.
   `docker compose -f compose.yml -f compose.dev.yml up --build --wait`.

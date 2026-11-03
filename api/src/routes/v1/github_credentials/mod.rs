@@ -4,7 +4,7 @@
 //! over HTTP, and every write checks the token with GitHub before it is stored.
 
 mod check_repository_access;
-mod create_github_credential;
+pub mod create_github_credential;
 mod delete_github_credential;
 mod get_github_credential;
 mod list_github_credentials;

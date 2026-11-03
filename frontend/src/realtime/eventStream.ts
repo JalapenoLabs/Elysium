@@ -14,17 +14,23 @@ import { initiativeLinkDeleted, initiativeLinkUpserted } from '../store/initiati
 import { actionItemDeleted, actionItemUpserted } from '../store/actionItemsSlice'
 import { browserSessionDeleted, browserSessionUpserted } from '../store/browserSessionsSlice'
 import { changesetUpserted } from '../store/changesetsSlice'
-import { connectorAccountDeleted, connectorAccountUpserted } from '../store/connectorAccountsSlice'
+import {
+  checkRunLoaded,
+  checkRunProgressed,
+  connectorDeleted,
+  connectorUpserted,
+} from '../store/connectorsSlice'
 import { codingSessionDeleted, codingSessionUpserted } from '../store/codingSessionsSlice'
 import { elysiaMessageCreated, elysiaTurnUpserted, elysiaUpdated } from '../store/elysiaSlice'
 import { environmentVariableDeleted, environmentVariableUpserted } from '../store/environmentVariablesSlice'
 import { githubCredentialDeleted, githubCredentialUpserted } from '../store/githubCredentialsSlice'
 import { initiativeDeleted, initiativeUpserted } from '../store/initiativesSlice'
 import { jiraCredentialDeleted, jiraCredentialUpserted } from '../store/jiraCredentialsSlice'
-import { llmDeleted, llmUpserted } from '../store/llmsSlice'
+import { llmDeleted, llmUpserted, llmUsageUpdated } from '../store/llmsSlice'
 import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSlice'
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
+import { meetingUpserted } from '../store/meetingsSlice'
 import {
   passwordVaultDeleted,
   passwordVaultStatusUpdated,
@@ -41,7 +47,12 @@ import { userDeleted, userUpserted } from '../store/usersSlice'
 import { updatesStatusUpdated } from '../store/updatesSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
+// Utility
+import { HTTPError } from 'ky'
+
 // Misc
+import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
+import { getMeeting } from '../api/routes/meetingRoutes'
 import { EVENT_STREAM_PATH, EVENT_STREAM_RETRY_INITIAL_MS, EVENT_STREAM_RETRY_MAX_MS } from '../constants'
 
 // The universal event stream: one EventSource for the whole app, open for as long as
@@ -103,14 +114,50 @@ const handlers: Handlers = {
     store.dispatch(browserSessionUpserted(event.data))
   },
   'browserSession.deleted': (event) => store.dispatch(browserSessionDeleted(event.data.id)),
-  // Like browsers, a connector account is its owner's alone.
-  'connectorAccount.upserted': (event) => {
-    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
+  // Nothing Redux holds changes: the browser's status stays as it was, and its stream shows
+  // the new page itself.
+  'browserSession.startedOver': () => {},
+  // The event carries the id alone, since a connector's view names whose mail it reads, so it
+  // is loaded by id; someone else's personal connector answers 404 and is not kept. The hub's
+  // activity feed and accounts list reload with it, if a page shows them.
+  'connector.changed': (event) => {
+    getConnector(event.data.id)
+      .then((response) => store.dispatch(connectorUpserted(response.connector)))
+      .catch((error: unknown) => {
+        if (error instanceof HTTPError && error.response.status === 404) {
+          store.dispatch(connectorDeleted(event.data.id))
+          return
+        }
+        console.debug('A changed connector could not be loaded', {
+          error,
+          connectorId: event.data.id,
+        })
+      })
+    void mutate('v1/connectors/activity')
+    void mutate('v1/accounts')
+  },
+  'connector.deleted': (event) => {
+    store.dispatch(connectorDeleted(event.data.id))
+    void mutate('v1/accounts')
+  },
+  // Moves a followed run's check along; once the run ends, it is loaded again for the
+  // messages its events leave out. A run this client does not follow answers 404 and is
+  // ignored.
+  'connectorCheckRun.updated': (event) => {
+    store.dispatch(checkRunProgressed(event.data))
+    if (event.data.state !== 'finished') {
       return
     }
-    store.dispatch(connectorAccountUpserted(event.data))
+    if (!store.getState().connectors.checkRuns[event.data.runId]) {
+      return
+    }
+    getCheckRun(event.data.runId)
+      .then((response) => store.dispatch(checkRunLoaded(response.run)))
+      .catch((error: unknown) => console.debug('A finished check run could not be loaded', {
+        error,
+        runId: event.data.runId,
+      }))
   },
-  'connectorAccount.deleted': (event) => store.dispatch(connectorAccountDeleted(event.data.id)),
   // The event carries no content; a page showing its owner's timeline reloads it. The inbox
   // item it raised arrives as its own `actionItem.upserted`.
   'timelineRecord.created': (event) => {
@@ -118,6 +165,19 @@ const handlers: Handlers = {
       return
     }
     void mutate((key) => typeof key === 'string' && key.startsWith('v1/timeline'))
+  },
+  // Like a record, a meeting is its owner's alone, and the event carries no content: the
+  // meeting is loaded by id.
+  'meeting.changed': (event) => {
+    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
+      return
+    }
+    getMeeting(event.data.id)
+      .then((response) => store.dispatch(meetingUpserted(response.meeting)))
+      .catch((error: unknown) => console.debug('A changed meeting could not be loaded', {
+        error,
+        meetingId: event.data.id,
+      }))
   },
   'history.appended': (event) => store.dispatch(historyAppended(event.data)),
   'changeset.upserted': (event) => store.dispatch(changesetUpserted(event.data)),
@@ -132,6 +192,7 @@ const handlers: Handlers = {
   'jiraCredential.deleted': (event) => store.dispatch(jiraCredentialDeleted(event.data.id)),
   'llm.upserted': (event) => store.dispatch(llmUpserted(event.data)),
   'llm.deleted': (event) => store.dispatch(llmDeleted(event.data.id)),
+  'llm.usage': (event) => store.dispatch(llmUsageUpdated(event.data)),
   'mailbox.upserted': (event) => store.dispatch(mailAccountUpserted(event.data)),
   'mailbox.deleted': (event) => store.dispatch(mailAccountDeleted(event.data.id)),
   'mailServer.updated': (event) => store.dispatch(mailServerUpdated(event.data)),

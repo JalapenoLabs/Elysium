@@ -90,10 +90,12 @@ export function ElysiaHoursDialog(props: Props) {
             t('hours.custom')
           }</p>}
           <Switch isSelected={isAnyTime} onChange={setIsAnyTime}>
-            <Switch.Control>
-              <Switch.Thumb />
-            </Switch.Control>
-            <span className='text-sm'>{t('hours.anyTime')}</span>
+            <Switch.Content>
+              <Switch.Control>
+                <Switch.Thumb />
+              </Switch.Control>
+              <Label>{t('hours.anyTime')}</Label>
+            </Switch.Content>
           </Switch>
           {!isAnyTime && <>
             <fieldset>

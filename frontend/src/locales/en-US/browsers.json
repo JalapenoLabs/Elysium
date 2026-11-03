@@ -23,6 +23,10 @@
       "label": "Gmail",
       "name": "Gmail"
     },
+    "slack": {
+      "label": "Slack",
+      "name": "Slack"
+    },
     "other": {
       "label": "Another site",
       "name": ""
@@ -46,39 +50,60 @@
     "title": "Remove {{name}}?",
     "body": "Its browser and everything it is signed in to on this host are removed. The account itself is untouched; sign in again by adding a new browser."
   },
+  "reset": {
+    "title": "Reset {{name}}?",
+    "body": "This empties the browser's profile, which signs it out of every account it is signed in to on this host. It then starts again at its sign-in page, ready for you to sign in. The accounts themselves are untouched.",
+    "confirm": "Reset browser"
+  },
   "toasts": {
-    "deleted": "{{name}} was removed."
+    "deleted": "{{name}} was removed.",
+    "startedOver": "{{name}} is back at its sign-in page.",
+    "reset": "{{name}} is starting again with an empty profile."
   },
   "session": {
     "hint": "Click the picture to use it. Typing and pasting go to the page, so a password manager on this computer works there too.",
     "starting": "Starting the browser. The first one can take a minute.",
     "failed": "The browser failed to start.",
-    "missing": "This browser does not exist, or it is not yours."
+    "missing": "This browser does not exist, or it is not yours.",
+    "startOver": "Start over",
+    "startOverHint": "Back to the sign-in page, closing every other tab. You stay signed in to whatever you already signed in to.",
+    "reset": "Reset browser",
+    "resetHint": "Sign this browser out of everything and start again from an empty profile."
   },
   "connectors": {
-    "title": "{{service}} mail",
-    "offer": "Elysium can read this mailbox: new mail lands in your inbox as it arrives. What is already there is recorded without filling your inbox.",
-    "reading": "Elysium reads this mailbox every minute without opening anything, so your mail stays unread.",
-    "start": "Read this mailbox",
+    "mail": {
+      "title": "{{service}} mail",
+      "offer": "Elysium can read this mailbox: new mail lands in your inbox as it arrives. What is already there is recorded without filling your inbox.",
+      "reading": "Elysium reads this mailbox every minute without opening anything, so your mail stays unread.",
+      "start": "Read this mailbox",
+      "started": "Elysium is reading this mailbox.",
+      "stopped": "Elysium stopped reading this mailbox."
+    },
+    "slack": {
+      "title": "{{service}} messages",
+      "offer": "Elysium can read the workspaces this browser is signed in to: direct messages, mentions of you, and replies in your threads land in your inbox. Conversations start from their newest message, so nothing old is pulled in.",
+      "reading": "Elysium reads Slack every minute through its own web client, without opening anything, so your messages stay unread.",
+      "start": "Read Slack",
+      "started": "Elysium is reading Slack.",
+      "stopped": "Elysium stopped reading Slack."
+    },
     "stop": "Stop reading",
     "kinds": {
       "outlook": "Outlook",
-      "gmail": "Gmail"
+      "gmail": "Gmail",
+      "slack": "Slack"
     },
     "signIn": {
       "signedIn": "Signed in",
       "signedOut": "Signed out",
       "unknown": "Not read yet"
-    },
-    "toasts": {
-      "started": "Elysium is reading this mailbox.",
-      "stopped": "Elysium stopped reading this mailbox."
     }
   },
   "stream": {
     "label": "The browser's screen",
     "connecting": "Connecting",
     "disconnected": "The stream disconnected.",
+    "unreachable": "The browser is running, but its picture could not reach you. The host must accept its media ports, 59000 to 59007, over both UDP and TCP, from your network.",
     "reconnect": "Reconnect"
   }
 }

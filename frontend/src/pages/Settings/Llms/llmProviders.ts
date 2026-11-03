@@ -19,6 +19,7 @@ export const addLlmUrlByType = {
   'claude-code-oauth': UrlTree.settingsLlmsAddClaudeCodeOauth,
   'claude-api-token': UrlTree.settingsLlmsAddClaudeApiKey,
   'chatgpt-api-token': UrlTree.settingsLlmsAddOpenaiApiKey,
+  'claude-account': UrlTree.settingsLlmsAddClaudeAccount,
 } as const satisfies Record<LlmType, string>
 
 // How to obtain each type's secret token, shown beside the form as a checklist.
@@ -46,5 +47,11 @@ export const llmSetupStepsByType = {
     { textKey: 'setup.chatgpt-api-token.create' },
     { textKey: 'setup.chatgpt-api-token.copy' },
     { textKey: 'setup.chatgpt-api-token.billing', link: 'https://platform.openai.com/settings/organization/billing' },
+  ],
+  'claude-account': [
+    { textKey: 'setup.claude-account.start' },
+    { textKey: 'setup.claude-account.open' },
+    { textKey: 'setup.claude-account.code' },
+    { textKey: 'setup.claude-account.kept' },
   ],
 } as const satisfies Record<LlmType, readonly LlmSetupStep[]>

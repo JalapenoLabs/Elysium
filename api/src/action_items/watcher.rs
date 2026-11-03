@@ -40,13 +40,17 @@ use uuid::Uuid;
 use crate::action_items::links::rules::{self, Reaction};
 use crate::action_items::links::{LinkError, Links, Remote, WriteOutcome};
 use crate::action_items::{Actor, Transition, WorkError};
+use crate::connectors::ConnectorKind;
+use crate::connectors::activity::Activity;
 use crate::database::Pool;
 use crate::models::action_item::{self, ActionItem, ActionItemState, NewActionItem};
 use crate::models::action_item_event::{HistoryKind, Recorded};
 use crate::models::action_item_link::{
-    self, ActionItemLink, LinkCredential, LinkKind, LinkState, NewLink, Observation,
+    self, ActionItemLink, LinkCredential, LinkKind, LinkProvider, LinkState, NewLink, Observation,
 };
 use crate::models::action_item_link_write::{self, LinkWrite, LinkWriteKind};
+use crate::models::connector::{self, AccountRef};
+use crate::models::connector_run::ConnectorRun;
 use crate::models::initiative_link::{self, InitiativeLink};
 use crate::models::{action_item_comment, initiative, link_watch_cursor};
 use crate::realtime::{EventBus, ServerEvent};
@@ -74,6 +78,8 @@ pub struct WatchContext {
     pub database: Pool,
     pub events: EventBus,
     pub links: Links,
+    /// Where each account's pass is reported as a run of its connector.
+    pub activity: Activity,
 }
 
 /// Written by hand because the pool has nothing useful to print.
@@ -163,23 +169,91 @@ pub async fn pass(context: &WatchContext) {
         }
     };
     for credential in credentials {
-        if let Err(error) = watch_credential(context, credential, started).await {
-            event!(
-                name: "links.watcher.credential.failed",
-                Level::WARN,
-                credential.provider = credential.provider.as_str(),
-                credential.id = %credential.id,
-                error.message = %error,
-                "the link watcher could not read a credential; it tries again next pass",
-            );
-            record_failure(context, credential, &error).await;
+        match watch_credential(context, credential, started).await {
+            Ok(0) => {}
+            Ok(changes) => {
+                report(
+                    context,
+                    credential,
+                    ConnectorRunOutcome::Changed(changes),
+                    started,
+                )
+                .await;
+            }
+            Err(error) => {
+                event!(
+                    name: "links.watcher.credential.failed",
+                    Level::WARN,
+                    credential.provider = credential.provider.as_str(),
+                    credential.id = %credential.id,
+                    error.message = %error,
+                    "the link watcher could not read a credential; it tries again next pass",
+                );
+                record_failure(context, credential, &error).await;
+                let message = error.to_string();
+                report(
+                    context,
+                    credential,
+                    ConnectorRunOutcome::Failed(&message),
+                    started,
+                )
+                .await;
+            }
         }
     }
 }
 
+/// What one account's pass came to, for its connector's activity.
+enum ConnectorRunOutcome<'message> {
+    Changed(usize),
+    Failed(&'message str),
+}
+
+/// Reports one account's pass as a run of the connector the account carries. An account
+/// without one, which no account made since connectors exist is, is not reported.
+async fn report(
+    context: &WatchContext,
+    credential: LinkCredential,
+    outcome: ConnectorRunOutcome<'_>,
+    started: DateTime<Utc>,
+) {
+    let (kind, account) = match credential.provider {
+        LinkProvider::Jira => (ConnectorKind::Jira, AccountRef::Atlassian(credential.id)),
+        LinkProvider::Github => (ConnectorKind::Github, AccountRef::Github(credential.id)),
+    };
+    let found = async {
+        let mut connection = connect(&context.database).await?;
+        Ok::<_, anyhow::Error>(
+            connector::find_by_account(&mut connection, kind.as_str(), account).await?,
+        )
+    };
+    let Ok(Some(found)) = found.await else {
+        event!(
+            name: "links.watcher.connector.missing",
+            Level::DEBUG,
+            credential.id = %credential.id,
+            "an account the watcher read carries no connector to report its pass on",
+        );
+        return;
+    };
+    let run = match outcome {
+        ConnectorRunOutcome::Changed(changes) => {
+            ConnectorRun::succeeded(found.id, started, changes)
+        }
+        ConnectorRunOutcome::Failed(message) => ConnectorRun::failed(found.id, started, message),
+    };
+    context.activity.record(run).await;
+}
+
+/// Every credential links are made through, except those whose connector is paused.
 async fn credentials(context: &WatchContext) -> anyhow::Result<Vec<LinkCredential>> {
     let mut connection = connect(&context.database).await?;
-    Ok(link_watch_cursor::credentials_to_watch(&mut connection).await?)
+    let credentials = link_watch_cursor::credentials_to_watch(&mut connection).await?;
+    let paused = connector::paused_link_accounts(&mut connection).await?;
+    Ok(credentials
+        .into_iter()
+        .filter(|credential| !paused.contains(&credential.id))
+        .collect())
 }
 
 async fn record_failure(context: &WatchContext, credential: LinkCredential, error: &anyhow::Error) {
@@ -199,12 +273,12 @@ async fn record_failure(context: &WatchContext, credential: LinkCredential, erro
 }
 
 /// Reads one credential's changes since its cursor and its containers' children, then
-/// moves the cursor to `started`.
+/// moves the cursor to `started`. Answers how many linked changes the provider reported.
 async fn watch_credential(
     context: &WatchContext,
     credential: LinkCredential,
     started: DateTime<Utc>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<usize> {
     let mut connection = connect(&context.database).await?;
     let links = action_item_link::watched(&mut connection, credential).await?;
     let containers = initiative_link::watched(&mut connection, credential).await?;
@@ -216,8 +290,10 @@ async fn watch_credential(
     drop(connection);
 
     let provider = context.links.provider(credential.provider);
+    let mut changes = 0;
     if !links.is_empty() {
         let remotes = provider.changes(credential.id, &links, since).await?;
+        changes = remotes.len();
         for remote in remotes {
             let found = links
                 .iter()
@@ -233,7 +309,7 @@ async fn watch_credential(
 
     let mut connection = connect(&context.database).await?;
     link_watch_cursor::advance(&mut connection, credential, started).await?;
-    Ok(())
+    Ok(changes)
 }
 
 /// What a link records, as an [`Observation`] to compare with what the provider reports.

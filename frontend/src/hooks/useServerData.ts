@@ -12,7 +12,7 @@ import { initiativeLinksLoaded } from '../store/initiativeLinksSlice'
 import { actionItemsLoaded, actionItemUpserted, deletedActionItemsLoaded } from '../store/actionItemsSlice'
 import { browserSessionsLoaded } from '../store/browserSessionsSlice'
 import { changesetsLoaded, changesetUpserted } from '../store/changesetsSlice'
-import { connectorAccountsLoaded } from '../store/connectorAccountsSlice'
+import { connectorsLoaded } from '../store/connectorsSlice'
 import { codingSessionsLoaded, codingSessionsUpserted } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
 import { elysiaMessagesLoaded, elysiaTurnsLoaded, elysiaUpdated } from '../store/elysiaSlice'
@@ -24,12 +24,14 @@ import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { mailDomainsLoaded } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
+import { meetingsLoaded } from '../store/meetingsSlice'
 import { projectsLoaded } from '../store/projectsSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
 import { storageLocationsLoaded } from '../store/storageLocationsSlice'
 import { studioAssetsLoaded } from '../store/studioAssetsSlice'
 import { studioFeedbackLoaded } from '../store/studioFeedbackSlice'
 import { deletedStudioItemsLoaded, studioItemsLoaded, studioItemUpserted } from '../store/studioItemsSlice'
+import { timelineRecordsLoaded } from '../store/timelineRecordsSlice'
 import { updatesStatusUpdated } from '../store/updatesSlice'
 import { passwordVaultLoaded } from '../store/passwordVaultSlice'
 import { usersLoaded } from '../store/usersSlice'
@@ -53,7 +55,7 @@ import {
 } from '../api/routes/initiativeRoutes'
 import { listBrowserSessions } from '../api/routes/browserSessionRoutes'
 import { getChangeset, listChangesets } from '../api/routes/changesetRoutes'
-import { listConnectorAccounts } from '../api/routes/connectorRoutes'
+import { listConnectors } from '../api/routes/connectorRoutes'
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { getElysia, listElysiaMessages, listElysiaTurns } from '../api/routes/elysiaRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
@@ -61,10 +63,13 @@ import { listGithubCredentials } from '../api/routes/githubRoutes'
 import { listJiraCredentials } from '../api/routes/jiraRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
+import { listMeetings } from '../api/routes/meetingRoutes'
 import { getPasswordVault } from '../api/routes/passwordVaultRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
 import { getStudioItem, listStudioItems } from '../api/routes/studioRoutes'
+import { listTimeline, timelineKey } from '../api/routes/timelineRoutes'
+import { TIMELINE_PAGE_SIZE } from '../constants'
 import { getUpdates } from '../api/routes/updateRoutes'
 import { getWorkspaceSettings, listUsers } from '../api/routes/userRoutes'
 
@@ -152,14 +157,50 @@ export function useBrowserSessionsLoader(): LoadStatus {
   return toLoadStatus(data !== undefined, error)
 }
 
-export function useConnectorAccountsLoader(): LoadStatus {
+// Every connector the person sees: the workspace's Jira and GitHub, and their own mail and
+// meetings.
+export function useConnectorsLoader(): LoadStatus {
   const dispatch = useAppDispatch()
   const { data, error } = useSWR('v1/connectors', async () => {
-    const response = await listConnectorAccounts()
-    dispatch(connectorAccountsLoaded(response.connectors))
+    const response = await listConnectors()
+    dispatch(connectorsLoaded(response.connectors))
     return response
   })
   return toLoadStatus(data !== undefined, error)
+}
+
+// The person's recent meetings and how far each one's processing got.
+export function useMeetingsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/meetings', async () => {
+    const response = await listMeetings()
+    dispatch(meetingsLoaded(response.meetings))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One page of a project's timeline, the newest unless `before` names where the last page
+// ended. Pages merge into Redux, so the buffered copy may be applied too. Answers how many
+// records the page held, so the caller knows whether to offer another.
+export function useProjectTimelineLoader(projectId: string, before: string | null) {
+  const dispatch = useAppDispatch()
+  const query = {
+    projectId,
+    before: before ?? undefined,
+    limit: TIMELINE_PAGE_SIZE,
+  }
+  const { data, error } = useSWR(timelineKey(query), () => listTimeline(query))
+  useEffect(() => {
+    if (data) {
+      dispatch(timelineRecordsLoaded(data.records))
+    }
+  }, [ data, dispatch ])
+  return {
+    status: toLoadStatus(data !== undefined, error),
+    pageSize: data?.records.length ?? 0,
+    oldest: data?.records.at(-1)?.occurredAt ?? null,
+  } as const
 }
 
 export function useGithubCredentialsLoader(): LoadStatus {

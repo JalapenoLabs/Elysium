@@ -159,6 +159,21 @@ pub async fn record_start_page_opened(
     Ok(())
 }
 
+/// Marks the browser's start page as not opened yet, so the next pass opens it.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn clear_start_page_opened(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+) -> QueryResult<()> {
+    diesel::update(browser_sessions::table.find(id))
+        .set(browser_sessions::start_page_opened_at.eq(None::<chrono::DateTime<chrono::Utc>>))
+        .execute(connection)
+        .await?;
+    Ok(())
+}
+
 /// The ports browsers already hold.
 ///
 /// # Errors
@@ -263,5 +278,48 @@ mod tests {
                 .expect("select")
                 .is_none()
         );
+    }
+
+    // A browser stuck on a sign-in error had no way back. Resetting it empties its profile,
+    // and the start page must be owed again, or the new profile opens on a blank tab.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_reset_browser_owes_its_start_page_again() {
+        let (_url, mut connection) = migrated_database().await;
+        let new_session = NewBrowserSession {
+            id: Uuid::now_v7(),
+            name: "Work Outlook".to_owned(),
+            start_url: "https://outlook.office.com/mail/".to_owned(),
+            port: 59001,
+            member_password: SecretString::from("a-generated-password"),
+            created_by: TEST_PERSON_ID,
+        };
+        let created = create(&mut connection, &cipher(), new_session)
+            .await
+            .expect("insert");
+        record_start_page_opened(&mut connection, created.id)
+            .await
+            .expect("record");
+
+        clear_start_page_opened(&mut connection, created.id)
+            .await
+            .expect("clear");
+        let cleared = find(&mut connection, created.id)
+            .await
+            .expect("select")
+            .expect("still stored");
+        assert!(cleared.start_page_opened_at.is_none());
+
+        // The next pass records it opened again, as for a new browser.
+        record_start_page_opened(&mut connection, created.id)
+            .await
+            .expect("record again");
+        let reopened = find(&mut connection, created.id)
+            .await
+            .expect("select")
+            .expect("still stored");
+        assert!(reopened.start_page_opened_at.is_some());
+
+        delete(&mut connection, created.id).await.expect("delete");
     }
 }

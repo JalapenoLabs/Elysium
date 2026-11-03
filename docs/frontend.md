@@ -103,11 +103,14 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/environment`       | `ManageEnvironmentPage`  | Environment variables every coding session receives     |
 | `/settings/environment/new`   | `AddEnvironmentVariablePage` | Add an environment variable                          |
 | `/settings/environment/:variableId/edit` | `EditEnvironmentVariablePage` | Edit an environment variable              |
-| `/settings/github`            | `ManageGithubPage`       | GitHub tokens, their account, scopes, and expiry         |
-| `/settings/github/new`        | `AddGithubCredentialPage` | Add a GitHub token                                      |
+| `/settings/connectors`        | `ConnectorsPage`         | Every connector, its status, activity, and accounts     |
+| `/settings/connectors/new`    | `AddConnectorPage`       | Add a connector: kind, account, content, live checks    |
+| `/settings/connectors/:connectorId` | `ConnectorPage`    | One connector: status, checks, and content              |
+| `/settings/github`            | redirect                 | To `/settings/connectors`                               |
+| `/settings/github/new`        | redirect                 | To `/settings/connectors/new`                           |
 | `/settings/github/:credentialId/edit` | `EditGithubCredentialPage` | Edit a GitHub token                            |
-| `/settings/jira`              | `ManageJiraPage`         | Jira Cloud sites, their account, projects, and boards    |
-| `/settings/jira/new`          | `AddJiraCredentialPage`  | Add a Jira site, in two steps                            |
+| `/settings/jira`              | redirect                 | To `/settings/connectors`                               |
+| `/settings/jira/new`          | redirect                 | To `/settings/connectors/new`                           |
 | `/settings/jira/:credentialId/edit` | `EditJiraCredentialPage` | Edit a Jira site                                   |
 | `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
 | `/settings/storage`           | `ManageStoragePage`      | Storage locations Elysium saves files to                 |
@@ -221,8 +224,11 @@ settings need a new one. Directory, projects (`ProjectScopePicker`, see `docs/st
 are lookup tables in `storagePresentation.ts`. `StorageSetupChecklist` and `LlmSetupChecklist` both render
 `src/components/SetupChecklist.tsx`.
 
-GitHub under `src/pages/Settings/Github/` follows Storage's shape: a table (name, type, account, scopes, expiry)
-whose row menu edits, tests, or deletes one, and add and edit as their own pages built from
+Connectors under `src/pages/Settings/Connectors/` is the hub for Jira, GitHub, mail, and meetings: its list, accounts,
+add wizard, and each connector's page, every form and check list drawn from the kinds the API defines. See
+`docs/connectors.md`, In the web app. `/settings/github` and `/settings/jira` lead to it.
+
+GitHub under `src/pages/Settings/Github/` is the edit page a GitHub account opens from the hub, built from
 `GithubCredentialEditorLayout` and `GithubCredentialForm`. The form is a name, a token type picker, and the token,
 beside a `GithubSetupChecklist` for the chosen kind. The token field is optional while editing and turns required as
 soon as the kind changes, mirroring the API. `githubPresentation.ts` holds the labels, setup steps, and
@@ -236,15 +242,8 @@ Jira under `src/pages/Settings/Jira/` holds any number of Jira Cloud credentials
 site with the projects and boards Elysium may read. Nothing about a project or a board is ever typed in: every option
 comes from what Jira said the token reaches.
 
-- `ManageJiraPage` renders `JiraCredentialTable` (name, site, account, projects, boards, last checked) whose row menu
-  edits, tests, opens Done statuses, or deletes one; delete confirms through `useConfirm`. Testing toasts the account
-  Jira answered with, or a warning naming every allowed project and board the token can no longer reach.
-- Adding a site is two steps in `AddJiraCredentialPage`, which holds the whole flow's state as one discriminated
-  value, so the second step exists only once Jira has answered. `JiraConnectionForm` takes the name, site URL, account
-  email, and API token, and submits to `POST /jira-credentials/discover`, which stores nothing and answers the account
-  plus every project and board the token reaches. `JiraScopeForm` then shows that account and picks from those lists,
-  and its submit is the one call that stores anything. Stepping back carries the typed values, token included, into the
-  first step again; that token lives in page state and reaches nothing else, not Redux, storage, a toast, or a log.
+- A site is added in the connector hub as a new Jira connector, its projects and boards picked from what Jira
+  reports, and checked before it is saved; see `docs/connectors.md`.
 - `EditJiraCredentialPage` renders `JiraCredentialForm`, which keeps the connection fields and loads today's options
   through SWR under `['jira-credential-projects', id]` and `['jira-credential-boards', id]`. An allowed id missing from
   those lists is one the token no longer reaches, named in a warning above the pickers once the lists have arrived.
@@ -617,6 +616,9 @@ Workspace, mail server, and broker failures answer `502` with the upstream's mes
 - react-hook-form with a Zod schema. Schemas are built with `t` so validation messages arrive translated.
 - Read field values with `useWatch`, not `form.watch`. The React Compiler lint rejects `watch`.
 - HeroUI v3 field `onChange` handlers receive the value, not a DOM event.
+- A `Switch`'s clickable part is `Switch.Content`, so it wraps the `Switch.Control` and the `Label` together. A
+  `Description` sits beside `Switch.Content`, inside the `Switch`. A control outside `Switch.Content` looks right but
+  does nothing when clicked; `src/bugs/switchClickTarget.test.tsx` fails the build on one.
 - Server conflicts map back to fields. For example, a `409` on create or edit sets an error on `name`.
 - Secret tokens are write-only. The edit form leaves the field blank and sends a token only when one is typed.
 

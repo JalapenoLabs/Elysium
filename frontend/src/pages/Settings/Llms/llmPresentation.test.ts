@@ -1,12 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Llm, LlmType } from '../../../api/routes/llmRoutes'
+import type { ClaudeAccount, Llm, LlmType } from '../../../api/routes/llmRoutes'
 
 // Core
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { getLlmStatus, hasAgentCredential } from './llmPresentation'
+import { getLlmStatus, getUsageLevel, hasAgentCredential, USAGE_SKIP_AT } from './llmPresentation'
 
 const NOW = Date.parse('2026-10-21T02:00:00Z')
 
@@ -22,6 +22,22 @@ function llm(type: LlmType, overrides: Partial<Llm> = {}): Llm {
     createdAt: '2026-10-01T00:00:00Z',
     createdBy: 'user-id',
     updatedAt: '2026-10-01T00:00:00Z',
+    account: null,
+    ...overrides,
+  }
+}
+
+function account(overrides: Partial<ClaudeAccount> = {}): ClaudeAccount {
+  return {
+    email: 'alex@example.com',
+    organizationName: null,
+    subscriptionType: 'max',
+    isSignedIn: true,
+    accessTokenExpiresAt: '2026-10-21T08:00:00Z',
+    lastRefreshedAt: null,
+    lastRefreshError: null,
+    usage: { fiveHour: null, sevenDay: null, readAt: null },
+    usageError: null,
     ...overrides,
   }
 }
@@ -31,6 +47,21 @@ describe('getLlmStatus', () => {
     expect(getLlmStatus(llm('claude-api-token', { expiresAt: '2026-10-20T00:00:00Z' }), NOW)).toBe('expired')
     expect(getLlmStatus(llm('claude-api-token', { isActive: false }), NOW)).toBe('inactive')
     expect(getLlmStatus(llm('claude-api-token', { expiresAt: '2026-11-01T00:00:00Z' }), NOW)).toBe('active')
+  })
+
+  it('reports a Claude account whose sign-in Anthropic refused', () => {
+    expect(getLlmStatus(llm('claude-account', { account: account() }), NOW)).toBe('active')
+    expect(getLlmStatus(llm('claude-account', { account: account({ isSignedIn: false }) }), NOW))
+      .toBe('signInExpired')
+  })
+})
+
+describe('getUsageLevel', () => {
+  it('is spent from the point turns skip the account', () => {
+    expect(getUsageLevel({ utilization: USAGE_SKIP_AT, resetsAt: null })).toBe('spent')
+    expect(getUsageLevel({ utilization: 140, resetsAt: null })).toBe('spent')
+    expect(getUsageLevel({ utilization: 80, resetsAt: null })).toBe('high')
+    expect(getUsageLevel({ utilization: 10, resetsAt: null })).toBe('low')
   })
 })
 
@@ -45,6 +76,12 @@ describe('hasAgentCredential', () => {
   it('is true for an active Claude subscription token or API key', () => {
     expect(hasAgentCredential([ llm('claude-code-oauth') ], NOW)).toBe(true)
     expect(hasAgentCredential([ llm('claude-api-token') ], NOW)).toBe(true)
+  })
+
+  it('counts a signed-in Claude account, but not one whose sign-in expired', () => {
+    expect(hasAgentCredential([ llm('claude-account', { account: account() }) ], NOW)).toBe(true)
+    const expired = llm('claude-account', { account: account({ isSignedIn: false }) })
+    expect(hasAgentCredential([ expired ], NOW)).toBe(false)
   })
 
   it('ignores OpenAI credentials, which agent turns cannot run on', () => {

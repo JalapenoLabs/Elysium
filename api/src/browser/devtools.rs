@@ -43,6 +43,8 @@ pub enum DevtoolsError {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Tab {
+    /// Chromium's target id, which `/json/close/<id>` takes.
+    pub id: String,
     #[serde(rename = "type")]
     pub kind: String,
     pub url: String,
@@ -77,6 +79,39 @@ impl Devtools {
             .await
             .map_err(|error| DevtoolsError::Unreachable(error.without_url().to_string()))?;
         Ok(tabs.into_iter().filter(|tab| tab.kind == "page").collect())
+    }
+
+    /// Opens `url` in a new tab of the browser on `port`, for a reader whose service has no tab
+    /// open, and answers the tab.
+    ///
+    /// # Errors
+    /// [`DevtoolsError::Unreachable`] when the `DevTools` port does not answer or refuses the tab.
+    pub async fn open_tab(&self, port: u16, url: &Url) -> Result<Tab, DevtoolsError> {
+        let mut endpoint = Url::parse(&format!(
+            "http://{}:{DEVTOOLS_PORT}/json/new",
+            host_name(port)
+        ))
+        .expect("a browser's DevTools address parses");
+        // Chromium reads the page to open from the whole query string.
+        endpoint.set_query(Some(url.as_str()));
+        let response = self
+            .http
+            .put(endpoint)
+            .header(HOST, "localhost")
+            .timeout(CALL_TIMEOUT)
+            .send()
+            .await
+            .map_err(|error| DevtoolsError::Unreachable(error.without_url().to_string()))?;
+        if !response.status().is_success() {
+            return Err(DevtoolsError::Unreachable(format!(
+                "Chromium refused to open a tab ({})",
+                response.status()
+            )));
+        }
+        response
+            .json()
+            .await
+            .map_err(|error| DevtoolsError::Unreachable(error.without_url().to_string()))
     }
 
     /// Evaluates `expression` in the first tab whose address starts with one of `origins`, and
@@ -187,6 +222,7 @@ mod tests {
     #[test]
     fn the_socket_is_dialed_at_the_forwarder_not_chromiums_loopback() {
         let tab = Tab {
+            id: "7E3C0A2B".to_owned(),
             kind: "page".to_owned(),
             url: "https://outlook.office.com/mail/".to_owned(),
             web_socket_debugger_url: Some("ws://127.0.0.1:9222/devtools/page/7E3C0A2B".to_owned()),

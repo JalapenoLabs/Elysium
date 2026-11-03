@@ -11,7 +11,8 @@ import { useAppSelector } from '../../../store/hooks'
 // User interface
 import { Breadcrumbs, Chip, Spinner } from '@heroui/react'
 import { BrowserStream } from '../../../browser/BrowserStream'
-import { MailReadingSection } from './MailReadingSection'
+import { BrowserSessionActions } from './BrowserSessionActions'
+import { ConnectorReadingSection } from './ConnectorReadingSection'
 
 // Misc
 import { useBrowserSessionsLoader } from '../../../hooks/useServerData'
@@ -45,16 +46,19 @@ export function BrowserSessionPage() {
       <Breadcrumbs.Item href={UrlTree.settingsBrowsers}>{t('title')}</Breadcrumbs.Item>
       <Breadcrumbs.Item>{browserSession.name}</Breadcrumbs.Item>
     </Breadcrumbs>
-    <div className='level relaxed items-center'>
-      <h1 className='text-3xl font-bold'>{
-        browserSession.name
-      }</h1>
-      <Chip size='sm' variant='soft' color={stateChipColors[state]}>{
-        t(stateLabelKeys[state])
-      }</Chip>
+    <div className='level relaxed flex-wrap items-center gap-3'>
+      <div className='flex items-center gap-3'>
+        <h1 className='text-3xl font-bold'>{
+          browserSession.name
+        }</h1>
+        <Chip size='sm' variant='soft' color={stateChipColors[state]}>{
+          t(stateLabelKeys[state])
+        }</Chip>
+      </div>
+      <BrowserSessionActions browserSession={browserSession} />
     </div>
 
-    <MailReadingSection browserSession={browserSession} />
+    <ConnectorReadingSection browserSession={browserSession} />
 
     <p className='compact text-sm opacity-70'>{t('session.hint')}</p>
 

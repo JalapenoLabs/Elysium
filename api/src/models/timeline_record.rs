@@ -22,7 +22,7 @@ use crate::database::schema::{timeline_record_projects, timeline_records};
 pub struct TimelineRecord {
     pub id: Uuid,
     pub source_kind: String,
-    pub connector_account_id: Option<Uuid>,
+    pub connector_id: Option<Uuid>,
     pub external_id: Option<String>,
     pub occurred_at: DateTime<Utc>,
     pub actor: String,
@@ -41,7 +41,7 @@ pub struct TimelineRecord {
 pub struct NewTimelineRecord {
     pub id: Uuid,
     pub source_kind: String,
-    pub connector_account_id: Option<Uuid>,
+    pub connector_id: Option<Uuid>,
     pub external_id: Option<String>,
     pub occurred_at: DateTime<Utc>,
     pub actor: String,
@@ -76,7 +76,7 @@ pub async fn insert_new(
     diesel::insert_into(timeline_records::table)
         .values(record)
         .on_conflict((
-            timeline_records::connector_account_id,
+            timeline_records::connector_id,
             timeline_records::external_id,
         ))
         .do_nothing()
@@ -84,6 +84,35 @@ pub async fn insert_new(
         .get_result(connection)
         .await
         .optional()
+}
+
+/// Whether any record of `connector_id`'s whose external id starts with `prefix` raised an
+/// action item: for a kind that records each version of a thing, whether that thing already
+/// raised one, so editing it again does not raise another.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn has_raised_item(
+    connection: &mut AsyncPgConnection,
+    connector_id: Uuid,
+    prefix: &str,
+) -> QueryResult<bool> {
+    let escaped = prefix
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    diesel::select(diesel::dsl::exists(
+        timeline_records::table
+            .filter(timeline_records::connector_id.eq(connector_id))
+            .filter(
+                timeline_records::external_id
+                    .like(format!("{escaped}%"))
+                    .escape('\\'),
+            )
+            .filter(timeline_records::action_item_id.is_not_null()),
+    ))
+    .get_result(connection)
+    .await
 }
 
 /// Records the action item a record raised.

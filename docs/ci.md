@@ -5,6 +5,10 @@ pushes to `main`, and on demand through `workflow_dispatch`. `.github/workflows/
 Docker Hub after a change lands; it is not a check (see Publishing below). `.github/workflows/pull-review.yml` is the
 automated review, described in `docs/infrastructure.md`, and is not part of this.
 
+Changes are committed straight to `main` and pushed; nothing waits on a pull request or a check first. The checks run
+on every push to `main` as an alarm after the fact: a red run is fixed at once with the next push. Pull requests and
+the merge queue remain for outside contributors, which is what the fork rules below protect.
+
 ## Runners
 
 Every job targets:
@@ -49,7 +53,7 @@ Job names are the check names. Require exactly these in the `main` ruleset:
 | `Broker image`       | `oauth-broker.yml`       | `oauth-broker/Dockerfile` builds and the broker answers `/healthz` |
 | `Frontend typecheck` | `frontend.yml`           | `yarn typecheck`                                                |
 | `Frontend lint`      | `frontend.yml`           | `yarn lint`, the `@jalapenolabs/cli/eslint` ruleset, no warnings |
-| `Frontend test`      | `frontend.yml`           | `yarn test`, the Vitest suite                                   |
+| `Frontend test`      | `frontend.yml`           | `yarn test`, the Vitest suite, and the connector page scripts (`node --test api/src/connectors/*.test.mjs`) |
 | `Frontend build`     | `frontend.yml`           | `yarn build`, the production bundle                             |
 | `Frontend image`     | `frontend.yml`           | `frontend/Dockerfile` builds and the dev server answers         |
 | `Compose config`     | `compose.yml`            | the stacks parse and interpolate, the development override merges |

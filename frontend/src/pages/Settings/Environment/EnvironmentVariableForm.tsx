@@ -145,13 +145,13 @@ export function EnvironmentVariableForm(props: Props) {
         isSelected={isSecret}
         onChange={(isSelected) => form.setValue('isSecret', isSelected, { shouldDirty: true, shouldValidate: true })}
       >
-        <Switch.Control>
-          <Switch.Thumb />
-        </Switch.Control>
         <Switch.Content>
+          <Switch.Control>
+            <Switch.Thumb />
+          </Switch.Control>
           <Label>{t('form.isSecret')}</Label>
-          <Description>{t('form.isSecretHint')}</Description>
         </Switch.Content>
+        <Description>{t('form.isSecretHint')}</Description>
       </Switch>
 
       {/* Value: a password field for a secret, so it is not shown while typed */}

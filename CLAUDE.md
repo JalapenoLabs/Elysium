@@ -6,6 +6,11 @@ Rust API (`api/`), Vite/React frontend (`frontend/`), Postgres, and Redis behind
 ## Direction
 
 The full vision is `docs/vision.md`. Read it before designing any feature.
+The engine, which does all background work, is designed in `docs/engine.md`.
+Elysium as the company's knowledge base is designed in `docs/knowledge.md`.
+Rooms, where people's Claude Code sessions work together, are designed in `docs/rooms.md`.
+Activity, the full investigable log of every agent session, is designed in `docs/activity.md`.
+Self-improvement (learning from feedback, self-healing connectors) is designed in `docs/self-improvement.md`.
 
 - Elysium is a personal Jalapeno Labs project. A workplace runs its published releases as a user, updated from the
   latest release, and never contributes to it.
@@ -30,6 +35,9 @@ The full vision is `docs/vision.md`. Read it before designing any feature.
 
 ## Images and stacks
 
+- `compose.build.yml` layers over `compose.yml` to build the production images from the checkout under local tags, for
+  a deployment that runs `main` instead of a release: the work instance pulls `main` and rebuilds. See
+  `docs/infrastructure.md`.
 - `compose.yml` is the production stack: it runs the published `jalapenolabs/elysium-api` image, which serves both
   `/api` and the web app's production build, so nginx sends every path to the API. `compose.dev.yml` layers the
   development stack over it: the API built from source (`api/Dockerfile` stage `server`) and the Vite dev server,
@@ -114,6 +122,11 @@ Everything else follows these rules:
   `session_events`. Turns of one session run one at a time; at most eight run at once.
 - A turn runs on Elysium's active Claude credentials as an ordered failover stack, highest priority first, so a
   credential that runs out hands the turn to the next one, resuming the same Claude session.
+- Claude credentials are API keys, `claude setup-token` tokens, or Claude accounts signed in through the official CLI's
+  own login (`claude auth login`, run in the workspace; Elysium never runs an OAuth flow of its own). Elysium is an
+  account's only refresher: turns get its access token alone, and the keeper in `api/src/claude_accounts/` refreshes
+  it under a row lock and reads its usage, so an account whose usage window is spent is skipped until it resets. See
+  `docs/coding.md`, Claude accounts.
 - Turn policy (heartbeat, concurrency, clone and script timeouts) is code constants, not configuration.
 - Agents' `~/.claude` is checked out from the configuration repository named in the workspace settings.
 - Elysium's tools reach agents at `/api/agent-tools/{server}`, under a per-turn grant scoped to the session, and every
@@ -159,13 +172,45 @@ Everything else follows these rules:
 - The web app's sign-in panel (Settings, Browser sign-ins) speaks Neko's protocol itself: Neko's own client cannot
   run under the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
+- A browser always has a way out: Start over reopens its start page in a fresh tab and keeps the profile; Reset
+  removes the profile volume, signing it out of everything, and starts it again. A stream whose media never connects
+  says so and names the media ports, rather than spinning.
 
 ## Connectors and the timeline
 
-- A connector is a service Elysium reads as its user, behind one trait (`api/src/connectors/`): it names its kind
-  and reads what its account shows now. How it signs in and stays signed in belongs to what it reads through. Today
-  Outlook and Gmail read through a person's browser over DevTools, with one page script per service; the check is
-  cheap and deterministic, and nothing it does marks mail read. See `docs/connectors.md`.
+- Accounts and connectors are separate. An account is how Elysium signs in to a provider as a person: Atlassian
+  (`jira_credentials`), GitHub (`github_credentials`), a signed-in browser (`browser_sessions`), or an API key
+  (`token_accounts`). A connector (`connectors`) is one use of one account: a kind, what it reads, and its reading
+  state. An account feeds each kind once; every Atlassian and GitHub account carries its one connector. See
+  `docs/connectors.md`.
+- Each kind is one module under `api/src/connectors/kinds/` declaring its definition (scope, account, which accounts a
+  new one takes, content fields, ordered checks) and its verbs; `kinds/mod.rs` alone matches on the kind. The API
+  serves the definitions and the web app draws forms and check lists from them, naming every id from its translations.
+- An Atlassian account feeds Jira and Confluence. Anything about the link watcher's reading (paused accounts, its
+  pass, linked-issue counts) is matched by kind (`ConnectorKind::LINKS`) as well as account, never by account alone.
+- Checks run in order, a dependency that did not pass skips what builds on it, and they run before a connector is
+  saved and on demand. Progress is published as ids and states only; a stored connector's last results are kept.
+- Syncs that record something or fail are runs (`connector_runs`), reported through `connectors::activity`; a
+  connector's status is paused, syncing, error, or active. A paused Jira or GitHub connector's account is skipped by
+  the link watcher. `connector.changed` carries an id alone.
+- Outlook and Gmail read through a person's browser over DevTools, with one page script per service; the check is
+  cheap and deterministic, and nothing it does marks mail read.
+- Confluence Cloud reads through an existing Atlassian account, every five minutes, the pages and comments changed in
+  the spaces its connector picked, one record per version. `api/src/confluence/` is its only caller, and
+  `Confluence::changes`, the only call that reads content, is bounded by the picked spaces in its CQL and again on each
+  result. A mention of the person, or a question on their page, raises an inbox item once per page or comment.
+- Teams reads through a Microsoft browser too, the same one Outlook can use, from Teams' own local store (IndexedDB)
+  rather than its page; nothing it does marks a message read. An unread chat message, a mention, or a reply in a
+  channel thread the person wrote in raises an inbox item; other channel messages are only recorded.
+- YouTrack reads a person's YouTrack Cloud site with their own permanent token, a token account that names its site
+  (`token_accounts.site_url`), validated like a Jira site: `https`, one label on `youtrack.cloud`, the origin alone.
+  `crate::youtrack` is the only caller. Every two minutes it records new issues and comments in the chosen projects;
+  one assigned to the person by someone else, or a comment from someone else on their issue or mentioning them,
+  raises an inbox item as `watcher:youtrack`. The first read records nothing.
+- Slack reads through a browser signed in to `app.slack.com`, never a Slack app: its page script calls Slack's own
+  web API with the web client's session, which never leaves the page, and only read methods. A direct or group
+  message, a mention, or an unread reply in a followed thread raises an inbox item; a conversation is baselined at
+  its newest message the first time it is read, so no history is pulled in.
 - Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
   projects with a confidence (`timeline_record_projects`). A record is its owner's alone, even about a shared
   project.
@@ -174,6 +219,21 @@ Everything else follows these rules:
   watcher. The first read baselines the mailbox without raising anything.
 - `timelineRecord.created` carries ids and kinds, never content, because every client hears every event. It is the
   seam Elysia's triage builds on.
+- A new account's secret is checked with its provider before it is stored, sealed bound to its row, and never
+  returned.
+
+## Meetings
+
+- Meetings are read from a meeting source as their person (`api/src/meetings/`): today Fireflies, with the person's
+  own API key, so nothing is installed into an organization. Every meeting belongs to a connector, which is what
+  keeps it and its segments from being recorded twice. See `docs/meetings.md`.
+- Each meeting is recorded (transcript, and the recording uploaded to the account's storage location), segmented by
+  Elysia in one text turn on the runner, and published: `ffmpeg` cuts each segment's clip in the workspace container,
+  and each segment becomes a timeline record with its excerpt, summary, span, and clip, attributed to its projects.
+- Nothing the segmentation answer says is trusted: segments must lie inside the meeting in order, and attributions
+  must name projects that were offered. A failed step is retried each pass, three times, then retried by the person.
+- Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id, state,
+  and owner, never its title or transcript.
 
 ## Storage
 
@@ -348,8 +408,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 
 - GitHub Actions on the org's self-hosted runners (`[ self-hosted, linux, rocky9, docker ]`). The runners are
   persistent and warm, so workflows never use `actions/cache`. See `docs/ci.md`.
-- `main` takes changes through pull requests and a merge queue. Every workflow runs on `pull_request`, `merge_group`,
-  and pushes to `main`, with no path filters, so a required check can never be left pending.
+- Changes are committed straight to `main` and pushed, with no pull request and no wait on CI. The checks run on every
+  push as an alarm after the fact, and a red run is fixed by the next push. Every workflow still runs on
+  `pull_request`, `merge_group`, and pushes to `main`, with no path filters, for outside contributors' pull requests.
 - Job names are the required check names. Keep them short, stable, and unique across workflows, and update the list
   in `docs/ci.md` when one changes.
 - The repository is public: trigger on `pull_request`, never `pull_request_target`; every job skips pull requests

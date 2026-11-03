@@ -2,6 +2,7 @@
 
 //! Version 1 resource routes, mounted at `/api/v1`.
 
+pub mod accounts;
 pub mod action_items;
 mod auth_status;
 pub mod browser_sessions;
@@ -17,6 +18,7 @@ pub mod jira_credentials;
 pub mod llms;
 pub mod mail;
 mod me;
+pub mod meetings;
 pub mod oauth;
 pub mod password_vault;
 pub mod projects;
@@ -53,6 +55,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
 fn workspace_router() -> Router<AppState> {
     Router::new()
         .route("/events", get(events::handle))
+        .nest("/accounts", accounts::router())
         .nest("/action-items", action_items::router())
         .nest("/browser-sessions", browser_sessions::router())
         .nest("/changesets", changesets::router())
@@ -64,6 +67,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/jira-credentials", jira_credentials::router())
         .nest("/llms", llms::router())
         .nest("/mail", mail::router())
+        .nest("/meetings", meetings::router())
         .nest("/projects", projects::router())
         .nest("/storage-locations", storage_locations::router())
         .nest("/timeline", timeline::router())

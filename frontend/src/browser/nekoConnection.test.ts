@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Misc
 import { PASTE_KEYSYMS } from './keysyms'
-import { NekoConnection } from './nekoConnection'
+import { MEDIA_CONNECT_TIMEOUT_MS, NekoConnection } from './nekoConnection'
 import { encodeButton, encodeKey, POINTER_BUTTONS } from './nekoInput'
 
 // The signaling socket, driven by the test: what the connection sends is recorded, and what
@@ -176,6 +176,37 @@ describe('NekoConnection', () => {
       bytes(encodeKey(PASTE_KEYSYMS.letterV, false)),
       bytes(encodeKey(PASTE_KEYSYMS.control, false)),
     ])
+  })
+
+  // With the host's media ports blocked by a firewall, the stream spun forever: ICE kept
+  // checking and nothing told the viewer why. It now gives up and names the cause.
+  it('reports the media unreachable when it never connects', async () => {
+    vi.useFakeTimers()
+    const { listeners: connectionListeners } = await connected()
+
+    await vi.advanceTimersByTimeAsync(MEDIA_CONNECT_TIMEOUT_MS)
+    expect(connectionListeners.onState).toHaveBeenLastCalledWith('unreachable')
+  })
+
+  it('reports the media unreachable when its first connection fails', async () => {
+    const { peer, listeners: connectionListeners } = await connected()
+    peer.connectionState = 'failed'
+    peer.onconnectionstatechange?.()
+    expect(connectionListeners.onState).toHaveBeenLastCalledWith('unreachable')
+  })
+
+  // A media path that worked once was reachable; losing it is a disconnect, not a firewall.
+  it('reports a disconnect when media that connected fails later, and never times out', async () => {
+    vi.useFakeTimers()
+    const { peer, listeners: connectionListeners } = await connected()
+    peer.connectionState = 'connected'
+    peer.onconnectionstatechange?.()
+    await vi.advanceTimersByTimeAsync(MEDIA_CONNECT_TIMEOUT_MS)
+    expect(connectionListeners.onState).toHaveBeenLastCalledWith('connected')
+
+    peer.connectionState = 'failed'
+    peer.onconnectionstatechange?.()
+    expect(connectionListeners.onState).toHaveBeenLastCalledWith('disconnected')
   })
 
   it('pastes anyway when Neko never confirms the clipboard', async () => {

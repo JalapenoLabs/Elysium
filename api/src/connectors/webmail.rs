@@ -14,7 +14,7 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use super::{Connector, ConnectorError, ConnectorKind, Read, Reading, SignInState};
+use super::{BrowserReader, ConnectorError, ConnectorKind, Read, ReadInput, Reading, SignInState};
 use crate::browser::devtools::{Devtools, DevtoolsError};
 use crate::models::browser_session::BrowserSession;
 
@@ -51,16 +51,10 @@ pub const SERVICES: [Service; 2] = [
     },
 ];
 
-/// The service a connector kind reads.
-///
-/// # Panics
-/// Panics for a kind without a row in [`SERVICES`], which is a programming error: every
-/// kind is a webmail service today.
-pub fn service(kind: ConnectorKind) -> &'static Service {
-    SERVICES
-        .iter()
-        .find(|service| service.kind == kind)
-        .expect("every connector kind is a webmail service")
+/// The webmail service a connector kind reads, or `None` for a kind that reads something
+/// else, such as meetings.
+pub fn service(kind: ConnectorKind) -> Option<&'static Service> {
+    SERVICES.iter().find(|service| service.kind == kind)
 }
 
 #[derive(Debug, Clone)]
@@ -75,12 +69,18 @@ impl Webmail {
     }
 }
 
-impl Connector for Webmail {
+impl BrowserReader for Webmail {
     fn kind(&self) -> ConnectorKind {
         self.service.kind
     }
 
-    async fn read(&self, browser: &BrowserSession) -> Result<Reading, ConnectorError> {
+    /// Reads the message list as the mailbox shows it now. A mailbox keeps no state of its
+    /// own between reads and reads no content: it is the whole inbox.
+    async fn read(
+        &self,
+        browser: &BrowserSession,
+        _input: ReadInput<'_>,
+    ) -> Result<Reading, ConnectorError> {
         let port = u16::try_from(browser.port).map_err(|_overflow| {
             ConnectorError::Unexpected("a browser port out of range".to_owned())
         })?;
@@ -97,10 +97,7 @@ impl Connector for Webmail {
             } else {
                 SignInState::Unknown
             };
-            return Ok(Reading {
-                sign_in,
-                items: Vec::new(),
-            });
+            return Ok(Reading::nothing(sign_in));
         }
 
         let value = match self
@@ -110,10 +107,7 @@ impl Connector for Webmail {
         {
             Ok(value) => value,
             Err(DevtoolsError::NoTab(_origins)) => {
-                return Ok(Reading {
-                    sign_in: SignInState::Unknown,
-                    items: Vec::new(),
-                });
+                return Ok(Reading::nothing(SignInState::Unknown));
             }
             Err(error) => return Err(error.into()),
         };
@@ -160,10 +154,7 @@ fn parse_page(value: &serde_json::Value) -> Result<Reading, ConnectorError> {
     let page: Page = serde_json::from_value(value.clone())
         .map_err(|error| ConnectorError::Unexpected(error.to_string()))?;
     if !page.signed_in {
-        return Ok(Reading {
-            sign_in: SignInState::SignedOut,
-            items: Vec::new(),
-        });
+        return Ok(Reading::nothing(SignInState::SignedOut));
     }
 
     let items = page
@@ -182,11 +173,13 @@ fn parse_page(value: &serde_json::Value) -> Result<Reading, ConnectorError> {
             body: truncate(&message.preview, PREVIEW_MAX_CHARACTERS),
             url: message.url,
             wants_attention: message.unread,
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
         })
         .collect();
     Ok(Reading {
         sign_in: SignInState::SignedIn,
         items,
+        state: None,
     })
 }
 
@@ -242,7 +235,7 @@ mod tests {
 
     #[test]
     fn gmail_reads_its_mailbox_and_knows_its_sign_in_page() {
-        let gmail = service(ConnectorKind::Gmail);
+        let gmail = service(ConnectorKind::Gmail).expect("Gmail is a webmail service");
         assert!(starts_with_any(
             "https://mail.google.com/mail/u/0/#inbox",
             gmail.mailbox_origins
@@ -292,8 +285,14 @@ mod tests {
     #[test]
     fn every_service_is_found_by_its_kind_and_stored_as_text_it_parses() {
         for row in &SERVICES {
-            assert_eq!(service(row.kind).kind, row.kind);
+            assert_eq!(service(row.kind).map(|found| found.kind), Some(row.kind));
             assert_eq!(ConnectorKind::parse(row.kind.as_str()), Some(row.kind));
+        }
+        for kind in [ConnectorKind::Outlook, ConnectorKind::Gmail] {
+            assert!(service(kind).is_some(), "{kind:?} has a webmail service");
+        }
+        for kind in ConnectorKind::MEETINGS {
+            assert!(service(kind).is_none(), "{kind:?} reads meetings, not mail");
         }
     }
 }

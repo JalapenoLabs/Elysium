@@ -25,9 +25,11 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Serialize, Serializer};
 use uuid::Uuid;
 
+use crate::connectors::ConnectorKind;
 use crate::crypto::{Cipher, OpenError};
 use crate::database::schema::{jira_credential_boards, jira_credential_projects, jira_credentials};
 use crate::jira::Account;
+use crate::models::connector::{self, AccountRef, NewConnector};
 
 /// The wildcard that stands for everything of a kind, including what is added later.
 const EVERYTHING: &str = "*";
@@ -475,6 +477,17 @@ pub async fn create(
                 .await?;
             replace_project_links(connection, id, &allowed.projects).await?;
             replace_board_links(connection, id, &allowed.boards).await?;
+            // Every Atlassian account carries its Jira connector, where its reading is shown,
+            // checked, and paused. See `crate::connectors`.
+            connector::create(
+                connection,
+                NewConnector::new(
+                    ConnectorKind::Jira.as_str(),
+                    AccountRef::Atlassian(id),
+                    new_credential.created_by,
+                ),
+            )
+            .await?;
             Ok(credential)
         })
         .await

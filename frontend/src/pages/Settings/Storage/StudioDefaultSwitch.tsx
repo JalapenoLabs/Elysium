@@ -58,10 +58,10 @@ export function StudioDefaultSwitch(props: Props) {
     isDisabled={isSaving}
     onChange={(isSelected) => void change(isSelected)}
   >
-    <Switch.Control>
-      <Switch.Thumb />
-    </Switch.Control>
     <Switch.Content>
+      <Switch.Control>
+        <Switch.Thumb />
+      </Switch.Control>
       <Label className='sr-only'>{t('table.studioDefaultToggle', { name: location.name })}</Label>
     </Switch.Content>
   </Switch>

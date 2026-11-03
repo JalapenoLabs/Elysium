@@ -1,0 +1,45 @@
+{
+  "title": "Meetings",
+  "description": "Elysium reads your recorded meetings as you, cuts each into its topics, and puts every topic on the timeline of the projects it is about, with its clip, transcript, and summary.",
+  "fireflies": {
+    "title": "Fireflies",
+    "connected": "Reading your Fireflies meetings. New ones arrive within ten minutes of Fireflies finishing them.",
+    "offer": "Connect your Fireflies account with your own API key. Nothing is installed into your organization.",
+    "disconnect": "Disconnect",
+    "disconnectedToast": "Fireflies is disconnected. Its meetings stay on your timeline.",
+    "connectedToast": "Fireflies is connected. Your meetings from the last two weeks are on their way."
+  },
+  "form": {
+    "heading": "Connect Fireflies",
+    "apiKey": "API key",
+    "apiKeyHint": "Fireflies, Settings, Developer settings: copy your API key. Elysium checks it with Fireflies before saving it, and never shows it again.",
+    "storageLocation": "Keep recordings in",
+    "storageLocationHint": "Recordings and their clips are saved here. Add a location under Settings, Storage first.",
+    "noStorageLocations": "No storage location yet. Add one under Settings, Storage, then come back.",
+    "refusedTitle": "Fireflies refused",
+    "connect": "Connect",
+    "errors": {
+      "apiKeyRequired": "Paste your Fireflies API key.",
+      "apiKeyTooLong": "That is longer than any Fireflies API key.",
+      "storageLocationRequired": "Choose where to keep recordings."
+    }
+  },
+  "list": {
+    "heading": "Recent meetings",
+    "empty": "No meetings yet. They appear here as Fireflies finishes them.",
+    "untitled": "Untitled meeting",
+    "segments_one": "{{count}} topic",
+    "segments_other": "{{count}} topics",
+    "noRecording": "Transcript only",
+    "retry": "Retry",
+    "retried": "Elysium will try this meeting again within a minute.",
+    "open": "Open at the source"
+  },
+  "states": {
+    "pending": "Reading",
+    "recorded": "Finding topics",
+    "segmented": "Cutting clips",
+    "done": "On the timeline",
+    "failed": "Failed"
+  }
+}

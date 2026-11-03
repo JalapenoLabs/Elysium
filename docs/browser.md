@@ -6,8 +6,8 @@ on the host afterwards, which keeps the session alive. Connectors then read and 
 Elysium uses each service as its user does and never installs anything into an organization.
 
 Today the API runs a browser per signed-in account and relays its stream, and the web app streams it to its owner
-under Settings, Browser sign-ins; Outlook and Gmail are read through it (`docs/connectors.md`). The facts below were
-verified against the pinned versions.
+under Settings, Browser sign-ins; Outlook, Gmail, Teams, and Slack are read through it (`docs/connectors.md`). The
+facts below were verified against the pinned versions.
 
 ## Neko
 
@@ -189,6 +189,19 @@ extension is installed, so the browser is a plain Chromium.
   browser, or the profile someone signed in on, that another deployment on the same Docker host created. The label
   is part of the spec hash, so a container without it is replaced to gain it. Two deployments still cannot both run
   browsers on one host: nginx's container name and the media ports are fixed.
+- **Starting over** opens the start page in a fresh tab over DevTools, then closes every page that was open before
+  it (never a service worker or other background target, and the new tab first, since Chromium exits when its last
+  window closes). The profile stays, so whatever the browser is signed in to stays signed in. It is the way out of a
+  sign-in that landed somewhere with nowhere to go, such as a provider's error page after its MFA was reset, and is
+  announced as `browserSession.startedOver`.
+- **Resetting** empties the profile and starts the browser again at its start page. Under Docker's lock it marks the
+  start page as owed, removes the container and the profile volume, and reports the browser `starting`; the network
+  stays, so nginx and the API stay joined to it. Then it brings the browser up as if new, and so would any reconcile
+  pass that got there first. The row, its port, and the connector reading through it stay; the connector reads
+  `signed_out` until the person signs in again. Removing the volume, rather than clearing data over DevTools, is
+  what makes the reset complete: Chromium's own clearing reaches cookies and site storage, but not service workers,
+  saved passwords, or whatever else a sign-in left in the profile, and it cannot repair a profile left half written.
+  An empty volume holds nothing.
 - **Status** is kept in memory and starts as `starting` when the API starts; the first pass sets it.
 - **Removing one** removes its container, network, and volume, then its row, in a task of its own so a request that
   is given up on does not stop it halfway, and holding Docker's lock throughout. A reconcile pass waiting for the
@@ -204,8 +217,10 @@ extension is installed, so the browser is a plain Chromium.
 ## The sign-in panel
 
 Settings, Browser sign-ins (`/settings/browsers`) lists the signed-in person's browsers with their status, and adds
-one from a preset (Outlook, Gmail) or any https page. Adding one goes straight to its page, which streams it once it
-is running. The client is `frontend/src/browser/`:
+one from a preset (Outlook, Gmail, Slack) or any https page. Adding one goes straight to its page, which streams it
+once it is running, offers to start reading it when a connector reads what it was started on (a mailbox, or Slack),
+and offers **Start over** (while it runs) and **Reset browser** (unless it is starting), the second behind a
+confirmation that it signs the browser out of everything. The client is `frontend/src/browser/`:
 
 - `NekoConnection` opens the stream route, answers Neko's offer, holds the WebRTC peer, and asks for control on
   connecting (Neko hosts implicitly, so the first viewer to ask gets the pointer and keyboard). It tracks the keys
@@ -218,6 +233,11 @@ is running. The client is `frontend/src/browser/`:
   The pointer is captured while a button is down, so a release outside the video still arrives, and whatever is
   held is released when the video loses focus or the capture. The remote pointer's shape arrives on the data
   channel as a PNG and becomes the element's CSS cursor.
+- A stream whose media never connects says so. Wherever the media ports are reachable the peer connects within a
+  few seconds; a firewall that drops them leaves ICE checking for half a minute or more. So when the peer fails
+  before it ever connected, or has not connected 20 seconds after opening (`MEDIA_CONNECT_TIMEOUT_MS`), the
+  connection ends as `unreachable`, and the panel names the likely cause, the media ports `59000-59007` over UDP and
+  TCP, beside Reconnect. A peer that connected and later failed is an ordinary disconnect.
 - `nekoInput` encodes the data channel's binary messages; its tests pin the byte layouts.
 
 Every client hears every browser's events, so the event stream keeps only the signed-in person's own browsers in

@@ -18,6 +18,13 @@ RUN apt-get update \
     python3 python3-venv ripgrep unzip util-linux xz-utils \
   && rm -rf /var/lib/apt/lists/*
 
+# ffmpeg: Elysium cuts meeting recordings into segment clips here (api/src/meetings/media.rs),
+# and agents use it for their own audio and video work. See docs/meetings.md.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/* \
+  && ffmpeg -version | head -n 1
+
 # Node is the web app's (frontend/.nvmrc), from nodejs.org, checked against its published sum.
 # The Workspace image check fails when the two drift.
 ARG NODE_VERSION=22.23.2

@@ -478,6 +478,10 @@ impl LinkFixture {
             database: self.database.clone(),
             events: self.events.clone(),
             links: self.links.clone(),
+            activity: crate::connectors::activity::Activity::new(
+                self.database.clone(),
+                self.events.clone(),
+            ),
         }
     }
 

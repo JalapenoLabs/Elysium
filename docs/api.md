@@ -21,11 +21,29 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/browser-sessions`            | `201` `{ browserSession }`, `starting`              |
 | GET    | `/api/v1/browser-sessions/{id}`       | `200` `{ browserSession }`                          |
 | DELETE | `/api/v1/browser-sessions/{id}`       | `204`; removes the container and its profile        |
+| POST   | `/api/v1/browser-sessions/{id}/start-over` | `204`; its start page in a fresh tab, other tabs closed, profile kept; `502` when Chromium does not answer |
+| POST   | `/api/v1/browser-sessions/{id}/reset` | `202` `{ browserSession }`, `starting`; empties its profile and starts it again |
 | GET    | `/api/v1/browser-sessions/{id}/stream` | WebSocket: the browser's signaling, see `docs/browser.md` |
-| GET    | `/api/v1/connectors`                  | `200` `{ connectors: ConnectorAccount[] }`, the caller's |
-| POST   | `/api/v1/connectors`                  | `201` `{ connector }`; reads a service through a browser |
+| GET    | `/api/v1/connectors`                  | `200` `{ connectors: Connector[] }`, those the caller sees |
+| POST   | `/api/v1/connectors`                  | `201` `{ connector }`; reads a service through a browser or with an API key |
+| GET    | `/api/v1/connectors/{id}`             | `200` `{ connector }`                                |
+| PATCH  | `/api/v1/connectors/{id}`             | `200` `{ connector }`; `isActive`, `content`, or both |
 | DELETE | `/api/v1/connectors/{id}`             | `204`; its records stay on the timeline             |
+| GET    | `/api/v1/connectors/kinds`            | `200` `{ kinds, accounts }`: every kind's definition |
+| GET    | `/api/v1/connectors/activity`         | `200` `{ runs }`: the newest syncs worth showing     |
+| POST   | `/api/v1/connectors/options`          | `200` `{ fields }`: what each selection field can pick from |
+| POST   | `/api/v1/connectors/checks`           | `202` `{ run }`: checks a connector not stored yet   |
+| GET    | `/api/v1/connectors/check-runs/{runId}` | `200` `{ run }`, to whoever started it             |
+| POST   | `/api/v1/connectors/{id}/checks`      | `202` `{ run }`: runs a stored connector's checks    |
+| POST   | `/api/v1/connectors/{id}/sync`        | `202`: reads it now; `409` when paused or already syncing |
+| GET    | `/api/v1/accounts`                    | `200` `{ accounts }`, with the connectors each feeds |
+| DELETE | `/api/v1/accounts/tokens/{id}`        | `204`; an API key's account and its connectors      |
+| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, the caller's 100 newest |
+| GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
+| POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; resumes a failed meeting, `404` for one that has not failed |
 | GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[] }`, the caller's, newest first |
+| GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`                                  |
+| GET    | `/api/v1/timeline/{id}/media`         | The record's clip, streamed from storage; `404` when it has none |
 | PUT    | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record }`; the caller attributes it to a project |
 | DELETE | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record }`                            |
 | GET    | `/api/v1/action-items`                | `200` `{ items: ActionItem[] }`, newest first       |
@@ -85,6 +103,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
 | PATCH  | `/api/v1/llms/{id}`                   | `200` `{ llm }`                                     |
 | DELETE | `/api/v1/llms/{id}`                   | `204`                                               |
+| POST   | `/api/v1/llms/claude-sign-ins`        | `201` `{ signIn: { id, authorizeUrl, expiresAt } }` |
+| POST   | `/api/v1/llms/claude-sign-ins/{id}`   | `201` (new) or `200` (signed in again) `{ llm }`    |
+| DELETE | `/api/v1/llms/claude-sign-ins/{id}`   | `204`                                               |
 | GET    | `/api/v1/mail/capabilities`           | `200` `{ capabilities }`                            |
 | GET    | `/api/v1/mail/server`                 | `200` `{ server }`                                  |
 | POST   | `/api/v1/mail/server`                 | `202` `{ server }`; starts creating the mail server |
@@ -216,10 +237,21 @@ history rather than failing.
 
 ### `/api/v1/llms`
 
-An `Llm` has `id`, `name`, `description`, `type`, `priority`, `isActive`, `expiresAt`, `createdAt`, and
-`updatedAt`. The secret token is never returned.
+An `Llm` has `id`, `name`, `description`, `type`, `priority`, `isActive`, `expiresAt`, `createdAt`, `updatedAt`, and
+`account`. The secret token is never returned.
 
-`type` is one of `chatgpt-oauth`, `chatgpt-api-token`, `claude-api-token`, or `claude-code-oauth`.
+`type` is one of `chatgpt-oauth`, `chatgpt-api-token`, `claude-api-token`, `claude-code-oauth`, or `claude-account`.
+
+`account` is `null` except for a `claude-account`, where it is `{ email, organizationName, subscriptionType,
+isSignedIn, accessTokenExpiresAt, lastRefreshedAt, lastRefreshError, usage, usageError }`. `usage` is
+`{ fiveHour, sevenDay, readAt }`, each window `{ utilization, resetsAt }` or `null`, `utilization` a percentage that can
+pass 100. No token is ever included.
+
+A `claude-account` is created only by signing in: `POST /llms/claude-sign-ins` starts the CLI's sign-in and answers the
+page to open; `POST /llms/claude-sign-ins/{id}` takes `{ code, name?, priority? }`, the code that page shows, and
+answers the credential, named after the account's email unless `name` is given. Both answer `404` for a sign-in that
+is not waiting or is someone else's, and `400` with the CLI's reason for a code it refused. `POST /llms` refuses the
+type, and `PATCH` refuses a `claude-account`'s `secretToken` or `expiresAt` and any change of type to or from it.
 
 `POST` requires `name`, `type`, and `secretToken`. It accepts optional `description` (default empty), `priority`
 (default 0, lower is tried first), `isActive` (default true), and `expiresAt`.
@@ -261,16 +293,32 @@ reaches now, or `null` to clear it. `collections` and `sync` answer `503` until 
 
 ### `/api/v1/connectors` and `/api/v1/timeline`
 
-A `ConnectorAccount` has `id`, `kind` (`outlook` or `gmail`), `browserSessionId`, `signInState` (`signed_in`, `signed_out`, or
-`unknown`), `lastPolledAt`, `lastError`, `isActive`, `createdBy`, `createdAt`, and `updatedAt`. `POST` requires
-`kind` and `browserSessionId`, answers `400` when the browser is not the caller's and `409` when it already has a
-connector.
+A `Connector` has `id`, `kind`, `scope` (`workspace` or `personal`), `account` (`{ id, kind, name }`), `status`
+(`active`, `syncing`, `error`, or `paused`), `isActive`, `signInState`, `lastSyncAt`, `lastError`, `records`, `content`
+(in its kind's terms; Jira's is its allowlist), `storageLocationId`, `checks` (each check's last result), `lastRun`,
+`createdBy`, and `createdAt`; a secret is never returned. `POST` and `POST /checks` take `{ kind, account, content }`,
+where `account` is `{ id }` for an account the caller has or `{ new: { ...its fields } }`: Jira and GitHub take a new
+account, a mailbox an existing browser, Fireflies either and a `storageLocationId`. A field a kind does not take is
+refused. Creating answers `400` for content or an account the kind cannot use or a secret its provider refuses, `404`
+for an account that is not the caller's, `409` (`account_has_connector`) for an Atlassian or GitHub account, which
+already carries its connector, or for an account that already feeds the kind, and `502` when the provider cannot be
+reached. Someone else's personal connector answers `404`. A `CheckRun` has `id`, `kind`, `connectorId`, `startedAt`,
+`finishedAt`, and `checks`, each `{ checkId, required, state, count, reason, message, blockedBy }`. See
+`docs/connectors.md`.
 
-A `TimelineRecord` has `id`, `sourceKind`, `connectorAccountId`, `externalId`, `occurredAt`, `actor`, `title`,
+An `Account` has `id`, `kind` (`atlassian`, `github`, `browser`, or `fireflies`), `name`, `identity`, `checkedAt`,
+`isDefault` (GitHub's workspace default), `createdBy`, `createdAt`, and `usedBy` (each `{ connectorId, kind }`).
+
+A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durationMs`, `organizer`,
+`participants`, `url`, `state` (`pending`, `recorded`, `segmented`, `done`, or `failed`), `attempts`, `lastError`,
+`hasRecording`, `segmentCount`, `createdAt`, and `updatedAt`. Its transcript is not served; its segments reach the
+timeline. See `docs/meetings.md`.
+
+A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
 attributedBy, createdAt }`), `createdBy`, and `createdAt`. `GET /timeline` takes `projectId`, `before` (an
-`occurredAt`, for the next page), and `limit` (1 to 200, default 50). Every route answers the record's owner alone.
-See `docs/connectors.md`.
+`occurredAt`, for the next page), and `limit` (1 to 200, default 50). `GET /timeline/{id}/media` streams the clip in
+`media.clip`, privately cached for good. Every route answers the record's owner alone. See `docs/connectors.md`.
 
 ### `/api/v1/mail`
 
@@ -608,7 +656,8 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/jira/`              | Jira Cloud's REST API and Atlassian Document Format |
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/browser/`           | The browsers the host streams: their containers, the reconciler, Neko's API, the stream relay, and the DevTools client |
-| `src/connectors/`        | The connector trait, the webmail connector and its page scripts, and the ingest loop |
+| `src/connectors/`        | Accounts, kinds and their checks, sync activity, the webmail reader and its page scripts, and the ingest loop |
+| `src/meetings/`          | Meeting sources (Fireflies), the listing and processing loop, segmentation, and clips cut with `ffmpeg` |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
 | `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), the link watcher, and changesets' operations, dependencies, and decisions |

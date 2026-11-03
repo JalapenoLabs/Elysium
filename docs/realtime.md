@@ -29,6 +29,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `changeset.upserted` | `Changeset`              | A changeset was proposed, decided on, applied, or undone   |
 | `llm.upserted`       | `Llm`                    | An LLM credential was created or changed                   |
 | `llm.deleted`        | `{ id }`                 | An LLM credential was deleted                              |
+| `llm.usage`          | `{ id, usage }`          | A Claude account's usage changed; numbers and instants only |
 | `mailbox.upserted`   | `MailAccount`            | A mailbox was connected, changed, or checked               |
 | `mailbox.deleted`    | `{ id }`                 | A mailbox was disconnected                                 |
 | `mailServer.updated` | `MailServer`             | The mail server's state changed, including each creation step |
@@ -36,9 +37,12 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `mailDomain.deleted` | `{ id }`                 | A domain was removed                                       |
 | `browserSession.upserted` | `BrowserSession` | A browser was added, or began starting, running, or failing |
 | `browserSession.deleted`  | `{ id }`         | A browser and its profile were removed                     |
-| `connectorAccount.upserted` | `ConnectorAccount` | A connector account was added, or a read changed its sign-in state or error |
-| `connectorAccount.deleted`  | `{ id }`         | A connector account was removed                            |
+| `browserSession.startedOver` | `{ id, createdBy }` | A browser went back to its start page, other tabs closed, profile kept |
+| `connector.changed`      | `{ id }`         | A connector was added or changed: paused, content, a sync, a read, its checks; load it by id or error |
+| `connector.deleted`      | `{ id }`         | A connector, or the account it read through, was removed   |
+| `connectorCheckRun.updated` | `{ runId, connectorId, checkId, state }` | A check in a run moved on, or the run ended (`checkId` null, `state` `finished`); load the run for its messages |
 | `timelineRecord.created` | `{ id, sourceKind, createdBy, actionItemId }` | Something was ingested; never its content, see `docs/connectors.md` |
+| `meeting.changed`        | `{ id, state, createdBy }` | A meeting was read or its processing moved on; never its title or transcript, see `docs/meetings.md` |
 | `project.upserted`   | `Project`                | A project was created or changed                           |
 | `project.deleted`    | `{ id }`                 | A project was deleted                                      |
 | `elysia.updated`     | `Elysia`                 | Her status, settings, open questions, or work changed     |

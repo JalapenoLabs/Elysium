@@ -76,8 +76,8 @@ router itself refusing every workspace route without a session. Plain `cargo tes
 | `id`                     | `UUID`        | UUIDv7, primary key                                                           |
 | `name`                   | `TEXT`        | 1 to 120 characters, unique                                                   |
 | `description`            | `TEXT`        | Up to 2000 characters, defaults to empty                                      |
-| `type`                   | `llm_type`    | `chatgpt_oauth`, `chatgpt_api_token`, `claude_api_token`, `claude_code_oauth` |
-| `secret_token_encrypted` | `BYTEA`       | Sealed envelope, see `docs/secrets.md`                                        |
+| `type`                   | `llm_type`    | `chatgpt_oauth`, `chatgpt_api_token`, `claude_api_token`, `claude_code_oauth`, `claude_account` |
+| `secret_token_encrypted` | `BYTEA`       | Sealed envelope, see `docs/secrets.md`; a `claude_account`'s current access token |
 | `priority`               | `INTEGER`     | Lower is tried first, defaults to 0                                           |
 | `is_active`              | `BOOLEAN`     | Defaults to true                                                              |
 | `expires_at`             | `TIMESTAMPTZ` | Optional; null means no expiry                                                |
@@ -86,6 +86,28 @@ router itself refusing every workspace route without a session. Plain `cargo tes
 
 The partial index `llms_active_priority_idx` on `(priority, created_at) WHERE is_active` serves the lookup for
 active credentials in priority order.
+
+### `claude_accounts`
+
+What keeps a `claude_account` credential signed in, one row per credential, deleted with it. See `docs/coding.md`,
+Claude accounts. It extends one `llms` row rather than standing on its own, so it has no `created_by` of its own.
+
+| Column                     | Type               | Notes                                                              |
+|----------------------------|--------------------|--------------------------------------------------------------------|
+| `llm_id`                   | `UUID`             | Primary key, references `llms` on delete cascade                   |
+| `account_uuid`             | `UUID`             | Anthropic's account id, unique: signing it in again replaces tokens |
+| `email`                    | `TEXT`             | 1 to 320 characters                                                |
+| `organization_uuid`, `organization_name` | `UUID`, `TEXT` | Optional, as the profile reports them                     |
+| `subscription_type`        | `TEXT`             | Optional, such as `max`                                            |
+| `refresh_token_encrypted`  | `BYTEA`            | Sealed envelope, see `docs/secrets.md`                             |
+| `access_token_expires_at`  | `TIMESTAMPTZ`      | When the access token on the credential lapses                     |
+| `refresh_token_expires_at` | `TIMESTAMPTZ`      | Optional; null when Anthropic did not say                          |
+| `sign_in_state`            | `TEXT`             | `signed_in` or `expired`; only a new sign-in clears `expired`      |
+| `last_refreshed_at`, `last_refresh_error` | `TIMESTAMPTZ`, `TEXT` | The last refresh, and why the last one failed            |
+| `five_hour_utilization`, `seven_day_utilization` | `DOUBLE PRECISION` | Latest usage, as a percentage from 0              |
+| `five_hour_resets_at`, `seven_day_resets_at` | `TIMESTAMPTZ` | When each window resets                                     |
+| `usage_read_at`, `usage_error` | `TIMESTAMPTZ`, `TEXT` | The last usage read, and why the last one failed               |
+| `created_at`, `updated_at` | `TIMESTAMPTZ`      | `updated_at` maintained by trigger                                 |
 
 ### `mail_accounts`
 
@@ -140,33 +162,85 @@ Each belongs to the person who created it and answers nobody else.
 | `created_by`                | `UUID`        | References `users`; the browser's owner, indexed                |
 | `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
 
-### `connector_accounts`
+### `token_accounts`
 
-Services Elysium reads through one of a person's browsers; see `docs/connectors.md`.
+A person's accounts whose whole sign-in is one API key, such as Fireflies and YouTrack; see `docs/connectors.md`.
 
 | Column                      | Type          | Notes                                                           |
 |-----------------------------|---------------|-----------------------------------------------------------------|
 | `id`                        | `UUID`        | UUIDv7, primary key                                             |
-| `kind`                      | `TEXT`        | The connector, such as `outlook`                                |
-| `browser_session_id`        | `UUID`        | Unique; references `browser_sessions`, cascading                |
+| `kind`                      | `TEXT`        | The provider, such as `fireflies` or `youtrack`                 |
+| `site_url`                  | `TEXT`        | The instance the key was issued on, an https origin; required for `youtrack`, absent for a provider with one fixed host |
+| `name`                      | `TEXT`        | 1 to 120 characters                                             |
+| `credential_encrypted`      | `BYTEA`       | The sealed key, bound to the row's id, see `docs/secrets.md`    |
+| `identity`                  | `TEXT`        | Who the provider said the key belongs to; at most 512 characters |
+| `checked_at`                | `TIMESTAMPTZ` | When the provider last confirmed the key                        |
+| `created_by`                | `UUID`        | References `users`; the account's owner                         |
+| `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
+
+### `connectors`
+
+One use of one account, reading a service as its person; see `docs/connectors.md` and `docs/meetings.md`. Exactly one
+of the four account columns is set (`connectors_one_account`), and each is unique together with `kind`, so an account
+feeds each kind once.
+
+| Column                      | Type          | Notes                                                           |
+|-----------------------------|---------------|-----------------------------------------------------------------|
+| `id`                        | `UUID`        | UUIDv7, primary key                                             |
+| `kind`                      | `TEXT`        | The kind, such as `jira`, `outlook`, or `fireflies`             |
+| `browser_session_id`        | `UUID`        | References `browser_sessions`, cascading: a mailbox's browser   |
+| `token_account_id`          | `UUID`        | References `token_accounts`, cascading: a meeting source's key  |
+| `jira_credential_id`        | `UUID`        | References `jira_credentials`, cascading: Jira's Atlassian account |
+| `github_credential_id`      | `UUID`        | References `github_credentials`, cascading: GitHub's account    |
+| `content`                   | `JSONB`       | What it reads, in its kind's terms, for a kind without a table of its own |
+| `storage_location_id`       | `UUID`        | References `storage_locations`: where it keeps files, such as meeting recordings |
 | `sign_in_state`             | `TEXT`        | `signed_in`, `signed_out`, or `unknown`, as last read           |
-| `cursor`                    | `JSONB`       | Where the last read left off, in the connector's terms          |
+| `cursor`                    | `JSONB`       | Where the last read left off, in the kind's terms               |
 | `last_polled_at`            | `TIMESTAMPTZ` | When it was last read                                           |
 | `last_error`                | `TEXT`        | Why the last read failed, or `NULL`                             |
-| `is_active`                 | `BOOLEAN`     | Read by the ingest loop when true                               |
-| `created_by`                | `UUID`        | References `users`; the browser's owner                         |
+| `is_active`                 | `BOOLEAN`     | False while paused                                              |
+| `created_by`                | `UUID`        | References `users`; its creator                                 |
 | `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
+
+### `connector_check_results`
+
+The last result of each of a connector's checks. Primary key `(connector_id, check_id)`; cascades with the connector.
+
+| Column         | Type          | Notes                                                           |
+|----------------|---------------|-----------------------------------------------------------------|
+| `connector_id` | `UUID`        | References `connectors`                                         |
+| `check_id`     | `TEXT`        | The check, as its kind names it, such as `sign_in`              |
+| `state`        | `TEXT`        | `passed`, `failed`, or `skipped`                                |
+| `count`        | `BIGINT`      | How many it found, for a check that counts                      |
+| `reason`       | `TEXT`        | Why, in Elysium's own terms, such as `no_messages`              |
+| `message`      | `TEXT`        | What the provider said; at most 2048 characters                 |
+| `blocked_by`   | `TEXT`        | The check it waited on, when skipped because that one did not pass |
+| `ran_at`       | `TIMESTAMPTZ` | When it ran                                                     |
+
+### `connector_runs`
+
+Syncs worth showing: those that recorded something, and those that failed. Each connector keeps its newest 50;
+indexed by connector and by start time.
+
+| Column         | Type          | Notes                                                           |
+|----------------|---------------|-----------------------------------------------------------------|
+| `id`           | `UUID`        | UUIDv7, primary key                                             |
+| `connector_id` | `UUID`        | References `connectors`, cascading                              |
+| `started_at`, `finished_at` | `TIMESTAMPTZ` | When it ran                                        |
+| `outcome`      | `TEXT`        | `succeeded` or `failed`                                         |
+| `records`      | `INTEGER`     | How many things it recorded: records, meetings, or linked changes |
+| `error`        | `TEXT`        | Why it failed; at most 2048 characters                          |
 
 ### `timeline_records`
 
-Everything ingested, newest first by `occurred_at` (indexed). Unique on `(connector_account_id, external_id)`, so an
-item is recorded once per account.
+Everything ingested, newest first by `occurred_at` (indexed). Unique on `(connector_id, external_id)`, so an
+item is recorded once per connector.
 
 | Column                 | Type          | Notes                                                                   |
 |------------------------|---------------|-------------------------------------------------------------------------|
 | `id`                   | `UUID`        | UUIDv7, primary key                                                     |
 | `source_kind`          | `TEXT`        | What it is, such as `outlook` or `meeting`                              |
-| `connector_account_id` | `UUID`        | References `connector_accounts`; set to `NULL` when the account goes    |
+| `connector_id`         | `UUID`        | References `connectors`; set to `NULL` when the connector goes          |
 | `external_id`          | `TEXT`        | The provider's id, at most 1024 characters                              |
 | `occurred_at`          | `TIMESTAMPTZ` | When it happened, or when it was read                                   |
 | `actor`                | `TEXT`        | Who it came from, as the provider shows them                            |
@@ -189,6 +263,35 @@ Which projects a record is about. Primary key `(timeline_record_id, project_id)`
 | `confidence`         | `REAL`        | 0 to 1; a person's attribution is 1                         |
 | `attributed_by`      | `TEXT`        | The actor, as history writes it (`user:<id>`, `elysia`)     |
 | `created_at`         | `TIMESTAMPTZ` | Set on insert                                               |
+
+### `meetings`
+
+Meetings read from a meeting source, and how far each one's processing got; see `docs/meetings.md`. Unique on
+`(connector_id, external_id)`; unfinished meetings are indexed for the processing loop. `recording_path` and
+`storage_location_id` are set together (`meetings_recording_fields`).
+
+| Column                   | Type          | Notes                                                                   |
+|--------------------------|---------------|-------------------------------------------------------------------------|
+| `id`                     | `UUID`        | UUIDv7, primary key                                                     |
+| `connector_id`           | `UUID`        | References `connectors`; set to `NULL` when the connector goes          |
+| `source_kind`            | `TEXT`        | The source, such as `fireflies`                                         |
+| `external_id`            | `TEXT`        | The source's id, at most 1024 characters                                |
+| `title`                  | `TEXT`        | At most 2048 characters                                                 |
+| `started_at`             | `TIMESTAMPTZ` | When it started                                                         |
+| `duration_ms`            | `BIGINT`      | How long it ran, when the source says                                   |
+| `organizer`              | `TEXT`        | Who organized it, as the source shows them                              |
+| `participants`           | `JSONB`       | An array of strings                                                     |
+| `url`                    | `TEXT`        | Its page at the source                                                  |
+| `transcript`             | `JSONB`       | An array of `{ startMs, endMs, speaker, text }`                         |
+| `storage_location_id`    | `UUID`        | References `storage_locations`: where its recording is kept             |
+| `recording_path`         | `TEXT`        | The recording's path there; `NULL` when there is none                   |
+| `recording_content_type` | `TEXT`        | The recording's media type                                              |
+| `segments`               | `JSONB`       | Elysia's topic segments; `NULL` until she has read it                   |
+| `state`                  | `TEXT`        | `pending`, `recorded`, `segmented`, `done`, or `failed`                 |
+| `attempts`               | `INTEGER`     | How many times its current step failed                                  |
+| `last_error`             | `TEXT`        | Why the last attempt failed, or `NULL`                                  |
+| `created_by`             | `UUID`        | References `users`; whose meeting it is                                 |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
 
 ### `mail_servers`
 

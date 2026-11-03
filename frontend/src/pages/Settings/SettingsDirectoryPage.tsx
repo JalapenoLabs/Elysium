@@ -11,16 +11,15 @@ import { useAppSelector } from '../../store/hooks'
 import {
   LuAppWindow,
   LuBot,
-  LuGithub,
   LuHardDrive,
   LuKeyRound,
   LuMail,
   LuPlug,
   LuRefreshCw,
   LuShieldCheck,
-  LuSquareKanban,
   LuUser,
   LuVariable,
+  LuVideo,
 } from 'react-icons/lu'
 import { SettingsDirectoryItem } from './SettingsDirectoryItem'
 import { UsersDirectoryItem } from './UsersDirectoryItem'
@@ -64,6 +63,12 @@ export function SettingsDirectoryPage() {
           description={t('items.connectedApps.description')}
           href={UrlTree.settingsConnectedApps}
         />
+        <SettingsDirectoryItem
+          icon={LuVideo}
+          title={t('items.meetings.title')}
+          description={t('items.meetings.description')}
+          href={UrlTree.settingsMeetings}
+        />
       </div>
     </section>
     <section className='relaxed pt-6'>
@@ -85,16 +90,10 @@ export function SettingsDirectoryPage() {
           href={UrlTree.settingsEmail}
         />
         <SettingsDirectoryItem
-          icon={LuGithub}
-          title={t('items.github.title')}
-          description={t('items.github.description')}
-          href={UrlTree.settingsGithub}
-        />
-        <SettingsDirectoryItem
-          icon={LuSquareKanban}
-          title={t('items.jira.title')}
-          description={t('items.jira.description')}
-          href={UrlTree.settingsJira}
+          icon={LuPlug}
+          title={t('items.connectors.title')}
+          description={t('items.connectors.description')}
+          href={UrlTree.settingsConnectors}
         />
         <SettingsDirectoryItem
           icon={LuHardDrive}

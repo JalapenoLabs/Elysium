@@ -32,13 +32,12 @@ use crate::routes::v1::action_items::{
 use crate::routes::v1::browser_sessions::BrowserSessionResponse;
 use crate::routes::v1::changesets::ChangesetResponse;
 use crate::routes::v1::coding_sessions::CodingSessionResponse;
-use crate::routes::v1::connectors::ConnectorAccountResponse;
 use crate::routes::v1::elysia::{ElysiaResponse, MessageResponse, TurnResponse};
 use crate::routes::v1::environment_variables::EnvironmentVariableResponse;
 use crate::routes::v1::github_credentials::GithubCredentialResponse;
 use crate::routes::v1::initiatives::{InitiativeLinkResponse, InitiativeResponse};
 use crate::routes::v1::jira_credentials::JiraCredentialResponse;
-use crate::routes::v1::llms::LlmResponse;
+use crate::routes::v1::llms::{LlmResponse, UsageView};
 use crate::routes::v1::mail::{MailAccountResponse, MailDomainResponse};
 use crate::routes::v1::password_vault::PasswordVaultResponse;
 use crate::routes::v1::projects::ProjectResponse;
@@ -91,11 +90,27 @@ pub enum ServerEvent {
     BrowserSessionUpserted(BrowserSessionResponse),
     #[serde(rename = "browserSession.deleted")]
     BrowserSessionDeleted { id: Uuid },
-    /// A connector account was added, or what its last read found about signing in changed.
-    #[serde(rename = "connectorAccount.upserted")]
-    ConnectorAccountUpserted(ConnectorAccountResponse),
-    #[serde(rename = "connectorAccount.deleted")]
-    ConnectorAccountDeleted { id: Uuid },
+    /// A browser went back to its start page in a fresh tab, its other pages closed and its
+    /// profile kept. Its status is unchanged, so this is its only announcement.
+    #[serde(rename = "browserSession.startedOver")]
+    BrowserSessionStartedOver { id: Uuid, created_by: Uuid },
+    /// A connector was added or changed: paused, resumed, its content, a sync starting or
+    /// ending, a read finding something new, or its checks. Its id alone, since its view names
+    /// whose mailbox or meetings it reads; clients that may see it load it by id.
+    #[serde(rename = "connector.changed")]
+    ConnectorChanged { id: Uuid },
+    #[serde(rename = "connector.deleted")]
+    ConnectorDeleted { id: Uuid },
+    /// A check in a run moved on, or (`checkId` null, `state` `finished`) the run ended. Ids and
+    /// states only: a check's message can name what an account reaches, and the run answers the
+    /// person who started it.
+    #[serde(rename = "connectorCheckRun.updated")]
+    ConnectorCheckRunUpdated {
+        run_id: Uuid,
+        connector_id: Option<Uuid>,
+        check_id: Option<String>,
+        state: String,
+    },
     /// Something was ingested onto someone's timeline. Never its content: every client hears
     /// this, and a person's mail is theirs. Its owner's pages and Elysia load it by id.
     #[serde(rename = "timelineRecord.created")]
@@ -105,6 +120,15 @@ pub enum ServerEvent {
         created_by: Uuid,
         /// The inbox item it raised, when it raised one.
         action_item_id: Option<Uuid>,
+    },
+    /// A meeting was read, or its processing moved on. Never its title or transcript, for
+    /// the same reason as a record's content; its owner's pages load it by id.
+    #[serde(rename = "meeting.changed")]
+    MeetingChanged {
+        id: Uuid,
+        /// `pending`, `recorded`, `segmented`, `done`, or `failed`.
+        state: String,
+        created_by: Uuid,
     },
     /// A write to an item or initiative recorded this in its history.
     #[serde(rename = "history.appended")]
@@ -143,6 +167,9 @@ pub enum ServerEvent {
     LlmUpserted(LlmResponse),
     #[serde(rename = "llm.deleted")]
     LlmDeleted { id: Uuid },
+    /// A Claude account's usage changed. Numbers and instants only, never who the account is.
+    #[serde(rename = "llm.usage")]
+    LlmUsage { id: Uuid, usage: UsageView },
     #[serde(rename = "mailbox.upserted")]
     MailAccountUpserted(MailAccountResponse),
     #[serde(rename = "mailbox.deleted")]

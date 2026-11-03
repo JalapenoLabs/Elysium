@@ -12,7 +12,7 @@ import { authSlice } from './authSlice'
 import { browserSessionsSlice } from './browserSessionsSlice'
 import { changesetsSlice } from './changesetsSlice'
 import { codingSessionsSlice } from './codingSessionsSlice'
-import { connectorAccountsSlice } from './connectorAccountsSlice'
+import { connectorsSlice } from './connectorsSlice'
 import { elysiaSlice } from './elysiaSlice'
 import { environmentVariablesSlice } from './environmentVariablesSlice'
 import { githubCredentialsSlice } from './githubCredentialsSlice'
@@ -23,6 +23,7 @@ import { llmsSlice } from './llmsSlice'
 import { mailAccountsSlice } from './mailAccountsSlice'
 import { mailDomainsSlice } from './mailDomainsSlice'
 import { mailServerSlice } from './mailServerSlice'
+import { meetingsSlice } from './meetingsSlice'
 import { projectsSlice } from './projectsSlice'
 import { passwordVaultSlice } from './passwordVaultSlice'
 import { realtimeSlice } from './realtimeSlice'
@@ -33,6 +34,7 @@ import { studioAssetsSlice } from './studioAssetsSlice'
 import { studioFeedbackSlice } from './studioFeedbackSlice'
 import { studioItemsSlice } from './studioItemsSlice'
 import { themeSlice } from './themeSlice'
+import { timelineRecordsSlice } from './timelineRecordsSlice'
 import { updatesSlice } from './updatesSlice'
 import { usersSlice } from './usersSlice'
 import { workspaceSettingsSlice } from './workspaceSettingsSlice'
@@ -56,7 +58,7 @@ export function createAppStore() {
       [browserSessionsSlice.name]: browserSessionsSlice.reducer,
       [changesetsSlice.name]: changesetsSlice.reducer,
       [codingSessionsSlice.name]: codingSessionsSlice.reducer,
-      [connectorAccountsSlice.name]: connectorAccountsSlice.reducer,
+      [connectorsSlice.name]: connectorsSlice.reducer,
       [elysiaSlice.name]: elysiaSlice.reducer,
       [environmentVariablesSlice.name]: environmentVariablesSlice.reducer,
       [githubCredentialsSlice.name]: githubCredentialsSlice.reducer,
@@ -67,6 +69,7 @@ export function createAppStore() {
       [mailAccountsSlice.name]: mailAccountsSlice.reducer,
       [mailDomainsSlice.name]: mailDomainsSlice.reducer,
       [mailServerSlice.name]: mailServerSlice.reducer,
+      [meetingsSlice.name]: meetingsSlice.reducer,
       [projectsSlice.name]: projectsSlice.reducer,
       [realtimeSlice.name]: realtimeSlice.reducer,
       [sessionEventsSlice.name]: sessionEventsSlice.reducer,
@@ -77,6 +80,7 @@ export function createAppStore() {
       [studioFeedbackSlice.name]: studioFeedbackSlice.reducer,
       [studioItemsSlice.name]: studioItemsSlice.reducer,
       [themeSlice.name]: themeSlice.reducer,
+      [timelineRecordsSlice.name]: timelineRecordsSlice.reducer,
       [updatesSlice.name]: updatesSlice.reducer,
       [usersSlice.name]: usersSlice.reducer,
       [workspaceSettingsSlice.name]: workspaceSettingsSlice.reducer,
