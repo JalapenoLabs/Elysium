@@ -33,5 +33,12 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: [ './src/testSetup.ts' ],
+    // SWR keeps its cache in module scope. Inlined, it is loaded like source, so a test that
+    // calls `vi.resetModules` gets a fresh cache, as a page load does (`src/bugs/67.test.tsx`).
+    server: {
+      deps: {
+        inline: [ 'swr' ],
+      },
+    },
   },
 })

@@ -98,7 +98,11 @@ own location with buffering off and a one-hour read timeout.
 
 Delivery is at most once. Nothing is stored or replayed, and the stream carries no event ids.
 
-- A client that connects or reconnects receives `hello` and refetches everything it shows.
+- Every connection begins with `hello`, sent once the stream has subscribed to the bus. The server subscribes before
+  it answers, so anything a client reads after the stream opened is covered by it.
+- A client subscribes before it reads: on a page load the workspace reads nothing until its stream has opened, so the
+  first `hello` has nothing to refetch. A client that reconnects, or whose stream failed before it first opened,
+  refetches everything it shows on `hello`.
 - A client more than 4096 events behind receives `resync` in place of what it missed, and refetches.
 - A `session.event` is recorded before it is published, so a client that refetches a session's history after one
   always finds it.
@@ -117,11 +121,18 @@ from the next process.
 `frontend/src/realtime/eventStream.ts` opens the one `EventSource` at startup, outside React, and dispatches each
 envelope into Redux through a lookup table typed against `ServerEvent` (`src/realtime/serverEvents.ts`).
 
-- `hello` and `resync` revalidate every SWR key a mounted component holds; the loaders put the responses in
-  Redux. Data no component shows is fetched when one mounts. `session.resync` revalidates that session's history.
+- `AuthGate` opens the stream once `/api/v1/me` says the person may use the workspace, and holds the workspace back
+  while the stream is `connecting`: until it opens, or fails, in which case the workspace loads without it. `/me`
+  itself is read before the stream exists; a change to the person's access in between is caught by the stream's own
+  access check, which closes it.
+- `resync`, and `hello` on any connection but a page load's first, revalidate every SWR key a mounted component
+  holds; the loaders put the responses in Redux. Data no component shows is fetched when one mounts.
+  `session.resync` revalidates that session's history.
 - Browsers retry a dropped stream by themselves, but give up after an HTTP error response such as a 502 while the
   API restarts. The module then reopens the stream, backing off from 1 to 30 seconds.
-- `realtimeSlice` tracks the connection. The topbar dot is green when connected and amber while reconnecting.
+- `realtimeSlice` tracks the connection: `connecting` until a stream first opens or fails, and again after it is
+  stopped. The topbar dot is green when connected and amber while reconnecting.
+- `src/bugs/67.test.tsx` holds a page load to one read of each thing, and proves a reconnection still refetches.
 
 ## Adding an event
 

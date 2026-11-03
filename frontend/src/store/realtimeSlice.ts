@@ -5,8 +5,9 @@ import type { RootState } from './index'
 // Core
 import { createSlice } from '@reduxjs/toolkit'
 
-// `connecting` is the first attempt; `reconnecting` means updates stopped arriving
-// and what is on screen may be stale until the stream is back.
+// `connecting` is the first attempt, before the stream has opened or failed; `AuthGate` holds
+// the workspace back while it lasts. `reconnecting` means updates stopped arriving and what is
+// on screen may be stale until the stream is back.
 export type EventStreamConnection = 'connecting' | 'open' | 'reconnecting'
 
 type RealtimeState = {
@@ -27,10 +28,15 @@ export const realtimeSlice = createSlice({
     eventStreamLost(state) {
       state.connection = 'reconnecting'
     },
+    // A stopped stream's next start is a first attempt again, so a workspace shown after it
+    // waits for the new stream rather than reading on the old one's state.
+    eventStreamStopped(state) {
+      state.connection = 'connecting'
+    },
   },
 })
 
-export const { eventStreamOpened, eventStreamLost } = realtimeSlice.actions
+export const { eventStreamOpened, eventStreamLost, eventStreamStopped } = realtimeSlice.actions
 
 export function selectEventStreamConnection(state: RootState) {
   return state.realtime.connection

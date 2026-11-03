@@ -37,7 +37,7 @@ import {
   passwordVaultUpdated,
 } from '../store/passwordVaultSlice'
 import { projectDeleted, projectUpserted } from '../store/projectsSlice'
-import { eventStreamLost, eventStreamOpened } from '../store/realtimeSlice'
+import { eventStreamLost, eventStreamOpened, eventStreamStopped } from '../store/realtimeSlice'
 import { sessionEventReceived, turnSummaryReceived } from '../store/sessionEventsSlice'
 import { storageLocationDeleted, storageLocationUpserted } from '../store/storageLocationsSlice'
 import { studioAssetCreated } from '../store/studioAssetsSlice'
@@ -65,15 +65,27 @@ type Handlers = {
 }
 
 // Refetches everything on screen: every SWR key a mounted component holds, whose
-// loaders put the responses in Redux (`src/hooks/useServerData.ts`). Runs on every
-// (re)connection, because events sent while disconnected are gone for good. Data no
-// component shows is refetched when one mounts.
+// loaders put the responses in Redux (`src/hooks/useServerData.ts`). Data no component
+// shows is refetched when one mounts.
 function reloadEverything() {
   void mutate(() => true)
 }
 
+// Whether the next `hello` reloads what is on screen. Events sent while no stream listened are
+// gone for good, so it does after any failure: a dropped stream missed what was sent while it
+// was down, and one that failed before it first opened let `AuthGate` show the workspace
+// unsubscribed. A run's first connection needs no reload: `AuthGate` holds the workspace back
+// until the stream opens, and the server subscribes before it answers, so everything on screen
+// was read after the subscription.
+let mustReloadOnHello = true
+
 const handlers: Handlers = {
-  'hello': () => reloadEverything(),
+  'hello': () => {
+    if (mustReloadOnHello) {
+      reloadEverything()
+    }
+    mustReloadOnHello = true
+  },
   'resync': () => reloadEverything(),
   'actionItem.upserted': (event) => store.dispatch(actionItemUpserted(event.data)),
   // The event carries only the id, so the deleted list and the item's own page reload, each
@@ -260,6 +272,7 @@ export function startEventStream() {
   }
 
   let retryDelay = EVENT_STREAM_RETRY_INITIAL_MS
+  mustReloadOnHello = false
 
   function open() {
     const opened = new EventSource(EVENT_STREAM_PATH)
@@ -273,6 +286,7 @@ export function startEventStream() {
     opened.addEventListener('message', (message) => dispatchServerEvent(message.data))
 
     opened.addEventListener('error', () => {
+      mustReloadOnHello = true
       store.dispatch(eventStreamLost())
       if (opened.readyState !== EventSource.CLOSED || source !== opened) {
         return
@@ -292,4 +306,5 @@ export function stopEventStream() {
   window.clearTimeout(reopenTimer)
   source?.close()
   source = null
+  store.dispatch(eventStreamStopped())
 }

@@ -9,6 +9,7 @@ import useSWR from 'swr'
 // Redux
 import { meLoaded, selectAccessRefusal, selectMe } from '../store/authSlice'
 import { useAppDispatch, useAppSelector } from '../store/hooks'
+import { selectEventStreamConnection } from '../store/realtimeSlice'
 
 // User interface
 import { Button, Spinner } from '@heroui/react'
@@ -24,13 +25,17 @@ import { getLoginUrl, UrlTree } from '../urls'
 // changed lands a refusal in Redux (`src/api/index.ts`), and this routes on it the same way.
 //
 // The event stream opens here, once the person may use the workspace, and closes when they no
-// longer may.
+// longer may. The workspace waits for it to open before reading anything, so nothing on screen
+// is read before the stream subscribed and its first `hello` has nothing to reload
+// (`src/realtime/eventStream.ts`). A stream that fails rather than opening lets the workspace
+// through all the same, and its eventual `hello` reloads what was read meanwhile.
 export function AuthGate() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const dispatch = useAppDispatch()
   const location = useLocation()
   const me = useAppSelector(selectMe)
   const refusal = useAppSelector(selectAccessRefusal)
+  const connection = useAppSelector(selectEventStreamConnection)
 
   const { error, mutate } = useSWR('v1/me', async () => {
     const response = await getMe()
@@ -83,6 +88,12 @@ export function AuthGate() {
   // The security page is the one place someone who must set up an authenticator may be.
   if (mustEnroll && !isOnSecurityPage) {
     return <Navigate to={UrlTree.settingsSecurity} replace />
+  }
+
+  if (hasAccess && connection === 'connecting') {
+    return <div className='grid h-dvh place-items-center'>
+      <Spinner />
+    </div>
   }
 
   return <Outlet />

@@ -628,8 +628,10 @@ Server collections use entity adapters. Redux is the source of truth components 
 2. **Redux holds it.** The loader puts the response in Redux (`llmsLoaded`, `sessionHistoryLoaded`, ...).
    Loaders return only `loading`, `loaded`, or `failed`; components select the data itself from Redux. Once
    `loaded`, a refetch never drops a view back to a spinner.
-3. **The event stream keeps it current.** Every change the API announces is dispatched into Redux. On `hello` and
-   `resync` the stream revalidates every mounted SWR key, closing the gap from while it was disconnected.
+3. **The event stream keeps it current.** Every change the API announces is dispatched into Redux. The stream
+   subscribes before the workspace reads anything (`AuthGate` waits for it to open), so a page load reads each key
+   once. On a reconnection's `hello` and on `resync` the stream revalidates every mounted SWR key, closing the gap
+   from while it was disconnected. See `docs/realtime.md`, Frontend.
 
 Collection loaders dispatch from inside the fetcher, so only a fresh network response replaces a collection;
 SWR's buffered copy predates the stream's updates and must not roll Redux back. History merges by sequence
@@ -776,7 +778,9 @@ The compose frontend image installs `node_modules` at build time. After changing
 Tests are Vitest, beside the file they test (`nextOrder.ts` and `nextOrder.test.ts`), configured in
 `vite.config.ts`. They run in jsdom; `src/testSetup.ts` loads the en-US translations, stands in for media queries, and
 unmounts rendered components after each test. `src/testFixtures.ts` builds records as the API sends them. Slices and
-selectors are tested against a fresh store from `createAppStore()`. Pure helpers, slices, selectors, and small
+selectors are tested against a fresh store from `createAppStore()`. A test that plays a whole page load calls
+`vi.resetModules()` for fresh singletons; SWR is inlined for tests (`vite.config.ts`) so its cache resets with them.
+Pure helpers, slices, selectors, and small
 components are tested; pages are checked in the running app.
 
 ## Roadmap
