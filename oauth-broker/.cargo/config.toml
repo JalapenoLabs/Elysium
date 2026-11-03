@@ -1,0 +1,8 @@
+# Keep the host responsive: several agents and worktrees build in parallel on one machine, so each build
+# and test run is capped at 4 cores. This file overrides a more generous global ~/.cargo/config.toml.
+[build]
+jobs = 4
+
+# `jobs` caps compilation only; each test binary otherwise runs one test thread per core.
+[env]
+RUST_TEST_THREADS = "4"

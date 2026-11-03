@@ -11,7 +11,7 @@
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run"
+    "test": "vitest run --maxWorkers=4"
   },
   "dependencies": {
     "@google/model-viewer": "^4.3.1",

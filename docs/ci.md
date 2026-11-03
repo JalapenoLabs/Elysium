@@ -31,6 +31,11 @@ has its own workspace, so no two jobs share a target directory at the same time.
 Concurrent jobs on one Docker daemon never collide: image tags and container names carry the run id and attempt, and
 every published port is picked by Docker (`--publish 127.0.0.1::<port>`) and read back with `docker port`.
 
+**Every build and test run is capped at 4 cores.** Several agents build in parallel on one machine, locally and on
+the runners, and an uncapped build takes every core. `api/.cargo/config.toml` and `oauth-broker/.cargo/config.toml`
+set `jobs = 4` and `RUST_TEST_THREADS = "4"`, and the frontend's `yarn test` passes `--maxWorkers=4` to Vitest. Docker
+image builds run one at a time on a development machine.
+
 ## Required checks
 
 Every workflow runs on every pull request, merge group, and push, with no path filters. GitHub never evaluates path
