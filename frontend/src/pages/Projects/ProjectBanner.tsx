@@ -12,7 +12,7 @@ import { useAppDispatch } from '../../store/hooks'
 import { projectUpserted } from '../../store/projectsSlice'
 
 // User interface
-import { Button, Spinner, ToggleButton, ToggleButtonGroup, Tooltip, toast } from '@heroui/react'
+import { Button, Spinner, ToggleButton, ToggleButtonGroup, Tooltip } from '@heroui/react'
 import { LuExpand, LuImagePlus, LuShrink } from 'react-icons/lu'
 import { ProjectCover } from './ProjectCover'
 
@@ -23,6 +23,7 @@ import { HTTPError } from 'ky'
 import { getProjectCoverUrl, updateProject, uploadProjectCover } from '../../api/routes/projectRoutes'
 import { PROJECT_COVER_ACCEPTED_TYPES } from '../../constants'
 import { getCoverFileErrorKey } from './projectCover'
+import { toast } from '../../toast/toast'
 
 const ADD_COVER_CLASS_NAME = [
   'grid h-28 w-full place-items-center rounded-2xl border-2 border-dashed border-separator text-sm opacity-70',

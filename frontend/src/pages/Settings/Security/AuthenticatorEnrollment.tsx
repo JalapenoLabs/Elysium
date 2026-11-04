@@ -9,7 +9,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Description, Form, Input, Label, Modal, Spinner, TextField, toast } from '@heroui/react'
+import { Button, Description, Form, Input, Label, Modal, Spinner, TextField } from '@heroui/react'
 import { AuthenticatorCodeInput } from '../../../components/AuthenticatorCodeInput'
 
 // Misc
@@ -18,6 +18,7 @@ import { AUTHENTICATOR_NICKNAME_MAX_LENGTH } from '../../../constants'
 import { fieldErrorText } from '../../Auth/kratosPresentation'
 import { readAuthenticator } from './securityPresentation'
 import { storeAuthenticatorNickname } from './twoFactorNickname'
+import { toast } from '../../../toast/toast'
 
 // Authenticator apps show six digits.
 const CODE_LENGTH = 6

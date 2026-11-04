@@ -11,13 +11,11 @@ import { mutate } from 'swr'
 import { useAppDispatch } from '../../store/hooks'
 import { changesetUpserted } from '../../store/changesetsSlice'
 
-// User interface
-import { toast } from '@heroui/react'
-
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { applyChangeset, decideChangeset, undoChangeset } from '../../api/routes/changesetRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
+import { toast } from '../../toast/toast'
 
 // The writes the review page makes. Each dispatches the changeset the API answers, so this
 // tab updates before the event arrives, reports its own failure, and answers whether it

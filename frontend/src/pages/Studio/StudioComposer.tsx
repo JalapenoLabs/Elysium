@@ -12,13 +12,13 @@ import { useAppDispatch } from '../../store/hooks'
 import { studioFeedbackCreated } from '../../store/studioFeedbackSlice'
 
 // User interface
-import { toast } from '@heroui/react'
 import { PromptComposer } from '../Coding/PromptComposer'
 
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { sendStudioTurn } from '../../api/routes/studioRoutes'
 import { useStudioItemLoader } from '../../hooks/useServerData'
+import { toast } from '../../toast/toast'
 
 type Props = {
   item: StudioItem

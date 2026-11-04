@@ -12,7 +12,7 @@ import { actionItemUpserted } from '../../store/actionItemsSlice'
 import { actionItemLinkUpserted } from '../../store/actionItemLinksSlice'
 
 // User interface
-import { Breadcrumbs, Button, toast, useOverlayState } from '@heroui/react'
+import { Breadcrumbs, Button, useOverlayState } from '@heroui/react'
 import { LuLink } from 'react-icons/lu'
 import { ActionItemForm } from './ActionItemForm'
 import { LinkTargetModal } from './LinkTargetModal'
@@ -24,6 +24,7 @@ import { HTTPError } from 'ky'
 import { getApiErrorMessage } from '../../api/errors'
 import { createActionItemFromLink } from '../../api/routes/actionItemRoutes'
 import { getActionItemViewUrl, NEW_ITEM_INITIATIVE_PARAM, NEW_ITEM_PROJECT_PARAM, UrlTree } from '../../urls'
+import { toast } from '../../toast/toast'
 
 // `/action-items/new`: adding an item by hand, or from a Jira issue, GitHub issue, or pull
 // request it then follows. `?project=` and `?initiative=` start it in the project or

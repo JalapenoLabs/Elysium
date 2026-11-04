@@ -11,7 +11,7 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { selectAllStorageLocations, storageLocationDeleted } from '../../../store/storageLocationsSlice'
 
 // User interface
-import { Button, Spinner, toast } from '@heroui/react'
+import { Button, Spinner } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 import { SettingsPage } from '../SettingsPage'
 import { StorageLocationTable } from './StorageLocationTable'
@@ -22,6 +22,7 @@ import { deleteStorageLocation, testStorageLocation } from '../../../api/routes/
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useStorageLocationsLoader } from '../../../hooks/useServerData'
 import { getStorageLocationEditUrl, UrlTree } from '../../../urls'
+import { toast } from '../../../toast/toast'
 
 // `/settings/storage`: the external locations Elysium saves files to.
 export function ManageStoragePage() {

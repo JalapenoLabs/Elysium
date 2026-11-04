@@ -15,7 +15,7 @@ import { draftRemoved, draftUpserted, selectUnsentRecordDrafts } from '../store/
 import { selectAllMailAccounts } from '../store/mailAccountsSlice'
 
 // User interface
-import { Button, Description, Form, Label, Link, TextArea, TextField, toast } from '@heroui/react'
+import { Button, Description, Form, Label, Link, TextArea, TextField } from '@heroui/react'
 import { LuSend } from 'react-icons/lu'
 import { OptionSelect } from '../components/OptionSelect'
 import { ReportIssueButton } from '../components/ReportIssueButton'
@@ -33,6 +33,7 @@ import {
   saveReply,
   sendingMailboxes,
 } from './replyPresentation'
+import { toast } from '../toast/toast'
 
 // A message's length, as the API bounds a draft.
 const REPLY_MAX_CHARACTERS = 20_000

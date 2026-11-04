@@ -11,11 +11,12 @@ import { useAppDispatch } from '../../store/hooks'
 import { actionItemUpserted } from '../../store/actionItemsSlice'
 
 // User interface
-import { Button, toast, Tooltip } from '@heroui/react'
+import { Button, Tooltip } from '@heroui/react'
 import { LuX } from 'react-icons/lu'
 
 // Misc
 import { leaveInitiative } from '../../api/routes/actionItemRoutes'
+import { toast } from '../../toast/toast'
 
 type Props = {
   item: ActionItem

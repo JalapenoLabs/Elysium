@@ -13,7 +13,7 @@ import { useAppSelector } from '../../store/hooks'
 import { selectSessionTimeline } from '../../store/sessionEventsSlice'
 
 // User interface
-import { Button, Chip, Spinner, toast } from '@heroui/react'
+import { Button, Chip, Spinner } from '@heroui/react'
 import { ConversationTimeline } from './ConversationTimeline'
 import { DesktopView } from './DesktopView'
 import { PromptComposer } from './PromptComposer'
@@ -24,6 +24,7 @@ import { getUpstreamErrorMessage } from '../../api/errors'
 import { startTurn } from '../../api/routes/codingSessionRoutes'
 import { useCodingSessionsLoader, useSessionHistoryLoader } from '../../hooks/useServerData'
 import { activityStateChipColors, activityStateLabelKeys } from './sessionPresentation'
+import { toast } from '../../toast/toast'
 
 // One session's conversation: its kept history, live events from the event stream, and a
 // composer for the next prompt. Its events stay in Redux only

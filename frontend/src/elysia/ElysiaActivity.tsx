@@ -8,13 +8,14 @@ import { useAppDispatch, useAppSelector } from '../store/hooks'
 import { elysiaTurnUpserted, selectElysiaTurns } from '../store/elysiaSlice'
 
 // User interface
-import { Button, Chip, Spinner, toast } from '@heroui/react'
+import { Button, Chip, Spinner } from '@heroui/react'
 
 // Misc
 import { cancelElysiaTurn } from '../api/routes/elysiaRoutes'
 import { formatShortDateTime } from '../format/dates'
 import { useElysiaTurnsLoader } from '../hooks/useServerData'
 import { triggerLabelKey, turnStatusLabelKeys } from './presentation'
+import { toast } from '../toast/toast'
 
 // Elysia's turns, newest first: what started each, how it ended, and her one or two
 // sentence summary of what it did.

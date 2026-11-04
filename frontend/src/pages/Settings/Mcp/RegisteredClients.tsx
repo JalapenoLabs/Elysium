@@ -6,7 +6,7 @@ import type { OAuthClient } from '../../../api/routes/oauthRoutes'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Spinner, toast } from '@heroui/react'
+import { Button, Spinner } from '@heroui/react'
 import { LuBlocks } from 'react-icons/lu'
 
 // Misc
@@ -14,6 +14,7 @@ import { formatDate } from '../../../format/dates'
 import { deleteOAuthClient } from '../../../api/routes/oauthRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { clientHost } from '../../OAuth/oauthPresentation'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   // Undefined until the list has loaded.

@@ -13,7 +13,7 @@ import { useAppDispatch } from '../../store/hooks'
 import { projectUpserted } from '../../store/projectsSlice'
 
 // User interface
-import { Button, FieldError, Form, Input, Label, TextArea, TextField, toast } from '@heroui/react'
+import { Button, FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
 import { ProjectCoverField } from './ProjectCoverField'
 
 // Utility
@@ -23,6 +23,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { createProject, uploadProjectCover } from '../../api/routes/projectRoutes'
 import { createProjectFormSchema } from './projectFormSchema'
+import { toast } from '../../toast/toast'
 
 type Props = {
   onSaved: (project: Project) => void

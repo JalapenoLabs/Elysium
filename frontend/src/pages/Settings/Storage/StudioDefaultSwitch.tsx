@@ -11,11 +11,12 @@ import { useAppDispatch } from '../../../store/hooks'
 import { storageLocationUpserted } from '../../../store/storageLocationsSlice'
 
 // User interface
-import { Label, Switch, toast } from '@heroui/react'
+import { Label, Switch } from '@heroui/react'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { updateStorageLocation } from '../../../api/routes/storageRoutes'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   location: StorageLocation

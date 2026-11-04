@@ -9,7 +9,7 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { actionItemUpserted, selectActionItemById } from '../../store/actionItemsSlice'
 
 // User interface
-import { Alert, Breadcrumbs, Link, Spinner, toast } from '@heroui/react'
+import { Alert, Breadcrumbs, Link, Spinner } from '@heroui/react'
 import { InlineEditableText } from '../../components/InlineEditableText'
 import { ActionItemActionBar } from './ActionItemActionBar'
 import { ActionItemBadges } from './ActionItemBadges'
@@ -27,6 +27,7 @@ import { useActionItemLoader } from '../../hooks/useServerData'
 import { useNow } from '../../hooks/useNow'
 import { UrlTree } from '../../urls'
 import { NOTES_MAX_CHARACTERS, TITLE_MAX_CHARACTERS } from './actionItemFormSchema'
+import { toast } from '../../toast/toast'
 
 // `/action-items/:itemId`: one item, edited in place. The title and notes are edited where
 // they are shown, its fields sit in a panel beside them, and its links to Jira and GitHub, the

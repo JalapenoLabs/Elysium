@@ -2,6 +2,7 @@
 
 // Core
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
 
 // User interface
 import { DEFAULT_EXIT_DURATION, toastQueue } from '@heroui/react'
@@ -71,6 +72,19 @@ describe('toast', () => {
 
     expect(onPress).toHaveBeenCalledOnce()
     expect(isOnScreen(toastId)).toBe(false)
+  })
+
+  it<Context>('puts a real link under the message that opens in a new tab', (context) => {
+    const link = { label: 'View it on GitHub', href: 'https://github.com/JalapenoLabs/Elysium/issues/164' }
+    const toastId = context.toast('Filed as #164', { description: 'Reported once', link })
+
+    render(<>{findShown(toastId).content.description}</>)
+    expect(screen.getByText('Reported once')).toBeDefined()
+    const shownLink = screen.getByRole('link', { name: 'View it on GitHub' })
+    expect(shownLink.getAttribute('href')).toBe(link.href)
+    expect(shownLink.getAttribute('target')).toBe('_blank')
+
+    expect(context.store.getState().notifications.items[0]).toMatchObject({ description: 'Reported once', link })
   })
 
   it<Context>('keeps every toast but a success for the notification menu', (context) => {

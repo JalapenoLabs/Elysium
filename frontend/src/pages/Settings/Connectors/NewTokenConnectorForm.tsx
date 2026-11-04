@@ -16,7 +16,7 @@ import { checkRunLoaded, connectorUpserted, selectCheckRun } from '../../../stor
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 
 // User interface
-import { Button, Card, Form, toast } from '@heroui/react'
+import { Button, Card, Form } from '@heroui/react'
 import { AccountFields } from './AccountFields'
 import { CheckList } from './CheckList'
 import { ContentFields } from './ContentFields'
@@ -26,6 +26,7 @@ import { checkConnectorDraft, createConnector } from '../../../api/routes/connec
 import { getConnectorUrl } from '../../../urls'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { connectorErrorMessage, hasRequiredFailure } from './connectorPresentation'
+import { toast } from '../../../toast/toast'
 
 const NEW_CONNECTOR_FORM_ID = 'new-connector-form'
 

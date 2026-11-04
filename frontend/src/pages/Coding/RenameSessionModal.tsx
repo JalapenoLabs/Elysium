@@ -12,11 +12,12 @@ import { codingSessionUpserted } from '../../store/codingSessionsSlice'
 import { useAppDispatch } from '../../store/hooks'
 
 // User interface
-import { Button, FieldError, Form, Input, Label, Modal, TextField, toast } from '@heroui/react'
+import { Button, FieldError, Form, Input, Label, Modal, TextField } from '@heroui/react'
 
 // Misc
 import { renameCodingSession } from '../../api/routes/codingSessionRoutes'
 import { SESSION_TITLE_MAX_CHARACTERS } from './createSessionFormSchema'
+import { toast } from '../../toast/toast'
 
 type Props = {
   state: UseOverlayStateReturn

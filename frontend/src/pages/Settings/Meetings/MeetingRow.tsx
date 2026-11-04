@@ -12,7 +12,7 @@ import { useAppDispatch } from '../../../store/hooks'
 import { meetingUpserted } from '../../../store/meetingsSlice'
 
 // User interface
-import { Button, Chip, Link, toast } from '@heroui/react'
+import { Button, Chip, Link } from '@heroui/react'
 import { ConnectorLogo } from '../Connectors/ConnectorLogo'
 
 // Misc
@@ -22,6 +22,7 @@ import { formatDateTime } from '../../../format/dates'
 import { formatDuration } from '../../../format/durations'
 import { getConnectorUrl } from '../../../urls'
 import { meetingStateChipColors, meetingStateLabelKeys } from './meetingsPresentation'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   meeting: Meeting

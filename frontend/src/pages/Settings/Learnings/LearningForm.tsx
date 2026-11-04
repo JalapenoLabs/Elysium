@@ -13,7 +13,7 @@ import { useAppDispatch } from '../../../store/hooks'
 import { learningUpserted } from '../../../store/learningsSlice'
 
 // User interface
-import { Description, FieldError, Form, Input, Label, TextArea, TextField, toast } from '@heroui/react'
+import { Description, FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
 import { OptionSelect } from '../../../components/OptionSelect'
 
 // Utility
@@ -28,6 +28,7 @@ import { usePageSave } from '../../../layout/page/pageSave'
 import { createLearningFormSchema } from './learningFormSchema'
 import { LEARNING_FIELDS } from './learningPresentation'
 import { forgetNewLearningDraft, readNewLearningDraft, saveNewLearningDraft } from './newLearningDraft'
+import { toast } from '../../../toast/toast'
 
 const LEARNING_FORM_ID = 'learning-form'
 

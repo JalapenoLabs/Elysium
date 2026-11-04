@@ -11,12 +11,10 @@ import { mutate } from 'swr'
 import { useAppDispatch } from '../../store/hooks'
 import { runLoaded } from '../../store/runsSlice'
 
-// User interface
-import { toast } from '@heroui/react'
-
 // Misc
 import { actOnStep } from '../../api/routes/runRoutes'
 import { nameFromIdentifier } from './runPresentation'
+import { toast } from '../../toast/toast'
 
 const doneKeys = {
   retry: 'step.done.retry',

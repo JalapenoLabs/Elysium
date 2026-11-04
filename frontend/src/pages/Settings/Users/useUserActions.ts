@@ -9,9 +9,6 @@ import { useTranslation } from 'react-i18next'
 import { useAppDispatch } from '../../../store/hooks'
 import { userDeleted, userUpserted } from '../../../store/usersSlice'
 
-// User interface
-import { toast } from '@heroui/react'
-
 // Utility
 import { HTTPError } from 'ky'
 
@@ -25,6 +22,7 @@ import {
   updateUser,
 } from '../../../api/routes/userRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
+import { toast } from '../../../toast/toast'
 
 // The account conflicts the API names by code (409), and how each reads.
 const conflictKeyByCode = {

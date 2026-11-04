@@ -13,7 +13,7 @@ import { useAppSelector } from '../../../store/hooks'
 import { selectUserNamesById } from '../../../store/usersSlice'
 
 // User interface
-import { Button, Chip, Link, Spinner, toast } from '@heroui/react'
+import { Button, Chip, Link, Spinner } from '@heroui/react'
 import { EmptyNotice } from '../../../components/EmptyNotice'
 import { DateText } from '../../../format/DateText'
 
@@ -23,6 +23,7 @@ import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useUsersLoader } from '../../../hooks/useServerData'
 import { getLearningUrl } from '../../../urls'
 import { describeHistoryEntry, feedSentenceKeys, fieldLabelKeys } from './learningPresentation'
+import { toast } from '../../../toast/toast'
 
 // The pages read after the first one, and where the first page ended when they were read.
 type OlderPages = {

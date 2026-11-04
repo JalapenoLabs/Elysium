@@ -32,6 +32,27 @@ export default defineConfig([
     },
   },
   {
+    // Every toast goes through src/toast/toast.tsx, which times it by length, keeps errors up
+    // until dismissed, and records it for the notification menu. HeroUI's own `toast` would
+    // skip all of that, so only the wrapper may import it.
+    files: [ '**/*.{ts,tsx}' ],
+    ignores: [ 'src/toast/toast.tsx' ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@heroui/react',
+              importNames: [ 'toast' ],
+              message: 'Import toast from src/toast/toast.tsx, which applies Elysium\'s toast rules.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // The shared config spells the owner "JalapenoLabs"; this repository's
     // headers use the company name, matching @jalapenolabs/uikit.
     files: [ '**/*.{js,ts,tsx}' ],

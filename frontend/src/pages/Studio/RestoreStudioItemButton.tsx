@@ -11,12 +11,13 @@ import { useAppDispatch } from '../../store/hooks'
 import { studioItemUpserted } from '../../store/studioItemsSlice'
 
 // User interface
-import { Button, toast } from '@heroui/react'
+import { Button } from '@heroui/react'
 import { LuUndo2 } from 'react-icons/lu'
 
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { restoreStudioItem } from '../../api/routes/studioRoutes'
+import { toast } from '../../toast/toast'
 
 type Props = {
   item: StudioItem

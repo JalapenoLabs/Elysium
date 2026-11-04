@@ -24,7 +24,6 @@ import {
   TextArea,
   TextField,
   Tooltip,
-  toast,
 } from '@heroui/react'
 import { LuCircleHelp, LuExternalLink } from 'react-icons/lu'
 
@@ -46,6 +45,7 @@ import {
   readinessLabels,
   resolveReportCredential,
 } from './issueReportPresentation'
+import { toast } from '../toast/toast'
 
 // The Markdown as it is posted, wrapped so a long line reads without scrolling sideways.
 const PREVIEW_CLASS_NAME = 'max-h-72 overflow-auto rounded-md bg-default p-3 text-xs whitespace-pre-wrap break-words'
@@ -90,10 +90,7 @@ export function ReportIssueModal(props: Props) {
       })
       const filed = response.report
       toast.success(t(filedToastLabels[filed.filedAs], { number: filed.issueNumber }), {
-        description: <Link href={filed.url} target='_blank' rel='noreferrer' className='text-link'>
-          <span>{t('toasts.view')}</span>
-          <LuExternalLink className='size-3' aria-hidden />
-        </Link>,
+        link: { label: t('toasts.view'), href: filed.url },
       })
       props.state.close()
     }

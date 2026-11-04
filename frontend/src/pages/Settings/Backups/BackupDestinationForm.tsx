@@ -12,7 +12,7 @@ import { backupsStatusUpdated } from '../../../store/backupsSlice'
 import { useAppDispatch } from '../../../store/hooks'
 
 // User interface
-import { Form, Link, toast } from '@heroui/react'
+import { Form, Link } from '@heroui/react'
 import { OptionSelect } from '../../../components/OptionSelect'
 
 // Misc
@@ -20,6 +20,7 @@ import { getApiErrorMessage } from '../../../api/errors'
 import { chooseBackupDestination } from '../../../api/routes/backupRoutes'
 import { UrlTree } from '../../../urls'
 import { usePageSave } from '../../../layout/page/pageSave'
+import { toast } from '../../../toast/toast'
 
 const BACKUP_DESTINATION_FORM_ID = 'backup-destination-form'
 

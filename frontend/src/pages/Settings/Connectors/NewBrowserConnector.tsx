@@ -12,13 +12,14 @@ import { connectorUpserted } from '../../../store/connectorsSlice'
 import { useAppDispatch } from '../../../store/hooks'
 
 // User interface
-import { Button, Card, toast } from '@heroui/react'
+import { Button, Card } from '@heroui/react'
 import { LuAppWindow } from 'react-icons/lu'
 
 // Misc
 import { createConnector } from '../../../api/routes/connectorRoutes'
 import { getConnectorUrl } from '../../../urls'
 import { connectorErrorMessage, startingContent } from './connectorPresentation'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   definition: ConnectorKindDefinition

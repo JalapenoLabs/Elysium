@@ -12,7 +12,7 @@ import { useAppDispatch } from '../../store/hooks'
 import { projectDeleted, projectUpserted } from '../../store/projectsSlice'
 
 // User interface
-import { Button, Dropdown, Label, toast } from '@heroui/react'
+import { Button, Dropdown, Label } from '@heroui/react'
 import { LuChevronDown, LuImageOff, LuTrash2 } from 'react-icons/lu'
 
 // Utility
@@ -22,6 +22,7 @@ import { HTTPError } from 'ky'
 import { deleteProject, deleteProjectCover } from '../../api/routes/projectRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
 import { UrlTree } from '../../urls'
+import { toast } from '../../toast/toast'
 
 type Props = {
   project: Project

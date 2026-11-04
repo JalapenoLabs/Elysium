@@ -13,7 +13,7 @@ import { initiativeUpserted } from '../../store/initiativesSlice'
 import { selectAllProjects } from '../../store/projectsSlice'
 
 // User interface
-import { Button, FieldError, Form, Input, Label, TextArea, TextField, toast } from '@heroui/react'
+import { Button, FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
 import { DayPicker } from '../../components/DayPicker'
 import { MultiPicker } from '../../components/MultiPicker'
 
@@ -27,6 +27,7 @@ import { createInitiative } from '../../api/routes/initiativeRoutes'
 import { useProjectsLoader } from '../../hooks/useServerData'
 import { toEndOfDayInstant } from '../ActionItems/actionItemDates'
 import { createInitiativeFormSchema } from './initiativeFormSchema'
+import { toast } from '../../toast/toast'
 
 type Props = {
   // Projects the initiative starts in, such as the project page it was created from.

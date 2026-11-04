@@ -7,10 +7,11 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Form, Label, TextArea, TextField, toast } from '@heroui/react'
+import { Button, Form, Label, TextArea, TextField } from '@heroui/react'
 
 // Misc
 import { answerElysiaQuestion, dismissElysiaQuestion } from '../api/routes/elysiaRoutes'
+import { toast } from '../toast/toast'
 
 // An answer's length, as the API bounds it.
 const ANSWER_MAX_CHARACTERS = 2_000

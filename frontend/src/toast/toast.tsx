@@ -9,7 +9,8 @@ import { notificationRecorded } from '../store/notificationsSlice'
 // User interface
 // The one import of HeroUI's toast function: everything else shows toasts through this
 // module, which ESLint enforces (`no-restricted-imports` in eslint.config.ts).
-import { toast as heroToast } from '@heroui/react'
+import { toast as heroToast, Link } from '@heroui/react'
+import { LuExternalLink } from 'react-icons/lu'
 
 // Misc
 import { isKeptByVariant, toastTimeoutMs } from './toastPolicy'
@@ -20,16 +21,25 @@ export type ToastAction = {
   onPress: () => void
 }
 
+// A link under a toast's message, such as to an issue just filed elsewhere. It is a real
+// link, so it can be middle-clicked, and it opens in a new tab.
+export type ToastLink = {
+  label: string
+  href: string
+}
+
 export type ToastOptions = {
-  description?: string
+  // Null and undefined both mean none, so a lookup that found nothing passes straight in.
+  description?: string | null
   action?: ToastAction
+  link?: ToastLink
   // Whether the notification menu keeps this toast. Unset, it keeps everything but a
   // success (see `isKeptByVariant`).
   keepInNotifications?: boolean
 }
 
 function show(variant: ToastVariant, message: string, options: ToastOptions = {}) {
-  const { description, action } = options
+  const { description, action, link } = options
 
   const texts = [ message ]
   if (description) {
@@ -38,11 +48,22 @@ function show(variant: ToastVariant, message: string, options: ToastOptions = {}
   if (action) {
     texts.push(action.label)
   }
+  if (link) {
+    texts.push(link.label)
+  }
 
   // The action reads the id only when pressed, by which time the toast exists.
   const toastId = heroToast(message, {
     variant,
-    description,
+    description: link
+      ? <span className='flex flex-col items-start gap-1'>
+        {description && <span>{description}</span>}
+        <Link href={link.href} target='_blank' rel='noreferrer' className='text-link'>
+          <span>{link.label}</span>
+          <LuExternalLink className='size-3' aria-hidden />
+        </Link>
+      </span>
+      : description ?? undefined,
     timeout: toastTimeoutMs(variant, texts, Boolean(action)),
     actionProps: action && {
       children: action.label,
@@ -59,6 +80,7 @@ function show(variant: ToastVariant, message: string, options: ToastOptions = {}
       variant,
       title: message,
       description: description ?? null,
+      link: link ?? null,
     }))
   }
 

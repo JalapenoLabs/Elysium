@@ -5,11 +5,9 @@ import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 
-// User interface
-import { toast } from '@heroui/react'
-
 // Misc
 import { oauthErrorMessageKeys } from './mailPresentation'
+import { toast } from '../../../toast/toast'
 
 // The API's OAuth callback lands the browser back here with `mailConnected=<id>` or
 // `mailError=<code>`. Announces the outcome once, then strips the parameters so a reload

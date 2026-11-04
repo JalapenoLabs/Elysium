@@ -4,8 +4,11 @@
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, toast } from '@heroui/react'
+import { Button } from '@heroui/react'
 import { LuCopy } from 'react-icons/lu'
+
+// Misc
+import { toast } from '../../../toast/toast'
 
 type Props = {
   label: string

@@ -22,7 +22,6 @@ import {
   Switch,
   TextArea,
   TextField,
-  toast,
 } from '@heroui/react'
 import { EnvironmentVisibilityNote } from './EnvironmentVisibilityNote'
 
@@ -35,6 +34,7 @@ import { getApiErrorMessage } from '../../../api/errors'
 import { createEnvironmentVariable, updateEnvironmentVariable } from '../../../api/routes/environmentRoutes'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { createEnvironmentFormSchema } from './environmentFormSchema'
+import { toast } from '../../../toast/toast'
 
 const ENVIRONMENT_VARIABLE_FORM_ID = 'environment-variable-form'
 

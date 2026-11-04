@@ -22,7 +22,6 @@ import {
   Label,
   Modal,
   TextField,
-  toast,
 } from '@heroui/react'
 
 // Utility
@@ -31,6 +30,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 // Misc
 import { createMailServer } from '../../../api/routes/mailRoutes'
 import { createMailServerFormSchema } from './mailFormSchemas'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   state: UseOverlayStateReturn

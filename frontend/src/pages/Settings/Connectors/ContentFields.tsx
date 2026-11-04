@@ -16,13 +16,14 @@ import { useAppSelector } from '../../../store/hooks'
 import { selectAllStorageLocations } from '../../../store/storageLocationsSlice'
 
 // User interface
-import { Button, Checkbox, Label, ListBox, Select, Switch, toast } from '@heroui/react'
+import { Button, Checkbox, Label, ListBox, Select, Switch } from '@heroui/react'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { listConnectorOptions } from '../../../api/routes/connectorRoutes'
 import { useStorageLocationsLoader } from '../../../hooks/useServerData'
 import { pickedIds } from './connectorPresentation'
+import { toast } from '../../../toast/toast'
 
 // Everything a selection picks, as the API spells it.
 const EVERYTHING = '*'

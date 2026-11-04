@@ -28,7 +28,6 @@ import {
   Select,
   TextArea,
   TextField,
-  toast,
 } from '@heroui/react'
 import { LuListTodo } from 'react-icons/lu'
 import { GithubTokenSelect, INHERIT_GITHUB_TOKEN, NO_GITHUB_TOKEN } from '../../components/GithubTokenSelect'
@@ -47,6 +46,7 @@ import { resolveProjectGithubCredentialId } from '../Settings/Github/githubPrese
 import { useCodingActions } from './codingActionsContext'
 import { createSessionFormSchema, SESSION_TITLE_MAX_CHARACTERS } from './createSessionFormSchema'
 import { getSessionProjectChoices } from './sessionItemProjects'
+import { toast } from '../../toast/toast'
 
 type Props = {
   // The item the session is started from, or null for a session of its own.

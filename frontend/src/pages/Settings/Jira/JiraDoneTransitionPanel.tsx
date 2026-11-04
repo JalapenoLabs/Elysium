@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import useSWR from 'swr'
 
 // User interface
-import { Alert, Button, Spinner, toast } from '@heroui/react'
+import { Alert, Button, Spinner } from '@heroui/react'
 import { OptionSelect } from '../../../components/OptionSelect'
 
 // Misc
@@ -16,6 +16,7 @@ import {
   forgetJiraDoneTransition,
   getJiraDoneTransition,
 } from '../../../api/routes/jiraRoutes'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   credentialId: string

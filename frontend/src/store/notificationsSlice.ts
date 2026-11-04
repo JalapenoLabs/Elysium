@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { PayloadAction } from '@reduxjs/toolkit'
+import type { ToastLink } from '../toast/toast'
 import type { ToastVariant } from '../toast/toastPolicy'
 import type { RootState } from './index'
 
@@ -17,6 +18,7 @@ export type Notification = {
   variant: ToastVariant
   title: string
   description: string | null
+  link: ToastLink | null
   // When it was shown, as an ISO 8601 UTC timestamp.
   createdAt: string
 }
@@ -31,7 +33,7 @@ const initialState: NotificationsState = {
   items: [],
 }
 
-// Every toast worth finding again lands here, recorded by `src/toast/toast.ts`. The toast
+// Every toast worth finding again lands here, recorded by `src/toast/toast.tsx`. The toast
 // module alone decides what is kept, so the notification menu only reads this slice.
 export const notificationsSlice = createSlice({
   name: 'notifications',

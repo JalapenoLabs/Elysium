@@ -10,7 +10,7 @@ import { selectInitiativeHistory } from '../../store/actionItemHistorySlice'
 import { initiativeUpserted, selectInitiativeById } from '../../store/initiativesSlice'
 
 // User interface
-import { Alert, Breadcrumbs, Button, Chip, Link, Spinner, toast } from '@heroui/react'
+import { Alert, Breadcrumbs, Button, Chip, Link, Spinner } from '@heroui/react'
 import { LuTrash2 } from 'react-icons/lu'
 import { InlineEditableText } from '../../components/InlineEditableText'
 import { HistoryTimeline } from '../ActionItems/HistoryTimeline'
@@ -31,6 +31,7 @@ import {
   initiativeStateLabelKeys,
 } from './initiativePresentation'
 import { useInitiativeActions } from './useInitiativeActions'
+import { toast } from '../../toast/toast'
 
 // `/action-items/initiatives/:initiativeId`: one initiative, edited in place. Progress leads,
 // as resolved and total with the burnup beneath; its items, the Jira and GitHub containers it

@@ -11,13 +11,14 @@ import { browserSessionUpserted } from '../../../store/browserSessionsSlice'
 import { useAppDispatch } from '../../../store/hooks'
 
 // User interface
-import { Button, Tooltip, toast } from '@heroui/react'
+import { Button, Tooltip } from '@heroui/react'
 import { LuRotateCcw, LuTrash2 } from 'react-icons/lu'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { resetBrowserSession, startOverBrowserSession } from '../../../api/routes/browserSessionRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   browserSession: BrowserSession

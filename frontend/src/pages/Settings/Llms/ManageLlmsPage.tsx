@@ -14,7 +14,7 @@ import { llmDeleted, llmUpserted, selectAllLlms } from '../../../store/llmsSlice
 import { selectWorkspaceSettings } from '../../../store/workspaceSettingsSlice'
 
 // User interface
-import { Button, Dropdown, Label, Spinner, toast } from '@heroui/react'
+import { Button, Dropdown, Label, Spinner } from '@heroui/react'
 import { LuChevronDown, LuPlus } from 'react-icons/lu'
 import { SettingsPage } from '../SettingsPage'
 import { AgentConfigurationSettings } from './AgentConfigurationSettings'
@@ -27,6 +27,7 @@ import { useLlmsLoader, useWorkspaceSettingsLoader } from '../../../hooks/useSer
 import { UrlTree } from '../../../urls'
 import { LLM_TYPES, llmTypeLabelKeys } from './llmPresentation'
 import { addLlmUrlByType } from './llmProviders'
+import { toast } from '../../../toast/toast'
 
 export function ManageLlmsPage() {
   const { t } = useTranslation([ 'llms', 'common' ])

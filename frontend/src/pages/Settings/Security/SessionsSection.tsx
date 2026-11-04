@@ -7,13 +7,14 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Chip, Spinner, toast } from '@heroui/react'
+import { Button, Chip, Spinner } from '@heroui/react'
 import { LuLogOut, LuMonitorSmartphone } from 'react-icons/lu'
 
 // Misc
 import { formatDateTime } from '../../../format/dates'
 import { kratos } from '../../../api/kratos'
 import { useSignedInSessions } from './useSignedInSessions'
+import { toast } from '../../../toast/toast'
 
 // Where this person is signed in, on the Sessions tab. Signing a device out ends its session;
 // the workspace notices within half a minute.

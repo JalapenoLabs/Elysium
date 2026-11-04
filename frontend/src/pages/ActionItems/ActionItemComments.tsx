@@ -17,7 +17,7 @@ import {
 } from '../../store/actionItemCommentsSlice'
 
 // User interface
-import { Button, Description, Dropdown, Form, Label, Spinner, TextArea, TextField, toast } from '@heroui/react'
+import { Button, Description, Dropdown, Form, Label, Spinner, TextArea, TextField } from '@heroui/react'
 import { LuEllipsis } from 'react-icons/lu'
 
 // Misc
@@ -32,6 +32,7 @@ import { useConfirm } from '../../hooks/useConfirm'
 import { usePrompt } from '../../hooks/usePrompt'
 import { useActionItemCommentsLoader } from '../../hooks/useServerData'
 import { describeActor } from './actionItemPresentation'
+import { toast } from '../../toast/toast'
 
 // A comment's length, as the API bounds it.
 const COMMENT_MAX_CHARACTERS = 20_000

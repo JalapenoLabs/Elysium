@@ -8,13 +8,14 @@ import { useTranslation } from 'react-i18next'
 import useSWR from 'swr'
 
 // User interface
-import { Button, Modal, Spinner, toast } from '@heroui/react'
+import { Button, Modal, Spinner } from '@heroui/react'
 import { LuCopy, LuRefreshCw } from 'react-icons/lu'
 import { DnsRecordRow } from './DnsRecordRow'
 
 // Misc
 import { getUpstreamErrorMessage } from '../../../api/errors'
 import { checkMailDomainDns } from '../../../api/routes/mailRoutes'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   state: UseOverlayStateReturn

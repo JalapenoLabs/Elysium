@@ -13,7 +13,7 @@ import { useAppDispatch } from '../../../store/hooks'
 import { learningCategoryUpserted } from '../../../store/learningCategoriesSlice'
 
 // User interface
-import { Description, FieldError, Form, Input, Label, TextArea, TextField, toast } from '@heroui/react'
+import { Description, FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -29,6 +29,7 @@ import {
   readNewLearningCategoryDraft,
   saveNewLearningCategoryDraft,
 } from './newLearningCategoryDraft'
+import { toast } from '../../../toast/toast'
 
 const LEARNING_CATEGORY_FORM_ID = 'learning-category-form'
 

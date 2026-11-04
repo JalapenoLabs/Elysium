@@ -9,9 +9,6 @@ import { useTranslation } from 'react-i18next'
 import { useAppDispatch } from '../../store/hooks'
 import { actionItemDeleted, actionItemUpserted } from '../../store/actionItemsSlice'
 
-// User interface
-import { toast } from '@heroui/react'
-
 // Utility
 import { HTTPError } from 'ky'
 
@@ -26,6 +23,7 @@ import {
 import { ACTION_ITEM_PERSON_MAX_CHARACTERS } from '../../constants'
 import { useConfirm } from '../../hooks/useConfirm'
 import { usePrompt } from '../../hooks/usePrompt'
+import { toast } from '../../toast/toast'
 
 const transitionToastKeys = {
   accept: 'toasts.accepted',

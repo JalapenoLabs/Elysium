@@ -28,7 +28,6 @@ import {
   Switch,
   TextArea,
   TextField,
-  toast,
 } from '@heroui/react'
 import { LuEye, LuEyeOff } from 'react-icons/lu'
 
@@ -42,6 +41,7 @@ import { createLlm, updateLlm } from '../../../api/routes/llmRoutes'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { createLlmFormSchema } from './llmFormSchema'
 import { isTokenTypedByType } from './llmPresentation'
+import { toast } from '../../../toast/toast'
 
 // 365 days rather than "the same date next year", so a leap year never pushes the expiry
 // past a token that is valid for exactly that long.

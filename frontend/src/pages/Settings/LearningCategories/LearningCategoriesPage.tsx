@@ -18,7 +18,7 @@ import {
 } from '../../../store/learningCategoriesSlice'
 
 // User interface
-import { buttonVariants, Link, Spinner, toast } from '@heroui/react'
+import { buttonVariants, Link, Spinner } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 import { EmptyNotice } from '../../../components/EmptyNotice'
 import { SettingsPage } from '../SettingsPage'
@@ -35,6 +35,7 @@ import {
 import { useLearningCategoriesLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 import { presentLearningCategory } from '../Learnings/learningPresentation'
+import { toast } from '../../../toast/toast'
 
 // `/settings/learning-categories`: every category learnings are filed under, in the order they
 // are offered. Elysium's built-in ones are fixed; admins add, edit, reorder, and remove the

@@ -23,7 +23,6 @@ import {
   ListBox,
   Select,
   TextField,
-  toast,
 } from '@heroui/react'
 import { GithubSetupChecklist } from './GithubSetupChecklist'
 
@@ -40,6 +39,7 @@ import {
 } from '../../../api/routes/githubRoutes'
 import { createGithubFormSchema } from './githubFormSchema'
 import { githubKindLabelKeys, githubTokenLabelKeys } from './githubPresentation'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   // The credential being edited, or null to add a new one.

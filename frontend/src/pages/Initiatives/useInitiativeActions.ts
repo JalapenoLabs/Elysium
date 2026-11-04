@@ -9,12 +9,10 @@ import { useTranslation } from 'react-i18next'
 import { useAppDispatch } from '../../store/hooks'
 import { initiativeDeleted, initiativeUpserted } from '../../store/initiativesSlice'
 
-// User interface
-import { toast } from '@heroui/react'
-
 // Misc
 import { deleteInitiative, restoreInitiative } from '../../api/routes/initiativeRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
+import { toast } from '../../toast/toast'
 
 // Deleting and restoring an initiative, from its page or the list. Both put the answer in
 // Redux at once; the events that follow are idempotent.

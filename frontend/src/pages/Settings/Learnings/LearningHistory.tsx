@@ -14,7 +14,7 @@ import { learningUpserted } from '../../../store/learningsSlice'
 import { selectUserNamesById } from '../../../store/usersSlice'
 
 // User interface
-import { Button, Spinner, toast, Tooltip } from '@heroui/react'
+import { Button, Spinner, Tooltip } from '@heroui/react'
 import { LuUndo2 } from 'react-icons/lu'
 import { DateText } from '../../../format/DateText'
 
@@ -23,6 +23,7 @@ import { getApiErrorMessage } from '../../../api/errors'
 import { learningHistoryKey, listLearningHistory, undoLearningChange } from '../../../api/routes/learningRoutes'
 import { useUsersLoader } from '../../../hooks/useServerData'
 import { describeHistoryEntry, fieldLabelKeys, historySentenceKeys } from './learningPresentation'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   learningId: string

@@ -14,7 +14,7 @@ import { selectAllMailDomains } from '../../../store/mailDomainsSlice'
 import { selectMailServer } from '../../../store/mailServerSlice'
 
 // User interface
-import { Alert, Spinner, toast, useOverlayState } from '@heroui/react'
+import { Alert, Spinner, useOverlayState } from '@heroui/react'
 import { CreateMailboxModal } from './CreateMailboxModal'
 import { MailAccountTable } from './MailAccountTable'
 import { MailboxSourceActions } from './MailboxSourceActions'
@@ -36,6 +36,7 @@ import { useMailAccountsLoader } from '../../../hooks/useServerData'
 import { DISPLAY_NAME_MAX_CHARACTERS } from './mailFormSchemas'
 import { mailAccountKindLabelKeys } from './mailPresentation'
 import { useOAuthOutcomeToast } from './useOAuthOutcomeToast'
+import { toast } from '../../../toast/toast'
 
 export function ManageEmailPage() {
   const { t } = useTranslation([ 'email', 'common' ])
@@ -118,7 +119,7 @@ export function ManageEmailPage() {
   }
 
   async function runConnectionTest(account: MailAccount) {
-    const toastId = toast(t('toasts.testing', { address: account.address }), { isLoading: true, timeout: 0 })
+    const toastId = toast.loading(t('toasts.testing', { address: account.address }))
     try {
       const response = await testMailAccount(account.id)
       dispatch(mailAccountUpserted(response.account))
@@ -140,7 +141,7 @@ export function ManageEmailPage() {
   }
 
   async function sendTestMessage(account: MailAccount) {
-    const toastId = toast(t('toasts.sending', { address: account.address }), { isLoading: true, timeout: 0 })
+    const toastId = toast.loading(t('toasts.sending', { address: account.address }))
     try {
       const response = await sendMailTestMessage(account.id)
       toast.close(toastId)

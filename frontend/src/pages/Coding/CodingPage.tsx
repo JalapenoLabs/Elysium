@@ -14,7 +14,7 @@ import { codingSessionDeleted, selectCodingSessionById } from '../../store/codin
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 
 // User interface
-import { Button, toast, useOverlayState } from '@heroui/react'
+import { Button, useOverlayState } from '@heroui/react'
 import { DockviewReact } from 'dockview-react'
 import { LuLayoutPanelLeft, LuPlus, LuRotateCcw } from 'react-icons/lu'
 import { ConversationPanel } from './ConversationPanel'
@@ -38,6 +38,7 @@ import {
   saveLayout,
   showSessionsPanel,
 } from './codingLayout'
+import { toast } from '../../toast/toast'
 
 const panelComponents = {
   [CODING_PANEL_COMPONENTS.sessions]: SessionsPanel,

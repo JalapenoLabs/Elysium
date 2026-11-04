@@ -720,10 +720,12 @@ HeroUI theme so accents match.
 
 ### `@jalapenolabs/cli/eslint`
 
-`eslint.config.ts` extends the shared config. It adds two local blocks:
+`eslint.config.ts` extends the shared config. It adds three local blocks:
 
 - **License header.** Headers must read `// Copyright © <year> Jalapeno Labs`. The shared config spells it
   `JalapenoLabs`.
+- **Toasts.** `no-restricted-imports` refuses `toast` from `@heroui/react` outside `src/toast/toast.tsx`, so every
+  toast keeps Elysium's timing and reaches the notification menu (see Toasts).
 - **React rules.** The shared config at commit `e3f02f8` intends to apply `react/recommended` and
   `react-hooks/recommended` to TSX, but drops them. It passes `fixupConfigRules`' array result along as if it
   were a single config. The local block restores those rules, using the same plugin versions, until the shared
@@ -843,7 +845,7 @@ root is a trigger wrapper, and rendering it without a pressable child makes Reac
 
 ## Toasts
 
-Every toast goes through `toast` in `src/toast/toast.ts`, never HeroUI's: ESLint refuses importing `toast` from
+Every toast goes through `toast` in `src/toast/toast.tsx`, never HeroUI's: ESLint refuses importing `toast` from
 `@heroui/react` anywhere else. It keeps HeroUI's shape (`toast`, `toast.success`, `toast.warning`, `toast.danger`,
 `toast.close`) with string messages, and adds:
 
@@ -851,10 +853,12 @@ Every toast goes through `toast` in `src/toast/toast.ts`, never HeroUI's: ESLint
   message, description, and action, and at least 6 seconds when it has an action. The policy is `toastTimeoutMs` in
   `src/toast/toastPolicy.ts`, with its numbers in `src/constants.ts`.
 - **Action.** `action: { label, onPress }` puts one button on the toast, such as Undo; pressing it closes the toast.
+- **Link.** `link: { label, href }` puts a real link under the message, opening in a new tab, such as to an issue
+  just filed. Descriptions are strings, so a toast stays serializable for the notification menu.
 - **Work in progress.** `toast.loading(message)` shows a spinner until `toast.close` is called with its id.
 - **Kept for the notification menu.** Every toast but a success and a loading one is recorded in
-  `notificationsSlice` (title, description, variant, and when), for the session only. A success confirms what the
-  person just did, so it is left out; `keepInNotifications` overrides either way.
+  `notificationsSlice` (title, description, link, variant, and when), for the session only. A success confirms what
+  the person just did, so it is left out; `keepInNotifications` overrides either way.
 - **Slow changes.** The API client's `fetch` (`src/api/slowRequestNotice.ts`) shows "Your request is taking longer
   than usual... Hang tight." while any change (every method but `GET` and `HEAD`) has run for 5 seconds, under the
   10 second request timeout, and closes it when the last one returns. Reads are left out, since many run unasked.

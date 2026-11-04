@@ -11,7 +11,7 @@ import { useAppDispatch } from '../../../store/hooks'
 import { updatesStatusUpdated } from '../../../store/updatesSlice'
 
 // User interface
-import { Alert, Button, Chip, toast } from '@heroui/react'
+import { Alert, Button, Chip } from '@heroui/react'
 import { LuRefreshCw } from 'react-icons/lu'
 
 // Misc
@@ -25,6 +25,7 @@ import {
   stateDescriptionKeys,
   stateLabelKeys,
 } from './updatesPresentation'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   status: UpdatesStatus

@@ -12,10 +12,11 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { actionItemUpserted, selectLiveActionItems } from '../../store/actionItemsSlice'
 
 // User interface
-import { ComboBox, EmptyState, Input, Label, ListBox, toast } from '@heroui/react'
+import { ComboBox, EmptyState, Input, Label, ListBox } from '@heroui/react'
 
 // Misc
 import { joinInitiative } from '../../api/routes/actionItemRoutes'
+import { toast } from '../../toast/toast'
 
 type Props = {
   initiative: Initiative

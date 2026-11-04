@@ -11,13 +11,14 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { projectUpserted } from '../../store/projectsSlice'
 
 // User interface
-import { Alert, toast } from '@heroui/react'
+import { Alert } from '@heroui/react'
 import { GithubTokenSelect, INHERIT_GITHUB_TOKEN, NO_GITHUB_TOKEN } from '../../components/GithubTokenSelect'
 
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { updateProject } from '../../api/routes/projectRoutes'
 import { useGithubCredentialsLoader } from '../../hooks/useServerData'
+import { toast } from '../../toast/toast'
 
 type Props = {
   project: Project

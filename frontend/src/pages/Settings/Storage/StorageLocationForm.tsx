@@ -24,7 +24,6 @@ import {
   Select,
   Switch,
   TextField,
-  toast,
 } from '@heroui/react'
 import { ProjectScopePicker } from '../../../components/ProjectScopePicker'
 import { StorageSetupChecklist } from './StorageSetupChecklist'
@@ -50,6 +49,7 @@ import {
   STORAGE_OPTIONS,
   storageOptionLabelKeys,
 } from './storagePresentation'
+import { toast } from '../../../toast/toast'
 
 // A new AWS bucket's region until one is typed: AWS's default region.
 const DEFAULT_AWS_REGION = 'us-east-1'

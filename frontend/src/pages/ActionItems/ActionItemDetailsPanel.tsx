@@ -13,7 +13,7 @@ import { selectAllProjects } from '../../store/projectsSlice'
 
 // User interface
 import { UserName } from '../../components/UserName'
-import { Button, Card, toast } from '@heroui/react'
+import { Button, Card } from '@heroui/react'
 import { DayPicker } from '../../components/DayPicker'
 import { OptionSelect } from '../../components/OptionSelect'
 import { MultiPicker } from '../../components/MultiPicker'
@@ -35,6 +35,7 @@ import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerDa
 import { toEndOfDayInstant, toLocalDay } from './actionItemDates'
 import { describeOwner, priorityLabelKeys } from './actionItemPresentation'
 import { getMembershipChanges } from './membershipChanges'
+import { toast } from '../../toast/toast'
 
 type Props = {
   item: ActionItem

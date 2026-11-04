@@ -12,7 +12,7 @@ import { useAppDispatch } from '../store/hooks'
 import { elysiaUpdated } from '../store/elysiaSlice'
 
 // User interface
-import { Button, Checkbox, Label, Modal, Switch, TimeField, toast } from '@heroui/react'
+import { Button, Checkbox, Label, Modal, Switch, TimeField } from '@heroui/react'
 
 // Utility
 import { Time } from '@internationalized/date'
@@ -21,6 +21,7 @@ import { Time } from '@internationalized/date'
 import { updateElysiaSettings } from '../api/routes/elysiaRoutes'
 import { formatWeekday } from '../format/dates'
 import { WEEKDAYS, fromUtcWindows, localOffsetMinutes, toUtcWindows } from './hours'
+import { toast } from '../toast/toast'
 
 // A new schedule starts as working hours, Monday to Friday.
 const DEFAULT_DAYS: Weekday[] = [ 0, 1, 2, 3, 4 ]

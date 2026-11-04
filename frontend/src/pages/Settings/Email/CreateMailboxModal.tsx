@@ -25,7 +25,6 @@ import {
   Modal,
   Select,
   TextField,
-  toast,
 } from '@heroui/react'
 
 // Utility
@@ -36,6 +35,7 @@ import { HTTPError } from 'ky'
 import { getUpstreamErrorMessage } from '../../../api/errors'
 import { createMailbox } from '../../../api/routes/mailRoutes'
 import { createMailboxFormSchema } from './mailFormSchemas'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   state: UseOverlayStateReturn

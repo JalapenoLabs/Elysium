@@ -12,7 +12,7 @@ import { connectorUpserted } from '../../../store/connectorsSlice'
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 
 // User interface
-import { Button, Card, Chip, Spinner, toast } from '@heroui/react'
+import { Button, Card, Chip, Spinner } from '@heroui/react'
 import { BrowserStream } from '../../../browser/BrowserStream'
 import { BrowserSessionActions } from './BrowserSessionActions'
 
@@ -26,6 +26,7 @@ import {
   signInChipColors,
   signInLabelKeys,
 } from './connectorPresentation'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   connector: Connector

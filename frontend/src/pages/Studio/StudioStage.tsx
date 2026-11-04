@@ -16,7 +16,7 @@ import { selectStudioItemAssets } from '../../store/studioAssetsSlice'
 import { studioItemUpserted } from '../../store/studioItemsSlice'
 
 // User interface
-import { Button, Spinner, toast, Tooltip } from '@heroui/react'
+import { Button, Spinner, Tooltip } from '@heroui/react'
 import { LuImageOff, LuPencilLine, LuPin, LuPinOff } from 'react-icons/lu'
 import { AnnotateModal } from './AnnotateModal'
 import { StudioDownloads } from './StudioDownloads'
@@ -27,6 +27,7 @@ import { StudioImage } from './StudioImage'
 import { getApiErrorMessage } from '../../api/errors'
 import { getStudioAssetContentUrl, updateStudioItem } from '../../api/routes/studioRoutes'
 import { getDefaultStageSubject, getSubjectVersions, groupStudioAssets } from './studioAssets'
+import { toast } from '../../toast/toast'
 
 // three.js is most of the viewer's weight, so it loads with the first model shown rather
 // than with the app.

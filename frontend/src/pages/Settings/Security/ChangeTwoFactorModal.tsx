@@ -10,12 +10,13 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Description, Form, Input, Label, Modal, TextField, toast } from '@heroui/react'
+import { Button, Description, Form, Input, Label, Modal, TextField } from '@heroui/react'
 import { AuthenticatorEnrollment } from './AuthenticatorEnrollment'
 
 // Misc
 import { AUTHENTICATOR_NICKNAME_MAX_LENGTH } from '../../../constants'
 import { storeAuthenticatorNickname } from './twoFactorNickname'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   state: UseOverlayStateReturn

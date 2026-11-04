@@ -6,7 +6,7 @@ import type { OAuthGrant } from '../../../api/routes/oauthRoutes'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Chip, Spinner, toast } from '@heroui/react'
+import { Button, Chip, Spinner } from '@heroui/react'
 import { LuPlug } from 'react-icons/lu'
 
 // Misc
@@ -14,6 +14,7 @@ import { formatDate } from '../../../format/dates'
 import { revokeOAuthGrant } from '../../../api/routes/oauthRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { knownScopes, scopeLabelKeys } from '../../OAuth/oauthPresentation'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   // Undefined until the list has loaded.

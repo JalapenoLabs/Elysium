@@ -10,7 +10,7 @@ import { useAppDispatch } from '../../store/hooks'
 import { actionItemLinkUpserted } from '../../store/actionItemLinksSlice'
 
 // User interface
-import { Button, Link, Spinner, toast } from '@heroui/react'
+import { Button, Link, Spinner } from '@heroui/react'
 import { ReportIssueButton } from '../../components/ReportIssueButton'
 
 // Misc
@@ -18,6 +18,7 @@ import { cancelActionItemLinkWrite } from '../../api/routes/actionItemRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
 import { getJiraDoneTransitionsUrl } from '../../urls'
 import { describePendingWrite, providerLabelKeys } from './linkPresentation'
+import { toast } from '../../toast/toast'
 
 type Props = {
   link: ActionItemLink

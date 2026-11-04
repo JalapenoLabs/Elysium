@@ -13,7 +13,7 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { learningUpserted, selectLearningById } from '../../../store/learningsSlice'
 
 // User interface
-import { Alert, Button, Chip, Link, Spinner, toast } from '@heroui/react'
+import { Alert, Button, Chip, Link, Spinner } from '@heroui/react'
 import { LuRotateCcw, LuTrash2 } from 'react-icons/lu'
 import { SettingsPage } from '../SettingsPage'
 import { LearningForm } from './LearningForm'
@@ -26,6 +26,7 @@ import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useLearningLoader } from '../../../hooks/useServerData'
 import { useUserNames } from '../../../hooks/useUserNames'
 import { UrlTree } from '../../../urls'
+import { toast } from '../../../toast/toast'
 
 // `/settings/learnings/:learningId`: one learning, corrected in place and saved from the header,
 // with its history below. Deleting is soft, so it happens at once with Undo in its toast; a
@@ -63,8 +64,8 @@ export function LearningPage() {
       // The delete answers nothing, so the learning is read again to show it deleted.
       await mutate(`v1/learnings/${target.id}`)
       toast.success(t('toasts.deleted'), {
-        actionProps: {
-          children: t('toasts.undo'),
+        action: {
+          label: t('toasts.undo'),
           onPress: () => void restore(target),
         },
       })

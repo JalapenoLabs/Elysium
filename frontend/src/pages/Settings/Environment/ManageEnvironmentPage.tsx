@@ -11,7 +11,7 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { environmentVariableDeleted, selectAllEnvironmentVariables } from '../../../store/environmentVariablesSlice'
 
 // User interface
-import { Button, Spinner, toast } from '@heroui/react'
+import { Button, Spinner } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 import { SettingsPage } from '../SettingsPage'
 import { EnvironmentVariableTable } from './EnvironmentVariableTable'
@@ -22,6 +22,7 @@ import { deleteEnvironmentVariable } from '../../../api/routes/environmentRoutes
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useEnvironmentVariablesLoader } from '../../../hooks/useServerData'
 import { getEnvironmentVariableEditUrl, UrlTree } from '../../../urls'
+import { toast } from '../../../toast/toast'
 
 // `/settings/environment`: the global environment variables every coding session receives.
 export function ManageEnvironmentPage() {

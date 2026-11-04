@@ -16,7 +16,7 @@ import {
 } from '../../store/actionItemLinksSlice'
 
 // User interface
-import { Button, Chip, Dropdown, Label, Link, Spinner, Tooltip, toast, useOverlayState } from '@heroui/react'
+import { Button, Chip, Dropdown, Label, Link, Spinner, Tooltip, useOverlayState } from '@heroui/react'
 import { LuEllipsis, LuExternalLink, LuPlus } from 'react-icons/lu'
 import { LinkTargetModal } from './LinkTargetModal'
 import { PendingWrites } from './PendingWrites'
@@ -40,6 +40,7 @@ import {
   linkStateLabelKeys,
   providerLabelKeys,
 } from './linkPresentation'
+import { toast } from '../../toast/toast'
 
 type Props = {
   item: ActionItem

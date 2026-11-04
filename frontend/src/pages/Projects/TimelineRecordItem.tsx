@@ -11,7 +11,7 @@ import { useAppDispatch } from '../../store/hooks'
 import { timelineRecordUpserted } from '../../store/timelineRecordsSlice'
 
 // User interface
-import { Button, Chip, Link, toast } from '@heroui/react'
+import { Button, Chip, Link } from '@heroui/react'
 import { SegmentClip } from './SegmentClip'
 import { RecordReply } from '../../replies/RecordReply'
 
@@ -27,6 +27,7 @@ import {
   segmentDetails,
   sourceLabelKey,
 } from './timelinePresentation'
+import { toast } from '../../toast/toast'
 
 type Props = {
   record: TimelineRecord

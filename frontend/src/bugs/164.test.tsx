@@ -12,7 +12,7 @@ import { toast } from '../toast/toast'
 
 // Issue #164: every warning and error toast vanished after HeroUI's default 4 seconds, often
 // before it was read, and every success lasted 4 seconds however long it was. Toasts now go
-// through `src/toast/toast.ts`: warnings and errors stay until dismissed, and the rest stay
+// through `src/toast/toast.tsx`: warnings and errors stay until dismissed, and the rest stay
 // about 300ms per word plus a second.
 //
 // A toast's countdown starts when the toast region shows it, so each test renders the region

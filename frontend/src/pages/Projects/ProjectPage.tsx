@@ -10,7 +10,7 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { projectUpserted, selectProjectById } from '../../store/projectsSlice'
 
 // User interface
-import { Breadcrumbs, Link, Spinner, toast } from '@heroui/react'
+import { Breadcrumbs, Link, Spinner } from '@heroui/react'
 import { InlineEditableText } from '../../components/InlineEditableText'
 import { ProjectActions } from './ProjectActions'
 import { ProjectBanner } from './ProjectBanner'
@@ -29,6 +29,7 @@ import { useUserNames } from '../../hooks/useUserNames'
 import { formatDate } from '../../format/dates'
 import { UrlTree } from '../../urls'
 import { DESCRIPTION_MAX_CHARACTERS, NAME_MAX_CHARACTERS } from './projectFormSchema'
+import { toast } from '../../toast/toast'
 
 // `/projects/:projectId`: one project, edited in place. The name and description come
 // first and are edited where they are shown, the cover runs across the page below them, and the Actions menu holds

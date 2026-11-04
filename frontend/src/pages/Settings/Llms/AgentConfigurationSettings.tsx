@@ -12,12 +12,13 @@ import { useAppDispatch } from '../../../store/hooks'
 import { workspaceSettingsUpdated } from '../../../store/workspaceSettingsSlice'
 
 // User interface
-import { Description, Form, Input, Label, TextField, toast } from '@heroui/react'
+import { Description, Form, Input, Label, TextField } from '@heroui/react'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { updateWorkspaceSettings } from '../../../api/routes/userRoutes'
 import { usePageSave } from '../../../layout/page/pageSave'
+import { toast } from '../../../toast/toast'
 
 const AGENT_CONFIGURATION_FORM_ID = 'agent-configuration-form'
 

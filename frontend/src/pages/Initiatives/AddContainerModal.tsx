@@ -11,13 +11,14 @@ import { useAppDispatch } from '../../store/hooks'
 import { initiativeLinkUpserted } from '../../store/initiativeLinksSlice'
 
 // User interface
-import { Button, Modal, toast } from '@heroui/react'
+import { Button, Modal } from '@heroui/react'
 import { ContainerTargetPicker } from './ContainerTargetPicker'
 
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { addInitiativeLink } from '../../api/routes/initiativeRoutes'
 import { EMPTY_CONTAINER_TARGET_DRAFT, toContainerTarget } from './containerPresentation'
+import { toast } from '../../toast/toast'
 
 type Props = {
   initiativeId: string

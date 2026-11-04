@@ -8,12 +8,13 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Alert, Button, Modal, Spinner, Tooltip, toast } from '@heroui/react'
+import { Alert, Button, Modal, Spinner, Tooltip } from '@heroui/react'
 import { LuCopy } from 'react-icons/lu'
 
 // Misc
 import { createUserRecoveryLink } from '../../../api/routes/userRoutes'
 import { formatTime } from '../../../format/dates'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   state: UseOverlayStateReturn

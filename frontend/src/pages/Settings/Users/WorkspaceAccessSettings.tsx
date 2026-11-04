@@ -12,11 +12,12 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { workspaceSettingsUpdated } from '../../../store/workspaceSettingsSlice'
 
 // User interface
-import { Label, Link, Switch, toast } from '@heroui/react'
+import { Label, Link, Switch } from '@heroui/react'
 
 // Misc
 import { updateWorkspaceSettings } from '../../../api/routes/userRoutes'
 import { UrlTree } from '../../../urls'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   settings: WorkspaceSettings

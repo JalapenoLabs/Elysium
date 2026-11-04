@@ -13,7 +13,7 @@ import { selectIsAdmin } from '../store/authSlice'
 import { elysiaPanelToggled, elysiaUpdated, selectElysia } from '../store/elysiaSlice'
 
 // User interface
-import { Button, Tabs, toast, Tooltip } from '@heroui/react'
+import { Button, Tabs, Tooltip } from '@heroui/react'
 import { LuX } from 'react-icons/lu'
 import { ElysiaActivity } from './ElysiaActivity'
 import { ElysiaConversation } from './ElysiaConversation'
@@ -25,6 +25,7 @@ import { ElysiaWorkList } from './ElysiaWorkList'
 import { updateElysiaSettings } from '../api/routes/elysiaRoutes'
 import { formatShortDateTime } from '../format/dates'
 import { holdLabelKeys, lightDotClassNames, lightLabelKeys, lightTextClassNames } from './presentation'
+import { toast } from '../toast/toast'
 
 type View = 'conversation' | 'activity'
 

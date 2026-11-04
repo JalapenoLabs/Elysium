@@ -29,7 +29,6 @@ import {
   Select,
   TextArea,
   TextField,
-  toast,
 } from '@heroui/react'
 
 // Utility
@@ -42,6 +41,7 @@ import { useProjectsLoader, useStorageLocationsLoader } from '../../hooks/useSer
 import { getStudioItemUrl } from '../../urls'
 import { createStudioItemFormSchema } from './studioItemFormSchema'
 import { getDefaultStudioLocationId, getStudioLocationChoices } from './studioStorage'
+import { toast } from '../../toast/toast'
 
 // The project select's key for no project; the form holds an empty string.
 const NO_PROJECT_KEY = 'none'

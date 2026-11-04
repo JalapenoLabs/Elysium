@@ -12,11 +12,12 @@ import { useAppDispatch } from '../../../store/hooks'
 import { passwordVaultUpdated } from '../../../store/passwordVaultSlice'
 
 // User interface
-import { Description, Label, ListBox, Select, Spinner, toast } from '@heroui/react'
+import { Description, Label, ListBox, Select, Spinner } from '@heroui/react'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { chooseVaultCollection, listVaultCollections } from '../../../api/routes/passwordVaultRoutes'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   vault: PasswordVault

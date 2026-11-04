@@ -7,13 +7,14 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, toast, Tooltip } from '@heroui/react'
+import { Button, Tooltip } from '@heroui/react'
 import { LuDatabaseBackup } from 'react-icons/lu'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { startBackup } from '../../../api/routes/backupRoutes'
 import { backUpNowBlockedKey } from './backupsPresentation'
+import { toast } from '../../../toast/toast'
 
 type Props = {
   status: BackupsStatus

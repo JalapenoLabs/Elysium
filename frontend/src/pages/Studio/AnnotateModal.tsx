@@ -21,7 +21,6 @@ import {
   Spinner,
   TextArea,
   TextField,
-  toast,
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
@@ -33,6 +32,7 @@ import { getApiErrorMessage } from '../../api/errors'
 import { sendStudioTurn } from '../../api/routes/studioRoutes'
 import { DRAWING_TOOLS, getPenSize, PEN_COLORS, toImagePoint } from './annotation'
 import { drawAnnotation } from './drawAnnotation'
+import { toast } from '../../toast/toast'
 
 const toolIcons = {
   pen: LuPencil,

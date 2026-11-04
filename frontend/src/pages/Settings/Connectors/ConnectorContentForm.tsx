@@ -12,13 +12,14 @@ import { connectorUpserted } from '../../../store/connectorsSlice'
 import { useAppDispatch } from '../../../store/hooks'
 
 // User interface
-import { Card, Form, toast } from '@heroui/react'
+import { Card, Form } from '@heroui/react'
 import { ContentFields } from './ContentFields'
 
 // Misc
 import { updateConnector } from '../../../api/routes/connectorRoutes'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { connectorErrorMessage } from './connectorPresentation'
+import { toast } from '../../../toast/toast'
 
 const CONNECTOR_CONTENT_FORM_ID = 'connector-content-form'
 

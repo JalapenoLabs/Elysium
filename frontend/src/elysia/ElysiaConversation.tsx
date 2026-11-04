@@ -11,7 +11,7 @@ import { useAppDispatch, useAppSelector } from '../store/hooks'
 import { elysiaMessageCreated, elysiaMessagesLoaded, selectElysiaMessages } from '../store/elysiaSlice'
 
 // User interface
-import { Button, Form, Label, Spinner, TextArea, TextField, toast } from '@heroui/react'
+import { Button, Form, Label, Spinner, TextArea, TextField } from '@heroui/react'
 import { LuSendHorizontal } from 'react-icons/lu'
 
 // Misc
@@ -20,6 +20,7 @@ import { formatShortDateTime } from '../format/dates'
 import { useElysiaMessagesLoader } from '../hooks/useServerData'
 import { useUserNames } from '../hooks/useUserNames'
 import { ELYSIA_MESSAGE_PAGE_SIZE } from '../constants'
+import { toast } from '../toast/toast'
 
 // A message's length, as the API bounds it.
 const MESSAGE_MAX_CHARACTERS = 20_000

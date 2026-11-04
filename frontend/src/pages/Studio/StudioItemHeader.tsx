@@ -13,7 +13,7 @@ import { useAppDispatch } from '../../store/hooks'
 import { studioItemUpserted } from '../../store/studioItemsSlice'
 
 // User interface
-import { Button, toast, Tooltip } from '@heroui/react'
+import { Button, Tooltip } from '@heroui/react'
 import { LuArrowLeft } from 'react-icons/lu'
 import { InlineEditableText } from '../../components/InlineEditableText'
 import { StudioLayoutControl } from './StudioLayoutControl'
@@ -23,6 +23,7 @@ import { getApiErrorMessage } from '../../api/errors'
 import { updateStudioItem } from '../../api/routes/studioRoutes'
 import { UrlTree } from '../../urls'
 import { STUDIO_TITLE_MAX_CHARACTERS } from './studioItemFormSchema'
+import { toast } from '../../toast/toast'
 
 type Props = {
   item: StudioItem

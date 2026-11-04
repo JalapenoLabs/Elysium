@@ -11,9 +11,6 @@ import { useTranslation } from 'react-i18next'
 import { useAppDispatch } from '../../../store/hooks'
 import { checkRunLoaded, connectorDeleted, connectorUpserted } from '../../../store/connectorsSlice'
 
-// User interface
-import { toast } from '@heroui/react'
-
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import {
@@ -23,6 +20,7 @@ import {
   updateConnector,
 } from '../../../api/routes/connectorRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
+import { toast } from '../../../toast/toast'
 
 // What removing a connector removes with it, by the account it owns.
 const deleteBodyKeyByAccount = {

@@ -10,7 +10,7 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { initiativeLinkDeleted, selectInitiativeLinks } from '../../store/initiativeLinksSlice'
 
 // User interface
-import { Button, Chip, Link, Spinner, Tooltip, toast, useOverlayState } from '@heroui/react'
+import { Button, Chip, Link, Spinner, Tooltip, useOverlayState } from '@heroui/react'
 import { LuExternalLink, LuPlus, LuUnlink } from 'react-icons/lu'
 import { AddContainerModal } from './AddContainerModal'
 
@@ -21,6 +21,7 @@ import { useConfirm } from '../../hooks/useConfirm'
 import { useInitiativeLinksLoader } from '../../hooks/useServerData'
 import { providerLabelKeys } from '../ActionItems/linkPresentation'
 import { containerKindLabelKeys } from './containerPresentation'
+import { toast } from '../../toast/toast'
 
 type Props = {
   initiative: Initiative

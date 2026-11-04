@@ -13,7 +13,7 @@ import { mailDomainDeleted, selectAllMailDomains } from '../../../store/mailDoma
 import { selectMailServer } from '../../../store/mailServerSlice'
 
 // User interface
-import { Alert, Button, Card, Spinner, toast, useOverlayState } from '@heroui/react'
+import { Alert, Button, Card, Spinner, useOverlayState } from '@heroui/react'
 import { LuPlus, LuServer } from 'react-icons/lu'
 import { AddMailDomainModal } from './AddMailDomainModal'
 import { CreateMailServerModal } from './CreateMailServerModal'
@@ -28,6 +28,7 @@ import { getUpstreamErrorMessage } from '../../../api/errors'
 import { deleteMailDomain } from '../../../api/routes/mailRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useMailDomainsLoader, useMailServerLoader } from '../../../hooks/useServerData'
+import { toast } from '../../../toast/toast'
 
 // Creation's steps in order, as the API reports them.
 const creationSteps = [

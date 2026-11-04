@@ -13,7 +13,7 @@ import { useAppDispatch } from '../../store/hooks'
 import { studioItemDeleted } from '../../store/studioItemsSlice'
 
 // User interface
-import { Button, Dropdown, Label, toast, Tooltip } from '@heroui/react'
+import { Button, Dropdown, Label, Tooltip } from '@heroui/react'
 import { LuEllipsis } from 'react-icons/lu'
 import { DeleteStudioItemMessage } from './DeleteStudioItemMessage'
 
@@ -22,6 +22,7 @@ import { getApiErrorMessage } from '../../api/errors'
 import { deleteStudioItem } from '../../api/routes/studioRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
 import { UrlTree } from '../../urls'
+import { toast } from '../../toast/toast'
 
 type Props = {
   item: StudioItem
