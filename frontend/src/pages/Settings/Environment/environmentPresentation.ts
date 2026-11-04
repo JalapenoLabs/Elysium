@@ -7,9 +7,6 @@ export const KEY_MAX_CHARACTERS = 128
 export const VALUE_MAX_BYTES = 32 * 1024
 export const DESCRIPTION_MAX_CHARACTERS = 500
 
-// Shown in place of a secret's value, which the API never returns.
-export const MASKED_VALUE = '••••••'
-
 // Why a key cannot be stored. Mirrors `KeyRefusal` in api/src/environment/mod.rs.
 export type KeyRefusal =
   | 'malformed'

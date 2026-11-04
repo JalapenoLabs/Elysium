@@ -9,7 +9,9 @@
     "category": "Category",
     "description": "Description",
     "learnings": "Learnings",
+    "type": "Type",
     "builtIn": "Built-in",
+    "custom": "Custom",
     "loadError": "The categories could not be loaded."
   },
   "actions": {

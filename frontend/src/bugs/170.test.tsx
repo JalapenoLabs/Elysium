@@ -13,10 +13,10 @@ import { createAppStore } from '../store'
 
 // User interface
 import { NextItemCard } from '../pages/ActionItems/NextItemCard'
-import { EnvironmentVariableRowActions } from '../pages/Settings/Environment/EnvironmentVariableRowActions'
-import { LlmRowActions } from '../pages/Settings/Llms/LlmRowActions'
+import { EnvironmentVariableTable } from '../pages/Settings/Environment/EnvironmentVariableTable'
+import { LlmTable } from '../pages/Settings/Llms/LlmTable'
 import { ManageLlmsPage } from '../pages/Settings/Llms/ManageLlmsPage'
-import { StorageLocationRowActions } from '../pages/Settings/Storage/StorageLocationRowActions'
+import { StorageLocationTable } from '../pages/Settings/Storage/StorageLocationTable'
 
 // Misc
 import { makeActionItem, makeLlm, makeStorageLocation } from '../testFixtures'
@@ -24,7 +24,8 @@ import { TestAriaRouter } from '../testRouter'
 
 // Issue #170: buttons and menu items that went somewhere called `navigate()`, so they could not
 // be middle-clicked, ctrl+clicked, or opened in a new tab. Each is now a real anchor with the
-// address it goes to, which is what lets the browser open it anywhere.
+// address it goes to, which is what lets the browser open it anywhere. A table row's editing is
+// its name's link, since row actions are buttons.
 
 // Every loader answers as loaded: these tests are about where things link, not what loads.
 vi.mock('../hooks/useServerData', async (importOriginal) => {
@@ -33,6 +34,7 @@ vi.mock('../hooks/useServerData', async (importOriginal) => {
 })
 
 const noop = () => {}
+const asyncNoop = async () => {}
 
 function renderRouted(element: ReactNode) {
   // A data router, as the app has, since a page guards its unsaved changes with a blocker.
@@ -74,9 +76,9 @@ describe('issue #170', () => {
     expect(hrefOf(screen.getByText('Fix the login cookie'))).toBe('/action-items/item-1')
   })
 
-  it('edits an environment variable from its row with a link', async () => {
-    renderRouted(<EnvironmentVariableRowActions
-      variable={{
+  it('edits an environment variable from its row with a link', () => {
+    renderRouted(<EnvironmentVariableTable
+      variables={[{
         id: 'variable-1',
         key: 'NPM_TOKEN',
         isSecret: true,
@@ -85,40 +87,32 @@ describe('issue #170', () => {
         createdAt: '2026-11-03T12:00:00Z',
         createdBy: 'user-1',
         updatedAt: '2026-11-03T12:00:00Z',
-      }}
+      }]}
       onDelete={noop}
     />)
 
-    const menu = await openMenu(screen.getByRole('button', { name: 'More actions' }))
-    const edit = within(menu).getByRole('menuitem', { name: 'Edit' })
-    expect(edit.tagName).toBe('A')
-    expect(edit.getAttribute('href')).toBe('/settings/environment/variable-1/edit')
+    expect(hrefOf(screen.getByText('NPM_TOKEN'))).toBe('/settings/environment/variable-1/edit')
   })
 
-  it('edits a storage location from its row with a link', async () => {
-    renderRouted(<StorageLocationRowActions
-      location={makeStorageLocation({ id: 'location-1' })}
-      onTest={noop}
+  it('edits a storage location from its row with a link', () => {
+    renderRouted(<StorageLocationTable
+      locations={[ makeStorageLocation({ id: 'location-1', name: 'Renders' }) ]}
+      onTest={asyncNoop}
       onDelete={noop}
     />)
 
-    const menu = await openMenu(screen.getByRole('button', { name: 'More actions' }))
-    const edit = within(menu).getByRole('menuitem', { name: 'Edit' })
-    expect(edit.tagName).toBe('A')
-    expect(edit.getAttribute('href')).toBe('/settings/storage/location-1/edit')
+    expect(hrefOf(screen.getByText('Renders'))).toBe('/settings/storage/location-1/edit')
   })
 
   it('edits an LLM from its row with a link that still routes on a plain click', async () => {
-    renderRouted(<LlmRowActions
-      llm={makeLlm({ id: 'llm-1' })}
-      onToggleActive={noop}
+    renderRouted(<LlmTable
+      llms={[ makeLlm({ id: 'llm-1', name: 'Team key' }) ]}
+      onToggleActive={asyncNoop}
       onDelete={noop}
     />)
 
-    const menu = await openMenu(screen.getByRole('button', { name: 'More actions' }))
-    const edit = within(menu).getByRole('menuitem', { name: 'Edit' })
-    expect(edit.tagName).toBe('A')
-    expect(edit.getAttribute('href')).toBe('/settings/llms/llm-1/edit')
+    const edit = screen.getByText('Team key')
+    expect(hrefOf(edit)).toBe('/settings/llms/llm-1/edit')
 
     fireEvent.click(edit)
     expect(await screen.findByText('Edit page')).toBeTruthy()

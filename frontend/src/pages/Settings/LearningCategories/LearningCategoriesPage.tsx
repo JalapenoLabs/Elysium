@@ -134,7 +134,7 @@ export function LearningCategoriesPage() {
 
     {status === 'loaded' && <LearningCategoryTable
       rows={rows}
-      onMove={(category, direction) => void move(category, direction)}
+      onMove={move}
       onRemove={setRemoving}
     />}
 

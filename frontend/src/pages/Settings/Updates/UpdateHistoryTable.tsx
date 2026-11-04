@@ -12,6 +12,7 @@ import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 
 // Misc
 import { DateText } from '../../../format/DateText'
+import { formatDateTime } from '../../../format/dates'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { historyStatusChipColors, historyStatusLabelKeys } from './updatesPresentation'
 
@@ -46,13 +47,25 @@ export function UpdateHistoryTable(props: Props) {
   const [ search, setSearch ] = useState('')
 
   const managedColumns = useMemo(() => {
+    // Search matches what the user sees.
     const searchValue = {
       release: (update: DeploymentUpdate) => `${update.fromVersion} ${update.toVersion}`,
       status: (update: DeploymentUpdate) => t(historyStatusLabelKeys[update.status]),
-      started: (update: DeploymentUpdate) => update.startedAt,
-      finished: (update: DeploymentUpdate) => update.finishedAt ?? '',
+      started: (update: DeploymentUpdate) => formatDateTime(update.startedAt),
+      finished: (update: DeploymentUpdate) => update.finishedAt
+        ? formatDateTime(update.finishedAt)
+        : '',
       reason: (update: DeploymentUpdate) => update.reason ?? '',
     } satisfies Record<HistoryColumnKey, (update: DeploymentUpdate) => string>
+
+    // Sorting follows the text, except the dates, which sort in time with one still going last.
+    const sortValue = {
+      ...searchValue,
+      started: (update: DeploymentUpdate) => Date.parse(update.startedAt),
+      finished: (update: DeploymentUpdate) => update.finishedAt
+        ? Date.parse(update.finishedAt)
+        : Number.POSITIVE_INFINITY,
+    } satisfies Record<HistoryColumnKey, (update: DeploymentUpdate) => string | number>
 
     const renderCell = {
       release: (update: DeploymentUpdate) => t('history.fromTo', {
@@ -66,8 +79,11 @@ export function UpdateHistoryTable(props: Props) {
       >{
           t(historyStatusLabelKeys[update.status])
         }</Chip>,
-      started: (update: DeploymentUpdate) => <DateText value={update.startedAt} />,
-      finished: (update: DeploymentUpdate) => update.finishedAt && <DateText value={update.finishedAt} />,
+      started: (update: DeploymentUpdate) => <DateText value={update.startedAt} isFocusable={false} />,
+      finished: (update: DeploymentUpdate) => update.finishedAt && <DateText
+        value={update.finishedAt}
+        isFocusable={false}
+      />,
       reason: (update: DeploymentUpdate) => <span className='text-sm opacity-80'>{update.reason ?? ''}</span>,
     } satisfies Record<HistoryColumnKey, (update: DeploymentUpdate) => unknown>
 
@@ -79,7 +95,7 @@ export function UpdateHistoryTable(props: Props) {
       createColumnDef: ({ columnKey, columnId, columnLabel }) => ({
         id: columnId,
         header: columnLabel,
-        accessorFn: searchValue[columnKey],
+        accessorFn: sortValue[columnKey],
         size: columnSizes[columnKey],
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
@@ -106,6 +122,7 @@ export function UpdateHistoryTable(props: Props) {
       value: search,
       onChange: setSearch,
     }}
+    pagination={{ show: true }}
     enableSorting
     stickyHeader={false}
   />

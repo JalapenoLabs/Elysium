@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { DataTableAction } from '@jalapenolabs/uikit'
 import type { StorageLocation } from '../../../api/routes/storageRoutes'
 
 // Core
@@ -12,9 +13,9 @@ import { useAppSelector } from '../../../store/hooks'
 import { selectProjectNamesById } from '../../../store/projectsSlice'
 
 // User interface
-import { Chip } from '@heroui/react'
+import { Chip, Link } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
-import { StorageLocationRowActions } from './StorageLocationRowActions'
+import { LuPlugZap, LuTrash2 } from 'react-icons/lu'
 
 // Misc
 import { ALL_PROJECTS } from '../../../api/routes/projectRoutes'
@@ -22,6 +23,7 @@ import { formatBytes } from '../../../format/numbers'
 import { useProjectsLoader } from '../../../hooks/useServerData'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { useUserNames } from '../../../hooks/useUserNames'
+import { getStorageLocationEditUrl } from '../../../urls'
 import {
   bunnyRegionLabelKeys,
   getStorageOption,
@@ -31,7 +33,7 @@ import {
 
 type Props = {
   locations: StorageLocation[]
-  onTest: (location: StorageLocation) => void
+  onTest: (location: StorageLocation) => Promise<void>
   onDelete: (location: StorageLocation) => void
 }
 
@@ -43,7 +45,6 @@ const STORAGE_COLUMN_KEYS = [
   'limit',
   'studioDefault',
   'createdBy',
-  'rowActions',
 ] as const
 type StorageColumnKey = typeof STORAGE_COLUMN_KEYS[number]
 
@@ -55,7 +56,6 @@ const columnLabelKeys = {
   limit: 'table.limit',
   studioDefault: 'table.studioDefault',
   createdBy: 'common:table.createdBy',
-  rowActions: 'common:actions.moreActions',
 } as const satisfies Record<StorageColumnKey, string>
 
 // Starting widths in pixels, summing to less than the settings content column.
@@ -67,7 +67,6 @@ const columnSizes = {
   limit: 120,
   studioDefault: 140,
   createdBy: 160,
-  rowActions: 64,
 } as const satisfies Record<StorageColumnKey, number>
 
 export function StorageLocationTable(props: Props) {
@@ -102,13 +101,19 @@ export function StorageLocationTable(props: Props) {
     }
 
     const renderCell = {
-      name: (location: StorageLocation) => <span className='font-medium'>{location.name}</span>,
+      // Editing is the name's link, so it opens in a new tab too.
+      name: (location: StorageLocation) => <Link
+        href={getStorageLocationEditUrl(location.id)}
+        className='font-medium text-link no-underline hover:underline'
+      >{
+          location.name
+        }</Link>,
       provider: (location: StorageLocation) => <div>
         <div>{t(storageOptionLabelKeys[getStorageOption(location.provider)])}</div>
         {regionText(location) && <div className='text-xs opacity-70'>{regionText(location)}</div>}
       </div>,
-      location: (location: StorageLocation) => <code className='text-xs'>{getStoragePath(location)}</code>,
-      projects: (location: StorageLocation) => <span className='line-clamp-2'>{projectsText(location)}</span>,
+      location: (location: StorageLocation) => <code className='text-xs break-all'>{getStoragePath(location)}</code>,
+      projects: projectsText,
       limit: (location: StorageLocation) => location.storageLimitBytes === null
         ? t('table.noLimit')
         : formatBytes(location.storageLimitBytes),
@@ -121,11 +126,6 @@ export function StorageLocationTable(props: Props) {
           t('table.isStudioDefault')
         }</Chip>,
       createdBy: (location: StorageLocation) => userNames[location.createdBy] ?? t('common:table.someone'),
-      rowActions: (location: StorageLocation) => <StorageLocationRowActions
-        location={location}
-        onTest={props.onTest}
-        onDelete={props.onDelete}
-      />,
     } satisfies Record<StorageColumnKey, (location: StorageLocation) => unknown>
 
     // Search matches what the user sees.
@@ -145,49 +145,48 @@ export function StorageLocationTable(props: Props) {
         ? t('table.studioDefault')
         : '',
       createdBy: (location: StorageLocation) => userNames[location.createdBy] ?? '',
-      rowActions: null,
-    } satisfies Record<StorageColumnKey, ((location: StorageLocation) => string) | null>
+    } satisfies Record<StorageColumnKey, (location: StorageLocation) => string>
+
+    // Sorting follows the text, except the limit, which sorts by size with no limit as the
+    // largest, and the Studio default, which sorts first.
+    const sortValue = {
+      ...searchValue,
+      limit: (location: StorageLocation) => location.storageLimitBytes ?? Number.POSITIVE_INFINITY,
+      studioDefault: (location: StorageLocation) => location.isStudioDefault
+        ? 0
+        : 1,
+    } satisfies Record<StorageColumnKey, (location: StorageLocation) => string | number>
 
     return createManagedColumns<StorageLocation, StorageColumnKey>({
       columnKeys: STORAGE_COLUMN_KEYS,
       getColumnLabel: (columnKey) => t(columnLabelKeys[columnKey]),
-      getSearchKey: (columnKey) => searchValue[columnKey]
-        ? columnKey
-        : null,
+      getSearchKey: (columnKey) => columnKey,
       getSearchValue: (columnKey) => searchValue[columnKey],
-      createColumnDef: ({ columnKey, columnId, columnLabel }) => {
-        const toSearchText = searchValue[columnKey]
-        if (!toSearchText) {
-          return {
-            id: columnId,
-            header: () => <span className='sr-only'>{columnLabel}</span>,
-            enableSorting: false,
-            size: columnSizes[columnKey],
-            cell: ({ row }) => renderCell[columnKey](row.original),
-          }
-        }
-
-        // The limit sorts by size, not by its formatted text, with no limit as the largest.
-        if (columnKey === 'limit') {
-          return {
-            id: columnId,
-            header: columnLabel,
-            accessorFn: (location) => location.storageLimitBytes ?? Number.POSITIVE_INFINITY,
-            size: columnSizes[columnKey],
-            cell: ({ row }) => renderCell[columnKey](row.original),
-          }
-        }
-
-        return {
-          id: columnId,
-          header: columnLabel,
-          accessorFn: toSearchText,
-          size: columnSizes[columnKey],
-          cell: ({ row }) => renderCell[columnKey](row.original),
-        }
-      },
+      createColumnDef: ({ columnKey, columnId, columnLabel }) => ({
+        id: columnId,
+        header: columnLabel,
+        accessorFn: sortValue[columnKey],
+        size: columnSizes[columnKey],
+        cell: ({ row }) => renderCell[columnKey](row.original),
+      }),
     })
-  }, [ t, userNames, projectNamesById, props.onTest, props.onDelete ])
+  }, [ t, userNames, projectNamesById ])
+
+  const rowActions = useMemo((): DataTableAction<StorageLocation>[] => [
+    {
+      id: 'test',
+      label: t('actions.test'),
+      icon: <LuPlugZap className='size-4' aria-hidden />,
+      onPress: (row) => props.onTest(row.original),
+    },
+    {
+      id: 'delete',
+      label: t('common:actions.delete'),
+      icon: <LuTrash2 className='size-4' aria-hidden />,
+      isDanger: true,
+      onPress: (row) => props.onDelete(row.original),
+    },
+  ], [ t, props.onTest, props.onDelete ])
 
   if (!props.locations.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
@@ -209,6 +208,8 @@ export function StorageLocationTable(props: Props) {
       value: search,
       onChange: setSearch,
     }}
+    rowActions={rowActions}
+    pagination={{ show: true }}
     enableSorting
     stickyHeader={false}
   />

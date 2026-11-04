@@ -17,10 +17,12 @@
   "table": {
     "label": "LLM credentials",
     "name": "Name",
+    "account": "Account",
     "type": "Type",
     "priority": "Priority",
     "status": "Status",
-    "usage": "Usage",
+    "fiveHourUsage": "Five-hour usage",
+    "sevenDayUsage": "Seven-day usage",
     "expires": "Expires",
     "never": "Never",
     "keptSignedIn": "Kept signed in",
@@ -119,8 +121,6 @@
     }
   },
   "usage": {
-    "fiveHour": "Five hours",
-    "sevenDay": "Seven days",
     "resets": "Resets {{when}}",
     "notAvailable": "Not available",
     "notRead": "Not read yet",

@@ -13,6 +13,7 @@ import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 
 // Misc
 import { DateText } from '../../../format/DateText'
+import { formatDateTime } from '../../../format/dates'
 import { formatBytes } from '../../../format/numbers'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { statusChipColors, statusLabelKeys, triggerLabelKeys } from './backupsPresentation'
@@ -68,17 +69,26 @@ export function BackupHistoryTable(props: Props) {
       return formatBytes(backup.sizeBytes)
     }
 
+    // Search matches what the user sees.
     const searchValue = {
-      started: (backup: DatabaseBackup) => backup.startedAt,
+      started: (backup: DatabaseBackup) => formatDateTime(backup.startedAt),
       trigger: (backup: DatabaseBackup) => t(triggerLabelKeys[backup.trigger]),
       status: (backup: DatabaseBackup) => t(statusLabelKeys[backup.status]),
       location: locationName,
-      size: (backup: DatabaseBackup) => String(backup.sizeBytes ?? ''),
+      size: sizeText,
       error: (backup: DatabaseBackup) => backup.error ?? '',
     } satisfies Record<HistoryColumnKey, (backup: DatabaseBackup) => string>
 
+    // Sorting follows the text, except the start, which sorts in time, and the size, which sorts
+    // by bytes with an unfinished backup's missing size smallest.
+    const sortValue = {
+      ...searchValue,
+      started: (backup: DatabaseBackup) => Date.parse(backup.startedAt),
+      size: (backup: DatabaseBackup) => backup.sizeBytes ?? -1,
+    } satisfies Record<HistoryColumnKey, (backup: DatabaseBackup) => string | number>
+
     const renderCell = {
-      started: (backup: DatabaseBackup) => <DateText value={backup.startedAt} />,
+      started: (backup: DatabaseBackup) => <DateText value={backup.startedAt} isFocusable={false} />,
       trigger: (backup: DatabaseBackup) => t(triggerLabelKeys[backup.trigger]),
       status: (backup: DatabaseBackup) => <Chip
         size='sm'
@@ -100,7 +110,7 @@ export function BackupHistoryTable(props: Props) {
       createColumnDef: ({ columnKey, columnId, columnLabel }) => ({
         id: columnId,
         header: columnLabel,
-        accessorFn: searchValue[columnKey],
+        accessorFn: sortValue[columnKey],
         size: columnSizes[columnKey],
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
@@ -127,6 +137,7 @@ export function BackupHistoryTable(props: Props) {
       value: search,
       onChange: setSearch,
     }}
+    pagination={{ show: true }}
     enableSorting
     stickyHeader={false}
   />

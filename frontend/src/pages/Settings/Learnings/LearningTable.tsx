@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { CsvValue } from '@jalapenolabs/uikit'
 import type { Learning } from '../../../api/routes/learningRoutes'
 
 // Core
@@ -13,6 +14,7 @@ import { EmptyNotice } from '../../../components/EmptyNotice'
 import { DateText } from '../../../format/DateText'
 
 // Misc
+import { formatDateTime } from '../../../format/dates'
 import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { useUserNames } from '../../../hooks/useUserNames'
@@ -38,7 +40,7 @@ const columnSizes = {
 // Learnings in a table: the takeaway, opening the learning; its category; who first saved it and
 // through which agent; and when it last changed, or was deleted.
 export function LearningTable(props: Props) {
-  const { t } = useTranslation([ 'learnings', 'common' ])
+  const { t, i18n } = useTranslation([ 'learnings', 'common' ])
   const labels = useSmartTableLabels()
   const userNames = useUserNames()
   const { labels: categoryLabels } = useLearningCategories()
@@ -59,7 +61,7 @@ export function LearningTable(props: Props) {
     const category = (learning: Learning) => categoryLabels[learning.category] ?? learning.category
 
     const renderCell = {
-      title: (learning: Learning) => <Link href={getLearningUrl(learning.id)} className='line-clamp-2 text-link'>{
+      title: (learning: Learning) => <Link href={getLearningUrl(learning.id)} className='text-link'>{
         learning.title
       }</Link>,
       category: (learning: Learning) => <Chip size='sm' variant='soft'>{
@@ -71,32 +73,52 @@ export function LearningTable(props: Props) {
           t('table.savedByAgent', { agent: learning.agent.name ?? t('agent.unnamed') })
         }</span>}
       </div>,
-      changedAt: (learning: Learning) => <DateText value={changedAt(learning)} className='opacity-80' />,
+      changedAt: (learning: Learning) => <DateText
+        value={changedAt(learning)}
+        isFocusable={false}
+        className='opacity-80'
+      />,
     } satisfies Record<LearningColumnKey, (learning: Learning) => unknown>
 
-    // What search matches and sorting orders by: what the reader sees, except the date, which
-    // is the instant itself so the column sorts in time order.
+    // Search matches what the reader sees.
     const searchValue = {
       title: (learning: Learning) => learning.title,
       category,
       savedBy,
-      changedAt,
+      changedAt: (learning: Learning) => formatDateTime(changedAt(learning)),
     } satisfies Record<LearningColumnKey, (learning: Learning) => string>
+
+    // Sorting follows the text, except the date, which sorts in time.
+    const sortValue = {
+      title: (learning: Learning) => learning.title.toLocaleLowerCase(i18n.language),
+      category,
+      savedBy,
+      changedAt: (learning: Learning) => Date.parse(changedAt(learning)),
+    } satisfies Record<LearningColumnKey, (learning: Learning) => string | number>
+
+    // The export holds what the table shows, with the instant itself for the date.
+    const exportValue = {
+      title: (learning: Learning) => learning.title,
+      category,
+      savedBy,
+      changedAt,
+    } satisfies Record<LearningColumnKey, (learning: Learning) => CsvValue>
 
     return createManagedColumns<Learning, LearningColumnKey>({
       columnKeys: LEARNING_COLUMN_KEYS,
       getColumnLabel: (columnKey) => columnLabels[columnKey],
       getSearchKey: (columnKey) => columnKey,
       getSearchValue: (columnKey) => searchValue[columnKey],
+      getExportValue: (columnKey) => exportValue[columnKey],
       createColumnDef: ({ columnKey, columnId, columnLabel }) => ({
         id: columnId,
         header: columnLabel,
-        accessorFn: searchValue[columnKey],
+        accessorFn: sortValue[columnKey],
         size: columnSizes[columnKey],
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
     })
-  }, [ t, userNames, categoryLabels, props.isDeletedList ])
+  }, [ t, i18n.language, userNames, categoryLabels, props.isDeletedList ])
 
   if (!props.learnings.length) {
     return <EmptyNotice>{
@@ -124,6 +146,12 @@ export function LearningTable(props: Props) {
       value: search,
       onChange: setSearch,
     }}
+    csvExport={{
+      fileName: props.isDeletedList
+        ? 'deleted-learnings'
+        : 'learnings',
+    }}
+    pagination={{ show: true }}
     enableSorting
     stickyHeader={false}
   />

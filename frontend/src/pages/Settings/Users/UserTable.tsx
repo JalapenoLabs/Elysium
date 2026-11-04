@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { DataTableAction } from '@jalapenolabs/uikit'
 import type { PersonRole, User } from '../../../api/routes/userRoutes'
 
 // Core
@@ -9,8 +10,8 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Chip } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
+import { LuKeyRound, LuLogOut, LuShieldOff, LuUserCheck, LuUserX } from 'react-icons/lu'
 import { OptionSelect } from '../../../components/OptionSelect'
-import { UserRowActions } from './UserRowActions'
 
 // Misc
 import { DateText } from '../../../format/DateText'
@@ -35,7 +36,7 @@ type Props = {
   onCreateRecoveryLink: (user: User) => void
 }
 
-const USER_COLUMN_KEYS = [ 'name', 'role', 'status', 'signIn', 'lastSeen', 'created', 'rowActions' ] as const
+const USER_COLUMN_KEYS = [ 'name', 'role', 'status', 'signIn', 'lastSeen', 'created' ] as const
 type UserColumnKey = typeof USER_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
@@ -45,7 +46,6 @@ const columnLabelKeys = {
   signIn: 'table.signIn',
   lastSeen: 'table.lastSeen',
   created: 'table.created',
-  rowActions: 'common:actions.moreActions',
 } as const satisfies Record<UserColumnKey, string>
 
 // Starting widths in pixels, summing to less than the settings content column.
@@ -56,7 +56,6 @@ const columnSizes = {
   signIn: 220,
   lastSeen: 150,
   created: 140,
-  rowActions: 64,
 } as const satisfies Record<UserColumnKey, number>
 
 // Everyone approved: their role (changed in place, kept by the page's Save), whether they may sign in, how they sign
@@ -97,8 +96,8 @@ export function UserTable(props: Props) {
 
     const renderCell = {
       name: (user: User) => <div className='min-w-0'>
-        <div className='truncate font-medium'>{user.name}</div>
-        <div className='truncate text-xs opacity-70'>{user.email}</div>
+        <div className='font-medium'>{user.name}</div>
+        <div className='text-xs opacity-70'>{user.email}</div>
       </div>,
       role: (user: User) => <OptionSelect
         isLabelHidden
@@ -125,16 +124,9 @@ export function UserTable(props: Props) {
         }</Chip>)
       }</div>,
       lastSeen: (user: User) => user.lastSeenAt
-        ? <DateText value={user.lastSeenAt} />
+        ? <DateText value={user.lastSeenAt} isFocusable={false} />
         : t('table.never'),
-      created: (user: User) => <DateText value={user.createdAt} />,
-      rowActions: (user: User) => <UserRowActions
-        user={user}
-        onSetDisabled={props.onSetDisabled}
-        onRevokeSessions={props.onRevokeSessions}
-        onResetMfa={props.onResetMfa}
-        onCreateRecoveryLink={props.onCreateRecoveryLink}
-      />,
+      created: (user: User) => <DateText value={user.createdAt} isFocusable={false} />,
     } satisfies Record<UserColumnKey, (user: User) => unknown>
 
     // Search matches what the admin sees.
@@ -144,47 +136,70 @@ export function UserTable(props: Props) {
       status: statusText,
       signIn: methodsText,
       lastSeen: lastSeenText,
-      created: (user: User) => user.createdAt,
-      rowActions: null,
-    } satisfies Record<UserColumnKey, ((user: User) => string) | null>
+      created: (user: User) => formatDate(user.createdAt),
+    } satisfies Record<UserColumnKey, (user: User) => string>
+
+    // Sorting follows the text, except the dates, which sort in time with the never seen first.
+    const sortValue = {
+      ...searchValue,
+      lastSeen: (user: User) => user.lastSeenAt
+        ? Date.parse(user.lastSeenAt)
+        : Number.NEGATIVE_INFINITY,
+      created: (user: User) => Date.parse(user.createdAt),
+    } satisfies Record<UserColumnKey, (user: User) => string | number>
 
     return createManagedColumns<User, UserColumnKey>({
       columnKeys: USER_COLUMN_KEYS,
       getColumnLabel: (columnKey) => t(columnLabelKeys[columnKey]),
-      getSearchKey: (columnKey) => searchValue[columnKey]
-        ? columnKey
-        : null,
+      getSearchKey: (columnKey) => columnKey,
       getSearchValue: (columnKey) => searchValue[columnKey],
-      createColumnDef: ({ columnKey, columnId, columnLabel }) => {
-        const toSearchText = searchValue[columnKey]
-        if (!toSearchText) {
-          return {
-            id: columnId,
-            header: () => <span className='sr-only'>{columnLabel}</span>,
-            enableSorting: false,
-            size: columnSizes[columnKey],
-            cell: ({ row }) => renderCell[columnKey](row.original),
-          }
-        }
-
-        return {
-          id: columnId,
-          header: columnLabel,
-          accessorFn: toSearchText,
-          size: columnSizes[columnKey],
-          cell: ({ row }) => renderCell[columnKey](row.original),
-        }
-      },
+      createColumnDef: ({ columnKey, columnId, columnLabel }) => ({
+        id: columnId,
+        header: columnLabel,
+        accessorFn: sortValue[columnKey],
+        size: columnSizes[columnKey],
+        cell: ({ row }) => renderCell[columnKey](row.original),
+      }),
     })
-  }, [
-    t,
-    props.roleChanges,
-    props.onChangeRole,
-    props.onSetDisabled,
-    props.onRevokeSessions,
-    props.onResetMfa,
-    props.onCreateRecoveryLink,
-  ])
+  }, [ t, props.roleChanges, props.onChangeRole ])
+
+  // The two used most stay buttons; resetting the authenticator and disabling sit in the menu,
+  // the dangerous one last.
+  const rowActions = useMemo((): DataTableAction<User>[] => [
+    {
+      id: 'recovery',
+      label: t('actions.recoveryLink'),
+      icon: <LuKeyRound className='size-4' aria-hidden />,
+      onPress: (row) => props.onCreateRecoveryLink(row.original),
+    },
+    {
+      id: 'revoke',
+      label: t('actions.revokeSessions'),
+      icon: <LuLogOut className='size-4' aria-hidden />,
+      onPress: (row) => props.onRevokeSessions(row.original),
+    },
+    {
+      id: 'resetMfa',
+      label: t('actions.resetMfa'),
+      icon: <LuShieldOff className='size-4' aria-hidden />,
+      onPress: (row) => props.onResetMfa(row.original),
+    },
+    {
+      id: 'enable',
+      label: t('actions.enable'),
+      icon: <LuUserCheck className='size-4' aria-hidden />,
+      isVisible: (row) => row.original.status === 'disabled',
+      onPress: (row) => props.onSetDisabled(row.original, false),
+    },
+    {
+      id: 'disable',
+      label: t('actions.disable'),
+      icon: <LuUserX className='size-4' aria-hidden />,
+      isDanger: true,
+      isVisible: (row) => row.original.status !== 'disabled',
+      onPress: (row) => props.onSetDisabled(row.original, true),
+    },
+  ], [ t, props.onCreateRecoveryLink, props.onRevokeSessions, props.onResetMfa, props.onSetDisabled ])
 
   if (!props.users.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
@@ -206,6 +221,8 @@ export function UserTable(props: Props) {
       value: search,
       onChange: setSearch,
     }}
+    rowActions={rowActions}
+    pagination={{ show: true }}
     enableSorting
     stickyHeader={false}
   />
