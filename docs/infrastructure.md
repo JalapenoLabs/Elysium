@@ -13,9 +13,9 @@ Three stacks share one compose file:
   the web app on the Vite dev server with hot reload.
   `docker compose -f compose.yml -f compose.dev.yml up --build --wait`.
 
-Either way the stack needs its configuration beside `compose.yml`: `nginx/`, `kratos/`, and `hydra/` are bind-mounted
-from the deployment directory. A checkout has them, and so does every API image, which carries the configuration it
-was released with (see Auto-update below).
+Either way the stack needs its configuration beside `compose.yml`: `nginx/`, `kratos/`, `hydra/`, and `updater/`,
+which Compose builds into images on every `up` (see Configuration images below). A checkout has them, and so does
+every API image, which carries the configuration it was released with (see Auto-update below).
 
 `ELYSIUM_VERSION` in `.env` pins the release the production stack runs, such as `1.4.2`. Unset, it runs `latest`,
 the newest release; pin it for a deployment that must not change under a `docker compose pull`.
@@ -38,18 +38,18 @@ volume with `docker compose down --volumes`, which destroys the data.
 
 | Service    | Image / build              | Container name     | Notes                                   |
 |------------|----------------------------|--------------------|-----------------------------------------|
-| `nginx`    | `nginx:1.30.4-alpine`      | `elysium-nginx`    | The only published ports: web on `127.0.0.1:4000` by default, mail on 25, 465, 993, browser media on 59000-59007 (UDP and TCP) |
+| `nginx`    | `nginx/Dockerfile` (`nginx:1.30.4-alpine`) | `elysium-nginx` | The only published ports: web on `127.0.0.1:4000` by default, mail on 25, 465, 993, browser media on 59000-59007 (UDP and TCP) |
 | `frontend` | `frontend/Dockerfile`      | `elysium-frontend` | Development only: Vite dev server       |
 | `migrate`  | the API image              | `elysium-migrate`  | One-shot `migrate run`, then exits; creates Kratos's and Hydra's databases |
-| `kratos-migrate` | `oryd/kratos:v26.2.0` | `elysium-kratos-migrate` | One-shot: Kratos's own migrations      |
-| `kratos`   | `oryd/kratos:v26.2.0`      | `elysium-kratos`   | Identities and sessions; see `docs/auth.md` |
-| `hydra-migrate` | `oryd/hydra:v26.2.0` | `elysium-hydra-migrate` | One-shot: Hydra's own migrations        |
-| `hydra`    | `oryd/hydra:v26.2.0`       | `elysium-hydra`    | OAuth for MCP clients; see `docs/mcp.md` |
+| `kratos-migrate` | `kratos/Dockerfile` (`oryd/kratos:v26.2.0`) | `elysium-kratos-migrate` | One-shot: Kratos's own migrations; builds Kratos's image |
+| `kratos`   | Kratos's image, built by `kratos-migrate` | `elysium-kratos` | Identities and sessions; see `docs/auth.md` |
+| `hydra-migrate` | `hydra/Dockerfile` (`oryd/hydra:v26.2.0`) | `elysium-hydra-migrate` | One-shot: Hydra's own migrations; builds Hydra's image |
+| `hydra`    | Hydra's image, built by `hydra-migrate` | `elysium-hydra` | OAuth for MCP clients; see `docs/mcp.md` |
 | `api`      | the API image              | none               | One replica; reachable only via nginx   |
 | `postgres` | `postgres:18.6-alpine3.23` | `elysium-postgres` | Volume `postgres-data`, `timezone=UTC`  |
 | `redis`    | `redis:8.10.1-alpine`      | `elysium-redis`    | Password required, AOF on, `redis-data` |
 | `docker-proxy` | `tecnativa/docker-socket-proxy:v0.5.0` | `elysium-docker-proxy` | The API's filtered Docker API |
-| `updater`  | `docker:29.9.1-cli`        | `elysium-updater`  | Profile `auto-update` only; holds the Docker socket |
+| `updater`  | `updater/Dockerfile` (`docker:29.9.1-cli`) | `elysium-updater` | Profile `auto-update` only; holds the Docker socket |
 
 The `docker-control` network is internal and joins only the API and `docker-proxy`. The `elysium-mail` network
 (subnet `172.29.53.0/24`) joins nginx at the fixed address `172.29.53.2`, the API, and the Stalwart container; every
@@ -104,8 +104,8 @@ describes its MCP server there (`docs/mcp.md`).
 
 nginx runs its own main configuration, `nginx/nginx.conf`: the image's default plus a `stream` block, since raw TCP
 can only be proxied from the main context, and the zones that throttle Kratos submissions and OAuth client registration. `nginx/default.conf` holds
-the production HTTP routing and `nginx/development.conf` the development routing, which `compose.dev.yml` mounts in
-its place. Both include `nginx/locations.conf`, the locations they route alike (cover uploads, Kratos, Hydra, the event
+the production HTTP routing and `nginx/development.conf` the development routing, which `compose.dev.yml` builds in
+its place (`nginx/Dockerfile`, stage `development`). Both include `nginx/locations.conf`, the locations they route alike (cover uploads, Kratos, Hydra, the event
 stream, a browser's stream), so each file holds only what differs. `nginx/mail.conf` passes the mail ports to
 Stalwart with the PROXY protocol; see `docs/mail.md`. `nginx/browser.conf` passes each media port to the browser
 that owns it; see `docs/browser.md`.
@@ -122,7 +122,46 @@ successfully; `api` also waits for `redis` health, `kratos` for `kratos-migrate`
 mid-run does not require restarting the API.
 
 `migrate` and `api` share one image, which has the migrations compiled in: `jalapenolabs/elysium-api` in production,
-and `elysium-api`, built from the checkout, in development.
+`elysium-api:local` in production from a checkout, and `elysium-api` in development. Built from a checkout, `migrate`
+alone builds it and `api` runs it with `pull_policy: never`, for the reason each configuration image has one builder
+(see Configuration images): two builders would make every deploy recreate both, changed or not.
+
+## Configuration images
+
+nginx, Kratos, Hydra, and the updater run their upstream image with Elysium's configuration built in, from the
+`Dockerfile` in each directory, never with the configuration bind-mounted. Compose recreates a container when its
+definition or its image changes; a mounted file changes neither, so a deploy that changed only `kratos/kratos.yml`
+would leave Kratos running on the old file. Top-level `configs:` behave the same outside a swarm: they are bind
+mounts, and their content is not part of what Compose compares.
+
+| Image                   | Built from                              | Built by         | Run by                     |
+|-------------------------|-----------------------------------------|------------------|----------------------------|
+| `elysium-nginx:local`   | `nginx/Dockerfile`, stage `production`  | `nginx`          | `nginx`                    |
+| `elysium-kratos:local`  | `kratos/Dockerfile`                     | `kratos-migrate` | `kratos-migrate`, `kratos` |
+| `elysium-hydra:local`   | `hydra/Dockerfile`                      | `hydra-migrate`  | `hydra-migrate`, `hydra`   |
+| `elysium-updater:local` | `updater/Dockerfile`                    | `updater`        | `updater`                  |
+
+- The building services set `pull_policy: build`, so every `docker compose up` rebuilds these images, `--build` or
+  not, from the build cache when nothing changed. A changed file is a new image and the containers on the old one are
+  recreated; an unchanged file is the same image and nothing restarts. Every stack gets this from the same plain
+  `docker compose up`: development, production from a checkout, and a release's updater.
+- Each image has one builder. Compose labels an image with the service that built it, so two services building one
+  tag would make two different images of the same files, and every `up` would recreate both. `kratos` and `hydra` run
+  their migrator's image with `pull_policy: never`, so `docker compose pull` skips them.
+- Provenance attestations are off on every image the stacks build, these and the API, workspace, and frontend images
+  built from a checkout: they are stamped with the build's time, which would make every build a new image. None of
+  them is pushed anywhere.
+- Compose also labels an image with its own version, so upgrading Compose rebuilds these images once and restarts
+  their services once.
+- Changing which upstream release runs is an edit to the `FROM` line in that directory's `Dockerfile`, where it is
+  pinned (Kratos, Hydra, and the docker CLI by digest too).
+
+The development stack (`compose.dev.yml`) builds nginx's `development` stage instead, as `elysium-nginx:dev`, which
+routes every path outside `/api` to the Vite dev server. The web app's sources stay bind-mounted into the frontend
+container: that is hot reload, which Vite watches for itself, not configuration.
+
+CI holds every stack to these rules with `.github/scripts/check-compose.py`, and builds each configuration image (see
+`docs/ci.md`, Compose).
 
 ## API image
 
@@ -167,8 +206,9 @@ Every push to `main` publishes `main` and `sha-<commit>`. A tag `vX.Y.Z` publish
 `latest` when it is the newest release; a pre-release tag such as `vX.Y.Z-rc.1` publishes only its own version. Each
 image is labelled with the commit, the version, and this repository. The workflow is described in `docs/ci.md`.
 
-All are `linux/amd64` only, since the runners are x86_64; an arm64 host cannot run them. Postgres, Redis, nginx,
-Kratos, and the socket proxy are upstream images pinned in `compose.yml`.
+All are `linux/amd64` only, since the runners are x86_64; an arm64 host cannot run them. Postgres, Redis, and the
+socket proxy are upstream images pinned in `compose.yml`; nginx, Kratos, Hydra, and the updater are upstream images
+pinned in their directory's `Dockerfile`, built on the host with the configuration (see Configuration images).
 
 ## Auto-update
 
@@ -184,8 +224,8 @@ docker run --rm --entrypoint tar jalapenolabs/elysium-api:latest \
   -C /usr/share/elysium/deployment -cf - . | tar -xf - -C /srv/elysium
 ```
 
-That writes `compose.yml`, `nginx/`, `kratos/`, `hydra/`, and `updater/`. Pin the release and turn the profile on in
-`.env`, then start the stack with `docker compose up --wait`:
+That writes `compose.yml`, `nginx/`, `kratos/`, `hydra/`, and `updater/`, which `up` builds the configuration images
+from. Pin the release and turn the profile on in `.env`, then start the stack with `docker compose up --wait`:
 
 ```sh
 ELYSIUM_VERSION=1.4.2
@@ -226,10 +266,12 @@ applying records it as succeeded. Every change is published as `updates.status`.
    separate (see Backups below).
 4. Installs the configuration in place of the directory's, and points `ELYSIUM_VERSION` at the target. `.env` is
    rewritten in place, so it keeps its owner and mode.
-5. Brings every service but the updater up, pulling only images Docker lacks (every one is a fixed version), and
-   waits up to ten minutes for every health check. The `migrate` services run the target's migrations on the way.
-6. Checks that the API answering is the target, reports success, and recreates itself last if its own definition
-   changed.
+5. Brings every service but the updater up, pulling only images Docker lacks (every one is a fixed version) and
+   building the configuration images from what it installed, and waits up to ten minutes for every health check. It
+   passes no `--pull` flag, which would override the configuration images' `pull_policy: build` and leave them on the
+   running release's files. The `migrate` services run the target's migrations on the way.
+6. Checks that the API answering is the target, reports success, and recreates itself last if its definition or its
+   script changed.
 
 When step 5 or 6 fails, it rolls back: the running release's configuration and version return, each database is
 dropped and recreated from the backup (so tables the failed release's migrations added are gone too), and the stack

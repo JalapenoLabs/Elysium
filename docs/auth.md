@@ -34,8 +34,9 @@ through Kratos's JSON API.
   - `elysium-api migrate run` (the `migrate` service) creates it, and Hydra's, when missing. Postgres's init scripts
     run only for a new data volume, so an existing deployment would otherwise never get one.
   - `kratos-migrate` then applies Kratos's own schema.
-- **Image.** The image is pinned by tag and digest in `compose.yml`, and the configuration is mounted read-only
-  rather than baked into it.
+- **Image.** `kratos/Dockerfile` pins Kratos's image by tag and digest and builds the configuration into it, and
+  Compose rebuilds it on every `up`, so a deploy that changes any file in `kratos/` recreates Kratos on the new
+  configuration. See `docs/infrastructure.md`, Configuration images.
 
 ### The public URL
 

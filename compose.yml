@@ -7,6 +7,25 @@ name: elysium
 # Infrastructure credentials, the log filter, and the encryption key come from the
 # environment file. Application secrets are not configured here at all: they are
 # stored encrypted in Postgres. Everything else is inline below.
+#
+# The services configured by files beside this one (kratos/, hydra/, nginx/, updater/) run
+# images built from those directories, never bind mounts of them. Compose recreates a
+# container when its definition or its image changes, and a mounted file changes neither,
+# so a deploy would leave the old container running on the old configuration. Top-level
+# `configs:` are no better: outside a swarm they are bind mounts too, and their content is
+# not part of what Compose compares. A built image is, so:
+#
+# - `pull_policy: build` rebuilds each image on every `up`, `--build` or not, from cache
+#   when nothing changed. A changed file is a new image, and the containers on the old one
+#   are recreated; an unchanged one is the same image, and nothing restarts.
+# - One service builds each image, and any other runs it by tag: Compose labels an image
+#   with the service that built it, so two builders would make two different images of
+#   the same files, and every `up` would recreate both.
+# - Provenance is off: its attestation is stamped with the build's time, which would make
+#   every build a new image. These images are never pushed anywhere.
+#
+# A release carries these directories (see the API image), so a deployment that runs
+# published images builds them from the configuration its updater installed.
 
 # The API and the web app it serves, published from this repository. ELYSIUM_VERSION
 # pins a release such as 1.4.2; unset, the newest release runs.
@@ -23,39 +42,41 @@ x-database-url: &database-url postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:
 # it, so it must be https, or http://localhost for development. See docs/auth.md.
 x-public-url: &public-url ${ELYSIUM_PUBLIC_URL:-http://localhost:${WEB_PORT:-4000}}
 
-# Ory Kratos, run from its image with Elysium's configuration mounted. The entrypoint derives
-# Kratos's secrets and URLs from the two variables below, so the environment file holds
-# nothing for Kratos.
+# Ory Kratos with Elysium's configuration built in (kratos/Dockerfile), built by
+# kratos-migrate. The entrypoint derives Kratos's secrets and URLs from the two variables
+# below, so the environment file holds nothing for Kratos.
 x-kratos: &kratos
-  image: oryd/kratos:v26.2.0@sha256:2a13bb8d362c7a7ae33bd7c0f5168aee46921f15c916a06346db91c06dc76643
-  entrypoint: ["/bin/sh", "/etc/elysium-kratos/entrypoint.sh"]
+  image: elysium-kratos:local
   environment:
     # The same server and credentials as Elysium's database; `migrate` creates `kratos`.
     DSN: postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/kratos?sslmode=disable
     ELYSIUM_ENCRYPTION_KEY: ${ELYSIUM_ENCRYPTION_KEY:?ELYSIUM_ENCRYPTION_KEY is not set}
     ELYSIUM_PUBLIC_URL: *public-url
     TZ: UTC
-  volumes:
-    - ./kratos:/etc/elysium-kratos:ro
 
 # Ory Hydra, the OAuth 2.1 authorization server MCP clients connect through. Set up like Kratos:
-# its secrets and URLs are derived from the two variables below. See docs/mcp.md.
+# its configuration is built in (hydra/Dockerfile), built by hydra-migrate, and its secrets
+# and URLs are derived from the two variables below. See docs/mcp.md.
 x-hydra: &hydra
-  image: oryd/hydra:v26.2.0@sha256:ff67c7fb5f95074fa53374d41151713554960504b340cd3f95b09e65deaea2a9
-  entrypoint: ["/bin/sh", "/etc/elysium-hydra/entrypoint.sh"]
+  image: elysium-hydra:local
   environment:
     # The same server and credentials as Elysium's database; `migrate` creates `hydra`.
     DSN: postgres://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/hydra?sslmode=disable
     ELYSIUM_ENCRYPTION_KEY: ${ELYSIUM_ENCRYPTION_KEY:?ELYSIUM_ENCRYPTION_KEY is not set}
     ELYSIUM_PUBLIC_URL: *public-url
     TZ: UTC
-  volumes:
-    - ./hydra:/etc/elysium-hydra:ro
 
 services:
+  # nginx with Elysium's configuration built in (nginx/Dockerfile): its main configuration,
+  # the production routing, and the mail and media stream proxies.
   nginx:
     container_name: elysium-nginx
-    image: nginx:1.30.4-alpine
+    image: elysium-nginx:local
+    build:
+      context: ./nginx
+      target: production
+      provenance: false
+    pull_policy: build
     restart: unless-stopped
     environment:
       # The proxy in front of nginx, such as a TLS terminator, whose X-Forwarded-For names the
@@ -77,15 +98,6 @@ services:
       # port in its candidates. See nginx/browser.conf and docs/browser.md.
       - "59000-59007:59000-59007/udp"
       - "59000-59007:59000-59007/tcp"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
-      # Outside conf.d: both routing files include it inside their server block.
-      - ./nginx/locations.conf:/etc/nginx/locations.conf:ro
-      # Filled in by the image's entrypoint from TRUSTED_PROXY_ADDRESSES; see the file.
-      - ./nginx/real-ip.conf.template:/etc/nginx/templates/real-ip.conf.template:ro
-      - ./nginx/mail.conf:/etc/nginx/stream.d/mail.conf:ro
-      - ./nginx/browser.conf:/etc/nginx/stream.d/browser.conf:ro
     networks:
       default:
       mail:
@@ -120,10 +132,15 @@ services:
       postgres:
         condition: service_healthy
 
-  # One-shot: applies Kratos's own migrations to its database, then exits.
+  # One-shot: applies Kratos's own migrations to its database, then exits. It builds the image
+  # both Kratos services run, since every path to `kratos` starts it first.
   kratos-migrate:
     <<: *kratos
     container_name: elysium-kratos-migrate
+    build:
+      context: ./kratos
+      provenance: false
+    pull_policy: build
     command: ["migrate", "sql", "--read-from-env", "--yes"]
     restart: "no"
     depends_on:
@@ -135,6 +152,8 @@ services:
   kratos:
     <<: *kratos
     container_name: elysium-kratos
+    # Built by kratos-migrate; there is nothing to pull.
+    pull_policy: never
     command: ["serve", "--watch-courier", "--sqa-opt-out"]
     restart: unless-stopped
     depends_on:
@@ -147,10 +166,15 @@ services:
       retries: 3
       start_period: 10s
 
-  # One-shot: applies Hydra's own migrations to its database, then exits.
+  # One-shot: applies Hydra's own migrations to its database, then exits. It builds the image
+  # both Hydra services run, as kratos-migrate does for Kratos.
   hydra-migrate:
     <<: *hydra
     container_name: elysium-hydra-migrate
+    build:
+      context: ./hydra
+      provenance: false
+    pull_policy: build
     command: ["migrate", "sql", "up", "--read-from-env", "--yes"]
     restart: "no"
     depends_on:
@@ -162,6 +186,8 @@ services:
   hydra:
     <<: *hydra
     container_name: elysium-hydra
+    # Built by hydra-migrate; there is nothing to pull.
+    pull_policy: never
     command: ["serve", "all", "--sqa-opt-out"]
     restart: unless-stopped
     depends_on:
@@ -280,12 +306,16 @@ services:
   # minute whether to apply a release, and carries the update out: back up the databases,
   # install the release's configuration, bring the stack up, and roll back when it does not
   # come up healthy. It holds the Docker socket itself, since it runs compose; the API never
-  # does, and the updater answers nothing: it only calls out. See docs/infrastructure.md.
+  # does, and the updater answers nothing: it only calls out. Its script is built in
+  # (updater/Dockerfile). See docs/infrastructure.md.
   updater:
     container_name: elysium-updater
-    image: docker:29.9.1-cli@sha256:6fae2214c3121a28d5aa639d09032f61310b7c9c75ffbad1025f261a1b621800
+    image: elysium-updater:local
+    build:
+      context: ./updater
+      provenance: false
+    pull_policy: build
     profiles: ["auto-update"]
-    entrypoint: ["/bin/sh", "/deployment/updater/updater.sh"]
     restart: unless-stopped
     environment:
       # The updater's key for the API's /internal/updater routes is derived from it.

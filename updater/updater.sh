@@ -15,9 +15,10 @@
 #   2. pulls every other Elysium image that configuration names, at the target's version;
 #   3. backs up Elysium's, Kratos's, and Hydra's databases;
 #   4. installs the configuration, and points ELYSIUM_VERSION in .env at the target;
-#   5. pulls the remaining images and brings the stack up, waiting for every health check;
+#   5. pulls the remaining images, builds the configuration's images (Kratos, Hydra, nginx),
+#      and brings the stack up, waiting for every health check;
 #   6. reports `succeeded <target>` once the API answering is the target, then recreates
-#      itself last if its own definition changed.
+#      itself last if its definition or its script changed.
 #
 # When step 5 or 6 fails, it restores the running release's configuration and version,
 # restores the databases from the backup, brings the stack back up, and reports
@@ -195,12 +196,14 @@ restore_databases() {
   done
 }
 
-# Brings every service but the updater up, pulling only images Docker does not have: every
-# image the stack names is a fixed version, so one already present is the one named.
+# Brings every service but the updater up. Each service's own pull policy applies, and no
+# `--pull` flag may override it: a pulled image is pulled only when Docker lacks it, since
+# every one the stack names is a fixed version, and the images of the configuration just
+# installed are always rebuilt from it, which `--pull missing` would skip.
 bring_up() {
   services="$(stack_services)" || return 1
   # shellcheck disable=SC2086 # one word per service, by design
-  docker compose up --detach --pull missing --remove-orphans \
+  docker compose up --detach --remove-orphans \
     --wait --wait-timeout "$health_timeout_seconds" $services
 }
 
@@ -275,7 +278,8 @@ apply() {
 
   log "applied $target"
   report "succeeded $target"
-  # Last, because recreating the updater ends this script when its definition changed.
+  # Last, because recreating the updater ends this script when its definition or its script
+  # changed. Its image is rebuilt from the updater/ just installed, as bring_up's are.
   docker compose up --detach updater
 }
 

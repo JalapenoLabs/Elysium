@@ -42,6 +42,9 @@ Self-improvement (learning from feedback, self-healing connectors) is designed i
   `/api` and the web app's production build, so nginx sends every path to the API. `compose.dev.yml` layers the
   development stack over it: the API built from source (`api/Dockerfile` stage `server`) and the Vite dev server,
   with nginx swapped to `nginx/development.conf`. See `docs/infrastructure.md`.
+- nginx, Kratos, Hydra, and the updater never bind-mount their configuration: each directory's `Dockerfile` builds it
+  into a local image, rebuilt on every `up` (`pull_policy: build`), so a deploy that changes a file recreates exactly
+  the services that use it. Each image has one building service. See `docs/infrastructure.md`, Configuration images.
 - `.github/workflows/publish.yml` pushes `jalapenolabs/elysium-api`, `jalapenolabs/elysium-workspace`, and
   `jalapenolabs/elysium-oauth-broker` to Docker Hub on every push to `main` and every `v*` tag. A release is a `vX.Y.Z`
   tag. See `docs/ci.md`.

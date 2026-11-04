@@ -143,7 +143,8 @@ Hydra's schema.
 
 - **Configuration.** `hydra/hydra.yml` is a template that `hydra/entrypoint.sh` fills from `ELYSIUM_PUBLIC_URL` and
   `ELYSIUM_ENCRYPTION_KEY`, as Kratos's is. Its system and cookie secrets are SHA-256 over
-  `elysium/hydra/<purpose>:<encryption key>`.
+  `elysium/hydra/<purpose>:<encryption key>`. Both files are built into Hydra's image (`hydra/Dockerfile`), which
+  Compose rebuilds on every `up`, so a deploy that changes them recreates Hydra; see `docs/infrastructure.md`.
 - **Development mode.** Hydra refuses an http issuer, so over `http://localhost` it runs in development mode, which
   relaxes only its https requirements. In production over https, it still accepts the http loopback redirect URIs CLI
   clients use.

@@ -17,15 +17,20 @@ x-api-build: &api-build
   context: .
   dockerfile: api/Dockerfile
   target: app
+  # Never pushed; without its time-stamped attestation, an unchanged build is the same image.
+  provenance: false
 
 services:
+  # It builds the image the API runs too, since every path to `api` starts it first: one
+  # service builds each image, as the top of compose.yml explains.
   migrate:
     image: elysium-api:local
     build: *api-build
 
   api:
     image: elysium-api:local
-    build: *api-build
+    # Built by migrate; there is nothing to pull.
+    pull_policy: never
     environment:
       WORKSPACE_IMAGE: elysium-workspace:local
     depends_on:
@@ -36,6 +41,8 @@ services:
   # the workspace container itself, from this tag.
   workspace-image:
     image: elysium-workspace:local
-    build: ./workspace
+    build:
+      context: ./workspace
+      provenance: false
     entrypoint: [ "true" ]
     restart: "no"
