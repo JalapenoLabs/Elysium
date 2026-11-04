@@ -519,7 +519,19 @@ impl Meetings {
                     content_type: Some(local.content_type),
                 })
             }
-            _ => None,
+            (Some(_recording), None) => {
+                // A connector resumed before its person picked a storage location has nowhere
+                // to keep the recording; the meeting goes on from its transcript alone.
+                event!(
+                    name: "meetings.recording.unkept",
+                    Level::WARN,
+                    meeting.id = %current.id,
+                    connector.id = %account.id,
+                    "the source offered a recording, but the connector names no storage location",
+                );
+                None
+            }
+            (None, _) => None,
         };
 
         let mut connection = self.connection().await?;
