@@ -65,18 +65,27 @@ export function usePageSave(pageSave: PageSave) {
     throw new Error('usePageSave must be called inside a Page')
   }
 
-  // The form makes a new save function every render. The page holds one that calls the
-  // latest, so registering never churns the page's state between keystrokes.
+  // The form makes new save and discard functions every render. The page holds ones that call
+  // the latest, so registering never churns the page's state between keystrokes.
   const saveRef = useRef(pageSave.save)
+  const onDiscardRef = useRef(pageSave.onDiscard)
   useEffect(() => {
     saveRef.current = pageSave.save
+    onDiscardRef.current = pageSave.onDiscard
   })
 
   const { register, runSave } = registry
-  const { isDirty, blockedReason, label, canSaveUnchanged, onDiscard } = pageSave
+  const { isDirty, blockedReason, label, canSaveUnchanged } = pageSave
   useEffect(() => {
-    register({ save: () => saveRef.current(), isDirty, blockedReason, label, canSaveUnchanged, onDiscard })
-  }, [ register, isDirty, blockedReason, label, canSaveUnchanged, onDiscard ])
+    register({
+      save: () => saveRef.current(),
+      onDiscard: () => onDiscardRef.current?.(),
+      isDirty,
+      blockedReason,
+      label,
+      canSaveUnchanged,
+    })
+  }, [ register, isDirty, blockedReason, label, canSaveUnchanged ])
 
   // Only an unmount takes the Save away, so the header button never flickers between
   // changes of the form's state.

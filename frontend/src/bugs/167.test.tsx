@@ -131,7 +131,20 @@ const newForms: NewForm[] = [
   { name: 'New mail domain', renderForm: () => <MailDomainForm />, firstFieldId: 'mail-domain-name' },
 ]
 
+// Every source file, read as text, so no field comes back to the attribute the hook replaced.
+const sources = import.meta.glob<string>(
+  [ '../**/*.tsx', '!../**/*.test.tsx' ],
+  { query: '?raw', import: 'default', eager: true },
+)
+
 describe('issue #167', () => {
+  it('focuses with the shared hook everywhere, never the autoFocus attribute', () => {
+    const offenders = Object.entries(sources)
+      .filter(([ , source ]) => /\bautoFocus\b/.test(source))
+      .map(([ path ]) => path)
+    expect(offenders).toEqual([])
+  })
+
   beforeEach(() => {
     vi.stubGlobal('ResizeObserver', InertObserver)
     vi.stubGlobal('IntersectionObserver', InertObserver)
