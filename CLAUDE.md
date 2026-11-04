@@ -169,13 +169,13 @@ Everything else follows these rules:
 
 - Signing in to a service without an app of Elysium's own happens in a real browser the host runs and streams to the
   user over WebRTC: Neko (`ghcr.io/m1k1o/neko/chromium`, pinned by digest), run unchanged, one container, profile
-  volume, Docker network, and media port per signed-in account. The API runs and reconciles them; see
-  `docs/browser.md`.
+  volume, Docker network, and media port per browser connector. A browser starts with its connector and is removed
+  with it. The API runs and reconciles them; see `docs/browser.md`.
 - A browser belongs to the person who created it. Its routes answer that person alone, and the stream relays a Neko
   member session, never an administrator's.
 - nginx stays the single ingress: it passes the media ports, `59000-59007` over UDP and TCP, to the browser that owns
   each one, on every interface. Signaling never leaves the API's authenticated stream route.
-- The web app's sign-in panel (Settings, Browser sign-ins) speaks Neko's protocol itself: Neko's own client cannot
+- A browser connector's page carries its sign-in panel, which speaks Neko's protocol itself: Neko's own client cannot
   run under the web app's CSP.
 - The API and Elysia reach each browser over the Chrome DevTools Protocol, on that browser's private network only.
 - A browser always has a way out: Start over reopens its start page in a fresh tab and keeps the profile; Reset
@@ -184,36 +184,42 @@ Everything else follows these rules:
 
 ## Connectors and the timeline
 
-- Accounts and connectors are separate. An account is how Elysium signs in to a provider as a person: Atlassian
-  (`jira_credentials`), GitHub (`github_credentials`), a signed-in browser (`browser_sessions`), or an API key
-  (`token_accounts`). A connector (`connectors`) is one use of one account: a kind, what it reads, and its reading
-  state. An account feeds each kind once; every Atlassian and GitHub account carries its one connector. See
-  `docs/connectors.md`.
-- Each kind is one module under `api/src/connectors/kinds/` declaring its definition (scope, account, which accounts a
-  new one takes, content fields, ordered checks) and its verbs; `kinds/mod.rs` alone matches on the kind. The API
-  serves the definitions and the web app draws forms and check lists from them, naming every id from its translations.
-- An Atlassian account feeds Jira and Confluence. Anything about the link watcher's reading (paused accounts, its
+- Every connector (`connectors`) owns exactly one account, its sign-in, shared with no other connector: Atlassian
+  (`jira_credentials`), GitHub (`github_credentials`), a browser (`browser_sessions`), or an API key
+  (`token_accounts`). Adding a connector signs in; removing it removes its account. One Connectors list holds
+  everything; there is no separate accounts or browsers page. See `docs/connectors.md`.
+- Adding a connector picks its kind from a searchable grid (`/settings/connectors/new`), then fills that kind's own
+  page (`/settings/connectors/new/<kind>`): a token kind signs in, chooses what it reads, and runs its checks before it
+  is created; a browser kind starts its browser and is signed in to on its connector's page.
+- Each kind is one module under `api/src/connectors/kinds/` declaring its definition (scope, what it provides, the
+  account kind it signs in with, content fields, ordered checks) and its verbs; `kinds/mod.rs` alone matches on the
+  kind. What a kind provides is how a loop finds the kinds it reads, such as meetings. The API serves the definitions
+  and the web app draws forms and check lists from them, naming every id from its translations.
+- An Atlassian account carries one connector: Jira's, holding its allowlist, or Confluence's, which allows no Jira
+  project or board and is never offered as a Jira site. Anything about the link watcher's reading (paused accounts, its
   pass, linked-issue counts) is matched by kind (`ConnectorKind::LINKS`) as well as account, never by account alone.
+- A secret a migration copies into a new row is re-sealed for that row by the API at startup (`secret_copies`), since
+  the migrator holds no key. See `docs/secrets.md`.
 - Checks run in order, a dependency that did not pass skips what builds on it, and they run before a connector is
   saved and on demand. Progress is published as ids and states only; a stored connector's last results are kept.
 - Syncs that record something or fail are runs (`connector_runs`), reported through `connectors::activity`; a
   connector's status is paused, syncing, error, or active. A paused Jira or GitHub connector's account is skipped by
   the link watcher. `connector.changed` carries an id alone.
-- Outlook and Gmail read through a person's browser over DevTools, with one page script per service; the check is
-  cheap and deterministic, and nothing it does marks mail read.
-- Confluence Cloud reads through an existing Atlassian account, every five minutes, the pages and comments changed in
+- Outlook and Gmail read through the connector's own browser over DevTools, with one page script per service; the
+  check is cheap and deterministic, and nothing it does marks mail read.
+- Confluence Cloud reads through its own Atlassian account, every five minutes, the pages and comments changed in
   the spaces its connector picked, one record per version. `api/src/confluence/` is its only caller, and
   `Confluence::changes`, the only call that reads content, is bounded by the picked spaces in its CQL and again on each
   result. A mention of the person, or a question on their page, raises an inbox item once per page or comment.
-- Teams reads through a Microsoft browser too, the same one Outlook can use, from Teams' own local store (IndexedDB)
-  rather than its page; nothing it does marks a message read. An unread chat message, a mention, or a reply in a
-  channel thread the person wrote in raises an inbox item; other channel messages are only recorded.
+- Teams reads through its own browser signed in to Microsoft, from Teams' own local store (IndexedDB) rather than its
+  page; nothing it does marks a message read. An unread chat message, a mention, or a reply in a channel thread the
+  person wrote in raises an inbox item; other channel messages are only recorded.
 - YouTrack reads a person's YouTrack Cloud site with their own permanent token, a token account that names its site
   (`token_accounts.site_url`), validated like a Jira site: `https`, one label on `youtrack.cloud`, the origin alone.
   `crate::youtrack` is the only caller. Every two minutes it records new issues and comments in the chosen projects;
   one assigned to the person by someone else, or a comment from someone else on their issue or mentioning them,
   raises an inbox item as `watcher:youtrack`. The first read records nothing.
-- Slack reads through a browser signed in to `app.slack.com`, never a Slack app: its page script calls Slack's own
+- Slack reads through its own browser signed in to `app.slack.com`, never a Slack app: its page script calls Slack's own
   web API with the web client's session, which never leaves the page, and only read methods. A direct or group
   message, a mention, or an unread reply in a followed thread raises an inbox item; a conversation is baselined at
   its newest message the first time it is read, so no history is pulled in.

@@ -96,8 +96,8 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/profile`           | `ProfilePage`            | My profile: name and email, and the light, dark, or system theme |
 | `/settings/personal-details`  | redirect                 | To `/settings/profile`                                   |
-| `/settings/browsers`          | `ManageBrowsersPage`     | The person's own browsers, their status; add and remove  |
-| `/settings/browsers/:browserSessionId` | `BrowserSessionPage` | One browser, streamed live, to sign in to an account in; see `docs/browser.md` |
+| `/settings/browsers`          | redirect                 | To `/settings/connectors`                                |
+| `/settings/browsers/:browserSessionId` | `BrowserSignInRedirect` | To the connector that owns the browser, else the list |
 | `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
 | `/settings/llms/add-<type>`   | `AddLlmPage`             | One per provider, see below                              |
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
@@ -105,9 +105,10 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/environment`       | `ManageEnvironmentPage`  | Environment variables every coding session receives     |
 | `/settings/environment/new`   | `AddEnvironmentVariablePage` | Add an environment variable                          |
 | `/settings/environment/:variableId/edit` | `EditEnvironmentVariablePage` | Edit an environment variable              |
-| `/settings/connectors`        | `ConnectorsPage`         | Every connector, its status, activity, and accounts     |
-| `/settings/connectors/new`    | `AddConnectorPage`       | Add a connector: kind, account, content, live checks    |
-| `/settings/connectors/:connectorId` | `ConnectorPage`    | One connector: status, checks, and content              |
+| `/settings/connectors`        | `ConnectorsPage`         | Every connector, its status, and activity               |
+| `/settings/connectors/new`    | `ConnectorPickerPage`    | A searchable grid of every kind, each opening its form  |
+| `/settings/connectors/new/:kind` | `NewConnectorPage`    | One kind's form: sign in, what it reads, live checks    |
+| `/settings/connectors/:connectorId` | `ConnectorPage`    | One connector: status, its browser to sign in on, content, and checks |
 | `/settings/github`            | redirect                 | To `/settings/connectors`                               |
 | `/settings/github/new`        | redirect                 | To `/settings/connectors/new`                           |
 | `/settings/github/:credentialId/edit` | `EditGithubCredentialPage` | Edit a GitHub token                            |
@@ -130,6 +131,8 @@ and keyboard rules every one of them follows, so a page only describes itself:
 ```tsx
 <SettingsPage
   title={t('page.editTitle', { name })}
+  // Optional, leading the title, such as a connector kind's logo.
+  icon={<ConnectorLogo kind={kind} />}
   // Pages between Settings and this one, for the breadcrumbs and Esc. Omit at the top level.
   parents={[{ label: t('title'), href: UrlTree.settingsLlms }]}
   // Optional, shown left of Save, such as a list page's Add button.
@@ -289,9 +292,10 @@ settings need a new one. Directory, projects (`ProjectScopePicker`, see `docs/st
 are lookup tables in `storagePresentation.ts`. `StorageSetupChecklist` and `LlmSetupChecklist` both render
 `src/components/SetupChecklist.tsx`.
 
-Connectors under `src/pages/Settings/Connectors/` is the hub for Jira, GitHub, mail, and meetings: its list, accounts,
-add wizard, and each connector's page, every form and check list drawn from the kinds the API defines. See
-`docs/connectors.md`, In the web app. `/settings/github` and `/settings/jira` lead to it.
+Connectors under `src/pages/Settings/Connectors/` is the hub for every service Elysium reads: its list, the grid of
+kinds to add, each kind's form, and each connector's page, which for a browser kind carries its browser's stream.
+Every form and check list is drawn from the kinds the API defines, and each kind's logo is bundled in
+`connectorLogos.ts`. See `docs/connectors.md`, In the web app. `/settings/github` and `/settings/jira` lead to it.
 
 GitHub under `src/pages/Settings/Github/` is the edit page a GitHub account opens from the hub, built from
 `GithubCredentialEditorLayout` and `GithubCredentialForm`. The form is a name, a token type picker, and the token,

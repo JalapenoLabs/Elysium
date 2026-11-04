@@ -148,14 +148,15 @@ The one Bitwarden or Vaultwarden account agents sign in to things with; see `doc
 
 ### `browser_sessions`
 
-Browsers the host runs for a person to sign in to their accounts in, one Neko container each; see `docs/browser.md`.
-Each belongs to the person who created it and answers nobody else.
+Browsers the host runs as connectors' accounts, one Neko container each, which a person signs in to on its
+connector's page; see `docs/browser.md`. Each belongs to the person who created it and answers nobody else, and to the
+one connector that reads through it.
 
 | Column                      | Type          | Notes                                                           |
 |-----------------------------|---------------|-----------------------------------------------------------------|
 | `id`                        | `UUID`        | UUIDv7, primary key; names its container, volume, and network   |
-| `name`                      | `TEXT`        | 1 to 100 characters, such as "Work Outlook"                     |
-| `start_url`                 | `TEXT`        | `https://`, at most 2048 characters; opened when it is created  |
+| `name`                      | `TEXT`        | 1 to 100 characters: its connector's kind, such as `outlook`    |
+| `start_url`                 | `TEXT`        | `https://`, at most 2048 characters: its kind's start page, opened when it is created |
 | `start_page_opened_at`      | `TIMESTAMPTZ` | When `start_url` was opened in it; null until Chromium first answers |
 | `port`                      | `INTEGER`     | Unique, 59000 to 59007: its media port, and its name on its network |
 | `member_password_encrypted` | `BYTEA`       | Sealed password of the Neko member session the API relays, see `docs/secrets.md` |
@@ -180,17 +181,18 @@ A person's accounts whose whole sign-in is one API key, such as Fireflies and Yo
 
 ### `connectors`
 
-One use of one account, reading a service as its person; see `docs/connectors.md` and `docs/meetings.md`. Exactly one
-of the four account columns is set (`connectors_one_account`), and each is unique together with `kind`, so an account
-feeds each kind once.
+A service read as its person, through an account the connector owns; see `docs/connectors.md` and
+`docs/meetings.md`. Exactly one of the four account columns is set (`connectors_one_sign_in`), and each is unique on its
+own, so no two connectors share an account. The one exception is an Outlook, Gmail, Teams, or Slack connector that
+shared its browser before every connector owned its own: it has none while it waits for a browser of its own.
 
 | Column                      | Type          | Notes                                                           |
 |-----------------------------|---------------|-----------------------------------------------------------------|
 | `id`                        | `UUID`        | UUIDv7, primary key                                             |
 | `kind`                      | `TEXT`        | The kind, such as `jira`, `outlook`, or `fireflies`             |
-| `browser_session_id`        | `UUID`        | References `browser_sessions`, cascading: a mailbox's browser   |
-| `token_account_id`          | `UUID`        | References `token_accounts`, cascading: a meeting source's key  |
-| `jira_credential_id`        | `UUID`        | References `jira_credentials`, cascading: Jira's Atlassian account |
+| `browser_session_id`        | `UUID`        | References `browser_sessions`, cascading: a mail or chat connector's browser |
+| `token_account_id`          | `UUID`        | References `token_accounts`, cascading: Fireflies' or YouTrack's key |
+| `jira_credential_id`        | `UUID`        | References `jira_credentials`, cascading: Jira's or Confluence's Atlassian account |
 | `github_credential_id`      | `UUID`        | References `github_credentials`, cascading: GitHub's account    |
 | `content`                   | `JSONB`       | What it reads, in its kind's terms, for a kind without a table of its own |
 | `storage_location_id`       | `UUID`        | References `storage_locations`: where it keeps files, such as meeting recordings |
@@ -201,6 +203,18 @@ feeds each kind once.
 | `is_active`                 | `BOOLEAN`     | False while paused                                              |
 | `created_by`                | `UUID`        | References `users`; its creator                                 |
 | `created_at`, `updated_at`  | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger               |
+
+### `secret_copies`
+
+Secrets a migration copied into new rows, still sealed for the rows they came from, since SQL cannot seal. The API
+re-seals each for its own row when it starts, before anything reads it, and removes it from here; see
+`docs/secrets.md`. Empty once the API has started. Primary key `(target, row_id)`.
+
+| Column       | Type   | Notes                                                                     |
+|--------------|--------|---------------------------------------------------------------------------|
+| `target`     | `TEXT` | Where the copy lives, as `<table>.<secret>`: today `jira_credentials.token` |
+| `row_id`     | `UUID` | The row holding the copy                                                  |
+| `sealed_for` | `UUID` | The row the copied envelope is still bound to                             |
 
 ### `connector_check_results`
 
@@ -360,7 +374,9 @@ Every column from `login` on is what GitHub answered, so a row is only written a
 
 ### `jira_credentials`
 
-The Jira Cloud credentials Elysium holds; see `docs/jira.md`.
+The Atlassian accounts Elysium holds, each carrying exactly one connector: a Jira connector, or a Confluence connector
+whose account allows no Jira project or board. Everything that lists Jira sites lists only the first; see
+`docs/jira.md` and `docs/connectors.md`.
 
 | Column            | Type          | Notes                                                                 |
 |-------------------|---------------|-----------------------------------------------------------------------|

@@ -30,8 +30,8 @@ the documented schema and a fixture, not yet against a live account.
 ### Accounts
 
 A Fireflies key is an account of its own (`token_accounts`, `docs/connectors.md`), sealed like every application
-secret (`docs/secrets.md`) and bound to its row. The Fireflies connector reads through it and names the storage
-location recordings are kept in. A key is checked with Fireflies (`user { email }`) before anything is stored, so a key
+secret (`docs/secrets.md`) and bound to its row. The Fireflies connector owns it, made and removed with it, and
+names the storage location recordings are kept in. A key is checked with Fireflies (`user { email }`) before anything is stored, so a key
 Fireflies refuses is never saved.
 
 Every meeting belongs to a connector (`connectors`), the same table mailboxes use. `UNIQUE (connector_id, external_id)`

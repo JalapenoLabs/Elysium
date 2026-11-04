@@ -58,6 +58,16 @@ The version byte identifies the envelope format and key generation. Today only v
   every one, to hand them to a turn. A non-secret variable's value is also decrypted for responses; a
   secret's never is. See `docs/environment.md`.
 
+## Copies made by migrations
+
+A migration that splits one row into two, such as an Atlassian account two connectors shared, cannot seal: the key is
+the API's alone, and the migrator runs without it. So it copies the envelope as it is, still bound to the row it came
+from, and lists the copy in `secret_copies` with the id it is sealed for. When the API starts, after checking the schema
+and before anything reads a secret, `crate::models::secret_copy::reseal_all` opens each copy under its source's context,
+seals it under its own row's, and removes it from the list, one transaction per copy. Until then a copy refuses to open,
+like any value sealed for another row, so the binding is never relaxed. A copy that cannot be re-sealed is logged and
+tried again at the next start.
+
 ## Stored secrets
 
 | Table        | Column                   | Context                  |

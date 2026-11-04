@@ -18,17 +18,15 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PUT    | `/api/v1/password-vault/collection`   | `200` `{ vault, status }`; the collection agents read |
 | POST   | `/api/v1/password-vault/sync`         | `200` `{ status }`                                  |
 | GET    | `/api/v1/browser-sessions`            | `200` `{ browserSessions: BrowserSession[] }`, the caller's, oldest first |
-| POST   | `/api/v1/browser-sessions`            | `201` `{ browserSession }`, `starting`              |
 | GET    | `/api/v1/browser-sessions/{id}`       | `200` `{ browserSession }`                          |
-| DELETE | `/api/v1/browser-sessions/{id}`       | `204`; removes the container and its profile        |
 | POST   | `/api/v1/browser-sessions/{id}/start-over` | `204`; its start page in a fresh tab, other tabs closed, profile kept; `502` when Chromium does not answer |
 | POST   | `/api/v1/browser-sessions/{id}/reset` | `202` `{ browserSession }`, `starting`; empties its profile and starts it again |
 | GET    | `/api/v1/browser-sessions/{id}/stream` | WebSocket: the browser's signaling, see `docs/browser.md` |
 | GET    | `/api/v1/connectors`                  | `200` `{ connectors: Connector[] }`, those the caller sees |
-| POST   | `/api/v1/connectors`                  | `201` `{ connector }`; reads a service through a browser or with an API key |
+| POST   | `/api/v1/connectors`                  | `201` `{ connector }`, with the new account it owns |
 | GET    | `/api/v1/connectors/{id}`             | `200` `{ connector }`                                |
 | PATCH  | `/api/v1/connectors/{id}`             | `200` `{ connector }`; `isActive`, `content`, or both |
-| DELETE | `/api/v1/connectors/{id}`             | `204`; its records stay on the timeline             |
+| DELETE | `/api/v1/connectors/{id}`             | `204`; removes its account too; its records stay on the timeline |
 | GET    | `/api/v1/connectors/kinds`            | `200` `{ kinds, accounts }`: every kind's definition |
 | GET    | `/api/v1/connectors/activity`         | `200` `{ runs }`: the newest syncs worth showing     |
 | POST   | `/api/v1/connectors/options`          | `200` `{ fields }`: what each selection field can pick from |
@@ -36,8 +34,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/connectors/check-runs/{runId}` | `200` `{ run }`, to whoever started it             |
 | POST   | `/api/v1/connectors/{id}/checks`      | `202` `{ run }`: runs a stored connector's checks    |
 | POST   | `/api/v1/connectors/{id}/sync`        | `202`: reads it now; `409` when paused or already syncing |
-| GET    | `/api/v1/accounts`                    | `200` `{ accounts }`, with the connectors each feeds |
-| DELETE | `/api/v1/accounts/tokens/{id}`        | `204`; an API key's account and its connectors      |
+| POST   | `/api/v1/connectors/{id}/sign-in`     | `200` `{ connector }`: starts a browser for one waiting for its own |
 | GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, the caller's 100 newest |
 | GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; resumes a failed meeting, `404` for one that has not failed |
@@ -271,10 +268,9 @@ A `BrowserSession` has `id`, `name`, `startUrl`, `port` (its media port), `statu
 `updatedAt`. `status` is `{ state, error }`: `state` is `starting`, `running`, or `failed`, with `error` set when it
 failed. The password is never returned.
 
-Every route answers only the browser's creator; anyone else's is `404`. `POST` requires `name` (1 to 100 characters,
-not blank) and `startUrl` (`https://` with a host name), answers at once, and the browser opens `startUrl` once it is
-running. It answers `409` with code `browser_ports_exhausted` when all eight media ports are taken. `DELETE` answers
-`502` with Docker's reason when the container cannot be removed, and keeps the row so it can be tried again.
+Every route answers only the browser's creator; anyone else's is `404`. A browser is a connector's account: it starts
+with its connector (`POST /connectors`, or `POST /connectors/{id}/sign-in`) and is removed with it
+(`DELETE /connectors/{id}`), so nothing here adds or removes one.
 
 `stream` is a WebSocket upgrade. It requires Elysium's own `Origin`, answers `403` otherwise, and `502` when the
 browser does not answer. See `docs/browser.md` for what it relays.
@@ -300,18 +296,18 @@ reaches now, or `null` to clear it. `collections` and `sync` answer `503` until 
 A `Connector` has `id`, `kind`, `scope` (`workspace` or `personal`), `account` (`{ id, kind, name }`), `status`
 (`active`, `syncing`, `error`, or `paused`), `isActive`, `signInState`, `lastSyncAt`, `lastError`, `records`, `content`
 (in its kind's terms; Jira's is its allowlist), `storageLocationId`, `checks` (each check's last result), `lastRun`,
-`createdBy`, and `createdAt`; a secret is never returned. `POST` and `POST /checks` take `{ kind, account, content }`,
-where `account` is `{ id }` for an account the caller has or `{ new: { ...its fields } }`: Jira and GitHub take a new
-account, a mailbox an existing browser, Fireflies either and a `storageLocationId`. A field a kind does not take is
-refused. Creating answers `400` for content or an account the kind cannot use or a secret its provider refuses, `404`
-for an account that is not the caller's, `409` (`account_has_connector`) for an Atlassian or GitHub account, which
-already carries its connector, or for an account that already feeds the kind, and `502` when the provider cannot be
-reached. Someone else's personal connector answers `404`. A `CheckRun` has `id`, `kind`, `connectorId`, `startedAt`,
+`createdBy`, and `createdAt`; a secret is never returned. `account` is `null` only for a connector read through a
+browser that waits for one of its own. `POST` and `POST /checks` take `{ kind, account, content }`, where `account` is
+`{ new: { ...its fields } }`: every connector is given a new account, which it alone owns, so `{ id }` is refused. A
+kind read through a browser takes no fields: its browser starts with it, `starting`, at the kind's start page, and
+`POST /checks` refuses it, since there is nothing to check until its person signs in. Fireflies' content is a
+`storageLocationId`. A field a kind does not take is refused. Creating answers `400` for content or an account the
+kind cannot use or a secret its provider refuses, `409` (`browser_ports_exhausted`) when every browser media port is
+taken, and `502` when the provider cannot be reached. `POST /options` takes `{ kind, account }`, where `account` may
+also be `{ id }`, the account a stored connector owns. `POST /{id}/sign-in` answers `400` for a kind that signs in with
+a token and `409` for one that has its browser. Someone else's personal connector answers `404`. A `CheckRun` has `id`, `kind`, `connectorId`, `startedAt`,
 `finishedAt`, and `checks`, each `{ checkId, required, state, count, reason, message, blockedBy }`. See
 `docs/connectors.md`.
-
-An `Account` has `id`, `kind` (`atlassian`, `github`, `browser`, or `fireflies`), `name`, `identity`, `checkedAt`,
-`isDefault` (GitHub's workspace default), `createdBy`, `createdAt`, and `usedBy` (each `{ connectorId, kind }`).
 
 A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durationMs`, `organizer`,
 `participants`, `url`, `state` (`pending`, `recorded`, `segmented`, `done`, or `failed`), `attempts`, `lastError`,

@@ -1,33 +1,33 @@
 # Connectors and the timeline
 
-Elysium reads the services its people use, as those people, and puts what it reads on one timeline. Two things make
-that up, kept apart on purpose:
+Elysium reads the services its people use, as those people, and puts what it reads on one timeline. A **connector**
+is one service read as one person: a kind, the sign-in it owns, what it reads, and what its reading has found.
 
-- An **account** is how Elysium signs in to a provider as a person: an Atlassian or GitHub token, an API key, or a
-  browser the person signed in to.
-- A **connector** is one use of one account: a kind, what it reads, and what its reading has found. One account can
-  feed several connectors, each kind once: an Atlassian account feeds Jira and Confluence, and a Microsoft browser can
-  feed Outlook and, later, Teams.
+- Every connector owns exactly one **account**, which is how Elysium signs in to the provider: an Atlassian or GitHub
+  token, an API key, or a browser its person signed in to. No account is shared between connectors: Jira and
+  Confluence each hold their own Atlassian token, and Outlook and Teams each have their own browser.
+- Adding a connector signs in, and removing one removes its account: its token is forgotten, or its browser is
+  removed with the profile its person signed in on.
 
-The code is `api/src/connectors/`; the routes are `/api/v1/connectors` and `/api/v1/accounts` (`docs/api.md`).
+The code is `api/src/connectors/`; the routes are `/api/v1/connectors` (`docs/api.md`).
 
-## Accounts
+## Sign-ins
 
 Accounts live in one store per way of signing in, each with the columns and constraints its provider needs:
 
-| Account kind | Store                | Signs in with                              | Whose                |
-|--------------|----------------------|--------------------------------------------|----------------------|
-| `atlassian`  | `jira_credentials`   | A site, an account email, and an API token | The workspace's      |
-| `github`     | `github_credentials` | A personal access token                    | The workspace's      |
-| `browser`    | `browser_sessions`   | A browser the person signed in to          | Its creator's        |
-| `fireflies`  | `token_accounts`     | An API key                                 | Its creator's        |
-| `youtrack`   | `token_accounts`     | A site and a permanent token               | Its creator's        |
+| Account kind | Store                | Signs in with                              | Owned by                         |
+|--------------|----------------------|--------------------------------------------|----------------------------------|
+| `atlassian`  | `jira_credentials`   | A site, an account email, and an API token | A Jira or Confluence connector   |
+| `github`     | `github_credentials` | A personal access token                    | A GitHub connector               |
+| `browser`    | `browser_sessions`   | A browser the person signed in to          | An Outlook, Gmail, Teams, or Slack connector |
+| `fireflies`  | `token_accounts`     | An API key                                 | A Fireflies connector            |
+| `youtrack`   | `token_accounts`     | A site and a permanent token               | A YouTrack connector             |
 
 The stores stay separate rather than becoming one table because each holds what only its provider has: Jira's site
 rule and allowlist, GitHub's default token and token kinds, a browser's port and container. They are also what coding
 sessions, projects, action item links, and the link watcher already point at by foreign key. One table would trade
 those constraints for a blob and move every reference for no change in behavior. `api/src/connectors/accounts.rs`
-reads them together for the hub's Accounts list.
+names each connector's account beside it.
 
 `token_accounts` holds every account whose whole sign-in is one API key, named by its provider (`kind`): Fireflies and
 YouTrack today, and the providers on the roadmap that work the same way. A key is checked with its provider before it
@@ -39,11 +39,31 @@ issued on, and like Jira's site it is validated rather than trusted (`crate::you
 a host of one label on `youtrack.cloud`, no path, port, query, or credentials, stored as the origin alone. So no stored
 account can point Elysium at another host. YouTrack Server, on a customer's own host, is not supported.
 
+An Atlassian account carries exactly one connector, made with it in the same transaction
+(`jira_credential::create_carrying`). Jira's is the account its allowlist lives on, and every Jira route, link, and
+watcher pass uses. Confluence's signs in with the same fields but allows no Jira project or board, so its token never
+reaches Jira through Elysium, and `jira_credential::list`, which every Jira picker and Settings, Jira read, answers
+Jira's accounts alone. A GitHub account likewise carries its one GitHub connector.
+
+A browser is started with its connector, at its kind's start page (`kinds::browser`), and its person signs in on the
+stream the connector's page shows (`docs/browser.md`). A browser per connector means the eight media ports the host
+streams on are eight browser connectors at most; a new one past that answers `409` (`browser_ports_exhausted`).
+
+### A connector waiting for its browser
+
+An Outlook, Gmail, Teams, or Slack connector can be without its browser, waiting. It reads as signed out and nothing
+reads it, its cursor kept so nothing is recorded twice, and its page offers Start browser
+(`POST /connectors/{id}/sign-in`), after which its person signs in. A new connector always starts with its browser,
+so only a connector that shared its browser with another kind is ever waiting: the migration that gave every
+connector its own account (`2026-11-03-210000-0000_give_every_connector_its_own_sign_in`) left each shared browser with
+the connector its start page is for, since a profile cannot be copied. It gave Confluence a copy of its Jira
+connector's Atlassian account, re-sealed by the API (`docs/secrets.md`), and its comments say what else it does.
+
 ## Connectors
 
 `connectors` (`docs/database.md`) holds one row per connector. Exactly one of its four account columns is set
-(`browser_session_id`, `token_account_id`, `jira_credential_id`, `github_credential_id`), which its kind decides, and an
-account feeds each kind at most once. Removing an account removes its connectors.
+(`browser_session_id`, `token_account_id`, `jira_credential_id`, `github_credential_id`), which its kind decides, and
+each is unique, so no two connectors share an account. Removing an account removes its connector.
 
 A connector's **content** is what it reads, in its kind's own terms. A kind keeps it in `content` unless it needs a
 table of its own:
@@ -51,32 +71,26 @@ table of its own:
 - Jira's content is its Atlassian account's allowlist, which stays on the account (`jira_credential_projects`,
   `jira_credential_boards`): every Jira call made with that token is bounded by it (`docs/jira.md`).
 - Confluence's content is the spaces it reads, in `content` as `{"spaces": "*"}` or
-  `{"spaces": [{"id", "key", "name"}]}`, each as Confluence reported it when it was picked. It is the connector's own,
-  not the account's: the same Atlassian account's Jira allowlist does not bound it, nor it the allowlist.
+  `{"spaces": [{"id", "key", "name"}]}`, each as Confluence reported it when it was picked.
 - Fireflies' content is the storage location its recordings are kept in, `storage_location_id`, a foreign key.
 - YouTrack's content is the projects it reads, `{"projects": "*"}` or `{"projects": [<project id>, ...]}`. A pick may
   name a project by its id or short name; what is stored is YouTrack's id, matched against what the token reaches
   when it is saved, so a project the token cannot see is refused then rather than ignored later.
+- Teams' and Slack's content is the conversations they read, `"*"` when they are made, since nothing can be listed
+  until their person signs in, and narrowed on the connector's page afterwards.
 
 Its **reading state** is `sign_in_state`, `cursor`, `last_polled_at`, and `last_error`, and `is_active` false means
 paused. Jira and GitHub are read by the link watcher, which records its progress per account in `link_watch_cursors`,
 so their last sync and last error come from there.
 
-Every Atlassian and GitHub account carries exactly one connector of its kind, made with it in the same transaction
-(`jira_credential::create`, `github_credential::create`). Links can be made through any such account and the watcher
-reads through each, so the connector is where that reading is shown, checked, and paused. A new Jira or GitHub
-connector is therefore always a new account, and removing one removes its account, and with it any Confluence
-connector reading through that account.
-
-Because an Atlassian account also feeds Confluence, anything about the link watcher's reading is matched by kind as
-well as account (`ConnectorKind::LINKS`, Jira and GitHub): which accounts the paused connectors stop the watcher on,
-whose watcher pass and errors a connector shows, and whose linked issues it counts. Pausing Confluence never pauses
-the watcher, and Confluence never shows Jira's pass or count.
+Confluence's account is an Atlassian one too, so anything about the link watcher's reading is matched by kind as well
+as account (`ConnectorKind::LINKS`, Jira and GitHub): which accounts the paused connectors stop the watcher on, whose
+watcher pass and errors a connector shows, and whose linked issues it counts.
 
 ### Who sees what
 
-A kind is the workspace's or a person's. Jira and GitHub are the workspace's, like their accounts: every member sees,
-checks, pauses, and edits them. Mail and meetings are personal: only their creator sees them, and anyone else is
+A kind is the workspace's or a person's. Jira, Confluence, and GitHub are the workspace's: every member sees, checks,
+pauses, and edits them. Mail, chat, and meetings are personal: only their creator sees them, and anyone else is
 answered `404`.
 
 ## Kinds are defined once
@@ -84,50 +98,58 @@ answered `404`.
 Each kind is one module under `api/src/connectors/kinds/` that declares its `Definition` and fills the hub's verbs for
 it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web app never do.
 
-| Kind         | Module                 | Reads through | Accounts | Content                      | Read by                     |
-|--------------|------------------------|---------------|----------|------------------------------|-----------------------------|
-| `jira`       | `kinds/jira.rs`        | `atlassian`   | New      | `projects`, `boards`         | The link watcher            |
-| `confluence` | `kinds/confluence.rs`  | `atlassian`   | Existing | `spaces`                     | `crate::confluence::reader` |
-| `github`     | `kinds/github.rs`      | `github`      | New      | None: what the token reaches | The link watcher            |
-| `outlook`    | `kinds/webmail.rs`     | `browser`     | Existing | None: the inbox              | `ingest`                    |
-| `gmail`      | `kinds/webmail.rs`     | `browser`     | Existing | None: the inbox              | `ingest`                    |
-| `teams`      | `kinds/teams.rs`       | `browser`     | Existing | `conversations`              | `ingest`                    |
-| `slack`      | `kinds/slack.rs`       | `browser`     | Existing | `conversations`              | `ingest`                    |
-| `fireflies`  | `kinds/fireflies.rs`   | `fireflies`   | Either   | `storageLocationId`          | `crate::meetings`           |
-| `youtrack`   | `kinds/youtrack.rs`    | `youtrack`    | Either   | `projects`                   | `crate::youtrack::reader`   |
+| Kind         | Module                 | Provides   | Signs in with | Content                      | Read by                     |
+|--------------|------------------------|------------|---------------|------------------------------|-----------------------------|
+| `jira`       | `kinds/jira.rs`        | `issues`   | `atlassian`   | `projects`, `boards`         | The link watcher            |
+| `confluence` | `kinds/confluence.rs`  | `pages`    | `atlassian`   | `spaces`                     | `crate::confluence::reader` |
+| `github`     | `kinds/github.rs`      | `issues`   | `github`      | None: what the token reaches | The link watcher            |
+| `outlook`    | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    |
+| `gmail`      | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    |
+| `teams`      | `kinds/teams.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    |
+| `slack`      | `kinds/slack.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    |
+| `fireflies`  | `kinds/fireflies.rs`   | `meetings` | `fireflies`   | `storageLocationId`          | `crate::meetings`           |
+| `youtrack`   | `kinds/youtrack.rs`    | `issues`   | `youtrack`    | `projects`                   | `crate::youtrack::reader`   |
 
-A definition is structure only: the kind's scope, the account kind it reads through, which accounts a new connector
-takes (`accounts`: a new one made with it, one the person already has, or either), a browser kind's start page, its
-content fields (a `selection` picked from what the account reaches, or a `storage_location`), and its ordered checks.
-Account definitions say what a new account asks for (text, email, URL, secret, or a choice). `GET /connectors/kinds`
-serves both, and the web app draws its forms and check lists from them, naming every id from its `connectors`
-translations.
+A definition is structure only: the kind's scope, what it provides, the account kind it signs in with, a browser
+kind's start page, its content fields (a `selection` picked from what the account reaches, or a `storage_location`),
+and its ordered checks. Account definitions say what a new account asks for (text, email, URL, secret, or a choice).
+`GET /connectors/kinds` serves both, and the web app draws its forms and check lists from them, naming every id from
+its `connectors` translations.
+
+What a kind provides (`Provides`: `issues`, `pages`, `mail`, `messages`, `meetings`) is how a loop that reads one kind
+of thing finds every kind that reads it, without naming them: `crate::meetings` reads every kind
+`kinds::providing(Provides::Meetings)` answers.
 
 A kind fills these verbs:
 
 | Verb            | What it does                                                                                |
 |-----------------|---------------------------------------------------------------------------------------------|
 | Checks          | Builds the kind's checks against a stored connector or one being set up                      |
-| Create          | Makes the connector, and a new account when one is given, checked with its provider first    |
-| Options         | Lists what each selection field can pick from, through an existing account or a new one      |
+| Create          | Makes the connector with its new account: a token checked with its provider first, or a browser started at the kind's start page |
+| Options         | Lists what each selection field can pick from, through a new account or a stored connector's |
 | Update content  | Replaces what it reads, checked the way a new connector's content is                         |
 | Sync            | Reads it now, in the loop that reads its kind                                                |
-| Remove          | Removes it, and for Jira and GitHub its account                                              |
+| Sign in         | Starts a browser for a browser connector waiting for its own                                 |
+| Remove          | Removes it with its account                                                                  |
 
-Jira and GitHub create their accounts through the same functions as their settings routes
+A new connector of a token kind can be checked before it is stored, with the fields it was given; one of a browser kind
+cannot, since there is nothing to check until its person signs in on its browser, so its checks run on its page. Jira
+and GitHub create their accounts through the same functions as their settings routes
 (`create_jira_credential::create_credential`, `create_github_credential::create_credential`), so both check exactly the
-same things.
+same things. Fireflies and YouTrack store their key's account and the connector in one transaction, and a browser kind
+removes the browser it started when its connector cannot be stored.
 
 ### Adding a kind
 
 A new kind adds a `ConnectorKind`, a module with its definition and verbs, a row in `DEFINITIONS` and in each dispatch
-in `kinds/mod.rs`, its name to the web app's `CONNECTOR_KINDS`, and its names and check sentences to the web app's
-`connectors` translations. Its definition's `accounts` decides what the wizard offers, so no page names the kind.
-Check ids share one set of labels and count sentences across kinds, so a check that counts something different takes
-an id of its own: Confluence's `sample_page_comments` beside YouTrack's `sample_comments`. A kind whose account is
-a new provider adds an `AccountKind` and an `AccountDefinition`; when its sign-in is one API key, its key lives in
-`token_accounts`. `kinds/mod.rs`'s tests fail when a kind has no definition, an account kind none, or a check depends
-on one that does not run before it.
+in `kinds/mod.rs`, its name to the web app's `CONNECTOR_KINDS`, its logo to `connectorLogos`, and its name,
+description, and check sentences to the web app's `connectors` translations. Its definition decides what its form
+asks for, so no page names the kind. Check ids share one set of labels and count sentences across kinds, so a check
+that counts something different takes an id of its own: Confluence's `sample_page_comments` beside YouTrack's
+`sample_comments`. A kind whose account is a new provider adds an `AccountKind` and an `AccountDefinition`; when its
+sign-in is one API key, its key lives in `token_accounts`. `kinds/mod.rs`'s tests fail when a kind has no definition,
+provides nothing, an account kind has none, a browser kind names no start page, or a check depends on one that does not
+run before it.
 
 ## Checks
 
@@ -150,7 +172,8 @@ A check whose dependency did not pass is skipped and names that dependency (`blo
 `sign_in` once rather than every check after it. An outcome is passed, failed, or skipped, with a `count` its sentence
 fills, a `reason` in Elysium's own terms (`no_messages`, `fine_grained_scopes`), and the provider's own `message`.
 
-Checks run on demand (`POST /connectors/{id}/checks`) and before a connector is saved (`POST /connectors/checks`, with
+Checks run on demand (`POST /connectors/{id}/checks`) and, for a token kind, before a connector is saved
+(`POST /connectors/checks`, with
 the same `{ kind, account, content }` a create takes; nothing is stored, and a new account's secret reaches its
 provider and no further). A run lives in memory (`CheckRuns`) for half an hour after it ends:
 
@@ -186,29 +209,39 @@ a meeting source lists and processes, and Jira and GitHub wake the watcher.
 ## In the web app
 
 Settings, Connectors (`/settings/connectors`, `frontend/src/pages/Settings/Connectors/`) is the hub, modeled on Onyx's
-connectors:
+connectors. Every page sits in the shared settings frame (`SettingsPage`, `docs/frontend.md`), so the breadcrumbs and
+Esc lead back.
 
-- **The list** shows every connector the person sees with its kind, account, status, last sync, records, and last
-  error, and a gear menu to run its checks, sync it now, pause or resume it, and delete it. A search over kind and
-  account names and a status filter narrow it. Above it, a summary and the activity feed of recent syncs, each failed
-  one with a retry.
-- **Accounts** lists every account with what it feeds; Atlassian, GitHub, and browser accounts are edited on their own
-  pages, and an API key's account is removed here.
-- **Adding** a connector (`/settings/connectors/new`) picks a kind, then an account the person has or a new one, as
-  the kind's `accounts` allows (`offeredAccounts`), then its content, then runs its checks live before it is saved. A
-  kind that only reads through an existing account, with none yet, says how to get one: Confluence's Atlassian
-  account comes with a Jira connector. A required check that did not pass leaves the save available as "Save anyway".
-- **A connector's page** (`/settings/connectors/:connectorId`) shows its status, last error, checks (stored, or a run
-  started there as it goes), and content to change, with links to its account's own page.
+- **The list** shows every connector the person sees with its kind's logo, the account it signs in as, status, last
+  sync, records, and last error, and a gear menu to run its checks, sync it now, pause or resume it, and delete it. A
+  search over kind and account names and a status filter narrow it. Above it, a summary and the activity feed of
+  recent syncs, each failed one with a retry.
+- **Adding** a connector starts at `/settings/connectors/new`, a searchable grid of every kind's logo and name; each
+  card's `?` opens what the kind reads in a popover, and the search matches that too. A card opens its kind's page,
+  `/settings/connectors/new/<kind>`:
+  - A token kind asks for its sign-in, what it reads (a selection loads its options from what the typed account
+    reaches), and Test connection, which runs its checks live against what was typed. The page's Save, "Create
+    connector", waits for a finished run, and reads "Create anyway" when a required check failed; changing anything
+    asks for another run. Enter runs the checks, then creates.
+  - A browser kind's page has Start browser, which creates the connector with its browser and opens the connector's
+    page, where its person signs in, narrows what it reads, and runs its checks.
+  - An unknown kind goes back to the grid.
+- **A connector's page** (`/settings/connectors/:connectorId`) shows its status and last error; for a browser kind, its
+  sign-in (`BrowserSignIn`: the browser's stream, Start over, and Reset, or Start browser while it waits for one); what
+  it reads, saved with the page's Save; and its checks, stored or a run started there as it goes. Jira and GitHub link
+  to their account's own edit page, and Jira to its done statuses.
+- **Deleting** a connector confirms what goes with it: its Atlassian or GitHub account and what uses it, its key, or its
+  browser and everything signed in on it.
 
-Every form and check list is drawn from `GET /connectors/kinds`: `AccountFields` for a new account's fields,
-`ContentFields` for content (a selection loads its options from `POST /connectors/options` on request), and `CheckList`
-for checks. Names, check labels, count sentences, and reasons come from the `connectors` translations, by id.
-Connectors reach Redux through `useConnectorsLoader` and stay current through `connector.changed`, each loaded by id;
-a followed check run moves along on `connectorCheckRun.updated` and is loaded again when it finishes, for its messages.
+Every form and check list is drawn from `GET /connectors/kinds`: `AccountFields` for a new account's fields (each secret
+with a reveal toggle), `ContentFields` for content, and `CheckList` for checks. Names, descriptions, check labels, count
+sentences, and reasons come from the `connectors` translations, by id, and logos from `connectorLogos.ts`, bundled
+since the pages load nothing from another origin. Connectors reach Redux through `useConnectorsLoader` and stay current
+through `connector.changed`, each loaded by id; a followed check run moves along on `connectorCheckRun.updated` and is
+loaded again when it finishes, for its messages.
 
-Settings, GitHub and Settings, Jira lead to the hub; a GitHub or Jira account's edit page and Jira's done statuses
-stay where they were.
+Settings, GitHub and Settings, Jira lead to the hub. `/settings/browsers` leads to the list, and a browser's own address,
+`/settings/browsers/<id>`, to the connector that owns it.
 
 ## Ingest
 
@@ -249,9 +282,8 @@ checked against a feed shaped like Gmail's, served locally, not yet against a si
 
 ### Teams
 
-`api/src/connectors/teams.rs` reads Microsoft Teams through a browser signed in to Microsoft. The same browser can
-feed Outlook and Teams: Microsoft's sign-in carries over, so a browser signed in for Outlook opens Teams without
-asking again. When no tab shows Teams (`teams.cloud.microsoft`, `teams.microsoft.com`, or `teams.live.com`) and none
+`api/src/connectors/teams.rs` reads Microsoft Teams through the connector's own browser, signed in to Microsoft,
+which starts at Teams' own address. When no tab shows Teams (`teams.cloud.microsoft`, `teams.microsoft.com`, or `teams.live.com`) and none
 is on a sign-in page, the read opens Teams in a new tab over DevTools and answers `unknown`; the next read finds it
 loaded. A tab on a sign-in page means the session ended (`signed_out`). Nothing is installed into the organization.
 
@@ -343,7 +375,7 @@ own methods, not Slack's published API, so their shapes are read defensively and
 
 ### Confluence
 
-`api/src/confluence/` is the only caller of Confluence Cloud. It reaches the Atlassian account's own site
+`api/src/confluence/` is the only caller of Confluence Cloud. It reaches the connector's Atlassian account's site
 (`https://<site>.atlassian.net/wiki`) with the account's email and API token, the same basic auth Jira takes, through
 the account's stored, validated origin. Confluence Data Center is not supported.
 
@@ -455,11 +487,8 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
 
 ## Roadmap
 
-- A connector is its sign-in. Every connector owns exactly one sign-in, a token or a browser, with nothing shared:
-  Outlook and Teams each get their own browser, and Jira and Confluence each hold their own token. Accounts and
-  Browser sign-ins stop being settings of their own; one Connectors list holds everything, and adding a
-  connector signs in, chooses what it reads, and runs its checks in one flow, a browser's stream included.
-  Existing shared accounts are split, one copy per connector.
+- Changing a token connector's sign-in from its page: a new key for Fireflies or YouTrack, and a new token for
+  Confluence, whose Atlassian account has no edit page of its own; today such a connector is removed and added again.
 - More kinds: Google Meet and Teams recordings (`docs/meetings.md`).
 - Confluence through Atlassian's gateway (`api.atlassian.com/ex/confluence/<cloudId>`), so scoped API tokens work.
 - Confluence attachments and inline comments, and a mention found by display name as well as account id.

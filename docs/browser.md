@@ -5,9 +5,9 @@ The user signs in on the real page, through any OAuth, MFA, or passkey prompt it
 on the host afterwards, which keeps the session alive. Connectors then read and act through that same browser, so
 Elysium uses each service as its user does and never installs anything into an organization.
 
-Today the API runs a browser per signed-in account and relays its stream, and the web app streams it to its owner
-under Settings, Browser sign-ins; Outlook, Gmail, Teams, and Slack are read through it (`docs/connectors.md`). The
-facts below were verified against the pinned versions.
+Today every Outlook, Gmail, Teams, and Slack connector owns a browser of its own, started with it and removed with it
+(`docs/connectors.md`). The API runs each browser and relays its stream, and the connector's page streams it to its
+owner to sign in on. The facts below were verified against the pinned versions.
 
 ## Neko
 
@@ -170,12 +170,14 @@ extension is installed, so the browser is a plain Chromium.
 `api/src/browser/` runs them; `/api/v1/browser-sessions` exposes them (`docs/api.md`); `browser_sessions` stores them
 (`docs/database.md`).
 
-- **Adding one** stores it on the lowest free port with a generated member password and answers at once as
-  `starting`. In the background the API pulls Neko's image if Docker lacks it, creates the browser's network, volume,
-  and container, joins itself and nginx to the network, copies the setup files in, and starts it. Once Chromium's
-  DevTools port answers, it opens the browser's start page in a new tab and records that in
-  `start_page_opened_at`. Until it is recorded, every reconcile pass tries again, so a DevTools port that answered
-  late or an API restart does not lose it. Each change of status is published as `browserSession.upserted`.
+- **Adding one** happens only with its connector (`connectors::kinds::browser`), named for the connector's kind and
+  started at the kind's start page; nothing adds a browser on its own. It stores it on the lowest free port with a
+  generated member password and answers at once as `starting`. In the background the API pulls Neko's image if Docker
+  lacks it, creates the browser's network, volume, and container, joins itself and nginx to the network, copies the
+  setup files in, and starts it. Once Chromium's DevTools port answers, it opens the browser's start page in a new tab
+  and records that in `start_page_opened_at`. Until it is recorded, every reconcile pass tries again, so a DevTools
+  port that answered late or an API restart does not lose it. Each change of status is published as
+  `browserSession.upserted`.
 - **The reconciler** runs once at startup and then every 10 seconds over every browser. It recreates whatever is
   missing, starts a stopped container, rejoins nginx and the API to each network, and replaces a container whose spec
   changed: another image, public address, or setup file. The spec is a hash in the container's
@@ -197,16 +199,17 @@ extension is installed, so the browser is a plain Chromium.
 - **Resetting** empties the profile and starts the browser again at its start page. Under Docker's lock it marks the
   start page as owed, removes the container and the profile volume, and reports the browser `starting`; the network
   stays, so nginx and the API stay joined to it. Then it brings the browser up as if new, and so would any reconcile
-  pass that got there first. The row, its port, and the connector reading through it stay; the connector reads
+  pass that got there first. The row, its port, and its connector stay; the connector reads
   `signed_out` until the person signs in again. Removing the volume, rather than clearing data over DevTools, is
   what makes the reset complete: Chromium's own clearing reaches cookies and site storage, but not service workers,
   saved passwords, or whatever else a sign-in left in the profile, and it cannot repair a profile left half written.
   An empty volume holds nothing.
 - **Status** is kept in memory and starts as `starting` when the API starts; the first pass sets it.
-- **Removing one** removes its container, network, and volume, then its row, in a task of its own so a request that
-  is given up on does not stop it halfway, and holding Docker's lock throughout. A reconcile pass waiting for the
-  lock checks the row is still there before it creates anything. The accounts it was signed in to are untouched;
-  their sessions simply stop being used.
+- **Removing one** happens only with its connector: removing the connector removes its browser. It removes the
+  container, network, and volume, then the row (and with it the connector, by its foreign key), in a task of its own so
+  a request that is given up on does not stop it halfway, and holding Docker's lock throughout. A reconcile pass
+  waiting for the lock checks the row is still there before it creates anything. The accounts it was signed in to are
+  untouched; their sessions simply stop being used.
 - **The public address** a browser advertises is what `ELYSIUM_PUBLIC_URL`'s host resolves to (its first IPv4
   address, else its first address), or loopback for `localhost`. A lookup that fails keeps the last address that
   resolved, so a resolver's bad moment does not fail and replace every browser. A host whose public name resolves
@@ -216,11 +219,12 @@ extension is installed, so the browser is a plain Chromium.
 
 ## The sign-in panel
 
-Settings, Browser sign-ins (`/settings/browsers`) lists the signed-in person's browsers with their status, and adds
-one from a preset (Outlook, Gmail, Slack) or any https page. Adding one goes straight to its page, which streams it
-once it is running, offers to start reading it when a connector reads what it was started on (a mailbox, or Slack),
-and offers **Start over** (while it runs) and **Reset browser** (unless it is starting), the second behind a
-confirmation that it signs the browser out of everything. The client is `frontend/src/browser/`:
+A browser connector's page (`/settings/connectors/:connectorId`, `BrowserSignIn`) is where its person signs in. Adding
+an Outlook, Gmail, Teams, or Slack connector starts its browser and goes straight to that page, which streams the
+browser once it is running and offers **Start over** (while it runs) and **Reset browser** (unless it is starting), the
+second behind a confirmation that it signs the browser out of everything. A connector waiting for a browser of its
+own offers **Start browser** instead (`POST /api/v1/connectors/{id}/sign-in`). A browser's old address,
+`/settings/browsers/<id>`, opens the connector that owns it. The client is `frontend/src/browser/`:
 
 - `NekoConnection` opens the stream route, answers Neko's offer, holds the WebRTC peer, and asks for control on
   connecting (Neko hosts implicitly, so the first viewer to ask gets the pointer and keyboard). It tracks the keys

@@ -360,7 +360,7 @@ backup is lost.
 6. **Bring the stack back up** with `docker compose up --detach --wait`. The `migrate` services apply any migration
    newer than the backup on the way.
 7. **Check it**: sign in, and open Settings, Backups, which now lists the history as of the backup. Sign each browser
-   in again on Settings, Browser sign-ins if its profile was lost with the host.
+   in again on its connector's page, under Settings, Connectors, if its profile was lost with the host.
 
 To rehearse a restore without touching a deployment, run two scratch stacks beside each other: a compose project of
 their own (`-p`) with an override renaming every `container_name`, started with `up --wait kratos hydra`, plus the
