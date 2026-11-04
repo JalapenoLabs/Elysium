@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { Provider } from 'react-redux'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { createMemoryRouter, Route, RouterProvider, Routes } from 'react-router'
 
 // Redux
 import { createAppStore } from '../store'
@@ -35,16 +35,19 @@ vi.mock('../hooks/useServerData', async (importOriginal) => {
 const noop = () => {}
 
 function renderRouted(element: ReactNode) {
+  // A data router, as the app has, since a page guards its unsaved changes with a blocker.
+  const router = createMemoryRouter([{
+    path: '*',
+    element: <TestAriaRouter>
+      {element}
+      <Routes>
+        <Route path='/settings/llms/:llmId/edit' element={<p>Edit page</p>} />
+        <Route path='*' element={<span />} />
+      </Routes>
+    </TestAriaRouter>,
+  }], { initialEntries: [ '/start' ]})
   return render(<Provider store={createAppStore()}>
-    <MemoryRouter initialEntries={[ '/start' ]}>
-      <TestAriaRouter>
-        {element}
-        <Routes>
-          <Route path='/settings/llms/:llmId/edit' element={<p>Edit page</p>} />
-          <Route path='*' element={<span />} />
-        </Routes>
-      </TestAriaRouter>
-    </MemoryRouter>
+    <RouterProvider router={router} />
   </Provider>)
 }
 

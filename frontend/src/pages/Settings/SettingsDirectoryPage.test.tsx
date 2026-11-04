@@ -4,7 +4,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { Provider } from 'react-redux'
-import { MemoryRouter } from 'react-router'
+import { createMemoryRouter, RouterProvider } from 'react-router'
 
 // Redux
 import { createAppStore } from '../../store'
@@ -36,12 +36,15 @@ function renderDirectory() {
     admin,
     makeUser({ id: 'grace', name: 'Grace Hopper', status: 'pending', approvedAt: null }),
   ]))
+  // A data router, as the app has, since a page guards its unsaved changes with a blocker.
+  const router = createMemoryRouter([{
+    path: '/settings',
+    element: <TestAriaRouter>
+      <SettingsDirectoryPage />
+    </TestAriaRouter>,
+  }], { initialEntries: [ '/settings' ]})
   return render(<Provider store={store}>
-    <MemoryRouter initialEntries={[ '/settings' ]}>
-      <TestAriaRouter>
-        <SettingsDirectoryPage />
-      </TestAriaRouter>
-    </MemoryRouter>
+    <RouterProvider router={router} />
   </Provider>)
 }
 
