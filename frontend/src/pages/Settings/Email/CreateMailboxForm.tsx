@@ -15,7 +15,6 @@ import { mailAccountUpserted } from '../../../store/mailAccountsSlice'
 
 // User interface
 import {
-  Description,
   FieldError,
   Form,
   Input,
@@ -177,7 +176,6 @@ export function CreateMailboxForm(props: Props) {
     >
       <Label>{t('createForm.displayName')}</Label>
       <Input />
-      <Description>{t('createForm.displayNameHint')}</Description>
       <FieldError>{errors.displayName?.message}</FieldError>
     </TextField>
 

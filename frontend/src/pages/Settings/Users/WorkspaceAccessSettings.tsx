@@ -94,7 +94,6 @@ export function WorkspaceAccessSettings(props: Props) {
           <Label>{t('access.requireMfa')}</Label>
         </Switch.Content>
       </Switch>
-      <p className='mt-1 text-sm opacity-70'>{t('access.requireMfaHint')}</p>
       {!canRequireMfa && <p className='mt-1 text-sm text-warning'>
         <span>{t('access.requireMfaFirst')}</span>
         {' '}

@@ -125,8 +125,6 @@ export function ClaudeSignInForm(props: Props) {
     className='flex flex-col gap-5'
     onSubmit={onSubmit}
   >
-    <p className='text-sm opacity-80'>{t('signIn.description')}</p>
-
     {/* Name, defaulting to the account's email */}
     <TextField
       id='claude-account-name'
@@ -137,7 +135,6 @@ export function ClaudeSignInForm(props: Props) {
     >
       <Label>{t('form.name')}</Label>
       <Input ref={nameRef} placeholder={t('signIn.namePlaceholder')} />
-      <Description>{t('signIn.nameHint')}</Description>
     </TextField>
 
     {/* Priority */}

@@ -53,7 +53,7 @@
   },
   "form": {
     "title": "Takeaway",
-    "titleHint": "The rule itself, on one line. Saving a takeaway that exists revises that learning.",
+    "titleHint": "The rule itself, on one line.",
     "category": "Category",
     "body": "Body",
     "bodyHint": "The rule or decision first, then when it applies and why.",

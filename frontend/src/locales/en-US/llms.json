@@ -7,7 +7,7 @@
   },
   "agentConfiguration": {
     "title": "Agent configuration",
-    "help": "Every agent turn runs Claude Code with the configuration in this repository: its CLAUDE.md, skills, and settings. Elysium fetches it when the API starts and whenever this changes. A github.com repository is read with the default GitHub token.",
+    "help": "Every agent turn runs Claude Code with the configuration in this repository: its CLAUDE.md, skills, and settings. Elysium fetches it when it starts and whenever this changes. A github.com repository is read with the default GitHub token.",
     "repository": "Configuration repository",
     "repositoryHint": "An https git URL without credentials. Leave blank to use Claude Code's defaults.",
     "saved": "Agent configuration saved",
@@ -55,7 +55,6 @@
     "priorityHint": "Lower numbers are tried first.",
     "isActive": "Active",
     "expiresAt": "Expires",
-    "expiresAtHint": "Optional. Expires at midnight at the start of this day, in your time zone.",
     "clearExpiry": "Clear expiry",
     "errors": {
       "nameRequired": "Enter a name.",
@@ -86,7 +85,6 @@
   },
   "setup": {
     "title": "Get the token",
-    "description": "Check off each step as you go.",
     "chatgpt-oauth": {
       "install": "Install the Codex CLI.",
       "login": "Sign in with your ChatGPT account. A browser window opens.",
@@ -125,15 +123,14 @@
     "readFailed": "Could not be read"
   },
   "signIn": {
-    "description": "Elysium signs in with the official Claude Code CLI and keeps the account signed in itself, refreshing it before it lapses. Start the sign-in, open Claude's page, sign in there, and paste the code it shows.",
     "namePlaceholder": "The account email",
-    "nameHint": "Optional. Leave blank to name it after the account's email.",
     "start": "Start sign-in",
     "openPage": "Open Claude's sign-in page",
     "code": "Code",
     "codeHint": "Paste the code Claude's page shows after you sign in.",
     "codeNeeded": "Paste the code from Claude's page first",
     "finish": "Finish sign-in",
-    "signedIn": "{{name}} signed in"
+    "signedIn": "{{name}} signed in",
+    "help": "Elysium signs in with the official Claude Code CLI and keeps the account signed in, refreshing it before it lapses. Start the sign-in, sign in on Claude's page, and paste the code it shows."
   }
 }

@@ -5,8 +5,7 @@
   },
   "page": {
     "notFound": "This GitHub token does not exist. It may have been deleted.",
-    "backToList": "Back to Connectors",
-    "defaultHint": "Sessions use the default token unless their project or the session picks another."
+    "backToList": "Back to Connectors"
   },
   "kinds": {
     "classic": "Classic",
@@ -36,7 +35,7 @@
     "createTitle": "Add GitHub token",
     "editTitle": "Edit {{name}}",
     "name": "Name",
-    "nameHint": "How Elysium lists this token, such as Work or Open source.",
+    "nameHint": "Such as Work or Open source.",
     "kind": "Token type",
     "kindHint": "A classic token carries scopes across every repository you can reach. A fine-grained token is granted per repository.",
     "token": "Token",
@@ -45,7 +44,6 @@
       "fine-grained": "Shown once, when the token is generated. It starts with github_pat_."
     },
     "tokenKeep": "Leave blank to keep the current token.",
-    "checkedHint": "Saving checks the token with GitHub and records the account it belongs to.",
     "errors": {
       "nameRequired": "Enter a name.",
       "nameTooLong": "Use 120 characters or fewer.",
@@ -73,7 +71,6 @@
   },
   "setup": {
     "title": "Create the token",
-    "description": "Check off each step as you go.",
     "classic": {
       "open": "Open Developer settings, Personal access tokens, Tokens (classic) on GitHub, then Generate new token (classic).",
       "name": "Give the token a note naming this Elysium, and choose how long it lasts.",

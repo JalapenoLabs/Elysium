@@ -84,7 +84,6 @@ export function JiraScopeFields(props: Props) {
       ? <JiraScopePicker
         id='jira-projects'
         label={t('scope.projects')}
-        description={t('scope.projectsHint')}
         options={projectOptions}
         selectedIds={pickedProjects}
         onChange={(ids) => props.onChange({ ...props.value, projectIds: ids })}
@@ -116,7 +115,6 @@ export function JiraScopeFields(props: Props) {
       ? <JiraScopePicker
         id='jira-boards'
         label={t('scope.boards')}
-        description={t('scope.boardsHint')}
         options={boardOptions}
         selectedIds={pickedBoards}
         onChange={(ids) => props.onChange({ ...props.value, boardIds: ids.map(Number) })}

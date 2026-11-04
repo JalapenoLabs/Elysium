@@ -192,8 +192,6 @@ export function GithubCredentialForm(props: Props) {
         value={values.token ?? ''}
         onChange={(value) => form.setValue('token', value, { shouldDirty: true, shouldValidate: true })}
       />
-
-      <p className='text-sm opacity-70'>{t('form.checkedHint')}</p>
     </Form>
 
     <aside className='lg:sticky lg:top-4'>

@@ -11,7 +11,7 @@ import { useAppDispatch } from '../../../store/hooks'
 import { mailAccountUpserted } from '../../../store/mailAccountsSlice'
 
 // User interface
-import { Description, Form, Input, Label, Switch, TextField } from '@heroui/react'
+import { Form, Input, Label, Switch, TextField } from '@heroui/react'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
@@ -75,7 +75,6 @@ export function MailboxForm(props: Props) {
     >
       <Label>{t('mailboxForm.displayName')}</Label>
       <Input ref={nameRef} />
-      <Description>{t('mailboxForm.displayNameHint', { address: account.address })}</Description>
     </TextField>
 
     <div>
@@ -91,7 +90,6 @@ export function MailboxForm(props: Props) {
           <Label>{t('mailboxForm.isActive')}</Label>
         </Switch.Content>
       </Switch>
-      <Description className='mt-1 block'>{t('mailboxForm.isActiveHint')}</Description>
     </div>
   </Form>
 }

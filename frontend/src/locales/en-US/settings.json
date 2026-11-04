@@ -71,7 +71,6 @@
     },
     "appearance": {
       "heading": "Appearance",
-      "description": "Choose how Elysium looks. System follows your device's light or dark setting. Saved on this browser.",
       "label": "Theme",
       "options": {
         "light": "Light",

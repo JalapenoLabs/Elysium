@@ -16,6 +16,8 @@ import { UrlTree } from '../../../urls'
 type Props = {
   title: string
   type: LlmType
+  // Behind the header's `?`, for a page that needs explaining.
+  help?: string
   children: ReactNode
 }
 
@@ -26,6 +28,7 @@ export function LlmEditorLayout(props: Props) {
 
   return <SettingsPage
     title={props.title}
+    help={props.help}
     parents={[{ label: t('title'), href: UrlTree.settingsLlms }]}
   >
     <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>

@@ -17,7 +17,7 @@ export function UpdatesPage() {
   const { t } = useTranslation('updates')
   const isAdmin = useAppSelector(selectIsAdmin)
 
-  return <SettingsPage title={t('title')}>
+  return <SettingsPage title={t('title')} help={t('help')}>
     {isAdmin
       ? <UpdatesAdministration />
       : <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

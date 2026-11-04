@@ -37,12 +37,9 @@ export function AccountPage() {
     </section>
 
     <section>
-      <h2 className='text-xl font-semibold'>{
+      <h2 className='compact text-xl font-semibold'>{
         t('account.appearance.heading')
       }</h2>
-      <p className='relaxed mt-1 max-w-2xl text-sm opacity-70'>{
-        t('account.appearance.description')
-      }</p>
       <ThemeSelector />
     </section>
   </SettingsPage>

@@ -32,6 +32,9 @@ export function AddLlmPage() {
   return <LlmEditorLayout
     title={t('page.addTitle', { type: t(llmTypeLabelKeys[type]) })}
     type={type}
+    help={isTokenTypedByType[type]
+      ? undefined
+      : t('signIn.help')}
   >
     {isTokenTypedByType[type]
       ? <LlmForm

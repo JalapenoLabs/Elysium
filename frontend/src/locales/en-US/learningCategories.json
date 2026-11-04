@@ -22,10 +22,10 @@
   "form": {
     "label": "Name",
     "key": "Key",
-    "keyHint": "What learnings store and agents send. It can't be changed later.",
+    "keyHint": "Fixed once saved.",
     "keyFixed": "The key stays as it is, since learnings store it.",
     "description": "Description",
-    "descriptionHint": "What belongs here. Agents read this to choose a category.",
+    "descriptionHint": "Agents read this to choose a category.",
     "errors": {
       "labelRequired": "Name the category.",
       "labelTooLong": "Keep the name to 60 characters.",

@@ -218,7 +218,6 @@ export function StorageLocationForm(props: Props) {
   >
     <Label>{t('form.bucket')}</Label>
     <Input className='font-mono' spellCheck={false} />
-    <Description>{t('form.bucketHint')}</Description>
     <FieldError>{errors.bucket?.message}</FieldError>
   </TextField>
 
@@ -283,7 +282,6 @@ export function StorageLocationForm(props: Props) {
         >
           <Label>{t('form.zone')}</Label>
           <Input className='font-mono' spellCheck={false} />
-          <Description>{t('form.zoneHint')}</Description>
           <FieldError>{errors.zone?.message}</FieldError>
         </TextField>
 
@@ -318,7 +316,6 @@ export function StorageLocationForm(props: Props) {
               </ListBox.Item>)
             }</ListBox>
           </Select.Popover>
-          <Description>{t('form.regionHint')}</Description>
         </Select>
       </div>}
 
@@ -353,7 +350,6 @@ export function StorageLocationForm(props: Props) {
       >
         <Label>{t('form.pathPrefix')}</Label>
         <Input className='font-mono' spellCheck={false} placeholder='elysium/uploads' />
-        <Description>{t('form.pathPrefixHint')}</Description>
         <FieldError>{errors.pathPrefix?.message}</FieldError>
       </TextField>
 
@@ -361,7 +357,6 @@ export function StorageLocationForm(props: Props) {
       <ProjectScopePicker
         id='storage-location-projects'
         label={t('form.projects')}
-        description={t('form.projectsHint')}
         value={values.projects ?? []}
         onChange={(value) => form.setValue('projects', value, { shouldDirty: true })}
       />
@@ -426,7 +421,6 @@ export function StorageLocationForm(props: Props) {
             <Label>{t('form.studioDefault')}</Label>
           </Switch.Content>
         </Switch>
-        <Description className='mt-1 block'>{t('form.studioDefaultHint')}</Description>
       </div>}
 
       {/* Access key id, for S3 */}

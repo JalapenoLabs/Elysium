@@ -21,7 +21,6 @@ type Props = {
   // Prefixes each step's checkbox id: `<id>-<step id>`.
   id: string
   title: string
-  description: string
   steps: SetupChecklistStep[]
 }
 
@@ -48,7 +47,6 @@ export function SetupChecklist(props: Props) {
   return <Card>
     <Card.Header>
       <Card.Title>{props.title}</Card.Title>
-      <Card.Description>{props.description}</Card.Description>
     </Card.Header>
     <Card.Content>
       <ol className='flex flex-col gap-4'>{

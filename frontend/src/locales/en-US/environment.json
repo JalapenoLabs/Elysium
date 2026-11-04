@@ -1,17 +1,11 @@
 {
   "title": "Environment variables",
-  "description": "Every coding session's agent receives these variables.",
   "variables": {
     "add": "Add variable"
   },
   "page": {
     "notFound": "This environment variable does not exist. It may have been deleted.",
     "backToList": "Back to environment variables"
-  },
-  "visibility": {
-    "title": "The agent can read every value",
-    "body": "Every variable is placed in each session's environment, where the agent can read, print, or send it anywhere its tools reach.",
-    "secret": "Secret means Elysium never shows the value again and scrubs it from session logs. Anything that must stay hidden from the agent does not belong here."
   },
   "table": {
     "label": "Environment variables",
@@ -33,9 +27,8 @@
     "valueKeep": "Leave blank to keep the current value.",
     "valueReveal": "Enter the value again to make this variable visible.",
     "isSecret": "Secret",
-    "isSecretHint": "Hide the value from Elysium after saving and scrub it from session logs.",
+    "isSecretHint": "Hidden from Elysium and session logs. The agent can still read it.",
     "description": "Description",
-    "descriptionHint": "What the variable is for.",
     "errors": {
       "keyRequired": "Enter a key.",
       "keyTooLong": "Use 128 characters or fewer.",
@@ -59,5 +52,6 @@
     "created": "{{key}} added",
     "updated": "{{key}} updated",
     "deleted": "{{key}} deleted"
-  }
+  },
+  "help": "Every coding session's agent receives these variables, and can read, print, or send any of them. Secret only hides a value from Elysium and its session logs, so anything the agent must not see does not belong here."
 }

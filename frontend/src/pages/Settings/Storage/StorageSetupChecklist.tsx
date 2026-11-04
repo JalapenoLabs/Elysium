@@ -22,7 +22,6 @@ export function StorageSetupChecklist(props: Props) {
   return <SetupChecklist
     id='storage-setup'
     title={t('setup.title')}
-    description={t('setup.description')}
     steps={storageSetupStepsByOption[props.option].map((step) => ({
       ...step,
       id: step.textKey,

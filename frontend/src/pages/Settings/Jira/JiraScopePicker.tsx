@@ -9,7 +9,6 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import {
   Autocomplete,
-  Description,
   EmptyState,
   Label,
   ListBox,
@@ -35,7 +34,6 @@ type Props = {
   // The trigger's id; the search in its popover is `<id>-search`.
   id: string
   label: string
-  description: string
   options: JiraScopeOption[]
   selectedIds: string[]
   onChange: (ids: string[]) => void
@@ -94,7 +92,6 @@ export function JiraScopePicker(props: Props) {
       }</Autocomplete.Value>
       <Autocomplete.Indicator />
     </Autocomplete.Trigger>
-    <Description>{props.description}</Description>
     <Autocomplete.Popover>
       <Autocomplete.Filter filter={contains}>
         <SearchField

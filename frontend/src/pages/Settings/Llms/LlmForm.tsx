@@ -229,7 +229,6 @@ export function LlmForm(props: Props) {
             </DatePicker.Trigger>
           </DateField.Suffix>
         </DateField.Group>
-        <Description>{t('form.expiresAtHint')}</Description>
         <DatePicker.Popover>
           <Calendar aria-label={t('form.expiresAtPicker')}>
             <Calendar.Header>

@@ -22,7 +22,6 @@ export function GithubSetupChecklist(props: Props) {
   return <SetupChecklist
     id='github-setup'
     title={t('setup.title')}
-    description={t('setup.description')}
     steps={githubSetupStepsByKind[props.kind].map((step) => ({
       ...step,
       id: step.textKey,

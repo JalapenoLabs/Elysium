@@ -13,6 +13,8 @@ import { UrlTree } from '../../../urls'
 
 type Props = {
   title: string
+  // Behind the header's `?`, for a page that needs explaining.
+  help?: string
   children: ReactNode
 }
 
@@ -23,6 +25,7 @@ export function JiraCredentialEditorLayout(props: Props) {
 
   return <SettingsPage
     title={props.title}
+    help={props.help}
     parents={[{ label: t('page.title'), href: UrlTree.settingsConnectors }]}
   >{
       props.children

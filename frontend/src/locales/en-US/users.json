@@ -27,9 +27,8 @@
   "access": {
     "title": "Workspace access",
     "signupOpen": "Anyone can sign up",
-    "signupOpenHint": "New accounts still wait for an admin's approval. Off, the sign-up page is closed.",
+    "signupOpenHint": "New accounts still wait for your approval.",
     "requireMfa": "Require an authenticator app",
-    "requireMfaHint": "Everyone must set up two-step verification before they can use the workspace.",
     "requireMfaFirst": "Set up your own authenticator app first, so turning this on does not lock you out.",
     "setUpYours": "Set it up",
     "saved": "Access settings saved.",

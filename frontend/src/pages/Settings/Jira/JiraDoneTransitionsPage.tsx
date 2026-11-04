@@ -63,8 +63,10 @@ export function JiraDoneTransitionsPage() {
     setSearchParams({ [DONE_TRANSITION_PROJECT_PARAM]: String(key) }, { replace: true })
   }
 
-  return <JiraCredentialEditorLayout title={t('doneTransitions.title', { name: credential.name })}>
-    <p className='relaxed max-w-2xl text-sm opacity-70'>{t('doneTransitions.hint')}</p>
+  return <JiraCredentialEditorLayout
+    title={t('doneTransitions.title', { name: credential.name })}
+    help={t('doneTransitions.help')}
+  >
 
     <ComboBox
       id='jira-done-transition-project'

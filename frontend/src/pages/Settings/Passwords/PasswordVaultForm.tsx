@@ -165,7 +165,6 @@ export function PasswordVaultForm(props: Props) {
             </ListBox.Item>)
           }</ListBox>
         </Select.Popover>
-        <Description>{t('form.serverHint')}</Description>
       </Select>
 
       {/* Server URL, for a self-hosted server */}
@@ -216,15 +215,11 @@ export function PasswordVaultForm(props: Props) {
         id='password-vault-master-password'
         isRequired={!stored}
         label={t('form.masterPassword')}
-        description={stored
-          ? t('form.masterPasswordKeep')
-          : t('form.masterPasswordHint')}
+        description={stored && t('form.masterPasswordKeep')}
         errorMessage={errors.masterPassword?.message}
         value={values.masterPassword ?? ''}
         onChange={(value) => form.setValue('masterPassword', value, { shouldDirty: true, shouldValidate: true })}
       />
-
-      <p className='text-sm opacity-70'>{t('form.checkedHint')}</p>
 
       {!stored && <PageCreateFooter />}
       {props.onCancel && <div className='mt-2 flex justify-end'>
@@ -237,7 +232,6 @@ export function PasswordVaultForm(props: Props) {
     <SetupChecklist
       id='password-vault-setup'
       title={t('setup.title')}
-      description={t('setup.description')}
       steps={setupStepKeys.map((key) => ({ id: key, text: t(key) }))}
     />
   </div>

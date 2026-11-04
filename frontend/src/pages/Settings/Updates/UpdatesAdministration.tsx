@@ -30,7 +30,6 @@ export function UpdatesAdministration() {
   }
 
   return <>
-    <p className='relaxed max-w-2xl text-sm opacity-70'>{t('description')}</p>
     <UpdatesOverview status={status} />
     <section>
       <h2 className='compact text-xl font-semibold'>{t('history.heading')}</h2>

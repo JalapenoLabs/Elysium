@@ -685,8 +685,8 @@ Environment variables under `src/pages/Settings/Environment/` follow GitHub's sh
 to its edit page, value, description) whose row action deletes one, and add and edit as their own pages built from
 `EnvironmentVariableEditorLayout` and `EnvironmentVariableForm`. A secret's value shows only as a Secret chip; a visible
 one is in monospace. The form is a key, a Secret switch, the value (a multi-line text area, or a
-password field while Secret is on), and a description. `EnvironmentVisibilityNote` sits beside the form and above the
-table, saying that the agent can read every value and that secret only hides it from Elysium and its session logs.
+password field while Secret is on), and a description. The Secret switch says that a secret is hidden from Elysium
+and its session logs while the agent can still read it, and the list page's help says the same of every value.
 While editing a secret the value is optional and keeps the stored one, and it turns required when Secret is switched
 off, mirroring the API. `environmentPresentation.ts` mirrors the API's refused-key rules (`getKeyRefusal`), so a key
 Elysium would refuse is flagged before saving. See `docs/environment.md`.

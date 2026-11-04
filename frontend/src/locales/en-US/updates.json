@@ -1,6 +1,5 @@
 {
   "title": "Updates",
-  "description": "Elysium checks Docker Hub for a new release every hour and applies it on its own, once no agent is in the middle of a turn. A release that does not come up healthy is rolled back.",
   "adminOnly": "Only admins can manage updates.",
   "loadError": "Elysium could not load the update status. Reload the page to try again.",
   "running": {
@@ -12,7 +11,7 @@
   "state": {
     "notARelease": {
       "label": "Not a release",
-      "description": "This build is not a release, so it never updates itself. Releases are what the updater applies."
+      "description": "This build isn't a release, so it updates when it's rebuilt."
     },
     "upToDate": {
       "label": "Up to date",
@@ -38,7 +37,7 @@
   },
   "updater": {
     "missingTitle": "The updater is not running",
-    "missingDescription": "Releases are found but nothing applies them. Turn on auto-update on the host, as docs/infrastructure.md describes."
+    "missingDescription": "New releases are found, but nothing installs them. Turn on auto-update where Elysium is hosted."
   },
   "check": {
     "never": "Not checked yet.",
@@ -68,5 +67,6 @@
       "succeeded": "Succeeded",
       "rolledBack": "Rolled back"
     }
-  }
+  },
+  "help": "Elysium checks for a new release every hour and installs it once no agent is in the middle of a turn. A release that does not come up healthy is rolled back."
 }

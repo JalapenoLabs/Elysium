@@ -24,7 +24,6 @@ import {
   TextField,
 } from '@heroui/react'
 import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
-import { EnvironmentVisibilityNote } from './EnvironmentVisibilityNote'
 import { SecretInput } from '../../../components/SecretInput'
 
 // Utility
@@ -150,84 +149,77 @@ export function EnvironmentVariableForm(props: Props) {
     return t('form.valueHint')
   }
 
-  return <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
-    <Form
-      onSubmit={onSubmit}
-      validationBehavior='aria'
-      className='flex flex-col gap-4'
+  return <Form
+    onSubmit={onSubmit}
+    validationBehavior='aria'
+    className='flex max-w-2xl flex-col gap-4'
+  >
+    {/* Key */}
+    <TextField
+      isRequired
+      id='environment-variable-key'
+      isInvalid={Boolean(errors.key)}
+      value={values.key}
+      onChange={(value) => form.setValue('key', value, { shouldDirty: true, shouldValidate: true })}
     >
-      {/* Key */}
-      <TextField
-        isRequired
-        id='environment-variable-key'
-        isInvalid={Boolean(errors.key)}
-        value={values.key}
-        onChange={(value) => form.setValue('key', value, { shouldDirty: true, shouldValidate: true })}
+      <Label>{t('form.key')}</Label>
+      <Input ref={keyRef} className='font-mono' autoComplete='off' spellCheck={false} />
+      <Description>{t('form.keyHint')}</Description>
+      <FieldError>{errors.key?.message}</FieldError>
+    </TextField>
+
+    {/* Secret */}
+    <Switch
+      id='environment-variable-secret'
+      isSelected={isSecret}
+      onChange={(isSelected) => form.setValue('isSecret', isSelected, { shouldDirty: true, shouldValidate: true })}
+    >
+      <Switch.Content>
+        <Switch.Control>
+          <Switch.Thumb />
+        </Switch.Control>
+        <Label>{t('form.isSecret')}</Label>
+      </Switch.Content>
+      <Description>{t('form.isSecretHint')}</Description>
+    </Switch>
+
+    {/* Value: a secret's is hidden while typed, with a toggle to show it */}
+    {isSecret
+      ? <SecretInput
+        id='environment-variable-value'
+        isRequired={!keepsStoredSecret}
+        isMonospace
+        label={t('form.value')}
+        description={valueHint()}
+        errorMessage={errors.value?.message}
+        value={values.value ?? ''}
+        onChange={(value) => form.setValue('value', value, { shouldDirty: true, shouldValidate: true })}
+      />
+      : <TextField
+        id='environment-variable-value'
+        isRequired={isRevealingSecret}
+        isInvalid={Boolean(errors.value)}
+        value={values.value}
+        onChange={(value) => form.setValue('value', value, { shouldDirty: true, shouldValidate: true })}
       >
-        <Label>{t('form.key')}</Label>
-        <Input ref={keyRef} className='font-mono' autoComplete='off' spellCheck={false} />
-        <Description>{t('form.keyHint')}</Description>
-        <FieldError>{errors.key?.message}</FieldError>
-      </TextField>
+        <Label>{t('form.value')}</Label>
+        <TextArea className='font-mono' rows={3} spellCheck={false} />
+        <Description>{valueHint()}</Description>
+        <FieldError>{errors.value?.message}</FieldError>
+      </TextField>}
 
-      {/* Secret */}
-      <Switch
-        id='environment-variable-secret'
-        isSelected={isSecret}
-        onChange={(isSelected) => form.setValue('isSecret', isSelected, { shouldDirty: true, shouldValidate: true })}
-      >
-        <Switch.Content>
-          <Switch.Control>
-            <Switch.Thumb />
-          </Switch.Control>
-          <Label>{t('form.isSecret')}</Label>
-        </Switch.Content>
-        <Description>{t('form.isSecretHint')}</Description>
-      </Switch>
+    {/* Description */}
+    <TextField
+      id='environment-variable-description'
+      isInvalid={Boolean(errors.description)}
+      value={values.description}
+      onChange={(value) => form.setValue('description', value, { shouldDirty: true, shouldValidate: true })}
+    >
+      <Label>{t('form.description')}</Label>
+      <TextArea rows={2} />
+      <FieldError>{errors.description?.message}</FieldError>
+    </TextField>
 
-      {/* Value: a secret's is hidden while typed, with a toggle to show it */}
-      {isSecret
-        ? <SecretInput
-          id='environment-variable-value'
-          isRequired={!keepsStoredSecret}
-          isMonospace
-          label={t('form.value')}
-          description={valueHint()}
-          errorMessage={errors.value?.message}
-          value={values.value ?? ''}
-          onChange={(value) => form.setValue('value', value, { shouldDirty: true, shouldValidate: true })}
-        />
-        : <TextField
-          id='environment-variable-value'
-          isRequired={isRevealingSecret}
-          isInvalid={Boolean(errors.value)}
-          value={values.value}
-          onChange={(value) => form.setValue('value', value, { shouldDirty: true, shouldValidate: true })}
-        >
-          <Label>{t('form.value')}</Label>
-          <TextArea className='font-mono' rows={3} spellCheck={false} />
-          <Description>{valueHint()}</Description>
-          <FieldError>{errors.value?.message}</FieldError>
-        </TextField>}
-
-      {/* Description */}
-      <TextField
-        id='environment-variable-description'
-        isInvalid={Boolean(errors.description)}
-        value={values.description}
-        onChange={(value) => form.setValue('description', value, { shouldDirty: true, shouldValidate: true })}
-      >
-        <Label>{t('form.description')}</Label>
-        <TextArea rows={2} />
-        <Description>{t('form.descriptionHint')}</Description>
-        <FieldError>{errors.description?.message}</FieldError>
-      </TextField>
-
-      {!stored && <PageCreateFooter />}
-    </Form>
-
-    <aside className='lg:sticky lg:top-4'>
-      <EnvironmentVisibilityNote />
-    </aside>
-  </div>
+    {!stored && <PageCreateFooter />}
+  </Form>
 }

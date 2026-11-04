@@ -22,7 +22,6 @@ export function LlmSetupChecklist(props: Props) {
   return <SetupChecklist
     id='llm-setup'
     title={t('setup.title')}
-    description={t('setup.description')}
     steps={llmSetupStepsByType[props.type].map((step) => ({
       ...step,
       id: step.textKey,

@@ -40,18 +40,14 @@ export function PasswordVaultAdministration() {
   }
 
   if (!vault || isEditing) {
-    return <>
-      <p className='relaxed max-w-2xl text-sm opacity-70'>{t('description')}</p>
-      <PasswordVaultForm
-        vault={vault}
-        onSaved={() => setIsEditing(false)}
-        onCancel={vault ? () => setIsEditing(false) : null}
-      />
-    </>
+    return <PasswordVaultForm
+      vault={vault}
+      onSaved={() => setIsEditing(false)}
+      onCancel={vault ? () => setIsEditing(false) : null}
+    />
   }
 
   return <>
-    <p className='relaxed max-w-2xl text-sm opacity-70'>{t('description')}</p>
     <PasswordVaultOverview
       vault={vault}
       status={status}

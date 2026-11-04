@@ -213,8 +213,6 @@ export function JiraCredentialForm(props: Props) {
         isEditing
       />
 
-      <p className='text-sm opacity-70'>{t('form.checkedHint')}</p>
-
       {hasLostAccess && <Alert status='warning'>
         <Alert.Indicator />
         <Alert.Content>

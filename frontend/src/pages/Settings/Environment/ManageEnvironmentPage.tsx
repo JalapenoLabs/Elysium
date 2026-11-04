@@ -14,7 +14,6 @@ import { buttonVariants, Link, Spinner } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 import { SettingsPage } from '../SettingsPage'
 import { EnvironmentVariableTable } from './EnvironmentVariableTable'
-import { EnvironmentVisibilityNote } from './EnvironmentVisibilityNote'
 
 // Misc
 import { deleteEnvironmentVariable } from '../../../api/routes/environmentRoutes'
@@ -56,19 +55,13 @@ export function ManageEnvironmentPage() {
 
   return <SettingsPage
     title={t('title')}
+    help={t('help')}
     primaryAction={<Link href={UrlTree.settingsEnvironmentNew} className={buttonVariants({ variant: 'outline' })}>
       <LuPlus className='size-4' aria-hidden />
       <span>{t('variables.add')}</span>
     </Link>}
   >
     <section>
-      <p className='compact text-sm opacity-70'>{
-        t('description')
-      }</p>
-      <div className='relaxed'>
-        <EnvironmentVisibilityNote />
-      </div>
-
       {status === 'loading' && <div className='grid place-items-center py-16'>
         <Spinner />
       </div>}

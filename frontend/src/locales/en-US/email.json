@@ -1,6 +1,6 @@
 {
   "title": "Email",
-  "help": "Elysium reads and sends mail from these mailboxes. Credentials are encrypted and never shown, and Gmail and Outlook passwords never reach Elysium at all. Self-hosted mailboxes live on Elysium's one mail server, which hosts any number of domains on the same ports.",
+  "help": "Elysium reads and sends mail from these mailboxes. Credentials are encrypted and never shown, and Gmail and Outlook passwords never reach Elysium at all. Self-hosted mailboxes live on one mail server, which can host any number of domains.",
   "tabs": {
     "label": "Mailboxes and domains",
     "mailboxes": "Mailboxes",
@@ -9,7 +9,7 @@
   "server": {
     "empty": {
       "title": "No mail server yet",
-      "description": "Creating one starts a Stalwart mail server on this host through Docker. Mail arrives through Elysium's nginx on ports 25, 465, and 993.",
+      "description": "Create one to host your own domains and mailboxes.",
       "action": "Create mail server"
     },
     "hostname": "Answers as {{hostname}}",
@@ -18,7 +18,7 @@
     "loadError": "The mail server could not be loaded.",
     "stepProgress": "Step {{current}} of {{total}}",
     "steps": {
-      "preparing": "Preparing Docker",
+      "preparing": "Preparing the host",
       "pulling-image": "Downloading the mail server image",
       "starting": "Starting the mail server",
       "configuring": "Configuring the mail server",
@@ -31,16 +31,16 @@
     },
     "unreachable": {
       "title": "The mail server is not answering",
-      "description": "Domains and self-hosted mailboxes cannot change until it does. {{error}}"
+      "description": "Domains and self-hosted mailboxes can change again once it answers. {{error}}"
     }
   },
   "serverForm": {
     "title": "Create mail server",
-    "description": "Elysium starts Stalwart in Docker and becomes its administrator. The administrator's password is stored encrypted and never shown.",
+    "description": "The mail server runs on this host. Elysium is its administrator and keeps the administrator password encrypted.",
     "domain": "First domain",
-    "domainHint": "Addresses end in it, such as agent@example.com. Add more domains later.",
+    "domainHint": "Addresses end in it, such as agent@example.com.",
     "hostname": "Server hostname",
-    "hostnameHint": "The name every domain's MX record points to. It needs an address record of its own once mail leaves this host.",
+    "hostnameHint": "The name every domain's MX record points to.",
     "exists": "The mail server is already set up.",
     "errors": {
       "domainInvalid": "Enter a domain such as example.com.",
@@ -50,7 +50,7 @@
   "domains": {
     "add": "Add domain",
     "default": "Default",
-    "defaultHint": "The domain the server was created with. It cannot be removed.",
+    "defaultHint": "The domain the server was created with, kept as long as the server is.",
     "mailboxCount_one": "{{count, compact}} mailbox",
     "mailboxCount_other": "{{count, compact}} mailboxes",
     "table": {
@@ -82,7 +82,7 @@
   },
   "dns": {
     "title": "DNS records for {{name}}",
-    "description": "Publish these at your DNS provider for this domain to send and receive mail on the internet. Elysium looks them up in public DNS; it never changes DNS.",
+    "description": "Publish these at your DNS provider for this domain to send and receive mail on the internet.",
     "recheck": "Check again",
     "loadError": "The records could not be loaded.",
     "dkimPending": "DKIM keys are generated a few seconds after a domain is added. Check again shortly.",
@@ -112,7 +112,7 @@
     "zoneFileHint": "Includes optional service discovery records, as a zone file.",
     "internet": {
       "title": "Receiving mail from the internet",
-      "description": "Elysium's nginx accepts mail on ports 25, 465, and 993 and passes it to the mail server. Point an address record for {{hostname}} at the host running Elysium and make those ports reachable. Reverse DNS and a TLS certificate for {{hostname}} are up to you."
+      "description": "Point an address record for {{hostname}} at this host, and let mail in on ports 25, 465, and 993. Reverse DNS and a TLS certificate for {{hostname}} are up to you."
     }
   },
   "mailboxes": {
@@ -125,12 +125,12 @@
     "self-hosted": "Self-hosted"
   },
   "availability": {
-    "brokerMissing": "Set OAUTH_BROKER_URL for the API in compose.yml to connect Gmail and Outlook accounts.",
+    "brokerMissing": "Gmail and Outlook sign-in is not set up on this server yet. Whoever runs Elysium can turn it on.",
     "brokerUnreachable": {
-      "title": "The OAuth broker could not be reached",
-      "description": "Gmail and Outlook accounts cannot connect until it answers. {{error}}"
+      "title": "Gmail and Outlook sign-in is not answering",
+      "description": "Gmail and Outlook can connect again once it answers. {{error}}"
     },
-    "providerMissing": "The OAuth broker does not offer {{provider}}.",
+    "providerMissing": "{{provider}} sign-in is not set up on this server yet. Whoever runs Elysium can add it.",
     "mailServerMissing": "Create a mail server first.",
     "mailDomainMissing": "Add a domain to the mail server first."
   },
@@ -161,9 +161,8 @@
     "description": "A mailbox on Elysium's own mail server. Mail stays on this host: reaching the internet needs a real domain and DNS first.",
     "localPart": "Name",
     "domain": "Domain",
-    "domainHint": "Add more domains under Mail server.",
+    "domainHint": "Add more domains on the Domains tab.",
     "displayName": "Sender name",
-    "displayNameHint": "Shown beside the address on sent mail. Optional.",
     "addressPreview": "Creates {{address}}",
     "errors": {
       "localPartRequired": "Enter a name for the address.",
@@ -176,9 +175,7 @@
   "mailboxForm": {
     "title": "Edit {{address}}",
     "displayName": "Sender name",
-    "displayNameHint": "Shown beside {{address}} on sent mail. Leave blank to show only the address.",
     "isActive": "Active",
-    "isActiveHint": "Only an active mailbox is read and can send.",
     "notFound": "This mailbox does not exist, or was removed.",
     "backToList": "Back to Email"
   },
@@ -206,16 +203,16 @@
     "domainRemoveFailed": "{{name}} could not be removed"
   },
   "oauthErrors": {
-    "access_denied": "Access was not granted.",
+    "access_denied": "Access was not granted. Connect again and approve it.",
     "state_mismatch": "The connection was started in another browser. Start it again from this page.",
     "flow_expired": "The connection took longer than fifteen minutes or was already completed. Start it again.",
-    "broker_unavailable": "The OAuth broker is no longer configured.",
-    "broker_refused": "The OAuth broker refused to hand over the account.",
+    "broker_unavailable": "Gmail and Outlook sign-in is no longer set up on this server.",
+    "broker_refused": "The sign-in did not hand over the account. Connect again.",
     "token_exchange_failed": "The provider refused the sign-in.",
     "no_refresh_token": "The provider did not grant lasting access. Try again and approve every permission.",
     "no_address": "The provider did not share the account's email address.",
-    "provider_unavailable": "The OAuth broker does not offer this provider.",
-    "provider_error": "The provider reported an error.",
+    "provider_unavailable": "Sign-in for this provider is not set up on this server.",
+    "provider_error": "The provider reported an error. Connect again.",
     "address_in_use": "That address is already connected as a different kind of mailbox.",
     "invalid_request": "The connection response was incomplete.",
     "internal_error": "Elysium could not save the account."
