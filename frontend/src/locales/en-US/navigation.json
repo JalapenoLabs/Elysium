@@ -11,6 +11,11 @@
     "collapse": "Collapse sidebar",
     "expand": "Expand sidebar"
   },
+  "updatePrompt": {
+    "message": "A new version of Elysium is ready.",
+    "refresh": "Refresh",
+    "dismiss": "Dismiss"
+  },
   "topbar": {
     "openNavigation": "Open navigation",
     "settings": "Settings",

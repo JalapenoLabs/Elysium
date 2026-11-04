@@ -44,6 +44,7 @@ import { themeSlice } from './themeSlice'
 import { timelineRecordsSlice } from './timelineRecordsSlice'
 import { updatesSlice } from './updatesSlice'
 import { usersSlice } from './usersSlice'
+import { versionSlice } from './versionSlice'
 import { workspaceSettingsSlice } from './workspaceSettingsSlice'
 
 // The one store for all global state, and the source of truth components render. Server
@@ -97,6 +98,7 @@ export function createAppStore() {
       [timelineRecordsSlice.name]: timelineRecordsSlice.reducer,
       [updatesSlice.name]: updatesSlice.reducer,
       [usersSlice.name]: usersSlice.reducer,
+      [versionSlice.name]: versionSlice.reducer,
       [workspaceSettingsSlice.name]: workspaceSettingsSlice.reducer,
     },
     middleware: (getDefaultMiddleware) => getDefaultMiddleware()

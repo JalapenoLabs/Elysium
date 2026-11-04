@@ -73,6 +73,11 @@ Code here keeps to it:
   edge below that (pages lay out by viewport breakpoints, so squeezing them beside a 26rem panel breaks their
   columns), and full width below `sm`. The panel fills whatever it is given. The Elysia button toggles it, and `startElysiaPanelSync` remembers it per browser.
   `useElysiaSounds` plays her tones as her light changes. See `docs/elysia.md`.
+- `RefreshPrompt` sits in the content column's bottom left corner, clear of the toasts and the floating Save on the
+  right, once Elysium runs a build other than the one the page loaded (`versionSlice`, fed by the event stream; see
+  `docs/realtime.md`, Frontend): "A new version of Elysium is ready." with Refresh and a dismiss button. Dismissing it
+  lasts until a later build arrives. Builds are named by `builtAt` from `/api/version`, since a build of `main` has no
+  release and every image built from a new commit has a new time.
 - The routed page renders in `main` through `<Outlet />`. By default `main` is a padded, scrolling column. A route
   whose `handle` is `{ layout: 'workspace' }` (typed as `RouteLayoutHandle` in `src/router.tsx`) gets the whole
   content area and manages its own scrolling instead; the Coding page does.
@@ -894,6 +899,8 @@ Selectors return existing references; never build objects or strings inside one.
 | `sidebar`        | Whether the sidebar is collapsed to its icons, remembered per browser   |
 | `realtime`       | Event stream connection: `connecting`, `open`, or `reconnecting`        |
 | `theme`          | Theme preference and what it resolves to                                |
+| `updates`        | Auto-update's status, loaded by admins and sent to everyone by `updates.status` |
+| `version`        | The build this page loaded, the one the API runs now, and a dismissed refresh |
 
 Server collections use entity adapters. Redux is the source of truth components render from.
 

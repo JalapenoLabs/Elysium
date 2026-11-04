@@ -8,7 +8,8 @@ import type { RootState } from './index'
 import { createSlice } from '@reduxjs/toolkit'
 
 type UpdatesSliceState = {
-  // Admins only load it; null until they have.
+  // Admins load it on the Updates page; everyone receives its `updates.status` events, which
+  // also name the build running now (`versionSlice`). Null until either arrives.
   status: UpdatesStatus | null
 }
 

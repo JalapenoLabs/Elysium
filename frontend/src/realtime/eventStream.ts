@@ -50,6 +50,7 @@ import { studioFeedbackCreated } from '../store/studioFeedbackSlice'
 import { studioItemDeleted, studioItemUpserted } from '../store/studioItemsSlice'
 import { userDeleted, userUpserted } from '../store/usersSlice'
 import { updatesStatusUpdated } from '../store/updatesSlice'
+import { buildRead } from '../store/versionSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
 // Utility
@@ -58,6 +59,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
 import { getDraft } from '../api/routes/draftRoutes'
+import { getVersion } from '../api/routes/healthRoutes'
 import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
@@ -80,6 +82,16 @@ function reloadEverything() {
   void mutate(() => true)
 }
 
+// Reads which build the API runs. The first answer is the build this page loaded; a later
+// one that differs offers the person a refresh (`RefreshPrompt`). A new build only ever runs
+// in a new API process, which drops every event stream, so the reconnection's `hello` is when
+// to look again: no clock asks, and nothing is read while nothing changed.
+function readRunningBuild() {
+  getVersion()
+    .then((version) => store.dispatch(buildRead(version.builtAt)))
+    .catch((error: unknown) => console.debug('The running build could not be read', { error }))
+}
+
 // Whether the next `hello` reloads what is on screen. Events sent while no stream listened are
 // gone for good, so it does after any failure: a dropped stream missed what was sent while it
 // was down, and one that failed before it first opened let `AuthGate` show the workspace
@@ -92,6 +104,7 @@ const handlers: Handlers = {
   'hello': () => {
     if (mustReloadOnHello) {
       reloadEverything()
+      readRunningBuild()
     }
     mustReloadOnHello = true
   },
@@ -356,6 +369,8 @@ export function startEventStream() {
 
   let retryDelay = EVENT_STREAM_RETRY_INITIAL_MS
   mustReloadOnHello = false
+  // In the background, while the stream opens: the build this page loaded.
+  readRunningBuild()
 
   function open() {
     const opened = new EventSource(EVENT_STREAM_PATH)

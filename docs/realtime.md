@@ -182,6 +182,12 @@ envelope into Redux through a lookup table typed against `ServerEvent` (`src/rea
 - `resync`, and `hello` on any connection but a page load's first, revalidate every SWR key a mounted component
   holds; the loaders put the responses in Redux. Data no component shows is fetched when one mounts.
   `session.resync` revalidates that session's history.
+- **The running build.** As the stream starts, the module reads `/api/version` in the background: its `builtAt` names
+  the build this page loaded. `hello` on any connection but a page load's first reads it again. A new build only ever
+  runs in a new API process, which ends every stream, so a reconnection is the moment a new one can appear, and
+  nothing asks on a clock. A build other than the loaded one offers a refresh (`docs/frontend.md`, Layout).
+  `updates.status`, which every person receives, names the build of the process that sent it and feeds the same
+  comparison, but it is published while streams are down for the restart, so it never stands alone.
 - Browsers retry a dropped stream by themselves, but give up after an HTTP error response, such as a 502 while the
   API restarts or the 503 while its subscription is down. The module then reopens the stream, backing off from 1 to
   30 seconds.

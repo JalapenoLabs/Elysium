@@ -12,6 +12,7 @@ import { selectIsElysiaPanelOpen } from '../store/elysiaSlice'
 import { RouterProvider as AriaRouterProvider, Toast } from '@heroui/react'
 import { ElysiaPanel } from '../elysia/ElysiaPanel'
 import { ReportIssueGate } from '../gates/ReportIssueGate'
+import { RefreshPrompt } from './RefreshPrompt'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 
@@ -45,7 +46,8 @@ export function AppShell() {
     <ReportIssueGate>
       <div className='flex h-dvh overflow-hidden'>
         <Sidebar />
-        <div className='flex min-w-0 flex-1 flex-col'>
+        {/* Relative, so the refresh prompt sits in the content's corner, clear of the sidebar. */}
+        <div className='relative flex min-w-0 flex-1 flex-col'>
           <Topbar />
           <main className={
             isWorkspace
@@ -54,6 +56,7 @@ export function AppShell() {
           }>
             <Outlet />
           </main>
+          <RefreshPrompt />
         </div>
         {isElysiaOpen && <div className={ELYSIA_PANEL_PLACEMENT}>
           <ElysiaPanel />
