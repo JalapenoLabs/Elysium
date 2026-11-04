@@ -32,5 +32,14 @@ describe('DateText', () => {
 
     const trigger = screen.getByText('June 15th').closest('[data-slot="tooltip-trigger"]')
     expect(trigger?.getAttribute('tabindex')).toBe('0')
+    expect(trigger?.getAttribute('role')).toBe('button')
+  })
+
+  it('leaves the tab order, and stops calling itself a button, when it is not focusable', () => {
+    render(<DateText value={MIDSUMMER} isFocusable={false} />)
+
+    const trigger = screen.getByText('June 15th').closest('[data-slot="tooltip-trigger"]')
+    expect(trigger?.getAttribute('tabindex')).toBe('-1')
+    expect(trigger?.getAttribute('role')).toBe('presentation')
   })
 })
