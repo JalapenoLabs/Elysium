@@ -425,7 +425,7 @@ success toast carries Undo.
 | Deleting a Studio item or a learning     | Its restore route                                                      |
 | Taking an item out of an initiative      | Joining it again, which its history records                            |
 | Removing a project's cover               | The cover's restore route; the API keeps the cover until one replaces it |
-| Discarding a reply draft                 | Its text back for the tab, where it was going; Send writes a new draft |
+| Discarding a reply draft                 | Its text back for the tab (and, while the box is open, where it was going); Send writes a new draft |
 
 - **From the record's own page.** Deleting an item, an initiative, or a Studio item from its page leaves for its list
   (with `LEAVE_WITHOUT_ASKING`, see Saving), and Undo restores it and comes back to its page, wherever the person is
