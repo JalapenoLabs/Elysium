@@ -16,6 +16,7 @@ import { studioFeedbackCreated } from '../../store/studioFeedbackSlice'
 import {
   Button,
   Description,
+  Form,
   Label,
   Modal,
   Spinner,
@@ -30,6 +31,7 @@ import { LuEraser, LuMoveUpRight, LuPencil, LuSendHorizontal, LuUndo2 } from 're
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { sendStudioTurn } from '../../api/routes/studioRoutes'
+import { submitOnEnter } from '../../components/submitOnEnter'
 import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { DRAWING_TOOLS, getPenSize, PEN_COLORS, toImagePoint } from './annotation'
 import { drawAnnotation } from './drawAnnotation'
@@ -156,8 +158,12 @@ export function AnnotateModal(props: Props) {
 
   async function send() {
     const canvas = canvasRef.current
-    if (!canvas || !prompt.trim()) {
-      console.debug('AnnotateModal was asked to send without a drawing or a prompt')
+    if (!canvas || !image || !prompt.trim() || isSending) {
+      console.debug('AnnotateModal ignored a send', {
+        hasImage: Boolean(image),
+        hasPrompt: Boolean(prompt.trim()),
+        isSending,
+      })
       return
     }
 
@@ -211,117 +217,128 @@ export function AnnotateModal(props: Props) {
           <Modal.Heading>{t('annotate.title')}</Modal.Heading>
         </Modal.Header>
 
-        <Modal.Body className='flex min-h-0 flex-1 flex-col gap-3'>
-          {/* Tools */}
-          <div className='flex flex-wrap items-center gap-2' role='toolbar' aria-label={t('annotate.tools')}>
-            <ToggleButtonGroup
-              size='sm'
-              aria-label={t('annotate.tools')}
-              selectionMode='single'
-              disallowEmptySelection
-              selectedKeys={[ tool ]}
-              onSelectionChange={(keys) => {
-                // The group disallows an empty selection, so one tool is always chosen.
-                const [ key ] = [ ...keys ]
-                const nextTool = DRAWING_TOOLS.find((candidate) => candidate === key)
-                if (nextTool) {
-                  setTool(nextTool)
-                }
-              }}
-            >{
-                DRAWING_TOOLS.map((drawingTool, index) => {
-                  const Icon = toolIcons[drawingTool]
-                  return <ToggleButton key={drawingTool} id={drawingTool}>
-                    {index > 0 && <ToggleButtonGroup.Separator />}
-                    <Icon className='size-4' aria-hidden />
-                    <span>{t(toolLabelKeys[drawingTool])}</span>
-                  </ToggleButton>
-                })
-              }</ToggleButtonGroup>
+        {/* Ctrl or Cmd with Enter in the prompt sends (ux.md, Hotkeys) */}
+        <Form
+          className='flex min-h-0 flex-1 flex-col'
+          validationBehavior='aria'
+          onKeyDownCapture={submitOnEnter}
+          onSubmit={(event) => {
+            event.preventDefault()
+            void send()
+          }}
+        >
+          <Modal.Body className='flex min-h-0 flex-1 flex-col gap-3'>
+            {/* Tools */}
+            <div className='flex flex-wrap items-center gap-2' role='toolbar' aria-label={t('annotate.tools')}>
+              <ToggleButtonGroup
+                size='sm'
+                aria-label={t('annotate.tools')}
+                selectionMode='single'
+                disallowEmptySelection
+                selectedKeys={[ tool ]}
+                onSelectionChange={(keys) => {
+                  // The group disallows an empty selection, so one tool is always chosen.
+                  const [ key ] = [ ...keys ]
+                  const nextTool = DRAWING_TOOLS.find((candidate) => candidate === key)
+                  if (nextTool) {
+                    setTool(nextTool)
+                  }
+                }}
+              >{
+                  DRAWING_TOOLS.map((drawingTool, index) => {
+                    const Icon = toolIcons[drawingTool]
+                    return <ToggleButton key={drawingTool} id={drawingTool}>
+                      {index > 0 && <ToggleButtonGroup.Separator />}
+                      <Icon className='size-4' aria-hidden />
+                      <span>{t(toolLabelKeys[drawingTool])}</span>
+                    </ToggleButton>
+                  })
+                }</ToggleButtonGroup>
 
-            <div className='flex items-center gap-1' role='group' aria-label={t('annotate.colors')}>{
-              PEN_COLORS.map((penColor) => <Tooltip key={penColor} delay={300}>
+              <div className='flex items-center gap-1' role='group' aria-label={t('annotate.colors')}>{
+                PEN_COLORS.map((penColor) => <Tooltip key={penColor} delay={300}>
+                  <Button
+                    isIconOnly
+                    size='sm'
+                    variant={penColor === color
+                      ? 'secondary'
+                      : 'ghost'}
+                    aria-label={t(colorLabelKeys[penColor])}
+                    aria-pressed={penColor === color}
+                    onPress={() => setColor(penColor)}
+                  >
+                    <span className={`size-4 rounded-full ${colorSwatchClassNames[penColor]}`} aria-hidden />
+                  </Button>
+                  <Tooltip.Content>
+                    <span>{t(colorLabelKeys[penColor])}</span>
+                  </Tooltip.Content>
+                </Tooltip>)
+              }</div>
+
+              <div className='ml-auto flex items-center gap-2'>
                 <Button
-                  isIconOnly
                   size='sm'
-                  variant={penColor === color
-                    ? 'secondary'
-                    : 'ghost'}
-                  aria-label={t(colorLabelKeys[penColor])}
-                  aria-pressed={penColor === color}
-                  onPress={() => setColor(penColor)}
+                  variant='ghost'
+                  isDisabled={!strokes.length}
+                  onPress={() => setStrokes((previous) => previous.slice(0, -1))}
                 >
-                  <span className={`size-4 rounded-full ${colorSwatchClassNames[penColor]}`} aria-hidden />
+                  <LuUndo2 className='size-4' aria-hidden />
+                  <span>{t('annotate.undo')}</span>
                 </Button>
-                <Tooltip.Content>
-                  <span>{t(colorLabelKeys[penColor])}</span>
-                </Tooltip.Content>
-              </Tooltip>)
-            }</div>
-
-            <div className='ml-auto flex items-center gap-2'>
-              <Button
-                size='sm'
-                variant='ghost'
-                isDisabled={!strokes.length}
-                onPress={() => setStrokes((previous) => previous.slice(0, -1))}
-              >
-                <LuUndo2 className='size-4' aria-hidden />
-                <span>{t('annotate.undo')}</span>
-              </Button>
-              <Button
-                size='sm'
-                variant='ghost'
-                isDisabled={!strokes.length}
-                onPress={() => setStrokes([])}
-              >
-                <LuEraser className='size-4' aria-hidden />
-                <span>{t('annotate.clear')}</span>
-              </Button>
+                <Button
+                  size='sm'
+                  variant='ghost'
+                  isDisabled={!strokes.length}
+                  onPress={() => setStrokes([])}
+                >
+                  <LuEraser className='size-4' aria-hidden />
+                  <span>{t('annotate.clear')}</span>
+                </Button>
+              </div>
             </div>
-          </div>
 
-          {/* The view, scaled to fit, under the drawing */}
-          <div className='grid min-h-0 flex-1 place-items-center overflow-hidden rounded-xl bg-surface-secondary'>
-            {!image && !hasLoadFailed && <Spinner />}
-            {hasLoadFailed && <p className='text-sm text-danger'>{t('annotate.loadError')}</p>}
-            <canvas
-              ref={canvasRef}
-              aria-label={t('annotate.canvasLabel')}
-              width={image?.naturalWidth ?? 0}
-              height={image?.naturalHeight ?? 0}
-              className={image
-                ? 'h-auto max-h-full w-auto max-w-full cursor-crosshair touch-none'
-                : 'hidden'}
-              onPointerDown={startStroke}
-              onPointerMove={continueStroke}
-              onPointerUp={endStroke}
-              onPointerCancel={endStroke}
-            />
-          </div>
-        </Modal.Body>
+            {/* The view, scaled to fit, under the drawing */}
+            <div className='grid min-h-0 flex-1 place-items-center overflow-hidden rounded-xl bg-surface-secondary'>
+              {!image && !hasLoadFailed && <Spinner />}
+              {hasLoadFailed && <p className='text-sm text-danger'>{t('annotate.loadError')}</p>}
+              <canvas
+                ref={canvasRef}
+                aria-label={t('annotate.canvasLabel')}
+                width={image?.naturalWidth ?? 0}
+                height={image?.naturalHeight ?? 0}
+                className={image
+                  ? 'h-auto max-h-full w-auto max-w-full cursor-crosshair touch-none'
+                  : 'hidden'}
+                onPointerDown={startStroke}
+                onPointerMove={continueStroke}
+                onPointerUp={endStroke}
+                onPointerCancel={endStroke}
+              />
+            </div>
+          </Modal.Body>
 
-        <Modal.Footer className='flex-col items-stretch gap-2 sm:flex-row sm:items-end'>
-          <TextField
-            id='annotate-prompt'
-            className='flex-1'
-            value={prompt}
-            onChange={setPrompt}
-          >
-            <Label>{t('annotate.prompt')}</Label>
-            <TextArea ref={promptRef} rows={2} />
-            <Description>{t('annotate.promptHint')}</Description>
-          </TextField>
-          <Button
-            className='sm:mb-6'
-            isDisabled={!image || !prompt.trim()}
-            isPending={isSending}
-            onPress={() => void send()}
-          >
-            <LuSendHorizontal className='size-4' aria-hidden />
-            <span>{t('annotate.send')}</span>
-          </Button>
-        </Modal.Footer>
+          <Modal.Footer className='flex-col items-stretch gap-2 sm:flex-row sm:items-end'>
+            <TextField
+              id='annotate-prompt'
+              className='flex-1'
+              value={prompt}
+              onChange={setPrompt}
+            >
+              <Label>{t('annotate.prompt')}</Label>
+              <TextArea ref={promptRef} rows={2} />
+              <Description>{t('annotate.promptHint')}</Description>
+            </TextField>
+            <Button
+              type='submit'
+              className='sm:mb-6'
+              isDisabled={!image || !prompt.trim()}
+              isPending={isSending}
+            >
+              <LuSendHorizontal className='size-4' aria-hidden />
+              <span>{t('annotate.send')}</span>
+            </Button>
+          </Modal.Footer>
+        </Form>
       </Modal.Dialog>
     </Modal.Container>
   </Modal.Backdrop>

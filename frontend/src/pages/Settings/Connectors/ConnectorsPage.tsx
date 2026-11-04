@@ -21,6 +21,7 @@ import { DateText } from '../../../format/DateText'
 
 // Misc
 import { listConnectorActivity } from '../../../api/routes/connectorRoutes'
+import { useFindHotkey } from '../../../hooks/useFindHotkey'
 import { useConnectorsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 import { filterConnectors, summarize } from './connectorPresentation'
@@ -40,6 +41,7 @@ export function ConnectorsPage() {
   const activity = useSWR('v1/connectors/activity', listConnectorActivity)
   const act = useConnectorActions()
   const [ search, setSearch ] = useState('')
+  const searchRef = useFindHotkey()
   const [ statusFilter, setStatusFilter ] = useState<ConnectorStatus | 'all'>('all')
 
   const summary = summarize(connectors)
@@ -108,7 +110,7 @@ export function ConnectorsPage() {
       >
         <SearchField.Group>
           <SearchField.SearchIcon />
-          <SearchField.Input placeholder={t('page.search')} />
+          <SearchField.Input ref={searchRef} placeholder={t('page.search')} />
           <SearchField.ClearButton />
         </SearchField.Group>
       </SearchField>

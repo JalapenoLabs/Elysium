@@ -10,6 +10,9 @@ import { useTranslation } from 'react-i18next'
 import { Button, Description, Label, TextArea, TextField, Tooltip } from '@heroui/react'
 import { LuSendHorizontal } from 'react-icons/lu'
 
+// Misc
+import { submitOnEnter } from '../../components/submitOnEnter'
+
 type Props = {
   // The field's id, one per conversation.
   id: string
@@ -37,6 +40,7 @@ export function PromptComposer(props: Props) {
 
   async function send() {
     if (!canSend) {
+      console.debug('PromptComposer ignored a send', { isEmpty: !prompt.trim(), isSending, blocker: props.sendBlocker })
       return
     }
 
@@ -52,11 +56,13 @@ export function PromptComposer(props: Props) {
     }
   }
 
+  // Enter adds a line; Ctrl or Cmd with Enter sends (ux.md, Hotkeys).
   return <form
     className='shrink-0 border-t border-separator px-4 py-3'
+    onKeyDownCapture={submitOnEnter}
     onSubmit={(event) => {
       event.preventDefault()
-      send()
+      void send()
     }}
   >
     {props.header && <div className='mx-auto mb-2 max-w-3xl'>
@@ -76,13 +82,6 @@ export function PromptComposer(props: Props) {
         <TextArea
           rows={2}
           placeholder={props.placeholder ?? t('conversation.composer.placeholder')}
-          onKeyDown={(event) => {
-            // Enter sends; Shift+Enter keeps its usual newline. IME composition is left alone.
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault()
-              send()
-            }
-          }}
         />
         <Description className='text-xs'>{t('conversation.composer.hint')}</Description>
       </TextField>

@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 import { Button, Description, Form, Input, Label, Modal, TextArea, TextField, useOverlayState } from '@heroui/react'
 
 // Misc
+import { submitOnEnter } from '../components/submitOnEnter'
 import { useInitialFocus } from '../hooks/useInitialFocus'
 
 export type PromptOptions = {
@@ -65,8 +66,8 @@ export function PromptGate(props: Props) {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!options || !isValid) {
-      console.debug('PromptGate submitted without an open prompt or a required answer')
+    if (!options || !isValid || isPending) {
+      console.debug('PromptGate ignored a submit', { isOpen: Boolean(options), isValid, isPending })
       return
     }
 
@@ -102,7 +103,8 @@ export function PromptGate(props: Props) {
           <Modal.Header>
             <Modal.Heading>{options?.title}</Modal.Heading>
           </Modal.Header>
-          <Form onSubmit={onSubmit} validationBehavior='aria'>
+          {/* Enter saves; in a multi-line answer, Ctrl or Cmd with Enter (ux.md, Hotkeys) */}
+          <Form onSubmit={onSubmit} onKeyDownCapture={submitOnEnter} validationBehavior='aria'>
             <Modal.Body className='mt-2 flex flex-col gap-3'>
               {typeof options?.message === 'string'
                 ? <p className='text-sm opacity-80'>{options.message}</p>

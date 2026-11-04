@@ -8,13 +8,14 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Modal } from '@heroui/react'
+import { Button, Form, Modal } from '@heroui/react'
 import { DayPicker } from '../../components/DayPicker'
 
 // Utility
 import { getLocalTimeZone, today } from '@internationalized/date'
 
 // Misc
+import { submitOnEnter } from '../../components/submitOnEnter'
 import { toSnoozeInstant } from './actionItemDates'
 
 type Props = {
@@ -33,8 +34,8 @@ export function SnoozeDateModal(props: Props) {
   const [ isSaving, setIsSaving ] = useState(false)
 
   async function save() {
-    if (!pickedDate) {
-      console.debug('SnoozeDateModal saved without a picked date')
+    if (!pickedDate || isSaving) {
+      console.debug('SnoozeDateModal ignored a save', { hasDate: Boolean(pickedDate), isSaving })
       return
     }
     setIsSaving(true)
@@ -56,25 +57,35 @@ export function SnoozeDateModal(props: Props) {
         <Modal.Header>
           <Modal.Heading>{t('snooze.dialogTitle')}</Modal.Heading>
         </Modal.Header>
-        <Modal.Body className='mt-2 mb-4'>
-          <DayPicker
-            id='snooze-date'
-            label={t('snooze.dateLabel')}
-            calendarLabel={t('snooze.dateLabel')}
-            description={t('snooze.dateHint')}
-            value={pickedDate}
-            minValue={today(timeZone).add({ days: 1 })}
-            onChange={setPickedDate}
-          />
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant='tertiary' onPress={props.state.close}>
-            <span>{t('common:actions.cancel')}</span>
-          </Button>
-          <Button isDisabled={!pickedDate} isPending={isSaving} onPress={() => void save()}>
-            <span>{t('snooze.submit')}</span>
-          </Button>
-        </Modal.Footer>
+        {/* Enter in the date's segments snoozes (ux.md, Hotkeys); the calendar's own Enter picks a day */}
+        <Form
+          validationBehavior='aria'
+          onKeyDownCapture={submitOnEnter}
+          onSubmit={(event) => {
+            event.preventDefault()
+            void save()
+          }}
+        >
+          <Modal.Body className='mt-2 mb-4'>
+            <DayPicker
+              id='snooze-date'
+              label={t('snooze.dateLabel')}
+              calendarLabel={t('snooze.dateLabel')}
+              description={t('snooze.dateHint')}
+              value={pickedDate}
+              minValue={today(timeZone).add({ days: 1 })}
+              onChange={setPickedDate}
+            />
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant='tertiary' onPress={props.state.close}>
+              <span>{t('common:actions.cancel')}</span>
+            </Button>
+            <Button type='submit' isDisabled={!pickedDate} isPending={isSaving}>
+              <span>{t('snooze.submit')}</span>
+            </Button>
+          </Modal.Footer>
+        </Form>
       </Modal.Dialog>
     </Modal.Container>
   </Modal.Backdrop>

@@ -24,6 +24,7 @@ import { ReportIssueButton } from '../components/ReportIssueButton'
 import { getApiErrorMessage } from '../api/errors'
 import { createReplyDraft, deleteDraft, sendDraft, updateDraft } from '../api/routes/draftRoutes'
 import { useMailAccountsLoader, useRecordDraftsLoader } from '../hooks/useServerData'
+import { submitOnEnter } from '../components/submitOnEnter'
 import { UrlTree } from '../urls'
 import {
   forgetReply,
@@ -169,8 +170,10 @@ export function ReplyComposer(props: Props) {
     && props.replies.places.length > 1
   const canChooseMailbox = !draft && isMail && mailboxes.length > 1
 
+  // Enter adds a line; Ctrl or Cmd with Enter sends (ux.md, Hotkeys).
   return <Form
     validationBehavior='aria'
+    onKeyDownCapture={submitOnEnter}
     onSubmit={(event) => {
       event.preventDefault()
       void send()
@@ -210,13 +213,6 @@ export function ReplyComposer(props: Props) {
       <TextArea
         rows={3}
         placeholder={t('reply.placeholder')}
-        onKeyDown={(event) => {
-          // Enter adds a line; Ctrl or Cmd with Enter sends, as comments post.
-          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-            event.preventDefault()
-            void send()
-          }
-        }}
       />
       <Description>{t('reply.hint')}</Description>
     </TextField>

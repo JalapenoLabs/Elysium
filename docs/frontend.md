@@ -445,12 +445,46 @@ See `docs/mcp.md`.
 - `src/bugs/171.test.ts` reads every source file and fails on an icon-only button without a name or a tooltip it
   triggers, and on a dropdown item without an icon.
 
+### Hotkeys
+
+How the keys fit together (`~/.claude/docs/ux.md`, Hotkeys). Each has one owner, so no two answer the same press.
+
+| Keys            | Where                                | What it does                                                    |
+|-----------------|--------------------------------------|-----------------------------------------------------------------|
+| `/`             | Anywhere outside a text field        | Focuses the topbar's global search (see Global search)          |
+| Ctrl+F, Cmd+F   | Outside a text field, no modal open  | Focuses the page's own search, if it has one                    |
+| Ctrl+S, Cmd+S   | Any `Page`                           | Presses the page's Save; never the browser's save dialog        |
+| Esc             | A page, outside a menu or modal      | Goes up a level, asking first about unsaved changes             |
+| Enter           | A dialog or composer form            | Submits it, except on a button, a list, or in a text area       |
+| Ctrl+Enter      | A text area in such a form           | Submits it; Enter alone adds a line                             |
+| Letters         | Next and Inbox, outside fields       | Quick actions such as Resolve `R` (see Action items)            |
+
+- **Ctrl+F.** A page has at most one search that takes it: uikit's table search through its `focusHotkey` (on by
+  default), or, for a list that is not only a table, `ListSearchField`, whose table hides its own search
+  (`search: { show: false }`), so the table's listener is never mounted. Searches outside a table (the search
+  page, the connector picker, the connector list) use `useFindHotkey` (`src/hooks/`), as `ListSearchField` does; it
+  takes a flag to focus the search as the page opens too. Every listener leaves to the browser's own find a press
+  another search took (`defaultPrevented`), one typed in a text field, and one made while a modal is open; a page
+  with no search leaves it to the browser as well.
+- **Enter in forms.** A dialog's fields sit in a `Form` whose `onKeyDownCapture` is `submitOnEnter`
+  (`src/components/submitOnEnter.ts`), so Enter submits through the form's `onSubmit` from a text input, a switch, a
+  checkbox, or a date's segments alike: Link target, Snooze, Elysia's hours, Annotate, the prompt gate, and Report.
+  It listens on the way down, because React Aria's date fields stop Enter on its way up, and it leaves Enter to a
+  button, a link, a list box, a menu, a calendar, and an open combobox, which use it themselves. The form's
+  `onSubmit` checks that it may go ahead (something picked, nothing pending), since submitting this way skips the
+  browser's check of a disabled submit button. A destructive confirmation never uses it: `ConfirmGate`'s `danger`
+  tone blocks Enter (see Confirm and prompt gates).
+- **Text areas.** Every text area that submits does so on Ctrl or Cmd with Enter through the same handler, Enter
+  alone adding a line: the coding session and Studio prompts, Elysia's conversation and answers, comments, replies,
+  the report note, and a multi-line prompt such as editing a comment. A page's own form saves with Ctrl+S instead,
+  and `InlineEditableText` finishes on Enter, or Ctrl+Enter when multi-line. `src/bugs/178.test.tsx` covers these.
+
 ### Global search
 
 The topbar's search (`src/search/`) is Elysium's one way to reach anything (`~/.claude/docs/ux.md`, Global
 searchbars); there is no separate command palette.
 
-- **Keys.** `/` outside a text field focuses it. Ctrl+F is left to a page's own table search (uikit's `focusHotkey`).
+- **Keys.** `/` outside a text field focuses it. Ctrl+F is left to the page's own search (see Hotkeys).
   While typing, the arrow keys move through the results (React Aria's `Autocomplete` over a `Menu`, focus staying in
   the field), Enter opens the one highlighted, the first by default, and Esc clears the field, then leaves it; an Esc
   it used never reaches the page's Esc (`readPageShortcut`).
@@ -775,7 +809,7 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   from a calendar; a day snooze wakes at 09:00 in the viewer's zone (`SNOOZE_WAKE_HOUR`). **Due and target dates** are
   picked as days and stored as the last millisecond of that day in the viewer's zone, so an item due today is overdue
   tomorrow (`actionItemDates.ts`).
-- **Comments** (`ActionItemComments`) post with Ctrl or Cmd and Enter. Only the user's own comments offer edit and
+- **Comments** (`ActionItemComments`) post with Ctrl or Cmd and Enter (see Hotkeys). Only the user's own comments offer edit and
   delete; an edited one says so.
 - **History** (`HistoryTimeline`) lists entries newest first, each an actor and a sentence built by
   `historyPresentation.ts` from the entry's kind and data, with every field an edit changed. Unknown kinds and

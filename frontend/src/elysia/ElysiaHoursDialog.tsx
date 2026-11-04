@@ -12,13 +12,14 @@ import { useAppDispatch } from '../store/hooks'
 import { elysiaUpdated } from '../store/elysiaSlice'
 
 // User interface
-import { Button, Checkbox, Label, Modal, Switch, TimeField } from '@heroui/react'
+import { Button, Checkbox, Form, Label, Modal, Switch, TimeField } from '@heroui/react'
 
 // Utility
 import { Time } from '@internationalized/date'
 
 // Misc
 import { updateElysiaSettings } from '../api/routes/elysiaRoutes'
+import { submitOnEnter } from '../components/submitOnEnter'
 import { formatWeekday } from '../format/dates'
 import { WEEKDAYS, fromUtcWindows, localOffsetMinutes, toUtcWindows } from './hours'
 import { toast } from '../toast/toast'
@@ -60,6 +61,10 @@ export function ElysiaHoursDialog(props: Props) {
   const isValid = isAnyTime || (Boolean(days.length) && startMinute < endMinute)
 
   async function save() {
+    if (!isValid || isSaving) {
+      console.debug('ElysiaHoursDialog ignored a save', { isValid, isSaving })
+      return
+    }
     const availability = isAnyTime
       ? []
       : toUtcWindows({ days, startMinute, endMinute }, offset)
@@ -85,78 +90,88 @@ export function ElysiaHoursDialog(props: Props) {
         <Modal.Header>
           <Modal.Heading>{t('hours.title')}</Modal.Heading>
         </Modal.Header>
-        <Modal.Body className='mt-2 flex flex-col gap-4'>
-          <p className='text-sm opacity-80'>{t('hours.description')}</p>
-          {Boolean(props.availability.length) && !saved && <p className='text-sm text-warning'>{
-            t('hours.custom')
-          }</p>}
-          <Switch id='elysia-hours-any-time' isSelected={isAnyTime} onChange={setIsAnyTime}>
-            <Switch.Content>
-              <Switch.Control>
-                <Switch.Thumb />
-              </Switch.Control>
-              <Label>{t('hours.anyTime')}</Label>
-            </Switch.Content>
-          </Switch>
-          {!isAnyTime && <>
-            <fieldset>
-              <legend className='compact text-sm font-medium'>{t('hours.days')}</legend>
-              <div className='flex flex-wrap gap-3'>{
-                WEEKDAYS.map((day) => <Checkbox
-                  key={day}
-                  id={`elysia-hours-day-${day}`}
-                  isSelected={days.includes(day)}
-                  onChange={(isSelected) => setDays((current) => isSelected
-                    ? [ ...current, day ]
-                    : current.filter((existing) => existing !== day))}
+        {/* Enter anywhere but a button saves (ux.md, Hotkeys) */}
+        <Form
+          validationBehavior='aria'
+          onKeyDownCapture={submitOnEnter}
+          onSubmit={(event) => {
+            event.preventDefault()
+            void save()
+          }}
+        >
+          <Modal.Body className='mt-2 flex flex-col gap-4'>
+            <p className='text-sm opacity-80'>{t('hours.description')}</p>
+            {Boolean(props.availability.length) && !saved && <p className='text-sm text-warning'>{
+              t('hours.custom')
+            }</p>}
+            <Switch id='elysia-hours-any-time' isSelected={isAnyTime} onChange={setIsAnyTime}>
+              <Switch.Content>
+                <Switch.Control>
+                  <Switch.Thumb />
+                </Switch.Control>
+                <Label>{t('hours.anyTime')}</Label>
+              </Switch.Content>
+            </Switch>
+            {!isAnyTime && <>
+              <fieldset>
+                <legend className='compact text-sm font-medium'>{t('hours.days')}</legend>
+                <div className='flex flex-wrap gap-3'>{
+                  WEEKDAYS.map((day) => <Checkbox
+                    key={day}
+                    id={`elysia-hours-day-${day}`}
+                    isSelected={days.includes(day)}
+                    onChange={(isSelected) => setDays((current) => isSelected
+                      ? [ ...current, day ]
+                      : current.filter((existing) => existing !== day))}
+                  >
+                    <Checkbox.Content>
+                      <Checkbox.Control>
+                        <Checkbox.Indicator />
+                      </Checkbox.Control>
+                      <span className='text-sm'>{
+                        // 2026-10-19 is a Monday, so day 0 lands on it.
+                        formatWeekday(new Date(2026, 9, 19 + day))
+                      }</span>
+                    </Checkbox.Content>
+                  </Checkbox>)
+                }</div>
+              </fieldset>
+              <div className='level gap-3'>
+                <TimeField
+                  id='elysia-hours-from'
+                  className='w-full'
+                  value={start}
+                  onChange={(value) => value && setStart(value)}
                 >
-                  <Checkbox.Content>
-                    <Checkbox.Control>
-                      <Checkbox.Indicator />
-                    </Checkbox.Control>
-                    <span className='text-sm'>{
-                      // 2026-10-19 is a Monday, so day 0 lands on it.
-                      formatWeekday(new Date(2026, 9, 19 + day))
-                    }</span>
-                  </Checkbox.Content>
-                </Checkbox>)
-              }</div>
-            </fieldset>
-            <div className='level gap-3'>
-              <TimeField
-                id='elysia-hours-from'
-                className='w-full'
-                value={start}
-                onChange={(value) => value && setStart(value)}
-              >
-                <Label>{t('hours.from')}</Label>
-                <TimeField.Group>
-                  <TimeField.Input>{(segment) => <TimeField.Segment segment={segment} />}</TimeField.Input>
-                </TimeField.Group>
-              </TimeField>
-              <TimeField
-                id='elysia-hours-until'
-                className='w-full'
-                value={end}
-                onChange={(value) => value && setEnd(value)}
-              >
-                <Label>{t('hours.until')}</Label>
-                <TimeField.Group>
-                  <TimeField.Input>{(segment) => <TimeField.Segment segment={segment} />}</TimeField.Input>
-                </TimeField.Group>
-              </TimeField>
-            </div>
-            <p className='text-xs opacity-60'>{t('hours.daylightSaving')}</p>
-          </>}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant='tertiary' isDisabled={isSaving} onPress={() => props.onOpenChange(false)}>
-            <span>{t('hours.cancel')}</span>
-          </Button>
-          <Button isDisabled={!isValid} isPending={isSaving} onPress={() => void save()}>
-            <span>{t('hours.save')}</span>
-          </Button>
-        </Modal.Footer>
+                  <Label>{t('hours.from')}</Label>
+                  <TimeField.Group>
+                    <TimeField.Input>{(segment) => <TimeField.Segment segment={segment} />}</TimeField.Input>
+                  </TimeField.Group>
+                </TimeField>
+                <TimeField
+                  id='elysia-hours-until'
+                  className='w-full'
+                  value={end}
+                  onChange={(value) => value && setEnd(value)}
+                >
+                  <Label>{t('hours.until')}</Label>
+                  <TimeField.Group>
+                    <TimeField.Input>{(segment) => <TimeField.Segment segment={segment} />}</TimeField.Input>
+                  </TimeField.Group>
+                </TimeField>
+              </div>
+              <p className='text-xs opacity-60'>{t('hours.daylightSaving')}</p>
+            </>}
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant='tertiary' isDisabled={isSaving} onPress={() => props.onOpenChange(false)}>
+              <span>{t('hours.cancel')}</span>
+            </Button>
+            <Button type='submit' isDisabled={!isValid} isPending={isSaving}>
+              <span>{t('hours.save')}</span>
+            </Button>
+          </Modal.Footer>
+        </Form>
       </Modal.Dialog>
     </Modal.Container>
   </Modal.Backdrop>

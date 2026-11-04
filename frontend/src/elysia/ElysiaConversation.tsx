@@ -11,11 +11,12 @@ import { useAppDispatch, useAppSelector } from '../store/hooks'
 import { elysiaMessageCreated, elysiaMessagesLoaded, selectElysiaMessages } from '../store/elysiaSlice'
 
 // User interface
-import { Button, Form, Label, Spinner, TextArea, TextField } from '@heroui/react'
+import { Button, Description, Form, Label, Spinner, TextArea, TextField } from '@heroui/react'
 import { LuSendHorizontal } from 'react-icons/lu'
 
 // Misc
 import { listElysiaMessages, sendElysiaMessage } from '../api/routes/elysiaRoutes'
+import { submitOnEnter } from '../components/submitOnEnter'
 import { formatShortDateTime } from '../format/dates'
 import { useElysiaMessagesLoader } from '../hooks/useServerData'
 import { useUserNames } from '../hooks/useUserNames'
@@ -63,8 +64,8 @@ export function ElysiaConversation(props: Props) {
 
   async function send() {
     const body = draft.trim()
-    if (!body) {
-      console.debug('ElysiaConversation ignored an empty message')
+    if (!body || isSending) {
+      console.debug('ElysiaConversation ignored a send', { isEmpty: !body, isSending })
       return
     }
     setIsSending(true)
@@ -139,9 +140,11 @@ export function ElysiaConversation(props: Props) {
       <div ref={endRef} />
     </div>
 
+    {/* Enter adds a line; Ctrl or Cmd with Enter sends (ux.md, Hotkeys) */}
     <Form
       className='mt-3 shrink-0'
       validationBehavior='aria'
+      onKeyDownCapture={submitOnEnter}
       onSubmit={(event) => {
         event.preventDefault()
         void send()
@@ -158,14 +161,8 @@ export function ElysiaConversation(props: Props) {
         <TextArea
           rows={2}
           placeholder={t('composer.label')}
-          onKeyDown={(event) => {
-            // Enter sends; Shift with Enter adds a line, as in chat.
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault()
-              void send()
-            }
-          }}
         />
+        <Description className='text-xs'>{t('composer.hint')}</Description>
       </TextField>
       <div className='mt-2 flex justify-end'>
         <Button type='submit' size='sm' isDisabled={!draft.trim()} isPending={isSending}>

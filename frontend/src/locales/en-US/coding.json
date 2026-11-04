@@ -172,7 +172,7 @@
     "composer": {
       "label": "Prompt",
       "placeholder": "Tell the agent what to do next",
-      "hint": "Enter to send, Shift+Enter for a new line",
+      "hint": "Ctrl+Enter sends",
       "send": "Send"
     },
     "number": "Session {{number}}"

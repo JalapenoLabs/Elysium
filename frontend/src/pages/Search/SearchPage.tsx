@@ -18,7 +18,7 @@ import { SearchResultRow } from '../../search/SearchResultRow'
 // Misc
 import { RECORD_SEARCH_PAGE_LIMIT } from '../../constants'
 import { useAskElysia } from '../../elysia/useAskElysia'
-import { useInitialFocus } from '../../hooks/useInitialFocus'
+import { useFindHotkey } from '../../hooks/useFindHotkey'
 import { useTabParam } from '../../hooks/useTabParam'
 import { searchGroupLabelKeys } from '../../search/searchPresentation'
 import { groupSearchResults } from '../../search/searchRanking'
@@ -39,7 +39,8 @@ export function SearchPage() {
   const [ params, setParams ] = useSearchParams()
   const [ kind, selectKind ] = useTabParam(KIND_TABS)
   const [ isAsking, setIsAsking ] = useState(false)
-  const inputRef = useInitialFocus()
+  // The page is its search, so typing starts there, and Ctrl+F comes back to it.
+  const inputRef = useFindHotkey(true)
   const askElysia = useAskElysia()
 
   const query = params.get(SEARCH_QUERY_PARAM) ?? ''

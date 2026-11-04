@@ -42,6 +42,7 @@ import { useActorNames } from '../../hooks/useActorNames'
 import { useConfirm } from '../../hooks/useConfirm'
 import { usePrompt } from '../../hooks/usePrompt'
 import { useActionItemCommentsLoader } from '../../hooks/useServerData'
+import { submitOnEnter } from '../../components/submitOnEnter'
 import { describeActor } from './actionItemPresentation'
 import { toast } from '../../toast/toast'
 
@@ -70,8 +71,8 @@ export function ActionItemComments(props: Props) {
 
   async function post() {
     const body = draft.trim()
-    if (!body) {
-      console.debug('ActionItemComments ignored an empty comment')
+    if (!body || isPosting) {
+      console.debug('ActionItemComments ignored a post', { isEmpty: !body, isPosting })
       return
     }
     setIsPosting(true)
@@ -196,8 +197,10 @@ export function ActionItemComments(props: Props) {
       })
     }</ol>
 
+    {/* Enter adds a line; Ctrl or Cmd with Enter posts (ux.md, Hotkeys) */}
     {!isDeleted && <Form
       validationBehavior='aria'
+      onKeyDownCapture={submitOnEnter}
       onSubmit={(event) => {
         event.preventDefault()
         void post()
@@ -215,13 +218,6 @@ export function ActionItemComments(props: Props) {
           ref={props.composerRef}
           rows={2}
           placeholder={t('comments.placeholder')}
-          onKeyDown={(event) => {
-            // Enter adds a line; Ctrl or Cmd with Enter posts, as in the inline editors.
-            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-              event.preventDefault()
-              void post()
-            }
-          }}
         />
         <Description>{t('comments.hint')}</Description>
       </TextField>

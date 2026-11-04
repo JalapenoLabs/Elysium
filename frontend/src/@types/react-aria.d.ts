@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { KeyboardEventHandler } from 'react'
 import type { NavigateOptions } from 'react-router'
 
 // Types the `routerOptions` every React Aria and HeroUI link takes as React Router's own, so a
@@ -9,5 +10,12 @@ import type { NavigateOptions } from 'react-router'
 declare module 'react-aria-components' {
   interface RouterConfig {
     routerOptions: NavigateOptions
+  }
+
+  // Lets a form hear the keys pressed in its fields, for `submitOnEnter`. React Aria types
+  // keyboard handlers on focusable elements alone, but its `Form` hands every prop on to the
+  // `<form>` it renders, so the handler works as on any element.
+  interface FormProps {
+    onKeyDownCapture?: KeyboardEventHandler<HTMLFormElement>
   }
 }

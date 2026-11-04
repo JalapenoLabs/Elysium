@@ -7,10 +7,11 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Form, Label, TextArea, TextField } from '@heroui/react'
+import { Button, Description, Form, Label, TextArea, TextField } from '@heroui/react'
 
 // Misc
 import { answerElysiaQuestion, dismissElysiaQuestion } from '../api/routes/elysiaRoutes'
+import { submitOnEnter } from '../components/submitOnEnter'
 import { toast } from '../toast/toast'
 
 // An answer's length, as the API bounds it.
@@ -30,8 +31,12 @@ export function ElysiaQuestionCard(props: Props) {
 
   async function answer(text: string) {
     const body = text.trim()
-    if (!body) {
-      console.debug('ElysiaQuestionCard ignored an empty answer', { questionId: props.question.id })
+    if (!body || isSending) {
+      console.debug('ElysiaQuestionCard ignored an answer', {
+        isEmpty: !body,
+        isSending,
+        questionId: props.question.id,
+      })
       return
     }
     setIsSending(true)
@@ -75,8 +80,10 @@ export function ElysiaQuestionCard(props: Props) {
         <span>{option}</span>
       </Button>)
     }</div>}
+    {/* Enter adds a line; Ctrl or Cmd with Enter answers (ux.md, Hotkeys) */}
     <Form
       validationBehavior='aria'
+      onKeyDownCapture={submitOnEnter}
       onSubmit={(event) => {
         event.preventDefault()
         void answer(draft)
@@ -93,13 +100,8 @@ export function ElysiaQuestionCard(props: Props) {
         <TextArea
           rows={1}
           placeholder={t('questions.answerLabel')}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault()
-              void answer(draft)
-            }
-          }}
         />
+        <Description className='text-xs'>{t('composer.hint')}</Description>
       </TextField>
       <div className='mt-2 level-right gap-2'>
         <Button size='sm' variant='ghost' isDisabled={isSending} onPress={() => void dismiss()}>

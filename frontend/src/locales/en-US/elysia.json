@@ -60,6 +60,7 @@
   },
   "composer": {
     "label": "Message Elysia",
+    "hint": "Ctrl+Enter sends",
     "send": "Send",
     "failed": "Could not send your message."
   },

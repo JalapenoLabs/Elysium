@@ -361,7 +361,8 @@ left out of the conversation.
   render as chat bubbles; tool calls, thinking, and turn results as compact lines with details folded away. Each
   turn's work sits under its prompt behind a row with its summary (see Turn summaries): open while the turn runs,
   closed once it ends, and opened again by clicking it (`TimelineEventList`, grouping in `timelineTurns.ts`). Event
-  types without a renderer show their wire name. Enter sends the composer's prompt; Shift+Enter adds a line.
+  types without a renderer show their wire name. Ctrl or Cmd with Enter sends the composer's prompt; Enter adds a
+  line (`docs/frontend.md`, Hotkeys).
 
 The first conversation opens beside Sessions; later ones open as tabs in its group. Panels can be dragged, split,
 and floated. The layout is saved per browser under `elysium.coding.layout.v2`; Reset layout clears it. A restored

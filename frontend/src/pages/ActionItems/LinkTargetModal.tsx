@@ -8,10 +8,11 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Modal } from '@heroui/react'
+import { Button, Form, Modal } from '@heroui/react'
 import { LinkTargetPicker } from './LinkTargetPicker'
 
 // Misc
+import { submitOnEnter } from '../../components/submitOnEnter'
 import { EMPTY_LINK_TARGET_DRAFT, toLinkTarget } from './linkPresentation'
 
 type Props = {
@@ -38,8 +39,8 @@ export function LinkTargetModal(props: Props) {
   }
 
   async function submit() {
-    if (!target) {
-      console.debug('LinkTargetModal was submitted with nothing picked')
+    if (!target || isSaving) {
+      console.debug('LinkTargetModal ignored a submit', { hasTarget: Boolean(target), isSaving })
       return
     }
     setIsSaving(true)
@@ -72,17 +73,27 @@ export function LinkTargetModal(props: Props) {
           <Modal.Heading>{props.title}</Modal.Heading>
           <p className='mt-1 text-sm opacity-70'>{props.description}</p>
         </Modal.Header>
-        <Modal.Body className='mt-2'>
-          <LinkTargetPicker value={draft} onChange={setDraft} />
-        </Modal.Body>
-        <Modal.Footer>
-          <Button slot='close' variant='tertiary'>
-            <span>{t('actions.cancel')}</span>
-          </Button>
-          <Button isDisabled={!target} isPending={isSaving} onPress={() => void submit()}>
-            <span>{props.submitLabel}</span>
-          </Button>
-        </Modal.Footer>
+        {/* Enter links what is picked (ux.md, Hotkeys) */}
+        <Form
+          validationBehavior='aria'
+          onKeyDownCapture={submitOnEnter}
+          onSubmit={(event) => {
+            event.preventDefault()
+            void submit()
+          }}
+        >
+          <Modal.Body className='mt-2'>
+            <LinkTargetPicker value={draft} onChange={setDraft} />
+          </Modal.Body>
+          <Modal.Footer>
+            <Button slot='close' variant='tertiary'>
+              <span>{t('actions.cancel')}</span>
+            </Button>
+            <Button type='submit' isDisabled={!target} isPending={isSaving}>
+              <span>{props.submitLabel}</span>
+            </Button>
+          </Modal.Footer>
+        </Form>
       </Modal.Dialog>
     </Modal.Container>
   </Modal.Backdrop>

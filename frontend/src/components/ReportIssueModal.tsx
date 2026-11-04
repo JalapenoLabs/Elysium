@@ -1,7 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { Key, UseOverlayStateReturn } from '@heroui/react'
-import type { KeyboardEvent } from 'react'
 import type { IssueReportSubject } from '../api/routes/issueReportRoutes'
 
 // Core
@@ -46,6 +45,7 @@ import {
   readinessLabels,
   resolveReportCredential,
 } from './issueReportPresentation'
+import { submitOnEnter } from './submitOnEnter'
 import { toast } from '../toast/toast'
 
 // The Markdown as it is posted, wrapped so a long line reads without scrolling sideways.
@@ -78,8 +78,8 @@ export function ReportIssueModal(props: Props) {
   const blocker = getReportBlocker(preview.data, credential, isCurrent)
 
   async function post() {
-    if (blocker || !credential) {
-      console.debug('ReportIssueModal ignored a post it cannot make yet', { blocker })
+    if (blocker || !credential || isPosting) {
+      console.debug('ReportIssueModal ignored a post it cannot make yet', { blocker, isPosting })
       return
     }
 
@@ -132,14 +132,6 @@ export function ReportIssueModal(props: Props) {
     return getApiErrorMessage(error) ?? t('errors.loadFailed')
   }
 
-  function onNoteKeyDown(event: KeyboardEvent) {
-    // Enter is a new line in the note; Ctrl or Cmd with Enter posts, as comments do elsewhere.
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault()
-      void post()
-    }
-  }
-
   const data = preview.data
   const previous = data?.previousReport
 
@@ -150,11 +142,13 @@ export function ReportIssueModal(props: Props) {
         <Modal.Header>
           <Modal.Heading>{t('dialog.title')}</Modal.Heading>
         </Modal.Header>
+        {/* Enter is a new line in the note; Ctrl or Cmd with Enter posts (ux.md, Hotkeys) */}
         <Form
           onSubmit={(event) => {
             event.preventDefault()
             void post()
           }}
+          onKeyDownCapture={submitOnEnter}
           validationBehavior='aria'
         >
           <Modal.Body className='mt-2 flex flex-col gap-4'>
@@ -223,7 +217,7 @@ export function ReportIssueModal(props: Props) {
               onChange={setNote}
             >
               <Label>{t('dialog.note')}</Label>
-              <TextArea ref={noteRef} rows={3} onKeyDown={onNoteKeyDown} />
+              <TextArea ref={noteRef} rows={3} />
             </TextField>
 
             <div>
