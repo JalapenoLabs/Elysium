@@ -1,7 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ParseKeys } from 'i18next'
-import type { Attribution, TimelineRecord } from '../../api/routes/timelineRoutes'
+import type { AttributionHistoryEntry, Attribution, TimelineRecord } from '../../api/routes/timelineRoutes'
+import type { Project } from '../../api/routes/projectRoutes'
+
+// Misc
+import { ELYSIA_USER_ID } from '../../constants'
 
 // What each kind of record is called. A kind added later reads as a plain record until it
 // gets its own name.
@@ -37,12 +41,60 @@ export function isVideoClip(contentType: string): boolean {
   return contentType.toLowerCase().startsWith('video/')
 }
 
-// The record's attribution to `projectId`, if it has one.
-export function attributionFor(record: TimelineRecord, projectId: string): Attribution | null {
-  return record.projects.find((attribution) => attribution.projectId === projectId) ?? null
-}
-
 // Whether Elysia, rather than a person, attributed it: hers can be confirmed or removed.
 export function isElysiaAttribution(attribution: Attribution): boolean {
   return attribution.attributedBy === 'elysia'
+}
+
+// How sure an attribution is, bounded, since a confidence outside 0 to 1 would read as nonsense.
+export function boundedConfidence(confidence: number): number {
+  return Math.min(Math.max(confidence, 0), 1)
+}
+
+// The projects a record can still be added to, every one it is not on yet, in `projects`' order.
+export function projectsToAdd(record: TimelineRecord, projects: Project[]): Project[] {
+  const attributed = new Set<string>()
+  for (const attribution of record.projects) {
+    attributed.add(attribution.projectId)
+  }
+  const addable: Project[] = []
+  for (const project of projects) {
+    if (!attributed.has(project.id)) {
+      addable.push(project)
+    }
+  }
+  return addable
+}
+
+// A change to what a record is about in words: its sentence, and how sure the attribution it
+// left is, when it left one.
+type AttributionChange = {
+  key: ParseKeys<'timeline'>
+  confidence: number | null
+}
+
+// One change to what a record is about, as its history says it. Only a record's owner changes
+// it, besides Elysia, so a change that is not hers is the reader's own.
+export function describeAttributionChange(entry: AttributionHistoryEntry): AttributionChange {
+  const byElysia = entry.createdBy === ELYSIA_USER_ID
+  const confidence = entry.after?.confidence ?? null
+  if (entry.undid) {
+    return { key: 'history.undid', confidence }
+  }
+  if (entry.kind === 'unattributed' && byElysia) {
+    return { key: 'history.elysiaRemoved', confidence }
+  }
+  if (entry.kind === 'unattributed') {
+    return { key: 'history.removed', confidence }
+  }
+  if (byElysia && entry.before) {
+    return { key: 'history.elysiaResure', confidence }
+  }
+  if (byElysia) {
+    return { key: 'history.elysiaAdded', confidence }
+  }
+  if (entry.before) {
+    return { key: 'history.confirmed', confidence }
+  }
+  return { key: 'history.added', confidence }
 }

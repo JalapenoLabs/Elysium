@@ -475,7 +475,6 @@ export function makeMeeting(overrides: Partial<Meeting> & Pick<Meeting, 'id'>): 
     participants: [],
     url: null,
     state: 'done',
-    attempts: 0,
     lastError: null,
     hasRecording: true,
     segmentCount: 3,

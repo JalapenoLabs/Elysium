@@ -83,6 +83,8 @@ export type ServerEvent =
     type: 'timelineRecord.created',
     data: { id: string, sourceKind: string, createdBy: string, actionItemId: string | null },
   }
+  // What a record is attributed to changed. Its id and owner alone; its owner loads it.
+  | { type: 'timelineRecord.changed', data: { id: string, createdBy: string } }
   // A draft was written, changed, discarded, or sent, or its send failed. Its id and writer
   // alone, since its text is theirs.
   | { type: 'draft.changed', data: { id: string, createdBy: string } }

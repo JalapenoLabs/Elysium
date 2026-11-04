@@ -33,7 +33,6 @@ export function ProjectTimeline(props: Props) {
       records.map((record) => <TimelineRecordItem
         key={record.id}
         record={record}
-        projectId={props.projectId}
       />)
     }</ol>}
     <TimelinePageLoader projectId={props.projectId} before={null} />

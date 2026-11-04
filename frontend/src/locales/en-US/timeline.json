@@ -19,12 +19,34 @@
     "noClip": "No recording was kept for this meeting."
   },
   "attribution": {
+    "label": "Projects",
+    "none": "On no project",
     "byElysia": "Elysia, {{percent}} sure",
-    "byPerson": "You said so",
-    "confirm": "It is about this project",
-    "remove": "Not about this project",
-    "removed": "Removed from this project's timeline.",
-    "confirmed": "Kept on this project's timeline."
+    "confirm": "Confirm it is about {{project}}",
+    "remove": "Take off {{project}}",
+    "add": "Add to a project",
+    "addLabel": "Projects to add it to",
+    "added": "Added to {{project}}",
+    "confirmed": "Kept on {{project}}",
+    "removed": "Taken off {{project}}",
+    "undone": "Change undone",
+    "changedSince": "This changed again since, so the newer change stays.",
+    "unknownProject": "A removed project"
+  },
+  "history": {
+    "open": "History",
+    "hide": "Hide history",
+    "label": "Changes to its projects",
+    "empty": "No changes yet",
+    "loadError": "Its history could not be loaded.",
+    "undo": "Undo",
+    "added": "You put it on {{project}}",
+    "confirmed": "You confirmed it is about {{project}}",
+    "removed": "You took it off {{project}}",
+    "undid": "You undid a change to {{project}}",
+    "elysiaAdded": "Elysia put it on {{project}}, {{percent}} sure",
+    "elysiaResure": "Elysia is now {{percent}} sure it is about {{project}}",
+    "elysiaRemoved": "Elysia took it off {{project}}"
   },
   "openSource": "Open at the source",
   "reply": {

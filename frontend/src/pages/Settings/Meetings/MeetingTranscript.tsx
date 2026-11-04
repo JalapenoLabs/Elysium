@@ -46,7 +46,6 @@ export function MeetingTranscript(props: Props) {
     : ''
 
   return <section>
-    <h2 className='compact text-lg font-semibold'>{t('page.transcriptHeading')}</h2>
     {!original && <p className='text-sm opacity-70'>{t('page.nothingHeard')}</p>}
     {original && corrected && Boolean(corrected.changedLines) && <TextDiff
       before={heard}

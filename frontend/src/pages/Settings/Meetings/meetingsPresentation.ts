@@ -61,15 +61,18 @@ export const meetingStateLabelKeys = {
   recorded: 'states.recorded',
   segmented: 'states.segmented',
   done: 'states.done',
+  skipped: 'states.skipped',
   failed: 'states.failed',
 } as const satisfies Record<MeetingState, ParseKeys<'meetings'>>
 
-// Still working reads as accent, finished as success, given up as danger.
+// Still working reads as accent, finished as success, skipped as nothing to see, and a failed
+// run as danger.
 export const meetingStateChipColors = {
   pending: 'accent',
   recorded: 'accent',
   segmented: 'accent',
   done: 'success',
+  skipped: 'default',
   failed: 'danger',
 } as const satisfies Record<MeetingState, ChipColor>
 

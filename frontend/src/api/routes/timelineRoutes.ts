@@ -54,6 +54,8 @@ export type TimelineQuery = {
   projectId?: string
   // Only the record that raised this action item.
   actionItemId?: string
+  // Only this meeting's segments.
+  meetingId?: string
   // An `occurredAt`: only records before it, for the next page.
   before?: string
   limit?: number
@@ -74,6 +76,9 @@ export function timelineKey(query: TimelineQuery) {
   }
   if (query.actionItemId) {
     parameters.set('actionItemId', query.actionItemId)
+  }
+  if (query.meetingId) {
+    parameters.set('meetingId', query.meetingId)
   }
   if (query.before) {
     parameters.set('before', query.before)
@@ -103,17 +108,72 @@ export function getTimelineRecord(recordId: string) {
     .json<TimelineRecordResponse>()
 }
 
+// A change to what a record is attributed to: the record as it reads now, and the history entry
+// the change recorded, which Undo reverses; null when nothing changed.
+export type AttributionChangeResponse = {
+  record: TimelineRecord
+  entryId: string | null
+}
+
 // The caller says the record is about the project, with certainty.
 export function attributeTimelineRecord(recordId: string, projectId: string) {
   return apiClient
     .put(`v1/timeline/${recordId}/projects/${projectId}`)
-    .json<TimelineRecordResponse>()
+    .json<AttributionChangeResponse>()
 }
 
 export function unattributeTimelineRecord(recordId: string, projectId: string) {
   return apiClient
     .delete(`v1/timeline/${recordId}/projects/${projectId}`)
-    .json<TimelineRecordResponse>()
+    .json<AttributionChangeResponse>()
+}
+
+// What an attribution held before or after a change.
+export type HeldAttribution = {
+  confidence: number
+  // `user:<id>` or `elysia`.
+  attributedBy: string
+}
+
+// Mirrors `HistoryEntryResponse` in api/src/routes/v1/timeline/mod.rs: one change to what a
+// record is attributed to, Elysia's or a person's.
+export type AttributionHistoryEntry = {
+  id: string
+  timelineRecordId: string
+  projectId: string
+  kind: 'attributed' | 'unattributed'
+  // A person, or Elysia's machine user.
+  createdBy: string
+  // Null where there was no attribution.
+  before: HeldAttribution | null
+  after: HeldAttribution | null
+  // The entry this one undid, when it is an undo.
+  undid: string | null
+  createdAt: string
+}
+
+type RecordHistoryResponse = {
+  history: AttributionHistoryEntry[]
+}
+
+// The SWR key a record's history loads under. It starts with `v1/timeline`, so a change the
+// event stream announces revalidates it with the rest of the timeline.
+export function recordHistoryKey(recordId: string) {
+  return `v1/timeline/${recordId}/history`
+}
+
+// Oldest first.
+export function listRecordHistory(recordId: string) {
+  return apiClient
+    .get(recordHistoryKey(recordId))
+    .json<RecordHistoryResponse>()
+}
+
+// Reverses one change; `409` (`attribution_changed`) when the attribution changed since.
+export function undoRecordChange(recordId: string, entryId: string) {
+  return apiClient
+    .post(`v1/timeline/${recordId}/history/${entryId}/undo`)
+    .json<AttributionChangeResponse>()
 }
 
 // Where a `<video>` or `<audio>` element plays a record's clip from, on Elysium's own origin.

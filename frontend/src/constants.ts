@@ -149,6 +149,10 @@ export const ELYSIA_MESSAGE_PAGE_SIZE = 50
 // How many records one page of a timeline holds, as the API pages them by default.
 export const TIMELINE_PAGE_SIZE = 50
 
+// Elysia's machine user, as the API seeds it (`ELYSIA_USER_ID` in api/src/models/user.rs): who
+// a change she made is created by, such as attributing a meeting's topic to a project.
+export const ELYSIA_USER_ID = '00000000-0000-0000-0000-000000000002'
+
 // The zxcvbn score, out of 4, a new password must reach before the form submits.
 export const PASSWORD_MIN_SCORE = 3
 

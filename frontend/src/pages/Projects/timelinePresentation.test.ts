@@ -1,15 +1,19 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { TimelineRecord } from '../../api/routes/timelineRoutes'
+import type { AttributionHistoryEntry, TimelineRecord } from '../../api/routes/timelineRoutes'
 
 // Core
 import { describe, expect, it } from 'vitest'
 
 // Misc
+import { ELYSIA_USER_ID } from '../../constants'
+import { makeProject } from '../../testFixtures'
 import {
-  attributionFor,
+  boundedConfidence,
+  describeAttributionChange,
   isElysiaAttribution,
   isVideoClip,
+  projectsToAdd,
   segmentDetails,
   sourceLabelKey,
 } from './timelinePresentation'
@@ -71,10 +75,61 @@ describe('isVideoClip', () => {
 })
 
 describe('attributions', () => {
-  it('finds the attribution to one project and tells who made it', () => {
-    const attribution = attributionFor(record(), 'project-1')
-    expect(attribution?.confidence).toBe(0.84)
-    expect(attribution && isElysiaAttribution(attribution)).toBe(true)
-    expect(attributionFor(record(), 'project-2')).toBeNull()
+  it('tells who made an attribution and bounds how sure it reads', () => {
+    const [ elysias ] = record().projects
+    expect(isElysiaAttribution(elysias)).toBe(true)
+    expect(isElysiaAttribution({ ...elysias, attributedBy: 'user:person-1' })).toBe(false)
+    expect(boundedConfidence(0.84)).toBe(0.84)
+    expect(boundedConfidence(1.4)).toBe(1)
+    expect(boundedConfidence(-0.2)).toBe(0)
+  })
+
+  it('offers every project the record is not on yet, in their order', () => {
+    const projects = [
+      makeProject({ id: 'project-2', name: 'Budget' }),
+      makeProject({ id: 'project-1', name: 'Launch' }),
+      makeProject({ id: 'project-3', name: 'Website' }),
+    ]
+    expect(projectsToAdd(record(), projects).map((project) => project.id)).toEqual([ 'project-2', 'project-3' ])
+  })
+})
+
+describe('describeAttributionChange', () => {
+  function entry(overrides: Partial<AttributionHistoryEntry> = {}): AttributionHistoryEntry {
+    return {
+      id: 'entry-1',
+      timelineRecordId: 'record-1',
+      projectId: 'project-1',
+      kind: 'attributed',
+      createdBy: ELYSIA_USER_ID,
+      before: null,
+      after: { confidence: 0.72, attributedBy: 'elysia' },
+      undid: null,
+      createdAt: '2026-10-21T16:00:00Z',
+      ...overrides,
+    }
+  }
+  const persons = { confidence: 1, attributedBy: 'user:person-1' }
+
+  it('says what Elysia did, and how sure she was', () => {
+    expect(describeAttributionChange(entry())).toEqual({ key: 'history.elysiaAdded', confidence: 0.72 })
+    expect(describeAttributionChange(entry({ before: { confidence: 0.5, attributedBy: 'elysia' }}))).toEqual({
+      key: 'history.elysiaResure',
+      confidence: 0.72,
+    })
+    expect(describeAttributionChange(entry({ kind: 'unattributed', before: entry().after, after: null }))).toEqual({
+      key: 'history.elysiaRemoved',
+      confidence: null,
+    })
+  })
+
+  it('says what the person did, an undo above all', () => {
+    const theirs = { createdBy: 'person-1' }
+    expect(describeAttributionChange(entry({ ...theirs, after: persons })).key).toBe('history.added')
+    expect(describeAttributionChange(entry({ ...theirs, before: entry().after, after: persons })).key)
+      .toBe('history.confirmed')
+    expect(describeAttributionChange(entry({ ...theirs, kind: 'unattributed', after: null })).key)
+      .toBe('history.removed')
+    expect(describeAttributionChange(entry({ ...theirs, undid: 'entry-0' })).key).toBe('history.undid')
   })
 })

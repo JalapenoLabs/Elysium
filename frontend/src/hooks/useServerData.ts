@@ -336,6 +336,24 @@ export function useProjectTimelineLoader(projectId: string, before: string | nul
   } as const
 }
 
+// A meeting's segments, its topics, which its page lists. A meeting has fewer segments than a
+// page of the timeline holds, so one page is all of them. Records merge into Redux, so the
+// buffered copy may be applied too.
+export function useMeetingTopicsLoader(meetingId: string) {
+  const dispatch = useAppDispatch()
+  const query = { meetingId, limit: TIMELINE_PAGE_SIZE }
+  const { data, error } = useSWR(timelineKey(query), () => listTimeline(query))
+  useEffect(() => {
+    if (data) {
+      dispatch(timelineRecordsLoaded(data.records))
+    }
+  }, [ data, dispatch ])
+  return {
+    status: toLoadStatus(data !== undefined, error),
+    total: data?.total ?? null,
+  } as const
+}
+
 export function useGithubCredentialsLoader(): LoadStatus {
   const dispatch = useAppDispatch()
   const { data, error } = useSWR('v1/github-credentials', async () => {

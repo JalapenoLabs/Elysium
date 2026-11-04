@@ -6,68 +6,31 @@ import type { TimelineRecord } from '../../api/routes/timelineRoutes'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-// Redux
-import { useAppDispatch } from '../../store/hooks'
-import { timelineRecordUpserted } from '../../store/timelineRecordsSlice'
-
 // User interface
 import { Button, Chip, Link } from '@heroui/react'
 import { LuExternalLink } from 'react-icons/lu'
+import { RecordProjects } from './RecordProjects'
 import { SegmentClip } from './SegmentClip'
 import { RecordReply } from '../../replies/RecordReply'
 
 // Misc
-import { getApiErrorMessage } from '../../api/errors'
-import { attributeTimelineRecord, unattributeTimelineRecord } from '../../api/routes/timelineRoutes'
 import { formatDateTime } from '../../format/dates'
 import { formatMediaPosition } from '../../format/durations'
-import { formatPercent } from '../../format/numbers'
-import {
-  attributionFor,
-  isElysiaAttribution,
-  segmentDetails,
-  sourceLabelKey,
-} from './timelinePresentation'
-import { toast } from '../../toast/toast'
+import { segmentDetails, sourceLabelKey } from './timelinePresentation'
 
 type Props = {
   record: TimelineRecord
-  projectId: string
 }
 
-// One record on a project's timeline. A meeting segment shows its summary, its clip, and its
-// transcript excerpt on request; other records show their text, and a message can be answered
-// with Reply. Elysia's attribution says how
-// sure she was, and the person can confirm it or take the record off this project.
+// One record, on a project's timeline or a meeting's topics. A meeting segment shows its
+// summary, its clip, and its transcript excerpt on request; other records show their text, and a
+// message can be answered with Reply. Below, the projects it is on, which the person corrects.
 export function TimelineRecordItem(props: Props) {
   const { t } = useTranslation([ 'timeline', 'common' ])
-  const dispatch = useAppDispatch()
-  const [ isBusy, setIsBusy ] = useState(false)
   const [ showsTranscript, setShowsTranscript ] = useState(false)
   const record = props.record
-  const attribution = attributionFor(record, props.projectId)
   const details = segmentDetails(record)
   const media = record.media
-
-  async function decide(keep: boolean) {
-    setIsBusy(true)
-    try {
-      const response = keep
-        ? await attributeTimelineRecord(record.id, props.projectId)
-        : await unattributeTimelineRecord(record.id, props.projectId)
-      dispatch(timelineRecordUpserted(response.record))
-      toast.success(keep
-        ? t('attribution.confirmed')
-        : t('attribution.removed'))
-    }
-    catch (error) {
-      console.debug('TimelineRecordItem failed to change an attribution', { error, recordId: record.id })
-      toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
-    }
-    finally {
-      setIsBusy(false)
-    }
-  }
 
   return <li className='rounded-xl border border-separator bg-surface p-4'>
     <div className='level items-start gap-3'>
@@ -127,24 +90,8 @@ export function TimelineRecordItem(props: Props) {
       <RecordReply record={record} />
     </div>
 
-    {attribution && <div className='mt-3 flex flex-wrap items-center gap-2 text-xs'>
-      <span className='opacity-60'>{
-        isElysiaAttribution(attribution)
-          // Bounded, since a confidence outside 0 to 1 would read as nonsense.
-          ? t('attribution.byElysia', { percent: formatPercent(Math.min(Math.max(attribution.confidence, 0), 1)) })
-          : t('attribution.byPerson')
-      }</span>
-      {isElysiaAttribution(attribution) && <Button
-        size='sm'
-        variant='ghost'
-        isPending={isBusy}
-        onPress={() => decide(true)}
-      >
-        <span>{t('attribution.confirm')}</span>
-      </Button>}
-      <Button size='sm' variant='ghost' isPending={isBusy} onPress={() => decide(false)}>
-        <span>{t('attribution.remove')}</span>
-      </Button>
-    </div>}
+    <div className='mt-3'>
+      <RecordProjects record={record} />
+    </div>
   </li>
 }

@@ -17,7 +17,7 @@
     "noRecording": "Transcript only",
     "awaitingApproval": "Waiting for your approval",
     "retry": "Retry",
-    "retried": "Elysium will try this meeting again within a minute."
+    "retried": "Trying this meeting again"
   },
   "table": {
     "meeting": "Meeting",
@@ -32,6 +32,7 @@
     "recorded": "Finding topics",
     "segmented": "Cutting clips",
     "done": "On the timeline",
+    "skipped": "Skipped",
     "failed": "Failed"
   },
   "page": {
@@ -46,7 +47,11 @@
     "held": "This meeting waits for your approval",
     "released": "This meeting no longer waits for your approval",
     "correctedMeanwhile": "This meeting was just corrected. Review its transcript and approve it.",
-    "transcriptHeading": "Transcript",
+    "tabs": {
+      "label": "Its topics and transcript",
+      "topics": "Topics",
+      "transcript": "Transcript"
+    },
     "diffLabel": "Corrections to the transcript",
     "foldedLines_one": "{{count, compact}} unchanged line",
     "foldedLines_other": "{{count, compact}} unchanged lines",
@@ -63,6 +68,11 @@
     "approvedBy": "By {{who}}",
     "sourceWaits": "Its source waits for your approval before acting on meetings.",
     "heldByHand": "Waits for your approval once corrected."
+  },
+  "topics": {
+    "empty": "No topics yet",
+    "none": "No topics in this meeting",
+    "loadError": "Its topics could not be loaded."
   },
   "review": {
     "heading": "Meeting",

@@ -59,8 +59,7 @@
     "elysia": "Elysia",
     "coding_session": "Coding sessions",
     "studio_session": "Studio sessions",
-    "turn_summary": "Turn summaries",
-    "segment_meeting": "Meeting segmentation"
+    "turn_summary": "Turn summaries"
   },
   "price": {
     "input": "{{amount}} in",

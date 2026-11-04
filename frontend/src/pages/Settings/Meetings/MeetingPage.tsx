@@ -14,10 +14,12 @@ import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { meetingUpserted, selectMeetingById } from '../../../store/meetingsSlice'
 
 // User interface
-import { Button, Chip, Link, Spinner } from '@heroui/react'
+import { Button, Chip, Link, Spinner, Tabs } from '@heroui/react'
 import { LuCheck, LuExternalLink, LuHand, LuPlay, LuWorkflow } from 'react-icons/lu'
+import { PageTabs } from '../../../components/PageTabs'
 import { ConnectorLogo } from '../Connectors/ConnectorLogo'
 import { SettingsPage } from '../SettingsPage'
+import { MeetingTopics } from './MeetingTopics'
 import { MeetingTranscript } from './MeetingTranscript'
 
 // Misc
@@ -25,7 +27,8 @@ import { getApiErrorCode, getApiErrorMessage } from '../../../api/errors'
 import { approveMeetingCorrection, setMeetingHold } from '../../../api/routes/meetingRoutes'
 import { DateText } from '../../../format/DateText'
 import { formatDuration } from '../../../format/durations'
-import { useConnectorsLoader, useMeetingLoader } from '../../../hooks/useServerData'
+import { useConnectorsLoader, useMeetingLoader, useMeetingTopicsLoader } from '../../../hooks/useServerData'
+import { useTabParam } from '../../../hooks/useTabParam'
 import { useUserNames } from '../../../hooks/useUserNames'
 import { UrlTree, getRunViewUrl } from '../../../urls'
 import { toast } from '../../../toast/toast'
@@ -38,9 +41,13 @@ import {
 } from './meetingsPresentation'
 import { WAIT_FOR_APPROVAL_FIELD } from '../../../constants'
 
-// `/settings/meetings/:meetingId`: one of the person's meetings, its transcript as heard beside
-// its corrections, and Approve. Until it is corrected the person can hold it for their approval
-// by hand, unless its source already waits for it. See docs/meetings.md, Correction.
+// The meeting's lists, one per tab: its topics, first, and its transcript.
+const TABS = [ 'topics', 'transcript' ] as const
+
+// `/settings/meetings/:meetingId`: one of the person's meetings, its topics with the projects
+// each is on, its transcript as heard beside its corrections, and Approve. Until it is corrected
+// the person can hold it for their approval by hand, unless its source already waits for it. See
+// docs/meetings.md, Correction, and In the web app.
 export function MeetingPage() {
   const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const { meetingId = '' } = useParams()
@@ -74,6 +81,8 @@ function MeetingView(props: Props) {
     ? selectConnectorById(state, meeting.connectorId)
     : undefined)
   const [ acting, setActing ] = useState<'approve' | 'hold' | null>(null)
+  const [ selectedTab, selectTab ] = useTabParam(TABS)
+  const topics = useMeetingTopicsLoader(meeting.id)
 
   const correctionStatus = correctionStatusOf(meeting)
   const sourceWaits = source?.content[WAIT_FOR_APPROVAL_FIELD] === true
@@ -204,6 +213,21 @@ function MeetingView(props: Props) {
       {waitsNote && <span className='text-sm opacity-70'>{waitsNote}</span>}
     </div>
 
-    <MeetingTranscript meeting={meeting} />
+    <PageTabs
+      label={t('page.tabs.label')}
+      selectedKey={selectedTab}
+      onSelectionChange={selectTab}
+      tabs={[
+        { id: 'topics', label: t('page.tabs.topics'), count: topics.total },
+        { id: 'transcript', label: t('page.tabs.transcript'), count: null },
+      ]}
+    >
+      <Tabs.Panel id='topics'>
+        <MeetingTopics meeting={meeting} status={topics.status} />
+      </Tabs.Panel>
+      <Tabs.Panel id='transcript'>
+        <MeetingTranscript meeting={meeting} />
+      </Tabs.Panel>
+    </PageTabs>
   </SettingsPage>
 }

@@ -5,8 +5,9 @@ import type { ConnectorKind } from './connectorRoutes'
 // Misc
 import { apiClient } from '../index'
 
-// Mirrors `MeetingState` in api/src/models/meeting.rs: how far a meeting's processing got.
-export const MEETING_STATES = [ 'pending', 'recorded', 'segmented', 'done', 'failed' ] as const
+// Mirrors `Processing` in api/src/meetings/workflow.rs: how far a meeting's processing got, or
+// that its run failed or went through without it, a person having skipped a step it needed.
+export const MEETING_STATES = [ 'pending', 'recorded', 'segmented', 'done', 'skipped', 'failed' ] as const
 export type MeetingState = typeof MEETING_STATES[number]
 
 // What a meeting says of its corrected transcript.
@@ -36,8 +37,7 @@ export type Meeting = {
   // Its page at the source.
   url: string | null
   state: MeetingState
-  attempts: number
-  // Why the last attempt failed, or null when it succeeded.
+  // Why its run failed, while it has.
   lastError: string | null
   hasRecording: boolean
   // How many segments Elysia found, or null before she has read it.

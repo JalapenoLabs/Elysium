@@ -130,7 +130,7 @@ describe('MeetingTable', () => {
 
     await waitFor(() => expect(store.getState().meetings.entities.failed?.state).toBe('pending'))
     expect(routes.retryMeeting).toHaveBeenCalledWith('failed')
-    expect(toasts.success).toHaveBeenCalledWith('Elysium will try this meeting again within a minute.')
+    expect(toasts.success).toHaveBeenCalledWith('Trying this meeting again')
   })
 
   it('says why a retry was refused', async () => {

@@ -35,6 +35,21 @@ export const selectTimelineRecordsByProjectId = createSelector(
   ),
 )
 
+// A meeting's segments in the order they were said, as its page lists its topics.
+export const selectTimelineRecordsByMeetingId = createSelector(
+  [ selectAll, (_state: RootState, meetingId: string) => meetingId ],
+  (records, meetingId) => {
+    const segments: TimelineRecord[] = []
+    for (const record of records) {
+      if (record.media?.meetingId === meetingId) {
+        segments.push(record)
+      }
+    }
+    // Every segment has its span, so the earliest start comes first.
+    return segments.sort((first, second) => (first.media?.startMs ?? 0) - (second.media?.startMs ?? 0))
+  },
+)
+
 // The record that raised an action item, if one did and it is loaded.
 export const selectTimelineRecordByActionItemId = createSelector(
   [ selectAll, (_state: RootState, actionItemId: string) => actionItemId ],

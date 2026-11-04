@@ -48,6 +48,7 @@ import { storageLocationDeleted, storageLocationUpserted } from '../store/storag
 import { studioAssetCreated } from '../store/studioAssetsSlice'
 import { studioFeedbackCreated } from '../store/studioFeedbackSlice'
 import { studioItemDeleted, studioItemUpserted } from '../store/studioItemsSlice'
+import { timelineRecordUpserted } from '../store/timelineRecordsSlice'
 import { userDeleted, userUpserted } from '../store/usersSlice'
 import { updatesStatusUpdated } from '../store/updatesSlice'
 import { buildRead } from '../store/versionSlice'
@@ -66,6 +67,7 @@ import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/mo
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { getRun, getStepLog } from '../api/routes/runRoutes'
+import { getTimelineRecord } from '../api/routes/timelineRoutes'
 import { EVENT_STREAM_PATH, EVENT_STREAM_RETRY_INITIAL_MS, EVENT_STREAM_RETRY_MAX_MS } from '../constants'
 
 // The universal event stream: one EventSource for the whole app, open for as long as
@@ -258,6 +260,21 @@ const handlers: Handlers = {
     if (event.data.createdBy !== store.getState().auth.me?.user.id) {
       return
     }
+    void mutate((key) => typeof key === 'string' && key.startsWith('v1/timeline'))
+  },
+  // A record moved between projects, or its history grew: it is loaded by id, so a project it
+  // left stops listing it, and the timeline's pages and histories that are open reload, so
+  // their totals and entries follow.
+  'timelineRecord.changed': (event) => {
+    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
+      return
+    }
+    getTimelineRecord(event.data.id)
+      .then((response) => store.dispatch(timelineRecordUpserted(response.record)))
+      .catch((error: unknown) => console.debug('A changed record could not be loaded', {
+        error,
+        recordId: event.data.id,
+      }))
     void mutate((key) => typeof key === 'string' && key.startsWith('v1/timeline'))
   },
   // A draft is its writer's alone, and the event carries no text: it is loaded by id, and one
