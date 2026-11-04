@@ -439,6 +439,61 @@ async fn a_projects_choice_equal_to_the_workspaces_is_none_and_its_list_names_it
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_kind_changed_again_is_changed_in_place_for_the_workspace_and_each_project() {
+    #[derive(QueryableByName)]
+    struct Count {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        rows: i64,
+    }
+
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let project = new_project(&mut connection, "Elysium").await;
+    let workspace = "/api/v1/model-settings/kinds/summaries".to_owned();
+    let in_project = format!("/api/v1/projects/{project}/model-settings/summaries");
+
+    // The workspace's row has no project, so only the unique constraint's nulls not distinct
+    // keeps a second choice from adding a second row. The project's choices differ from the
+    // workspace's, which would otherwise remove the project's row as one it follows anyway.
+    for (path, models) in [
+        (&workspace, ["claude-sonnet-5-5", "claude-fable-5-1"]),
+        (&in_project, ["claude-opus-5-5", "claude-sonnet-5-5"]),
+    ] {
+        for model in models {
+            let (status, answer) = call(
+                &state,
+                Method::PUT,
+                path,
+                Some(&json!({ "model": model, "effort": "medium" })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{path}: {answer}");
+        }
+    }
+
+    let count: Count = diesel::sql_query("SELECT COUNT(*) AS rows FROM kind_model_settings")
+        .get_result(&mut connection)
+        .await
+        .expect("counted");
+    assert_eq!(
+        count.rows, 2,
+        "one row for the workspace and one for the project"
+    );
+    let (_status, list) = call(&state, Method::GET, "/api/v1/model-settings", None).await;
+    assert_eq!(
+        listed(&list, "kinds", "summaries")["setting"]["model"],
+        "claude-fable-5-1"
+    );
+    let history = setting_events(&mut connection, "kind_model_setting_changed").await;
+    assert_eq!(history.len(), 4, "every change is recorded");
+    assert_eq!(
+        history[1].data["before"],
+        json!({ "model": "claude-sonnet-5-5", "effort": "medium" })
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn what_a_projects_workers_spent_is_totalled_from_their_turns() {
     let (url, mut connection) = migrated_database().await;
     let state = app_state(&url).await;
