@@ -43,7 +43,7 @@ const ENDPOINT: &str = "https://api.fireflies.ai/graphql";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The most meetings one listing asks for; Fireflies refuses more than 50.
-pub const MAX_LISTING: u32 = 50;
+const MAX_LISTING: u32 = 50;
 
 const LIST_QUERY: &str = "query Meetings($fromDate: DateTime, $limit: Int) {
   transcripts(fromDate: $fromDate, limit: $limit) {

@@ -7,9 +7,13 @@
 //!
 //! [`Meetings::start`] runs until shutdown:
 //!
-//! - Every [`POLL_INTERVAL`] it lists each active meeting account's new meetings
+//! - Every [`POLL_INTERVAL`] it lists each active meeting connector's new meetings
 //!   ([`source::MeetingSource::list`]) and stores each one it has not seen as a `pending`
-//!   meeting. The account's cursor remembers the newest start time it saw.
+//!   meeting. The connector's cursor remembers the newest start time it saw.
+//!
+//! A meeting connector is one of any kind that provides meetings
+//! (`kinds::providing(Provides::Meetings)`), and each is read through its kind's source
+//! ([`sources::Sources::for_kind`]), so nothing here names a source.
 //! - Every [`PROCESS_INTERVAL`] it carries each unfinished meeting as far as it goes:
 //!   1. `pending`: fetch the transcript and a fresh recording address, download the
 //!      recording into the workspace, and upload it to the account's storage location.
@@ -34,6 +38,7 @@ pub mod fireflies;
 pub mod media;
 pub mod segmentation;
 pub mod source;
+pub mod sources;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -47,9 +52,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use self::fireflies::Fireflies;
 use self::segmentation::{MeetingContext, ProjectChoice, Segment};
 use self::source::{ListedMeeting, MeetingSource, SourceError, TranscriptLine, is_public_download};
+use self::sources::{Source, Sources};
 use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Provides};
 use crate::connectors::{ConnectorKind, SignInState};
@@ -69,10 +74,14 @@ use crate::runner::{
 };
 use crate::storage::Storage;
 
-/// How often each account's new meetings are listed. A meeting is useful on the timeline
-/// within minutes of ending, not seconds, and Fireflies' smallest plan allows 500 calls a
-/// day: ten minutes uses 144 of them.
+/// How often each connector's new meetings are listed. A meeting is useful on the timeline
+/// within minutes of ending, not seconds, and the strictest source's smallest plan
+/// (Fireflies', 500 calls a day) allows it: ten minutes uses 144 calls.
 pub const POLL_INTERVAL: Duration = Duration::from_mins(10);
+
+/// The most meetings one listing asks for. A source that allows fewer asks for what it allows,
+/// and the cursor carries the rest to the next listing.
+const LISTING_SIZE: u32 = 50;
 
 /// How often unfinished meetings are carried forward.
 pub const PROCESS_INTERVAL: Duration = Duration::from_mins(1);
@@ -109,7 +118,7 @@ struct Inner {
     storage: Storage,
     runner: Runner,
     workspace: WorkspaceContainer,
-    fireflies: Fireflies,
+    sources: Sources,
     /// For recording downloads: follows redirects only to `https` named hosts, so a
     /// source's address can never lead Elysium into its own network.
     downloads: reqwest::Client,
@@ -157,7 +166,7 @@ impl Meetings {
             .context("cannot build the recording download client")?;
         Ok(Self {
             inner: Arc::new(Inner {
-                fireflies: Fireflies::new(deps.http),
+                sources: Sources::new(deps.http),
                 database: deps.database,
                 events: deps.events,
                 activity: deps.activity,
@@ -170,9 +179,9 @@ impl Meetings {
         })
     }
 
-    /// The Fireflies client, for checking a key before an account is saved.
-    pub fn fireflies(&self) -> &Fireflies {
-        &self.inner.fireflies
+    /// Every meeting source's client, for a kind's checks and sign-in.
+    pub fn sources(&self) -> &Sources {
+        &self.inner.sources
     }
 
     /// Lists one connector's new meetings now and carries every unfinished meeting forward,
@@ -229,7 +238,7 @@ impl Meetings {
             .context("no database connection available")
     }
 
-    /// Lists every active meeting account's new meetings.
+    /// Lists every active meeting connector's new meetings.
     async fn poll(&self) {
         let kinds: Vec<&str> = kinds::providing(Provides::Meetings)
             .into_iter()
@@ -248,7 +257,7 @@ impl Meetings {
                     name: "meetings.poll.failed",
                     Level::WARN,
                     error.message = %format!("{error:#}"),
-                    "cannot list the meeting accounts to read",
+                    "cannot list the meeting connectors to read",
                 );
                 return;
             }
@@ -266,19 +275,15 @@ impl Meetings {
         }
     }
 
-    /// Lists one account's new meetings, stores them, and records how the listing went.
+    /// Lists one connector's new meetings, stores them, and records how the listing went.
     async fn poll_account(&self, account: &Connector) -> anyhow::Result<()> {
+        let source = self.source_of(account)?;
         let credential = self.key_of(account).await?;
         let since = listing_since(account);
         let started = Utc::now();
         let mut run = None;
 
-        let outcome = match self
-            .inner
-            .fireflies
-            .list(&credential, Some(since), fireflies::MAX_LISTING)
-            .await
-        {
+        let outcome = match source.list(&credential, Some(since), LISTING_SIZE).await {
             Ok(listed) => {
                 let (newest, stored) = self.store_listed(account, &listed).await?;
                 if stored > 0 {
@@ -325,7 +330,16 @@ impl Meetings {
         Ok(())
     }
 
+    /// The source `connector`'s kind reads its meetings from.
+    fn source_of(&self, connector: &Connector) -> anyhow::Result<Source> {
+        ConnectorKind::parse(&connector.kind)
+            .and_then(|kind| self.inner.sources.for_kind(kind))
+            .with_context(|| format!("connector kind {:?} provides no meetings", connector.kind))
+    }
+
     /// The API key `connector` lists its meetings with, from the token account it reads through.
+    /// Every source today signs in with a key; a source read through a browser will resolve
+    /// its sign-in beside its source instead.
     async fn key_of(&self, connector: &Connector) -> anyhow::Result<secrecy::SecretString> {
         let token_account_id = connector
             .token_account_id
@@ -469,12 +483,9 @@ impl Meetings {
     /// `pending` to `recorded`: the transcript, and the recording uploaded to storage.
     async fn record(&self, current: &Meeting) -> anyhow::Result<Meeting> {
         let account = self.account_of(current).await?;
+        let source = self.source_of(&account)?;
         let credential = self.key_of(&account).await?;
-        let fetched = self
-            .inner
-            .fireflies
-            .fetch(&credential, &current.external_id)
-            .await?;
+        let fetched = source.fetch(&credential, &current.external_id).await?;
         let transcript = serde_json::to_value(&fetched.transcript)?;
 
         let stored = match (&fetched.recording, account.storage_location_id) {
