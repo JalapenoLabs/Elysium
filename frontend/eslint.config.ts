@@ -8,6 +8,10 @@ import cliBaseConfig from '@jalapenolabs/cli/eslint'
 import react from 'eslint-plugin-react'
 import reactHooks from 'eslint-plugin-react-hooks'
 
+// The `Intl` formatters only `src/format/` builds, and what lint points to instead.
+const INTL_FORMATTERS = '/^(DateTimeFormat|NumberFormat|RelativeTimeFormat|DurationFormat)$/'
+const USE_FORMAT_MODULE = 'Format dates and numbers with src/format/ (formatDate, formatNumber, ...).'
+
 // The org-wide Jalapeno Labs ruleset, with only the overrides this app needs.
 export default defineConfig([
   {
@@ -48,6 +52,29 @@ export default defineConfig([
               message: 'Import toast from src/toast/toast.tsx, which applies Elysium\'s toast rules.',
             },
           ],
+        },
+      ],
+    },
+  },
+  {
+    // Dates and numbers are formatted by `src/format/` alone, so every one in the app reads the
+    // same way and in the viewer's zone (docs/frontend.md, Dates and numbers).
+    files: [ '**/*.{ts,tsx}' ],
+    ignores: [ 'src/format/**' ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: `NewExpression[callee.object.name="Intl"][callee.property.name=${INTL_FORMATTERS}]`,
+          message: USE_FORMAT_MODULE,
+        },
+        {
+          selector: `CallExpression[callee.object.name="Intl"][callee.property.name=${INTL_FORMATTERS}]`,
+          message: USE_FORMAT_MODULE,
+        },
+        {
+          selector: 'CallExpression[callee.property.name=/^toLocale(Date|Time)?String$/]',
+          message: USE_FORMAT_MODULE,
         },
       ],
     },
