@@ -26,6 +26,7 @@ import {
   TextField,
 } from '@heroui/react'
 import { ProjectScopePicker } from '../../../components/ProjectScopePicker'
+import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 import { StorageSetupChecklist } from './StorageSetupChecklist'
 
 // Utility
@@ -166,6 +167,9 @@ export function StorageLocationForm(props: Props) {
   const onSubmit = usePageSave({
     save,
     isDirty: form.formState.isDirty,
+    label: props.location
+      ? undefined
+      : t('common:actions.create'),
   })
 
   const errors = form.formState.errors
@@ -437,6 +441,8 @@ export function StorageLocationForm(props: Props) {
         }</Description>
         <FieldError>{errors.accessKey?.message}</FieldError>
       </TextField>
+
+      {!props.location && <PageCreateFooter />}
     </Form>
 
     <aside className='lg:sticky lg:top-4'>

@@ -134,6 +134,7 @@
     "openPage": "Open Claude's sign-in page",
     "code": "Code",
     "codeHint": "Paste the code Claude's page shows after you sign in.",
+    "codeNeeded": "Paste the code from Claude's page first",
     "finish": "Finish sign-in",
     "signedIn": "{{name}} signed in"
   }

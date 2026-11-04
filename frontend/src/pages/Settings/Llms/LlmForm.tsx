@@ -29,6 +29,7 @@ import {
   TextArea,
   TextField,
 } from '@heroui/react'
+import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 import { LuEye, LuEyeOff } from 'react-icons/lu'
 
 // Utility
@@ -54,7 +55,8 @@ type Props = {
   onSaved: (llm: Llm) => void
 }
 
-// Saved from the page's Save, in the header.
+// Saved from the page's Save, in the header, which a new credential also has below the form
+// as Create.
 export function LlmForm(props: Props) {
   const { t } = useTranslation([ 'llms', 'common' ])
   const dispatch = useAppDispatch()
@@ -146,6 +148,9 @@ export function LlmForm(props: Props) {
   const onSubmit = usePageSave({
     save,
     isDirty: form.formState.isDirty,
+    label: mode === 'create'
+      ? t('common:actions.create')
+      : undefined,
   })
 
   const errors = form.formState.errors
@@ -323,5 +328,7 @@ export function LlmForm(props: Props) {
         </Switch.Content>
       </Switch>
     </div>
+
+    {mode === 'create' && <PageCreateFooter />}
   </Form>
 }

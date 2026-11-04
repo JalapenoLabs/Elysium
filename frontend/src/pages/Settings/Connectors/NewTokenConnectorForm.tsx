@@ -19,6 +19,7 @@ import { Button, Card, Form } from '@heroui/react'
 import { AccountFields } from './AccountFields'
 import { CheckList } from './CheckList'
 import { ContentFields } from './ContentFields'
+import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 
 // Misc
 import { checkConnectorDraft, createConnector } from '../../../api/routes/connectorRoutes'
@@ -145,5 +146,7 @@ export function NewTokenConnectorForm(props: Props) {
       outcomes={run.checks}
       reportSubjectOf={(checkId) => ({ kind: 'checkRun', runId: run.id, checkId })}
     />}
+
+    <PageCreateFooter />
   </Form>
 }

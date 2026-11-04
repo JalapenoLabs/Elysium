@@ -25,6 +25,7 @@ import {
   TextField,
 } from '@heroui/react'
 import { SetupChecklist } from '../../../components/SetupChecklist'
+import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -49,7 +50,8 @@ type Props = {
 // Connects the vault, or changes its credentials. The API signs in and unlocks before it
 // stores anything, so a refusal comes back in Bitwarden's own words, shown in a toast that
 // stays until dismissed. Secrets are write-only: when changing a vault, a blank field keeps the stored one.
-// Connected from the page's Save, in the header.
+// Connected from the page's Save, in the header; connecting the first vault also has it below
+// the form, beside Back, as every page that creates something does.
 export function PasswordVaultForm(props: Props) {
   const { t } = useTranslation([ 'passwords', 'common' ])
   const dispatch = useAppDispatch()
@@ -217,6 +219,7 @@ export function PasswordVaultForm(props: Props) {
 
       <p className='text-sm opacity-70'>{t('form.checkedHint')}</p>
 
+      {!stored && <PageCreateFooter />}
       {props.onCancel && <div className='mt-2 flex justify-end'>
         <Button variant='tertiary' onPress={props.onCancel}>
           <span>{t('common:actions.cancel')}</span>

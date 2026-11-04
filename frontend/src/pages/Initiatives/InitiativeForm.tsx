@@ -13,7 +13,8 @@ import { initiativeUpserted } from '../../store/initiativesSlice'
 import { selectAllProjects } from '../../store/projectsSlice'
 
 // User interface
-import { Button, FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
+import { FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
+import { PageCreateFooter } from '../../layout/page/PageCreateFooter'
 import { DayPicker } from '../../components/DayPicker'
 import { MultiPicker } from '../../components/MultiPicker'
 
@@ -34,10 +35,9 @@ type Props = {
   // Projects the initiative starts in, such as the project page it was created from.
   initialProjectIds: string[]
   onSaved: (initiativeId: string) => void
-  onCancel: () => void
 }
 
-// Starts an initiative, from the header's Save or the button below the form: two places,
+// Starts an initiative, from the header's Save or the Create below the form: two places,
 // one action. It starts active and empty; items join it from their own pages or from the
 // initiative's.
 export function InitiativeForm(props: Props) {
@@ -138,13 +138,6 @@ export function InitiativeForm(props: Props) {
       onChange={(projectIds) => form.setValue('projectIds', projectIds, { shouldDirty: true })}
     />
 
-    <div className='mt-2 flex justify-end gap-2'>
-      <Button variant='tertiary' onPress={props.onCancel}>
-        <span>{t('common:actions.cancel')}</span>
-      </Button>
-      <Button type='submit' isPending={form.formState.isSubmitting}>
-        <span>{t('form.submit')}</span>
-      </Button>
-    </div>
+    <PageCreateFooter />
   </Form>
 }

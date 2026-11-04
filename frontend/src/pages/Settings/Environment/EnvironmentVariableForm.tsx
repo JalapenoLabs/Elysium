@@ -23,6 +23,7 @@ import {
   TextArea,
   TextField,
 } from '@heroui/react'
+import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 import { EnvironmentVisibilityNote } from './EnvironmentVisibilityNote'
 
 // Utility
@@ -44,7 +45,8 @@ type Props = {
 
 // Adds or edits an environment variable, beside a note on who can read it. A secret's value
 // is write-only: when editing one, a blank field keeps the stored value, unless the variable
-// is being made visible, which needs the value again. Saved from the page's Save, in the header.
+// is being made visible, which needs the value again. Saved from the page's Save, in the header,
+// which a new variable also has below the form as Create.
 export function EnvironmentVariableForm(props: Props) {
   const { t } = useTranslation([ 'environment', 'common' ])
   const dispatch = useAppDispatch()
@@ -111,6 +113,9 @@ export function EnvironmentVariableForm(props: Props) {
   const onSubmit = usePageSave({
     save,
     isDirty: form.formState.isDirty,
+    label: stored
+      ? undefined
+      : t('common:actions.create'),
   })
 
   const errors = form.formState.errors
@@ -193,6 +198,8 @@ export function EnvironmentVariableForm(props: Props) {
         <Description>{t('form.descriptionHint')}</Description>
         <FieldError>{errors.description?.message}</FieldError>
       </TextField>
+
+      {!stored && <PageCreateFooter />}
     </Form>
 
     <aside className='lg:sticky lg:top-4'>

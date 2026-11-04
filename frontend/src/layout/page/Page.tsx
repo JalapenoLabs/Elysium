@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react'
 import type { BlockerFunction } from 'react-router'
 import type { PageHeaderProps } from './PageHeader'
-import type { PageSave, PageSaveRegistry } from './pageSave'
+import type { PageSave, PageSaveRegistry, PageSaveState } from './pageSave'
 
 // Core
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
@@ -17,7 +17,13 @@ import { PageHeader } from './PageHeader'
 import { PageSaveButton } from './PageSaveButton'
 
 // Misc
-import { canPressSave, leavesWithoutAsking, PageSaveContext, usePageSave } from './pageSave'
+import {
+  canPressSave,
+  leavesWithoutAsking,
+  PageSaveContext,
+  PageSaveStateContext,
+  usePageSave,
+} from './pageSave'
 import { isModalOpen, readPageShortcut } from './pageShortcuts'
 import { toast } from '../../toast/toast'
 
@@ -56,9 +62,10 @@ export function Page(props: Props) {
   const hasSave = Boolean(save)
   const isDirty = Boolean(save?.isDirty)
   const { escapeTo, children, save: ownSave, ...headerProps } = props
-  const leaveTo = escapeTo ?? (hasSave
-    ? props.parents?.at(-1)?.href
-    : undefined)
+  const backTo = escapeTo ?? props.parents?.at(-1)?.href
+  const leaveTo = hasSave
+    ? backTo
+    : escapeTo
 
   const register = useCallback((next: PageSave | null) => {
     saveRef.current = next
@@ -89,6 +96,10 @@ export function Page(props: Props) {
   }, [ t ])
 
   const registry = useMemo<PageSaveRegistry>(() => ({ register, runSave }), [ register, runSave ])
+  const saveState = useMemo<PageSaveState>(
+    () => ({ save, isSaving, runSave, backTo }),
+    [ save, isSaving, runSave, backTo ],
+  )
 
   const shouldBlock = useCallback<BlockerFunction>(({ currentLocation, nextLocation }) => {
     if (isLeavingRef.current) {
@@ -176,18 +187,20 @@ export function Page(props: Props) {
 
   return <PageSaveContext value={registry}>
     {ownSave && <OwnPageSave save={ownSave} />}
-    <div className='container'>
-      <PageHeader
-        {...headerProps}
-        save={save && <PageSaveButton
-          ref={headerSaveRef}
-          save={save}
-          isSaving={isSaving}
-          onPress={() => void runSave()}
-        />}
-      />
-      {children}
-    </div>
+    <PageSaveStateContext value={saveState}>
+      <div className='container'>
+        <PageHeader
+          {...headerProps}
+          save={save && <PageSaveButton
+            ref={headerSaveRef}
+            save={save}
+            isSaving={isSaving}
+            onPress={() => void runSave()}
+          />}
+        />
+        {children}
+      </div>
+    </PageSaveStateContext>
 
     {showsFloatingCard && <FloatingSaveCard
       save={save}

@@ -39,7 +39,6 @@ export function AddLlmPage(props: Props) {
       />
       : <ClaudeSignInForm
         onSaved={backToList}
-        onCancel={backToList}
       />}
   </LlmEditorLayout>
 }

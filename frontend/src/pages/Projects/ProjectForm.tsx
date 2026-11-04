@@ -13,7 +13,8 @@ import { useAppDispatch } from '../../store/hooks'
 import { projectUpserted } from '../../store/projectsSlice'
 
 // User interface
-import { Button, FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
+import { FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
+import { PageCreateFooter } from '../../layout/page/PageCreateFooter'
 import { ProjectCoverField } from './ProjectCoverField'
 
 // Utility
@@ -28,7 +29,6 @@ import { toast } from '../../toast/toast'
 
 type Props = {
   onSaved: (project: Project) => void
-  onCancel: () => void
 }
 
 // Name, description, and cover for a new project, created from the header's Save or the
@@ -143,16 +143,6 @@ export function ProjectForm(props: Props) {
       />
     </div>
 
-    <div className='mt-2 flex justify-end gap-2'>
-      <Button variant='tertiary' onPress={props.onCancel}>
-        <span>{t('common:actions.cancel')}</span>
-      </Button>
-      <Button
-        type='submit'
-        isPending={form.formState.isSubmitting}
-      >
-        <span>{t('form.create')}</span>
-      </Button>
-    </div>
+    <PageCreateFooter />
   </Form>
 }

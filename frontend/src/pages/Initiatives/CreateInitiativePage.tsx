@@ -31,8 +31,6 @@ export function CreateInitiativePage() {
         ? [ projectId ]
         : []}
       onSaved={(initiativeId) => navigate(getInitiativeViewUrl(initiativeId), { replace: true })}
-      // Back to wherever the form was opened from.
-      onCancel={() => navigate(-1)}
     />
   </Page>
 }

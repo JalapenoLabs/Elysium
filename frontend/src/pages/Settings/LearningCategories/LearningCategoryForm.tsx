@@ -14,6 +14,7 @@ import { learningCategoryUpserted } from '../../../store/learningCategoriesSlice
 
 // User interface
 import { Description, FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
+import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -125,6 +126,9 @@ export function LearningCategoryForm(props: Props) {
   const onSubmit = usePageSave({
     save,
     isDirty: form.formState.isDirty,
+    label: stored
+      ? undefined
+      : t('common:actions.create'),
   })
 
   const errors = form.formState.errors
@@ -190,5 +194,7 @@ export function LearningCategoryForm(props: Props) {
       <Description>{t('form.descriptionHint')}</Description>
       <FieldError>{errors.description?.message}</FieldError>
     </TextField>
+
+    {!stored && <PageCreateFooter />}
   </Form>
 }

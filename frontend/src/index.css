@@ -83,6 +83,39 @@
   }
 }
 
+/* A /new page's Back and Create, below its form (`PageCreateFooter`): Back on the left and
+   Create on the right, where the form ends. On phones both span the width, Create on top. */
+.page-create-footer {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.page-create-footer > *,
+.page-create-footer [data-slot='tooltip-trigger'],
+.page-create-footer .button {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (width >= 40rem) {
+  .page-create-footer {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .page-create-footer > *,
+  .page-create-footer [data-slot='tooltip-trigger'],
+  .page-create-footer .button {
+    width: auto;
+  }
+
+  .page-create-footer > :last-child {
+    margin-left: auto;
+  }
+}
+
 /* The breadcrumbs' last crumb, the page's own title, shortens with an ellipsis rather than
    running off a phone's edge. HeroUI keeps every crumb at its full width, and gives the
    crumb's link no class of its own to set. */

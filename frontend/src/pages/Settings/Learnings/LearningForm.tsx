@@ -15,6 +15,7 @@ import { learningUpserted } from '../../../store/learningsSlice'
 // User interface
 import { Description, FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
 import { OptionSelect } from '../../../components/OptionSelect'
+import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 
 // Utility
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -143,6 +144,9 @@ export function LearningForm(props: Props) {
   const onSubmit = usePageSave({
     save,
     isDirty: form.formState.isDirty,
+    label: stored
+      ? undefined
+      : t('common:actions.create'),
   })
 
   const errors = form.formState.errors
@@ -215,5 +219,7 @@ export function LearningForm(props: Props) {
       <Description>{t('form.evidenceHint')}</Description>
       <FieldError>{errors.evidence?.message}</FieldError>
     </TextField>
+
+    {!stored && <PageCreateFooter />}
   </Form>
 }

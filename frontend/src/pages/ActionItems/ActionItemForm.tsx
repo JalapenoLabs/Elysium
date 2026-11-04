@@ -14,7 +14,8 @@ import { selectLiveInitiatives } from '../../store/initiativesSlice'
 import { selectAllProjects } from '../../store/projectsSlice'
 
 // User interface
-import { Button, FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
+import { FieldError, Form, Input, Label, TextArea, TextField } from '@heroui/react'
+import { PageCreateFooter } from '../../layout/page/PageCreateFooter'
 import { DayPicker } from '../../components/DayPicker'
 import { MultiPicker } from '../../components/MultiPicker'
 import { OptionSelect } from '../../components/OptionSelect'
@@ -38,10 +39,9 @@ type Props = {
   initialProjectIds: string[]
   initialInitiativeIds: string[]
   onSaved: (itemId: string) => void
-  onCancel: () => void
 }
 
-// Adds an item by hand, from the header's Save or the button below the form: two places,
+// Adds an item by hand, from the header's Save or the Create below the form: two places,
 // one action. It starts open, since creating it accepts it. Everything past the title can
 // wait; the item's page edits it all later.
 export function ActionItemForm(props: Props) {
@@ -170,13 +170,6 @@ export function ActionItemForm(props: Props) {
       onChange={(initiativeIds) => form.setValue('initiativeIds', initiativeIds, { shouldDirty: true })}
     />
 
-    <div className='mt-2 flex justify-end gap-2'>
-      <Button variant='tertiary' onPress={props.onCancel}>
-        <span>{t('common:actions.cancel')}</span>
-      </Button>
-      <Button type='submit' isPending={form.formState.isSubmitting}>
-        <span>{t('form.submit')}</span>
-      </Button>
-    </div>
+    <PageCreateFooter />
   </Form>
 }

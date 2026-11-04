@@ -29,7 +29,7 @@ export function PageSaveButton(props: Props) {
   if (save.blockedReason) {
     disabledReason = save.blockedReason
   }
-  else if (!save.isDirty) {
+  else if (!save.isDirty && !save.canSaveUnchanged) {
     disabledReason = t('page.save.nothingChanged')
   }
 

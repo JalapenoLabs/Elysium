@@ -20,6 +20,9 @@ export type PageSave = {
   blockedReason?: string | null
   // Defaults to "Save". A /new page names what it does, such as "Add LLM".
   label?: string
+  // Save can be pressed with nothing changed, for a /new page whose create needs nothing typed,
+  // such as starting a browser. Leaving still asks only while the form is dirty.
+  canSaveUnchanged?: boolean
 }
 
 export type PageSaveRegistry = {
@@ -29,6 +32,19 @@ export type PageSaveRegistry = {
 }
 
 export const PageSaveContext = createContext<PageSaveRegistry | null>(null)
+
+// The page's Save as it stands, for the controls that mirror it below a form: a /new page's
+// Back and Create (`PageCreateFooter`). Kept apart from the registry, which forms hold and
+// which never changes, so a save starting re-renders only what shows it.
+export type PageSaveState = {
+  save: PageSave | null
+  isSaving: boolean
+  runSave: () => Promise<boolean>
+  // Where Back goes: the page's `escapeTo`, or its last parent.
+  backTo: string | undefined
+}
+
+export const PageSaveStateContext = createContext<PageSaveState | null>(null)
 
 // Gives the page around this form its Save, and returns the form's `onSubmit`, so Enter
 // saves through the page like every other way of saving. Call it from the component that
@@ -47,10 +63,10 @@ export function usePageSave(pageSave: PageSave) {
   })
 
   const { register, runSave } = registry
-  const { isDirty, blockedReason, label } = pageSave
+  const { isDirty, blockedReason, label, canSaveUnchanged } = pageSave
   useEffect(() => {
-    register({ save: () => saveRef.current(), isDirty, blockedReason, label })
-  }, [ register, isDirty, blockedReason, label ])
+    register({ save: () => saveRef.current(), isDirty, blockedReason, label, canSaveUnchanged })
+  }, [ register, isDirty, blockedReason, label, canSaveUnchanged ])
 
   // Only an unmount takes the Save away, so the header button never flickers between
   // changes of the form's state.
@@ -95,5 +111,6 @@ export function leavesWithoutAsking(state: unknown) {
 
 // Whether the Save button can be pressed.
 export function canPressSave(save: PageSave, isSaving: boolean) {
-  return save.isDirty && !isSaving && !save.blockedReason
+  const hasSomethingToSave = save.isDirty || Boolean(save.canSaveUnchanged)
+  return hasSomethingToSave && !isSaving && !save.blockedReason
 }

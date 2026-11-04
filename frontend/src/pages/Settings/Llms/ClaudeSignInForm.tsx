@@ -12,7 +12,6 @@ import { llmUpserted } from '../../../store/llmsSlice'
 
 // User interface
 import {
-  Button,
   Description,
   FieldError,
   Form,
@@ -23,21 +22,24 @@ import {
   TextField,
 } from '@heroui/react'
 import { LuExternalLink } from 'react-icons/lu'
+import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 
 // Misc
 import { cancelClaudeSignIn, finishClaudeSignIn, startClaudeSignIn } from '../../../api/routes/llmRoutes'
 import { getApiErrorMessage } from '../../../api/errors'
+import { usePageSave } from '../../../layout/page/pageSave'
 import { toast } from '../../../toast/toast'
 
 type Props = {
   onSaved: (llm: Llm) => void
-  onCancel: () => void
 }
 
 // Signs a Claude account in through the official CLI, which runs in Elysium's workspace: start
 // it, open the page it links to, sign in there, and paste back the code that page shows. A wrong
 // code ends the sign-in, so the person starts again. A failure is a toast that stays until
-// dismissed, so nothing moves the form.
+// dismissed, so nothing moves the form. The page's Save is the step ahead, Start and then Finish,
+// in the header and below the form; Start needs nothing typed. Leaving cancels a waiting sign-in,
+// so a started one is unsaved work and leaving asks first.
 export function ClaudeSignInForm(props: Props) {
   const { t } = useTranslation([ 'llms', 'common' ])
   const dispatch = useAppDispatch()
@@ -45,7 +47,6 @@ export function ClaudeSignInForm(props: Props) {
   const [ name, setName ] = useState('')
   const [ priority, setPriority ] = useState(0)
   const [ code, setCode ] = useState('')
-  const [ isBusy, setIsBusy ] = useState(false)
 
   // The waiting sign-in, read when the page goes away, so its CLI never outlives the page.
   const waitingId = useRef<string | null>(null)
@@ -57,8 +58,9 @@ export function ClaudeSignInForm(props: Props) {
     }
   }, [])
 
+  // Starting saves nothing yet, so it resolves false: Save and continue stays on the page,
+  // where the sign-in now waits for its code.
   async function start() {
-    setIsBusy(true)
     try {
       const response = await startClaudeSignIn()
       waitingId.current = response.signIn.id
@@ -68,17 +70,12 @@ export function ClaudeSignInForm(props: Props) {
       console.debug('ClaudeSignInForm could not start a sign-in', { error })
       toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
     }
-    setIsBusy(false)
+    return false
   }
 
-  async function finish() {
-    if (!signIn) {
-      console.debug('ClaudeSignInForm was asked to finish without a sign-in')
-      return
-    }
-    setIsBusy(true)
+  async function finish(started: ClaudeSignIn) {
     try {
-      const response = await finishClaudeSignIn(signIn.id, {
+      const response = await finishClaudeSignIn(started.id, {
         code: code.trim(),
         name: name.trim() || undefined,
         priority,
@@ -87,6 +84,7 @@ export function ClaudeSignInForm(props: Props) {
       dispatch(llmUpserted(response.llm))
       toast.success(t('signIn.signedIn', { name: response.llm.name }))
       props.onSaved(response.llm)
+      return true
     }
     catch (error) {
       console.debug('ClaudeSignInForm could not finish the sign-in', { error })
@@ -95,30 +93,28 @@ export function ClaudeSignInForm(props: Props) {
       setSignIn(null)
       setCode('')
       toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
+      return false
     }
-    setIsBusy(false)
   }
 
-  async function cancel() {
-    if (waitingId.current) {
-      const id = waitingId.current
-      waitingId.current = null
-      await cancelClaudeSignIn(id).catch((error: unknown) => {
-        console.debug('ClaudeSignInForm could not cancel its sign-in', { error })
-      })
-    }
-    props.onCancel()
-  }
+  const onSubmit = usePageSave({
+    save: () => signIn
+      ? finish(signIn)
+      : start(),
+    isDirty: Boolean(signIn) || Boolean(name.trim()) || priority !== 0,
+    canSaveUnchanged: true,
+    blockedReason: signIn && !code.trim()
+      ? t('signIn.codeNeeded')
+      : null,
+    label: signIn
+      ? t('signIn.finish')
+      : t('signIn.start'),
+  })
 
   return <Form
     validationBehavior='aria'
     className='flex flex-col gap-5'
-    onSubmit={(event) => {
-      event.preventDefault()
-      void (signIn
-        ? finish()
-        : start())
-    }}
+    onSubmit={onSubmit}
   >
     <p className='text-sm opacity-80'>{t('signIn.description')}</p>
 
@@ -177,19 +173,6 @@ export function ClaudeSignInForm(props: Props) {
       </TextField>
     </div>}
 
-    <div className='flex justify-end gap-2'>
-      <Button variant='tertiary' onPress={() => void cancel()}>
-        <span>{t('common:actions.cancel')}</span>
-      </Button>
-      <Button
-        type='submit'
-        isPending={isBusy}
-        isDisabled={Boolean(signIn) && !code.trim()}
-      >
-        <span>{signIn
-          ? t('signIn.finish')
-          : t('signIn.start')}</span>
-      </Button>
-    </div>
+    <PageCreateFooter />
   </Form>
 }

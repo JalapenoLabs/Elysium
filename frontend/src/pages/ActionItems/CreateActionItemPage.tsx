@@ -73,8 +73,6 @@ export function CreateActionItemPage() {
       initialProjectIds={projectIds}
       initialInitiativeIds={initiativeIds}
       onSaved={(itemId) => navigate(getActionItemViewUrl(itemId), { replace: true })}
-      // Back to wherever the form was opened from.
-      onCancel={() => navigate(-1)}
     />
     <LinkTargetModal
       state={fromLinkState}
