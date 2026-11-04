@@ -71,7 +71,6 @@ export function SnoozeDateModal(props: Props) {
               id='snooze-date'
               label={t('snooze.dateLabel')}
               calendarLabel={t('snooze.dateLabel')}
-              description={t('snooze.dateHint')}
               value={pickedDate}
               minValue={today(timeZone).add({ days: 1 })}
               onChange={setPickedDate}

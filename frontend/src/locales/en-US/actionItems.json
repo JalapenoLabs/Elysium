@@ -71,7 +71,6 @@
   "inboxLead": {
     "title_one": "{{count, compact}} item is waiting in your inbox",
     "title_other": "{{count, compact}} items are waiting in your inbox",
-    "body": "Accept what you intend to do and dismiss the rest before starting on Next.",
     "action": "Triage the inbox"
   },
   "inbox": {
@@ -94,7 +93,6 @@
     "end": "End the snooze",
     "dialogTitle": "Snooze until",
     "dateLabel": "Day",
-    "dateHint": "The item comes back to Next that morning.",
     "submit": "Snooze"
   },
   "wait": {
@@ -103,7 +101,6 @@
     "stop": "Stop waiting",
     "title": "Wait on someone",
     "label": "Name or email address",
-    "description": "The item leaves Next until you stop waiting.",
     "submit": "Wait"
   },
   "comments": {
@@ -222,9 +219,7 @@
     },
     "picker": {
       "linkTitle": "Link to Jira or GitHub",
-      "linkDescription": "Pick what the item stands for. Resolving the item moves a linked issue to done, and the provider closing it resolves the item.",
       "createTitle": "New item from Jira or GitHub",
-      "createDescription": "The item starts from its title, priority, due date, and assignee, and follows it from then on.",
       "credential": "Account",
       "noCredentials": "Add a Jira site or a GitHub token first.",
       "credentialsError": "Your Jira sites and GitHub tokens could not be loaded.",
@@ -321,7 +316,7 @@
     "notesLabel": "Notes",
     "addNotes": "Add notes",
     "deletedTitle": "This item is deleted",
-    "deletedBody": "It is hidden everywhere and counts toward no initiative. Restore it to work on it again."
+    "deletedBody": "Restore it to work on it again."
   },
   "sessions": {
     "heading": "Coding sessions",
@@ -333,7 +328,6 @@
     "fromLink": "From Jira or GitHub",
     "title": "Title",
     "notes": "Notes",
-    "dueDateHint": "Due until the end of that day.",
     "submit": "Create item",
     "errors": {
       "titleRequired": "Give the item a title.",

@@ -157,7 +157,6 @@ export function ActionItemForm(props: Props) {
         id='action-item-due-date'
         label={t('fields.dueDate')}
         calendarLabel={t('fields.dueDate')}
-        description={t('form.dueDateHint')}
         value={dueDate}
         onChange={(date) => form.setValue('dueDate', date, { shouldDirty: true })}
       />

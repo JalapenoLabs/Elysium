@@ -113,7 +113,6 @@ export function ActionItemLinks(props: Props) {
     <LinkTargetModal
       state={addState}
       title={t('links.picker.linkTitle')}
-      description={t('links.picker.linkDescription')}
       submitLabel={t('links.picker.linkSubmit')}
       onSubmit={link}
     />

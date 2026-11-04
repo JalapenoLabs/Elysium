@@ -73,7 +73,7 @@
   },
   "containers": {
     "heading": "Followed in Jira and GitHub",
-    "empty": "Follow a Jira epic or saved filter, or a GitHub milestone or label, and its open issues join this initiative as items.",
+    "empty": "Follow a Jira epic or saved filter, or a GitHub milestone or label, to bring in its issues.",
     "loadError": "What this initiative follows could not be loaded.",
     "add": "Follow",
     "newTitle": "Follow in Jira or GitHub",
@@ -106,13 +106,12 @@
     "describeLabel": "Description",
     "addDescription": "Add a description",
     "deletedTitle": "This initiative is deleted",
-    "deletedBody": "Its items keep it as a member but no longer list it. Restore it to track its progress again."
+    "deletedBody": "Restore it to track its progress again."
   },
   "form": {
     "createTitle": "New initiative",
     "name": "Name",
     "description": "Description",
-    "targetDateHint": "The goal is due by the end of that day.",
     "submit": "Create initiative",
     "errors": {
       "nameRequired": "Give the initiative a name.",

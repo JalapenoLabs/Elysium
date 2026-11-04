@@ -23,10 +23,7 @@ export function InboxLeadCard(props: Props) {
     <Card.Content className='flex-row flex-wrap items-center justify-between gap-4'>
       <div className='flex items-center gap-3 text-left'>
         <LuInbox className='size-5 shrink-0 text-accent' aria-hidden />
-        <div>
-          <p className='font-semibold'>{t('inboxLead.title', { count: props.count })}</p>
-          <p className='text-sm opacity-70'>{t('inboxLead.body')}</p>
-        </div>
+        <p className='font-semibold'>{t('inboxLead.title', { count: props.count })}</p>
       </div>
       <Link href={UrlTree.actionItemsInbox} className={buttonVariants({ size: 'sm' })}>
         <span>{t('inboxLead.action')}</span>

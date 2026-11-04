@@ -69,10 +69,7 @@ export function ChangesetsPage() {
         changesets={pending}
         list='pending'
         controlsContainer={toolsContainer}
-        emptyNotice={<EmptyNotice>
-          <span className='block font-semibold'>{t('list.emptyTitle')}</span>
-          <span>{t('list.emptyBody')}</span>
-        </EmptyNotice>}
+        emptyNotice={<EmptyNotice>{t('list.emptyTitle')}</EmptyNotice>}
       />
     </Tabs.Panel>
     <Tabs.Panel id='reviewed'>

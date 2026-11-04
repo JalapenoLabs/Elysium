@@ -104,7 +104,6 @@ export function useActionItemActions() {
     prompt({
       title: t('wait.title'),
       label: t('wait.label'),
-      description: t('wait.description'),
       defaultValue: item.waitingOn ?? '',
       maxLength: ACTION_ITEM_PERSON_MAX_CHARACTERS,
       submitText: t('wait.submit'),

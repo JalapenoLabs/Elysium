@@ -77,7 +77,6 @@ export function CreateActionItemPage() {
     <LinkTargetModal
       state={fromLinkState}
       title={t('links.picker.createTitle')}
-      description={t('links.picker.createDescription')}
       submitLabel={t('links.picker.createSubmit')}
       onSubmit={createFromLink}
     />

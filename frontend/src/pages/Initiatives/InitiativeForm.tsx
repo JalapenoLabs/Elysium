@@ -133,7 +133,6 @@ export function InitiativeForm(props: Props) {
         id='initiative-target-date'
         label={t('fields.targetDate')}
         calendarLabel={t('fields.targetDate')}
-        description={t('form.targetDateHint')}
         value={targetDate}
         onChange={(date) => form.setValue('targetDate', date, { shouldDirty: true })}
       />

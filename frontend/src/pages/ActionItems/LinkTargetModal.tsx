@@ -18,7 +18,6 @@ import { EMPTY_LINK_TARGET_DRAFT, toLinkTarget } from './linkPresentation'
 type Props = {
   state: UseOverlayStateReturn
   title: string
-  description: string
   submitLabel: string
   // Throws to keep the dialog open on what was picked, after reporting why.
   onSubmit: (target: LinkTarget) => Promise<void>
@@ -71,7 +70,6 @@ export function LinkTargetModal(props: Props) {
         <Modal.CloseTrigger />
         <Modal.Header>
           <Modal.Heading>{props.title}</Modal.Heading>
-          <p className='mt-1 text-sm opacity-70'>{props.description}</p>
         </Modal.Header>
         {/* Enter links what is picked (ux.md, Hotkeys) */}
         <Form

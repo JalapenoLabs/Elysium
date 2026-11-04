@@ -23,10 +23,7 @@ export function ChangesetsLeadCard(props: Props) {
     <Card.Content className='flex-row flex-wrap items-center justify-between gap-4'>
       <div className='flex items-center gap-3 text-left'>
         <LuGitPullRequestArrow className='size-5 shrink-0 text-accent' aria-hidden />
-        <div>
-          <p className='font-semibold'>{t('lead.title', { count: props.count })}</p>
-          <p className='text-sm opacity-70'>{t('lead.body')}</p>
-        </div>
+        <p className='font-semibold'>{t('lead.title', { count: props.count })}</p>
       </div>
       <Link href={UrlTree.changesets} className={buttonVariants({ size: 'sm' })}>
         <span>{t('lead.action')}</span>

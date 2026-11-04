@@ -16,7 +16,7 @@ import { selectInitiativeNamesById } from '../../store/initiativesSlice'
 import { selectProjectNamesById } from '../../store/projectsSlice'
 
 // User interface
-import { Alert, Button, Chip, Link, Spinner, Tooltip } from '@heroui/react'
+import { Button, Chip, Link, Spinner, Tooltip } from '@heroui/react'
 import { LuCheckCheck, LuUndo2, LuX } from 'react-icons/lu'
 import { Page } from '../../layout/page/Page'
 import { ChangesetOperationCard } from './ChangesetOperationCard'
@@ -115,6 +115,7 @@ export function ChangesetPage() {
 
   return <Page
     title={changeset.summary}
+    help={t('review.help')}
     badges={<Chip variant='soft' color={changesetStateChipColors[changeset.state]}>{
       t(changesetStateLabelKeys[changeset.state])
     }</Chip>}
@@ -158,13 +159,6 @@ export function ChangesetPage() {
       }</p>}
       {isPending && <p>{t('review.tally', tally)}</p>}
     </div>
-
-    {isPending && <Alert status='accent' className='relaxed'>
-      <Alert.Indicator />
-      <Alert.Content>
-        <Alert.Description>{t('review.pendingBody')}</Alert.Description>
-      </Alert.Content>
-    </Alert>}
 
     <div className='relaxed'>{
       changeset.operations.map((operation) => <ChangesetOperationCard

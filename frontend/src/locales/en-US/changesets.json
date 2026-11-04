@@ -40,7 +40,6 @@
   "list": {
     "loadError": "Changesets could not be loaded.",
     "emptyTitle": "Nothing to review",
-    "emptyBody": "When Elysia or a coding session proposes changes to your items, they wait here until you decide.",
     "noneReviewed": "Nothing reviewed yet."
   },
   "table": {
@@ -55,7 +54,6 @@
   "lead": {
     "title_one": "{{count, compact}} changeset waits for your review",
     "title_other": "{{count, compact}} changesets wait for your review",
-    "body": "Changes Elysia and coding sessions proposed. Nothing is written until you approve them.",
     "action": "Review"
   },
   "describe": {
@@ -95,7 +93,6 @@
     "apply": "Apply",
     "applyBlocked": "Approve or reject every change first.",
     "tally": "{{approved, compact}} approved, {{rejected, compact}} rejected, {{pending, compact}} undecided",
-    "pendingBody": "Nothing is written in Elysium, Jira, or GitHub until you apply the changes you approve.",
     "providerWaiting": "Waiting to reach {{provider}}",
     "providerFailed": "{{provider}} has not taken it yet: {{error}}",
     "undo": "Undo",
@@ -103,7 +100,8 @@
     "undoBody": "Every applied change is reversed, last first: new items and initiatives are deleted (they can be restored), edits and states go back, and comments and links are taken back.",
     "undoLimits": "Undo cannot take back what already reached Jira or GitHub: a posted comment stays posted, and a closed issue stays closed. A field or item you changed since keeps your change.",
     "decidedBy": "Decided by {{name}} on {{date}}",
-    "undoneAt": "Undone on {{date}}"
+    "undoneAt": "Undone on {{date}}",
+    "help": "Nothing is written in Elysium, Jira, or GitHub until you apply the changes you approve."
   },
   "undo": {
     "kept_one": "Kept your later change to {{fields}}.",
