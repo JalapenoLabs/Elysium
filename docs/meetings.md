@@ -325,11 +325,13 @@ every project's id, name, and the start of its description, and:
 | Source       | The prompt holds                                                   | The answer names each segment by |
 |--------------|--------------------------------------------------------------------|----------------------------------|
 | Meeting      | Its title, length, participants, and transcript as `[m:ss] Speaker: text` lines | Its start and end in seconds |
-| Conversation | Its title, message count, participants, and messages as `[n] [m:ss] Speaker: text` lines, timed from the first | Its first and last message, numbered from 1 |
+| Conversation | Its title, the name of the person whose timeline it is on, message count, participants, and messages as `[n] [m:ss] Speaker: text` lines, timed from the first | Its first and last message, numbered from 1 |
 
 A conversation's topics are runs of messages, since a chat's topics are not stretches of time: two messages a few
 seconds apart may be two requests. Each answer segment also has a title, a summary of what was said and decided, and
-`{ projectId, confidence }` pairs.
+`{ projectId, confidence }` pairs. A conversation's answer also names the promises the person made in it,
+`{ message, recipient, promise, projectId }` each: the message that makes it, who it is for, what they will tell them
+as a short phrase, and the project whose work keeps it (`docs/engine.md`, Follow-ups).
 
 **Nothing in the answer is taken on trust:**
 
@@ -338,6 +340,9 @@ seconds apart may be two requests. Each answer segment also has a title, a summa
   ending at its last message at most. At most 40 are kept.
 - An attribution is kept only for a project that was offered, once per segment, with its confidence clamped to 0 to 1,
   and dropped below 0.3. One to a project removed while the turn ran is left out when it is written.
+- A promise is kept only when it names one of the messages shown, once each, someone it is for (at most 200
+  characters), what was promised (cut to 500), and a project that was offered. At most ten are kept, and an answer
+  naming none still reads.
 - An answer with no JSON, the wrong shape, or no segment left fails the attempt, which the run's backoff tries again.
 
 The runner passes a prompt as one argument to `claude`, and Linux allows one argument 128 KiB. A transcript therefore
@@ -367,7 +372,9 @@ person's records fails for good), ordered by when they were said, and segmented 
 attributed to its topic's projects, and the reading replaces what Elysia said of those messages before: an attribution
 of hers that it no longer makes is taken off, so a conversation read again as it grows keeps no guess its fuller
 reading dropped. A person's attributions are never touched (`docs/connectors.md`, The timeline). Each message whose
-attributions changed is announced as `timelineRecord.changed`.
+attributions changed is announced as `timelineRecord.changed`. In the same transaction each promise it names is
+recorded on its project, once per message, when that message is answered through its connector, waking the project's
+Project Manager; the log counts the new ones and those made where no follow-up can answer them.
 
 **A conversation's topics are not records.** A meeting needs its segments as records because nothing else of it is on
 the timeline; a conversation's messages already are, each attributed to its topic's projects, so a topic record would

@@ -378,6 +378,7 @@ record and by person.
 | `sent_record_id`     | `UUID`        | References `timeline_records`, `SET NULL`: what the sent message became |
 | `created_by`         | `UUID`        | References `users`; the person it is sent as                            |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                 |
+| `promise_id`         | `UUID`        | References `promises`, `SET NULL`: the promise a follow-up keeps; unique while set (`drafts_one_per_promise`). A follow-up never shows in its record's reply box |
 
 ### `timeline_record_projects`
 
@@ -1406,19 +1407,42 @@ One turn of a project's Project Manager. Created as it starts, so there are no q
 
 What wakes a project's Project Manager, written in the transaction that caused it. A wake waits while `turn_id` is
 NULL; a turn takes every waiting wake of its project as it starts. Indexed for what waits per project, and by turn.
-`project_manager_wakes_record_waits_once` keeps one waiting wake per record and project.
+`project_manager_wakes_record_waits_once` keeps one waiting wake per record and project, and
+`project_manager_wakes_promise_waits_once` one per promise and project.
 
 | Column               | Type                        | Notes                                                       |
 |----------------------|-----------------------------|-------------------------------------------------------------|
 | `id`                 | `UUID`                      | UUIDv7, primary key                                         |
 | `project_id`         | `UUID`                      | References `projects`, cascading                            |
-| `kind`               | `project_manager_wake_kind` | `record`, `batch`, or `message`                             |
+| `kind`               | `project_manager_wake_kind` | `record`, `batch`, `message`, or `promise`                  |
 | `timeline_record_id` | `UUID`                      | Set exactly for `record`: the record attributed to the project; cascading |
 | `work_batch_id`      | `UUID`                      | Set exactly for `batch`: the batch that finished; cascading |
 | `body`               | `TEXT`                      | Set exactly for `message`: what a person or Elysia wrote, 1 to 20,000 characters |
 | `turn_id`            | `UUID`                      | The turn that took it; NULL while it waits; cascading       |
 | `created_by`         | `UUID`                      | References `users`: who wrote, who attributed the record, or the system user for a result |
 | `created_at`         | `TIMESTAMPTZ`               | Set on insert                                               |
+| `promise_id`         | `UUID`                      | Set exactly for `promise`: the promise found, or whose work finished; cascading |
+
+### `promises`
+
+What a person promised to tell someone once work is done, found by segmenting a conversation, kept by its project's
+Project Manager; see `docs/engine.md`, Follow-ups. Indexed by project, and by each of its batch, work item, and
+follow-up item while set.
+
+| Column               | Type            | Notes                                                                 |
+|----------------------|-----------------|-----------------------------------------------------------------------|
+| `id`                 | `UUID`          | UUIDv7, primary key                                                   |
+| `project_id`         | `UUID`          | References `projects`, cascading: whose Project Manager keeps it      |
+| `timeline_record_id` | `UUID`          | References `timeline_records`, cascading, unique: the person's message it was made in, which its follow-up answers |
+| `recipient`          | `TEXT`          | Who it is for, by name; 1 to 200 characters                           |
+| `summary`            | `TEXT`          | What was promised, as a short phrase; 1 to 500 characters             |
+| `state`              | `promise_state` | `waiting`, `due`, `drafted`, `kept`, or `dismissed`                   |
+| `work_batch_id`      | `UUID`          | References `work_batches`, `SET NULL`: the batch that keeps it        |
+| `work_item_id`       | `UUID`          | References `action_items`, `SET NULL`: the item that keeps it; at most one of the two is set (`promises_one_work`) |
+| `due_at`             | `TIMESTAMPTZ`   | When its work finished; set exactly once it is past `waiting`         |
+| `follow_up_item_id`  | `UUID`          | References `action_items`, `SET NULL`: the item its follow-up is, once drafted |
+| `created_by`         | `UUID`          | References `users`: Elysia, who found it                              |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                 |
 
 ### `work_batches`
 

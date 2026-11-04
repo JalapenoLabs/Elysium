@@ -215,6 +215,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/projects/{id}/project-manager` | `200` `{ projectManager }`; members only     |
 | POST   | `/api/v1/projects/{id}/project-manager/messages` | `201` `{ projectManager }`; `{ body }`, wakes it; members only |
 | GET    | `/api/v1/projects/{id}/project-manager/turns/{turnId}` | `200` `{ turn, log }`; members only |
+| GET    | `/api/v1/promises?followUpItemId=`    | `200` `{ promises: Promise[] }`: the one promise an item follows up, or none; members only |
 | GET    | `/api/v1/work-queue`                  | `200` `{ workQueue }`: the pool, its slots, and every batch waiting, in order; members only |
 | GET    | `/api/v1/work-batches/{id}`           | `200` `{ batch, history }`; members only            |
 | PATCH  | `/api/v1/work-batches/{id}`           | `200` as `GET`; `priority` (with `scheduledFor`), `paused`, `runNext`; `409` `work_batch_moved_on`; members only |
@@ -402,13 +403,14 @@ nobody changes. See `docs/connectors.md`.
 
 A `Draft` has `id`, `replyToRecordId`, `connectorId` or `mailAccountId` (what sends it), `target` (where it goes, in its
 sender's terms; a mail's holds `to` and `subject`), `place` (`thread` or `conversation`, for a chat reply), `body`,
-`state` (`draft`, `sending`, `sent`, or `failed`), `lastError`, `attemptedAt`, `sentAt`, `sentRecordId`, `createdBy`,
-`createdAt`, and `updatedAt`. `POST` takes `{ kind: "reply", recordId, place?, mailAccountId?, body }`, answering one of
-the caller's records through what its kind declares (`replies`), or `{ kind: "mail", mailAccountId, to, subject, body }`.
-A reply by mail without `mailAccountId` goes from the caller's only active mailbox, and answers `400` with
-`no_mailbox` when they have none and `mailbox_required` when they have several. A body is 1 to 20,000 characters.
-`POST /{id}/send` answers the draft as the send left it: a send the provider refused is `200` with the draft
-`failed`, its reason in `lastError` and its text kept. Every route answers the draft's writer alone. See
+`state` (`draft`, `sending`, `sent`, or `failed`), `lastError`, `attemptedAt`, `sentAt`, `sentRecordId`, `promiseId`
+(the promise a follow-up keeps), `createdBy`, `createdAt`, and `updatedAt`. `GET ?recordId=` lists the caller's own
+replies alone, never a follow-up drafted for a promise. `POST` takes `{ kind: "reply", recordId, place?, mailAccountId?,
+body }`, answering one of the caller's records through what its kind declares (`replies`), or `{ kind: "mail",
+mailAccountId, to, subject, body }`. A reply by mail without `mailAccountId` goes from the caller's only active mailbox,
+and answers `400` with `no_mailbox` when they have none and `mailbox_required` when they have several. A body is 1 to
+20,000 characters. `POST /{id}/send` answers the draft as the send left it: a send the provider refused is `200` with
+the draft `failed`, its reason in `lastError` and its text kept. Every route answers the draft's writer alone. See
 `docs/connectors.md`, Sending.
 
 ### `/api/v1/mail`
@@ -455,17 +457,22 @@ the URL, so each cover version has its own. Cover changes publish `project.upser
 
 `GET /{id}/project-manager` answers the project's Project Manager (`docs/engine.md`, Project Managers): `status`
 (`running`, `held`, `errored`, `waiting`, or `idle`), `waiting` (how many wakes wait for its next turn),
-`usagePausedUntil` (while a usage limit holds it), its latest 30 `turns`, newest first, and its latest 100 `batches`,
-newest first. A turn has `id`, `status` (`running`, `succeeded`, `failed`), `summary`, `reply`, `error`,
-`timelineRecordId`, `startedAt`, `finishedAt`, and `wakes`, what woke it: each `{ id, kind, timelineRecordId,
-workBatchId, body, createdBy, createdAt }`, `kind` being `record`, `batch`, or `message`. A batch has `id`, `title`,
-`goal`, `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`, `scheduled`), `scheduledFor`, `state`
-(`queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`, `cancelled`), `result`, `turnId`, `sourceRecordIds`,
-`actionItemIds`, `timelineRecordId`, `projectId`, `pinnedAt`, `assignedAt`, `createdAt`, `startedAt`, and
-`finishedAt`, as `/api/v1/work-batches` answers it. A project nothing woke yet answers `idle` with none.
-`POST /{id}/project-manager/messages` takes `{ body }` (1 to 20,000 characters, not blank) as the person's message,
-which wakes it at once, and answers it as `GET` does. `GET /{id}/project-manager/turns/{turnId}` answers one turn with
-its `log`. Its turns quote what was ingested, so all three answer the company's members alone (`403` for a guest).
+`usagePausedUntil` (while a usage limit holds it), its latest 30 `turns`, newest first, its latest 100 `batches`, newest
+first, and its latest 100 `promises`, newest first. A turn has `id`, `status` (`running`, `succeeded`, `failed`),
+`summary`, `reply`, `error`, `timelineRecordId`, `startedAt`, `finishedAt`, and `wakes`, what woke it: each `{ id, kind,
+timelineRecordId, workBatchId, promiseId, body, createdBy, createdAt }`, `kind` being `record`, `batch`, `message`, or
+`promise`. A batch has `id`, `title`, `goal`, `repositories` (`[{ url, baseBranch? }]`), `priority` (`asap`, `normal`,
+`scheduled`), `scheduledFor`, `state` (`queued`, `paused`, `assigned`, `running`, `succeeded`, `failed`, `cancelled`),
+`result`, `turnId`, `sourceRecordIds`, `actionItemIds`, `timelineRecordId`, `projectId`, `pinnedAt`, `assignedAt`,
+`createdAt`, `startedAt`, and `finishedAt`, as `/api/v1/work-batches` answers it. A `Promise` has `id`, `projectId`,
+`state` (`waiting`, `due`, `drafted`, `kept`, `dismissed`), `recipient`, `summary` (what was promised), `madeIn` (`{
+recordId, sourceKind, title, url, occurredAt, personId }`, the message it was made in and whose timeline it is on, or
+null once that message is gone), `workBatchId` or `workItemId` (the work it waits on), `dueAt`, `followUpItemId`,
+`draftId` (its follow-up's draft, which only its person may read), and `createdAt`; `/api/v1/promises` answers the same
+shape (`docs/engine.md`, Follow-ups). A project nothing woke yet answers `idle` with none. `POST
+/{id}/project-manager/messages` takes `{ body }` (1 to 20,000 characters, not blank) as the person's message, which
+wakes it at once, and answers it as `GET` does. `GET /{id}/project-manager/turns/{turnId}` answers one turn with its
+`log`. Its turns quote what was ingested, so all three answer the company's members alone (`403` for a guest).
 
 `DELETE /{id}/cover` is soft: the cover stops showing (`coverUpdatedAt` is null and `GET /{id}/cover` answers `404`),
 but its image is kept until a new cover replaces it, so a project keeps at most one removed cover.

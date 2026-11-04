@@ -1010,6 +1010,15 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   (`docs/connectors.md`, Sending). A send that failed shows its reason under the text it kept, with Report. What is
   typed is kept as a draft per record (`reply.<recordId>`, see Forms, Drafts) until it is sent or discarded.
   `draft.changed` reloads a draft by id, and drops one that is gone.
+- **Follow-up** (`ActionItemFollowUp`). An item a Project Manager drafted to keep a promise (`docs/engine.md`,
+  Follow-ups) shows, under the reply box, who it is for and the conversation it goes to (opening it in a new tab), what
+  was promised, and the message as text, with Send, Edit, and Dismiss. Send sends the draft as it stands (the item
+  resolves on the server); Edit turns the message into a text area, Ctrl or Cmd with Enter saves, Escape puts it back,
+  and what is typed is kept for the tab (`followUp.<promiseId>`); Dismiss dismisses the item. Once the item is
+  resolved or dismissed, or the draft is sent, the message shows alone. The promise loads by item
+  (`useFollowUpPromiseLoader`, `GET /promises?followUpItemId=`, members only) into the `promises` slice and its draft
+  by id (`useDraftLoader`); a member who is not its person is told it is theirs to send. A follow-up's draft never
+  shows in its record's reply box (`selectUnsentRecordDrafts` leaves drafts with a `promiseId` out).
 - **Start a coding session**, on the item page and in Next, goes to `/coding/new?item=<id>`
   (`getNewCodingSessionUrl`), New session started from the item; see [Coding](#coding).
 
@@ -1170,19 +1179,22 @@ Save sends the changed fields first, then uploads the cover; a cover that fails 
 uploads it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Models, a link to the models
 its agents run on (see Models), Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions remain. Below,
 `ProjectLists` holds the project's lists as tabs, each with its total, the open one in `?tab=`: Action items (still
-owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Project Manager and Work batches (for
-members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the session on the Coding
-page). Switching tabs keeps unsaved edits.
+owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Project Manager, Work batches, and
+Promises (for members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the session on
+the Coding page). Switching tabs keeps unsaved edits.
 
 The Project Manager tab (`ProjectManagerPanel`) shows what the project's Project Manager is doing as a chip, how much
 waits for it, and a usage hold's end; a box to write to it (`ProjectManagerComposer`, Ctrl or Cmd with Enter sends,
 the draft kept for the tab); and its latest turns, newest first, each a row like a Runs step (`ProjectManagerTurnRow`):
 collapsed to its state, its summary or why it failed, when it started, and how long it took, opening to the messages
-that woke it, how many records and batches came with them, its reply, and its log (`ProjectManagerTurnLog`, read only
+that woke it, how many records, batches, and promises came with them, its reply, and its log (`ProjectManagerTurnLog`, read only
 then). A running or failed turn starts open. Work batches (`WorkBatchesTable`) is a `SmartTable` of its batches: the
-title, the priority with a scheduled one's time, the state, when it was submitted, and what its worker reported. Both
-read Redux, loaded by `useProjectManagerLoader` and kept current by `projectManager.changed`, which reloads the
-project's Project Manager and any turn open on its page. A Project Manager's own records on the Timeline tab show
+title, the priority with a scheduled one's time, the state, when it was submitted, and what its worker reported.
+Promises (`PromisesTable`) is a `SmartTable` of the promises it keeps: what was promised, who for, where (the
+conversation, opening in a new tab), the work it waits on (a batch by title, or an item linking to it), its state with
+a link to its follow-up once drafted, and when it was made. All three read Redux, loaded by `useProjectManagerLoader`
+and kept current by `projectManager.changed`, which reloads the project's Project Manager and any turn open on its
+page. A Project Manager's own records on the Timeline tab show
 neither Reply nor the project controls: they are the workspace's, on their own project.
 
 `src/components/InlineEditableText.tsx` shows a field of the page's form as text that becomes its own editor when
@@ -1306,6 +1318,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `modelSettings`  | What each kind, step, and agent runs on, and the models, prices, and efforts offered; admins |
 | `notifications` | Toasts kept for the notification menu, newest first, and which are read |
 | `projects`       | Projects, sorted by name                                                |
+| `promises`       | The promises follow-up items' pages loaded, each item's load replacing what is held for it |
 | `projectManagers` | Each viewed project's Project Manager, replaced whole by every load, and the turn logs opened |
 | `workQueue`      | The worker pool and its queue, replaced whole by every load, and each batch opened with its history |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |

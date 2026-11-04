@@ -16,7 +16,8 @@ which gathers every direct message and mention per conversation and starts work 
 below), the company doc's scheduled review (The company doc, below), every project's Project Manager, which
 submits work batches for the worker pool (Project Managers, below), and the pool's scheduler, which hands its slots to
 those batches in order, with the work queue people and Elysia reorder, pause, and cancel from (Workers and the pool,
-below).
+below), and the promises people make in conversations, which their projects' Project Managers keep with a follow-up the
+person sends (Follow-ups, below).
 
 ## A service of its own
 
@@ -419,7 +420,7 @@ Built: every project's Project Manager (`api/src/project_managers/`), its wakes,
   (`claude -p --resume`) and kept indefinitely, relying on Claude Code's own compaction as it grows. Each project is
   its own runner conversation, working in `project-managers/<project id>` in the workspace, so its files persist. The
   session it last reported is kept on its row (`project_managers.runner_session_id`), which its first wake creates.
-- **What wakes it.** Four things, each written as a wake (`project_manager_wakes`) in the same transaction as what
+- **What wakes it.** Five things, each written as a wake (`project_manager_wakes`) in the same transaction as what
   caused it, so no crash or lost signal loses one:
   - **a record newly on its project**: segmenting a meeting or a conversation attributing a topic or a message to it,
     a person adding a record to it, or an undo putting one back, all through `models::attribution`
@@ -428,7 +429,9 @@ Built: every project's Project Manager (`api/src/project_managers/`), its wakes,
     the request workflow included (Conversations, above), with nothing of its own to add;
   - **a batch's result**: a worker finishing its batch (`work_batch::finish`, which the pool's workers call);
   - **a person**: the Project Manager tab's composer (`POST /api/v1/projects/{id}/project-manager/messages`);
-  - **Elysia**: her `elysia_message_project_manager` tool (`docs/elysia.md`, Tools).
+  - **Elysia**: her `elysia_message_project_manager` tool (`docs/elysia.md`, Tools);
+  - **a promise**: one segmenting found on its project, or one whose work just finished (Follow-ups, below); a promise
+    waits once however often it is woken for meanwhile.
 - **Debounced and coalesced.** The dispatcher (`project_managers::dispatcher`) starts a project's turn once its wakes
   have been quiet for 30 seconds, or two minutes after the oldest arrived however busy it stays, and at once for a
   message, someone being there for the answer (`project_managers::queue`, a pure function tested alone). A turn takes
@@ -444,11 +447,16 @@ Built: every project's Project Manager (`api/src/project_managers/`), its wakes,
 - **A turn.** Its model is its kind's for the project (`agent_models::for_agent(Agent::ProjectManager, project)`,
   Models below). Its standing instructions are `api/src/project_managers/instructions.md`, appended to Claude Code's
   system prompt, and its prompt names the project and carries what woke it: each message, each record's kind, title,
-  summary, attribution, and an excerpt, and each batch's result, under 100 KB. It ends with a `Summary:` line, which
+  summary, attribution, and an excerpt, each batch's result with the promises still waiting on one that failed, and
+  each promise that woke it, under 100 KB. Every turn also carries each of the project's promises whose work is done
+  and whose follow-up is not drafted yet, up to 20, woken for or not, so a turn that failed of itself never strands
+  one. It ends with a `Summary:` line, which
   heads it; the text before it is its reply.
 - **Its tools.** `elysium_project_manager` (`api/src/tools/project_manager.rs`): `manager_timeline` and
   `manager_record` read its project's timeline, every owner's records on it, `manager_batches` lists its batches,
-  `manager_submit_batch` submits one, and `manager_cancel_batch` withdraws one no worker has started on. It also gets
+  `manager_submit_batch` submits one, `manager_cancel_batch` withdraws one no worker has started on, and
+  `manager_promises`, `manager_tie_promise`, and `manager_draft_follow_up` keep its promises (Follow-ups, below). It
+  also gets
   `elysium_work`, scoped to its project, and `elysium_knowledge`. Every call is checked against the project in the
   database, under a grant for the turn alone.
 - **Outward work is proposed.** Until it writes to the trackers itself (#83), anything it wants changed (an item, a
@@ -670,11 +678,65 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
 
 ## Follow-ups
 
-- When a step finds a promise the person made ("I'll let you know on Slack when it's done"), it is recorded on the
-  project with who it is for and where they asked. When the Project Manager sees that work finish, it drafts the
-  message in the person's voice as an action item with Send, Edit, and Dismiss. Send posts it through the connector it
-  came from, as the person. Nothing is sent without that click. The drafted message is a draft
-  (`docs/connectors.md`, Sending) answering the record the promise was made in, and Send is `crate::drafts::send`.
+Built: promises found in conversations, kept by their projects' Project Managers (`api/src/models/promise.rs`,
+`api/src/project_managers/promises.rs`), with the Promises tab on a project's page and the follow-up on its item's page
+(`docs/frontend.md`, Projects and Action items).
+
+A promise is the person telling someone they will let them know once some work is done ("I'll ping you here when the
+fix is live"). It is recorded on the project whose work keeps it, with who it is for, what was promised, the message it
+was made in (which is where they were asked, and where its follow-up goes), and the work it waits on. When that work is
+done, the project's Project Manager drafts the follow-up in the person's voice, and it waits in their inbox as an action
+item with Send, Edit, and Dismiss. Nothing is sent without Send.
+
+- **Found by segmenting.** A conversation's segmenting turn (`segment_meeting`, `docs/meetings.md`, Segmentation) names
+  the promises the person made in it beside its topics. Segmenting is where they are found because it already reads
+  every message of the conversation whole, numbered, in one text turn whose answer nothing trusts: a promise must name
+  one of the messages shown, once each, someone it is for, what was promised, and a project that was offered, at most
+  ten an answer. It reads every conversation whether or not any Project Manager is woken, and a promise needs the exact
+  message it was made in, since that is what its follow-up answers. A Project Manager's turn reads records only as
+  excerpts and answers through tools, so it ties and drafts but never finds.
+- **Where it can go.** A promise is kept only when its message is answered through the connector it came from
+  (`Definition.replies`, Slack and Teams today), since its follow-up is a reply to that message. The person's own mail
+  is never read, so a promise made by mail is never found there.
+- **Once per message.** A message holds at most one promise (`promises.timeline_record_id` is unique), so a
+  conversation read again as it grows records nothing twice, and a promise a person dismissed stays dismissed. Each
+  new one is recorded as Elysia's, in the transaction that attributes the conversation's messages, with a `promise`
+  wake for its Project Manager.
+- **Tied to its work.** The Project Manager ties a promise to the work that keeps it (`manager_tie_promise`): a batch of
+  its project's, kept when it succeeds, or an action item in its project, kept when it resolves, which is how a linked
+  Jira or GitHub issue closing and a pull request merging reach it, through the link watcher. A batch that failed or
+  was cancelled, and an item dismissed, deleted, or in another project, are refused. Work already done makes the
+  promise due as it is tied.
+- **Due when the work is done.** A batch succeeding (`work_batch::finish`) or an item resolving, by anyone
+  (`action_item::transition`), makes every promise waiting on it `due` and wakes its Project Manager, in the same
+  transaction, so nothing polls for it. A batch that fails leaves its promises waiting, and the Project Manager's next
+  turn names them under the failed batch so it ties them to what replaces it. Deployments have no signal of their own
+  yet: a batch whose goal includes the deploy, or an item resolved once it is out, is how one counts.
+- **Drafted in the person's voice.** For a due promise the Project Manager writes the message as the person who made
+  it (`manager_draft_follow_up`). In one transaction it becomes a draft of that person's answering the message the
+  promise was made in, through what answers its kind (`drafts::reply_draft`, its kind's first place, the thread), and
+  an inbox item of theirs in the project, titled `Follow up with <recipient>: <promise>` and quoting what they said,
+  created as `project_manager:<project id>`; the promise is then `drafted`. Raising an inbox item changes nothing in
+  the person's name, as `handle_request`'s items do not, so it needs no changeset.
+- **The person decides.** Send is `crate::drafts::send`: it posts through the connector the promise came from, as the
+  person, and in the transaction that records the send it marks the promise `kept` and resolves its item
+  (`docs/connectors.md`, Sending). Edit changes the draft's text. Dismiss dismisses the item, which marks the promise
+  `dismissed`. Resolving the item by hand, having told them some other way, keeps the promise too; reopening an item
+  changes no promise until it is resolved or its follow-up is sent.
+- **Who sees it.** A promise quotes what was ingested, so its routes answer the company's members alone, as the Project
+  Manager's do; its follow-up's draft is its person's alone, and anyone else sees that it is theirs to send.
+
+States: `waiting` (recorded, its work not done or not tied yet), `due` (its work done, its follow-up owed), `drafted`,
+`kept`, and `dismissed`. A promise leaves `waiting` only when its work finishes.
+
+On the roadmap:
+
+- The person's own messages join a conversation only while it is being worked on (Conversations, Gathering), so a
+  promise typed after its conversation's run ended is not read. Reading the person's replies whenever they answer a
+  conversation Elysium already holds is the next step.
+- Promises made in meetings ("I'll tell them on Slack"): a meeting segment is not answered from Elysium, so its
+  follow-up needs a new message to a conversation picked rather than answered (`docs/connectors.md`, Roadmap).
+- Dismissing a promise from the project's Promises tab before its work is done.
 
 ## Elysia
 

@@ -504,6 +504,17 @@ Every call is scoped to the session's project and re-checked against the databas
 - A pull request linked to an item resolves it when it merges, through the watcher, and the resolve then moves the
   item's other linked issues.
 
+## Follow-ups
+
+An item can be the follow-up a project's Project Manager drafted to keep a promise the person made ("I'll let you know
+here when it's live"), once the work it waited on was done (`docs/engine.md`, Follow-ups). It starts in the inbox, owned
+by the person, created as `project_manager:<project id>`, titled with who to tell and what, with the promise quoted in
+its notes, and its page carries the drafted message with Send, Edit, and Dismiss. Sending resolves it as the person;
+dismissing it, from anywhere an item is dismissed, marks the promise dismissed; resolving it by hand keeps the promise.
+An item a promise waits on is its work: resolving it, by the person or by the watcher reading its issue closed or its
+pull request merged, makes the promise due (`crate::models::promise::follow_item`, in `action_item::transition`'s
+transaction).
+
 ## Roadmap
 
 - Email: completing an item that came from an email marks the thread read, then archives or deletes it; which of the

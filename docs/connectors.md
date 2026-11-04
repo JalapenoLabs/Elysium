@@ -481,9 +481,9 @@ read the site refuses marks the connector `signed_out`; any other failure keeps 
 ## Sending
 
 A person answers what a connector read as themselves, through what the record's kind declares (`Definition.replies`).
-`crate::drafts` is the one way anything leaves Elysium in someone's name: the web app's Send calls it, and the
-follow-ups the engine drafts (`docs/engine.md`, Follow-ups) will call the same `drafts::send` once the person presses
-Send. Sending is the person's own act, so it needs no changeset; anything else can only write a draft for them.
+`crate::drafts` is the one way anything leaves Elysium in someone's name: the web app's Send calls it, on a reply of
+the person's own and on a follow-up a Project Manager drafted for a promise of theirs (`docs/engine.md`, Follow-ups).
+Sending is the person's own act, so it needs no changeset; anything else can only write a draft for them.
 
 - **A draft first.** Everything sent is a draft (`drafts`, `docs/database.md`): its text, what sends it (a connector or
   a mailbox), and where it goes (`target`, in the sender's own terms, decided when it is written from the record it
@@ -499,6 +499,11 @@ Send. Sending is the person's own act, so it needs no changeset; anything else c
   reader names what it reads (Slack's `team/conversation/ts`, Teams' `conversation/message`), so reading it back later
   records nothing twice; the draft points at that record. Its actor is the person, its title the conversation it
   answers, and its metadata names the draft (`draftId`).
+- **A follow-up keeps its promise.** A draft written for a promise (`drafts.promise_id`) is decided exactly as
+  `draft_reply` decides a reply (`drafts::reply_draft`, which the Project Manager's tool stores with its item in one
+  transaction). Sending it marks the promise kept and resolves its item, as the person, in the transaction that records
+  the send, so a follow-up is never sent and left owed. It belongs to its item's page: the reply box of the record it
+  answers lists only the person's own drafts.
 
 | Kind              | Replies                  | Sent through                                                         |
 |-------------------|--------------------------|----------------------------------------------------------------------|

@@ -488,13 +488,17 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   every turn (`claude -p --resume`) and kept indefinitely, relying on Claude Code's compaction. It plans the project's
   work and submits it as work batches (`work_batches`: a goal, repositories, ASAP, normal, or a scheduled time, and its
   provenance) for the worker pool. See `docs/engine.md`, Project Managers.
-- It is woken by a record newly attributed to its project, a batch's result, a person, and Elysia, each written as a
-  wake in the transaction that caused it. Wakes are debounced into one turn per project, one turn at a time (the
-  database refuses a second), and a turn a restart or a usage limit cut short gives them back.
+- It is woken by a record newly attributed to its project, a batch's result, a promise, a person, and Elysia, each
+  written as a wake in the transaction that caused it. Wakes are debounced into one turn per project, one turn at a time
+  (the database refuses a second), and a turn a restart or a usage limit cut short gives them back.
 - Its turns and batches are timeline records owned by its machine user: the workspace's, read by every member on the
   project's timeline, changed by nobody. Its model is its kind's for the project (`Agent::ProjectManager`).
 - Until it writes to the trackers itself (#83), anything outward it proposes as a changeset, as
   `project_manager:<project id>`.
+- It keeps the promises people make in conversations ("I'll let you know when it's live", `promises`), which
+  segmenting finds: it ties each to a batch or an action item, and once that work succeeds or resolves it drafts the
+  follow-up in the person's voice, a draft of theirs beside an inbox item they send, edit, or dismiss. Nothing is sent
+  without their Send, which keeps the promise and resolves the item. See `docs/engine.md`, Follow-ups.
 
 ## The worker pool
 
