@@ -1,10 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Key } from '@heroui/react'
 import type { Llm } from '../../../api/routes/llmRoutes'
 
 // Core
-import { generatePath, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -24,7 +22,6 @@ import { LlmTable } from './LlmTable'
 import { deleteLlm, updateLlm } from '../../../api/routes/llmRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useLlmsLoader, useWorkspaceSettingsLoader } from '../../../hooks/useServerData'
-import { UrlTree } from '../../../urls'
 import { LLM_TYPES, llmTypeLabelKeys } from './llmPresentation'
 import { addLlmUrlByType } from './llmProviders'
 import { toast } from '../../../toast/toast'
@@ -35,8 +32,6 @@ export function ManageLlmsPage() {
   const llms = useAppSelector(selectAllLlms)
   const status = useLlmsLoader()
   const isAdmin = useAppSelector(selectIsAdmin)
-
-  const navigate = useNavigate()
   const confirm = useConfirm()
 
   function confirmDelete(llm: Llm) {
@@ -58,10 +53,6 @@ export function ManageLlmsPage() {
         toast.success(t('toasts.deleted', { name: llm.name }))
       },
     })
-  }
-
-  function openEditor(llm: Llm) {
-    navigate(generatePath(UrlTree.settingsLlmsEdit, { llmId: llm.id }))
   }
 
   async function toggleActive(llm: Llm) {
@@ -98,11 +89,14 @@ export function ManageLlmsPage() {
             <LuChevronDown className='size-4' aria-hidden />
           </Button>
           <Dropdown.Popover placement='bottom end'>
-            <Dropdown.Menu
-              aria-label={t('credentials.addMenu')}
-              onAction={(key: Key) => navigate(addLlmUrlByType[key as Llm['type']])}
-            >{
-              LLM_TYPES.map((type) => <Dropdown.Item key={type} id={type} textValue={t(llmTypeLabelKeys[type])}>
+            {/* Each provider is a link to its own add page, so it opens in a new tab too. */}
+            <Dropdown.Menu aria-label={t('credentials.addMenu')}>{
+              LLM_TYPES.map((type) => <Dropdown.Item
+                key={type}
+                id={type}
+                textValue={t(llmTypeLabelKeys[type])}
+                href={addLlmUrlByType[type]}
+              >
                 <Label>{t(llmTypeLabelKeys[type])}</Label>
               </Dropdown.Item>)
             }</Dropdown.Menu>
@@ -120,7 +114,6 @@ export function ManageLlmsPage() {
 
       {status === 'loaded' && <LlmTable
         llms={llms}
-        onEdit={openEditor}
         onToggleActive={toggleActive}
         onDelete={confirmDelete}
       />}

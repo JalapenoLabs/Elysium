@@ -26,7 +26,6 @@ import {
 
 type Props = {
   llms: Llm[]
-  onEdit: (llm: Llm) => void
   onToggleActive: (llm: Llm) => void
   onDelete: (llm: Llm) => void
 }
@@ -115,7 +114,6 @@ export function LlmTable(props: Props) {
       createdBy: (llm: Llm) => userNames[llm.createdBy] ?? t('common:table.someone'),
       rowActions: (llm: Llm) => <LlmRowActions
         llm={llm}
-        onEdit={props.onEdit}
         onToggleActive={props.onToggleActive}
         onDelete={props.onDelete}
       />,
@@ -168,7 +166,7 @@ export function LlmTable(props: Props) {
         }
       },
     })
-  }, [ t, userNames, now, props.onEdit, props.onToggleActive, props.onDelete ])
+  }, [ t, userNames, now, props.onToggleActive, props.onDelete ])
 
   if (!props.llms.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

@@ -166,6 +166,10 @@ export function getConnectorPickerUrl(provides: ConnectorProvides) {
   return `${UrlTree.settingsConnectorNew}?${CONNECTOR_PROVIDES_PARAM}=${encodeURIComponent(provides)}`
 }
 
+export function getLlmEditUrl(llmId: string) {
+  return UrlTree.settingsLlmsEdit.replace(':llmId', llmId)
+}
+
 export function getEnvironmentVariableEditUrl(variableId: string) {
   return UrlTree.settingsEnvironmentEdit.replace(':variableId', variableId)
 }

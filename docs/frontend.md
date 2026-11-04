@@ -132,6 +132,12 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
 (`src/layout/useRouterHref.ts`). That makes any HeroUI `Link` `href` a client-side navigation, while a full URL to
 another site keeps its own address. It also mounts the toast region.
 
+Anything that goes somewhere is a real link, so it can be middle-clicked, ctrl+clicked, or opened in a new tab
+(`~/.claude/docs/ux.md`, Buttons): a button is a HeroUI `Link` styled with `buttonVariants(...)`, a menu item is a
+`Dropdown.Item` with an `href`, a page action has an `href`, and a table row that opens something has a link in its
+title cell. `navigate()` is kept for navigation that is not a link: after a save or a delete, a keyboard shortcut, and
+a click anywhere on a row, which only adds to the row's own link.
+
 ## Routes
 
 Paths live in `UrlTree` in `src/urls.ts`, and the route table lives in `src/router.tsx`. `/` redirects to Action

@@ -10,19 +10,21 @@ import { useTranslation } from 'react-i18next'
 import { Button, Dropdown, Label } from '@heroui/react'
 import { LuEllipsis } from 'react-icons/lu'
 
+// Misc
+import { getLlmEditUrl } from '../../../urls'
+
 type Props = {
   llm: Llm
-  onEdit: (llm: Llm) => void
   onToggleActive: (llm: Llm) => void
   onDelete: (llm: Llm) => void
 }
 
-// The per-row "..." menu: edit, flip the active flag, or delete.
+// The per-row "..." menu: edit, a link to the credential's page so it opens in a new tab
+// too, flip the active flag, or delete.
 export function LlmRowActions(props: Props) {
   const { t } = useTranslation([ 'llms', 'common' ])
 
   const actions: Record<string, () => void> = {
-    edit: () => props.onEdit(props.llm),
     toggle: () => props.onToggleActive(props.llm),
     delete: () => props.onDelete(props.llm),
   }
@@ -41,7 +43,11 @@ export function LlmRowActions(props: Props) {
     </Button>
     <Dropdown.Popover placement='bottom end'>
       <Dropdown.Menu onAction={(key: Key) => actions[String(key)]?.()}>
-        <Dropdown.Item id='edit' textValue={t('common:actions.edit')}>
+        <Dropdown.Item
+          id='edit'
+          textValue={t('common:actions.edit')}
+          href={getLlmEditUrl(props.llm.id)}
+        >
           <Label>{t('common:actions.edit')}</Label>
         </Dropdown.Item>
         <Dropdown.Item id='toggle' textValue={toggleLabel}>

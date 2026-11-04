@@ -4,14 +4,13 @@ import type { EnvironmentVariable } from '../../../api/routes/environmentRoutes'
 
 // Core
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 
 // Redux
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { environmentVariableDeleted, selectAllEnvironmentVariables } from '../../../store/environmentVariablesSlice'
 
 // User interface
-import { Button, Spinner } from '@heroui/react'
+import { buttonVariants, Link, Spinner } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 import { SettingsPage } from '../SettingsPage'
 import { EnvironmentVariableTable } from './EnvironmentVariableTable'
@@ -21,7 +20,7 @@ import { EnvironmentVisibilityNote } from './EnvironmentVisibilityNote'
 import { deleteEnvironmentVariable } from '../../../api/routes/environmentRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useEnvironmentVariablesLoader } from '../../../hooks/useServerData'
-import { getEnvironmentVariableEditUrl, UrlTree } from '../../../urls'
+import { UrlTree } from '../../../urls'
 import { toast } from '../../../toast/toast'
 
 // `/settings/environment`: the global environment variables every coding session receives.
@@ -31,7 +30,6 @@ export function ManageEnvironmentPage() {
   const confirm = useConfirm()
   const variables = useAppSelector(selectAllEnvironmentVariables)
   const status = useEnvironmentVariablesLoader()
-  const navigate = useNavigate()
 
   function confirmDelete(variable: EnvironmentVariable) {
     confirm({
@@ -58,13 +56,10 @@ export function ManageEnvironmentPage() {
 
   return <SettingsPage
     title={t('title')}
-    primaryAction={<Button
-      variant='outline'
-      onPress={() => navigate(UrlTree.settingsEnvironmentNew)}
-    >
+    primaryAction={<Link href={UrlTree.settingsEnvironmentNew} className={buttonVariants({ variant: 'outline' })}>
       <LuPlus className='size-4' aria-hidden />
       <span>{t('variables.add')}</span>
-    </Button>}
+    </Link>}
   >
     <section>
       <p className='compact text-sm opacity-70'>{
@@ -84,7 +79,6 @@ export function ManageEnvironmentPage() {
 
       {status === 'loaded' && <EnvironmentVariableTable
         variables={variables}
-        onEdit={(variable) => navigate(getEnvironmentVariableEditUrl(variable.id))}
         onDelete={confirmDelete}
       />}
     </section>

@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 
 // User interface
-import { Button, Card, Link } from '@heroui/react'
+import { Button, buttonVariants, Card, Link } from '@heroui/react'
 import {
   LuAlarmClock,
   LuCircleCheck,
@@ -144,11 +144,12 @@ export function NextItemCard(props: Props) {
           <span>{t('comments.action')}</span>
           <ShortcutHint shortcut={SHORTCUTS.comment} />
         </Button>
-        <Button variant='ghost' onPress={startSession}>
+        {/* A link, so it opens in a new tab too; its key navigates the same way. */}
+        <Link href={getNewCodingSessionUrl(item.id)} className={buttonVariants({ variant: 'ghost' })}>
           <LuSquareTerminal className='size-4' aria-hidden />
           <span>{t('sessions.start')}</span>
           <ShortcutHint shortcut={SHORTCUTS.code} />
-        </Button>
+        </Link>
         <Button variant='ghost' onPress={props.onSkip} isDisabled={props.total < 2} className='ml-auto'>
           <LuSkipForward className='size-4' aria-hidden />
           <span>{t('next.skip')}</span>

@@ -10,19 +10,21 @@ import { useTranslation } from 'react-i18next'
 import { Button, Dropdown, Label } from '@heroui/react'
 import { LuEllipsis } from 'react-icons/lu'
 
+// Misc
+import { getStorageLocationEditUrl } from '../../../urls'
+
 type Props = {
   location: StorageLocation
-  onEdit: (location: StorageLocation) => void
   onTest: (location: StorageLocation) => void
   onDelete: (location: StorageLocation) => void
 }
 
-// The per-row "..." menu: edit, test the connection, or delete.
+// The per-row "..." menu: edit, a link to the location's page so it opens in a new tab
+// too, test the connection, or delete.
 export function StorageLocationRowActions(props: Props) {
   const { t } = useTranslation([ 'storage', 'common' ])
 
   const actions: Record<string, () => void> = {
-    edit: () => props.onEdit(props.location),
     test: () => props.onTest(props.location),
     delete: () => props.onDelete(props.location),
   }
@@ -38,7 +40,11 @@ export function StorageLocationRowActions(props: Props) {
     </Button>
     <Dropdown.Popover placement='bottom end'>
       <Dropdown.Menu onAction={(key: Key) => actions[String(key)]?.()}>
-        <Dropdown.Item id='edit' textValue={t('common:actions.edit')}>
+        <Dropdown.Item
+          id='edit'
+          textValue={t('common:actions.edit')}
+          href={getStorageLocationEditUrl(props.location.id)}
+        >
           <Label>{t('common:actions.edit')}</Label>
         </Dropdown.Item>
         <Dropdown.Item id='test' textValue={t('actions.test')}>

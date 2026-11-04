@@ -4,14 +4,13 @@ import type { StorageLocation } from '../../../api/routes/storageRoutes'
 
 // Core
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 
 // Redux
 import { useAppDispatch, useAppSelector } from '../../../store/hooks'
 import { selectAllStorageLocations, storageLocationDeleted } from '../../../store/storageLocationsSlice'
 
 // User interface
-import { Button, Spinner } from '@heroui/react'
+import { buttonVariants, Link, Spinner } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 import { SettingsPage } from '../SettingsPage'
 import { StorageLocationTable } from './StorageLocationTable'
@@ -21,7 +20,7 @@ import { getApiErrorCode, getApiErrorMessage, getUpstreamErrorMessage } from '..
 import { deleteStorageLocation, testStorageLocation } from '../../../api/routes/storageRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useStorageLocationsLoader } from '../../../hooks/useServerData'
-import { getStorageLocationEditUrl, UrlTree } from '../../../urls'
+import { UrlTree } from '../../../urls'
 import { toast } from '../../../toast/toast'
 
 // `/settings/storage`: the external locations Elysium saves files to.
@@ -31,7 +30,6 @@ export function ManageStoragePage() {
   const confirm = useConfirm()
   const locations = useAppSelector(selectAllStorageLocations)
   const status = useStorageLocationsLoader()
-  const navigate = useNavigate()
 
   async function runConnectionTest(location: StorageLocation) {
     try {
@@ -81,13 +79,10 @@ export function ManageStoragePage() {
 
   return <SettingsPage
     title={t('title')}
-    primaryAction={<Button
-      variant='outline'
-      onPress={() => navigate(UrlTree.settingsStorageNew)}
-    >
+    primaryAction={<Link href={UrlTree.settingsStorageNew} className={buttonVariants({ variant: 'outline' })}>
       <LuPlus className='size-4' aria-hidden />
       <span>{t('locations.add')}</span>
-    </Button>}
+    </Link>}
   >
     <section>
 
@@ -101,7 +96,6 @@ export function ManageStoragePage() {
 
       {status === 'loaded' && <StorageLocationTable
         locations={locations}
-        onEdit={(location) => navigate(getStorageLocationEditUrl(location.id))}
         onTest={runConnectionTest}
         onDelete={confirmDelete}
       />}

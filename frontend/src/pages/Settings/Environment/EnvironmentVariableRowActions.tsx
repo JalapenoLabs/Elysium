@@ -10,18 +10,20 @@ import { useTranslation } from 'react-i18next'
 import { Button, Dropdown, Label } from '@heroui/react'
 import { LuEllipsis } from 'react-icons/lu'
 
+// Misc
+import { getEnvironmentVariableEditUrl } from '../../../urls'
+
 type Props = {
   variable: EnvironmentVariable
-  onEdit: (variable: EnvironmentVariable) => void
   onDelete: (variable: EnvironmentVariable) => void
 }
 
-// The per-row "..." menu: edit or delete.
+// The per-row "..." menu: edit, a link to the variable's page so it opens in a new tab
+// too, or delete.
 export function EnvironmentVariableRowActions(props: Props) {
   const { t } = useTranslation('common')
 
   const actions: Record<string, () => void> = {
-    edit: () => props.onEdit(props.variable),
     delete: () => props.onDelete(props.variable),
   }
 
@@ -36,7 +38,11 @@ export function EnvironmentVariableRowActions(props: Props) {
     </Button>
     <Dropdown.Popover placement='bottom end'>
       <Dropdown.Menu onAction={(key: Key) => actions[String(key)]?.()}>
-        <Dropdown.Item id='edit' textValue={t('actions.edit')}>
+        <Dropdown.Item
+          id='edit'
+          textValue={t('actions.edit')}
+          href={getEnvironmentVariableEditUrl(props.variable.id)}
+        >
           <Label>{t('actions.edit')}</Label>
         </Dropdown.Item>
         <Dropdown.Item id='delete' textValue={t('actions.delete')} variant='danger'>

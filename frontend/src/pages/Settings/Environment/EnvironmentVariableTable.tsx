@@ -18,7 +18,6 @@ import { MASKED_VALUE } from './environmentPresentation'
 
 type Props = {
   variables: EnvironmentVariable[]
-  onEdit: (variable: EnvironmentVariable) => void
   onDelete: (variable: EnvironmentVariable) => void
 }
 
@@ -73,7 +72,6 @@ export function EnvironmentVariableTable(props: Props) {
       createdBy: (variable: EnvironmentVariable) => userNames[variable.createdBy] ?? t('common:table.someone'),
       rowActions: (variable: EnvironmentVariable) => <EnvironmentVariableRowActions
         variable={variable}
-        onEdit={props.onEdit}
         onDelete={props.onDelete}
       />,
     } satisfies Record<EnvironmentColumnKey, (variable: EnvironmentVariable) => unknown>
@@ -117,7 +115,7 @@ export function EnvironmentVariableTable(props: Props) {
         }
       },
     })
-  }, [ t, userNames, props.onEdit, props.onDelete ])
+  }, [ t, userNames, props.onDelete ])
 
   if (!props.variables.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

@@ -31,7 +31,6 @@ import {
 
 type Props = {
   locations: StorageLocation[]
-  onEdit: (location: StorageLocation) => void
   onTest: (location: StorageLocation) => void
   onDelete: (location: StorageLocation) => void
 }
@@ -117,7 +116,6 @@ export function StorageLocationTable(props: Props) {
       createdBy: (location: StorageLocation) => userNames[location.createdBy] ?? t('common:table.someone'),
       rowActions: (location: StorageLocation) => <StorageLocationRowActions
         location={location}
-        onEdit={props.onEdit}
         onTest={props.onTest}
         onDelete={props.onDelete}
       />,
@@ -182,7 +180,7 @@ export function StorageLocationTable(props: Props) {
         }
       },
     })
-  }, [ t, userNames, projectNamesById, props.onEdit, props.onTest, props.onDelete ])
+  }, [ t, userNames, projectNamesById, props.onTest, props.onDelete ])
 
   if (!props.locations.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{
