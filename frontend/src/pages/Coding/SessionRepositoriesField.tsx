@@ -132,7 +132,7 @@ export function SessionRepositoriesField(props: Props) {
   if (listingStatus === 'no-token') {
     pickerDescription = <>
       {t('create.repositories.picker.noToken')}{' '}
-      <Link href={UrlTree.settingsGithub} className='text-link'>{
+      <Link href={UrlTree.settingsConnectors} className='text-link'>{
         t('create.repositories.picker.settingsLink')
       }</Link>
     </>

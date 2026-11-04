@@ -93,7 +93,7 @@
     "placeholder": "Pick from what this token reaches",
     "search": "Search",
     "noMatches": "Nothing matches.",
-    "noProjects": "This token reaches no projects.",
+    "noProjects": "This token reaches no projects. Give its account access to one in Jira.",
     "noBoards": "This token reaches no boards.",
     "loading": "Loading what this token reaches.",
     "truncated": "Jira reported more than Elysium lists, so a few may be missing.",

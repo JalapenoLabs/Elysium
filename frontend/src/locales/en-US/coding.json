@@ -18,7 +18,7 @@
     "lastActivity": "Last activity",
     "never": "No activity yet",
     "empty": "No coding sessions yet. Start one to put an agent to work.",
-    "noProjects": "Create a project before starting a session. Every session belongs to one.",
+    "noProjects": "Create a project to start a session.",
     "openProjects": "Go to projects",
     "loadError": "Coding sessions could not be loaded.",
     "open": "Open",
@@ -73,7 +73,7 @@
         "empty": "This token cannot see any repositories. Add them by URL instead.",
         "truncated": "Showing the {{shown, compact}} most recently pushed repositories. Add others by URL.",
         "noToken": "Choose a GitHub token to pick from its repositories, or add one under",
-        "settingsLink": "Settings, GitHub"
+        "settingsLink": "Settings, Connectors"
       },
       "manual": {
         "label": "Add by URL",
@@ -121,7 +121,7 @@
         "none": "This token cannot access {{repository}}. Pick another token, or check the token's repository access on GitHub.",
         "failed": "Access to {{repository}} could not be checked.",
         "expiresSoon": "This token expires on {{date}}.",
-        "expired": "This token has expired. Pick another token, or replace it under Settings, GitHub."
+        "expired": "This token has expired. Pick another token, or replace it under Settings, Connectors."
       }
     }
   },
