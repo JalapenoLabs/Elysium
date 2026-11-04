@@ -707,6 +707,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `mailAccounts`   | Connected mailboxes, sorted by address                                  |
 | `mailDomains`    | The mail server's domains, sorted by name                               |
 | `mailServer`     | The mail server's state, replaced whole by every update                 |
+| `notifications` | Toasts kept for the notification menu this session, newest first        |
 | `projects`       | Projects, sorted by name                                                |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
 | `jiraCredentials` | Jira Cloud credentials, sorted by name                                 |
@@ -789,6 +790,27 @@ Workspace, mail server, and broker failures answer `502` with the upstream's mes
 A modal or alert dialog opened from code, not from a trigger child, skips the `Modal` or `AlertDialog` root. It
 passes `isOpen` and `onOpenChange` to `Modal.Backdrop` or `AlertDialog.Backdrop`, fed by `useOverlayState`. The
 root is a trigger wrapper, and rendering it without a pressable child makes React Aria warn.
+
+## Toasts
+
+Every toast goes through `toast` in `src/toast/toast.ts`, never HeroUI's: ESLint refuses importing `toast` from
+`@heroui/react` anywhere else. It keeps HeroUI's shape (`toast`, `toast.success`, `toast.warning`, `toast.danger`,
+`toast.close`) with string messages, and adds:
+
+- **Timing.** Warnings and errors stay until dismissed. Everything else stays 1 second plus 300ms per word of its
+  message, description, and action, and at least 6 seconds when it has an action. The policy is `toastTimeoutMs` in
+  `src/toast/toastPolicy.ts`, with its numbers in `src/constants.ts`.
+- **Action.** `action: { label, onPress }` puts one button on the toast, such as Undo; pressing it closes the toast.
+- **Work in progress.** `toast.loading(message)` shows a spinner until `toast.close` is called with its id.
+- **Kept for the notification menu.** Every toast but a success and a loading one is recorded in
+  `notificationsSlice` (title, description, variant, and when), for the session only. A success confirms what the
+  person just did, so it is left out; `keepInNotifications` overrides either way.
+- **Slow changes.** The API client's `fetch` (`src/api/slowRequestNotice.ts`) shows "Your request is taking longer
+  than usual... Hang tight." while any change (every method but `GET` and `HEAD`) has run for 5 seconds, under the
+  10 second request timeout, and closes it when the last one returns. Reads are left out, since many run unasked.
+- **No banners for outcomes.** What a submit reports (saved, refused, failed) is a toast, never an alert inserted
+  above or below the form, so nothing moves the page. Alerts are for standing state that is there when the page
+  opens, such as a vault that failed to start.
 
 ## Theming
 

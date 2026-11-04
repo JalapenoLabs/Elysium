@@ -18,6 +18,9 @@
   "errors": {
     "unexpected": "Something went wrong. Please try again."
   },
+  "requests": {
+    "slow": "Your request is taking longer than usual... Hang tight."
+  },
   "brand": {
     "name": "Elysium"
   },

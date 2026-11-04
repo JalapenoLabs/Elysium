@@ -9,6 +9,22 @@ export const KRATOS_BASE_PATH = `${API_BASE_PATH}/identity`
 // Generous enough for cold starts, short enough that a hung request fails visibly.
 export const API_REQUEST_TIMEOUT_MS = 10_000
 
+// How long a change the person asked for may run before a toast says it is still going.
+// Well under the request timeout, so the notice shows before the request gives up.
+export const SLOW_REQUEST_NOTICE_MS = 5_000
+
+// A toast that times out stays up for a base second, then this long for every word it
+// shows, so a longer message is up long enough to read. Warnings and errors never time out.
+export const TOAST_BASE_DURATION_MS = 1_000
+export const TOAST_DURATION_PER_WORD_MS = 300
+
+// A toast with a button, such as Undo, stays up at least this long: reading it is not
+// enough, the person also has to reach the button.
+export const TOAST_WITH_ACTION_MIN_DURATION_MS = 6_000
+
+// How many toasts the notification menu keeps for the session. Older ones drop off the end.
+export const NOTIFICATIONS_LIMIT = 100
+
 // A session's history is read from the API's own store; this bounds a slow answer.
 export const SESSION_HISTORY_TIMEOUT_MS = 15_000
 

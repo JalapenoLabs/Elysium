@@ -28,6 +28,7 @@ import { mailDomainsSlice } from './mailDomainsSlice'
 import { mailServerSlice } from './mailServerSlice'
 import { draftsSlice } from './draftsSlice'
 import { meetingsSlice } from './meetingsSlice'
+import { notificationsSlice } from './notificationsSlice'
 import { projectsSlice } from './projectsSlice'
 import { passwordVaultSlice } from './passwordVaultSlice'
 import { realtimeSlice } from './realtimeSlice'
@@ -79,6 +80,7 @@ export function createAppStore() {
       [mailServerSlice.name]: mailServerSlice.reducer,
       [draftsSlice.name]: draftsSlice.reducer,
       [meetingsSlice.name]: meetingsSlice.reducer,
+      [notificationsSlice.name]: notificationsSlice.reducer,
       [projectsSlice.name]: projectsSlice.reducer,
       [realtimeSlice.name]: realtimeSlice.reducer,
       [runsSlice.name]: runsSlice.reducer,

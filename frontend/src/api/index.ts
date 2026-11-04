@@ -9,13 +9,15 @@ import { accessRefused, isAccessRefusalCode } from '../store/authSlice'
 
 // Misc
 import { API_BASE_PATH, API_REQUEST_TIMEOUT_MS } from '../constants'
+import { fetchWithSlowRequestNotice } from './slowRequestNotice'
 
 // Single shared HTTP client. Every request goes through nginx on the page's own
 // origin, so the prefix is an origin-relative path rather than a host, and the session
-// cookie Kratos set travels with it.
+// cookie Kratos set travels with it. A change that runs long says so in a toast.
 export const apiClient = ky.create({
   prefix: API_BASE_PATH,
   timeout: API_REQUEST_TIMEOUT_MS,
+  fetch: fetchWithSlowRequestNotice,
   retry: {
     limit: 2,
     methods: [ 'get' ],
