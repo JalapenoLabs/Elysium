@@ -79,6 +79,13 @@ in the running workspace too, for a session's files and a new session's clones, 
 a plain bridge, because agents need the internet, and nginx is not on it. The development stack builds the image as
 `elysium-workspace:dev` (service `workspace-image`) before the engine starts. See `docs/coding.md`.
 
+Transcriptions are not compose services either. The engine creates one container per meeting it transcribes through
+`docker-proxy`, named `elysium-whisper-<step job id>`, from `WHISPER_IMAGE`, the `elysium-whisper` image of the same
+release, with no network at all, and removes it when the transcription ends. The recording goes in on its standard
+input and the transcript comes out on its standard output, over Docker's attach stream. The development stack builds
+the image as `elysium-whisper:dev` (service `whisper-image`) before the engine starts, and production from a checkout
+as `elysium-whisper:local`. See `docs/meetings.md`, Transcription.
+
 The engine keeps one volume of its own, `engine-data` at `/var/lib/elysium`: the Bitwarden CLI's state, so it stays
 signed in as the same device across restarts, and each database dump of a running backup until it is uploaded (see
 Backups below). Removing it only makes the CLI sign in again at the next start. The API keeps nothing; the image
@@ -204,12 +211,13 @@ the build inside the API image.
 
 ## Published images
 
-`.github/workflows/publish.yml` pushes three images to Docker Hub under the `jalapenolabs` organization:
+`.github/workflows/publish.yml` pushes four images to Docker Hub under the `jalapenolabs` organization:
 
 | Image                                  | Built from                         | Runs                                       |
 |----------------------------------------|------------------------------------|--------------------------------------------|
 | `jalapenolabs/elysium-api`             | `api/Dockerfile`, stage `app`      | The API and the web app, and the engine    |
 | `jalapenolabs/elysium-workspace`       | `workspace/Dockerfile`             | Agent turns, in the container the engine makes |
+| `jalapenolabs/elysium-whisper`         | `whisper/Dockerfile`               | Meetings' transcriptions, a container the engine makes for each |
 | `jalapenolabs/elysium-oauth-broker`    | `oauth-broker/Dockerfile`          | The OAuth broker, standalone               |
 
 Every push to `main` publishes `main` and `sha-<commit>`. A tag `vX.Y.Z` publishes `X.Y.Z`, and moves `X.Y` and
@@ -271,8 +279,8 @@ applying records it as succeeded. Every change is published as `updates.status`.
 1. Pulls the target's API image, unless Docker has it already (release tags never move), and unpacks the
    configuration it carries.
 2. Pulls every other Elysium image that configuration names at the target's version, such as the workspace image
-   agents run in, which is not a compose service. `publish.yml` pushes the API image last, so a release whose API
-   tag exists has all of them.
+   agents run in and the Whisper image meetings are transcribed in, which are not compose services. `publish.yml`
+   pushes the API image last, so a release whose API tag exists has all of them.
 3. Backs up Elysium's, Kratos's, and Hydra's databases with `pg_dump` into `backups/<time>-<running>/`, keeping the
    newest five. This copy stays on the host and exists only to undo the update; the nightly backup off the host is
    separate (see Backups below).

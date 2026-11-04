@@ -8,8 +8,8 @@ company.
 This doc is the design. Little of it is built; the roadmap is the issues in the Engine milestone. Built so far: the
 event stream through Redis pub/sub, the engine as a service of its own that runs every background loop, workflow runs
 on a Postgres queue of step jobs with the Runs page (Runs, below), the step and workflow framework over that queue,
-with each step's model setting (Workflows and steps, and Models, below), and the meeting workflow's first step, which
-fetches each meeting (Meetings, below).
+with each step's model setting (Workflows and steps, and Models, below), and the meeting workflow's first two steps,
+which fetch each meeting and transcribe its recording with a local Whisper (Meetings, below).
 
 ## A service of its own
 
@@ -61,9 +61,9 @@ never work, since every loop also looks on a timer. What the engine knows that a
   sealed with the encryption key (`docs/passwords.md`, The CLI). An engine that does not answer within 10 seconds
   (3 for its status, 90 for connecting) reads as a vault that is not answering.
 - **Docker.** Both reach the filtered `docker-proxy`. The engine creates and replaces everything: the workspace, the
-  mail server's reconcile, browsers' containers, and backups' dumps. The API works in what exists while a person
-  waits: files in the workspace, cloning a new session's repositories, Claude sign-ins, creating the mail server, and
-  resetting or removing a browser. Every change to a browser's containers, in either process, holds one Postgres
+  mail server's reconcile, browsers' containers, backups' dumps, and a container per transcription. The API works in
+  what exists while a person waits: files in the workspace, cloning a new session's repositories, Claude sign-ins,
+  creating the mail server, and resetting or removing a browser. Every change to a browser's containers, in either process, holds one Postgres
   advisory lock (`api/src/database/advisory.rs`).
 - **Auto-update** waits for both: the engine mirrors what it runs that a restart would cut short into
   `process_activities` on a lease it renews every 15 seconds (`api/src/activity.rs`), and the API reads every live
@@ -93,16 +93,19 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
   so one step can be retried, skipped, or resumed alone. Runs show in the web app the way GitHub Actions shows jobs.
 
 Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and the first production
-workflow, `meeting` (`api/src/meetings/workflow.rs`), whose one step so far is `fetch_meeting`. The engine registers
-every production step in `api/src/engine/mod.rs` and checks each declared workflow against them there. Tests declare
-their own.
+workflow, `meeting` (`api/src/meetings/workflow.rs`), whose steps so far are `fetch_meeting` and
+`transcribe_meeting`. The engine registers every production step in `api/src/engine/mod.rs` and checks each declared
+workflow against them there. Tests declare their own.
 
 ### A step
 
 - A step is a type implementing `workflows::Step`: its name (`NAME`, `snake_case`), the input it takes and the output
   it gives (serde types), and `run`, one attempt, which answers `Done::Succeeded` (its output and a one-line summary),
-  `Done::Held` (its output and what a person should look at), or a `StepFailure` (its reason, and whether another
-  attempt may get past it).
+  `Done::Held` (its output and what a person should look at), `Done::Skipped` (why it had nothing to do), or a
+  `StepFailure` (its reason, and whether another attempt may get past it).
+- A step that skips itself, such as transcription for a meeting with no recording, ends `skipped` with its reason as
+  its summary and gives nothing, like a person's skip: the step after it receives its input. So a step that may skip
+  itself gives its input's type, or a type its input also reads as.
 - A step is given its input and a `StepContext`: its run's id and its own row's id, which attempt this is, a log, and
   its model setting (Models, below). It is never told which workflow runs it, or its run's source: what it needs is in
   its input. One instance runs every attempt, so it holds what it needs (a pool, a client, the runner) and keeps no
@@ -179,8 +182,8 @@ the Runs page.
   `StepContext` (A step, above), whose log is stored every second, the newest 64 KiB kept across attempts. The worker
   reads nothing else for it. A run naming a step this build lacks fails that step.
 - An attempt ends succeeded, with its output and a one-line summary its row collapses to; held, with its output and
-  what a person should look at, which stops the run without failing it; or failed, with its reason and whether it may
-  be retried.
+  what a person should look at, which stops the run without failing it; skipped, with why it had nothing to do, which
+  the run passes over as it does a person's skip; or failed, with its reason and whether it may be retried.
 
 ### A person's actions
 
@@ -209,9 +212,11 @@ the Runs page.
   same way, stores the raw transcript with its SHA-256, and uploads the recording; running it again for the same
   meeting changes nothing. Segmenting still runs in the meetings loop until it becomes a step here. See
   `docs/meetings.md`, Processing.
-- When there is audio, a local Whisper (faster-whisper, pinned) in its own container produces a second transcript.
-  Anthropic offers no transcription for recorded audio, and nothing leaves the host. Every transcript a meeting has is
-  an input to correction; more sources mean better corrections.
+- Built: when there is audio, the run's `transcribe_meeting` step produces a second transcript, word by word, with a
+  local Whisper (faster-whisper with Whisper large-v3, pinned and checked) in a container of its own with no network,
+  and stores it beside the source's. Anthropic offers no transcription for recorded audio, and nothing leaves the host.
+  A meeting without audio skips the step, saying so. See `docs/meetings.md`, Transcription. Every transcript a meeting
+  has is an input to correction; more sources mean better corrections.
 - Correction is an agent that reconciles the transcripts against the company doc and other meetings and writes a
   corrected copy beside the raw one. The web app shows the two as a diff, and the person may approve it. Approval is
   optional: every later step reads the corrected copy either way, told whether it was approved.

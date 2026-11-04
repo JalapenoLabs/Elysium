@@ -454,6 +454,7 @@ Meetings read from a meeting source, and how far each one's processing got; see 
 | `participants`           | `JSONB`       | An array of strings                                                     |
 | `url`                    | `TEXT`        | Its page at the source                                                  |
 | `transcript`             | `JSONB`       | An array of `{ startMs, endMs, speaker, text }`                         |
+| `transcript_hash`        | `TEXT`        | The SHA-256 of `transcript` as hex; `NULL` until it is fetched          |
 | `storage_location_id`    | `UUID`        | References `storage_locations`: where its recording is kept             |
 | `recording_path`         | `TEXT`        | The recording's path there; `NULL` when there is none                   |
 | `recording_content_type` | `TEXT`        | The recording's media type                                              |
@@ -463,6 +464,20 @@ Meetings read from a meeting source, and how far each one's processing got; see 
 | `last_error`             | `TEXT`        | Why the last attempt failed, or `NULL`                                  |
 | `created_by`             | `UUID`        | References `users`; whose meeting it is                                 |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
+
+### `meeting_transcriptions`
+
+What Elysium's own Whisper heard in a meeting's recording, one per meeting, written once by the meeting workflow's
+transcription step; see `docs/meetings.md`, Transcription. A table of its own beside `meetings.transcript`, because
+every word is timed and the meetings loop reads every unfinished meeting's row each minute. A child of its meeting, so
+it has no `created_by`.
+
+| Column            | Type          | Notes                                                                        |
+|-------------------|---------------|------------------------------------------------------------------------------|
+| `meeting_id`      | `UUID`        | Primary key; references `meetings`, cascading                                |
+| `transcript`      | `JSONB`       | `{ model, language, languageProbability, durationMs, segments }`, each segment `{ startMs, endMs, text, words }` and each word `{ startMs, endMs, text, probability }` |
+| `transcript_hash` | `TEXT`        | The SHA-256 of `transcript` as it was serialized to be stored, as hex        |
+| `created_at`      | `TIMESTAMPTZ` | Set on insert                                                                |
 
 ### `mail_servers`
 
@@ -1257,7 +1272,7 @@ Each step of a run, in order, and the engine's queue; see `docs/engine.md`, Runs
 | `state`            | `step_job_state` | `pending`, `queued`, `running`, `held`, `failed`, `skipped`, or `succeeded` |
 | `input`            | `JSONB`          | Set once the run reaches it                                            |
 | `output`           | `JSONB`          | Set exactly while `succeeded` or `held`                                |
-| `summary`          | `TEXT`           | The one line its row collapses to, 1 to 500 characters                 |
+| `summary`          | `TEXT`           | The one line its row collapses to, 1 to 500 characters; a step that skipped itself says why here |
 | `error`            | `TEXT`           | Why its last attempt failed, 1 to 2000 characters                      |
 | `log`              | `TEXT`           | What it wrote, every attempt's, the newest 65536 characters            |
 | `attempts`         | `INTEGER`        | Claims since its run or a person last queued it                        |

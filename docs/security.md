@@ -56,12 +56,13 @@ between them carries nothing secret in the clear (`docs/realtime.md`, Signals).
 
 ## Docker access
 
-The engine and the API run the agent workspace, the mail server, and the browsers through Docker. Neither mounts the
-Docker socket: both reach `docker-proxy`, which answers only the container, image, volume, network, and exec
-endpoints, on an internal network no other service joins. Build, swarm, secrets, and system endpoints are refused.
+The engine and the API run the agent workspace, the mail server, the browsers, and transcriptions through Docker.
+Neither mounts the Docker socket: both reach `docker-proxy`, which answers only the container, image, volume, network,
+and exec endpoints, on an internal network no other service joins. Build, swarm, secrets, and system endpoints are refused.
 
 - **The engine** creates and replaces everything: the workspace and every turn in it, browsers' containers and
-  networks, the mail server brought back up, and backups' dumps (`pg_dump` in the Postgres container).
+  networks, the mail server brought back up, backups' dumps (`pg_dump` in the Postgres container), and a Whisper
+  container for each transcription.
 - **The API** works in what exists while a person waits: files in the workspace and a new session's clones, Claude
   sign-ins, creating the mail server, and resetting or removing a browser. It never creates or replaces the workspace.
 
@@ -69,6 +70,16 @@ The proxy narrows the surface but does not make it safe: creating a container is
 signed in can therefore reach the host through the mail and browser routes, which is one more reason every account
 is approved by an admin. The network endpoints, which create a network per browser and join the engine, the API, and
 nginx to it, add nothing to that.
+
+## Transcriptions
+
+- A meeting's recording is transcribed on the host by the engine's own Whisper, never by a service, so it never leaves
+  the host (`docs/meetings.md`, Transcription).
+- Each transcription's container has no network at all (`network_mode: none`), mounts nothing, drops every capability,
+  and cannot gain privileges. The recording reaches it on its standard input and the transcript leaves on its standard
+  output, over the attach stream the engine holds through `docker-proxy`.
+- Its log reaches every company member through the run's page, so the transcriber reports progress, durations, and
+  counts, never what was said.
 
 ## Browsers
 

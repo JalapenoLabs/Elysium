@@ -65,6 +65,7 @@ Job names are the check names. Require exactly these in the `main` ruleset:
 | `Compose config`     | `compose.yml`            | the stacks parse and interpolate, the development override merges, and no stack bind-mounts configuration |
 | `Configuration images` | `compose.yml`          | nginx's, Kratos's, Hydra's, and the updater's images build, and nginx's configuration passes `nginx -t` in both routings |
 | `Workspace image`    | `workspace.yml`          | `workspace/Dockerfile` builds, and `claude`, `gh`, `git`, Node, and Blender run as `agent` in it |
+| `Whisper image`      | `whisper.yml`            | `whisper/Dockerfile` builds with its model checked, transcribes public-domain speech with no network, and tells a file with no audio and one that is no recording apart by exit code |
 
 Names are prefixed with their lane because a required check is matched by name alone, and two workflows each
 reporting `Clippy` could not be told apart.
@@ -101,6 +102,7 @@ Every tool is pinned to an exact version, in one place where the repository allo
 | Rust               | `rust-toolchain.toml` in `api/` and `oauth-broker/`  | rustup, Dockerfile comparison     |
 | Node               | `frontend/.nvmrc`                                    | checksum, version, Dockerfile comparison (API, frontend, workspace) |
 | Claude Code, `gh`, Blender | `workspace/Dockerfile`, `workspace/blender/install.sh` | published checksums, a git commit for the Blender MCP server |
+| Whisper large-v3, faster-whisper | `whisper/Dockerfile`, `whisper/requirements.txt` | the base image's digest, each model file's SHA-256 at a fixed Hugging Face revision, every package's hash |
 | Yarn               | `packageManager` in `frontend/package.json`          | corepack, version                 |
 | Diesel CLI         | `DIESEL_VERSION` in `api.yml`                        | checksum, version                 |
 | Postgres           | `compose.yml` and `api/scripts/verify-migrations.sh`, by digest | `API migrations` compares the two |
@@ -178,7 +180,9 @@ them when it reads its configuration.
 ## Publishing
 
 `.github/workflows/publish.yml` builds and pushes the API image (stage `app`, with the web app), the agent workspace
-image, and the OAuth broker image to Docker Hub, as listed in `docs/infrastructure.md`. It runs on every push to
+image, the Whisper image, and the OAuth broker image to Docker Hub, as listed in `docs/infrastructure.md`. The API
+image is pushed after the workspace and Whisper images of its tag, since auto-update takes a release to be there once
+its API image is. It runs on every push to
 `main` and every `v*` tag, when `release.yml` starts it on a tag, and never on a pull request. A release build passes
 its version to the API image as the `ELYSIUM_RELEASE` build argument, so the binary knows it is a release; `main`
 passes nothing. What it builds already passed every check in the merge queue, so it is not a required check

@@ -58,9 +58,9 @@ Self-improvement (learning from feedback, self-healing connectors) is designed i
 - nginx, Kratos, Hydra, and the updater never bind-mount their configuration: each directory's `Dockerfile` builds it
   into a local image, rebuilt on every `up` (`pull_policy: build`), so a deploy that changes a file recreates exactly
   the services that use it. Each image has one building service. See `docs/infrastructure.md`, Configuration images.
-- `.github/workflows/publish.yml` pushes `jalapenolabs/elysium-api`, `jalapenolabs/elysium-workspace`, and
-  `jalapenolabs/elysium-oauth-broker` to Docker Hub on every push to `main` and every `v*` tag. A release is a `vX.Y.Z`
-  tag. See `docs/ci.md`.
+- `.github/workflows/publish.yml` pushes `jalapenolabs/elysium-api`, `jalapenolabs/elysium-workspace`,
+  `jalapenolabs/elysium-whisper`, and `jalapenolabs/elysium-oauth-broker` to Docker Hub on every push to `main` and every
+  `v*` tag. A release is a `vX.Y.Z` tag. See `docs/ci.md`.
 - Agent turns run the official `claude` CLI in the workspace container (`workspace/Dockerfile`), which the engine
   creates through `docker-proxy` and reaches by `docker exec`, never inside the API's or the engine's own container.
   Callers in the engine submit turns to `crate::runner`. See `docs/coding.md`.
@@ -276,6 +276,11 @@ Everything else follows these rules:
   `ffmpeg` cuts each segment's clip in the workspace container, and each segment becomes a timeline record with its
   excerpt, summary, span, and clip, attributed to its projects. Segmenting moves into the workflow as a step later;
   until then a failed run fails its meeting, and retrying the meeting retries the run. See `docs/meetings.md`.
+- Each meeting with audio is also transcribed by a local Whisper (faster-whisper, large-v3, pinned and checked in
+  `whisper/`), the meeting workflow's `transcribe_meeting` step: one container per transcription that the engine
+  creates through `docker-proxy`, with no network, the recording on standard input and the transcript, every word
+  timed, on standard output. It decodes on half the host's CPUs, at most 16, one transcription at a time, and is stored
+  once in `meeting_transcriptions`. A meeting without audio skips the step. See `docs/meetings.md`, Transcription.
 - Nothing the segmentation answer says is trusted: segments must lie inside the meeting in order, and attributions
   must name projects that were offered. A failed step is retried each pass, three times, then retried by the person.
 - Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id, state,
