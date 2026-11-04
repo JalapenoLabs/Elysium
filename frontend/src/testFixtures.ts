@@ -18,6 +18,7 @@ import type { Learning, LearningHistoryEntry } from './api/routes/learningRoutes
 import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
 import type { Meeting } from './api/routes/meetingRoutes'
 import type { Project } from './api/routes/projectRoutes'
+import type { PersonPromise } from './api/routes/promiseRoutes'
 import type { RunStep, WorkflowRun } from './api/routes/runRoutes'
 import type { StorageLocation } from './api/routes/storageRoutes'
 import type { StudioAsset, StudioFeedback, StudioItem } from './api/routes/studioRoutes'
@@ -426,6 +427,7 @@ export function makeDraft(overrides: Partial<Draft> & Pick<Draft, 'id'>): Draft 
     attemptedAt: null,
     sentAt: null,
     sentRecordId: null,
+    promiseId: null,
     createdBy: CREATED_BY,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
@@ -498,6 +500,30 @@ export function makeRunStep(overrides: Partial<RunStep> & Pick<RunStep, 'id' | '
     availableAt: null,
     startedAt: null,
     finishedAt: null,
+    ...overrides,
+  }
+}
+
+export function makePromise(overrides: Partial<PersonPromise> & Pick<PersonPromise, 'id'>): PersonPromise {
+  return {
+    projectId: 'project-1',
+    state: 'waiting',
+    recipient: 'Ada',
+    summary: 'when the login fix is live',
+    madeIn: {
+      recordId: 'record-1',
+      sourceKind: 'slack',
+      title: 'Reply in #launch in Mooreslab',
+      url: 'https://mooreslab.slack.com/archives/C1/p1730000000000200',
+      occurredAt: CREATED_AT,
+      personId: CREATED_BY,
+    },
+    workBatchId: null,
+    workItemId: null,
+    dueAt: null,
+    followUpItemId: null,
+    draftId: null,
+    createdAt: CREATED_AT,
     ...overrides,
   }
 }

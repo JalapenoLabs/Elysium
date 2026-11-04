@@ -150,6 +150,8 @@
       "records_other": "{{count, compact}} records new on the timeline",
       "batches_one": "{{count, compact}} batch finished",
       "batches_other": "{{count, compact}} batches finished",
+      "promises_one": "{{count, compact}} promise to keep",
+      "promises_other": "{{count, compact}} promises to keep",
       "fromElysia": "Elysia",
       "fromYou": "You",
       "fromSomeone": "Someone",
@@ -184,5 +186,30 @@
       "failed": "Failed",
       "cancelled": "Cancelled"
     }
+  },
+  "promises": {
+    "tab": "Promises",
+    "label": "The promises the Project Manager keeps",
+    "empty": "No promises yet.",
+    "columns": {
+      "promise": "Promise",
+      "recipient": "For",
+      "place": "Where",
+      "work": "Waits on",
+      "state": "State",
+      "made": "Made"
+    },
+    "states": {
+      "waiting": "Waiting on its work",
+      "due": "Work done",
+      "drafted": "Follow-up drafted",
+      "kept": "Kept",
+      "dismissed": "Dismissed"
+    },
+    "noWork": "No work yet",
+    "aBatch": "A work batch",
+    "anItem": "An action item",
+    "messageGone": "The message is gone",
+    "openFollowUp": "Open the follow-up"
   }
 }

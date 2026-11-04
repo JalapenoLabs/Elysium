@@ -70,6 +70,7 @@ import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/mo
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
+import { PROMISES_KEY_PREFIX } from '../api/routes/promiseRoutes'
 import { getWorkBatchKey, WORK_QUEUE_KEY } from '../api/routes/workQueueRoutes'
 import { getRun, getStepLog } from '../api/routes/runRoutes'
 import { getTimelineRecord } from '../api/routes/timelineRoutes'
@@ -297,12 +298,14 @@ const handlers: Handlers = {
     void mutate((key) => typeof key === 'string' && key.startsWith('v1/timeline'))
   },
   // Its page loads it again, and the turns it has open with it, each only while a page holds it.
+  // Its promises moved with it, so an open follow-up item's page loads its promise again too.
   'projectManager.changed': (event) => {
     if (!selectIsCompanyMember(store.getState())) {
       return
     }
     const key = getProjectManagerKey(event.data.projectId)
-    void mutate((candidate) => typeof candidate === 'string' && candidate.startsWith(key))
+    void mutate((candidate) => typeof candidate === 'string'
+      && (candidate.startsWith(key) || candidate.startsWith(PROMISES_KEY_PREFIX)))
   },
   // The queue's order is the server's to derive, so a page showing it loads it again, and a
   // page showing the batch loads that; each only while a page holds it.

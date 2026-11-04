@@ -34,6 +34,7 @@ import { modelSettingsSlice } from './modelSettingsSlice'
 import { notificationsSlice } from './notificationsSlice'
 import { projectManagersSlice } from './projectManagersSlice'
 import { projectsSlice } from './projectsSlice'
+import { promisesSlice } from './promisesSlice'
 import { passwordVaultSlice } from './passwordVaultSlice'
 import { realtimeSlice } from './realtimeSlice'
 import { runsSlice } from './runsSlice'
@@ -94,6 +95,7 @@ export function createAppStore() {
       [projectManagersSlice.name]: projectManagersSlice.reducer,
       [workQueueSlice.name]: workQueueSlice.reducer,
       [projectsSlice.name]: projectsSlice.reducer,
+      [promisesSlice.name]: promisesSlice.reducer,
       [realtimeSlice.name]: realtimeSlice.reducer,
       [runsSlice.name]: runsSlice.reducer,
       [sessionEventsSlice.name]: sessionEventsSlice.reducer,

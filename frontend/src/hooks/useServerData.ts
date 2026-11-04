@@ -14,7 +14,7 @@ import { actionItemsLoaded, actionItemUpserted, deletedActionItemsLoaded } from 
 import { browserSessionsLoaded } from '../store/browserSessionsSlice'
 import { changesetsLoaded, changesetUpserted } from '../store/changesetsSlice'
 import { connectorsLoaded } from '../store/connectorsSlice'
-import { recordDraftsLoaded } from '../store/draftsSlice'
+import { draftUpserted, recordDraftsLoaded } from '../store/draftsSlice'
 import { codingSessionsLoaded, codingSessionsUpserted } from '../store/codingSessionsSlice'
 import { companyDocLoaded } from '../store/companyDocSlice'
 import { useAppDispatch } from '../store/hooks'
@@ -34,6 +34,7 @@ import { mailServerUpdated } from '../store/mailServerSlice'
 import { meetingsLoaded, meetingUpserted } from '../store/meetingsSlice'
 import { modelSettingsLoaded } from '../store/modelSettingsSlice'
 import { projectsLoaded } from '../store/projectsSlice'
+import { followUpPromisesLoaded } from '../store/promisesSlice'
 import { runLoaded, runsPageLoaded, stepLogLoaded } from '../store/runsSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
 import { storageLocationsLoaded } from '../store/storageLocationsSlice'
@@ -67,7 +68,7 @@ import { getBackups } from '../api/routes/backupRoutes'
 import { listBrowserSessions } from '../api/routes/browserSessionRoutes'
 import { getChangeset, listChangesets } from '../api/routes/changesetRoutes'
 import { listConnectors } from '../api/routes/connectorRoutes'
-import { listRecordDrafts, recordDraftsKey } from '../api/routes/draftRoutes'
+import { getDraft, listRecordDrafts, recordDraftsKey } from '../api/routes/draftRoutes'
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { COMPANY_DOC_KEY, getCompanyDoc } from '../api/routes/companyDocRoutes'
 import { getElysia, listElysiaMessages, listElysiaTurns } from '../api/routes/elysiaRoutes'
@@ -83,6 +84,7 @@ import { getMeeting, listMeetings } from '../api/routes/meetingRoutes'
 import { listModelSettings, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getPasswordVault } from '../api/routes/passwordVaultRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
+import { followUpPromiseKey, listFollowUpPromises } from '../api/routes/promiseRoutes'
 import { getRun, getStepLog, listRuns } from '../api/routes/runRoutes'
 import {
   getProjectManager,
@@ -329,6 +331,37 @@ export function useRecordDraftsLoader(recordId: string): LoadStatus {
   const { data, error } = useSWR(recordDraftsKey(recordId), async () => {
     const response = await listRecordDrafts(recordId)
     dispatch(recordDraftsLoaded({ recordId, drafts: response.drafts }))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One draft by id, such as the follow-up a promise's item sends. Only its writer reads it, so a
+// loader for someone else's answers `failed`; `null` loads nothing.
+export function useDraftLoader(draftId: string | null): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = draftId
+    ? `v1/drafts/${draftId}`
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await getDraft(draftId ?? '')
+    dispatch(draftUpserted(response.draft))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// The promise an item follows up, when it is a follow-up a Project Manager drafted, which only
+// the company's members read: a promise quotes what was ingested. The response replaces what is
+// held for the item, so it is applied from the fetcher.
+export function useFollowUpPromiseLoader(itemId: string, isEnabled: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isEnabled
+    ? followUpPromiseKey(itemId)
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await listFollowUpPromises(itemId)
+    dispatch(followUpPromisesLoaded({ itemId, promises: response.promises }))
     return response
   })
   return toLoadStatus(data !== undefined, error)

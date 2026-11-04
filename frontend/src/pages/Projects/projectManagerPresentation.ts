@@ -1,10 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ParseKeys } from 'i18next'
+import type { PersonPromise, PromiseState } from '../../api/routes/promiseRoutes'
 import type {
   ProjectManagerStatus,
   ProjectManagerTurnStatus,
   ProjectManagerWake,
+  WorkBatch,
   WorkBatchPriority,
   WorkBatchState,
 } from '../../api/routes/projectManagerRoutes'
@@ -68,22 +70,56 @@ export const batchStateChipColors = {
   cancelled: 'default',
 } as const satisfies Record<WorkBatchState, ChipColor>
 
+export const promiseStateLabelKeys = {
+  waiting: 'promises.states.waiting',
+  due: 'promises.states.due',
+  drafted: 'promises.states.drafted',
+  kept: 'promises.states.kept',
+  dismissed: 'promises.states.dismissed',
+} as const satisfies Record<PromiseState, ParseKeys<'projects'>>
+
+export const promiseStateChipColors = {
+  waiting: 'default',
+  due: 'warning',
+  drafted: 'accent',
+  kept: 'success',
+  dismissed: 'default',
+} as const satisfies Record<PromiseState, ChipColor>
+
+// The work a promise waits on, as its row names it: a batch of the project's by its title, an
+// action item by its title with a link to it, or none yet. A batch or item this page does not
+// hold is named by kind alone.
+export function promiseWork(
+  promise: PersonPromise,
+  batches: WorkBatch[],
+  itemTitles: Record<string, string>,
+) {
+  if (promise.workBatchId) {
+    const batch = batches.find((candidate) => candidate.id === promise.workBatchId)
+    return { kind: 'batch', title: batch?.title ?? null, itemId: null } as const
+  }
+  if (promise.workItemId) {
+    return { kind: 'item', title: itemTitles[promise.workItemId] ?? null, itemId: promise.workItemId } as const
+  }
+  return { kind: 'none', title: null, itemId: null } as const
+}
+
 // What woke a turn, grouped as its row shows it: every message in full, oldest first, and how
-// many records and finished batches came with them.
+// many records, finished batches, and promises came with them.
 export function groupWakes(wakes: ProjectManagerWake[]) {
   const messages: ProjectManagerWake[] = []
-  let records = 0
-  let batches = 0
+  const counts = { record: 0, batch: 0, promise: 0 }
   for (const wake of wakes) {
     if (wake.kind === 'message') {
       messages.push(wake)
       continue
     }
-    if (wake.kind === 'record') {
-      records += 1
-      continue
-    }
-    batches += 1
+    counts[wake.kind] += 1
   }
-  return { messages, records, batches } as const
+  return {
+    messages,
+    records: counts.record,
+    batches: counts.batch,
+    promises: counts.promise,
+  } as const
 }

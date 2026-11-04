@@ -42,6 +42,15 @@ describe('draftsSlice', () => {
     expect(selectUnsentRecordDrafts(store.getState(), 'record-2')).toHaveLength(1)
   })
 
+  it('leaves a follow-up drafted for a promise out of the record\'s reply box', () => {
+    const store = createAppStore()
+    store.dispatch(draftUpserted(makeDraft({ id: 'reply', replyToRecordId: 'record-1' })))
+    store.dispatch(draftUpserted(makeDraft({ id: 'follow-up', replyToRecordId: 'record-1', promiseId: 'promise-1' })))
+
+    const unsent = selectUnsentRecordDrafts(store.getState(), 'record-1')
+    expect(unsent.map((draft) => draft.id)).toEqual([ 'reply' ])
+  })
+
   it('a removed draft is gone', () => {
     const store = createAppStore()
     store.dispatch(draftUpserted(makeDraft({ id: 'draft-1', replyToRecordId: 'record-1' })))

@@ -21,6 +21,7 @@ import { ProjectInitiatives } from './ProjectInitiatives'
 import { ProjectItems } from './ProjectItems'
 import { ProjectManagerPanel } from './ProjectManagerPanel'
 import { ProjectTimeline } from './ProjectTimeline'
+import { PromisesTable } from './PromisesTable'
 import { WorkBatchesTable } from './WorkBatchesTable'
 
 // Misc
@@ -34,17 +35,25 @@ import {
 import { useTabParam } from '../../hooks/useTabParam'
 import { DEFAULT_STATES } from '../ActionItems/actionItemFilters'
 
-const TABS = [ 'items', 'initiatives', 'timeline', 'manager', 'batches', 'sessions' ] as const
+const TABS = [
+  'items',
+  'initiatives',
+  'timeline',
+  'manager',
+  'batches',
+  'promises',
+  'sessions',
+] as const
 
 type Props = {
   projectId: string
 }
 
 // A project's lists below what it is about, one per tab, each named with its total: the items
-// still owed, its initiatives, its timeline, its Project Manager's turns and work batches, and its
-// coding sessions. The Project Manager's quote what was ingested, so only the company's members
-// see those two. The open tab lives in the address, and switching never asks about the page's
-// unsaved changes, which stay as they are.
+// still owed, its initiatives, its timeline, its Project Manager's turns, work batches, and the
+// promises it keeps, and its coding sessions. The Project Manager's quote what was ingested, so
+// only the company's members see those three. The open tab lives in the address, and switching
+// never asks about the page's unsaved changes, which stay as they are.
 export function ProjectLists(props: Props) {
   const { t } = useTranslation([ 'projects', 'timeline' ])
   const [ selectedTab, selectTab ] = useTabParam(TABS)
@@ -92,6 +101,7 @@ export function ProjectLists(props: Props) {
         ? [
           { id: 'manager', label: t('manager.tab'), count: null },
           { id: 'batches', label: t('batches.tab'), count: manager?.batches.length ?? null },
+          { id: 'promises', label: t('promises.tab'), count: manager?.promises.length ?? null },
         ]
         : [],
       {
@@ -127,6 +137,13 @@ export function ProjectLists(props: Props) {
     {isMember && <Tabs.Panel id='batches'>{
       manager
         ? <WorkBatchesTable batches={manager.batches} />
+        : <div className='grid place-items-center py-10'>
+          <Spinner />
+        </div>
+    }</Tabs.Panel>}
+    {isMember && <Tabs.Panel id='promises'>{
+      manager
+        ? <PromisesTable promises={manager.promises} batches={manager.batches} />
         : <div className='grid place-items-center py-10'>
           <Spinner />
         </div>

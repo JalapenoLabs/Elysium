@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { PersonPromise } from './promiseRoutes'
+
 // Misc
 import { apiClient } from '../index'
 
@@ -12,7 +14,7 @@ export const PROJECT_MANAGER_TURN_STATUSES = [ 'running', 'succeeded', 'failed' 
 export type ProjectManagerTurnStatus = typeof PROJECT_MANAGER_TURN_STATUSES[number]
 
 // Mirrors `WakeKind` in api/src/models/project_manager.rs.
-export const PROJECT_MANAGER_WAKE_KINDS = [ 'record', 'batch', 'message' ] as const
+export const PROJECT_MANAGER_WAKE_KINDS = [ 'record', 'batch', 'message', 'promise' ] as const
 export type ProjectManagerWakeKind = typeof PROJECT_MANAGER_WAKE_KINDS[number]
 
 // Mirrors `Priority` in api/src/models/work_batch.rs.
@@ -31,12 +33,13 @@ export const WORK_BATCH_STATES = [
 ] as const
 export type WorkBatchState = typeof WORK_BATCH_STATES[number]
 
-// One thing that woke a turn: a message with its text, a record, or a batch, by id.
+// One thing that woke a turn: a message with its text, a record, a batch, or a promise, by id.
 export type ProjectManagerWake = {
   id: string
   kind: ProjectManagerWakeKind
   timelineRecordId: string | null
   workBatchId: string | null
+  promiseId: string | null
   body: string | null
   // Who caused it: the person or Elysia who wrote, or whoever attributed the record.
   createdBy: string
@@ -101,6 +104,8 @@ export type ProjectManager = {
   turns: ProjectManagerTurn[]
   // Its latest batches, newest first.
   batches: WorkBatch[]
+  // Its latest promises, newest first.
+  promises: PersonPromise[]
 }
 
 export function getProjectManagerKey(projectId: string) {

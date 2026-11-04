@@ -44,10 +44,14 @@ export const { recordDraftsLoaded, draftUpserted, draftRemoved } = draftsSlice.a
 
 const { selectAll } = draftsAdapter.getSelectors((state: RootState) => state.drafts)
 
-// A record's drafts that were never sent, newest first: the one its reply box continues.
+// A record's drafts that were never sent, newest first: the one its reply box continues. A
+// follow-up drafted for a promise answers the record too, but belongs to its item's page.
 export const selectUnsentRecordDrafts = createSelector(
   [ selectAll, (_state: RootState, recordId: string) => recordId ],
   (drafts, recordId) => drafts.filter(
-    (draft) => draft.replyToRecordId === recordId && draft.state !== 'sent',
+    (draft) => draft.replyToRecordId === recordId && draft.state !== 'sent' && !draft.promiseId,
   ),
 )
+
+// One draft by id, once loaded; `undefined` until then, or when it is not the person's.
+export const { selectById: selectDraftById } = draftsAdapter.getSelectors((state: RootState) => state.drafts)

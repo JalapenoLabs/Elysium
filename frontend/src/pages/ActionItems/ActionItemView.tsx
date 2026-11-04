@@ -14,6 +14,7 @@ import { ActionItemReply } from '../../replies/ActionItemReply'
 import { ActionItemBadges } from './ActionItemBadges'
 import { ActionItemComments } from './ActionItemComments'
 import { ActionItemDetailsPanel } from './ActionItemDetailsPanel'
+import { ActionItemFollowUp } from './ActionItemFollowUp'
 import { ActionItemHistory } from './ActionItemHistory'
 import { ActionItemLinks } from './ActionItemLinks'
 import { ActionItemSessions } from './ActionItemSessions'
@@ -37,9 +38,9 @@ type Props = {
 // renamed where it is shown; the state change its state leads with is the page's primary
 // action, and everything else it can do is its Actions menu. Its notes and fields sit side by
 // side, and its links to Jira and GitHub, the meeting it asks to review, the reply box of the
-// message that raised it, its conversation, the coding sessions started from it, and its history follow. Those act at
-// once, as actions do; only the fields wait for Save. A deleted item is read-only, with
-// Restore.
+// message that raised it, the follow-up it is when it keeps a promise, its conversation, the
+// coding sessions started from it, and its history follow. Those act at once, as actions do;
+// only the fields wait for Save. A deleted item is read-only, with Restore.
 export function ActionItemView(props: Props) {
   const { t } = useTranslation([ 'actionItems', 'common' ])
   const item = props.item
@@ -111,6 +112,7 @@ export function ActionItemView(props: Props) {
         <ActionItemLinks item={item} />
         {!isDeleted && <MeetingReviewLink itemId={item.id} />}
         {!isDeleted && <ActionItemReply itemId={item.id} />}
+        {!isDeleted && <ActionItemFollowUp item={item} />}
         <section className='relaxed'>
           <h2 className='compact text-lg font-semibold'>{t('comments.heading')}</h2>
           <ActionItemComments item={item} />

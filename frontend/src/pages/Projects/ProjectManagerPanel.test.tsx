@@ -56,6 +56,7 @@ const planned = turn({
       kind: 'message',
       timelineRecordId: null,
       workBatchId: null,
+      promiseId: null,
       body: 'Leadership wants annual pricing live this week.',
       createdBy: ELYSIA_USER_ID,
       createdAt: '2026-11-04T14:59:00Z',
@@ -65,6 +66,7 @@ const planned = turn({
       kind: 'record',
       timelineRecordId: 'record-1',
       workBatchId: null,
+      promiseId: null,
       body: null,
       createdBy: ELYSIA_USER_ID,
       createdAt: '2026-11-04T14:58:00Z',
@@ -88,6 +90,7 @@ describe('ProjectManagerPanel', () => {
       usagePausedUntil: null,
       turns: [ planned, failed ],
       batches: [],
+      promises: [],
     })
 
     expect(screen.getByText('Starting soon')).toBeTruthy()
@@ -115,6 +118,7 @@ describe('ProjectManagerPanel', () => {
       usagePausedUntil: null,
       turns: [],
       batches: [],
+      promises: [],
     })
     expect(screen.getByText('Nothing has woken the Project Manager yet.')).toBeTruthy()
   })

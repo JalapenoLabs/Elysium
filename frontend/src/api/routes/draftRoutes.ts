@@ -30,6 +30,9 @@ export type Draft = {
   sentAt: string | null
   // The record the sent message became.
   sentRecordId: string | null
+  // The promise it keeps, for a follow-up a Project Manager drafted, which its item's page sends
+  // rather than the record's reply box.
+  promiseId: string | null
   createdBy: string
   createdAt: string
   updatedAt: string

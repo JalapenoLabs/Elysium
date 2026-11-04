@@ -324,6 +324,28 @@
     "start": "Start a coding session",
     "empty": "No coding session was started from this item yet."
   },
+  "followUp": {
+    "heading": "Follow-up",
+    "toIn": "To {{recipient}} in {{place}}",
+    "to": "To {{recipient}}",
+    "openConversation": "Open the conversation",
+    "promisedByYou": "You promised to let them know {{promise}}.",
+    "promisedBy": "{{name}} promised to let them know {{promise}}.",
+    "personsToSend": "{{name}} sends this follow-up.",
+    "loading": "Loading the follow-up…",
+    "loadError": "The follow-up could not be loaded.",
+    "label": "The follow-up",
+    "hint": "Ctrl+Enter saves",
+    "send": "Send",
+    "sending": "Sending",
+    "sent": "Sent to {{recipient}}",
+    "sentAt": "Sent {{time}}",
+    "edit": "Edit",
+    "save": "Save",
+    "saved": "Follow-up saved",
+    "dismiss": "Dismiss",
+    "failed": "Not sent: {{reason}}"
+  },
   "form": {
     "createTitle": "New item",
     "fromLink": "From Jira or GitHub",
