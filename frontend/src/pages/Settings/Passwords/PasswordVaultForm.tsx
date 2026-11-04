@@ -33,8 +33,8 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { connectPasswordVault, PASSWORD_SERVERS } from '../../../api/routes/passwordVaultRoutes'
+import { usePageSave } from '../../../layout/page/pageSave'
 import { toast } from '../../../toast/toast'
-import { useSettingsSave } from '../settingsSave'
 import { createPasswordVaultFormSchema } from './passwordVaultFormSchema'
 import { serverLabelKeys, setupStepKeys } from './passwordsPresentation'
 
@@ -101,7 +101,7 @@ export function PasswordVaultForm(props: Props) {
     }
   })
 
-  useSettingsSave({
+  usePageSave({
     formId: PASSWORD_VAULT_FORM_ID,
     isDirty: form.formState.isDirty,
     isPending: form.formState.isSubmitting,

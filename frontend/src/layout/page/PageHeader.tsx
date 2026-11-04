@@ -1,0 +1,143 @@
+// Copyright © 2026 Jalapeno Labs
+
+import type { ReactNode } from 'react'
+import type { PageAction } from './pageActions'
+
+// Core
+import { useTranslation } from 'react-i18next'
+
+// User interface
+import { Breadcrumbs, Button, buttonVariants, Link, Popover, Tooltip } from '@heroui/react'
+import { LuArrowLeft, LuCircleHelp } from 'react-icons/lu'
+import { InlineEditableText } from '../../components/InlineEditableText'
+import { PageActions } from './PageActions'
+
+export type PageCrumb = {
+  label: string
+  href: string
+}
+
+// Makes the title its own editor, for a page about one record that is renamed in place.
+export type PageTitleRename = {
+  // Describes the editor, for assistive technology, such as "Rename project".
+  label: string
+  maxLength: number
+  // Receives the trimmed new title. Throwing keeps the editor open on what was typed.
+  onSave: (title: string) => Promise<void>
+}
+
+export type PageHeaderProps = {
+  // The page's name: the large title, and the breadcrumbs' last crumb.
+  title: string
+  rename?: PageTitleRename
+  // Leads the title, such as a connector kind's logo.
+  icon?: ReactNode
+  // Explains the page in a popover behind a `?` beside the title. Only when it truly needs
+  // explaining: the standard page has no subtitle.
+  help?: ReactNode
+  // Follows the title, such as the record's state chip.
+  badges?: ReactNode
+  // The pages above this one, outermost first. The last is where the back button goes.
+  // Omit on a top-level page, which has neither breadcrumbs nor a back button.
+  parents?: PageCrumb[]
+  // Leads the titlebar's right side, such as a list's search field and filters button.
+  tools?: ReactNode
+  // The one action that stands on its own, such as Apply or New project.
+  primaryAction?: ReactNode
+  // The page's Save. `Page` fills it from the form that registered one.
+  save?: ReactNode
+  // Everything else the page can do. A lone harmless action is a button; more become the
+  // Actions menu, always on the far right.
+  actions?: PageAction[]
+  // Spacing around the header. Defaults to the gap a page's content leaves below it.
+  className?: string
+}
+
+// The standard top of a page (`~/.claude/docs/ux.md`, Standard page layout): breadcrumbs led
+// by a back button, then the titlebar, the large title on the left and its tools and actions
+// on the right, centered on one line. On phones the titlebar stacks, its buttons full width.
+// See docs/frontend.md, Page header.
+export function PageHeader(props: PageHeaderProps) {
+  const { t } = useTranslation('common')
+  const parent = props.parents?.at(-1)
+  const hasEnd = Boolean(props.tools || props.primaryAction || props.save || props.actions?.length)
+
+  return <header className={props.className ?? 'relaxed'}>
+    {parent && <nav aria-label={t('page.breadcrumbs')} className='compact flex min-w-0 items-center gap-1'>
+      <Tooltip delay={300}>
+        {/* A link, not a button, so it can be opened in a new tab like any other. */}
+        <Link
+          href={parent.href}
+          aria-label={t('page.back', { page: parent.label })}
+          className={buttonVariants({ isIconOnly: true, size: 'sm', variant: 'ghost' })}
+        >
+          <LuArrowLeft className='size-4' aria-hidden />
+        </Link>
+        <Tooltip.Content>
+          <span>{t('page.back', { page: parent.label })}</span>
+        </Tooltip.Content>
+      </Tooltip>
+      <Breadcrumbs className='min-w-0'>
+        {props.parents?.map((crumb) => <Breadcrumbs.Item key={crumb.href} href={crumb.href}>{
+          crumb.label
+        }</Breadcrumbs.Item>)}
+        <Breadcrumbs.Item>{props.title}</Breadcrumbs.Item>
+      </Breadcrumbs>
+    </nav>}
+
+    <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4'>
+      <div className='flex min-w-0 items-center gap-3'>
+        {props.icon}
+        {props.rename
+          ? <div className='min-w-0'>
+            <InlineEditableText
+              value={props.title}
+              label={props.rename.label}
+              isRequired
+              maxLength={props.rename.maxLength}
+              className='text-3xl font-bold'
+              onSave={props.rename.onSave}
+            />
+          </div>
+          : <h1 className='min-w-0 text-3xl font-bold break-words'>{
+            props.title
+          }</h1>}
+        {props.help && <PageHelp>{props.help}</PageHelp>}
+        {props.badges}
+      </div>
+      {hasEnd && <div className='page-actions'>
+        {props.tools}
+        {props.primaryAction}
+        {props.save}
+        {props.actions && <PageActions actions={props.actions} />}
+      </div>}
+    </div>
+  </header>
+}
+
+type HelpProps = {
+  children: ReactNode
+}
+
+// The `?` beside a title that needs explaining, opening the explanation in a popover.
+function PageHelp(props: HelpProps) {
+  const { t } = useTranslation('common')
+
+  return <Popover>
+    <Tooltip delay={300}>
+      <Tooltip.Trigger>
+        <Button isIconOnly size='sm' variant='ghost' aria-label={t('page.help')}>
+          <LuCircleHelp className='size-4' aria-hidden />
+        </Button>
+      </Tooltip.Trigger>
+      <Tooltip.Content>
+        <span>{t('page.help')}</span>
+      </Tooltip.Content>
+    </Tooltip>
+    <Popover.Content placement='bottom start' className='max-w-sm'>
+      <Popover.Dialog className='text-sm'>{
+        props.children
+      }</Popover.Dialog>
+    </Popover.Content>
+  </Popover>
+}

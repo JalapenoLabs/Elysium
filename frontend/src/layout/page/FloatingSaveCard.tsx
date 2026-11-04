@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { SettingsSave } from './settingsSave'
+import type { PageSave } from './pageSave'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -8,16 +8,16 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Button, Card, Tooltip } from '@heroui/react'
 import { LuX } from 'react-icons/lu'
-import { SettingsSaveButton } from './SettingsSaveButton'
+import { PageSaveButton } from './PageSaveButton'
 
 type Props = {
-  save: SettingsSave
+  save: PageSave
   onDismiss: () => void
 }
 
 // Save, kept within reach in the bottom right while the header's Save is scrolled out of view.
 export function FloatingSaveCard(props: Props) {
-  const { t } = useTranslation('settings')
+  const { t } = useTranslation('common')
 
   return <Card
     role='region'
@@ -27,7 +27,7 @@ export function FloatingSaveCard(props: Props) {
     <Card.Content className='flex-row items-center gap-4'>
       <span className='text-sm whitespace-nowrap'>{t('page.floatingSave.unsaved')}</span>
       <div className='level-right gap-1'>
-        <SettingsSaveButton save={props.save} />
+        <PageSaveButton save={props.save} />
         <Tooltip delay={300}>
           <Tooltip.Trigger>
             <Button

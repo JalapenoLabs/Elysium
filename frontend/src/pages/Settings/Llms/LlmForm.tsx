@@ -39,7 +39,7 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { createLlm, updateLlm } from '../../../api/routes/llmRoutes'
-import { useSettingsSave } from '../settingsSave'
+import { usePageSave } from '../../../layout/page/pageSave'
 import { createLlmFormSchema } from './llmFormSchema'
 import { isTokenTypedByType } from './llmPresentation'
 
@@ -143,7 +143,7 @@ export function LlmForm(props: Props) {
     }
   })
 
-  useSettingsSave({
+  usePageSave({
     formId: LLM_FORM_ID,
     isDirty: form.formState.isDirty,
     isPending: form.formState.isSubmitting,

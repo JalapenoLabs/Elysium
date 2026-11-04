@@ -1,8 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-// What a key press asks of a settings page: Esc goes back to its parent, and Ctrl+S (Cmd+S
+// What a key press asks of a page: Esc goes back to its parent, and Ctrl+S (Cmd+S
 // on a Mac) presses Save.
-export type SettingsShortcut = 'leave' | 'save'
+export type PageShortcut = 'leave' | 'save'
 
 const MODAL_SELECTOR = '[role="dialog"], [role="alertdialog"]'
 
@@ -10,7 +10,7 @@ const MODAL_SELECTOR = '[role="dialog"], [role="alertdialog"]'
 // closes its own overlays on Esc, and a list box or menu handles its own keys.
 const OVERLAY_SELECTOR = `${MODAL_SELECTOR}, [role="menu"], [role="listbox"]`
 
-export function readSettingsShortcut(event: KeyboardEvent): SettingsShortcut | null {
+export function readPageShortcut(event: KeyboardEvent): PageShortcut | null {
   const isSave = (event.ctrlKey || event.metaKey)
     && !event.altKey
     && !event.shiftKey

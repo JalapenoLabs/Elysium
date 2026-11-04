@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { Ref } from 'react'
-import type { SettingsSave } from './settingsSave'
+import type { PageSave } from './pageSave'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -10,16 +10,16 @@ import { useTranslation } from 'react-i18next'
 import { Button, Tooltip } from '@heroui/react'
 
 // Misc
-import { canPressSave } from './settingsSave'
+import { canPressSave } from './pageSave'
 
 type Props = {
-  save: SettingsSave
+  save: PageSave
   // The header's button is watched, so the floating card shows once it scrolls away.
   ref?: Ref<HTMLDivElement>
 }
 
-// A settings page's Save: it submits the page's form, and says why when it cannot.
-export function SettingsSaveButton(props: Props) {
+// A page's Save: it submits the page's form, and says why when it cannot.
+export function PageSaveButton(props: Props) {
   const { t } = useTranslation('common')
 
   const button = <div ref={props.ref}>

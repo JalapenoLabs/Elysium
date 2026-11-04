@@ -41,7 +41,7 @@ import {
   updateStorageLocation,
 } from '../../../api/routes/storageRoutes'
 import { BYTES_PER_GIGABYTE } from '../../../constants'
-import { useSettingsSave } from '../settingsSave'
+import { usePageSave } from '../../../layout/page/pageSave'
 import { createStorageFormSchema, keepsAccessKey, toStorageProvider } from './storageFormSchema'
 import {
   accessKeyLabelKeys,
@@ -152,7 +152,7 @@ export function StorageLocationForm(props: Props) {
     }
   })
 
-  useSettingsSave({
+  usePageSave({
     formId: STORAGE_LOCATION_FORM_ID,
     isDirty: form.formState.isDirty,
     isPending: form.formState.isSubmitting,

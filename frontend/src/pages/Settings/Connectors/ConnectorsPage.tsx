@@ -48,7 +48,7 @@ export function ConnectorsPage() {
 
   return <SettingsPage
     title={t('page.title')}
-    actions={<Link to={UrlTree.settingsConnectorNew} className={buttonVariants({ variant: 'primary' })}>
+    primaryAction={<Link to={UrlTree.settingsConnectorNew} className={buttonVariants({ variant: 'primary' })}>
       <span>{t('page.add')}</span>
     </Link>}
   >

@@ -33,7 +33,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { createEnvironmentVariable, updateEnvironmentVariable } from '../../../api/routes/environmentRoutes'
-import { useSettingsSave } from '../settingsSave'
+import { usePageSave } from '../../../layout/page/pageSave'
 import { createEnvironmentFormSchema } from './environmentFormSchema'
 
 const ENVIRONMENT_VARIABLE_FORM_ID = 'environment-variable-form'
@@ -108,7 +108,7 @@ export function EnvironmentVariableForm(props: Props) {
     }
   })
 
-  useSettingsSave({
+  usePageSave({
     formId: ENVIRONMENT_VARIABLE_FORM_ID,
     isDirty: form.formState.isDirty,
     isPending: form.formState.isSubmitting,

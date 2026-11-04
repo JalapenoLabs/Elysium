@@ -19,7 +19,7 @@ import { OptionSelect } from '../../../components/OptionSelect'
 import { getApiErrorMessage } from '../../../api/errors'
 import { chooseBackupDestination } from '../../../api/routes/backupRoutes'
 import { UrlTree } from '../../../urls'
-import { useSettingsSave } from '../settingsSave'
+import { usePageSave } from '../../../layout/page/pageSave'
 
 const BACKUP_DESTINATION_FORM_ID = 'backup-destination-form'
 
@@ -42,7 +42,7 @@ export function BackupDestinationForm(props: Props) {
   const [ chosen, setChosen ] = useState(saved)
   const [ isSaving, setIsSaving ] = useState(false)
 
-  useSettingsSave({
+  usePageSave({
     formId: BACKUP_DESTINATION_FORM_ID,
     isDirty: chosen !== saved,
     isPending: isSaving,

@@ -10,7 +10,8 @@ import { selectCheckRun, selectConnectorById } from '../../../store/connectorsSl
 import { useAppSelector } from '../../../store/hooks'
 
 // User interface
-import { Button, Card, Chip, Link, Spinner } from '@heroui/react'
+import { Card, Chip, Link, Spinner } from '@heroui/react'
+import { LuListChecks, LuPause, LuPlay, LuRefreshCw, LuTrash2 } from 'react-icons/lu'
 import { ReportIssueButton } from '../../../components/ReportIssueButton'
 import { SettingsPage } from '../SettingsPage'
 import { BrowserSignIn } from './BrowserSignIn'
@@ -72,20 +73,38 @@ export function ConnectorPage() {
     title={t(`kinds.${connector.kind}.name`)}
     icon={<ConnectorLogo kind={connector.kind} className='size-8' />}
     parents={parents}
-    actions={<>
-      <Button variant='outline' onPress={() => act(connector, 'runChecks')}>
-        <span>{t('actions.runChecks')}</span>
-      </Button>
-      <Button variant='outline' isDisabled={!connector.isActive} onPress={() => act(connector, 'sync')}>
-        <span>{t('actions.sync')}</span>
-      </Button>
-      <Button variant='outline' onPress={() => act(connector, 'toggle')}>
-        <span>{connector.isActive ? t('actions.pause') : t('actions.resume')}</span>
-      </Button>
-      <Button variant='danger' onPress={() => act(connector, 'delete')}>
-        <span>{t('actions.delete')}</span>
-      </Button>
-    </>}
+    actions={[
+      {
+        id: 'runChecks',
+        label: t('actions.runChecks'),
+        icon: LuListChecks,
+        onAction: () => act(connector, 'runChecks'),
+      },
+      {
+        id: 'sync',
+        label: t('actions.sync'),
+        icon: LuRefreshCw,
+        isDisabled: !connector.isActive,
+        onAction: () => act(connector, 'sync'),
+      },
+      {
+        id: 'toggle',
+        label: connector.isActive
+          ? t('actions.pause')
+          : t('actions.resume'),
+        icon: connector.isActive
+          ? LuPause
+          : LuPlay,
+        onAction: () => act(connector, 'toggle'),
+      },
+      {
+        id: 'delete',
+        label: t('actions.delete'),
+        icon: LuTrash2,
+        isDanger: true,
+        onAction: () => act(connector, 'delete'),
+      },
+    ]}
   >
     <div className='relaxed flex flex-wrap items-center gap-2'>
       <Chip size='sm' variant='soft' color={statusColors[connector.status]}>{t(`status.${connector.status}`)}</Chip>

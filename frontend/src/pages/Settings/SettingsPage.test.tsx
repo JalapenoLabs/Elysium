@@ -14,7 +14,7 @@ import { ConfirmGate } from '../../gates/ConfirmGate'
 import { SettingsPage } from './SettingsPage'
 
 // Misc
-import { useSettingsSave } from './settingsSave'
+import { usePageSave } from '../../layout/page/pageSave'
 
 const FORM_ID = 'example-settings-form'
 
@@ -44,7 +44,7 @@ type FormProps = {
 
 function ExampleForm(props: FormProps) {
   const [ value, setValue ] = useState('')
-  useSettingsSave({ formId: FORM_ID, isDirty: value !== '', isPending: false })
+  usePageSave({ formId: FORM_ID, isDirty: value !== '', isPending: false })
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

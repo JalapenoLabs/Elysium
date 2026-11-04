@@ -60,5 +60,21 @@
     "ordinalDay_ordinal_two": "{{count}}nd",
     "ordinalDay_ordinal_few": "{{count}}rd",
     "ordinalDay_ordinal_other": "{{count}}th"
+  },
+  "page": {
+    "actions": "Actions",
+    "back": "Back to {{page}}",
+    "breadcrumbs": "Breadcrumbs",
+    "help": "Help",
+    "leave": {
+      "title": "Leave without saving?",
+      "message": "Your changes on this page will be lost.",
+      "confirm": "Leave"
+    },
+    "floatingSave": {
+      "label": "Save changes",
+      "unsaved": "You have unsaved changes",
+      "dismiss": "Dismiss"
+    }
   }
 }

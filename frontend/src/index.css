@@ -45,6 +45,36 @@
   }
 }
 
+/* A page titlebar's right side (`PageHeader`). On phones it stacks under the title, every
+   control full width with its text centered; from `sm` it is one row beside the title. Its
+   buttons may sit inside a wrapper (a tooltip's trigger), so the rule reaches one level in.
+   Unlayered, like HeroUI's own `.button`, so it is not outranked by it. */
+.page-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.page-actions > *,
+.page-actions > * > .button {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (width >= 40rem) {
+  .page-actions {
+    flex-direction: row;
+    flex-shrink: 0;
+    align-items: center;
+  }
+
+  .page-actions > *,
+  .page-actions > * > .button {
+    width: auto;
+  }
+}
+
 /* A SmartTable header holding `.numeric-column-header` sits over the right edge of its
    right-aligned numbers. uikit left-aligns every header and keeps room after it for the
    sort icon; the `html` prefix wins over the stylesheet uikit injects after this one. */

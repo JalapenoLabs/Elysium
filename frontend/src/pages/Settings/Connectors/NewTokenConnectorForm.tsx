@@ -24,7 +24,7 @@ import { ContentFields } from './ContentFields'
 // Misc
 import { checkConnectorDraft, createConnector } from '../../../api/routes/connectorRoutes'
 import { getConnectorUrl } from '../../../urls'
-import { useSettingsSave } from '../settingsSave'
+import { usePageSave } from '../../../layout/page/pageSave'
 import { connectorErrorMessage, hasRequiredFailure } from './connectorPresentation'
 
 const NEW_CONNECTOR_FORM_ID = 'new-connector-form'
@@ -57,7 +57,7 @@ export function NewTokenConnectorForm(props: Props) {
     ? hasRequiredFailure(props.definition.checks, run.checks)
     : false
 
-  useSettingsSave({
+  usePageSave({
     formId: NEW_CONNECTOR_FORM_ID,
     isDirty,
     isPending: isSaving,

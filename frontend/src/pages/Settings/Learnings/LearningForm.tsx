@@ -24,7 +24,7 @@ import { HTTPError } from 'ky'
 import { getApiErrorMessage } from '../../../api/errors'
 import { BUILT_IN_LEARNING_CATEGORIES, correctLearning, saveLearning } from '../../../api/routes/learningRoutes'
 import { useLearningCategories } from '../../../hooks/useLearningCategories'
-import { useSettingsSave } from '../settingsSave'
+import { usePageSave } from '../../../layout/page/pageSave'
 import { createLearningFormSchema } from './learningFormSchema'
 import { LEARNING_FIELDS } from './learningPresentation'
 import { forgetNewLearningDraft, readNewLearningDraft, saveNewLearningDraft } from './newLearningDraft'
@@ -139,7 +139,7 @@ export function LearningForm(props: Props) {
     }
   })
 
-  useSettingsSave({
+  usePageSave({
     formId: LEARNING_FORM_ID,
     isDirty: form.formState.isDirty,
     isPending: form.formState.isSubmitting,

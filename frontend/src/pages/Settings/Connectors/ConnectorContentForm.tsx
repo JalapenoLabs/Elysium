@@ -17,7 +17,7 @@ import { ContentFields } from './ContentFields'
 
 // Misc
 import { updateConnector } from '../../../api/routes/connectorRoutes'
-import { useSettingsSave } from '../settingsSave'
+import { usePageSave } from '../../../layout/page/pageSave'
 import { connectorErrorMessage } from './connectorPresentation'
 
 const CONNECTOR_CONTENT_FORM_ID = 'connector-content-form'
@@ -42,7 +42,7 @@ export function ConnectorContentForm(props: Props) {
     : connector.content
   const shown = content ?? stored
 
-  useSettingsSave({
+  usePageSave({
     formId: CONNECTOR_CONTENT_FORM_ID,
     isDirty: content !== null,
     isPending: isSaving,

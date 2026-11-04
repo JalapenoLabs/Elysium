@@ -149,7 +149,7 @@ export function LearningsPage() {
 
   return <SettingsPage
     title={t('title')}
-    actions={<Link
+    primaryAction={<Link
       href={UrlTree.settingsLearningNew}
       className={buttonVariants({ variant: 'outline', className: 'gap-2' })}
     >

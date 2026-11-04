@@ -62,9 +62,54 @@ Code here keeps to it:
   whose `handle` is `{ layout: 'workspace' }` (typed as `RouteLayoutHandle` in `src/router.tsx`) gets the whole
   content area and manages its own scrolling instead; the Coding page does.
 
-Every page works at 375px. The shell pads `main` and the topbar `px-4` below `md` and `px-10` from it, and page
-headers keep their primary action on screen, dropping secondary buttons to icons with an `aria-label` where they
-would not fit.
+Every page works at 375px. The shell pads `main` and the topbar `px-4` below `md` and `px-10` from it. Below `sm`
+every page's titlebar stacks onto several lines, its buttons full width with their text centered (see Page header).
+
+### Page header
+
+Every page opens with the standard header from `src/layout/page/` (`~/.claude/docs/ux.md`, Standard page layout).
+A page in the padded `main` renders inside `Page`, which draws the header and holds the page's one Save:
+
+```tsx
+<Page
+  title={project.name}
+  // Pages above this one, outermost first. Omit on a top-level page.
+  parents={[{ label: t('title'), href: UrlTree.projects }]}
+  // Optional: the title becomes its own editor.
+  rename={{ label: t('page.renameLabel'), maxLength: NAME_MAX_CHARACTERS, onSave: rename }}
+  // Optional: leads the title, a `?` popover beside it, and chips after it.
+  icon={<ConnectorLogo kind={kind} />}
+  help={t('page.help')}
+  badges={<Chip>{state}</Chip>}
+  // Optional: search and filters, then the one action that stands on its own.
+  tools={<SearchField />}
+  primaryAction={<Button>...</Button>}
+  // Everything else the page can do.
+  actions={[
+    { id: 'removeCover', label: t('page.removeCover'), icon: LuImageOff, onAction: removeCover },
+    { id: 'delete', label: t('common:actions.delete'), icon: LuTrash2, isDanger: true, onAction: confirmDelete },
+  ]}
+>
+  ...
+</Page>
+```
+
+- **Breadcrumbs.** With `parents`, the header opens with an icon-only back button, a link to the last parent, then
+  the breadcrumbs ending in the title. A top-level page has neither.
+- **Titlebar.** The large title on the left, everything else on the right, centered on one line, in this order:
+  `tools` (the slot for a list's search field and filters button), `primaryAction`, Save, then the actions. There
+  are no subtitles; a page that truly needs explaining puts it behind `help`.
+- **Actions.** `actions` is data (`PageAction` in `pageActions.ts`), so the rule lives in one place,
+  `arrangePageActions`: a lone harmless action is its own outlined button, and anything more is one Actions menu on
+  the far right, each item with its icon and destructive ones (`isDanger`) in red below a divider. A destructive
+  action is never a bare button, even alone. An action acts (`onAction`), goes somewhere (`href`, a real link), or
+  opens a submenu (`items`); `isPending` shows on its button or on the menu's trigger.
+- **Phones.** Below `sm` the right side stacks under the title and every control in it spans the full width,
+  centered (`.page-actions` in `src/index.css`).
+- **Save.** A form inside the page registers the page's Save with `usePageSave` (`pageSave.ts`); see Settings pages
+  for how it works. Every edit and `/new` page carries it in the header.
+- **Workspace pages.** A page that manages its own scrolling (the Coding page, a Studio item) renders `PageHeader`
+  alone in its top bar, with the same props, and passes `className` for its spacing.
 
 `AppShell` also mounts HeroUI's `RouterProvider`, wired to React Router's `navigate` and `useHref`. That makes any
 HeroUI `Link` `href` a client-side navigation. It also mounts the toast region.
@@ -136,29 +181,28 @@ New settings pages add an entry to a section and a route under `/settings`, and 
 
 ### Settings pages
 
-Every settings subpage renders inside `SettingsPage` (`src/pages/Settings/SettingsPage.tsx`), which holds the saving
-and keyboard rules every one of them follows, so a page only describes itself:
+Every settings subpage renders inside `SettingsPage` (`src/pages/Settings/SettingsPage.tsx`): a `Page` (see Page
+header) under Settings in the breadcrumbs, whose Esc goes back to the parent page. It takes `Page`'s props, so a page
+only describes itself:
 
 ```tsx
 <SettingsPage
   title={t('page.editTitle', { name })}
-  // Optional, leading the title, such as a connector kind's logo.
-  icon={<ConnectorLogo kind={kind} />}
-  // Pages between Settings and this one, for the breadcrumbs and Esc. Omit at the top level.
+  // Pages between Settings and this one, for the breadcrumbs, the back button, and Esc. Omit at the top level.
   parents={[{ label: t('title'), href: UrlTree.settingsLlms }]}
-  // Optional, shown left of Save, such as a list page's Add button.
-  actions={<Button variant='outline'>...</Button>}
+  // Optional, left of Save, such as a list page's Add button.
+  primaryAction={<Button variant='outline'>...</Button>}
 >
   <LlmForm />
 </SettingsPage>
 ```
 
-- **Header.** Breadcrumbs, then the title on the left and the page's actions and Save on the right.
+- **Header.** The standard page header, with Save between the primary action and the Actions menu.
 - **One Save per page.** The form that owns the page's settings registers it, however deep it sits, with
-  `useSettingsSave` (`src/pages/Settings/settingsSave.ts`), and puts the same id on its `<Form>`:
+  `usePageSave` (`src/layout/page/pageSave.ts`), and puts the same id on its `<Form>`:
 
   ```tsx
-  useSettingsSave({
+  usePageSave({
     formId: LLM_FORM_ID,
     isDirty: form.formState.isDirty,
     isPending: form.formState.isSubmitting,
@@ -176,8 +220,8 @@ and keyboard rules every one of them follows, so a page only describes itself:
   it in the bottom right. Dismissing it lasts until the header's Save is back in view.
 - **Keyboard.** Esc goes to the last parent, or `/settings`, asking first when the form is dirty. It is left alone
   when a component already used it (`defaultPrevented`), inside a menu or list box, and while a modal is open, so a
-  modal closes first. Ctrl+S (Cmd+S) never opens the browser's save dialog on a settings page, and presses Save when it
-  can. The rules are `readSettingsShortcut` in `settingsShortcuts.ts`.
+  modal closes first. Ctrl+S (Cmd+S) never opens the browser's save dialog on any `Page`, and presses Save when it
+  can. The rules are `readPageShortcut` in `src/layout/page/pageShortcuts.ts`.
 - **Feedback.** A save is confirmed with a toast alone. Nothing a save reports may move the page, so there are no
   success banners above the form.
 

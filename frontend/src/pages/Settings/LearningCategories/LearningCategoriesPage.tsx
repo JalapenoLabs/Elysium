@@ -115,7 +115,7 @@ export function LearningCategoriesPage() {
 
   return <SettingsPage
     title={t('title')}
-    actions={<Link
+    primaryAction={<Link
       href={UrlTree.settingsLearningCategoryNew}
       className={buttonVariants({ variant: 'outline', className: 'gap-2' })}
     >

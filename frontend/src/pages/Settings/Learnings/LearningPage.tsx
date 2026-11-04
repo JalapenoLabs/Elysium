@@ -98,7 +98,7 @@ export function LearningPage() {
   return <SettingsPage
     title={learning.title}
     parents={[{ label: t('title'), href: UrlTree.settingsLearnings }]}
-    actions={learning.deletedAt
+    primaryAction={learning.deletedAt
       ? <Button variant='outline' isPending={isChanging} onPress={() => restore(learning)}>
         <LuRotateCcw className='size-4' aria-hidden />
         <span>{t('page.restore')}</span>

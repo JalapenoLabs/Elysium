@@ -57,7 +57,7 @@ export function ManageEnvironmentPage() {
 
   return <SettingsPage
     title={t('title')}
-    actions={<Button
+    primaryAction={<Button
       variant='outline'
       onPress={() => navigate(UrlTree.settingsEnvironmentNew)}
     >

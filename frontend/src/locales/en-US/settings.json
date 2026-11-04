@@ -88,17 +88,5 @@
         "system": "System"
       }
     }
-  },
-  "page": {
-    "leave": {
-      "title": "Leave without saving?",
-      "message": "Your changes on this page will be lost.",
-      "confirm": "Leave"
-    },
-    "floatingSave": {
-      "label": "Save changes",
-      "unsaved": "You have unsaved changes",
-      "dismiss": "Dismiss"
-    }
   }
 }

@@ -17,7 +17,7 @@ import { Description, Form, Input, Label, TextField, toast } from '@heroui/react
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { updateWorkspaceSettings } from '../../../api/routes/userRoutes'
-import { useSettingsSave } from '../settingsSave'
+import { usePageSave } from '../../../layout/page/pageSave'
 
 const AGENT_CONFIGURATION_FORM_ID = 'agent-configuration-form'
 
@@ -36,7 +36,7 @@ export function AgentConfigurationSettings(props: Props) {
   const [ isSaving, setIsSaving ] = useState(false)
   const trimmed = repository.trim()
 
-  useSettingsSave({
+  usePageSave({
     formId: AGENT_CONFIGURATION_FORM_ID,
     isDirty: trimmed !== saved,
     isPending: isSaving,

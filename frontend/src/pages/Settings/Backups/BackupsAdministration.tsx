@@ -41,7 +41,7 @@ export function BackupsAdministration() {
 
   return <SettingsPage
     title={t('title')}
-    actions={<BackUpNowButton status={status} />}
+    primaryAction={<BackUpNowButton status={status} />}
   >
     <BackupDestinationForm
       destinationId={status.destination?.id ?? null}

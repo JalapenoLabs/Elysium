@@ -22,7 +22,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { createLearningCategory, updateLearningCategory } from '../../../api/routes/learningCategoryRoutes'
-import { useSettingsSave } from '../settingsSave'
+import { usePageSave } from '../../../layout/page/pageSave'
 import { createLearningCategoryFormSchema, keyFromLabel } from './learningCategoryFormSchema'
 import {
   forgetNewLearningCategoryDraft,
@@ -121,7 +121,7 @@ export function LearningCategoryForm(props: Props) {
     }
   })
 
-  useSettingsSave({
+  usePageSave({
     formId: LEARNING_CATEGORY_FORM_ID,
     isDirty: form.formState.isDirty,
     isPending: form.formState.isSubmitting,

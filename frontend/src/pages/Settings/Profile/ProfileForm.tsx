@@ -15,7 +15,7 @@ import { PersonNameFields } from '../../../components/PersonNameFields'
 // Misc
 import { collectMessages } from '../../../api/kratosFlows'
 import { fieldErrorText } from '../../Auth/kratosPresentation'
-import { useSettingsSave } from '../settingsSave'
+import { usePageSave } from '../../../layout/page/pageSave'
 import { readProfile } from './profilePresentation'
 
 const PROFILE_FORM_ID = 'profile-form'
@@ -47,7 +47,7 @@ export function ProfileForm(props: Props) {
     blockedReason = t('settings:profile.emailRequired')
   }
 
-  useSettingsSave({
+  usePageSave({
     formId: PROFILE_FORM_ID,
     isDirty,
     isPending: isSaving,

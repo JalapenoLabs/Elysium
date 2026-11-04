@@ -36,7 +36,7 @@ export function MeetingsPage() {
 
   return <SettingsPage
     title={t('title')}
-    actions={hasSources && <Link
+    primaryAction={hasSources && <Link
       to={getConnectorPickerUrl('meetings')}
       className={buttonVariants({ variant: 'outline' })}
     >
