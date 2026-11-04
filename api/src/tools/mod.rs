@@ -6,8 +6,8 @@
 //! `/api/agent-tools/{server}` ([`endpoint`]), with a bearer token their turn was granted
 //! ([`grants`]). The grant carries the [`CallScope`] every call runs for.
 //!
-//! Each server is a [`ToolServer`]: its name, the instructions the agent reads, and a table
-//! of [`Tool`]s. The same table lists the tools to the agent and dispatches a call to them,
+//! Each server is a [`ToolServer`]: its name, the instructions the agent reads (fixed in code, or
+//! for [`knowledge`] the company's agent guidance), and a table of [`Tool`]s. The same table lists the tools to the agent and dispatches a call to them,
 //! so a listed tool always has a handler. Each tool set is one module with its own
 //! table, listed in [`SERVERS`]: [`storage`] for the project's storage locations and
 //! [`work`] for its action items and initiatives, both for coding sessions, [`elysia`]
@@ -35,6 +35,7 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use crate::action_items::links::Links;
+use crate::agent_guidance::{AgentGuidance, Audience};
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::knowledge::search::KnowledgeSearch;
@@ -47,6 +48,8 @@ use crate::storage::Storage;
 /// The services tool calls use. Cheap to clone; clones share every connection.
 #[derive(Clone)]
 pub struct ToolContext {
+    /// The guidance a server that serves it adds to its instructions as a turn connects.
+    pub agent_guidance: AgentGuidance,
     pub database: Pool,
     pub cipher: Arc<Cipher>,
     pub storage: Storage,
@@ -164,8 +167,18 @@ pub type Run = for<'call> fn(
 pub struct ToolServer {
     /// 1 to 64 letters, digits, underscores, or hyphens: an MCP server name and a URL segment.
     pub name: &'static str,
-    pub instructions: &'static str,
+    pub instructions: Instructions,
     pub tools: &'static [Tool],
+}
+
+/// What a turn is told a server is for, as it connects.
+#[derive(Debug, Clone, Copy)]
+pub enum Instructions {
+    /// Text fixed in code.
+    Fixed(&'static str),
+    /// The company's agent guidance, as `audience` reads it, current as the turn connects
+    /// (`crate::agent_guidance`).
+    Guidance(Audience),
 }
 
 /// Every server Elysium serves, looked up by name when a call arrives.
@@ -338,7 +351,9 @@ mod tests {
                 "{} is listed twice",
                 server.name
             );
-            assert!(!server.instructions.trim().is_empty());
+            if let Instructions::Fixed(instructions) = server.instructions {
+                assert!(!instructions.trim().is_empty(), "{}", server.name);
+            }
 
             let mut tool_names = HashSet::new();
             for tool in server.tools {

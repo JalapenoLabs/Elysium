@@ -9,6 +9,7 @@ pub mod action_item_event;
 pub mod action_item_link;
 pub mod action_item_link_write;
 pub mod agent;
+pub mod agent_guidance;
 pub mod attribution;
 pub mod authenticator_nickname;
 pub mod authenticator_replacement;

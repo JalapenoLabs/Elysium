@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::action_items::links::Links;
+use crate::agent_guidance::AgentGuidance;
 use crate::auth::Auth;
 use crate::backups::Backups;
 use crate::browser::Browsers;
@@ -37,6 +38,9 @@ use crate::version::VersionInfo;
 /// agent turn or a backup, it records for the engine to take (`crate::engine`).
 #[derive(Clone)]
 pub struct AppState {
+    /// The guidance every connected agent reads as its session starts, kept for the next
+    /// session. See `crate::agent_guidance`.
+    pub agent_guidance: AgentGuidance,
     /// Kratos, and what the auth layers check requests against.
     pub auth: Auth,
     /// The backups of the databases, and Back up now. See `crate::backups`.

@@ -83,7 +83,8 @@ memory. What still holds it to one is its own request-scoped state:
 - connector check runs, which a page follows by id;
 - the mail server's creation progress;
 - the lock that keeps two problem reports of one failure from both opening an issue;
-- the rate limiter, whose buckets are per process.
+- the rate limiter, whose buckets are per process;
+- the agent guidance kept in memory, which a save on another replica would not replace (`api/src/agent_guidance/`).
 
 Each moves to Postgres or Redis when the API scales; until then it runs one replica.
 

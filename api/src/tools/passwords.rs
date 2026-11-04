@@ -19,14 +19,17 @@ use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::{CallScope, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments};
+use super::{
+    CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
+};
 use crate::models::password_vault;
 use crate::passwords::VaultError;
 use crate::passwords::cli::CliError;
 
 pub const SERVER: ToolServer = ToolServer {
     name: "elysium_passwords",
-    instructions: "Logins from the password vault that Elysium keeps for agents, for signing in \
+    instructions: Instructions::Fixed(
+        "Logins from the password vault that Elysium keeps for agents, for signing in \
         to websites and services on your own. Only the logins in the one collection reserved for \
         agents are reachable. Find a login with passwords_find (by the site's URL, or by words \
         in its name or username), then call passwords_login with its id for the username and \
@@ -35,6 +38,7 @@ pub const SERVER: ToolServer = ToolServer {
         never print, commit, or write them to a file: type them straight into the sign-in \
         form. When no login fits, say so and ask; never guess or reuse another site's \
         password.",
+    ),
     tools: &TOOLS,
 };
 

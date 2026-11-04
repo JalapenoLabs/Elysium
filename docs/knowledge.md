@@ -14,8 +14,9 @@ Knowledge page and in the topbar's search (Hybrid search, below); the company do
 proposed to by its scheduled review and by agents, read by every agent, and indexed as it changes (The company doc,
 below); the embedding model, with the engine's embedder giving every passage its embedding as it arrives
 (Embeddings, below); the tools that search, open, and list the knowledge base for MCP clients and for every agent's
-turn (MCP, below); and asking it for a written answer, every claim citing a passage, on the Knowledge page and over
-MCP (Asking, below).
+turn (MCP, below); asking it for a written answer, every claim citing a passage, on the Knowledge page and over MCP
+(Asking, below); and the guidance every connected agent reads as its session starts, edited by admins in Settings,
+Agent guidance, every version kept (Agent guidance, below).
 
 ## What is indexed
 
@@ -634,19 +635,93 @@ under the same names, descriptions, and argument schemas.
   and that results may quote a coworker's mail and are not for repeating outside the company.
 - `learning_save` and `learning_delete` call the routes' own `save` and `delete` with the connecting person as who
   saved it and the client as the agent acting for them, so a learning an agent saves is validated, recorded, indexed,
-  and announced exactly as one saved in the browser. Until the editable instructions below are built,
-  `learning_save`'s description and the server's fixed instructions say what makes a learning worth saving. A turn
-  cannot save learnings yet: an agent acting for a session needs recording as one, as `session:<n>` is for a
-  proposal, which is on the roadmap.
+  and announced exactly as one saved in the browser. `learning_save`'s description and the agent guidance (Agent
+  guidance, below) say what makes a learning worth saving. A turn cannot save learnings yet: an agent acting for a
+  session needs recording as one, as `session:<n>` is for a proposal, which is on the roadmap.
 - `knowledge_ask` answers in writing rather than with evidence, for clients that want an answer (Asking, below). A
   turn does not get it: an agent searches for itself, and an answer would spend a second turn on what the first one
   can read.
-- The MCP server sends its instructions to every client that connects: when to search, how to cite, what makes a
-  learning worth saving, and the confidentiality rule, including that results may quote a coworker's mail and
-  messages and are not for repeating outside the company. Today they are fixed in code (`api/src/mcp/workspace.rs`,
-  and the `elysium_knowledge` server's in `api/src/tools/knowledge.rs`). The roadmap is for admins to edit the text in
-  Settings, versioned, so a change reaches every connected agent on its next session, with a copyable CLAUDE.md block
-  for teams that want it.
+- Every client that connects to the MCP server, and every turn that connects to `elysium_knowledge`, is told the
+  company's agent guidance: when to search, how to cite, what makes a learning worth saving, and the confidentiality
+  rule, which no edit removes (Agent guidance, below).
+
+## Agent guidance
+
+Every agent connected to Elysium reads the company's guidance as its session starts: MCP clients such as Claude Code
+and Codex as they connect to `/api/mcp`, and every turn of Elysium's own agents (coding and Studio sessions, and
+Elysia) as it connects to `elysium_knowledge`. Admins edit it under Settings, Agent guidance, and every version is
+kept. The code is `api/src/agent_guidance/`, the table `agent_guidance_versions` (`docs/database.md`), and the routes
+`/api/v1/agent-guidance` (`docs/api.md`).
+
+### What an agent reads
+
+Three paragraphs, in this order (`instructions` in `api/src/agent_guidance/`):
+
+| Part                         | From                                   | Says                                                  |
+|------------------------------|----------------------------------------|-------------------------------------------------------|
+| Its server's introduction    | Compiled, one per kind of agent        | What the server is; for a turn, that it has no `learning_save` |
+| The guidance                 | The newest version admins wrote        | When to search, how to cite, what is worth saving, and whatever else the company asks |
+| The rules                    | Compiled, part of no version           | Results may quote a coworker's mail and messages and never leave the company; a person opens a citation at `https://<host>/knowledge/documents/<documentId>` |
+
+- **Fixed rules, not a check.** The confidentiality rule and the citation link follow every version, compiled, rather
+  than being part of the text with a check that refuses an edit without them. A check can only look for exact words,
+  so it would refuse a rule reworded to say the same and accept one reworded to say less, and the link names this
+  deployment's origin, which is not an admin's to type. An admin may write anything, and nothing they write removes the
+  rules. The page shows them below the editor, as every agent reads them.
+- **Within what Claude Code reads.** Claude Code reads at most 4,096 characters of a server's instructions and drops
+  the rest (`CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH`), so the whole of what an agent reads stays within that: the
+  guidance may be as long as what is left once the longer introduction and the rules are counted, about 3,400
+  characters, which the routes answer as `maxCharacters`. A longer save is refused, so the rules at the end are never
+  cut off.
+- **A turn has no `learning_save`.** The guidance is written for every agent, so a turn's introduction says it has no
+  `learning_save` and asks for what was learned in the turn's answer instead.
+- **What a tool does belongs to the code.** How to use a tool goes in its description, or in its server's compiled
+  introduction, never in the guidance: the guidance is the company's to edit, and a release cannot change it without
+  overriding an admin. A new tool, such as `knowledge_ask`, describes itself.
+- **The default.** Version 1, seeded by its migration as the system user: search the knowledge base before asking or
+  working something out again, open and cite what it finds by title, person, and date, read the company doc before
+  writing about its people, clients, and terms and propose what is certain, and save as a learning what the next agent
+  would otherwise rediscover. A release never changes the guidance: a new default would be a migration adding a
+  version, which would replace an admin's own.
+
+### Versions
+
+- **Never changed.** Saving adds the next version, and restoring an earlier one adds the next version with its text,
+  naming the one it copied (`restoredFrom`). The versions are the history, each with who wrote it and when, and a
+  restore is undone by restoring the version before it.
+- **Made against a version.** Every save names the version it was edited from (`baseVersion`). A save against one that
+  is no longer current is refused with `409 guidance_changed`, so an admin never replaces a version they have not seen.
+  The number is the primary key, so two saves at once cannot both take the next one.
+- Text the current version already holds records nothing, and neither does restoring a version whose text is current.
+- **Who.** Admins save and restore. The company's members read every version and copy the `CLAUDE.md` block, so a
+  developer adds it to a repository without asking an admin; a guest reaches none of it. Every new version announces
+  `agentGuidance.changed`, with nothing in it.
+
+### On every session
+
+- **Read as it connects.** Both servers are stateless, so each session starts with an `initialize` (or, on newer
+  protocol versions, a `discover`) answered on its own, and both read the current version then. A change reaches every
+  connected agent on its next session; a session already running keeps what it read, since a client reads
+  instructions once.
+- **Kept in memory.** The API keeps the newest version: read from Postgres on the first session after it starts,
+  replaced by every save and restore as it commits, and never by an older one, so a read that began before a save
+  cannot bring back the text it replaced. A session's start costs no query. The API runs one replica, and this is
+  listed among what holds it to one (`docs/engine.md`, One replica of the API).
+- **Unreadable.** A session that starts while Postgres cannot be read fails to initialize, logged as
+  `mcp.guidance_unreadable` or `tools.endpoint.guidance_unreadable`, rather than run on text without the guidance.
+
+### The CLAUDE.md block
+
+Teams that want the guidance in their repositories copy a block made from the current version: a comment naming its
+version and where to copy it again, an `## Elysium` heading, this deployment's `claude mcp add` command, the guidance,
+and the rules. An agent working in the repository reads them whether or not it is connected, and a team can tell from
+the version when its copy is behind. Nothing updates a copy; a team copies a newer version again.
+
+### In the web app
+
+Settings, Agent guidance (`/settings/agent-guidance`, in the Knowledge base section, for members) edits the guidance
+for admins, saved from the header, with the rules shown below it, the `CLAUDE.md` block with Copy, and every version
+with Restore. Members read it all and copy the block. See `docs/frontend.md`, Agent guidance.
 
 ## Asking
 

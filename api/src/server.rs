@@ -28,6 +28,7 @@ use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::timeout::TimeoutLayer;
 use tracing::{Level, event};
 
+use crate::agent_guidance::AgentGuidance;
 use crate::backups::{self, Backups, BackupsDeps};
 use crate::browser::devtools::Devtools;
 use crate::claude_accounts::oauth::Anthropic;
@@ -126,6 +127,7 @@ pub(crate) fn build_state(foundation: &Foundation) -> Result<(AppState, JoinHand
         foundation.shutdown.clone(),
     );
     let state = AppState {
+        agent_guidance: AgentGuidance::new(database.clone(), config.public_url.clone()),
         auth: services::build_auth(config, http.clone()),
         backups: Backups::new(BackupsDeps {
             database: database.clone(),

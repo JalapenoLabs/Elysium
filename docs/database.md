@@ -426,6 +426,20 @@ undo.
 | `data`        | `JSONB`       | `changes`, each section `{ from, to }`, and `undid` for an undo       |
 | `created_at`  | `TIMESTAMPTZ` | Written by the API, the moment of the change                          |
 
+### `agent_guidance_versions`
+
+Every version of the guidance every connected agent reads, newest current; see `docs/knowledge.md`, Agent guidance. A
+version is never changed: a save and a restore each add the next one, so the table is the guidance's history. Version
+1 is seeded by the migration as the system user.
+
+| Column          | Type          | Notes                                                                 |
+|-----------------|---------------|-----------------------------------------------------------------------|
+| `version`       | `INTEGER`     | Primary key, from 1; the next is the current one plus 1, so two saves at once cannot both take it |
+| `content`       | `TEXT`        | Markdown, trimmed, possibly empty; at most 4,096 characters here, and the API keeps it shorter (`content_max_characters`) |
+| `restored_from` | `INTEGER`     | References `agent_guidance_versions`: the earlier version a restore copied; always below `version` |
+| `created_by`    | `UUID`        | References `users`: the admin who saved or restored it, or the system user for version 1 |
+| `created_at`    | `TIMESTAMPTZ` | Defaults to now                                                      |
+
 ### `company_doc_review_cursor`
 
 How far the company doc's review has read the timeline (`docs/engine.md`, The company doc). One row

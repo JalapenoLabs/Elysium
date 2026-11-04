@@ -154,6 +154,10 @@ Everything else follows these rules:
 - The knowledge base's reading tools are also on the `elysium_knowledge` server every turn gets, under the same names
   and schemas. A turn reads for whoever started its session, checked on every call, and spends their search budget.
   See `docs/knowledge.md`, MCP.
+- Every client, and every turn's `elysium_knowledge`, is told the company's agent guidance as it connects, so a change
+  reaches its next session. Admins edit it under Settings, Agent guidance, every version kept; Elysium's rules (results
+  stay in the company, where a citation opens) follow every version, and no edit removes them. See
+  `docs/knowledge.md`, Agent guidance.
 
 ## Agents run on the host
 

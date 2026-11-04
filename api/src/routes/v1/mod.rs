@@ -3,6 +3,7 @@
 //! Version 1 resource routes, mounted at `/api/v1`.
 
 pub mod action_items;
+mod agent_guidance;
 mod auth_status;
 mod authenticator_nickname;
 mod authenticator_replacement;
@@ -87,6 +88,7 @@ fn workspace_router() -> Router<AppState> {
         .route("/events", get(events::handle))
         .nest("/backups", backups::router())
         .nest("/action-items", action_items::router())
+        .nest("/agent-guidance", agent_guidance::router())
         .nest("/browser-sessions", browser_sessions::router())
         .nest("/changesets", changesets::router())
         .nest("/company-doc", company_doc::router())

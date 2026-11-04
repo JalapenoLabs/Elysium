@@ -187,8 +187,10 @@ agents sign in with (`docs/passwords.md`), given to every turn while the passwor
 `elysium_knowledge` for the company's knowledge base, given to every turn: searched with `knowledge_search`, opened
 with `knowledge_get`, its meetings listed with `meetings_list`, and the company doc read with `company_doc_read` and
 proposed to with `company_doc_propose` as the session's coding agent (`docs/knowledge.md`, MCP and The company doc).
-Its every call reads for whoever started the session, checked in the database, so a session a guest started reaches
-none of it, and a session's searches spend its starter's search budget. Another server,
+Its instructions are the company's agent guidance, read as each turn connects, so an admin's edit reaches every turn
+as it reaches every MCP client (`docs/knowledge.md`, Agent guidance). Its every call reads for whoever started the
+session, checked in the database, so a session a guest started reaches none of it, and a session's searches spend its
+starter's search budget. Another server,
 `elysia`, is Elysia's own and is given only to her turns (`docs/elysia.md`). They are served at
 `/api/agent-tools/{server}` (`api/src/tools/endpoint.rs`), one stateless Streamable HTTP MCP server each, which the
 workspace reaches as `http://api:8080` on `elysium-agents`. nginx answers `404` for the path, so it is never on the

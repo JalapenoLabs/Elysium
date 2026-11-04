@@ -29,7 +29,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{CallScope, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments};
+use super::{
+    CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
+};
 use crate::action_items::links::LinkError;
 use crate::action_items::progress::{self, Progress};
 use crate::action_items::{Actor, WorkError, actor_label};
@@ -49,7 +51,8 @@ use crate::routes::v1::action_items::{publish_item_links, publish_item_write};
 
 pub const SERVER: ToolServer = ToolServer {
     name: "elysium_work",
-    instructions: "The user's action items and initiatives for this session's project, as \
+    instructions: Instructions::Fixed(
+        "The user's action items and initiatives for this session's project, as \
         Elysium tracks them. An action item is one commitment of the user's attention (fix, \
         review, reply, decide); an initiative groups items toward a goal that ends, and its \
         progress is resolved items out of the items that count. Start with work_project: it \
@@ -65,6 +68,7 @@ pub const SERVER: ToolServer = ToolServer {
         created, propose it with work_propose_changes, giving each change its reason: the \
         user reviews the proposal and applies what they approve. Propose only what the \
         work in this session shows, and tell the user in your reply what you proposed.",
+    ),
     tools: &TOOLS,
 };
 

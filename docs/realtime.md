@@ -44,6 +44,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `knowledgeAsk.changed`   | `{ id, askedBy, state }` | A question asked of the knowledge base was made, taken, answered, or failed; never the question or its answer; the asker loads it by id, see `docs/knowledge.md`, Asking |
 | `learningCategories.changed` | none         | A workspace learning category was added, edited, reordered, or removed; members load the list again |
 | `companyDoc.changed`     | none             | The company doc changed, or a change to it was proposed or decided; members load it again, see `docs/knowledge.md` |
+| `agentGuidance.changed`  | none             | An admin saved or restored a version of the agent guidance; members load it again, see `docs/knowledge.md`, Agent guidance |
 | `modelSetting.changed`   | `{ agent }`      | An admin chose what a step or agent runs on, or let it follow its kind again; admins load the list again, see `docs/engine.md`, Models |
 | `kindModelSetting.changed` | `{ kind, projectId }` | Someone chose what a kind of agent runs on, for the workspace (`projectId` null) or one project, or put it back; admins load the workspace's list again, and a page showing a project's loads it again |
 | `connectorCheckRun.updated` | `{ runId, connectorId, checkId, state }` | A check in a run moved on, or the run ended (`checkId` null, `state` `finished`); load the run for its messages |

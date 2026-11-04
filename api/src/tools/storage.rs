@@ -18,7 +18,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{CallScope, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments};
+use super::{
+    CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
+};
 use crate::models::storage_location::{self, StorageLocation, StorageLocationKind};
 use crate::runner::WorkspacePath;
 use crate::runner::workspace::WorkspaceContainer;
@@ -26,7 +28,8 @@ use crate::storage::{MAX_UPLOAD_BYTES, Storage, StorageError};
 
 pub const SERVER: ToolServer = ToolServer {
     name: "elysium_storage",
-    instructions: "Files in the storage locations Elysium keeps for this session's project, such \
+    instructions: Instructions::Fixed(
+        "Files in the storage locations Elysium keeps for this session's project, such \
         as Bunny Storage zones and S3 buckets. Call storage_locations first: every other tool \
         names a location by its id. A location's paths are relative to that location's own \
         directory, with names separated by single slashes and no leading or trailing slash. \
@@ -34,6 +37,7 @@ pub const SERVER: ToolServer = ToolServer {
         file between the workspace and a location; edit a stored file by downloading it, \
         changing the copy, and uploading it back. Uploads are limited to 5 GiB, and a very \
         large file on a slow link may take longer than a tool call is allowed to run.",
+    ),
     tools: &TOOLS,
 };
 

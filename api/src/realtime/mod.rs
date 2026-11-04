@@ -162,6 +162,10 @@ pub enum ServerEvent {
     /// again.
     #[serde(rename = "companyDoc.changed")]
     CompanyDocChanged,
+    /// An admin saved or restored a version of the agent guidance. Nothing more: members load it
+    /// again, and agents read it as their next session starts.
+    #[serde(rename = "agentGuidance.changed")]
+    AgentGuidanceChanged,
     /// An admin chose the model and effort a step or agent runs on, or put it back on its
     /// default. Its name alone: every client hears this, and only admins read the settings, so
     /// their pages load the list again.

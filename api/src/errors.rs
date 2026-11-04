@@ -160,6 +160,23 @@ impl From<crate::models::company_doc::CompanyDocError> for ApiError {
     }
 }
 
+impl From<crate::agent_guidance::GuidanceError> for ApiError {
+    fn from(error: crate::agent_guidance::GuidanceError) -> Self {
+        use crate::agent_guidance::GuidanceError;
+
+        match error {
+            GuidanceError::Database(database) => database.into(),
+            too_long @ GuidanceError::TooLong { .. } => Self::BadRequest(too_long.to_string()),
+            // The web app answers this by saying another admin saved meanwhile.
+            GuidanceError::Changed => Self::CodedConflict {
+                code: "guidance_changed",
+                message: "the guidance changed since this was opened; load it again, then make \
+                    the change",
+            },
+        }
+    }
+}
+
 impl From<crate::models::learning_category::CategoryError> for ApiError {
     fn from(error: crate::models::learning_category::CategoryError) -> Self {
         use crate::models::learning_category::CategoryError;

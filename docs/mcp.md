@@ -150,10 +150,13 @@ Tools are named for what they act on, then what they do.
   result marked as an error, carrying the HTTP status and the message the browser would get, so the model reads why: a
   `404`, a validation error naming its fields, or a failed clone. An internal error stays as generic as it is
   over HTTP.
-- **Instructions.** Every client is told, when it connects, what the server is for: to search the knowledge base
-  before asking the person or working something out again, to cite what it uses, that results may quote a
-  coworker's mail and messages and are never for repeating outside the company, and where a person opens a citation,
-  `https://<host>/knowledge/documents/<documentId>` (`instructions` in `api/src/mcp/workspace.rs`).
+- **Instructions.** Every client is told, when it connects, what the server is for: the server's own introduction,
+  then the company's agent guidance, which admins edit under Settings, Agent guidance (when to search the knowledge
+  base, how to cite, what is worth saving), then Elysium's rules, which no edit removes: results may quote a
+  coworker's mail and messages and are never for repeating outside the company, and a person opens a citation at
+  `https://<host>/knowledge/documents/<documentId>`. They are read as each client initializes (or, on newer protocol
+  versions, discovers the server), so a change reaches every client's next session. See `docs/knowledge.md`, Agent
+  guidance, and `api/src/agent_guidance/`.
 - **Writes.** A grant without `workspace:write` is answered with a `403` result saying to reconnect and allow changes.
 - **Events.** A session's history runs to thousands of events. `sessions_events` answers only the ones Elysium renders
   (prompts, messages, thinking, tool calls, finished turns, incidents), 100 unless asked for up to

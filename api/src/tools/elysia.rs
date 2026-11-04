@@ -22,7 +22,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::{CallScope, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments};
+use super::{
+    CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
+};
 use crate::models::action_item::{self, ActionItemFilter, ActionItemState};
 use crate::models::elysia::{self, NewQuestion, NewWork, WorkChanges, WorkStatus};
 use crate::models::initiative::{self, InitiativeFilter, InitiativeState};
@@ -32,7 +34,8 @@ use crate::routes::v1::elysia::publish_snapshot;
 
 pub const SERVER: ToolServer = ToolServer {
     name: "elysia",
-    instructions: "Elysia's tools: the workspace's action items, initiatives, and projects to \
+    instructions: Instructions::Fixed(
+        "Elysia's tools: the workspace's action items, initiatives, and projects to \
         read, and her own record to write. Start with elysia_overview. When you take something \
         on, record it with elysia_work_start, including when you expect it ready for review, \
         and keep it current with elysia_work_update: ready when a person should review it, \
@@ -42,6 +45,7 @@ pub const SERVER: ToolServer = ToolServer {
         commented on, or moved between initiatives, propose it with elysia_propose_changes, \
         giving each change its reason: a person reviews it and applies what they approve. \
         People see all of this in your panel and the changeset review as soon as you write it.",
+    ),
     tools: &TOOLS,
 };
 

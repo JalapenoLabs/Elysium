@@ -17,8 +17,9 @@ use axum::http::{StatusCode, header};
 use axum::middleware::{Next, from_fn_with_state};
 use axum::response::{IntoResponse, Response};
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
-    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, DiscoverResult,
+    Implementation, InitializeRequestParams, InitializeResult, ListToolsResult,
+    PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
@@ -31,7 +32,7 @@ use tracing::{Level, event};
 #[cfg(doc)]
 use super::grants::AGENT_TOOLS_PATH;
 use super::grants::{Granted, Grants};
-use super::{SERVERS, ToolContext, ToolServer, dispatch};
+use super::{Instructions, SERVERS, ToolContext, ToolServer, dispatch};
 
 /// The host agents address the API by, `api` on `elysium-agents`. rmcp refuses any other
 /// host, which keeps a DNS rebinding page from reaching these servers through another name.
@@ -133,14 +134,62 @@ struct AgentToolServer {
     server: &'static ToolServer,
 }
 
+impl AgentToolServer {
+    /// What the turn is told this server is for, read as it connects, so a server that serves
+    /// the agent guidance gives each turn the current version.
+    async fn instructions(&self) -> Result<String, ErrorData> {
+        let audience = match self.server.instructions {
+            Instructions::Fixed(instructions) => return Ok(instructions.to_owned()),
+            Instructions::Guidance(audience) => audience,
+        };
+        self.context
+            .agent_guidance
+            .instructions(audience)
+            .await
+            .map_err(|error| {
+                event!(
+                    name: "tools.endpoint.guidance_unreadable",
+                    Level::ERROR,
+                    tool.server = self.server.name,
+                    error.message = %format!("{error:#}"),
+                    "a turn connected while the agent guidance could not be read",
+                );
+                ErrorData::internal_error("the agent guidance could not be read", None)
+            })
+    }
+}
+
 impl ServerHandler for AgentToolServer {
+    /// Without instructions: [`Self::initialize`] and [`Self::discover`], the two answers that
+    /// carry them, read them as the turn connects.
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new(
-                self.server.name,
-                env!("CARGO_PKG_VERSION"),
-            ))
-            .with_instructions(self.server.instructions)
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_server_info(
+            Implementation::new(self.server.name, env!("CARGO_PKG_VERSION")),
+        )
+    }
+
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, ErrorData> {
+        context.peer.set_peer_info(request.clone());
+        let mut info = self.negotiate_initialize(&request)?;
+        info.instructions = Some(self.instructions().await?);
+        Ok(info)
+    }
+
+    async fn discover(
+        &self,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<DiscoverResult, ErrorData> {
+        let info = self
+            .get_info()
+            .with_instructions(self.instructions().await?);
+        Ok(DiscoverResult::from_server_info(
+            self.supported_protocol_versions().into_owned(),
+            info,
+        ))
     }
 
     fn list_tools(

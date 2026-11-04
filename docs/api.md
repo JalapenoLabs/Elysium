@@ -569,6 +569,27 @@ new run, `200` with the one already live.
 Nothing creates a proposal over HTTP: the review, the MCP server's `company_doc_propose`, and agents' tool of the same
 name call `crate::company_doc::propose` in-process.
 
+### `/api/v1/agent-guidance`
+
+The guidance every connected agent reads as its session starts. `GET` answers admins and members, so anyone can copy
+its `CLAUDE.md` block; the writes answer admins alone (`403 admin_only` otherwise); a guest gets `403 members_only`.
+See `docs/knowledge.md`, Agent guidance.
+
+| Method and path                                   | Does                                                         |
+|---------------------------------------------------|--------------------------------------------------------------|
+| `GET /agent-guidance`                             | The current version, every version, the rules, and the `CLAUDE.md` block |
+| `PUT /agent-guidance`                             | Saves `content` as the next version, made against `baseVersion` |
+| `POST /agent-guidance/versions/{version}/restore` | Makes an earlier version's text current again, as the next version |
+
+Every route answers the same: `current` and `versions` (newest first), each `{ version, content, restoredFrom,
+createdBy, createdAt }`; `rules`, the text Elysium adds after the guidance for every agent; `claudeMd`, the current
+version as a block for a repository's `CLAUDE.md`; and `maxCharacters`, the longest guidance this deployment takes.
+
+`PUT` trims `content`, answers `400` past `maxCharacters`, and `409 guidance_changed` when `baseVersion` is no longer
+the current version or another save took the next number meanwhile. Text the current version already holds records
+nothing, and neither does restoring a version whose text is current. Restoring a version that does not exist answers
+`404`. A write that adds a version announces `agentGuidance.changed`.
+
 ### `/api/v1/learnings`
 
 Every route answers admins and members, and a guest `403 members_only`; the feed answers admins alone.

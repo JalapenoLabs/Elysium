@@ -276,6 +276,18 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    agent_guidance_versions (version) {
+        version -> Int4,
+        content -> Text,
+        restored_from -> Nullable<Int4>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     agent_tool_grants (token_sha256) {
         token_sha256 -> Bytea,
         scope -> Jsonb,
@@ -1525,6 +1537,7 @@ diesel::joinable!(action_item_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(action_item_projects -> action_items (action_item_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
 diesel::joinable!(action_items -> users (created_by));
+diesel::joinable!(agent_guidance_versions -> users (created_by));
 diesel::joinable!(agent_tool_grants -> users (created_by));
 diesel::joinable!(authenticator_nicknames -> users (user_id));
 diesel::joinable!(authenticator_replacements -> users (user_id));
@@ -1654,6 +1667,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     action_item_links,
     action_item_projects,
     action_items,
+    agent_guidance_versions,
     agent_tool_grants,
     authenticator_nicknames,
     authenticator_replacements,

@@ -13,50 +13,26 @@
 //! reports through [`answer`], which tells the client exactly what the browser would be told.
 //! A tool that writes first checks [`refuse_without_write`]. See `docs/mcp.md` for adding a
 //! tool.
+//!
+//! What a client is told the server is for, as it connects, is the company's agent guidance
+//! under the server's own introduction and Elysium's rules (`crate::agent_guidance`), read on
+//! every connection so a change reaches each client's next session.
 
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::model::{
-    CallToolResult, ContentBlock, Implementation, ListToolsResult, PaginatedRequestParams,
-    ServerCapabilities, ServerConfig,
+    CallToolResult, ContentBlock, DiscoverResult, Implementation, InitializeRequestParams,
+    InitializeResult, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, tool, tool_handler, tool_router};
 use serde_json::{Value, json};
-use url::Url;
+use tracing::{Level, event};
 
 use super::bearer::McpCaller;
+use crate::agent_guidance::Audience;
 use crate::errors::ApiError;
 use crate::oauth::SCOPE_WRITE;
 use crate::state::AppState;
-
-/// What every client is told the server is for, when it connects. [`instructions`] ends it with
-/// where a person opens a citation, which names this deployment's origin.
-const INSTRUCTIONS: &str = "Elysium is a shared workspace of projects, action items, \
-initiatives, and coding sessions, and the company's knowledge base. Every call acts as the person \
-who connected this client, with what they granted it. A coding session is an agent working on a \
-project's repositories in Elysium's workspace: start one with sessions_create, steer it with \
-sessions_send_prompt, and follow its work with sessions_events. Before asking the person something \
-the company may already know, or working out again what someone may have settled, search the \
-knowledge base with knowledge_search: what was said in mail, chat, meetings, and pages, and what \
-other agents learned. Open what a search cites with knowledge_get, and list past meetings with \
-meetings_list. Cite what you use by its title, who said it, and when. Results may quote a \
-coworker's mail and direct messages: they are the company's to use for its own work, and never \
-for repeating outside the company or in work for another client. The company doc says who the \
-company is and how its people, clients, and terms are spelled: read it with company_doc_read \
-before writing about them, and propose what you learn for certain with company_doc_propose, which \
-waits for a person's approval. When you learn something the next agent would otherwise have to \
-rediscover, save it with learning_save; everyone in the company reads what is saved there, and \
-nothing in it is for repeating outside the company.";
-
-/// [`INSTRUCTIONS`], then where a person opens a citation in this deployment's knowledge base,
-/// so a link an agent gives them opens the document it cited.
-fn instructions(public_url: &Url) -> String {
-    let origin = public_url.origin().ascii_serialization();
-    format!(
-        "{INSTRUCTIONS} A person opens any citation in Elysium at \
-         {origin}/knowledge/documents/<documentId>."
-    )
-}
 
 /// The MCP server. One is built per request: the server keeps no session state, so any
 /// request can be answered on its own.
@@ -78,6 +54,24 @@ impl Workspace {
                 + Self::projects_router()
                 + Self::sessions_router(),
         }
+    }
+
+    /// What every client is told the server is for, read as it connects, so each session starts
+    /// on the current agent guidance (`crate::agent_guidance`).
+    async fn instructions(&self) -> Result<String, ErrorData> {
+        self.state
+            .agent_guidance
+            .instructions(Audience::McpClients)
+            .await
+            .map_err(|error| {
+                event!(
+                    name: "mcp.guidance_unreadable",
+                    Level::ERROR,
+                    error.message = %format!("{error:#}"),
+                    "a client connected while the agent guidance could not be read",
+                );
+                ErrorData::internal_error("the agent guidance could not be read", None)
+            })
     }
 }
 
@@ -119,10 +113,35 @@ impl ServerHandler for Workspace {
         Ok(ListToolsResult::with_all_items(tools))
     }
 
+    /// Without instructions: [`Self::initialize`] and [`Self::discover`], the two answers that
+    /// carry them, read them as the client connects.
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("Elysium", env!("CARGO_PKG_VERSION")))
-            .with_instructions(instructions(&self.state.auth.public_url))
+    }
+
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, ErrorData> {
+        context.peer.set_peer_info(request.clone());
+        let mut info = self.negotiate_initialize(&request)?;
+        info.instructions = Some(self.instructions().await?);
+        Ok(info)
+    }
+
+    async fn discover(
+        &self,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<DiscoverResult, ErrorData> {
+        let info = self
+            .get_info()
+            .with_instructions(self.instructions().await?);
+        Ok(DiscoverResult::from_server_info(
+            self.supported_protocol_versions().into_owned(),
+            info,
+        ))
     }
 }
 
@@ -268,21 +287,6 @@ mod tests {
             let parsed: Value = serde_json::from_str(&text).expect("the text is the JSON");
             assert_eq!(parsed, structured);
         }
-    }
-
-    #[test]
-    fn the_instructions_say_where_a_citation_opens_and_that_it_stays_in_the_company() {
-        let public_url = Url::parse("https://elysium.example.com").expect("a static URL parses");
-        let text = instructions(&public_url);
-        assert!(
-            text.contains("https://elysium.example.com/knowledge/documents/<documentId>"),
-            "{text}"
-        );
-        assert!(text.contains("coworker's mail"), "{text}");
-        assert!(
-            text.contains("never for repeating outside the company"),
-            "{text}"
-        );
     }
 
     #[test]

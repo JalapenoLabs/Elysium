@@ -49,6 +49,7 @@ pub fn router(state: &AppState) -> Router<AppState> {
 /// The tool servers agents call during their turns.
 fn agent_tools(state: &AppState) -> Router<AppState> {
     let context = ToolContext {
+        agent_guidance: state.agent_guidance.clone(),
         database: state.database.clone(),
         cipher: std::sync::Arc::clone(&state.cipher),
         storage: state.storage.clone(),

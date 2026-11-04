@@ -27,7 +27,10 @@ use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::{CallScope, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments};
+use super::{
+    CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
+};
+use crate::agent_guidance::Audience;
 use crate::company_doc::{self, ProposeRequest};
 use crate::errors::ApiError;
 use crate::mcp::knowledge::{GET_DESCRIPTION, MEETINGS_DESCRIPTION, SEARCH_DESCRIPTION};
@@ -38,21 +41,11 @@ use crate::routes::v1::knowledge::{
     self, DocumentArguments, ListMeetingsRequest, SearchKnowledgeRequest,
 };
 
+/// Its instructions are the company's agent guidance, so an admin's edit reaches every turn as it
+/// reaches every MCP client, under the rules no edit removes (`crate::agent_guidance`).
 pub const SERVER: ToolServer = ToolServer {
     name: "elysium_knowledge",
-    instructions: "The company's knowledge base: what was said in mail, chat, meetings, and \
-        pages, what people and agents learned, and the company doc. Before asking the person \
-        something the company may already know, or working out again what someone may have \
-        settled, search it with knowledge_search; open what a search cites with knowledge_get, \
-        and list past meetings with meetings_list. Cite what you use by its title, who said it, \
-        and when. Results may quote a coworker's mail and direct messages: they are the \
-        company's to use for its own work, and never for repeating outside the company or in \
-        work for another client. The company doc says who the company is, its leadership, its \
-        people and how their names are spelled, its stakeholders, products, and projects, and a \
-        glossary of names and jargon. Read it with company_doc_read before writing anything that \
-        names the company's people, clients, or terms, and spell them as it does. When you learn \
-        something it should say, for certain, propose it with company_doc_propose: a person \
-        reviews every proposal, and nothing changes until they approve it.",
+    instructions: Instructions::Guidance(Audience::Turns),
     tools: &TOOLS,
 };
 
