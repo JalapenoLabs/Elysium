@@ -28,6 +28,8 @@ pub mod desktop;
 #[cfg(test)]
 mod live_tests;
 pub mod queue;
+#[cfg(test)]
+mod restart_tests;
 pub mod scrub;
 mod summary;
 mod turn;

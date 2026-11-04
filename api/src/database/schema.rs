@@ -310,6 +310,7 @@ diesel::table! {
         servers -> Array<Nullable<Text>>,
         created_by -> Uuid,
         created_at -> Timestamptz,
+        expires_at -> Timestamptz,
     }
 }
 

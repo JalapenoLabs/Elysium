@@ -151,7 +151,6 @@ pub async fn run() -> Result<()> {
         storage: foundation.storage.clone(),
         passwords: passwords.clone(),
     });
-    // Revokes what an earlier engine granted before granting anything itself.
     loops.push(("sessions.queue", turn_queue.start(shutdown.clone())));
     loops.push(("runner.prepare", prepare_workspace(runner.clone())));
     loops.push((

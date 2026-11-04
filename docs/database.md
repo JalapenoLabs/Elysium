@@ -1484,16 +1484,18 @@ a turn; the engine takes each session's oldest queued turn once the session has 
 
 ### `agent_tool_grants`
 
-Each running turn's access to Elysium's tool servers; see `docs/coding.md`, Elysium's tools. The engine grants and
-revokes; the API checks every call. Only the SHA-256 of each bearer token is stored.
+Each running turn's access to Elysium's tool servers; see `docs/coding.md`, Elysium's tools. The engine grants, renews
+each grant's lease while its turn runs, and revokes; the API checks every call, refusing a grant whose lease lapsed.
+Each new grant deletes the lapsed ones. Only the SHA-256 of each bearer token is stored.
 
 | Column         | Type          | Notes                                                                   |
 |----------------|---------------|-------------------------------------------------------------------------|
 | `token_sha256` | `BYTEA`       | Primary key, 32 bytes                                                   |
-| `scope`        | `JSONB`       | Who calls: a session with its project, item, and directory, or one of Elysia's turns |
+| `scope`        | `JSONB`       | Who calls: a session with its project, item, and directory, one of Elysia's turns, or a Project Manager's turn |
 | `servers`      | `TEXT[]`      | The tool servers it may call, by name                                   |
-| `created_by`   | `UUID`        | The coding agent or Elysia                                              |
+| `created_by`   | `UUID`        | The coding agent, Elysia, or the Project Managers' machine user         |
 | `created_at`   | `TIMESTAMPTZ` | When it was granted                                                     |
+| `expires_at`   | `TIMESTAMPTZ` | When its lease lapses: 60 seconds past its last renewal, on Postgres's clock |
 
 ### `process_activities`
 

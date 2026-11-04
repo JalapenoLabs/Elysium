@@ -47,7 +47,7 @@ never work, since every loop also looks on a timer. What the engine knows that a
 | The API                                   | The row                                  | The engine                                   |
 |-------------------------------------------|------------------------------------------|----------------------------------------------|
 | Queues a session's turn, or stops it      | `session_turns`                          | Takes each session's next turn, runs it, finishes it |
-| Checks every agent tool call's bearer     | `agent_tool_grants`                      | Grants a turn its tools, revokes them when it ends |
+| Checks every agent tool call's bearer     | `agent_tool_grants`                      | Grants a turn its tools, renews them while it runs, revokes them when it ends |
 | Asks for a backup (Back up now, `/internal/backups`) | `database_backups.claimed_at` unset | Takes it and runs it                         |
 | Asks for a connector to be read (Sync now) | `connectors.syncing_since`              | Reads it with its kind's reader, clears it   |
 | Adds a browser, or resets one             | `browser_sessions`                       | Brings its container up; records its state   |
@@ -62,9 +62,12 @@ never work, since every loop also looks on a timer. What the engine knows that a
   row, so they stay correct with any number of claimers (Runs, below).
 - **Settling after a restart.** An engine that starts finishes what its predecessor cut short: a turn whose CLI had
   started is finished (its history ends where the turn stopped), one still waiting for a slot is queued again, a backup
-  it had taken fails, every tool grant is revoked, and every connector still marked syncing is read. A run's step that
-  an engine still held when it died is claimed again once its lease lapses. A Project Manager's turn left running is
-  failed and gives what woke it back, so its next turn takes it again.
+  it had taken fails, and every connector still marked syncing is read. A run's step that an engine still held when it
+  died is claimed again once its lease lapses. A Project Manager's turn left running is failed and gives what woke it
+  back, so its next turn takes it again. Tool grants are not revoked at start, since the sessions queue, Elysia's
+  dispatcher, and the Project Managers' dispatcher start together and each grants its first turn's tools at once: every
+  grant is leased instead, renewed while its turn runs, so one a stopped engine left lapses within a minute and is
+  swept by the next grant minted (`docs/coding.md`, Elysium's tools).
 - **The password vault** is the one thing the API asks while a request waits: its CLI and `bw serve` run in the
   engine, on its data volume and its loopback, and the API's routes and agents' password tools ask it over the bus,
   sealed with the encryption key (`docs/passwords.md`, The CLI). An engine that does not answer within 10 seconds

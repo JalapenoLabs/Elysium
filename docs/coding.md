@@ -210,9 +210,17 @@ Before each turn the engine mints a grant (`api/src/tools/grants.rs`): a 256-bit
 scope and the servers the turn may use, stored in `agent_tool_grants`, since the API checks it. The token travels in
 the turn's MCP configuration; only its SHA-256 is stored. A request without a live grant answers `401`, and one for a
 server the grant does not name `404`. Every call is then checked against the database as before: the session's
-project, its action item, its storage locations. The grant is revoked when the turn ends, and an engine that starts
-revokes them all. The API answers these calls, so while it is down an agent's calls to Elysium's tools fail and its
-turn carries on without them.
+project, its action item, its storage locations. The grant is revoked when the turn ends. The API answers these calls,
+so while it is down an agent's calls to Elysium's tools fail and its turn carries on without them.
+
+Every grant is leased, the same for sessions', Elysia's, and Project Managers' turns. While a turn holds its grant, a
+task of the grant's own renews it every 15 seconds for another 60 (`expires_at`, set and compared on Postgres's clock,
+so the engine that writes it and the API that reads it agree). A grant whose lease lapsed answers `401` like no grant,
+and the next grant minted deletes it. That is how grants a stopped engine left are cleaned up: nothing revokes grants
+when an engine starts, so a grant one loop mints as the engine comes up is never taken by another loop settling what
+the last engine left, and two engines never take each other's. The cost is that a grant left by an engine that died
+answers for up to a minute after its last renewal, until its lease runs out; only the stopped turn's MCP configuration
+held it.
 
 Logs name each call by session, server, tool, and call id, never by its arguments, which can be large.
 

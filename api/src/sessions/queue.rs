@@ -14,7 +14,8 @@
 //!
 //! Before its first look it settles what an earlier engine left: a turn whose CLI had started is
 //! finished, since that engine's stop ended it, and one still waiting for a slot is queued again.
-//! It also revokes every tool grant, which only turns of that engine held.
+//! The tool grants those turns held are left to lapse (`crate::tools::grants`): every loop that
+//! runs turns mints its own as the engine starts, and settling never touches them.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -173,21 +174,6 @@ impl TurnQueue {
     }
 
     async fn settle_after_restart(&self) {
-        match self.inner.grants.revoke_all().await {
-            Ok(0) => {}
-            Ok(revoked) => event!(
-                name: "sessions.grants.revoked_after_restart",
-                Level::INFO,
-                tool.grant.count = revoked,
-                "revoked {{tool.grant.count}} tool grants an earlier engine left",
-            ),
-            Err(error) => event!(
-                name: "sessions.grants.revoke_failure",
-                Level::ERROR,
-                error.message = %format!("{error:#}"),
-                "could not revoke the tool grants an earlier engine left",
-            ),
-        }
         let settled = async {
             let mut connection = self.inner.sessions.inner.database.get().await?;
             anyhow::Ok(session_turn::settle_after_restart(&mut connection).await?)
