@@ -394,6 +394,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   changeset, so it can be undone as a whole, never overwriting what the user changed since. What already left Elysium
   (a posted comment, a closed issue) is not reversed, and the review says so. Rules and queries:
   `api/src/action_items/changesets.rs` and `api/src/models/changeset.rs`.
+- A person changes many items or initiatives at once through `POST .../bulk`: every one goes through the write its own
+  route makes, in one transaction with a savepoint each, so one the rules refuse is reported and the rest apply. See
+  `api/src/models/action_item_bulk.rs`.
 - The watcher polls providers for changes; webhooks come later. Link providers sit behind one trait
   (`api/src/action_items/links/`), so routes and tools never match on the provider. Every Jira call goes through the
   credential's allowlist, as the Jira routes' calls do.
