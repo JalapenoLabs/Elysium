@@ -81,7 +81,7 @@ credential, Jira credential, environment variable, coding session, action item, 
 query, every `elysium_work` tool against its project scope, each link provider against a faked provider, the
 watcher's passes, changesets proposed, decided, applied in part, and undone, workflow runs claimed by two claimers at
 once, leased, taken back, backed off, retried, skipped, and resumed, workflows composed from the same steps, entered
-at a later step, and read on their steps' model settings, accounts and their guardrails, and the
+at a later step, and read on their steps' model settings, accounts and their guardrails, the global search's matching, visibility, and budget, and the
 router itself refusing every workspace route without a session. Plain `cargo test` skips them because they need `TEST_DATABASE_URL`, and the router tests
 `TEST_REDIS_URL`. A router test signs in by caching a Kratos session in Redis (`test_support::signed_in_cookie`).
 

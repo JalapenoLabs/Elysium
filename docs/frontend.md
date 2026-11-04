@@ -254,7 +254,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/studio/:itemId`             | `StudioItemPage`         | One item: the stage beside its conversation, live or deleted |
 | `/runs`                       | `RunsPage`               | Workflow runs, newest first, a page at a time; members only |
 | `/runs/:runId`                | `RunPage`                | One run: its steps, each opening to its log, and its history |
-| `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it |
+| `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it; `?tab=` one kind |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/account`           | `AccountPage`            | My account: name and email, and the light, dark, or system theme |
 | `/settings/profile`           | redirect                 | To `/settings/account`                                   |
