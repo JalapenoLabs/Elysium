@@ -28,6 +28,8 @@ export const UrlTree = {
   projectsNew: '/projects/new',
   projectView: '/projects/:projectId',
   projectModels: '/projects/:projectId/models',
+  // How the project readies its workers' containers.
+  projectWorkers: '/projects/:projectId/workers',
   coding: '/coding',
   codingNew: '/coding/new',
   codingSession: '/coding/:sessionId',
@@ -201,6 +203,10 @@ export function getProjectViewUrl(projectId: string) {
 
 export function getProjectModelsUrl(projectId: string) {
   return UrlTree.projectModels.replace(':projectId', projectId)
+}
+
+export function getProjectWorkersUrl(projectId: string) {
+  return UrlTree.projectWorkers.replace(':projectId', projectId)
 }
 
 export function getRunViewUrl(runId: string) {

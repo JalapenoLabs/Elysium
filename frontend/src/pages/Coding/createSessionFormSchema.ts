@@ -11,7 +11,7 @@ import { findRepositoryConflict, MAX_SESSION_REPOSITORIES } from './sessionRepos
 // Mirrors the API's limits so most mistakes are caught before a round trip.
 export const SESSION_TITLE_MAX_CHARACTERS = 200
 const REPOSITORY_URL_MAX_CHARACTERS = 2048
-const BASE_BRANCH_MAX_CHARACTERS = 255
+export const BASE_BRANCH_MAX_CHARACTERS = 255
 const PROMPT_MAX_CHARACTERS = 100_000
 
 // The API clones into a directory named after the URL's last segment, and accepts

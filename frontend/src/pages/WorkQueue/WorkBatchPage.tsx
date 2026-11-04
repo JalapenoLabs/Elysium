@@ -20,6 +20,7 @@ import { selectWorkBatch } from '../../store/workQueueSlice'
 import { Chip, Link, Spinner } from '@heroui/react'
 import { Page } from '../../layout/page/Page'
 import { WorkBatchHistory } from './WorkBatchHistory'
+import { WorkerLog } from './WorkerLog'
 
 // Misc
 import { formatDateTime } from '../../format/dates'
@@ -33,10 +34,18 @@ import {
   batchStateLabelKeys,
 } from '../Projects/projectManagerPresentation'
 import { useWorkBatchActions } from './useWorkBatchActions'
-import { actionIcons, actionLabelKeys, availableActions } from './workQueuePresentation'
+import {
+  actionIcons,
+  actionLabelKeys,
+  availableActions,
+  currentWait,
+  waitHeadingKeys,
+  waitUntilKeys,
+} from './workQueuePresentation'
 
-// `/work-queue/:batchId`: one batch whole, its goal, the repositories it needs, how it ended, and
-// its history, with what may still be done to it in its Actions. A guest is sent to the start.
+// `/work-queue/:batchId`: one batch whole, what its worker waits on, its goal, the repositories it
+// needs, how it ended, its history, and its worker's log, with what may still be done to it in
+// its Actions. A guest is sent to the start.
 export function WorkBatchPage() {
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
   const { batchId = '' } = useParams()
@@ -83,6 +92,7 @@ function WorkBatchDetails(props: DetailsProps) {
   useProjectsLoader()
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
   const batch = props.batch
+  const wait = currentWait(batch)
 
   const actions: PageAction[] = availableActions(batch, now).map((action) => ({
     id: action,
@@ -129,6 +139,14 @@ function WorkBatchDetails(props: DetailsProps) {
       </>}
     </dl>
 
+    {wait && <section className='relaxed max-w-3xl'>
+      <h2 className='compact text-lg font-semibold'>{t(waitHeadingKeys[wait.on])}</h2>
+      {wait.detail && <p className='compact whitespace-pre-wrap text-sm'>{wait.detail}</p>}
+      {wait.until && <p className='text-sm opacity-70'>{
+        t(waitUntilKeys[wait.on], { time: formatDateTime(wait.until) })
+      }</p>}
+    </section>}
+
     {batch.result && <section className='relaxed max-w-3xl'>
       <h2 className='compact text-lg font-semibold'>{
         batch.state === 'cancelled'
@@ -161,5 +179,10 @@ function WorkBatchDetails(props: DetailsProps) {
       <h2 className='compact text-lg font-semibold'>{t('batch.history')}</h2>
       <WorkBatchHistory history={props.history} />
     </section>
+
+    {batch.startedAt && <WorkerLog
+      batchId={batch.id}
+      startsOpen={batch.state === 'running'}
+    />}
   </Page>
 }

@@ -256,6 +256,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
 | `/projects/:projectId`        | `ProjectPage`            | One project, edited in place, with its lists as tabs in `?tab=` |
 | `/projects/:projectId/models` | `ProjectModelsPage`      | The models the project's own agents run on, from its Actions menu |
+| `/projects/:projectId/workers` | `ProjectWorkersPage`    | How the project readies its workers' containers, from its Actions menu |
 | `/action-items/initiatives/:initiativeId/containers/new` | `NewInitiativeContainerPage` | Follow a Jira epic or filter, or a GitHub milestone or label |
 | `/coding`                     | `CodingPage`             | Dockview workspace; `?item=` redirects to `/coding/new?item=` |
 | `/coding/new`                 | `NewCodingSessionPage`   | New session; `?item=` starts it from that action item    |
@@ -1157,10 +1158,18 @@ start.
   a `409`, from a batch that moved on, says so and reloads both. Cancelling asks first in the prompt gate, for an
   optional reason its Project Manager is told, saying in bold that it can't be restarted, with Keep it beside it.
 - **A batch.** `WorkBatchPage` shows its state, project, priority, when it was submitted, started, and finished, what
-  its worker reported or why it was cancelled, its goal, its repositories, and its history (`WorkBatchHistory`), each
-  line naming who did it; its header's Actions are the row's. A project's Work batches tab links each title here.
-- **Live.** `workBatch.changed` reloads the queue and the batch, and `workerPool.changed` the queue, each only while a
-  page holds it: the queue's order is the server's to derive, so it is never patched in place.
+  its worker reported or why it was cancelled, its goal, its repositories, its history (`WorkBatchHistory`), each
+  line naming who did it, and its worker's log; its header's Actions are the row's. A project's Work batches tab links
+  each title here.
+- **Waiting.** While a running batch's worker keeps its container waiting, the page says on what (a review, CI, or an
+  answer), the worker's own words for it, and when it looks again in the viewer's zone (`currentWait`). Its history
+  reads each wait with its time and words, and each answer its Project Manager gave beneath the line that names it.
+- **The worker's log** (`WorkerLog`), once a worker started on the batch: what it said and which tools it called, one
+  numbered line each, the newest 64 KiB, scrolled to its newest line. It is collapsed under its heading, open from the
+  start while the batch runs, and read only while open, into `workQueue`'s logs, apart from the batch its every load
+  replaces.
+- **Live.** `workBatch.changed` reloads the queue, the batch, and its worker's log, and `workerPool.changed` the queue,
+  each only while a page holds it: the queue's order is the server's to derive, so it is never patched in place.
 - **The pool's size.** `src/pages/Settings/WorkerPool/` is admins' alone: a Use the default switch, saying the default
   and the CPU cores it comes from, over the number of workers, at least one, kept by the page's Save.
 
@@ -1184,8 +1193,10 @@ single Add a cover image button. Beside Change cover, a Fit and Fill switch sets
 rendering of the cover follows. The controls show on hover or focus, and stay while a new cover waits. About, below
 the banner, holds the description and who created the project. The name and description are `InlineEditableText`.
 Save sends the changed fields first, then uploads the cover; a cover that fails stays picked, so the next Save
-uploads it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Models, a link to the models
-its agents run on (see Models), Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions remain. Below,
+uploads it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Models, a link
+to the models its agents run on (see Models), Workers, a link to how its workers' containers are readied (below),
+Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions
+remain. Below,
 `ProjectLists` holds the project's lists as tabs, each with its total, the open one in `?tab=`: Action items (still
 owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), Project Manager, Work batches, and
 Promises (for members alone, below), and Coding sessions (`CodingSessionsTable`; a row or title opens the session on
@@ -1210,6 +1221,18 @@ page. What Elysium's agents put on the Timeline tab (a Project Manager's records
 `WORKSPACE_RECORD_OWNERS`) shows neither Reply nor the project controls: it is the workspace's, on its own project. A
 turn summary links to its session's conversation at that turn, "Open in session 12", on the Coding page or its Studio
 item's page (`turnSummarySession`).
+
+A project's Workers page (`ProjectWorkersPage`, `ProjectWorkers`, `WorkerSetupForm`), under the project in the
+breadcrumbs, edits how its workers' containers are readied (`docs/engine.md`, Workers), explained behind its `help`: the
+tools setup script, a monospace text area focused as the page opens, and the repositories it declares in order, each a
+row (`WorkerRepositoryRow`) with its URL, an optional base branch, and an optional setup script, moved up or down or
+removed with its icon buttons, with Add repository below the list. The page's Save replaces the whole setup; Save is
+held with the first broken rule in its tooltip, and a rule over the whole list (more than 16, the same repository
+twice, two that would clone into one directory) shows under the list. `workerSetupFormSchema.ts` mirrors the API's
+rules with the coding session's URL and directory rules (`sessionRepositories.ts`), trims URLs and branches, sends a
+blank one as none, and keeps a script exactly as typed unless it is only whitespace; it is tested beside. The setup is
+read from SWR alone (`getProjectWorkerSetupKey`), since no other view shows it, and `projectWorkerSetup.changed`
+revalidates it; the form follows it until the person edits it. Like every form editing what exists, it keeps no draft.
 
 `src/components/InlineEditableText.tsx` shows a field of the page's form as text that becomes its own editor when
 clicked, in the same typography. Every keystroke changes the form. Enter finishes a single line, Ctrl or Cmd with
@@ -1334,7 +1357,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `projects`       | Projects, sorted by name                                                |
 | `promises`       | The promises follow-up items' pages loaded, each item's load replacing what is held for it |
 | `projectManagers` | Each viewed project's Project Manager, replaced whole by every load, and the turn logs opened |
-| `workQueue`      | The worker pool and its queue, replaced whole by every load, and each batch opened with its history |
+| `workQueue`      | The worker pool and its queue, replaced whole by every load, each batch opened with its history, and the worker logs opened |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
 | `jiraCredentials` | Jira Cloud credentials, sorted by name                                 |
 | `learnings`      | Live and deleted learnings in separate halves, last changed first       |
@@ -1369,7 +1392,7 @@ Server collections use entity adapters. Redux is the source of truth components 
    `useInitiativeLoader`, `useInitiativeHistoryLoader`, `useActionItemLinksLoader`, `useInitiativeLinksLoader`,
    `useChangesetsLoader`, `useChangesetLoader`, `useElysiaLoader`, `useElysiaMessagesLoader`, `useElysiaTurnsLoader`,
    `useStudioItemsLoader`, `useDeletedStudioItemsLoader`, `useProjectManagerLoader`, `useProjectManagerTurnLoader`,
-   `useWorkQueueLoader`, `useWorkBatchLoader`,
+   `useWorkQueueLoader`, `useWorkBatchLoader`, `useWorkerLogLoader`,
    `useStudioItemLoader`). SWR
    fetches the key once, deduplicates every component asking for it, and buffers the response so a remounted page
    renders at once while it revalidates.

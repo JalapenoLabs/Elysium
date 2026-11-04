@@ -60,6 +60,7 @@
     "project_manager": "Project Managers",
     "coding_session": "Coding sessions",
     "studio_session": "Studio sessions",
+    "batch_worker": "Pool workers",
     "turn_summary": "Turn summaries",
     "knowledge_ask": "Knowledge base answers"
   },

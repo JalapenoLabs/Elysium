@@ -71,7 +71,8 @@ import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/route
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
 import { PROMISES_KEY_PREFIX } from '../api/routes/promiseRoutes'
-import { getWorkBatchKey, WORK_QUEUE_KEY } from '../api/routes/workQueueRoutes'
+import { getWorkBatchKey, getWorkerLogKey, WORK_QUEUE_KEY } from '../api/routes/workQueueRoutes'
+import { getProjectWorkerSetupKey } from '../api/routes/workerSetupRoutes'
 import { getRun, getStepLog } from '../api/routes/runRoutes'
 import { getTimelineRecord } from '../api/routes/timelineRoutes'
 import {
@@ -309,19 +310,24 @@ const handlers: Handlers = {
       && (candidate.startsWith(key) || candidate.startsWith(PROMISES_KEY_PREFIX)))
   },
   // The queue's order is the server's to derive, so a page showing it loads it again, and a
-  // page showing the batch loads that; each only while a page holds it.
+  // page showing the batch loads that and its worker's log; each only while a page holds it.
   'workBatch.changed': (event) => {
     if (!selectIsCompanyMember(store.getState())) {
       return
     }
     void mutate(WORK_QUEUE_KEY)
     void mutate(getWorkBatchKey(event.data.id))
+    void mutate(getWorkerLogKey(event.data.id))
   },
   'workerPool.changed': () => {
     if (!selectIsCompanyMember(store.getState())) {
       return
     }
     void mutate(WORK_QUEUE_KEY)
+  },
+  // Only the project's Workers page shows its setup, so its key refetches while that page holds it.
+  'projectWorkerSetup.changed': (event) => {
+    void mutate(getProjectWorkerSetupKey(event.data.projectId))
   },
   // A record moved between projects, or its history grew: it is loaded by id, so a project it
   // left stops listing it, and the timeline's pages and histories that are open reload, so

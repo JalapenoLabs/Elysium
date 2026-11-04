@@ -75,7 +75,17 @@
     "result": "What its worker reported",
     "cancelledBecause": "Why it was cancelled",
     "history": "History",
-    "loadError": "This batch could not be loaded."
+    "loadError": "This batch could not be loaded.",
+    "waiting": {
+      "review": "Waiting on a review",
+      "ci": "Waiting on CI",
+      "question": "Waiting on an answer",
+      "until": "Looks again {{time}}",
+      "untilAnswered": "Looks again {{time}}, or once its question is answered"
+    },
+    "log": "Worker log",
+    "logEmpty": "Its worker has not said anything yet.",
+    "logError": "The worker log could not be loaded."
   },
   "history": {
     "kinds": {
@@ -89,7 +99,14 @@
       "assigned": "It got a worker's slot",
       "unassigned": "It went back to the queue when the pool shrank",
       "started": "A worker started on it",
+      "waiting": "Its worker waits",
+      "answered": "{{name}} answered its worker's question",
       "finished": "Its worker finished it"
+    },
+    "waiting": {
+      "review": "Its worker waits on a review, and looks again {{time}}",
+      "ci": "Its worker waits on CI, and looks again {{time}}",
+      "question": "Its worker asked a question, and looks again {{time}}"
     },
     "failed": "Its worker reported it failed",
     "unknown": "It changed ({{kind}})",

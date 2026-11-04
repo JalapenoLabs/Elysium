@@ -34,6 +34,11 @@ export const WORK_BATCH_STATES = [
 ] as const
 export type WorkBatchState = typeof WORK_BATCH_STATES[number]
 
+// Mirrors `Wait` in api/src/models/work_batch/worker.rs: what a running batch's worker waits on
+// while it keeps its container.
+export const WORK_BATCH_WAITS = [ 'review', 'ci', 'question' ] as const
+export type WorkBatchWait = typeof WORK_BATCH_WAITS[number]
+
 // One thing that woke a turn: a message with its text, a record, a batch, or a promise, by id.
 export type ProjectManagerWake = {
   id: string
@@ -91,6 +96,11 @@ export type WorkBatch = {
   createdAt: string
   startedAt: string | null
   finishedAt: string | null
+  // Set only while a running batch's worker keeps its container waiting: on what, in its
+  // worker's words, and when it looks again unless a question is answered first.
+  waitingOn: WorkBatchWait | null
+  waitingDetail: string | null
+  waitingUntil: string | null
 }
 
 // A project's Project Manager, as its page shows it.

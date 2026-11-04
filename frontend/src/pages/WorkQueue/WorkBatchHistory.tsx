@@ -18,7 +18,8 @@ type Props = {
 
 // Everything that happened to a batch, oldest first: who submitted it, every change a person,
 // Elysia, or its Project Manager made while it waited, and each move the pool and its worker
-// made, with why it was cancelled beneath that line.
+// made, with the words that came with it beneath its line: why it was cancelled, what its worker
+// waits for, or the answer its Project Manager gave.
 export function WorkBatchHistory(props: Props) {
   const { t } = useTranslation([ 'workQueue', 'common' ])
   const projectsTranslation = useTranslation('projects')
@@ -46,6 +47,9 @@ export function WorkBatchHistory(props: Props) {
           name,
           before: priorityWords(described.before),
           after: priorityWords(described.after),
+          time: described.until
+            ? formatShortDateTime(described.until)
+            : '',
         })
       }
       if (entry.kind === 'finished' && described.succeeded === false) {
@@ -57,7 +61,7 @@ export function WorkBatchHistory(props: Props) {
         }</span>
         <div className='min-w-0'>
           <span>{line}</span>
-          {described.reason && <p className='whitespace-pre-wrap opacity-80'>{described.reason}</p>}
+          {described.note && <p className='whitespace-pre-wrap opacity-80'>{described.note}</p>}
         </div>
       </li>
     })

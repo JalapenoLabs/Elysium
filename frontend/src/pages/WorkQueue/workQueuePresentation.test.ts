@@ -6,7 +6,7 @@ import type { WorkQueueEntry } from '../../api/routes/workQueueRoutes'
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { availableActions, describeHistoryEntry } from './workQueuePresentation'
+import { availableActions, currentWait, describeHistoryEntry } from './workQueuePresentation'
 
 const NOW = Date.parse('2026-11-04T12:00:00Z')
 
@@ -86,7 +86,7 @@ describe('describeHistoryEntry', () => {
       createdBy: 'person-1',
       createdAt: '2026-11-04T11:00:00Z',
     })
-    expect(cancelled.reason).toBe('Launch moved.')
+    expect(cancelled.note).toBe('Launch moved.')
     const finished = describeHistoryEntry({
       id: 'event-3',
       kind: 'finished',
@@ -107,5 +107,72 @@ describe('describeHistoryEntry', () => {
     })
     expect(unknown.labelKey).toBeNull()
     expect(unknown.before).toBeNull()
+  })
+
+  it('reads what a worker waits on, when it looks again, and what for', () => {
+    const waiting = describeHistoryEntry({
+      id: 'event-5',
+      kind: 'waiting',
+      data: { on: 'ci', detail: 'Waiting on the checks of #3.', until: '2026-11-04T13:00:00Z' },
+      createdBy: 'coding-agent',
+      createdAt: '2026-11-04T12:00:00Z',
+    })
+    expect(waiting.labelKey).toBe('history.waiting.ci')
+    expect(waiting.until).toBe('2026-11-04T13:00:00Z')
+    expect(waiting.note).toBe('Waiting on the checks of #3.')
+  })
+
+  it('still says a worker waits when it cannot read on what or until when', () => {
+    for (const data of [
+      { on: 'lunch', detail: 'Back soon.', until: '2026-11-04T13:00:00Z' },
+      { on: 'review', detail: 'A review of #3.', until: 'tomorrow' },
+      { on: 'review', detail: 'A review of #3.' },
+    ]) {
+      const waiting = describeHistoryEntry({
+        id: 'event-6',
+        kind: 'waiting',
+        data,
+        createdBy: 'coding-agent',
+        createdAt: '2026-11-04T12:00:00Z',
+      })
+      expect(waiting.labelKey).toBe('history.kinds.waiting')
+      expect(waiting.until).toBeNull()
+      expect(waiting.note).toBe(data.detail)
+    }
+  })
+
+  it('carries the answer its Project Manager gave', () => {
+    const answered = describeHistoryEntry({
+      id: 'event-7',
+      kind: 'answered',
+      data: { answer: 'Use the annual price.' },
+      createdBy: 'project-managers',
+      createdAt: '2026-11-04T12:30:00Z',
+    })
+    expect(answered.labelKey).toBe('history.kinds.answered')
+    expect(answered.note).toBe('Use the annual price.')
+    expect(answered.until).toBeNull()
+  })
+})
+
+describe('currentWait', () => {
+  const WAITING = {
+    state: 'running',
+    waitingOn: 'question',
+    waitingDetail: 'Which plan should the banner name?',
+    waitingUntil: '2026-11-04T18:00:00Z',
+  } as const
+
+  it('reads what a running batch waits on', () => {
+    expect(currentWait(WAITING)).toEqual({
+      on: 'question',
+      detail: 'Which plan should the banner name?',
+      until: '2026-11-04T18:00:00Z',
+    })
+  })
+
+  it('reads no wait on a batch that is not running, or whose worker waits on nothing', () => {
+    expect(currentWait({ ...WAITING, state: 'succeeded' })).toBeNull()
+    expect(currentWait({ ...WAITING, waitingOn: null, waitingDetail: null, waitingUntil: null })).toBeNull()
   })
 })

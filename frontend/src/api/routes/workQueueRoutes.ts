@@ -61,6 +61,8 @@ export const WORK_BATCH_EVENT_KINDS = [
   'assigned',
   'unassigned',
   'started',
+  'waiting',
+  'answered',
   'finished',
 ] as const
 export type WorkBatchEventKind = typeof WORK_BATCH_EVENT_KINDS[number]
@@ -98,6 +100,22 @@ export function getWorkBatch(batchId: string) {
   return apiClient
     .get(getWorkBatchKey(batchId))
     .json<WorkBatchWithHistory>()
+}
+
+export function getWorkerLogKey(batchId: string) {
+  return `${getWorkBatchKey(batchId)}/worker-log`
+}
+
+type WorkerLogResponse = {
+  // What its worker said and which tools it called, one line each, the newest 64 KiB. Empty
+  // before its worker starts.
+  log: string
+}
+
+export function getWorkerLog(batchId: string) {
+  return apiClient
+    .get(getWorkerLogKey(batchId))
+    .json<WorkerLogResponse>()
 }
 
 // Each field left out stays as it is.

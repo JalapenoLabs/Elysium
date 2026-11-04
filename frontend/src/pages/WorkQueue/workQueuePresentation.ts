@@ -2,7 +2,12 @@
 
 import type { ParseKeys } from 'i18next'
 import type { IconType } from 'react-icons'
-import type { WorkBatchPriority, WorkBatchState } from '../../api/routes/projectManagerRoutes'
+import type {
+  WorkBatch,
+  WorkBatchPriority,
+  WorkBatchState,
+  WorkBatchWait,
+} from '../../api/routes/projectManagerRoutes'
 import type {
   WorkBatchChanges,
   WorkBatchEventKind,
@@ -22,6 +27,7 @@ import {
 } from 'react-icons/lu'
 
 // Misc
+import { WORK_BATCH_WAITS } from '../../api/routes/projectManagerRoutes'
 import { WORK_BATCH_EVENT_KINDS } from '../../api/routes/workQueueRoutes'
 
 // What people may do to a batch while it waits, and the words for a batch's history. Pure, and
@@ -132,32 +138,102 @@ export const historyKindLabelKeys = {
   assigned: 'history.kinds.assigned',
   unassigned: 'history.kinds.unassigned',
   started: 'history.kinds.started',
+  waiting: 'history.kinds.waiting',
+  answered: 'history.kinds.answered',
   finished: 'history.kinds.finished',
 } as const satisfies Record<WorkBatchEventKind, ParseKeys<'workQueue'>>
 
+// A `waiting` entry's line for what it waits on, with when its worker looks again.
+const waitingHistoryKeys = {
+  review: 'history.waiting.review',
+  ci: 'history.waiting.ci',
+  question: 'history.waiting.question',
+} as const satisfies Record<WorkBatchWait, ParseKeys<'workQueue'>>
+
+// The batch page's heading for what its worker waits on.
+export const waitHeadingKeys = {
+  review: 'batch.waiting.review',
+  ci: 'batch.waiting.ci',
+  question: 'batch.waiting.question',
+} as const satisfies Record<WorkBatchWait, ParseKeys<'workQueue'>>
+
+// When its worker looks again: a question answered first wakes it sooner.
+export const waitUntilKeys = {
+  review: 'batch.waiting.until',
+  ci: 'batch.waiting.until',
+  question: 'batch.waiting.untilAnswered',
+} as const satisfies Record<WorkBatchWait, ParseKeys<'workQueue'>>
+
+// What a batch's worker waits on now, or null when it waits on nothing. The API sets the wait
+// only while a running batch's worker keeps its container, so any other state holds none.
+export function currentWait(batch: Pick<WorkBatch, 'state' | 'waitingOn' | 'waitingDetail' | 'waitingUntil'>) {
+  if (batch.state !== 'running' || !batch.waitingOn) {
+    return null
+  }
+  return {
+    on: batch.waitingOn,
+    detail: batch.waitingDetail,
+    until: batch.waitingUntil,
+  } as const
+}
+
 // One history entry as a line reads it: what happened, and what it carries beside it, such as
-// the priority it moved from and to, or why it was cancelled. A kind this build does not know
-// reads as its name, logged, rather than hiding the entry.
+// the priority it moved from and to, why it was cancelled, what its worker waits for, or the
+// answer it was given. A kind this build does not know reads as its name, logged, rather than
+// hiding the entry.
 export function describeHistoryEntry(entry: WorkBatchHistoryEntry) {
   const kind = WORK_BATCH_EVENT_KINDS.find((known) => known === entry.kind)
-  const labelKey = kind
-    ? historyKindLabelKeys[kind]
-    : null
-  if (!labelKey) {
+  if (!kind) {
     console.debug('describeHistoryEntry met a history kind this build has no words for', {
       kind: entry.kind,
     })
   }
 
+  // A wait whose kind or time this build cannot read still says its worker waits.
+  const wait = kind === 'waiting'
+    ? readWait(entry.data)
+    : null
+  let labelKey: ParseKeys<'workQueue'> | null = null
+  if (wait) {
+    labelKey = waitingHistoryKeys[wait.on]
+  }
+  else if (kind) {
+    labelKey = historyKindLabelKeys[kind]
+  }
+
   const before = readPriority(entry.data.before)
   const after = readPriority(entry.data.after)
-  const reason = typeof entry.data.reason === 'string'
-    ? entry.data.reason
-    : null
   const succeeded = typeof entry.data.succeeded === 'boolean'
     ? entry.data.succeeded
     : null
-  return { labelKey, before, after, reason, succeeded } as const
+  // The words beneath the line: why it was cancelled, what its worker waits for, or the answer.
+  let note: string | null = null
+  for (const field of [ 'reason', 'detail', 'answer' ] as const) {
+    const value = entry.data[field]
+    if (typeof value === 'string' && value.trim()) {
+      note = value
+      break
+    }
+  }
+  return {
+    labelKey,
+    before,
+    after,
+    note,
+    succeeded,
+    until: wait?.until ?? null,
+  } as const
+}
+
+// The `{ on, until }` a waiting entry carries, or null when either is not one this build reads.
+function readWait(data: Record<string, unknown>) {
+  const on = WORK_BATCH_WAITS.find((known) => known === data.on)
+  const until = data.until
+  if (!on || typeof until !== 'string' || Number.isNaN(Date.parse(until))) {
+    console.debug('describeHistoryEntry met a wait it cannot read', { on: data.on, until })
+    return null
+  }
+  return { on, until } as const
 }
 
 // A `{ priority, scheduledFor }` a reprioritized entry carries, or null when it carries none.

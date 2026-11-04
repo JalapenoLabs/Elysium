@@ -65,6 +65,7 @@ export const agentNameKeys = new Map<string, ParseKeys<'models'>>([
   [ 'project_manager', 'agents.project_manager' ],
   [ 'coding_session', 'agents.coding_session' ],
   [ 'studio_session', 'agents.studio_session' ],
+  [ 'batch_worker', 'agents.batch_worker' ],
   [ 'turn_summary', 'agents.turn_summary' ],
   [ 'knowledge_ask', 'agents.knowledge_ask' ],
 ])

@@ -85,6 +85,7 @@
     "addCover": "Add a cover image",
     "coverHint": "Double-click the cover to replace it",
     "models": "Models",
+    "workers": "Workers",
     "removeCover": "Remove cover",
     "keepCover": "Keep the current cover",
     "coverFit": "Cover fit",
@@ -239,5 +240,29 @@
     "anItem": "An action item",
     "messageGone": "The message is gone",
     "openFollowUp": "Open the follow-up"
+  },
+  "workers": {
+    "title": "Workers",
+    "help": "Each worker on one of this project's batches runs in a container of its own. The tools setup script runs there first, as root. Then each repository the batch needs is cloned with its submodules, and its setup script runs as the agent in its directory. A batch may need a repository not listed here, which is cloned with no setup script. Changes apply to the next worker that starts.",
+    "loadError": "This project's workers could not be loaded.",
+    "toolsScript": "Tools setup script",
+    "toolsScriptHint": "Bash, run as root before anything is cloned.",
+    "repositories": "Repositories",
+    "noRepositories": "No repositories yet. Each batch clones the ones it needs, with no setup script.",
+    "add": "Add repository",
+    "url": "Repository URL",
+    "baseBranch": "Base branch",
+    "defaultBranch": "Default branch",
+    "setupScript": "Setup script",
+    "setupScriptHint": "Bash, run as the agent in the repository once it is cloned.",
+    "newRepository": "Repository {{position}}",
+    "moveUp": "Move {{repository}} up",
+    "moveDown": "Move {{repository}} down",
+    "remove": "Remove {{repository}}",
+    "saved": "Worker setup saved",
+    "errors": {
+      "scriptTooLong": "Use {{max}} characters or fewer.",
+      "tooMany": "A project lists at most {{max}} repositories."
+    }
   }
 }

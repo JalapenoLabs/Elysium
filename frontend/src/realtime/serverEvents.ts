@@ -119,6 +119,9 @@ export type ServerEvent =
   | { type: 'projectManager.changed', data: { projectId: string } }
   | { type: 'workBatch.changed', data: { id: string, projectId: string, state: WorkBatchState } }
   | { type: 'workerPool.changed' }
+  // A project's worker setup was replaced: its tools script or the repositories it declares.
+  // The project's id alone; its Workers page loads the setup again.
+  | { type: 'projectWorkerSetup.changed', data: { projectId: string } }
   | { type: 'environmentVariable.upserted', data: EnvironmentVariable }
   | { type: 'environmentVariable.deleted', data: { id: string } }
   | { type: 'githubCredential.upserted', data: GithubCredential }

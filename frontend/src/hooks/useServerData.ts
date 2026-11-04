@@ -45,7 +45,7 @@ import { timelineRecordsLoaded } from '../store/timelineRecordsSlice'
 import { updatesStatusUpdated } from '../store/updatesSlice'
 import { passwordVaultLoaded } from '../store/passwordVaultSlice'
 import { usersLoaded } from '../store/usersSlice'
-import { workBatchLoaded, workQueueLoaded } from '../store/workQueueSlice'
+import { workBatchLoaded, workerLogLoaded, workQueueLoaded } from '../store/workQueueSlice'
 import { workspaceSettingsUpdated } from '../store/workspaceSettingsSlice'
 
 // Misc
@@ -92,7 +92,14 @@ import {
   getProjectManagerTurn,
   getProjectManagerTurnKey,
 } from '../api/routes/projectManagerRoutes'
-import { getWorkBatch, getWorkBatchKey, getWorkQueue, WORK_QUEUE_KEY } from '../api/routes/workQueueRoutes'
+import {
+  getWorkBatch,
+  getWorkBatchKey,
+  getWorkerLog,
+  getWorkerLogKey,
+  getWorkQueue,
+  WORK_QUEUE_KEY,
+} from '../api/routes/workQueueRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
 import { getStudioItem, listStudioItems } from '../api/routes/studioRoutes'
 import { listTimeline, timelineKey } from '../api/routes/timelineRoutes'
@@ -577,6 +584,20 @@ export function useWorkBatchLoader(batchId: string, isEnabled: boolean): LoadSta
   const { data, error } = useSWR(key, async () => {
     const response = await getWorkBatch(batchId)
     dispatch(workBatchLoaded(response))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// A batch's worker log, read once its section is opened; `workBatch.changed` reads it again.
+export function useWorkerLogLoader(batchId: string, isOpen: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isOpen
+    ? getWorkerLogKey(batchId)
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await getWorkerLog(batchId)
+    dispatch(workerLogLoaded({ batchId, log: response.log }))
     return response
   })
   return toLoadStatus(data !== undefined, error)

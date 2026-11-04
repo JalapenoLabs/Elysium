@@ -38,6 +38,7 @@ import { InitiativesPage } from './pages/Initiatives/InitiativesPage'
 import { NewInitiativeContainerPage } from './pages/Initiatives/NewInitiativeContainerPage'
 import { CreateProjectPage } from './pages/Projects/CreateProjectPage'
 import { ProjectModelsPage } from './pages/Projects/ProjectModelsPage'
+import { ProjectWorkersPage } from './pages/Projects/ProjectWorkersPage'
 import { ProjectPage } from './pages/Projects/ProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { RunPage } from './pages/Runs/RunPage'
@@ -183,6 +184,10 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.projectModels,
       element: <ProjectModelsPage />,
+    },
+    {
+      path: UrlTree.projectWorkers,
+      element: <ProjectWorkersPage />,
     },
     {
       path: UrlTree.coding,
