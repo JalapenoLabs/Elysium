@@ -85,9 +85,9 @@ export function LearningHistory(props: Props) {
         <div className='min-w-0'>
           <p>{sentence}</p>
           {description.undid && <p className='mt-1 text-xs opacity-70'>{t('history.undid')}</p>}
-          <p className='mt-1 text-xs opacity-50'>
+          <div className='mt-1 text-xs opacity-50'>
             <DateText value={entry.createdAt} />
-          </p>
+          </div>
         </div>
         <Tooltip delay={300}>
           <Tooltip.Trigger>
