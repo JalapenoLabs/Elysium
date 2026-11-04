@@ -158,6 +158,7 @@ describe('ConfirmGate', () => {
     expect(screen.queryByRole('button', { name: /Delete/ })).toBeNull()
     expect(screen.queryByText('This can\'t be undone.')).toBeNull()
     expect(screen.getByRole('button', { name: 'Got it' })).toBeTruthy()
+    expect(document.querySelector('[data-slot="alert-dialog-icon"]')?.className).toMatch(/danger/)
   })
 
   describe('a switch that makes the action irreversible', () => {

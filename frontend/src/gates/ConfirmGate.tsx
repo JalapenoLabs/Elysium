@@ -125,7 +125,8 @@ export function ConfirmGate(props: Props) {
   const isIrreversible = canConfirm && (Boolean(options?.isIrreversible) || switches.some(
     (option) => option.makesIrreversible && switchedOn.has(option.id),
   ))
-  const tone = isIrreversible
+  // A blocked permanent delete still reads as one, though it has nothing to count down.
+  const tone = isIrreversible || options?.isIrreversible
     ? 'danger'
     : options?.tone ?? 'accent'
 

@@ -314,7 +314,8 @@ the question and what happens next instead of owning dialog state:
   - `switches` are options the action can take, such as also deleting what it would keep, each a switch that starts
     off. `onConfirm` receives the ids left on. A switch with `makesIrreversible` turns the dialog irreversible while
     it is on, starting the count again.
-  - `canConfirm: false` turns the dialog into an explanation with only Got it, for an action that is blocked.
+  - `canConfirm: false` turns the dialog into an explanation with only Got it, for an action that is blocked. A
+    blocked irreversible one keeps its danger icon, with no countdown and no bold line.
 - `prompt({ title, label, defaultValue, description, isOptional, maxLength, isMultiline, onSubmit })` asks for one
   value and passes it trimmed.
 
