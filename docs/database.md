@@ -74,7 +74,8 @@ checks:
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
 redo, concurrent migrators, the pending-migration refusal, the rebuild for a changed collation, the knowledge
-index's cascades and columns, learnings saved, revised, undone, deleted, and indexed with them, and every LLM,
+index's cascades and columns, learnings saved, revised, undone, deleted, and indexed with them, learning categories
+added, reordered, and removed with their learnings moved, and every LLM,
 storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
 query, every `elysium_work` tool against its project scope, each link provider against a faked provider, the
@@ -388,7 +389,7 @@ collation changes (Collations, above).
 | `id`         | `UUID`              | UUIDv7, primary key                                                    |
 | `title`      | `TEXT`              | The takeaway, 1 to 300 characters, on one line                         |
 | `body`       | `TEXT`              | 1 to 20,000 characters                                                 |
-| `category`   | `learning_category` | `decision`, `convention`, `procedure`, `pitfall`, `reference`, `environment`, `people`, `project`, or `incident` |
+| `category`   | `TEXT`              | References `learning_categories (key)`; `learnings_category_idx` counts and moves a category's learnings |
 | `evidence`   | `TEXT`              | 1 to 20,000 characters                                                 |
 | `agent`      | `TEXT`              | The agent acting for `created_by` at the first save, `mcp:<client id>`; NULL when the person saved it |
 | `agent_name` | `TEXT`              | What that agent called itself, up to 200 characters; set only with `agent` |
@@ -396,6 +397,25 @@ collation changes (Collations, above).
 | `created_by` | `UUID`              | References `users`: who first saved it                                 |
 | `created_at` | `TIMESTAMPTZ`       | Written by the API, the moment of the first save                       |
 | `updated_at` | `TIMESTAMPTZ`       | Maintained by trigger                                                  |
+
+### `learning_categories`
+
+The categories learnings are filed under: Elysium's nine built-in ones, seeded by the migration, and the workspace's
+own, which admins add; see `docs/knowledge.md`, Categories. `learnings.category` references `key` with `NO ACTION`, so
+removing a category that learnings still use fails with the foreign key violation Diesel recognizes; the API moves them
+first. Changes are recorded in `user_events` as a workspace setting's are. Rolling the migration back refuses while any
+learning is filed under a workspace category, rather than refile or drop it.
+
+| Column        | Type          | Notes                                                                 |
+|---------------|---------------|-----------------------------------------------------------------------|
+| `key`         | `TEXT`        | Primary key; a lowercase letter, then up to 49 lowercase letters, digits, or underscores; never changes |
+| `label`       | `TEXT`        | 1 to 60 characters                                                    |
+| `description` | `TEXT`        | 1 to 500 characters: what belongs there, which agents read            |
+| `position`    | `INTEGER`     | Its place among the categories of its kind; built-in ones are offered first |
+| `built_in`    | `BOOLEAN`     | One of the nine, which the API never changes or removes               |
+| `created_by`  | `UUID`        | References `users`; the system user for the nine                      |
+| `created_at`  | `TIMESTAMPTZ` | Set on insert                                                         |
+| `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                                                 |
 
 ### `learning_events`
 
@@ -1020,7 +1040,7 @@ What happened to accounts and workspace settings, one row per change.
 | `id`         | `UUID`        | UUIDv7, primary key                                                     |
 | `user_id`    | `UUID`        | Whose account; NULL for a workspace setting; `ON DELETE SET NULL`       |
 | `actor_id`   | `UUID`        | Who made the change; `ON DELETE SET NULL`, for a rejected sign-up's own events |
-| `kind`       | `TEXT`        | Such as `signed_up`, `approved`, `rejected`, `role_changed`, `disabled` |
+| `kind`       | `TEXT`        | Such as `signed_up`, `approved`, `rejected`, `role_changed`, `disabled`, and for workspace settings `workspace_settings_changed` and `learning_category_added`, `_changed`, or `_removed` |
 | `data`       | `JSONB`       | A JSON object shaped by `kind`, with values before and after            |
 | `created_at` | `TIMESTAMPTZ` | Set on insert                                                           |
 

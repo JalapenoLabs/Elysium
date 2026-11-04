@@ -41,6 +41,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `connector.changed`      | `{ id }`         | A connector was added or changed: paused, content, a sync, a read, its checks; load it by id or error |
 | `connector.deleted`      | `{ id }`         | A connector, or the account it read through, was removed   |
 | `learning.changed`       | `{ id }`         | A learning was saved, corrected, deleted, restored, or had a change undone; never its text, since guests hear it too; members load it by id, see `docs/knowledge.md` |
+| `learningCategories.changed` | none         | A workspace learning category was added, edited, reordered, or removed; members load the list again |
 | `connectorCheckRun.updated` | `{ runId, connectorId, checkId, state }` | A check in a run moved on, or the run ended (`checkId` null, `state` `finished`); load the run for its messages |
 | `timelineRecord.created` | `{ id, sourceKind, createdBy, actionItemId }` | Something was ingested; never its content, see `docs/connectors.md` |
 | `draft.changed`          | `{ id, createdBy }`      | A draft was written, edited, discarded, or a send of it began, landed, or failed; never its text, see `docs/connectors.md` |

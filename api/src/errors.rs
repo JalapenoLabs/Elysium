@@ -114,6 +114,31 @@ impl From<crate::models::learning::LearningError> for ApiError {
                 Self::Conflict("this learning is deleted; restore it to change it")
             }
             LearningError::NothingToUndo(message) => Self::Conflict(message),
+            unknown @ LearningError::UnknownCategory { .. } => {
+                Self::BadRequest(unknown.to_string())
+            }
+        }
+    }
+}
+
+impl From<crate::models::learning_category::CategoryError> for ApiError {
+    fn from(error: crate::models::learning_category::CategoryError) -> Self {
+        use crate::models::learning_category::CategoryError;
+
+        match error {
+            CategoryError::Database(database) => database.into(),
+            CategoryError::Learning(learning) => learning.into(),
+            CategoryError::KeyTaken => Self::Conflict("a category already has this key"),
+            CategoryError::BuiltIn => {
+                Self::Conflict("Elysium's built-in categories cannot be changed or removed")
+            }
+            // The web app answers this by asking where the learnings should go.
+            CategoryError::InUse => Self::CodedConflict {
+                code: "category_in_use",
+                message: "learnings are filed under this category; choose a category to move \
+                    them to",
+            },
+            CategoryError::InvalidMove(message) => Self::BadRequest(message.to_owned()),
         }
     }
 }

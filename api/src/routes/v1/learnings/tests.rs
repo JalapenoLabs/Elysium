@@ -18,8 +18,7 @@ use uuid::Uuid;
 
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
 use crate::models::learning::{
-    self, Agent, Author, HistoryKind, LearningCategory, LearningChanges, LearningContent,
-    LearningError,
+    self, Agent, Author, HistoryKind, LearningChanges, LearningContent, LearningError,
 };
 use crate::routes;
 use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database, signed_in_cookie};
@@ -44,7 +43,7 @@ fn content(title: &str, body: &str) -> LearningContent {
     LearningContent {
         title: title.to_owned(),
         body: body.to_owned(),
-        category: LearningCategory::Pitfall,
+        category: "pitfall".to_owned(),
         evidence: "`diesel migration revert --all` left schema.rs empty on WAY-123.".to_owned(),
     }
 }
@@ -217,7 +216,7 @@ async fn undoing_a_revision_puts_back_what_it_replaced_and_is_itself_recorded() 
         id,
         LearningChanges {
             body: Some("Run REINDEX DATABASE on every database.".to_owned()),
-            category: Some(LearningCategory::Procedure),
+            category: Some("procedure".to_owned()),
             ..LearningChanges::default()
         },
         author(None),
@@ -231,7 +230,7 @@ async fn undoing_a_revision_puts_back_what_it_replaced_and_is_itself_recorded() 
         .expect("undone");
 
     assert_eq!(undone.learning.body, "Run REINDEX.");
-    assert_eq!(undone.learning.category, LearningCategory::Pitfall);
+    assert_eq!(undone.learning.category, "pitfall");
     assert_eq!(undone.history[0].data["undid"], json!(revision));
     assert_eq!(matches(&mut connection, id, "every database").await, 0);
     let history = learning::history(&mut connection, id)

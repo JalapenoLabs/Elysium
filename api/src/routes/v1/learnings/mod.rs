@@ -32,7 +32,7 @@ use uuid::Uuid;
 pub use self::delete_learning::delete;
 pub use self::save_learning::{SaveLearningRequest, save};
 use crate::auth::MemberUser;
-use crate::models::learning::{Agent, Author, HistoryEntry, Learning, LearningCategory, Recorded};
+use crate::models::learning::{Agent, Author, HistoryEntry, Learning, Recorded};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
@@ -74,7 +74,8 @@ pub struct LearningResponse {
     id: Uuid,
     title: String,
     body: String,
-    category: LearningCategory,
+    /// The key of the category it is filed under.
+    category: String,
     evidence: String,
     /// The agent that acted for its creator when it was first saved; `null` when they saved it
     /// themselves.

@@ -16,7 +16,7 @@ use validator::Validate;
 use super::{announce, author};
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
-use crate::models::learning::{self, LearningCategory, LearningChanges};
+use crate::models::learning::{self, LearningChanges};
 use crate::routes::v1::action_items::validate_not_blank;
 use crate::state::AppState;
 
@@ -28,7 +28,8 @@ pub struct RequestBody {
     title: Option<String>,
     #[validate(length(min = 1, max = 20000), custom(function = "validate_not_blank"))]
     body: Option<String>,
-    category: Option<LearningCategory>,
+    #[validate(length(min = 1, max = 50))]
+    category: Option<String>,
     #[validate(length(min = 1, max = 20000), custom(function = "validate_not_blank"))]
     evidence: Option<String>,
 }
@@ -46,6 +47,7 @@ pub async fn handle(
         .title
         .map(|title| title.split_whitespace().collect::<Vec<_>>().join(" "));
     body.body = body.body.map(|text| text.trim().to_owned());
+    body.category = body.category.map(|key| key.trim().to_owned());
     body.evidence = body.evidence.map(|text| text.trim().to_owned());
     body.validate()?;
 

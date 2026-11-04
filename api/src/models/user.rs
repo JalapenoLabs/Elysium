@@ -175,6 +175,12 @@ pub enum UserEventKind {
     /// The person changed their email or name in Kratos, and Elysium saw it.
     ProfileChanged,
     WorkspaceSettingsChanged,
+    /// An admin added one of the workspace's own learning categories.
+    LearningCategoryAdded,
+    /// An admin changed one's label, description, or place.
+    LearningCategoryChanged,
+    /// An admin removed one, moving its learnings to another first.
+    LearningCategoryRemoved,
 }
 
 impl UserEventKind {
@@ -191,6 +197,9 @@ impl UserEventKind {
             Self::RecoveryLinkCreated => "recovery_link_created",
             Self::ProfileChanged => "profile_changed",
             Self::WorkspaceSettingsChanged => "workspace_settings_changed",
+            Self::LearningCategoryAdded => "learning_category_added",
+            Self::LearningCategoryChanged => "learning_category_changed",
+            Self::LearningCategoryRemoved => "learning_category_removed",
         }
     }
 }
@@ -748,7 +757,12 @@ fn ensure_another_active_admin(user: &User, admins: &[Uuid]) -> Result<(), Accou
     Err(AccountError::LastAdmin)
 }
 
-async fn record_event(
+/// Records what happened to account `user_id`, or with `None` to a workspace setting, in
+/// `user_events`, as part of the caller's transaction.
+///
+/// # Errors
+/// Propagates any database error.
+pub(crate) async fn record_event(
     connection: &mut AsyncPgConnection,
     user_id: Option<Uuid>,
     actor_id: Uuid,

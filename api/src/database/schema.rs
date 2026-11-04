@@ -82,10 +82,6 @@ pub mod sql_types {
     pub struct IssueReportFiling;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "learning_category"))]
-    pub struct LearningCategory;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "link_kind"))]
     pub struct LinkKind;
 
@@ -787,6 +783,21 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    learning_categories (key) {
+        key -> Text,
+        label -> Text,
+        description -> Text,
+        position -> Int4,
+        built_in -> Bool,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     learning_events (id) {
         id -> Uuid,
         learning_id -> Uuid,
@@ -801,13 +812,12 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::LearningCategory;
 
     learnings (id) {
         id -> Uuid,
         title -> Text,
         body -> Text,
-        category -> LearningCategory,
+        category -> Text,
         evidence -> Text,
         agent -> Nullable<Text>,
         agent_name -> Nullable<Text>,
@@ -1312,8 +1322,10 @@ diesel::joinable!(knowledge_documents -> learnings (learning_id));
 diesel::joinable!(knowledge_documents -> timeline_records (timeline_record_id));
 diesel::joinable!(knowledge_documents -> users (created_by));
 diesel::joinable!(knowledge_passages -> knowledge_documents (document_id));
+diesel::joinable!(learning_categories -> users (created_by));
 diesel::joinable!(learning_events -> learnings (learning_id));
 diesel::joinable!(learning_events -> users (created_by));
+diesel::joinable!(learnings -> learning_categories (category));
 diesel::joinable!(learnings -> users (created_by));
 diesel::joinable!(link_watch_cursors -> github_credentials (github_credential_id));
 diesel::joinable!(link_watch_cursors -> jira_credentials (jira_credential_id));
@@ -1393,6 +1405,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     jira_done_transitions,
     knowledge_documents,
     knowledge_passages,
+    learning_categories,
     learning_events,
     learnings,
     link_watch_cursors,

@@ -460,6 +460,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Learnings (`learnings`, history in `learning_events`) are indexed the moment they are saved. A title names one
   learning whatever its case, so saving it again revises that learning; every change can be undone. The knowledge
   base's routes and tools refuse guests (`MemberUser`). See `docs/knowledge.md`, Learnings.
+- A learning's category is a row of `learning_categories`: Elysium's nine built-in ones, fixed, and the workspace's
+  own, which admins manage. Removing one that learnings use moves them first, each as a revision; agents read every
+  category's description in `learning_save`'s schema. See `docs/knowledge.md`, Categories.
 
 ## CI
 

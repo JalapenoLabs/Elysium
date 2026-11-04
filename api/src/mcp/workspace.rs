@@ -83,15 +83,16 @@ impl Workspace {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for Workspace {
-    // Written here rather than by `tool_handler`, whose async version has nothing to await.
-    fn list_tools(
+    // Written here rather than by `tool_handler`, so `learning_save` names the workspace's
+    // learning categories as they stand.
+    async fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListToolsResult::with_all_items(
-            self.tool_router.list_all(),
-        )))
+    ) -> Result<ListToolsResult, ErrorData> {
+        let mut tools = self.tool_router.list_all();
+        super::learnings::describe_categories(&self.state, &mut tools).await;
+        Ok(ListToolsResult::with_all_items(tools))
     }
 
     fn get_info(&self) -> ServerConfig {

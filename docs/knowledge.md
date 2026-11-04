@@ -7,7 +7,8 @@ benefits from what anyone's agent saves.
 
 This doc is the design. Little of it is built; the roadmap is the issues in the Knowledge base milestone. Built so
 far: the index's tables in Postgres (Search, below), and learnings, saved through the routes, the MCP server, and
-Settings, Learnings, and indexed as they are saved (Learnings, below).
+Settings, Learnings, filed under the built-in categories and the workspace's own, and indexed as they are saved
+(Learnings, below).
 
 ## What is indexed
 
@@ -115,17 +116,18 @@ tables `learnings` and `learning_events` (`docs/database.md`).
 |------------|----------------------------------------------------------------------------------------------|
 | `title`    | The takeaway, one line of up to 300 characters, trimmed and its spacing collapsed             |
 | `body`     | The rule or decision first, then when it applies and why; Markdown, up to 20,000 characters   |
-| `category` | One of the fixed list below                                                                  |
+| `category` | The key of its category: a built-in one or the workspace's own (Categories, below)          |
 | `evidence` | What shows it is true: a command and its output, a link, a quote and who said it, a meeting   |
 | `createdBy` | Who first saved it; who changed it since is in its history                                  |
 | `agent`    | The agent acting for them: an MCP client, by its id and the name it registered; none when the person saved it themselves |
 
 ### Categories
 
-The list is fixed, a Postgres enum (`learning_category`), so a search can filter by it and every agent picks from the
-same few. It follows what agents save in practice: the notes an agent keeps in its own learnings folder (gotchas,
-setup steps, precedents, where things live, who wants what), and the records a knowledge base adds (decisions,
-incidents, project state).
+A learning is filed under one category, so a search can filter by it and every agent picks from the same short list.
+Every workspace has Elysium's nine built-in categories, always, and adds its own beside them: its subject areas, its
+products, its kinds of client work. The built-in nine follow what agents save in practice: the notes an agent keeps in
+its own learnings folder (gotchas, setup steps, precedents, where things live, who wants what), and the records a
+knowledge base adds (decisions, incidents, project state).
 
 | Category      | What belongs there                                                                  |
 |---------------|-------------------------------------------------------------------------------------|
@@ -139,8 +141,30 @@ incidents, project state).
 | `project`     | A project's or a client's goals, constraints, and current state                     |
 | `incident`    | What broke, why, and what fixed it                                                  |
 
-The descriptions are the enum's doc comments, which the MCP tool's schema carries to agents, and the web app's
-translations; change them together.
+- **One list of rows.** Every category, built-in or the workspace's own, is a row of `learning_categories`
+  (`api/src/models/learning_category.rs`), and a learning's `category` references its key, so Postgres itself keeps a
+  learning from outliving its category. The nine are seeded by their migration with the descriptions above.
+- **A category** is a key, a label, a description, and a place in the order. The key is what a learning stores and an
+  agent sends: a lowercase letter, then up to 49 lowercase letters, digits, or underscores, such as `eda_tools`. It
+  never changes, since learnings and their history hold it; the label and description can. The description says what
+  belongs there, written for the agent choosing a category for what it learned.
+- **The order.** The built-in categories come first, in the order above, then the workspace's own in the order its
+  admins gave them.
+- **Admins manage the workspace's own** (`/api/v1/learning-categories`, `docs/api.md`): add, rename, describe,
+  reorder, and remove. The built-in nine cannot be changed or removed. The list is a workspace setting, so every change is recorded
+  in `user_events` with its admin and the values before and after, as the other workspace settings are
+  (`learning_category_added`, `learning_category_changed`, `learning_category_removed`).
+- **Removing a category moves its learnings first.** A category that learnings are filed under, deleted ones
+  included, is removed only once the admin names the category they move to; otherwise the removal answers
+  `409 category_in_use`. Each move is a revision in that learning's history
+  by the admin, in the same transaction as the removal, so no learning is ever left without a category and each move
+  shows in its history. Undoing a move would put back a category that no longer exists, so it answers `409`.
+- **Agents read the list as it stands.** Whenever a client lists the MCP server's tools, `learning_save`'s schema
+  offers every category's key with its label and description, so an agent choosing one sees the workspace's own
+  beside the nine. A save naming a key no category has is refused with every key there is.
+
+The built-in descriptions are in their seed migration, which is what agents read, and in the web app's translations;
+change them together, the seed through a migration of its own.
 
 ### Saving revises by title
 
@@ -211,4 +235,4 @@ built; see `docs/frontend.md`, Learnings.
 
 Mooreslab's Onyx knowledge base and its knowledge-save sidecar keep running beside Elysium for now, with agents
 writing to both. Retiring it, and whether to import its saved learnings, is decided later. The sidecar files learnings
-under a fixed list of its own; an import maps that list onto the categories above.
+under a fixed list of its own; an import maps that list onto the built-in categories and the workspace's own.

@@ -140,6 +140,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/learnings/{id}/restore`      | `200` `{ learning }`                                |
 | GET    | `/api/v1/learnings/{id}/history`      | `200` `{ history: LearningHistoryEntry[] }`, oldest first |
 | POST   | `/api/v1/learnings/{id}/history/{entryId}/undo` | `200` `{ learning }`                      |
+| GET    | `/api/v1/learning-categories`         | `200` `{ categories: LearningCategory[] }`, built-in ones first, each kind in its order |
+| POST   | `/api/v1/learning-categories`         | `201` `{ category }`; admins                        |
+| PATCH  | `/api/v1/learning-categories/{key}`   | `200` `{ category }`; admins                        |
+| DELETE | `/api/v1/learning-categories/{key}`   | `204`; admins; `?moveTo=` names where its learnings go |
 | GET    | `/api/v1/github-credentials`          | `200` `{ credentials: GithubCredential[] }`, by name |
 | POST   | `/api/v1/github-credentials`          | `201` `{ credential }`; checked with GitHub first   |
 | GET    | `/api/v1/github-credentials/{id}`     | `200` `{ credential }`                              |
@@ -495,11 +499,25 @@ A `Learning` has `id`, `title`, `body`, `category`, `evidence`, `agent` (`{ id, 
 `agent`, `data`, and `createdAt`.
 
 `POST` requires `title` (up to 300 characters, trimmed and its spacing collapsed), `body` and `evidence` (each up to
-20,000 characters, trimmed, not blank), and `category`, one of `decision`, `convention`, `procedure`, `pitfall`,
-`reference`, `environment`, `people`, `project`, or `incident`. A title a learning already has, in any case, revises
+20,000 characters, trimmed, not blank), and `category`, the key of a learning category (below); a key no category has
+answers `400` naming every key there is. A title a learning already has, in any case, revises
 that learning, bringing it back if it was deleted. `PATCH` takes any of the four. A title another learning has answers
 `409`, as does correcting a deleted learning. Undo answers `409` when the change has nothing left to reverse. The feed
 takes `limit` (1 to 200, default 50) and `before`, an entry id, to read on. See `docs/knowledge.md`, Learnings.
+
+### `/api/v1/learning-categories`
+
+The list answers admins and members, and a guest `403 members_only`; changes answer admins alone.
+
+A `LearningCategory` has `key`, `label`, `description`, `position`, `builtIn`, `learningCount` (the learnings filed
+under it, deleted ones included), `createdBy`, `createdAt`, and `updatedAt`.
+
+`POST` requires `key` (a lowercase letter, then up to 49 lowercase letters, digits, or underscores), `label` (up to 60
+characters), and `description` (up to 500), each trimmed and not blank, and adds it after the workspace's last; a key
+any category has answers `409`. `PATCH` takes `label`, `description`, and `position`, its place among the workspace's
+own counted from 0, past the end meaning last; the key never changes. A built-in category answers `409` to `PATCH` and
+`DELETE`. `DELETE` of a category with learnings answers `409 category_in_use` unless `moveTo` names another category,
+which they move to first, each as a revision in its history. See `docs/knowledge.md`, Categories.
 
 ### `/api/v1/action-items`
 

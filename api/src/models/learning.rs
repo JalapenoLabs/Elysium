@@ -3,9 +3,9 @@
 //! Learnings, their history, and their place in the knowledge index.
 //!
 //! A learning is written for the next agent: a takeaway title, a body that leads with the rule,
-//! a category from a fixed list, and its evidence (`docs/knowledge.md`, Learnings). A title names
-//! one learning, whatever its case, so [`save`] revises the learning that has it and creates one
-//! only when none does.
+//! the key of the category it is filed under (`crate::models::learning_category`), and its
+//! evidence (`docs/knowledge.md`, Learnings). A title names one learning, whatever its case, so
+//! [`save`] revises the learning that has it and creates one only when none does.
 //!
 //! Every write takes the [`Author`] making it, locks the learning's row, and records its history
 //! in the same transaction, as action items do (`crate::models::action_item_event`): an entry
@@ -20,7 +20,6 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tracing::{Level, event};
@@ -29,49 +28,11 @@ use uuid::Uuid;
 use crate::database::schema::{learning_events, learnings};
 use crate::knowledge::passages;
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
+use crate::models::learning_category;
 
 diesel::define_sql_function! {
     /// Postgres's `lower`, by which `learnings_title_unique` makes a title name one learning.
     fn lower(text: diesel::sql_types::Text) -> diesel::sql_types::Text;
-}
-
-/// The fixed list a learning is filed under. `docs/knowledge.md` explains how it was chosen.
-///
-/// Each variant's doc comment is what an agent reads when it picks one over MCP, so it says
-/// what belongs there rather than what the word means.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    diesel_derive_enum::DbEnum,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-)]
-#[ExistingTypePath = "crate::database::schema::sql_types::LearningCategory"]
-#[serde(rename_all = "kebab-case")]
-pub enum LearningCategory {
-    /// A choice that was made and why, so it is not argued again.
-    Decision,
-    /// How work is done here: style, naming, process, review.
-    Convention,
-    /// Steps known to work for a task that comes back: setting up, deploying, restoring.
-    Procedure,
-    /// Something that behaves other than expected, and the way around it.
-    Pitfall,
-    /// Facts about a tool, API, or service worth not looking up again: limits, endpoints, flags.
-    Reference,
-    /// Where things are: hosts, paths, accounts, and how they connect.
-    Environment,
-    /// Who owns, reviews, or decides what, and how they want work delivered.
-    People,
-    /// A project's or a client's goals, constraints, and current state.
-    Project,
-    /// What broke, why, and what fixed it.
-    Incident,
 }
 
 /// What a learning says: everything a save writes and a revision changes.
@@ -82,7 +43,8 @@ pub enum LearningCategory {
 pub struct LearningContent {
     pub title: String,
     pub body: String,
-    pub category: LearningCategory,
+    /// The key of the category it is filed under.
+    pub category: String,
     pub evidence: String,
 }
 
@@ -147,7 +109,8 @@ pub struct Learning {
     pub id: Uuid,
     pub title: String,
     pub body: String,
-    pub category: LearningCategory,
+    /// The key of the category it is filed under.
+    pub category: String,
     pub evidence: String,
     /// The agent that acted for `created_by` when it was first saved, in its recorded form.
     pub agent: Option<String>,
@@ -164,7 +127,7 @@ impl Learning {
         LearningContent {
             title: self.title.clone(),
             body: self.body.clone(),
-            category: self.category,
+            category: self.category.clone(),
             evidence: self.evidence.clone(),
         }
     }
@@ -238,7 +201,7 @@ struct LearningRow<'a> {
     id: Uuid,
     title: String,
     body: String,
-    category: LearningCategory,
+    category: String,
     evidence: String,
     agent: Option<&'a str>,
     agent_name: Option<&'a str>,
@@ -251,7 +214,7 @@ struct LearningRow<'a> {
 struct ContentChangeset {
     title: String,
     body: String,
-    category: LearningCategory,
+    category: String,
     evidence: String,
 }
 
@@ -268,7 +231,7 @@ pub struct Recorded {
 pub struct LearningChanges {
     pub title: Option<String>,
     pub body: Option<String>,
-    pub category: Option<LearningCategory>,
+    pub category: Option<String>,
     pub evidence: Option<String>,
 }
 
@@ -282,6 +245,10 @@ pub enum LearningError {
     TitleTaken,
     #[error("this learning is deleted; restore it to change it")]
     Deleted,
+    /// No category has the key a write named. `known` is every key there is, in the order they
+    /// are offered, so the agent or person who named it can choose again.
+    #[error("`{key}` is not a learning category; use one of: {}", known.join(", "))]
+    UnknownCategory { key: String, known: Vec<String> },
     /// The change an undo names cannot be reversed as the learning stands; the message says why.
     #[error("{0}")]
     NothingToUndo(&'static str),
@@ -360,6 +327,7 @@ async fn create(
     content: LearningContent,
     author: Author<'_>,
 ) -> Result<Recorded, LearningError> {
+    hold_category(connection, &content.category).await?;
     let created = serde_json::to_value(&content).expect("learning content serializes");
     let learning = diesel::insert_into(learnings::table)
         .values(LearningRow {
@@ -536,7 +504,13 @@ pub async fn undo(
                 Some(HistoryKind::Revised) => {
                     let reverted = reverted_content(&learning.content(), &entry.data)?;
                     revise(connection, &learning, reverted, author, undid)
-                        .await?
+                        .await
+                        .map_err(|error| match error {
+                            LearningError::UnknownCategory { .. } => LearningError::NothingToUndo(
+                                "the category this change would put back has been removed",
+                            ),
+                            other => other,
+                        })?
                         .ok_or(LearningError::NothingToUndo(
                             "every field this change wrote has changed again since",
                         ))?
@@ -569,6 +543,9 @@ async fn revise(
     if changes.is_empty() {
         return Ok(None);
     }
+    if content.category != learning.category {
+        hold_category(connection, &content.category).await?;
+    }
     let revised = diesel::update(learnings::table.find(learning.id))
         .set(ContentChangeset {
             title: content.title,
@@ -587,6 +564,61 @@ async fn revise(
     }
     let entry = record(connection, learning.id, HistoryKind::Revised, author, data).await?;
     Ok(Some((revised, entry)))
+}
+
+/// Moves every learning filed under category `from`, deleted ones included, to category `to`,
+/// each move a revision in its history by `author`. Part of the caller's transaction, which
+/// must already hold `to` ([`learning_category::hold`]), as removing `from` does.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn refile(
+    connection: &mut AsyncPgConnection,
+    from: &str,
+    to: &str,
+    author: Author<'_>,
+) -> Result<Vec<Recorded>, LearningError> {
+    let filed: Vec<Learning> = learnings::table
+        .filter(learnings::category.eq(from))
+        .order(learnings::id.asc())
+        .for_update()
+        .select(Learning::as_select())
+        .load(connection)
+        .await?;
+    let mut moved = Vec::with_capacity(filed.len());
+    for learning in filed {
+        let content = LearningContent {
+            category: to.to_owned(),
+            ..learning.content()
+        };
+        let Some((learning, entry)) = revise(connection, &learning, content, author, None).await?
+        else {
+            unreachable!("a learning filed under `from` changes when it moves to `to`");
+        };
+        reindex(connection, &learning).await?;
+        moved.push(Recorded {
+            learning,
+            history: vec![entry],
+        });
+    }
+    Ok(moved)
+}
+
+/// Refuses `key` unless a category has it, which then stays until the transaction ends, so a
+/// learning is never filed under a category being removed at the same moment.
+async fn hold_category(connection: &mut AsyncPgConnection, key: &str) -> Result<(), LearningError> {
+    if learning_category::hold(connection, key).await? {
+        return Ok(());
+    }
+    let known = learning_category::list(connection)
+        .await?
+        .into_iter()
+        .map(|category| category.key)
+        .collect();
+    Err(LearningError::UnknownCategory {
+        key: key.to_owned(),
+        known,
+    })
 }
 
 /// Deletes `learning` softly or restores it, and records which.
@@ -801,19 +833,21 @@ mod tests {
         LearningContent {
             title: "Rebuild indexes after a collation change".to_owned(),
             body: "Run REINDEX DATABASE.".to_owned(),
-            category: LearningCategory::Procedure,
+            category: "procedure".to_owned(),
             evidence: "Lookups missed rows after moving to glibc.".to_owned(),
         }
     }
 
     #[test]
-    fn categories_are_stored_and_sent_by_their_lowercase_names() {
+    fn naming_an_unknown_category_says_which_ones_there_are() {
+        let error = LearningError::UnknownCategory {
+            key: "gotcha".to_owned(),
+            known: vec!["decision".to_owned(), "rtl".to_owned()],
+        };
         assert_eq!(
-            serde_json::to_value(LearningCategory::Pitfall).expect("serializes"),
-            json!("pitfall")
+            error.to_string(),
+            "`gotcha` is not a learning category; use one of: decision, rtl"
         );
-        serde_json::from_value::<LearningCategory>(json!("gotcha"))
-            .expect_err("only the fixed list is accepted");
     }
 
     #[test]
@@ -821,7 +855,7 @@ mod tests {
         let before = content();
         let after = LearningContent {
             body: "Run REINDEX DATABASE, then record the new version.".to_owned(),
-            category: LearningCategory::Pitfall,
+            category: "pitfall".to_owned(),
             ..content()
         };
 
@@ -845,13 +879,13 @@ mod tests {
         let original = content();
         let revised = LearningContent {
             body: "Revised body.".to_owned(),
-            category: LearningCategory::Pitfall,
+            category: "pitfall".to_owned(),
             ..content()
         };
         let data = json!({ "changes": changes_between(&original, &revised) });
         // Since the revision, someone changed the category again.
         let current = LearningContent {
-            category: LearningCategory::Reference,
+            category: "reference".to_owned(),
             ..revised
         };
 
@@ -862,8 +896,7 @@ mod tests {
             "the body it wrote is put back"
         );
         assert_eq!(
-            reverted.category,
-            LearningCategory::Reference,
+            reverted.category, "reference",
             "a field changed since keeps its newer value"
         );
         assert_eq!(
@@ -878,7 +911,7 @@ mod tests {
         for data in [
             json!({}),
             json!({ "changes": { "body": { "from": "a" } } }),
-            json!({ "changes": { "category": { "from": "gotcha", "to": "procedure" } } }),
+            json!({ "changes": { "category": { "from": 7, "to": "procedure" } } }),
         ] {
             assert!(
                 matches!(

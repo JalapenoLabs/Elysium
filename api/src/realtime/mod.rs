@@ -139,6 +139,11 @@ pub enum ServerEvent {
     /// id.
     #[serde(rename = "learning.changed")]
     LearningChanged { id: Uuid },
+    /// A workspace learning category was added, edited, reordered, or removed. Nothing more:
+    /// the list is short, and a guest hears every event and reaches no knowledge base; members
+    /// load it again.
+    #[serde(rename = "learningCategories.changed")]
+    LearningCategoriesChanged,
     /// A check in a run moved on, or (`checkId` null, `state` `finished`) the run ended. Ids and
     /// states only: a check's message can name what an account reaches, and the run answers the
     /// person who started it.

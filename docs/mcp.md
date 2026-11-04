@@ -109,6 +109,11 @@ Tools are named for what they act on, then what they do.
 - **Knowledge base.** The learning tools answer admins and members alone, and a guest's client `403 members_only`, as
   the routes do (`docs/knowledge.md`, Who sees what). They record the client as the agent acting for the person: its
   id, and the name it registered, read from Hydra when it saves. A name Hydra cannot give is logged and left out.
+- **Learning categories.** A workspace adds its own, so `learning_save`'s compiled schema cannot name them. Listing the
+  tools (`list_tools` in `api/src/mcp/workspace.rs`) writes every category into its `category` property as a `oneOf`
+  of `{ const, title, description }`, built-in ones first, so an agent picks from the list as it stands, knowing what
+  each holds. A client that lists its tools once per session sees a new category in its next one. A list that cannot
+  be read is logged and the compiled schema served.
 - **Results.** A tool answers structured content, the same JSON the route answers in the browser, repeated as a text
   block for clients that render only text. A failure is a tool
   result marked as an error, carrying the HTTP status and the message the browser would get, so the model reads why: a

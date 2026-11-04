@@ -19,7 +19,7 @@ use validator::Validate;
 use super::{LearningResponse, announce, author};
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
-use crate::models::learning::{self, Agent, HistoryKind, LearningCategory, LearningContent};
+use crate::models::learning::{self, Agent, HistoryKind, LearningContent};
 use crate::routes::v1::action_items::validate_not_blank;
 use crate::state::AppState;
 
@@ -37,8 +37,10 @@ pub struct SaveLearningRequest {
     /// characters.
     #[validate(length(min = 1, max = 20000), custom(function = "validate_not_blank"))]
     pub body: String,
-    /// What kind of knowledge it is.
-    pub category: LearningCategory,
+    /// The key of the category it is filed under: one of Elysium's built-in categories or the
+    /// workspace's own (`GET /api/v1/learning-categories`).
+    #[validate(length(min = 1, max = 50))]
+    pub category: String,
     /// What shows it is true: the command and what it printed, a link, a quote and who said it,
     /// or the meeting it was decided in. Markdown, up to 20,000 characters.
     #[validate(length(min = 1, max = 20000), custom(function = "validate_not_blank"))]
@@ -98,6 +100,7 @@ pub async fn save(
         .collect::<Vec<_>>()
         .join(" ");
     request.body = request.body.trim().to_owned();
+    request.category = request.category.trim().to_owned();
     request.evidence = request.evidence.trim().to_owned();
     request.validate()?;
 
@@ -145,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn a_learning_needs_every_field_and_a_category_from_the_list() {
+    fn a_learning_needs_every_field() {
         parse(valid()).expect("valid").validate().expect("passes");
 
         for field in ["title", "body", "category", "evidence"] {
@@ -153,10 +156,6 @@ mod tests {
             missing.as_object_mut().expect("an object").remove(field);
             parse(missing).expect_err("every field is required");
         }
-
-        let mut unknown = valid();
-        unknown["category"] = json!("gotcha");
-        parse(unknown).expect_err("only the fixed categories");
 
         let mut stray = valid();
         stray["tags"] = json!(["diesel"]);
@@ -168,6 +167,7 @@ mod tests {
         for (field, value) in [
             ("title", "t".repeat(301)),
             ("body", "   ".to_owned()),
+            ("category", String::new()),
             ("evidence", "e".repeat(20_001)),
         ] {
             let mut body = valid();
