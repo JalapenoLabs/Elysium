@@ -182,4 +182,8 @@ describe('sourceLabelKey for agents\' records', () => {
   it('names a turn summary', () => {
     expect(sourceLabelKey('turn_summary')).toBe('sources.turn_summary')
   })
+
+  it('names a worker\'s merged pull request', () => {
+    expect(sourceLabelKey('merged_pull_request')).toBe('sources.merged_pull_request')
+  })
 })

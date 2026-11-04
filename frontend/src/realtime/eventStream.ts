@@ -71,7 +71,12 @@ import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/route
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
 import { PROMISES_KEY_PREFIX } from '../api/routes/promiseRoutes'
-import { getWorkBatchKey, getWorkerLogKey, WORK_QUEUE_KEY } from '../api/routes/workQueueRoutes'
+import {
+  getWorkBatchKey,
+  getWorkBatchPullRequestsKey,
+  getWorkerLogKey,
+  WORK_QUEUE_KEY,
+} from '../api/routes/workQueueRoutes'
 import { getProjectWorkerSetupKey } from '../api/routes/workerSetupRoutes'
 import { getRun, getStepLog } from '../api/routes/runRoutes'
 import { getTimelineRecord } from '../api/routes/timelineRoutes'
@@ -318,6 +323,8 @@ const handlers: Handlers = {
     void mutate(WORK_QUEUE_KEY)
     void mutate(getWorkBatchKey(event.data.id))
     void mutate(getWorkerLogKey(event.data.id))
+    // Only the batch's page shows its pull requests, so their key refetches while it holds them.
+    void mutate(getWorkBatchPullRequestsKey(event.data.id))
   },
   'workerPool.changed': () => {
     if (!selectIsCompanyMember(store.getState())) {

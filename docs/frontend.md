@@ -1164,6 +1164,10 @@ start.
 - **Waiting.** While a running batch's worker keeps its container waiting, the page says on what (a review, CI, or an
   answer), the worker's own words for it, and when it looks again in the viewer's zone (`currentWait`). Its history
   reads each wait with its time and words, and each answer its Project Manager gave beneath the line that names it.
+- **Its pull requests** (`WorkBatchPullRequests`), once a worker started on the batch: each one its worker recorded,
+  linked to GitHub, with a chip saying Merged by Elysium, Merged by its login, Closed without merging, or Open, and for
+  an open one why the last look left it so (`pullRequestStanding`). Read from SWR alone, since no other view shows
+  them, and refetched on `workBatch.changed`.
 - **The worker's log** (`WorkerLog`), once a worker started on the batch: what it said and which tools it called, one
   numbered line each, the newest 64 KiB, scrolled to its newest line. It is collapsed under its heading, open from the
   start while the batch runs, and read only while open, into `workQueue`'s logs, apart from the batch its every load
@@ -1217,16 +1221,19 @@ Promises (`PromisesTable`) is a `SmartTable` of the promises it keeps: what was 
 conversation, opening in a new tab), the work it waits on (a batch by title, or an item linking to it), its state with
 a link to its follow-up once drafted, and when it was made. All three read Redux, loaded by `useProjectManagerLoader`
 and kept current by `projectManager.changed`, which reloads the project's Project Manager and any turn open on its
-page. What Elysium's agents put on the Timeline tab (a Project Manager's records, and a session's turn summaries,
-`WORKSPACE_RECORD_OWNERS`) shows neither Reply nor the project controls: it is the workspace's, on its own project. A
-turn summary links to its session's conversation at that turn, "Open in session 12", on the Coding page or its Studio
-item's page (`turnSummarySession`).
+page. What Elysium's agents put on the Timeline tab (a Project Manager's records, a session's turn summaries, and a
+worker's merged pull requests, `WORKSPACE_RECORD_OWNERS`) shows neither Reply nor the project controls: it is the
+workspace's, on its own project. A turn summary links to its session's conversation at that turn, "Open in session
+12", on the Coding page or its Studio item's page (`turnSummarySession`); a merged pull request, chipped Merged pull
+request, links to it on GitHub.
 
 A project's Workers page (`ProjectWorkersPage`, `ProjectWorkers`, `WorkerSetupForm`), under the project in the
 breadcrumbs, edits how its workers' containers are readied (`docs/engine.md`, Workers), explained behind its `help`: the
 tools setup script, a monospace text area focused as the page opens, and the repositories it declares in order, each a
-row (`WorkerRepositoryRow`) with its URL, an optional base branch, and an optional setup script, moved up or down or
-removed with its icon buttons, with Add repository below the list. The page's Save replaces the whole setup; Save is
+row (`WorkerRepositoryRow`) with its URL, an optional base branch, an optional setup script, and Merge when ready, a
+switch off by default whose `help` says what Elysium checks before it merges and that workers address reviews either
+way, moved up or down or removed with its icon buttons, with Add repository below the list. Merge when ready on a
+repository off github.com is refused under its switch. The page's Save replaces the whole setup; Save is
 held with the first broken rule in its tooltip, and a rule over the whole list (more than 16, the same repository
 twice, two that would clone into one directory) shows under the list. `workerSetupFormSchema.ts` mirrors the API's
 rules with the coding session's URL and directory rules (`sessionRepositories.ts`), trims URLs and branches, sends a

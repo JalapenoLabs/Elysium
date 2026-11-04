@@ -118,6 +118,43 @@ export function getWorkerLog(batchId: string) {
     .json<WorkerLogResponse>()
 }
 
+// A pull request a batch's worker recorded, mirroring `BatchPullRequest` in
+// api/src/models/work_batch/pull_request.rs.
+export type BatchPullRequest = {
+  id: string
+  workBatchId: string
+  // `owner/name`, as GitHub spells it.
+  repository: string
+  number: number
+  url: string
+  title: string
+  state: 'open' | 'merged' | 'closed'
+  mergedAt: string | null
+  // The login GitHub says merged it.
+  mergedBy: string | null
+  mergedByElysium: boolean
+  mergeMethod: 'squash' | 'merge' | 'rebase' | null
+  // Why the last look left it open.
+  heldBecause: string | null
+  lookedAt: string | null
+  timelineRecordId: string | null
+  createdAt: string
+}
+
+export function getWorkBatchPullRequestsKey(batchId: string) {
+  return `${getWorkBatchKey(batchId)}/pull-requests`
+}
+
+type WorkBatchPullRequestsResponse = {
+  pullRequests: BatchPullRequest[]
+}
+
+export function getWorkBatchPullRequests(batchId: string) {
+  return apiClient
+    .get(getWorkBatchPullRequestsKey(batchId))
+    .json<WorkBatchPullRequestsResponse>()
+}
+
 // Each field left out stays as it is.
 export type WorkBatchChanges = {
   priority?: WorkBatchPriority

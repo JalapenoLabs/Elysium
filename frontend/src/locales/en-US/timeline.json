@@ -12,6 +12,7 @@
     "mail": "Mail",
     "project_manager": "Project Manager",
     "turn_summary": "Agent turn",
+    "merged_pull_request": "Merged pull request",
     "other": "Record"
   },
   "turnSummary": {

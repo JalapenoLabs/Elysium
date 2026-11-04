@@ -83,6 +83,15 @@
       "until": "Looks again {{time}}",
       "untilAnswered": "Looks again {{time}}, or once its question is answered"
     },
+    "pullRequests": {
+      "title": "Pull requests",
+      "loadError": "Its pull requests could not be loaded.",
+      "empty": "Its worker has not opened a pull request yet.",
+      "open": "Open",
+      "mergedByElysium": "Merged by Elysium",
+      "mergedBy": "Merged by {{login}}",
+      "closed": "Closed without merging"
+    },
     "log": "Worker log",
     "logEmpty": "Its worker has not said anything yet.",
     "logError": "The worker log could not be loaded."

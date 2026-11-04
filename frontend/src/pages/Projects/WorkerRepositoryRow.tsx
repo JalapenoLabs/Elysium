@@ -1,18 +1,23 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { IconType } from 'react-icons'
+import type { MergePolicy } from '../../api/routes/workerSetupRoutes'
 import type { WorkerRepositoryValue } from './workerSetupFormSchema'
 
 // Core
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Description, FieldError, Input, Label, TextArea, TextField, Tooltip } from '@heroui/react'
+import { Button, Description, FieldError, Input, Label, Switch, TextArea, TextField, Tooltip } from '@heroui/react'
 import { LuArrowDown, LuArrowUp, LuX } from 'react-icons/lu'
+import { HelpPopover } from '../../components/HelpPopover'
 
 // Misc
 import { getRepositoryDirectory } from '../Coding/sessionRepositories'
 import { parseGithubRepository } from '../Settings/Github/githubPresentation'
+
+// The fields of a row that are typed as text.
+export type WorkerRepositoryTextField = 'url' | 'baseBranch' | 'setupScript'
 
 type Props = {
   index: number
@@ -20,13 +25,15 @@ type Props = {
   count: number
   value: WorkerRepositoryValue
   errors: Partial<Record<keyof WorkerRepositoryValue, string>>
-  onChange: (field: keyof WorkerRepositoryValue, value: string) => void
+  onChange: (field: WorkerRepositoryTextField, value: string) => void
+  onMergePolicyChange: (policy: MergePolicy) => void
   onMove: (to: number) => void
   onRemove: () => void
 }
 
-// One repository the project declares: its URL, the branch work starts from, and the script that
-// readies it once it is cloned, with buttons to move it in the list or take it out.
+// One repository the project declares: its URL, the branch work starts from, the script that
+// readies it once it is cloned, and whether Elysium merges its workers' pull requests, with
+// buttons to move it in the list or take it out.
 export function WorkerRepositoryRow(props: Props) {
   const { t } = useTranslation('projects')
   const url = props.value.url.trim()
@@ -111,6 +118,29 @@ export function WorkerRepositoryRow(props: Props) {
       <Description>{t('workers.setupScriptHint')}</Description>
       <FieldError>{props.errors.setupScript}</FieldError>
     </TextField>
+
+    <div className='mt-3 flex items-center gap-1'>
+      <Switch
+        id={`${id}-auto-merge`}
+        isSelected={props.value.mergePolicy === 'auto'}
+        onChange={(isSelected) => props.onMergePolicyChange(
+          isSelected
+            ? 'auto'
+            : 'person',
+        )}
+      >
+        <Switch.Content>
+          <Switch.Control>
+            <Switch.Thumb />
+          </Switch.Control>
+          <Label>{t('workers.autoMerge')}</Label>
+        </Switch.Content>
+      </Switch>
+      <HelpPopover label={t('workers.autoMergeHelpLabel')}>
+        <p>{t('workers.autoMergeHelp')}</p>
+      </HelpPopover>
+    </div>
+    {props.errors.mergePolicy && <p className='mt-1 text-sm text-danger'>{props.errors.mergePolicy}</p>}
   </li>
 }
 

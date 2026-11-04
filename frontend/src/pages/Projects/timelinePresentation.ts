@@ -19,6 +19,7 @@ const sourceLabelKeys: Record<string, ParseKeys<'timeline'>> = {
   mail: 'sources.mail',
   project_manager: 'sources.project_manager',
   turn_summary: 'sources.turn_summary',
+  merged_pull_request: 'sources.merged_pull_request',
 }
 
 export function sourceLabelKey(sourceKind: string): ParseKeys<'timeline'> {

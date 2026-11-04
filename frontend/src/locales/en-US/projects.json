@@ -243,7 +243,7 @@
   },
   "workers": {
     "title": "Workers",
-    "help": "Each worker on one of this project's batches runs in a container of its own. The tools setup script runs there first, as root. Then each repository the batch needs is cloned with its submodules, and its setup script runs as the agent in its directory. A batch may need a repository not listed here, which is cloned with no setup script. Changes apply to the next worker that starts.",
+    "help": "Each worker on one of this project's batches runs in a container of its own. The tools setup script runs there first, as root. Then each repository the batch needs is cloned with its submodules, and its setup script runs as the agent in its directory. A batch may need a repository not listed here, which is cloned with no setup script, and whose pull requests a person merges. Scripts apply to the next worker that starts; who merges applies to the next look at a pull request.",
     "loadError": "This project's workers could not be loaded.",
     "toolsScript": "Tools setup script",
     "toolsScriptHint": "Bash, run as root before anything is cloned.",
@@ -255,6 +255,9 @@
     "defaultBranch": "Default branch",
     "setupScript": "Setup script",
     "setupScriptHint": "Bash, run as the agent in the repository once it is cloned.",
+    "autoMerge": "Merge when ready",
+    "autoMergeHelpLabel": "Who merges pull requests",
+    "autoMergeHelp": "On, Elysium merges a worker's own pull requests here once every check passed, no review thread is open, and nobody asked for changes, following the repository's rules. Off, a person merges them. Either way, the worker addresses every review comment.",
     "newRepository": "Repository {{position}}",
     "moveUp": "Move {{repository}} up",
     "moveDown": "Move {{repository}} down",
@@ -262,7 +265,8 @@
     "saved": "Worker setup saved",
     "errors": {
       "scriptTooLong": "Use {{max}} characters or fewer.",
-      "tooMany": "A project lists at most {{max}} repositories."
+      "tooMany": "A project lists at most {{max}} repositories.",
+      "autoMergeGithubOnly": "Elysium merges pull requests on github.com repositories."
     }
   }
 }

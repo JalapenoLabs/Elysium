@@ -9,6 +9,7 @@ import type {
   WorkBatchWait,
 } from '../../api/routes/projectManagerRoutes'
 import type {
+  BatchPullRequest,
   WorkBatchChanges,
   WorkBatchEventKind,
   WorkBatchHistoryEntry,
@@ -222,6 +223,41 @@ export function describeHistoryEntry(entry: WorkBatchHistoryEntry) {
     note,
     succeeded,
     until: wait?.until ?? null,
+  } as const
+}
+
+// Where a pull request a batch's worker recorded stands, in words and a chip's color: who merged
+// it, that it closed unmerged, or that it is open, with why the last look left it so.
+export function pullRequestStanding(pullRequest: BatchPullRequest) {
+  if (pullRequest.state === 'merged' && pullRequest.mergedByElysium) {
+    return {
+      labelKey: 'batch.pullRequests.mergedByElysium',
+      color: 'success',
+      login: null,
+      note: null,
+    } as const
+  }
+  if (pullRequest.state === 'merged') {
+    return {
+      labelKey: 'batch.pullRequests.mergedBy',
+      color: 'success',
+      login: pullRequest.mergedBy ?? '',
+      note: null,
+    } as const
+  }
+  if (pullRequest.state === 'closed') {
+    return {
+      labelKey: 'batch.pullRequests.closed',
+      color: 'default',
+      login: null,
+      note: null,
+    } as const
+  }
+  return {
+    labelKey: 'batch.pullRequests.open',
+    color: 'accent',
+    login: null,
+    note: pullRequest.heldBecause,
   } as const
 }
 

@@ -1,12 +1,12 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { WorkQueueEntry } from '../../api/routes/workQueueRoutes'
+import type { BatchPullRequest, WorkQueueEntry } from '../../api/routes/workQueueRoutes'
 
 // Core
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { availableActions, currentWait, describeHistoryEntry } from './workQueuePresentation'
+import { availableActions, currentWait, describeHistoryEntry, pullRequestStanding } from './workQueuePresentation'
 
 const NOW = Date.parse('2026-11-04T12:00:00Z')
 
@@ -174,5 +174,53 @@ describe('currentWait', () => {
   it('reads no wait on a batch that is not running, or whose worker waits on nothing', () => {
     expect(currentWait({ ...WAITING, state: 'succeeded' })).toBeNull()
     expect(currentWait({ ...WAITING, waitingOn: null, waitingDetail: null, waitingUntil: null })).toBeNull()
+  })
+})
+
+function pullRequest(overrides: Partial<BatchPullRequest> = {}): BatchPullRequest {
+  return {
+    id: 'pull-1',
+    workBatchId: 'batch-1',
+    repository: 'JalapenoLabs/web',
+    number: 12,
+    url: 'https://github.com/JalapenoLabs/web/pull/12',
+    title: 'Fix the login page',
+    state: 'open',
+    mergedAt: null,
+    mergedBy: null,
+    mergedByElysium: false,
+    mergeMethod: null,
+    heldBecause: null,
+    lookedAt: null,
+    timelineRecordId: null,
+    createdAt: '2026-11-04T10:00:00Z',
+    ...overrides,
+  }
+}
+
+describe('pullRequestStanding', () => {
+  it('says Elysium merged it apart from a person merging it', () => {
+    const byElysium = pullRequestStanding(pullRequest({
+      state: 'merged',
+      mergedBy: 'elysium-bot',
+      mergedByElysium: true,
+      mergeMethod: 'squash',
+    }))
+    expect(byElysium.labelKey).toBe('batch.pullRequests.mergedByElysium')
+    expect(byElysium.color).toBe('success')
+
+    const byPerson = pullRequestStanding(pullRequest({ state: 'merged', mergedBy: 'octocat' }))
+    expect(byPerson.labelKey).toBe('batch.pullRequests.mergedBy')
+    expect(byPerson.login).toBe('octocat')
+  })
+
+  it('keeps why an open one is held, and says a closed one never merged', () => {
+    const held = pullRequestStanding(pullRequest({ heldBecause: '1 review thread is not resolved.' }))
+    expect(held.labelKey).toBe('batch.pullRequests.open')
+    expect(held.note).toBe('1 review thread is not resolved.')
+
+    const closed = pullRequestStanding(pullRequest({ state: 'closed' }))
+    expect(closed.labelKey).toBe('batch.pullRequests.closed')
+    expect(closed.note).toBeNull()
   })
 })

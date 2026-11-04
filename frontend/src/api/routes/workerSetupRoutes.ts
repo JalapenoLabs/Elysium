@@ -3,6 +3,11 @@
 // Misc
 import { apiClient } from '../index'
 
+// Who merges the pull requests a worker opens in a repository, mirroring `MergePolicy` in
+// api/src/models/worker_setup.rs: a person, or Elysium once every check passed and no review is
+// left open.
+export type MergePolicy = 'person' | 'auto'
+
 // One repository a project declares for its workers, in the order the project lists them.
 export type DeclaredRepository = {
   id: string
@@ -11,6 +16,7 @@ export type DeclaredRepository = {
   baseBranch: string | null
   // Bash, run as the agent in the repository's directory once it is cloned.
   setupScript: string | null
+  mergePolicy: MergePolicy
 }
 
 // Mirrors `WorkerSetupResponse` in api/src/routes/v1/projects/worker_setup.rs.
@@ -28,6 +34,7 @@ export type WorkerSetupRequest = {
     url: string
     baseBranch: string | null
     setupScript: string | null
+    mergePolicy: MergePolicy
   }[]
 }
 

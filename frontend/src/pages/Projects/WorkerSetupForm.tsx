@@ -145,15 +145,22 @@ export function WorkerSetupForm(props: Props) {
                 url: values.repositories?.[index]?.url ?? '',
                 baseBranch: values.repositories?.[index]?.baseBranch ?? '',
                 setupScript: values.repositories?.[index]?.setupScript ?? '',
+                mergePolicy: values.repositories?.[index]?.mergePolicy ?? 'person',
               }}
               errors={{
                 url: rowErrors?.url?.message,
                 baseBranch: rowErrors?.baseBranch?.message,
                 setupScript: rowErrors?.setupScript?.message,
+                mergePolicy: rowErrors?.mergePolicy?.message,
               }}
               onChange={(name, value) => form.setValue(
                 `repositories.${index}.${name}`,
                 value,
+                { shouldDirty: true, shouldValidate: true },
+              )}
+              onMergePolicyChange={(policy) => form.setValue(
+                `repositories.${index}.mergePolicy`,
+                policy,
                 { shouldDirty: true, shouldValidate: true },
               )}
               onMove={(to) => repositories.move(index, to)}
@@ -168,7 +175,8 @@ export function WorkerSetupForm(props: Props) {
       <Button
         variant='outline'
         isDisabled={isFull}
-        onPress={() => repositories.append({ url: '', baseBranch: '', setupScript: '' })}
+        // A person merges until someone says otherwise.
+        onPress={() => repositories.append({ url: '', baseBranch: '', setupScript: '', mergePolicy: 'person' })}
       >
         <LuPlus className='size-4' aria-hidden />
         <span>{t('workers.add')}</span>

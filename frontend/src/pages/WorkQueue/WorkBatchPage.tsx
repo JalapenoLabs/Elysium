@@ -20,6 +20,7 @@ import { selectWorkBatch } from '../../store/workQueueSlice'
 import { Chip, Link, Spinner } from '@heroui/react'
 import { Page } from '../../layout/page/Page'
 import { WorkBatchHistory } from './WorkBatchHistory'
+import { WorkBatchPullRequests } from './WorkBatchPullRequests'
 import { WorkerLog } from './WorkerLog'
 
 // Misc
@@ -44,8 +45,8 @@ import {
 } from './workQueuePresentation'
 
 // `/work-queue/:batchId`: one batch whole, what its worker waits on, its goal, the repositories it
-// needs, how it ended, its history, and its worker's log, with what may still be done to it in
-// its Actions. A guest is sent to the start.
+// needs, how it ended, the pull requests its worker opened, its history, and its worker's log, with
+// what may still be done to it in its Actions. A guest is sent to the start.
 export function WorkBatchPage() {
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
   const { batchId = '' } = useParams()
@@ -174,6 +175,8 @@ function WorkBatchDetails(props: DetailsProps) {
         }</ul>
         : <p className='text-sm opacity-70'>{t('batch.noRepositories')}</p>}
     </section>
+
+    {batch.startedAt && <WorkBatchPullRequests batchId={batch.id} />}
 
     <section className='relaxed max-w-3xl'>
       <h2 className='compact text-lg font-semibold'>{t('batch.history')}</h2>

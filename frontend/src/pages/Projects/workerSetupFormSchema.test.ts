@@ -27,6 +27,7 @@ function repository(overrides: Partial<WorkerRepositoryValue> = {}): WorkerRepos
     url: 'https://github.com/JalapenoLabs/Elysium.git',
     baseBranch: '',
     setupScript: '',
+    mergePolicy: 'person',
     ...overrides,
   }
 }
@@ -101,6 +102,20 @@ describe('createWorkerSetupSchema', () => {
     expect(refusal(values({ repositories: many }))).toBe('A project lists at most 16 repositories.')
   })
 
+  it('lets Elysium merge on github.com alone, where it reads pull requests', () => {
+    for (const url of [
+      'https://github.com/JalapenoLabs/Elysium.git',
+      'git@github.com:JalapenoLabs/Elysium.git',
+    ]) {
+      expect(refusal(values({ repositories: [ repository({ url, mergePolicy: 'auto' }) ]}))).toBeNull()
+    }
+
+    const elsewhere = repository({ url: 'https://gitlab.com/team/api.git', mergePolicy: 'auto' })
+    expect(refusal(values({ repositories: [ elsewhere ]})))
+      .toBe('Elysium merges pull requests on github.com repositories.')
+    expect(refusal(values({ repositories: [{ ...elsewhere, mergePolicy: 'person' }]}))).toBeNull()
+  })
+
   it('holds a base branch to 255 characters once trimmed', () => {
     const atLimit = repository({ baseBranch: `  ${'b'.repeat(255)}  ` })
     expect(refusal(values({ repositories: [ atLimit ]}))).toBeNull()
@@ -131,6 +146,7 @@ describe('toWorkerSetupRequest', () => {
           url: ' https://github.com/JalapenoLabs/Elysium.git ',
           baseBranch: ' main ',
           setupScript: '\tcd frontend && yarn install\n',
+          mergePolicy: 'auto',
         }),
         repository({ url: 'git@github.com:JalapenoLabs/uikit.git', baseBranch: '   ', setupScript: ' \n ' }),
       ],
@@ -143,8 +159,14 @@ describe('toWorkerSetupRequest', () => {
           url: 'https://github.com/JalapenoLabs/Elysium.git',
           baseBranch: 'main',
           setupScript: '\tcd frontend && yarn install\n',
+          mergePolicy: 'auto',
         },
-        { url: 'git@github.com:JalapenoLabs/uikit.git', baseBranch: null, setupScript: null },
+        {
+          url: 'git@github.com:JalapenoLabs/uikit.git',
+          baseBranch: null,
+          setupScript: null,
+          mergePolicy: 'person',
+        },
       ],
     })
   })
@@ -160,14 +182,26 @@ describe('toWorkerSetupFormValues', () => {
     expect(toWorkerSetupFormValues({
       toolsSetupScript: null,
       repositories: [
-        { id: 'one', url: 'https://github.com/o/web.git', baseBranch: null, setupScript: 'yarn install' },
-        { id: 'two', url: 'https://github.com/o/api.git', baseBranch: 'develop', setupScript: null },
+        {
+          id: 'one',
+          url: 'https://github.com/o/web.git',
+          baseBranch: null,
+          setupScript: 'yarn install',
+          mergePolicy: 'auto',
+        },
+        {
+          id: 'two',
+          url: 'https://github.com/o/api.git',
+          baseBranch: 'develop',
+          setupScript: null,
+          mergePolicy: 'person',
+        },
       ],
     })).toEqual({
       toolsSetupScript: '',
       repositories: [
-        { url: 'https://github.com/o/web.git', baseBranch: '', setupScript: 'yarn install' },
-        { url: 'https://github.com/o/api.git', baseBranch: 'develop', setupScript: '' },
+        { url: 'https://github.com/o/web.git', baseBranch: '', setupScript: 'yarn install', mergePolicy: 'auto' },
+        { url: 'https://github.com/o/api.git', baseBranch: 'develop', setupScript: '', mergePolicy: 'person' },
       ],
     })
   })

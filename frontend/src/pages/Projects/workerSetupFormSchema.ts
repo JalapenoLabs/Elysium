@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { numberFormat } from '../../format/intl'
 import { BASE_BRANCH_MAX_CHARACTERS, createRepositoryUrlSchema } from '../Coding/createSessionFormSchema'
 import { findRepositoryConflict } from '../Coding/sessionRepositories'
+import { parseGithubRepository } from '../Settings/Github/githubPresentation'
 
 // The most repositories a project declares, mirroring `REPOSITORIES_MAX` in
 // api/src/models/worker_setup.rs: a batch clones at most this many.
@@ -42,7 +43,13 @@ export function createWorkerSetupSchema(t: TFunction<'projects'>, codingT: TFunc
           .trim()
           .max(BASE_BRANCH_MAX_CHARACTERS, { error: codingT('create.errors.baseBranchTooLong') }),
         setupScript: script,
-      }))
+        mergePolicy: z.enum([ 'person', 'auto' ]),
+      })
+        // Elysium reads and merges pull requests on github.com alone, as the API holds it to.
+        .refine(
+          (repository) => repository.mergePolicy === 'person' || parseGithubRepository(repository.url) !== null,
+          { path: [ 'mergePolicy' ], error: t('workers.errors.autoMergeGithubOnly') },
+        ))
       .max(MAX_WORKER_REPOSITORIES, { error: t('workers.errors.tooMany', { max: MAX_WORKER_REPOSITORIES }) })
       .superRefine((repositories, context) => {
         // The API refuses the same repository twice and two that would clone into one directory.
@@ -74,6 +81,7 @@ export function toWorkerSetupFormValues(setup: WorkerSetup): WorkerSetupFormValu
       url: repository.url,
       baseBranch: repository.baseBranch ?? '',
       setupScript: repository.setupScript ?? '',
+      mergePolicy: repository.mergePolicy,
     })),
   }
 }
@@ -91,6 +99,7 @@ export function toWorkerSetupRequest(values: WorkerSetupFormOutput): WorkerSetup
       setupScript: repository.setupScript.trim()
         ? repository.setupScript
         : null,
+      mergePolicy: repository.mergePolicy,
     })),
   }
 }
