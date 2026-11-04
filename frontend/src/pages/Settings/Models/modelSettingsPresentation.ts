@@ -65,6 +65,7 @@ export const agentNameKeys = new Map<string, ParseKeys<'models'>>([
   [ 'coding_session', 'agents.coding_session' ],
   [ 'studio_session', 'agents.studio_session' ],
   [ 'turn_summary', 'agents.turn_summary' ],
+  [ 'knowledge_ask', 'agents.knowledge_ask' ],
 ])
 
 // What `kind` runs on across the workspace now: an admin's setting, or its default.

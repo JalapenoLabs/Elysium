@@ -23,6 +23,7 @@ import { environmentVariablesLoaded } from '../store/environmentVariablesSlice'
 import { githubCredentialsLoaded } from '../store/githubCredentialsSlice'
 import { deletedInitiativesLoaded, initiativesLoaded, initiativeUpserted } from '../store/initiativesSlice'
 import { jiraCredentialsLoaded } from '../store/jiraCredentialsSlice'
+import { knowledgeAsksLoaded } from '../store/knowledgeAsksSlice'
 import { learningCategoriesLoaded } from '../store/learningCategoriesSlice'
 import { deletedLearningsLoaded, learningsLoaded, learningUpserted } from '../store/learningsSlice'
 import { llmsLoaded } from '../store/llmsSlice'
@@ -72,6 +73,7 @@ import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
 import { listGithubCredentials } from '../api/routes/githubRoutes'
 import { listJiraCredentials } from '../api/routes/jiraRoutes'
 import { LEARNING_CATEGORIES_KEY, listLearningCategories } from '../api/routes/learningCategoryRoutes'
+import { listKnowledgeAsks } from '../api/routes/knowledgeRoutes'
 import { getLearning, listLearnings } from '../api/routes/learningRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
@@ -156,6 +158,18 @@ export function useEnvironmentVariablesLoader(): LoadStatus {
   const { data, error } = useSWR('v1/environment-variables', async () => {
     const response = await listEnvironmentVariables()
     dispatch(environmentVariablesLoaded(response.variables))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// The person's own questions to the knowledge base, newest first; `knowledgeAsk.changed` keeps
+// each current as its answer is written.
+export function useKnowledgeAsksLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/knowledge/asks', async () => {
+    const response = await listKnowledgeAsks()
+    dispatch(knowledgeAsksLoaded(response.asks))
     return response
   })
   return toLoadStatus(data !== undefined, error)

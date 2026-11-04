@@ -4,7 +4,29 @@
   "tabs": {
     "label": "Knowledge base",
     "search": "Search",
+    "ask": "Ask",
     "learnings": "Learnings"
+  },
+  "ask": {
+    "label": "Question",
+    "placeholder": "What did we decide about billing retries?",
+    "hint": "Ctrl+Enter to ask. Answers cite the passages they come from.",
+    "submit": "Ask",
+    "refused": "The question can't be asked right now",
+    "list": "Your questions",
+    "none": "No questions yet",
+    "loadFailed": "Your questions can't be loaded right now.",
+    "state": {
+      "queued": "Waiting to be answered…",
+      "running": "Writing the answer…"
+    },
+    "failed": "No answer could be written.",
+    "again": "Ask again",
+    "nothingFound": "Nothing in the knowledge base answers this.",
+    "citation": "Source {{number}}: {{title}}",
+    "sources": "Sources",
+    "unsupported_one": "{{count, compact}} statement was left out because it cited no passage.",
+    "unsupported_other": "{{count, compact}} statements were left out because they cited no passage."
   },
   "search": {
     "label": "Search the knowledge base",

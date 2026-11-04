@@ -266,6 +266,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/runs`                       | `RunsPage`               | Workflow runs, newest first, a page at a time; members only |
 | `/runs/:runId`                | `RunPage`                | One run: its steps, each opening to its log, and its history |
 | `/knowledge`                  | `KnowledgeSearchPage`    | The knowledge base's search, its query and filters in the address; members only |
+| `/knowledge/ask`              | `KnowledgeAskPage`       | Ask the knowledge base; the person's questions and their cited answers, newest first; members |
 | `/knowledge/learnings`        | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as nested tabs in `?tab=` |
 | `/knowledge/learnings/new`    | `NewLearningPage`        | Save a learning; a takeaway one already has revises it   |
 | `/knowledge/learnings/:learningId` | `LearningPage`      | One learning, corrected in place, with its history and Undo |
@@ -765,9 +766,8 @@ admin, and the directory hides the entry. The order a turn's model is resolved i
 ### Knowledge
 
 `src/pages/Knowledge/` is the knowledge base (`docs/knowledge.md`), a top-level area in the sidebar for the company's
-members. `KnowledgeLayout` draws its header and its tabs, Search and Learnings, as the Action items area does; a guest
-is told the knowledge base is for members, as the API refuses them (`selectIsCompanyMember`). Ask joins as a tab of its
-own with `knowledge_ask` (#97).
+members. `KnowledgeLayout` draws its header and its tabs, Search, Ask, and Learnings, as the Action items area does; a
+guest is told the knowledge base is for members, as the API refuses them (`selectIsCompanyMember`).
 
 - **The search** (`KnowledgeSearchPage`) is one field, focused as the page opens and by Ctrl+F, with the filters
   button beside it, the filters in force as tags below (`KnowledgeFilterTags`, each removed with one click), then the
@@ -783,6 +783,15 @@ own with `knowledge_ask` (#97).
   date, and projects, who else recorded it, then every passage in order, the one `?passage=` names scrolled to and
   marked. Its one action opens where it lives (`KnowledgeOriginLink`): the provider's page in a new tab, the learning's
   page, or the company doc. A record's recording and clips stay with its owner, so it shows text alone.
+- **Asking** (`Ask/KnowledgeAskPage`, `docs/knowledge.md`, Asking) is one question field, focused as the tab opens,
+  that asks with Ctrl+Enter or Ask, kept as a draft for the tab until asked, then the person's questions newest first
+  (`KnowledgeAskCard`), the tab counting them. A card waits with a spinner while its answer is written, then shows it
+  (`KnowledgeAnswerView`): the claims as one paragraph, each followed by the numbers of the sources it cites, each a
+  link opening the cited passage with its title in a tooltip, then the numbered sources with their source, person, and
+  date, and quiet lines for statements left out for citing nothing and for a search by words alone. Nothing found says
+  so; a failure says why, with Ask again. A refused ask (its budget spent) is a toast with the API's message. Asks flow
+  through SWR, then `knowledgeAsksSlice`, then `knowledgeAsk.changed`, which the asker's page alone loads by id.
+  `knowledgeAskPresentation.ts` pairs claims with their sources and names the waiting states, tested beside it.
 - `knowledgePresentation.ts` names every source and gives it its logo (connectors' own from `connectorLogos.ts`), and
   leaves a document's title out of its first passage, which the page shows above it; a source this build does not
   know reads as its own name.

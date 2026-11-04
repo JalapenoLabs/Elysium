@@ -463,6 +463,30 @@ company doc.
 `knowledge_documents_copies` on `content_sha256` finds the documents holding the same text, which two people's
 connectors reading one channel or space make (`docs/knowledge.md`, Hybrid search, The same text twice).
 
+### `knowledge_asks`
+
+Questions people ask the knowledge base for a written answer, one row each; see `docs/knowledge.md`, Asking. An ask is
+its asker's alone. The API records it with what its search offered; the engine's answerer takes it, writes the answer,
+and ends it. State is the enum `knowledge_ask_state`: `queued`, `running`, `answered`, or `failed`.
+
+| Column                | Type          | Notes                                                                    |
+|-----------------------|---------------|--------------------------------------------------------------------------|
+| `id`                  | `UUID`        | UUIDv7, primary key; also the id of the turn that answers it             |
+| `created_by`          | `UUID`        | References `users`: who asked, the only person who reads it back          |
+| `question`            | `TEXT`        | 1 to 500 characters, also the search's query                             |
+| `filters`             | `JSONB`       | An object: the filters asked for (`sources`, `project`, `person`, `from`, `to`) |
+| `passages`            | `JSONB`       | An array of `{ documentId, position }`: what the search offered, in the order the prompt labels them `P1`, `P2`; references, never text |
+| `searched_by_meaning` | `BOOLEAN`     | Whether the search ranked by meaning as well as by words                 |
+| `state`               | `knowledge_ask_state` | Default `queued`                                                 |
+| `answer`              | `JSONB`       | Set exactly when `answered`: `{ claims, sources, unsupportedClaims }`    |
+| `error`               | `TEXT`        | Set exactly when `failed`, up to 2,000 characters                        |
+| `created_at`          | `TIMESTAMPTZ` | When it was asked                                                        |
+| `started_at`          | `TIMESTAMPTZ` | When its turn started; `NULL` for one answered without a turn            |
+| `finished_at`         | `TIMESTAMPTZ` | Set exactly when `answered` or `failed`                                  |
+
+`knowledge_asks_asked` on `(created_by, created_at DESC)` lists a person's asks and counts what they asked within the
+hour; the partial `knowledge_asks_waiting` holds what the answerer has still to answer.
+
 ### `knowledge_backfills`
 
 How far each backfill of the knowledge index has got, one row per source that needs one, seeded by its migration as

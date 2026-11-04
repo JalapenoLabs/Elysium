@@ -59,7 +59,8 @@
     "elysia": "Elysia",
     "coding_session": "Coding sessions",
     "studio_session": "Studio sessions",
-    "turn_summary": "Turn summaries"
+    "turn_summary": "Turn summaries",
+    "knowledge_ask": "Knowledge base answers"
   },
   "price": {
     "input": "{{amount}} in",

@@ -117,6 +117,8 @@ Tools are named for what they act on, then what they do.
 | `knowledge_search`     | `workspace:read`  | Searches the knowledge base by words and meaning, answering citations  |
 | `knowledge_get`        | `workspace:read`  | Opens one document a citation names, whole or a span of its passages   |
 | `meetings_list`        | `workspace:read`  | Lists the knowledge base's meetings, each with its topics' citations   |
+| `knowledge_ask`        | `workspace:read`  | Asks the knowledge base a question and answers in writing, every claim citing a passage |
+| `knowledge_ask_get`    | `workspace:read`  | Reads an ask by its id, waiting a bounded time for its answer          |
 | `company_doc_read`     | `workspace:read`  | Reads the company doc, each section with the proposals still pending   |
 | `company_doc_propose`  | `workspace:write` | Proposes a change to one section, for a person to approve              |
 | `learning_save`        | `workspace:write` | Saves a learning to the knowledge base; its title, if taken, revises that learning |
@@ -132,6 +134,12 @@ Tools are named for what they act on, then what they do.
   acting for the person: its id, and the name it registered, read from Hydra when it writes. A name Hydra cannot give
   is logged and left out. `company_doc_propose` takes edits in the form Claude Code's Edit tool takes, and changes
   nothing until a person approves (`docs/knowledge.md`, The company doc).
+- **Asking.** `knowledge_ask` calls the asking route's own `ask` (`routes::v1::knowledge::asks`) with the connecting
+  person, so it searches with their budget and spends one of their questions, then waits up to 20 seconds
+  (`ASK_WAIT` in `api/src/mcp/knowledge.rs`) for the engine's answer, inside the 30 seconds every request has. An
+  answer still being written comes back `queued` or `running` with its id, and `knowledge_ask_get` waits for it
+  again, never asking twice. Both descriptions say so, and what an answer holds (`docs/knowledge.md`, Asking).
+  Asking reads the knowledge base and records the asker's own question, so it needs `workspace:read` alone.
 - **Learning categories.** A workspace adds its own, so `learning_save`'s compiled schema cannot name them. Listing the
   tools (`list_tools` in `api/src/mcp/workspace.rs`) writes every category into its `category` property as a `oneOf`
   of `{ const, title, description }`, built-in ones first, so an agent picks from the list as it stands, knowing what

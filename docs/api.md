@@ -151,6 +151,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/knowledge/search?q=&source=&project=&person=&from=&to=&limit=` | `200` `{ results: KnowledgeResult[], searchedByMeaning }`, best first; members |
 | GET    | `/api/v1/knowledge/documents/{id}?fromPosition=&toPosition=` | `200` `{ document: KnowledgeDocument }`, whoever's record it came from; members |
 | GET    | `/api/v1/knowledge/meetings?from=&to=&person=&project=&limit=` | `200` `{ meetings: KnowledgeMeeting[] }`, newest first, whoever recorded them; members |
+| POST   | `/api/v1/knowledge/asks`              | `201` `{ ask: KnowledgeAsk }`, queued, or answered when the search found nothing; members |
+| GET    | `/api/v1/knowledge/asks`              | `200` `{ asks: KnowledgeAsk[] }`, the asker's 50 newest, newest first; members |
+| GET    | `/api/v1/knowledge/asks/{id}`         | `200` `{ ask }`; the asker's alone, `404` for anyone else; members |
 | GET    | `/api/v1/learning-categories`         | `200` `{ categories: LearningCategory[] }`, built-in ones first, each kind in its order |
 | POST   | `/api/v1/learning-categories`         | `201` `{ category }`; admins                        |
 | PATCH  | `/api/v1/learning-categories/{key}`   | `200` `{ category }`; admins                        |
@@ -811,8 +814,9 @@ The pieces every kind's query shares are in `src/search/`; each model's `search`
 
 ### `/api/v1/knowledge`
 
-The knowledge base's search and its documents (`docs/knowledge.md`, Hybrid search). Both answer admins and members,
-and a guest `403 members_only`; neither is limited by whose record a document came from.
+The knowledge base's search, its documents, its meetings, and asking it (`docs/knowledge.md`, Hybrid search and
+Asking). Every route answers admins and members, and a guest `403 members_only`; none is limited by whose record a
+document came from.
 
 `GET /search` takes `q` (up to 500 characters; nothing but spaces answers no results), `source` (comma-separated
 source names, up to 32, each a lowercase letter then letters, digits, or underscores), `project` and `person` (ids),
@@ -843,6 +847,21 @@ index's meeting topics alone; the meeting itself stays its owner's (`docs/knowle
   shared with their MCP clients' and their sessions' searches; past it, `429` with the code
   `knowledge_search_rate_limited` (`PER_PERSON` in `src/knowledge/search.rs`). Opening a document and listing meetings
   embed nothing and spend none of it.
+
+`POST /asks` asks for a written answer (`docs/knowledge.md`, Asking): `{ question, sources, project, person, from, to }`,
+the question 1 to 500 characters and the filters as `GET /search` takes them, in JSON. It searches as the asker,
+spending one of their searches, and answers `201` with the ask: `queued` for the engine, or `answered` with nothing
+to say when the search found nothing. The answer is written afterwards, and `knowledgeAsk.changed` says when the ask
+moves on. A `KnowledgeAsk` is `{ id, question, filters, state, answer, error, searchedByMeaning, createdAt,
+startedAt, finishedAt }`: `state` is `queued`, `running`, `answered`, or `failed`; `filters` holds those asked for;
+`answer`, once answered, is `{ claims, sources, unsupportedClaims }`, each claim `{ text, sources }` citing sources by
+number, each source `{ number, citation, position }`, a `Citation` and the position of the passage it cites, and
+`unsupportedClaims` how many statements were left out for citing nothing offered; `error`, once failed, says why.
+
+- **Asks.** Each person may ask 20 questions in any hour, with 3 waiting for an answer at once, counted from the asks
+  recorded under a lock of the asker's, so asks made at once count each other; past either, `429` with the code
+  `knowledge_ask_rate_limited` and a message saying when to ask again (`ASKS_PER_WINDOW` and `WAITING_PER_PERSON` in
+  `src/knowledge/ask.rs`).
 
 ### `/api/v1/coding-sessions/{id}/desktop`
 

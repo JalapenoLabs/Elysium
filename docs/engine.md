@@ -23,7 +23,7 @@ scheduled review (The company doc, below).
   (`/api/agent-tools`). It starts no loop. The engine does all background work and serves no HTTP beyond its health
   check (`GET /health`): the runner and the workspace it prepares, sessions' turns, Elysia's intake and dispatcher,
   the Claude account keeper, the link watcher, connector ingest, the Confluence and YouTrack readers, meetings, every
-  read someone asked for, the knowledge base's embedder and backfill, the browser reconciler, the mail server brought back up, the password vault, update checks,
+  read someone asked for, the knowledge base's embedder, backfill, and answerer, the browser reconciler, the mail server brought back up, the password vault, update checks,
   the nightly database backups, and moving identities onto the current schema (`api/src/engine/`).
 - One engine runs: its container name, `elysium-engine`, holds compose to one. Elysia's intake listens to the event
   bus, which every process hears in full, so it must run in exactly one process, and the engine is it.
@@ -51,6 +51,7 @@ never work, since every loop also looks on a timer. What the engine knows that a
 | Answers the updater                       | `process_activities`, `update_checks`    | Records what it runs, and what Docker Hub lists |
 | Queues Elysia's messages and answers      | `elysia_turns`                           | Runs them                                    |
 | Retries, skips, or resumes a run's step   | `step_jobs`                              | Claims each due step, runs it, records it    |
+| Asks the knowledge base a question        | `knowledge_asks`                         | Takes each queued ask, answers it, ends it   |
 
 - **Taking work** is one engine's, so a turn, a backup, or a sync is taken with a conditional update on its state.
   A run's steps are a queue of their own, claimed with `FOR UPDATE SKIP LOCKED` under a lease, with attempts on the
@@ -335,8 +336,8 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
 
 - **What has a setting.** An agent is anything whose work is a turn on the runner, named as it is in code: a workflow
   step whose work is an agent turn, by its step name, and the agents outside the step framework: Elysia
-  (`elysia`), coding sessions (`coding_session`), Studio sessions (`studio_session`), and turn summaries
-  (`turn_summary`).
+  (`elysia`), coding sessions (`coding_session`), Studio sessions (`studio_session`), turn summaries
+  (`turn_summary`), and the knowledge base's answers to questions (`knowledge_ask`).
 - **Kinds.** Every agent belongs to one kind (`agent_models::AgentKind`, stored as the enum `agent_kind`), the one
   typed list of what sort of work a turn is:
 
@@ -346,11 +347,14 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
   | `project_manager` | None yet (#84, #85)                                | Yes                  |
   | `correction`      | Transcript correction (`correct_transcript`)       | No                   |
   | `segmenting`      | Segmenting meetings and conversations (`segment_meeting`) | No            |
-  | `triage`          | None yet                                           | No                   |
+  | `triage`          | Answers asked of the knowledge base (`knowledge_ask`) | No                |
   | `elysia`          | Elysia, and the company doc's review, done in her name | No               |
   | `summaries`       | Turn summaries                                     | Yes                  |
 
-  A worker today is a coding or Studio session in the shared workspace; the pooled workers in containers of their own
+  An answer from the knowledge base is triage's: like deciding what a message asks for, it reads what was said across
+  the workspace for no one project, and a person acts on what it says, so it runs on Opus 5.5 at high effort, which
+  cites faithfully, unless an admin picks a faster model for it on its own row. A worker today is a coding or Studio
+  session in the shared workspace; the pooled workers in containers of their own
   (#82) are workers too, so they name `worker` rather than a kind of their own. Correction, segmenting, and triage read
   meetings and conversations that may concern any number of projects, and Elysia works for the whole workspace, so
   only workers, Project Managers, and summaries run for one project.

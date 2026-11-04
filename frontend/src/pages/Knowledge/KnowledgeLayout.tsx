@@ -9,6 +9,7 @@ import { Outlet, useLocation } from 'react-router'
 // Redux
 import { selectIsCompanyMember } from '../../store/authSlice'
 import { useAppSelector } from '../../store/hooks'
+import { selectAllKnowledgeAsks } from '../../store/knowledgeAsksSlice'
 import { selectLiveLearnings } from '../../store/learningsSlice'
 
 // User interface
@@ -19,24 +20,26 @@ import { PageTabs } from '../../components/PageTabs'
 import { Page } from '../../layout/page/Page'
 
 // Misc
-import { useLearningsLoader } from '../../hooks/useServerData'
+import { useKnowledgeAsksLoader, useLearningsLoader } from '../../hooks/useServerData'
 import { UrlTree } from '../../urls'
 
-const SECTIONS = [ 'search', 'learnings' ] as const
+const SECTIONS = [ 'search', 'ask', 'learnings' ] as const
 type KnowledgeSection = typeof SECTIONS[number]
 
 const sectionUrls = {
   search: UrlTree.knowledge,
+  ask: UrlTree.knowledgeAsk,
   learnings: UrlTree.knowledgeLearnings,
 } as const satisfies Record<KnowledgeSection, string>
 
 const sectionLabelKeys = {
   search: 'tabs.search',
+  ask: 'tabs.ask',
   learnings: 'tabs.learnings',
 } as const satisfies Record<KnowledgeSection, ParseKeys<'knowledge'>>
 
-// The frame of the knowledge base's views: its search (the default) and its learnings, as tabs
-// under one heading. A document and a learning stand on their own with breadcrumbs back here.
+// The frame of the knowledge base's views: its search (the default), asking it, and its
+// learnings, as tabs under one heading. A document and a learning stand on their own with breadcrumbs back here.
 // A guest reaches no knowledge base (docs/knowledge.md, Who sees what), so they are told so
 // rather than shown views the API refuses them.
 export function KnowledgeLayout() {
@@ -45,6 +48,8 @@ export function KnowledgeLayout() {
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
   const learningsStatus = useLearningsLoader()
   const learnings = useAppSelector(selectLiveLearnings)
+  const asksStatus = useKnowledgeAsksLoader()
+  const asks = useAppSelector(selectAllKnowledgeAsks)
 
   if (!isCompanyMember) {
     return <Page title={t('title')}>
@@ -57,6 +62,9 @@ export function KnowledgeLayout() {
   // A tab's count shows once what it counts has loaded; the search has no total of its own.
   const countBySection = {
     search: null,
+    ask: asksStatus === 'loaded'
+      ? asks.length
+      : null,
     learnings: learningsStatus === 'loaded'
       ? learnings.length
       : null,

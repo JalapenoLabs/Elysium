@@ -114,3 +114,80 @@ export function getKnowledgeDocument(documentId: string) {
     .get(`v1/knowledge/documents/${documentId}`)
     .json<GetKnowledgeDocumentResponse>()
 }
+
+// Where a question asked of the knowledge base stands.
+export type KnowledgeAskState = 'queued' | 'running' | 'answered' | 'failed'
+
+// One passage an answer cites, numbered in the order the answer first cites it.
+export type KnowledgeAnswerSource = {
+  number: number
+  citation: KnowledgeCitation
+  // The passage's place in its document, which the document's page opens at.
+  position: number
+}
+
+// One statement of an answer, never without a source it cites by number.
+export type KnowledgeAnswerClaim = {
+  text: string
+  sources: number[]
+}
+
+// Mirrors `Answer` in api/src/models/knowledge_ask.rs: every claim cites a passage the search
+// offered; what cited nothing was left out and counted.
+export type KnowledgeAnswer = {
+  claims: KnowledgeAnswerClaim[]
+  sources: KnowledgeAnswerSource[]
+  unsupportedClaims: number
+}
+
+// Mirrors `KnowledgeAskResponse` in api/src/routes/v1/knowledge/asks/mod.rs: one of the
+// person's own questions, as it stands.
+export type KnowledgeAsk = {
+  id: string
+  question: string
+  // What the search was narrowed to, each only when asked for.
+  filters: {
+    sources?: string[]
+    project?: string
+    person?: string
+    from?: string
+    to?: string
+  }
+  state: KnowledgeAskState
+  answer: KnowledgeAnswer | null
+  error: string | null
+  searchedByMeaning: boolean
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+
+type KnowledgeAskResponse = {
+  ask: KnowledgeAsk
+}
+
+type ListKnowledgeAsksResponse = {
+  asks: KnowledgeAsk[]
+}
+
+// The person's newest questions, newest first.
+export function listKnowledgeAsks() {
+  return apiClient
+    .get('v1/knowledge/asks')
+    .json<ListKnowledgeAsksResponse>()
+}
+
+export function getKnowledgeAsk(askId: string) {
+  return apiClient
+    .get(`v1/knowledge/asks/${askId}`)
+    .json<KnowledgeAskResponse>()
+}
+
+// Asks a question. Its answer is written afterwards, so the ask comes back queued (or answered
+// at once when the search found nothing), and `knowledgeAsk.changed` says when it moves on.
+// Never retried: a retry would ask, and spend, twice.
+export function askKnowledge(question: string) {
+  return apiClient
+    .post('v1/knowledge/asks', { json: { question }, retry: 0 })
+    .json<KnowledgeAskResponse>()
+}

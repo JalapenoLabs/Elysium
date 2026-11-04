@@ -22,6 +22,7 @@ import { initiativeLinksSlice } from './initiativeLinksSlice'
 import { initiativesSlice } from './initiativesSlice'
 import { jiraCredentialsSlice } from './jiraCredentialsSlice'
 import { learningCategoriesSlice } from './learningCategoriesSlice'
+import { knowledgeAsksSlice } from './knowledgeAsksSlice'
 import { learningsSlice } from './learningsSlice'
 import { llmsSlice } from './llmsSlice'
 import { mailAccountsSlice } from './mailAccountsSlice'
@@ -78,6 +79,7 @@ export function createAppStore() {
       [initiativesSlice.name]: initiativesSlice.reducer,
       [jiraCredentialsSlice.name]: jiraCredentialsSlice.reducer,
       [learningCategoriesSlice.name]: learningCategoriesSlice.reducer,
+      [knowledgeAsksSlice.name]: knowledgeAsksSlice.reducer,
       [learningsSlice.name]: learningsSlice.reducer,
       [llmsSlice.name]: llmsSlice.reducer,
       [mailAccountsSlice.name]: mailAccountsSlice.reducer,

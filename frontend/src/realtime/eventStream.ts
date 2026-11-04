@@ -27,6 +27,7 @@ import { environmentVariableDeleted, environmentVariableUpserted } from '../stor
 import { githubCredentialDeleted, githubCredentialUpserted } from '../store/githubCredentialsSlice'
 import { initiativeDeleted, initiativeUpserted } from '../store/initiativesSlice'
 import { jiraCredentialDeleted, jiraCredentialUpserted } from '../store/jiraCredentialsSlice'
+import { knowledgeAskUpserted } from '../store/knowledgeAsksSlice'
 import { learningRemoved, learningUpserted } from '../store/learningsSlice'
 import { llmDeleted, llmUpserted, llmUsageUpdated } from '../store/llmsSlice'
 import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSlice'
@@ -62,6 +63,7 @@ import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
 import { getDraft } from '../api/routes/draftRoutes'
 import { getVersion } from '../api/routes/healthRoutes'
 import { COMPANY_DOC_HISTORY_KEY, COMPANY_DOC_KEY } from '../api/routes/companyDocRoutes'
+import { getKnowledgeAsk } from '../api/routes/knowledgeRoutes'
 import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
@@ -193,6 +195,19 @@ const handlers: Handlers = {
     void mutate(learningHistoryKey(event.data.id))
     void mutate(LEARNING_FEED_KEY)
     void mutate(LEARNING_CATEGORIES_KEY)
+  },
+  // An ask is its asker's alone, and the event carries no content: the asker loads it by id, and
+  // every other client leaves it.
+  'knowledgeAsk.changed': (event) => {
+    if (event.data.askedBy !== store.getState().auth.me?.user.id) {
+      return
+    }
+    getKnowledgeAsk(event.data.id)
+      .then((response) => store.dispatch(knowledgeAskUpserted(response.ask)))
+      .catch((error: unknown) => console.debug('A changed ask could not be loaded', {
+        error,
+        askId: event.data.id,
+      }))
   },
   // The list is short, so it is loaded again whole, by the company's members only.
   'learningCategories.changed': () => {

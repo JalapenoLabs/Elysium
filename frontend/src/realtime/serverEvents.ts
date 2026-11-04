@@ -10,6 +10,7 @@ import type { Elysia, ElysiaMessage, ElysiaTurn } from '../api/routes/elysiaRout
 import type { EnvironmentVariable } from '../api/routes/environmentRoutes'
 import type { GithubCredential } from '../api/routes/githubRoutes'
 import type { JiraCredential } from '../api/routes/jiraRoutes'
+import type { KnowledgeAskState } from '../api/routes/knowledgeRoutes'
 import type { Llm, LlmUsage } from '../api/routes/llmRoutes'
 import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRoutes'
 import type { MeetingState } from '../api/routes/meetingRoutes'
@@ -56,6 +57,9 @@ export type ServerEvent =
   // A learning changed; its id alone, since a guest hears every event and reaches no
   // knowledge base.
   | { type: 'learning.changed', data: { id: string } }
+  // One of someone's questions to the knowledge base was asked, taken, answered, or failed. Its
+  // id, asker, and state alone: the question and its answer are the asker's, who loads it.
+  | { type: 'knowledgeAsk.changed', data: { id: string, askedBy: string, state: KnowledgeAskState } }
   // A workspace learning category was added, edited, reordered, or removed. Nothing more, for
   // the same reason; members load the list again.
   | { type: 'learningCategories.changed' }

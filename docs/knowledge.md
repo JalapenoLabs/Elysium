@@ -13,8 +13,9 @@ the Knowledge page, filed under the built-in categories and the workspace's own,
 Knowledge page and in the topbar's search (Hybrid search, below); the company doc, edited in Settings, Company doc,
 proposed to by its scheduled review and by agents, read by every agent, and indexed as it changes (The company doc,
 below); the embedding model, with the engine's embedder giving every passage its embedding as it arrives
-(Embeddings, below); and the tools that search, open, and list the knowledge base for MCP clients and for every
-agent's turn (MCP, below).
+(Embeddings, below); the tools that search, open, and list the knowledge base for MCP clients and for every agent's
+turn (MCP, below); and asking it for a written answer, every claim citing a passage, on the Knowledge page and over
+MCP (Asking, below).
 
 ## What is indexed
 
@@ -112,8 +113,7 @@ session a guest started reaches none of it; Elysia's turns read as herself (MCP,
   `search_document: ` on passages and `search_query: ` on queries. See Embeddings, below.
 - The engine's embedder embeds new and changed passages as they arrive, from what the partial index
   `knowledge_passages_unembedded` holds. Until then a passage is found by its words alone.
-- The web app has a Knowledge page (`/knowledge`, for members): search, browse learnings, and, with `knowledge_ask`
-  (#97), ask. Its search and each document are in `docs/frontend.md`, Knowledge; the topbar's search lists the
+- The web app has a Knowledge page (`/knowledge`, for members): search, ask (Asking, below), and browse learnings. Its search and each document are in `docs/frontend.md`, Knowledge; the topbar's search lists the
   knowledge base's documents beside its other results for members.
 
 ## Hybrid search
@@ -598,6 +598,8 @@ under the same names, descriptions, and argument schemas.
 | `knowledge_search`    | Yes | Yes  | Hybrid search with its filters: citations and their best passages     |
 | `knowledge_get`       | Yes | Yes  | One document a citation names, whole or a span of its passages        |
 | `meetings_list`       | Yes | Yes  | The meetings the index holds, newest first, with their topics         |
+| `knowledge_ask`       | Yes | No   | A written answer to a question, every claim citing a passage (Asking, below) |
+| `knowledge_ask_get`   | Yes | No   | An ask by its id, waiting a bounded time for its answer               |
 | `company_doc_read`    | Yes | Yes  | The company doc (The company doc, above)                              |
 | `company_doc_propose` | Yes | Yes  | A proposal to one section                                             |
 | `learning_save`       | Yes | No   | Saves or revises a learning (Learnings, above)                        |
@@ -636,15 +638,92 @@ under the same names, descriptions, and argument schemas.
   `learning_save`'s description and the server's fixed instructions say what makes a learning worth saving. A turn
   cannot save learnings yet: an agent acting for a session needs recording as one, as `session:<n>` is for a
   proposal, which is on the roadmap.
-- `knowledge_ask` runs a search-and-answer agent on Elysium's side and returns a written answer with citations, for
-  clients that want an answer rather than evidence. It spends the instance's Claude usage, so it is rate limited per
-  person.
+- `knowledge_ask` answers in writing rather than with evidence, for clients that want an answer (Asking, below). A
+  turn does not get it: an agent searches for itself, and an answer would spend a second turn on what the first one
+  can read.
 - The MCP server sends its instructions to every client that connects: when to search, how to cite, what makes a
   learning worth saving, and the confidentiality rule, including that results may quote a coworker's mail and
   messages and are not for repeating outside the company. Today they are fixed in code (`api/src/mcp/workspace.rs`,
   and the `elysium_knowledge` server's in `api/src/tools/knowledge.rs`). The roadmap is for admins to edit the text in
   Settings, versioned, so a change reaches every connected agent on its next session, with a copyable CLAUDE.md block
   for teams that want it.
+
+## Asking
+
+`knowledge_ask` answers a question in writing, every claim citing the passages that say it, for people on the
+Knowledge page's Ask tab and for MCP clients that want an answer rather than evidence. The pure parts (the prompt, the
+checks on the answer, and each person's budget) are `api/src/knowledge/ask.rs`; the routes `/api/v1/knowledge/asks`
+(`docs/api.md`); the engine's answerer `api/src/knowledge/answerer.rs`; the table `knowledge_asks`
+(`docs/database.md`).
+
+### Retrieve, then answer
+
+- **The search first.** Asking searches the knowledge base as the asker, with the question as the query and the
+  filters they named, through the one search (Hybrid search, above), so it spends one of their searches and finds what
+  they would. It takes 10 documents with up to three passages each (`ASK_DOCUMENTS`), and the ask keeps what the search
+  offered by reference alone, `{ documentId, position }` in order: a passage's text stays in the index and leaves with
+  its record.
+- **Nothing found, no turn.** A search that offers nothing answers the ask at once with nothing to say, and no model
+  is called.
+- **One text turn.** Otherwise the engine's answerer writes the answer in one text turn on the runner
+  (`TurnMode::Text`: no tools, no settings, no MCP servers), whose prompt is the question and the passages, each
+  labelled `P1`, `P2`, and so on with its source, title, person, and date, and which answers in JSON: claims, each
+  citing the labels that say it. Retrieving first was chosen over letting the model call `knowledge_search` and
+  `knowledge_get` itself: one model call with everything it may cite in front of it answers in seconds rather than
+  over several tool round trips, needs no tool grant (grants are scoped to a session, which an ask has none of), and
+  its citations can be checked against exactly what it was shown. The passages are told to it as evidence, never
+  instructions, and a passage cannot close its own block.
+- **The prompt's size.** Ten documents of three passages are about 48,000 characters; the prompt stops adding
+  passages at 120,000 bytes, under the 128 KiB one argument may hold, and a passage left out is offered to nobody.
+- **The model.** The `knowledge_ask` agent's, resolved as each answer starts (`docs/engine.md`, Models). It is a
+  triage agent: like deciding what a message asks for, it reads what was said across the workspace for no one
+  project, and a person acts on what it says, so it runs on the kind's Opus 5.5 at high effort, which cites
+  faithfully, unless an admin chooses another on its own row of Settings, Models.
+
+### Every claim cites a passage
+
+Nothing the model answers is trusted (`check_answer`):
+
+- A citation counts only when it names a label the prompt offered. The labels are Elysium's, never the index's ids,
+  so a model cannot cite what it was not shown by guessing one, and a passage removed from the index since the search
+  is offered to nobody.
+- A claim keeps only the citations that count. One left with none is not part of the answer, and the answer counts it
+  (`unsupportedClaims`), so the person knows something was left out.
+- The sources are the passages the claims cite, numbered in the order the answer first cites them, each its
+  `Citation` and the position of the passage, which `knowledge_get` and the document's page open.
+- An answer that is not the asked-for JSON fails the ask, saying so; at most 30 claims of 1,500 characters are kept.
+
+### Budget
+
+An answer spends the instance's Claude usage, which every agent shares, so each person may ask 20 questions in any
+hour (`ASKS_PER_WINDOW`), with 3 waiting for an answer at once (`WAITING_PER_PERSON`); past either, `429
+knowledge_ask_rate_limited`, saying when to ask again. The count is of the asks recorded, under a lock of the asker's,
+so asks made at once count each other and a restart forgets nothing; the search's budget is in memory and per
+second, and cannot hold an hour.
+
+### Waiting for the answer
+
+- **The engine answers.** The API runs no background work (`docs/engine.md`), so asking records the ask and signals
+  `knowledgeAsks`; the answerer takes queued asks oldest first, three at once at most, so asks never take more than
+  three of the runner's eight turn slots. It is a loop of the engine's own rather than a workflow: a run is shown to
+  every member on the Runs page, while an ask is its asker's alone, answered in seconds, with nothing to retry, skip,
+  or resume; one that fails says why and is asked again.
+- **Announced.** An ask is announced as it is made, taken, and ended (`knowledgeAsk.changed`, its id, asker, and
+  state alone), and the asker's page loads it by id.
+- **Over MCP.** A tool call is one request under the 30 seconds every request has, so `knowledge_ask` waits up to 20
+  seconds for the answer and otherwise answers the ask `queued` or `running`, and `knowledge_ask_get` waits for it again,
+  never asking twice (`docs/mcp.md`).
+- **Bounded.** An answer not written within three minutes is cancelled and fails. An answer whose credentials are
+  spent fails saying Claude's usage is spent until it resets.
+- **No activity of its own.** The runner holds one for every turn, so auto-update waits for an answer being written;
+  loading the passages and checking the answer take milliseconds. An engine that stops kills the turn and the ask fails
+  saying so; one left running by an engine that died is failed as the next starts.
+
+### Whose asks
+
+An ask is its asker's alone: only they list it, read it, and wait on it, and anyone else's is not found. What it cites
+is the company's, as every search result is (Who sees what, above). The log names an ask by its id and counts its
+claims, never the question or a passage.
 
 ## Onyx
 

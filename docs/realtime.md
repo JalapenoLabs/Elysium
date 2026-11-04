@@ -41,6 +41,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `connector.changed`      | `{ id }`         | A connector was added or changed: paused, content, a sync, a read, its checks; load it by id or error |
 | `connector.deleted`      | `{ id }`         | A connector, or the account it read through, was removed   |
 | `learning.changed`       | `{ id }`         | A learning was saved, corrected, deleted, restored, or had a change undone; never its text, since guests hear it too; members load it by id, see `docs/knowledge.md` |
+| `knowledgeAsk.changed`   | `{ id, askedBy, state }` | A question asked of the knowledge base was made, taken, answered, or failed; never the question or its answer; the asker loads it by id, see `docs/knowledge.md`, Asking |
 | `learningCategories.changed` | none         | A workspace learning category was added, edited, reordered, or removed; members load the list again |
 | `companyDoc.changed`     | none             | The company doc changed, or a change to it was proposed or decided; members load it again, see `docs/knowledge.md` |
 | `modelSetting.changed`   | `{ agent }`      | An admin chose what a step or agent runs on, or let it follow its kind again; admins load the list again, see `docs/engine.md`, Models |
@@ -156,8 +157,8 @@ event stream relays to a browser (`api/src/realtime/signals.rs`). A signal tells
 already recorded: the API queued a session's turn (`sessionTurns`), Elysia's queue changed (`elysia`), a link owes its
 provider a write (`linkWatcher`), a backup or a sync was asked for (`backups`, `connectorSync`), a browser is owed a
 container (`browsers`), a Claude account was signed in (`claudeAccounts`), the agents' configuration repository
-changed (`agentConfiguration`), or a workflow run was started or a person retried, skipped, or resumed one of its
-steps (`workflows`).
+changed (`agentConfiguration`), a workflow run was started or a person retried, skipped, or resumed one of its
+steps (`workflows`), or someone asked the knowledge base a question (`knowledgeAsks`).
 
 - A signal carries no state, so a lost one costs latency and never work: every loop that listens also looks on a
   timer. `EventBus::signal` sends like `publish`, without waiting, and the same link to Redis carries it, so a lost

@@ -36,9 +36,10 @@ export const UrlTree = {
   studioItem: '/studio/:itemId',
   runs: '/runs',
   runView: '/runs/:runId',
-  // The knowledge base: its search first, then its learnings, and every document a citation
-  // opens.
+  // The knowledge base: its search first, then asking it, its learnings, and every document a
+  // citation opens.
   knowledge: '/knowledge',
+  knowledgeAsk: '/knowledge/ask',
   knowledgeLearnings: '/knowledge/learnings',
   knowledgeLearningNew: '/knowledge/learnings/new',
   knowledgeLearning: '/knowledge/learnings/:learningId',

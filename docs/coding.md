@@ -7,8 +7,9 @@ the engine owns (`docs/engine.md`). Sessions are started and followed on the Cod
 
 `api/src/runner/` runs agent turns on Elysium's own host: the official `claude` CLI, headless
 (`claude -p --output-format stream-json --verbose`), in the agent workspace container. It runs in the engine, and
-everything that submits turns to it does too: sessions' turn queue, Elysia's dispatcher, turn summaries, and
-meetings' segmentation (`runner.submit(TurnRequest)`, or `submit_as` for a turn that already has an id). Each reads the
+everything that submits turns to it does too: sessions' turn queue, Elysia's dispatcher, turn summaries, meetings'
+segmentation, and the knowledge base's answers (`runner.submit(TurnRequest)`, or `submit_as` for a turn that already
+has an id). Each reads the
 turn's events from the ticket it returns. Only the CLI itself runs turns, on a subscription token or an API key; the
 Agent SDK is never used with subscription credentials.
 

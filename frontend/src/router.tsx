@@ -43,6 +43,7 @@ import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { RunPage } from './pages/Runs/RunPage'
 import { RunsPage } from './pages/Runs/RunsPage'
 import { SearchPage } from './pages/Search/SearchPage'
+import { KnowledgeAskPage } from './pages/Knowledge/Ask/KnowledgeAskPage'
 import { KnowledgeDocumentPage } from './pages/Knowledge/KnowledgeDocumentPage'
 import { KnowledgeLayout } from './pages/Knowledge/KnowledgeLayout'
 import { KnowledgeSearchPage } from './pages/Knowledge/KnowledgeSearchPage'
@@ -218,7 +219,7 @@ export const workspaceRoutes: RouteObject = {
       path: UrlTree.runView,
       element: <RunPage />,
     },
-    // The knowledge base's search and its learnings share the area's heading and tabs.
+    // The knowledge base's search, asking it, and its learnings share the area's heading and tabs.
     {
       path: UrlTree.knowledge,
       element: <KnowledgeLayout />,
@@ -226,6 +227,10 @@ export const workspaceRoutes: RouteObject = {
         {
           index: true,
           element: <KnowledgeSearchPage />,
+        },
+        {
+          path: UrlTree.knowledgeAsk,
+          element: <KnowledgeAskPage />,
         },
         {
           path: UrlTree.knowledgeLearnings,
