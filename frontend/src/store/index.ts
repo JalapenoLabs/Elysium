@@ -31,6 +31,7 @@ import { meetingsSlice } from './meetingsSlice'
 import { projectsSlice } from './projectsSlice'
 import { passwordVaultSlice } from './passwordVaultSlice'
 import { realtimeSlice } from './realtimeSlice'
+import { runsSlice } from './runsSlice'
 import { sessionEventsSlice } from './sessionEventsSlice'
 import { sessionsViewSlice } from './sessionsViewSlice'
 import { storageLocationsSlice } from './storageLocationsSlice'
@@ -80,6 +81,7 @@ export function createAppStore() {
       [meetingsSlice.name]: meetingsSlice.reducer,
       [projectsSlice.name]: projectsSlice.reducer,
       [realtimeSlice.name]: realtimeSlice.reducer,
+      [runsSlice.name]: runsSlice.reducer,
       [sessionEventsSlice.name]: sessionEventsSlice.reducer,
       [passwordVaultSlice.name]: passwordVaultSlice.reducer,
       [sessionsViewSlice.name]: sessionsViewSlice.reducer,

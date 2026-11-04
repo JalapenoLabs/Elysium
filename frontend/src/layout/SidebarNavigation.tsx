@@ -3,6 +3,10 @@
 // Core
 import { useTranslation } from 'react-i18next'
 
+// Redux
+import { selectIsCompanyMember } from '../store/authSlice'
+import { useAppSelector } from '../store/hooks'
+
 // User interface
 import { SidebarLink } from './SidebarLink'
 
@@ -17,6 +21,8 @@ type Props = {
 // The brand and the primary links: the sidebar from md up, the menu drawer below it.
 export function SidebarNavigation(props: Props) {
   const { t } = useTranslation([ 'navigation', 'common' ])
+  const isCompanyMember = useAppSelector(selectIsCompanyMember)
+  const links = primaryNavigation.filter((item) => isCompanyMember || !item.membersOnly)
 
   return <>
     <div className='level-left relaxed px-2'>
@@ -29,7 +35,7 @@ export function SidebarNavigation(props: Props) {
     </div>
     <nav aria-label={t('primary.label')}>
       <ul className='flex flex-col gap-0.5'>{
-        primaryNavigation.map((item) => <li key={item.href}>
+        links.map((item) => <li key={item.href}>
           <SidebarLink
             item={item}
             onNavigate={props.onNavigate}

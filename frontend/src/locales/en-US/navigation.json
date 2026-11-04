@@ -4,7 +4,8 @@
     "actionItems": "Action items",
     "projects": "Projects",
     "coding": "Coding",
-    "studio": "Studio"
+    "studio": "Studio",
+    "runs": "Runs"
   },
   "topbar": {
     "openNavigation": "Open navigation",

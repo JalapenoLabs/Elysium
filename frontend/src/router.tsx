@@ -36,6 +36,8 @@ import { InitiativesPage } from './pages/Initiatives/InitiativesPage'
 import { CreateProjectPage } from './pages/Projects/CreateProjectPage'
 import { ProjectPage } from './pages/Projects/ProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
+import { RunPage } from './pages/Runs/RunPage'
+import { RunsPage } from './pages/Runs/RunsPage'
 import { StudioItemPage } from './pages/Studio/StudioItemPage'
 import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
@@ -167,6 +169,14 @@ const workspaceRoutes: RouteObject = {
       path: UrlTree.studioItem,
       element: <StudioItemPage />,
       handle: { layout: 'workspace' } satisfies RouteLayoutHandle,
+    },
+    {
+      path: UrlTree.runs,
+      element: <RunsPage />,
+    },
+    {
+      path: UrlTree.runView,
+      element: <RunPage />,
     },
     {
       path: UrlTree.settings,

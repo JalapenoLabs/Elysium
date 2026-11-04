@@ -30,6 +30,7 @@ import { mailDomainsLoaded } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
 import { meetingsLoaded } from '../store/meetingsSlice'
 import { projectsLoaded } from '../store/projectsSlice'
+import { runLoaded, runsPageLoaded, stepLogLoaded } from '../store/runsSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
 import { storageLocationsLoaded } from '../store/storageLocationsSlice'
 import { studioAssetsLoaded } from '../store/studioAssetsSlice'
@@ -74,6 +75,7 @@ import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/
 import { listMeetings } from '../api/routes/meetingRoutes'
 import { getPasswordVault } from '../api/routes/passwordVaultRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
+import { getRun, getStepLog, listRuns } from '../api/routes/runRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
 import { getStudioItem, listStudioItems } from '../api/routes/studioRoutes'
 import { listTimeline, timelineKey } from '../api/routes/timelineRoutes'
@@ -353,6 +355,50 @@ export function useProjectsLoader(): LoadStatus {
   const { data, error } = useSWR('v1/projects', async () => {
     const response = await listProjects()
     dispatch(projectsLoaded(response.projects))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One page of runs, the newest unless `before` names the oldest run already shown. Pages
+// merge in Redux. Answers whether an older page follows, and where it would start.
+export function useRunsPageLoader(before: string | null) {
+  const dispatch = useAppDispatch()
+  const key = before
+    ? `v1/runs?before=${before}`
+    : 'v1/runs'
+  const { data, error } = useSWR(key, async () => {
+    const response = await listRuns(before)
+    dispatch(runsPageLoaded(response.runs))
+    return response
+  })
+  return {
+    status: toLoadStatus(data !== undefined, error),
+    hasMore: data?.hasMore ?? false,
+    oldest: data?.runs.at(-1)?.id ?? null,
+  } as const
+}
+
+// One run with its steps and history.
+export function useRunLoader(runId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/runs/${runId}`, async () => {
+    const response = await getRun(runId)
+    dispatch(runLoaded(response))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// A step's log, read once its row is opened; the event stream reads it again as it grows.
+export function useStepLogLoader(runId: string, stepId: string, isOpen: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isOpen
+    ? `v1/runs/${runId}/steps/${stepId}/log`
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await getStepLog(runId, stepId)
+    dispatch(stepLogLoaded({ stepId, log: response.log }))
     return response
   })
   return toLoadStatus(data !== undefined, error)

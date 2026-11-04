@@ -17,6 +17,7 @@ import type { LearningCategory } from './api/routes/learningCategoryRoutes'
 import type { Learning, LearningHistoryEntry } from './api/routes/learningRoutes'
 import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
 import type { Project } from './api/routes/projectRoutes'
+import type { RunStep, WorkflowRun } from './api/routes/runRoutes'
 import type { StorageLocation } from './api/routes/storageRoutes'
 import type { StudioAsset, StudioFeedback, StudioItem } from './api/routes/studioRoutes'
 import type { TimelineRecord } from './api/routes/timelineRoutes'
@@ -443,6 +444,35 @@ export function makeMailAccount(overrides: Partial<MailAccount> & Pick<MailAccou
     createdBy: CREATED_BY,
     updatedAt: CREATED_AT,
     mailDomainId: null,
+    ...overrides,
+  }
+}
+
+export function makeRun(overrides: Partial<WorkflowRun> & Pick<WorkflowRun, 'id'>): WorkflowRun {
+  return {
+    workflow: 'meeting',
+    sourceKind: 'meeting',
+    sourceId: 'm-1',
+    state: 'running',
+    error: null,
+    createdBy: CREATED_BY,
+    createdAt: CREATED_AT,
+    startedAt: CREATED_AT,
+    finishedAt: null,
+    ...overrides,
+  }
+}
+
+export function makeRunStep(overrides: Partial<RunStep> & Pick<RunStep, 'id' | 'runId'>): RunStep {
+  return {
+    step: 'fetch_transcript',
+    state: 'pending',
+    summary: null,
+    error: null,
+    attempts: 0,
+    availableAt: null,
+    startedAt: null,
+    finishedAt: null,
     ...overrides,
   }
 }

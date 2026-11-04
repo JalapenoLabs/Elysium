@@ -93,6 +93,8 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/coding/:sessionId`          | `CodingPage`             | Opens session number `sessionId`, then returns to `/coding` |
 | `/studio`                     | `StudioPage`             | Studio items as tiles, filtered from the address         |
 | `/studio/:itemId`             | `StudioItemPage`         | One item: the stage beside its conversation, live or deleted |
+| `/runs`                       | `RunsPage`               | Workflow runs, newest first, a page at a time; members only |
+| `/runs/:runId`                | `RunPage`                | One run: its steps, each opening to its log, and its history |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/profile`           | `ProfilePage`            | My profile: name and email, and the light, dark, or system theme |
 | `/settings/personal-details`  | redirect                 | To `/settings/profile`                                   |
@@ -586,6 +588,25 @@ matter when changing it:
   thumbnails, filters, location choices, and drawing geometry are pure modules with tests
   beside them.
 
+### Runs
+
+`src/pages/Runs/` shows the engine's workflow runs (`docs/engine.md`, Runs). Runs read what was ingested, so the
+sidebar's Runs link and both pages are for members alone; a guest who opens one is sent to the start.
+
+- **The list.** `RunsPage` is a `SmartTable` of every run read so far: the workflow and its source, its state, who
+  started it, when, and how long it took. It reads the newest page of 50, and Show older runs reads each page after,
+  merged into the `runs` slice.
+- **A run.** `RunPage` shows the run's state, duration, and the reason it stopped, then its steps as GitHub Actions
+  shows a job's: each row collapsed to its state icon, its name, the line it wrote or why it failed, and how long its
+  last attempt took, counting up while it runs. A row opens to its log, numbered line by line, which is read only
+  then. A failed step starts open. The run's history follows.
+- **Actions.** Each row ends with the icon buttons its state allows (`stepActionsByState`): Retry on a failed step,
+  Resume on a held one, and Skip on any not yet done. The run the API answers lands in Redux at once; a `409`, from
+  a step that moved on meanwhile, says so and reloads the run.
+- **Live.** `workflowRun.changed` reloads that run by id, once the list was read or the run is shown;
+  `stepJob.changed` reloads a step's log, once it was opened. Workflows, steps, and sources are named in code, and
+  the pages read those names as words (`nameFromIdentifier`) until workflows bring words of their own.
+
 ### Projects page
 
 `src/pages/Projects/ProjectsPage.tsx` lists projects in a table view (uikit's `SmartTable`) or a tiles view (HeroUI
@@ -678,6 +699,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `actionItemHistory` | Item and initiative history entries, oldest first                    |
 | `actionItemLinks` | Links of the items viewed, the primary first, then oldest first         |
 | `changesets`     | Every changeset, newest first                                           |
+| `runs`           | Runs read so far, newest first, the steps and history of the runs viewed, and the logs opened |
 | `elysia`         | Elysia at a glance, her conversation oldest first, her turns newest first, and whether her panel is open |
 | `initiativeLinks` | Containers of the initiatives viewed, oldest first                     |
 | `initiatives`    | Live and deleted initiatives in separate halves, by name                |
@@ -835,7 +857,7 @@ first render.
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
   `email`, `storage`, `github`, `jira`, `environment`, `learnings`, `projects`, `coding`,
-  `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`.
+  `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`, `runs`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.

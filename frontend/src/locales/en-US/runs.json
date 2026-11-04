@@ -1,0 +1,70 @@
+{
+  "title": "Runs",
+  "runStates": {
+    "queued": "Queued",
+    "running": "Running",
+    "held": "Waiting for you",
+    "failed": "Failed",
+    "succeeded": "Succeeded"
+  },
+  "stepStates": {
+    "pending": "Not started",
+    "queued": "Queued",
+    "running": "Running",
+    "held": "Waiting for you",
+    "failed": "Failed",
+    "skipped": "Skipped",
+    "succeeded": "Succeeded"
+  },
+  "durations": {
+    "seconds": "{{seconds}}s",
+    "minutes": "{{minutes}}m {{seconds}}s",
+    "hours": "{{hours}}h {{minutes}}m"
+  },
+  "list": {
+    "label": "Runs",
+    "loadError": "Runs could not be loaded.",
+    "empty": "No runs yet",
+    "loadOlder": "Show older runs",
+    "columns": {
+      "run": "Run",
+      "state": "State",
+      "startedBy": "Started by",
+      "started": "Started",
+      "duration": "Duration"
+    }
+  },
+  "run": {
+    "loadError": "This run could not be loaded.",
+    "startedBy": "Started by {{name}} on {{date}}",
+    "source": "{{kind}} {{id}}",
+    "steps": "Steps",
+    "history": "History",
+    "retryingAt": "Tries again at {{time}}",
+    "attempts_one": "{{count}} attempt",
+    "attempts_other": "{{count}} attempts"
+  },
+  "step": {
+    "showLog": "Show the log of {{step}}",
+    "hideLog": "Hide the log of {{step}}",
+    "noLog": "Nothing was logged.",
+    "logError": "The log could not be loaded.",
+    "actions": {
+      "retry": "Retry",
+      "skip": "Skip",
+      "resume": "Resume"
+    },
+    "done": {
+      "retry": "{{step}} queued again",
+      "skip": "{{step}} skipped",
+      "resume": "{{step}} resumed"
+    },
+    "conflict": "This step moved on since the page showed it, so it was left as it is."
+  },
+  "historyKinds": {
+    "started": "{{name}} started the run",
+    "retried": "{{name}} retried {{step}}",
+    "skipped": "{{name}} skipped {{step}}",
+    "resumed": "{{name}} resumed {{step}}"
+  }
+}

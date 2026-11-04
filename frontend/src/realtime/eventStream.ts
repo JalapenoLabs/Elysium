@@ -42,6 +42,7 @@ import {
 import { projectDeleted, projectUpserted } from '../store/projectsSlice'
 import { backupsStatusUpdated } from '../store/backupsSlice'
 import { eventStreamLost, eventStreamOpened, eventStreamStopped } from '../store/realtimeSlice'
+import { runLoaded, selectRunById, selectStepLog, stepLogLoaded } from '../store/runsSlice'
 import { sessionEventReceived, turnSummaryReceived } from '../store/sessionEventsSlice'
 import { storageLocationDeleted, storageLocationUpserted } from '../store/storageLocationsSlice'
 import { studioAssetCreated } from '../store/studioAssetsSlice'
@@ -60,6 +61,7 @@ import { getDraft } from '../api/routes/draftRoutes'
 import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
+import { getRun, getStepLog } from '../api/routes/runRoutes'
 import { EVENT_STREAM_PATH, EVENT_STREAM_RETRY_INITIAL_MS, EVENT_STREAM_RETRY_MAX_MS } from '../constants'
 
 // The universal event stream: one EventSource for the whole app, open for as long as
@@ -288,6 +290,36 @@ const handlers: Handlers = {
   'passwordVault.updated': (event) => store.dispatch(passwordVaultUpdated(event.data)),
   'passwordVault.deleted': () => store.dispatch(passwordVaultDeleted()),
   'passwordVault.status': (event) => store.dispatch(passwordVaultStatusUpdated(event.data)),
+  // Its id and state alone, since a run reads what was ingested: a member's page that shows
+  // runs loads it by id, as does one that shows this run already.
+  'workflowRun.changed': (event) => {
+    const state = store.getState()
+    if (!selectIsCompanyMember(state)) {
+      return
+    }
+    if (!state.runs.isListLoaded && !selectRunById(state, event.data.id)) {
+      return
+    }
+    getRun(event.data.id)
+      .then((response) => store.dispatch(runLoaded(response)))
+      .catch((error: unknown) => console.debug('A changed run could not be loaded', {
+        error,
+        runId: event.data.id,
+      }))
+  },
+  // A step's state reaches its run's page with `workflowRun.changed`; this rereads the step's
+  // log, only once a page opened it.
+  'stepJob.changed': (event) => {
+    if (selectStepLog(store.getState(), event.data.id) === undefined) {
+      return
+    }
+    getStepLog(event.data.runId, event.data.id)
+      .then((response) => store.dispatch(stepLogLoaded({ stepId: event.data.id, log: response.log })))
+      .catch((error: unknown) => console.debug('A changed step log could not be loaded', {
+        error,
+        stepId: event.data.id,
+      }))
+  },
 }
 
 function dispatchServerEvent(data: string) {

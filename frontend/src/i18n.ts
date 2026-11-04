@@ -28,6 +28,7 @@ import navigation from './locales/en-US/navigation.json'
 import oauth from './locales/en-US/oauth.json'
 import passwords from './locales/en-US/passwords.json'
 import projects from './locales/en-US/projects.json'
+import runs from './locales/en-US/runs.json'
 import settings from './locales/en-US/settings.json'
 import storage from './locales/en-US/storage.json'
 import studio from './locales/en-US/studio.json'
@@ -65,6 +66,7 @@ export const resources = {
     oauth,
     passwords,
     projects,
+    runs,
     settings,
     storage,
     studio,

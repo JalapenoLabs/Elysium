@@ -15,6 +15,7 @@ import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRout
 import type { MeetingState } from '../api/routes/meetingRoutes'
 import type { PasswordVault, VaultStatus } from '../api/routes/passwordVaultRoutes'
 import type { Project } from '../api/routes/projectRoutes'
+import type { RunState, StepState } from '../api/routes/runRoutes'
 import type { StorageLocation } from '../api/routes/storageRoutes'
 import type { StudioAsset, StudioFeedback, StudioItem } from '../api/routes/studioRoutes'
 import type { UpdatesStatus } from '../api/routes/updateRoutes'
@@ -132,5 +133,10 @@ export type ServerEvent =
   | { type: 'passwordVault.deleted' }
   // What the vault's CLI is doing changed: starting, ready, failed, or a sync finished.
   | { type: 'passwordVault.status', data: VaultStatus }
+  // A run started, it or one of its steps moved on, or a person acted on a step. Its id and
+  // state alone, since a run reads what was ingested; members load it by id.
+  | { type: 'workflowRun.changed', data: { id: string, state: RunState } }
+  // A run's step moved on, or wrote to its log.
+  | { type: 'stepJob.changed', data: { id: string, runId: string, state: StepState } }
 
 export type ServerEventType = ServerEvent['type']

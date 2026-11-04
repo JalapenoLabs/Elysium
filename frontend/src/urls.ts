@@ -30,6 +30,8 @@ export const UrlTree = {
   codingSession: '/coding/:sessionId',
   studio: '/studio',
   studioItem: '/studio/:itemId',
+  runs: '/runs',
+  runView: '/runs/:runId',
   settings: '/settings',
   settingsProfile: '/settings/profile',
   // My profile's old address, which redirects to it.
@@ -146,6 +148,10 @@ export function getNewInitiativeUrl(projectId: string) {
 
 export function getProjectViewUrl(projectId: string) {
   return UrlTree.projectView.replace(':projectId', projectId)
+}
+
+export function getRunViewUrl(runId: string) {
+  return UrlTree.runView.replace(':runId', runId)
 }
 
 export function getConnectorUrl(connectorId: string) {

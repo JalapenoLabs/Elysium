@@ -71,6 +71,9 @@ export const SNOOZE_LATER_TODAY_HOURS = 3
 // clock again, so a snooze that runs out brings its item back. No request is made.
 export const ACTION_ITEMS_CLOCK_TICK_MS = 60_000
 
+// How often a running run's or step's duration counts up, to the second it shows.
+export const RUNS_CLOCK_TICK_MS = 1000
+
 // A waiting-on name or address and an owner's name, matching the API's limit.
 export const ACTION_ITEM_PERSON_MAX_CHARACTERS = 320
 
