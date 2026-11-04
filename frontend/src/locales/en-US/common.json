@@ -27,8 +27,8 @@
   "table": {
     "searchPlaceholder": "Search...",
     "clearSearch": "Clear search",
-    "results_one": "{{count}} result",
-    "results_other": "{{count}} results",
+    "results_one": "{{count, compact}} result",
+    "results_other": "{{count, compact}} results",
     "columns": "Columns",
     "sort": "Sort",
     "sortAscending": "Sorted ascending",
@@ -50,5 +50,15 @@
   },
   "imagePreview": {
     "open": "View {{name}} larger"
+  },
+  "dates": {
+    "date": "{{month}} {{day}} {{year}}",
+    "shortDate": "{{month}} {{day}}",
+    "time": "{{hour}}:{{minute}}{{dayPeriod}}",
+    "dateTime": "{{date}} at {{time}}",
+    "ordinalDay_ordinal_one": "{{count}}st",
+    "ordinalDay_ordinal_two": "{{count}}nd",
+    "ordinalDay_ordinal_few": "{{count}}rd",
+    "ordinalDay_ordinal_other": "{{count}}th"
   }
 }

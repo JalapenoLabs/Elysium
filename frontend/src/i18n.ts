@@ -5,6 +5,7 @@ import i18next from 'i18next'
 import { initReactI18next } from 'react-i18next'
 
 // Misc
+import { formatNumber } from './format/numbers'
 import actionItems from './locales/en-US/actionItems.json'
 import auth from './locales/en-US/auth.json'
 import backups from './locales/en-US/backups.json'
@@ -89,3 +90,12 @@ await i18next
       escapeValue: false,
     },
   })
+
+// A count in a translation compresses like every other number: `{{count, compact}}` reads
+// "1.4M records", while `count` itself stays a number for choosing the plural form.
+if (i18next.services.formatter) {
+  i18next.services.formatter.add('compact', (value: number) => formatNumber(value))
+}
+else {
+  console.warn('i18next started without its formatter, so counts in translations are not compressed')
+}

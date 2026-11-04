@@ -8,5 +8,9 @@ declare module 'i18next' {
   interface CustomTypeOptions {
     defaultNS: typeof DEFAULT_NAMESPACE
     resources: (typeof resources)[typeof DEFAULT_LOCALE]
+    // `{{count, compact}}` takes a number, registered in `src/i18n.ts`.
+    interpolationFormatTypeMap: {
+      compact: number
+    }
   }
 }
