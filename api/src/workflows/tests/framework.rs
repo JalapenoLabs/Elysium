@@ -16,7 +16,7 @@ use super::{
     ChooseModel, Count, Describe, Double, FailOnce, Increment, NothingToDo, Number, Report, Review,
     person, running_workers, test_steps, until_run_is,
 };
-use crate::agent_models;
+use crate::agent_models::{self, AgentKind};
 use crate::database::Pool;
 use crate::models::model_setting::{self, Effort, ModelChoice};
 use crate::models::step_job::{self, StepOutcome};
@@ -147,7 +147,7 @@ struct Impostor;
 
 impl workflows::Step for Impostor {
     const NAME: &'static str = "double";
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = Number;
     type Output = Number;
 
@@ -192,7 +192,7 @@ fn a_registered_step_no_declared_workflow_names_is_caught_so_the_settings_page_l
 }
 
 #[tokio::test]
-#[should_panic(expected = "step double reads its model setting but declares RUNS_MODEL = false")]
+#[should_panic(expected = "step double reads its model setting but declares AGENT_KIND = None")]
 async fn a_step_that_runs_no_model_reading_a_model_setting_is_a_programming_error() {
     let context = StepContext::for_test::<Double>(unconnected_pool());
     drop(context.model().await);
@@ -572,7 +572,10 @@ async fn a_steps_turn_runs_on_its_setting_read_as_it_starts_and_opus_at_high_oth
     let log = step_job::log_of(&mut connection, unset, steps[0].id)
         .await
         .expect("log reads");
-    assert_eq!(log, "Runs on claude-opus-5-5 at high effort\n");
+    assert_eq!(
+        log,
+        "Runs on claude-opus-5-5 at high effort, from its kind's default\n"
+    );
 
     let chosen = ModelChoice {
         model: "claude-sonnet-5-5".to_owned(),
@@ -625,15 +628,27 @@ async fn a_step_setting_is_changed_in_place_and_others_keep_the_default() {
     }
 
     assert_eq!(
-        agent_models::for_step(&mut connection, "correct_transcript")
-            .await
-            .expect("reads"),
+        agent_models::for_step(
+            &mut connection,
+            "correct_transcript",
+            AgentKind::Correction,
+            None
+        )
+        .await
+        .expect("reads")
+        .choice,
         second
     );
     assert_eq!(
-        agent_models::for_step(&mut connection, "segment_transcript")
-            .await
-            .expect("reads"),
+        agent_models::for_step(
+            &mut connection,
+            "segment_transcript",
+            AgentKind::Segmenting,
+            None
+        )
+        .await
+        .expect("reads")
+        .choice,
         ModelChoice::default()
     );
     let flag = ModelChoice {

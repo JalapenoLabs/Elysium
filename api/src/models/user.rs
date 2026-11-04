@@ -183,6 +183,9 @@ pub enum UserEventKind {
     LearningCategoryRemoved,
     /// An admin chose the model and effort an agent runs on, or put it back on its default.
     ModelSettingChanged,
+    /// Someone chose the model and effort a kind of agent runs on, for the workspace (an admin)
+    /// or for one project's agents (whoever may edit it), or put it back.
+    KindModelSettingChanged,
 }
 
 impl UserEventKind {
@@ -203,6 +206,7 @@ impl UserEventKind {
             Self::LearningCategoryChanged => "learning_category_changed",
             Self::LearningCategoryRemoved => "learning_category_removed",
             Self::ModelSettingChanged => "model_setting_changed",
+            Self::KindModelSettingChanged => "kind_model_setting_changed",
         }
     }
 }

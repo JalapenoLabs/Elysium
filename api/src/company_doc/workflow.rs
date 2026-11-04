@@ -33,6 +33,7 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::review::{self, PromptError, Suggestion};
+use crate::agent_models::AgentKind;
 use crate::database::Pool;
 use crate::models::company_doc::{
     self, CompanyDocError, DocSection, NewProposal, Proposal, ProposalState, Proposer,
@@ -265,7 +266,7 @@ impl ReviewCompanyDoc {
 impl Step for ReviewCompanyDoc {
     const NAME: &'static str = "review_company_doc";
     /// It reads what was ingested and proposes changes in one agent turn.
-    const RUNS_MODEL: bool = true;
+    const AGENT_KIND: Option<AgentKind> = Some(AgentKind::Elysia);
     type Input = ReviewWindow;
     type Output = Reviewed;
 

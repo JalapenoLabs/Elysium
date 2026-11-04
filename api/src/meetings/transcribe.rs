@@ -32,6 +32,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::fetch::RecordedMeeting;
+use crate::agent_models::AgentKind;
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::models::meeting::StoredRecording;
@@ -218,7 +219,7 @@ impl TranscribeMeeting {
 impl Step for TranscribeMeeting {
     const NAME: &'static str = "transcribe_meeting";
     /// Whisper runs on this host; no model of Claude's does.
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = RecordedMeeting;
     type Output = TranscribedMeeting;
 

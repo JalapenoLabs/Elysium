@@ -244,8 +244,8 @@ may skip the step and the next one still reads its input. The raw transcripts ar
 - **What it follows.** The copy follows one transcript line by line: the source's, which names who spoke, or
   Whisper's segments when the source sent no lines. A meeting with neither skips the step, saying "Nothing was said,
   so nothing to correct".
-- **Turns.** Each is a text turn on the runner on the step's model setting, Opus 5.5 at high effort unless an admin
-  chose another (`docs/engine.md`, Models). Its prompt holds the meeting's title and participants, the doc, what
+- **Turns.** Each is a text turn on the runner on the model resolved for the step, of the correction kind: Opus 5.5
+  at high effort unless an admin chose another for the step or the kind (`docs/engine.md`, Models). Its prompt holds the meeting's title and participants, the doc, what
   other meetings taught, and as many of the transcript's numbered lines as fit under 120,000 bytes, beside Whisper's
   text over the same stretch, five seconds either side. A long meeting takes several turns, each with the doc again,
   since the runner passes the prompt as one argument; at most eight, and lines past them stay as heard, the log says
@@ -300,8 +300,9 @@ the copy maps onto Whisper's word timings by time alone: a step cuts a segment's
 
 ### Segmentation
 
-Segmentation is a text turn on the runner (`TurnMode::Text`, `docs/coding.md`), on the `segment_meeting` model
-setting, Opus 5.5 at high effort unless an admin chose another (`docs/engine.md`, Models): no tools, no
+Segmentation is a text turn on the runner (`TurnMode::Text`, `docs/coding.md`), on the model resolved for
+`segment_meeting`, of the segmenting kind: Opus 5.5 at high effort unless an admin chose another for it or the kind
+(`docs/engine.md`, Models): no tools, no
 settings, and nothing kept to resume. Its prompt holds the meeting's title, length, and participants, every project's
 id, name, and the start of its description, and the transcript as `[m:ss] Speaker: text` lines. The answer is one
 JSON object of segments, each with its start and end in seconds, a title, a summary of what was said and decided, and

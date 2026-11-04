@@ -176,6 +176,11 @@ impl From<crate::agent_models::ChangeError> for ApiError {
             ChangeError::RunsNoModel(_) => {
                 Self::Conflict("this step runs no model, so it has no model setting")
             }
+            ChangeError::NotInProjects(_) => Self::CodedConflict {
+                code: "kind_not_in_projects",
+                message: "this kind of agent works for the whole workspace; set it under \
+                    Settings, Models",
+            },
             ChangeError::Database(database) => database.into(),
         }
     }

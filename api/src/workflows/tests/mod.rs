@@ -29,6 +29,7 @@ use uuid::Uuid;
 use super::workers::{Workers, WorkersDeps};
 use super::{Done, Step, StepContext, StepFailure, Steps};
 use crate::activity::Activities;
+use crate::agent_models::AgentKind;
 use crate::database::Pool;
 use crate::models::model_setting::ModelChoice;
 use crate::models::user::SYSTEM_USER_ID;
@@ -50,7 +51,7 @@ struct Double {
 
 impl Step for Double {
     const NAME: &'static str = "double";
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = Number;
     type Output = Number;
 
@@ -70,7 +71,7 @@ struct Increment;
 
 impl Step for Increment {
     const NAME: &'static str = "increment";
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = Number;
     type Output = Number;
 
@@ -98,7 +99,7 @@ struct Describe;
 
 impl Step for Describe {
     const NAME: &'static str = "describe";
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = Number;
     type Output = Description;
 
@@ -127,7 +128,7 @@ struct FailOnce {
 
 impl Step for FailOnce {
     const NAME: &'static str = "fail_once";
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = Number;
     type Output = Number;
 
@@ -154,7 +155,7 @@ struct Count;
 
 impl Step for Count {
     const NAME: &'static str = "count";
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = Number;
     type Output = Tally;
 
@@ -172,7 +173,7 @@ struct Report;
 
 impl Step for Report {
     const NAME: &'static str = "report";
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = Tally;
     type Output = Tally;
 
@@ -190,7 +191,7 @@ struct Review;
 
 impl Step for Review {
     const NAME: &'static str = "review";
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = Number;
     type Output = Number;
 
@@ -208,7 +209,7 @@ struct NothingToDo;
 
 impl Step for NothingToDo {
     const NAME: &'static str = "nothing_to_do";
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = Number;
     type Output = Number;
 
@@ -225,7 +226,7 @@ struct ChooseModel;
 
 impl Step for ChooseModel {
     const NAME: &'static str = "choose_model";
-    const RUNS_MODEL: bool = true;
+    const AGENT_KIND: Option<AgentKind> = Some(AgentKind::Elysia);
     type Input = Number;
     type Output = ModelChoice;
 
@@ -248,7 +249,7 @@ struct WaitForever;
 
 impl Step for WaitForever {
     const NAME: &'static str = "wait_forever";
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = Number;
     type Output = Number;
 

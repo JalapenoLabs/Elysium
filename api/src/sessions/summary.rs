@@ -157,10 +157,12 @@ fn truncated(text: &str, limit: usize) -> String {
     }
 }
 
-/// Asks for the summary of a turn, records it, and announces it.
+/// Asks for the summary of a turn of `session_id`, which works for `project_id`, records it,
+/// and announces it.
 pub(super) async fn summarize(
     queue: &TurnQueue,
     session_id: i64,
+    project_id: Option<Uuid>,
     turn_id: Uuid,
     digest: &Digest,
     outcome: &TurnOutcome,
@@ -177,11 +179,14 @@ pub(super) async fn summarize(
     };
 
     let sessions = &queue.inner.sessions;
-    // Read as each summary starts, so an admin's change applies from the next one.
+    // Read as each summary starts, so a change applies from the next one.
     let model = match sessions.inner.database.get().await {
-        Ok(mut connection) => agent_models::for_agent(&mut connection, Agent::TurnSummary)
-            .await
-            .map_err(|error| error.to_string()),
+        Ok(mut connection) => {
+            agent_models::for_agent(&mut connection, Agent::TurnSummary, project_id)
+                .await
+                .map(|resolved| resolved.choice)
+                .map_err(|error| error.to_string())
+        }
         Err(error) => Err(error.to_string()),
     };
     let model = match model {
@@ -274,7 +279,7 @@ mod tests {
 
     #[test]
     fn a_summary_runs_alone_with_no_tools_settings_or_secrets() {
-        let model = Agent::TurnSummary.default_choice();
+        let model = Agent::TurnSummary.kind().default_choice();
         let request = request(
             12,
             &digest(),

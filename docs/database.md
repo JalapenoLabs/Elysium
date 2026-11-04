@@ -824,6 +824,10 @@ Every event a session's turns reported, scrubbed of the turn's secrets. The prim
 | `occurred_at` | `TIMESTAMPTZ` | When Elysium received it                                 |
 | `payload`     | `JSONB`       | The runner's event (`RunnerEvent`), rendered when read   |
 
+`session_events_finished_at` indexes `occurred_at` over the `finished` events alone, which carry each turn's cost
+and tokens, so the model settings pages total a window of turns without reading every event (`docs/engine.md`,
+Models).
+
 ### `turn_summaries`
 
 A finished turn's one or two sentence summary; see `docs/coding.md`, Turn summaries. A child of `coding_sessions`, so
@@ -1189,7 +1193,7 @@ What happened to accounts and workspace settings, one row per change.
 | `id`         | `UUID`        | UUIDv7, primary key                                                     |
 | `user_id`    | `UUID`        | Whose account; NULL for a workspace setting; `ON DELETE SET NULL`       |
 | `actor_id`   | `UUID`        | Who made the change; `ON DELETE SET NULL`, for a rejected sign-up's own events |
-| `kind`       | `TEXT`        | Such as `signed_up`, `approved`, `rejected`, `role_changed`, `disabled`, and for workspace settings `workspace_settings_changed`, `learning_category_added`, `_changed`, or `_removed`, and `model_setting_changed` (`{ agent, before, after }`, `null` for the default) |
+| `kind`       | `TEXT`        | Such as `signed_up`, `approved`, `rejected`, `role_changed`, `disabled`, and for workspace settings `workspace_settings_changed`, `learning_category_added`, `_changed`, or `_removed`, `model_setting_changed` (`{ agent, before, after }`), and `kind_model_setting_changed` (`{ kind, projectId, before, after }`, `projectId` `null` for the workspace's); `before` and `after` are `null` for what it followed |
 | `data`       | `JSONB`       | A JSON object shaped by `kind`, with values before and after            |
 | `created_at` | `TIMESTAMPTZ` | Set on insert                                                           |
 
@@ -1415,10 +1419,10 @@ Each step of a run, in order, and the engine's queue; see `docs/engine.md`, Runs
 
 ### `model_settings`
 
-The model and effort an agent runs on, one row per agent an admin changed: a workflow step whose work is an agent
-turn, by its step name, or an agent outside the step framework, such as `elysia` or `turn_summary`. An agent without
-a row runs on its default in code (`api/src/agent_models.rs`); choosing the default removes the row. See
-`docs/engine.md`, Models.
+The model and effort an agent runs on, one row per agent an admin set: a workflow step whose work is an agent turn,
+by its step name, or an agent outside the step framework, such as `elysia` or `turn_summary`. An agent without a row
+follows its kind (`kind_model_settings`, then the kind's default in `api/src/agent_models.rs`); choosing what it would
+follow removes the row. See `docs/engine.md`, Models.
 
 | Column       | Type          | Notes                                                                       |
 |--------------|---------------|-----------------------------------------------------------------------------|
@@ -1426,6 +1430,24 @@ a row runs on its default in code (`api/src/agent_models.rs`); choosing the defa
 | `model`      | `TEXT`        | What the CLI's `--model` takes; starts with a letter or digit, so never a flag |
 | `effort`     | `TEXT`        | `low`, `medium`, `high`, `xhigh`, or `max`; text, so a new level needs no enum migration |
 | `created_by` | `UUID`        | The admin who first set it                                                  |
+| `created_at` | `TIMESTAMPTZ` | When it was first set                                                       |
+| `updated_at` | `TIMESTAMPTZ` | Maintained by trigger                                                       |
+
+### `kind_model_settings`
+
+The model and effort a kind of agent runs on: one row per kind an admin set for the workspace, and one per kind a
+project overrides for its own agents. A kind without a row follows the level beneath it (`docs/engine.md`, Models);
+choosing what it would follow removes the row. Unique per `(project_id, kind)` with nulls not distinct, so the
+workspace has one row per kind too.
+
+| Column       | Type          | Notes                                                                       |
+|--------------|---------------|-----------------------------------------------------------------------------|
+| `id`         | `UUID`        | UUIDv7, primary key                                                         |
+| `project_id` | `UUID`        | The project it overrides, cascading; `NULL` for the workspace's setting      |
+| `kind`       | `agent_kind`  | `worker`, `project_manager`, `correction`, `segmenting`, `triage`, `elysia`, or `summaries`; with a project, only `worker`, `project_manager`, or `summaries` |
+| `model`      | `TEXT`        | As `model_settings.model` checks                                            |
+| `effort`     | `TEXT`        | As `model_settings.effort` checks                                           |
+| `created_by` | `UUID`        | Who first set it: an admin for the workspace's, whoever edited the project otherwise |
 | `created_at` | `TIMESTAMPTZ` | When it was first set                                                       |
 | `updated_at` | `TIMESTAMPTZ` | Maintained by trigger                                                       |
 

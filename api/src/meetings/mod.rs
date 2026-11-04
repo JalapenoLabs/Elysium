@@ -629,7 +629,10 @@ impl Meetings {
         // Read as each segmentation starts, so an admin's change applies from the next one.
         let model = {
             let mut connection = self.connection().await?;
-            agent_models::for_agent(&mut connection, Agent::SegmentMeeting).await?
+            // A meeting may concern any number of projects, so no project's override applies.
+            agent_models::for_agent(&mut connection, Agent::SegmentMeeting, None)
+                .await?
+                .choice
         };
         let request = TurnRequest {
             conversation: ConversationId::new(Uuid::now_v7()),

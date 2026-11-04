@@ -1,20 +1,19 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `GET /api/v1/model-settings`: every step and agent, in the order the catalog lists them,
-//! with its default and setting, and what the page offers to choose from. Admins only.
-
-use std::collections::HashMap;
+//! `GET /api/v1/model-settings`: every kind, then every step and agent in the order the catalog
+//! lists them, each with what was chosen and what it runs on, what each kind's turns spent over
+//! the last `agent_models::USAGE_WINDOW`, and what the page offers to choose from. Admins only.
 
 use anyhow::Context;
 use axum::Json;
 use axum::extract::State;
+use chrono::Utc;
 use serde_json::{Value, json};
 
-use super::AgentModelResponse;
-use crate::agent_models::{self, SUGGESTED_MODELS};
+use super::{AgentModelResponse, ChoicesResponse, KindModelResponse};
+use crate::agent_models::{self, USAGE_WINDOW};
 use crate::auth::AdminUser;
 use crate::errors::ApiError;
-use crate::models::model_setting::{self, Effort};
 use crate::state::AppState;
 
 pub async fn handle(
@@ -26,22 +25,15 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let stored = model_setting::list(&mut connection).await?;
-    let by_agent: HashMap<&str, _> = stored
-        .iter()
-        .map(|setting| (setting.agent.as_str(), setting))
-        .collect();
-    let agents: Vec<AgentModelResponse> = agent_models::catalog()
-        .into_iter()
-        .map(|entry| {
-            let setting = by_agent.get(entry.name).copied();
-            AgentModelResponse::new(entry, setting)
-        })
-        .collect();
+    let since = Utc::now() - USAGE_WINDOW;
+    let (entries, kinds) = agent_models::workspace_view(&mut connection, since).await?;
+    let agents: Vec<AgentModelResponse> = entries.into_iter().map(Into::into).collect();
+    let kinds: Vec<KindModelResponse> = kinds.into_iter().map(Into::into).collect();
 
     Ok(Json(json!({
+        "kinds": kinds,
         "agents": agents,
-        "suggestedModels": SUGGESTED_MODELS,
-        "efforts": Effort::ALL,
+        "usageSince": since,
+        "choices": ChoicesResponse::new(),
     })))
 }

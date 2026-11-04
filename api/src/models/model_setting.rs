@@ -255,7 +255,7 @@ async fn record_change(
 }
 
 /// A setting as the history records it: its model and effort, or `null` for the default.
-fn history_value(choice: Option<&ModelChoice>) -> Value {
+pub(crate) fn history_value(choice: Option<&ModelChoice>) -> Value {
     choice.map_or(
         Value::Null,
         |choice| json!({ "model": choice.model, "effort": choice.effort.as_str() }),
@@ -263,16 +263,17 @@ fn history_value(choice: Option<&ModelChoice>) -> Value {
 }
 
 /// A stored row as a choice. Its effort reads as the default when this build does not know it.
-fn choice_from_row(agent: &str, model: String, effort: &str) -> ModelChoice {
+/// `owner` names the agent or kind the row is filed under, for the warning.
+pub(crate) fn choice_from_row(owner: &str, model: String, effort: &str) -> ModelChoice {
     let Some(effort) = Effort::from_name(effort) else {
         // Only a later version of Elysium could have stored it, since the column's check holds
         // the levels this one knows.
         event!(
             name: "model_settings.unknown_effort",
             Level::WARN,
-            agent.name = agent,
+            model_setting.owner = owner,
             effort = %effort,
-            "an agent's stored effort is not one this build knows; its turns use the default effort",
+            "a stored effort is not one this build knows; its turns use the default effort",
         );
         return ModelChoice {
             model,

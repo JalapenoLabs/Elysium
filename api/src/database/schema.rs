@@ -14,6 +14,10 @@ pub mod sql_types {
     pub struct ActionItemState;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "agent_kind"))]
+    pub struct AgentKind;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "browser_state"))]
     pub struct BrowserState;
 
@@ -828,6 +832,22 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::AgentKind;
+
+    kind_model_settings (id) {
+        id -> Uuid,
+        project_id -> Nullable<Uuid>,
+        kind -> AgentKind,
+        model -> Text,
+        effort -> Text,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
 
     knowledge_backfills (source) {
         source -> Text,
@@ -1524,6 +1544,8 @@ diesel::joinable!(jira_credential_boards -> jira_credentials (jira_credential_id
 diesel::joinable!(jira_credential_projects -> jira_credentials (jira_credential_id));
 diesel::joinable!(jira_credentials -> users (created_by));
 diesel::joinable!(jira_done_transitions -> jira_credentials (jira_credential_id));
+diesel::joinable!(kind_model_settings -> projects (project_id));
+diesel::joinable!(kind_model_settings -> users (created_by));
 diesel::joinable!(knowledge_backfills -> users (created_by));
 diesel::joinable!(knowledge_documents -> company_doc_sections (company_doc_section));
 diesel::joinable!(knowledge_documents -> learnings (learning_id));
@@ -1626,6 +1648,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     jira_credential_projects,
     jira_credentials,
     jira_done_transitions,
+    kind_model_settings,
     knowledge_backfills,
     knowledge_documents,
     knowledge_passages,

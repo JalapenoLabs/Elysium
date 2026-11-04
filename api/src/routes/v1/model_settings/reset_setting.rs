@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `DELETE /api/v1/model-settings/{agent}`: put a step or agent back on its default. Admins
-//! only. Answers it as it now stands; one already on its default changes nothing.
+//! `DELETE /api/v1/model-settings/{agent}`: let a step or agent follow its kind again. Admins
+//! only. Answers it as it now stands; one with no setting of its own changes nothing.
 
 use anyhow::Context;
 use axum::Json;

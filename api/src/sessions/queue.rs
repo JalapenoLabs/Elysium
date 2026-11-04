@@ -285,10 +285,12 @@ impl TurnQueue {
             .await
             .context("cannot read the project's storage locations")?
             .is_empty();
-        // Read as the turn starts, so an admin's change applies from the session's next turn.
-        let model = agent_models::for_agent(&mut connection, agent_of(&session))
-            .await
-            .context("cannot read the session's model setting")?;
+        // Read as the turn starts, so a change applies from the session's next turn.
+        let model =
+            agent_models::for_agent(&mut connection, agent_of(&session), session.project_id)
+                .await
+                .context("cannot read the session's model setting")?
+                .choice;
         drop(connection);
 
         let (environment, secrets) = turn_environment(variables, github.as_ref());
@@ -344,6 +346,7 @@ impl TurnQueue {
             queue: self.clone(),
             session_id: session.id,
             studio_item_id: session.studio_item_id,
+            project_id: session.project_id,
             turn_id: turn.id,
             scrubber: Scrubber::new(secrets).with_revealed(self.inner.passwords.revealed()),
             grant,

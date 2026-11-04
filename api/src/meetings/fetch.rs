@@ -38,6 +38,7 @@ use uuid::Uuid;
 use super::media;
 use super::source::{MeetingSource, RecordingSource, SourceError, TranscriptLine};
 use super::sources::Sources;
+use crate::agent_models::AgentKind;
 use crate::connectors::activity::Activity;
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -367,7 +368,7 @@ impl FetchMeeting {
 impl Step for FetchMeeting {
     const NAME: &'static str = "fetch_meeting";
     /// It reads and stores; no model runs.
-    const RUNS_MODEL: bool = false;
+    const AGENT_KIND: Option<AgentKind> = None;
     type Input = MeetingToFetch;
     type Output = RecordedMeeting;
 

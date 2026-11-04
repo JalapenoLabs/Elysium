@@ -43,7 +43,8 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `learning.changed`       | `{ id }`         | A learning was saved, corrected, deleted, restored, or had a change undone; never its text, since guests hear it too; members load it by id, see `docs/knowledge.md` |
 | `learningCategories.changed` | none         | A workspace learning category was added, edited, reordered, or removed; members load the list again |
 | `companyDoc.changed`     | none             | The company doc changed, or a change to it was proposed or decided; members load it again, see `docs/knowledge.md` |
-| `modelSetting.changed`   | `{ agent }`      | An admin chose what a step or agent runs on, or put it back on its default; admins load the list again, see `docs/engine.md`, Models |
+| `modelSetting.changed`   | `{ agent }`      | An admin chose what a step or agent runs on, or let it follow its kind again; admins load the list again, see `docs/engine.md`, Models |
+| `kindModelSetting.changed` | `{ kind, projectId }` | Someone chose what a kind of agent runs on, for the workspace (`projectId` null) or one project, or put it back; admins load the workspace's list again, and a page showing a project's loads it again |
 | `connectorCheckRun.updated` | `{ runId, connectorId, checkId, state }` | A check in a run moved on, or the run ended (`checkId` null, `state` `finished`); load the run for its messages |
 | `timelineRecord.created` | `{ id, sourceKind, createdBy, actionItemId }` | Something was ingested; never its content, see `docs/connectors.md` |
 | `draft.changed`          | `{ id, createdBy }`      | A draft was written, edited, discarded, or a send of it began, landed, or failed; never its text, see `docs/connectors.md` |

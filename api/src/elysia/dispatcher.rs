@@ -222,7 +222,9 @@ async fn run_turn(
         return Ok(());
     };
     // Read as the turn starts, so an admin's change applies from her next turn.
-    let model = agent_models::for_agent(&mut connection, Agent::Elysia).await?;
+    let model = agent_models::for_agent(&mut connection, Agent::Elysia, None)
+        .await?
+        .choice;
     // Her tools, for this turn alone, revoked when it ends.
     let granted = context
         .elysia

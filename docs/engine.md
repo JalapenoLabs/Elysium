@@ -8,9 +8,10 @@ company.
 This doc is the design. Little of it is built; the roadmap is the issues in the Engine milestone. Built so far: the
 event stream through Redis pub/sub, the engine as a service of its own that runs every background loop, workflow runs
 on a Postgres queue of step jobs with the Runs page (Runs, below), the step and workflow framework over that queue,
-with the model and effort every step and agent runs on (Workflows and steps, and Models, below), the meeting
-workflow's first three steps, which fetch each meeting, transcribe its recording with a local Whisper, and correct its
-transcript against everything Elysium knows, waiting for its person's approval when asked (Meetings,
+with the model and effort every kind of agent, step, and agent runs on, workspace-wide and per project (Workflows and
+steps, and Models, below), the meeting workflow's first three steps, which fetch each meeting, transcribe its
+recording with a local Whisper, and correct its transcript against everything Elysium knows, waiting for its person's
+approval when asked (Meetings,
 below), and the company doc's scheduled review (The company doc, below).
 
 ## A service of its own
@@ -108,8 +109,9 @@ own.
 
 ### A step
 
-- A step is a type implementing `workflows::Step`: its name (`NAME`, `snake_case`), whether its work is an agent turn
-  (`RUNS_MODEL`, Models below), the input it takes and the output it gives (serde types), and `run`, one attempt,
+- A step is a type implementing `workflows::Step`: its name (`NAME`, `snake_case`), the kind of agent its work is when
+  it is an agent turn (`AGENT_KIND`, Models below), the input it takes and the output it gives (serde types), and
+  `run`, one attempt,
   which answers `Done::Succeeded` (its output and a one-line summary), `Done::Held` (its output and what a person should look at), `Done::Skipped` (why it had nothing to do), or a
   `StepFailure` (its reason, and whether another attempt may get past it).
 - A step that skips itself, such as transcription for a meeting with no recording, ends `skipped` with its reason as
@@ -319,42 +321,86 @@ the Runs page.
 
 ## Models
 
-Every agent runs on a model and effort an admin may choose, through the same credential failover stack and
-usage-aware skipping as every turn (`docs/coding.md`, Credentials). Built: the settings, their resolver, and the
-admin page (`api/src/agent_models.rs`).
+Every agent runs on a model and effort people may choose, through the same credential failover stack and
+usage-aware skipping as every turn (`docs/coding.md`, Credentials). Built: the kinds of agent, the settings at each
+level, their resolver, the admin page, and each project's own page (`api/src/agent_models.rs`).
 
 - **What has a setting.** An agent is anything whose work is a turn on the runner, named as it is in code: a workflow
   step whose work is an agent turn, by its step name, and the agents outside the step framework: Elysia
   (`elysia`), coding sessions (`coding_session`), Studio sessions (`studio_session`), turn summaries
   (`turn_summary`), and meeting segmentation (`segment_meeting`, the name of the step it becomes, so its setting
   carries over).
-- **Steps declare it.** Every step says whether its work is an agent turn (`Step::RUNS_MODEL`). One that only
-  fetches, transcribes with the local Whisper, or indexes runs no model of Claude's, has no setting, and the page says
-  so; one that reads its setting while declaring none is a programming error.
+- **Kinds.** Every agent belongs to one kind (`agent_models::AgentKind`, stored as the enum `agent_kind`), the one
+  typed list of what sort of work a turn is:
+
+  | Kind              | Its agents today                                   | Runs for one project |
+  |-------------------|----------------------------------------------------|----------------------|
+  | `worker`          | Coding sessions, Studio sessions                   | Yes                  |
+  | `project_manager` | None yet (#84, #85)                                | Yes                  |
+  | `correction`      | Transcript correction (`correct_transcript`)       | No                   |
+  | `segmenting`      | Meeting segmentation                               | No                   |
+  | `triage`          | None yet                                           | No                   |
+  | `elysia`          | Elysia, and the company doc's review, done in her name | No               |
+  | `summaries`       | Turn summaries                                     | Yes                  |
+
+  A worker today is a coding or Studio session in the shared workspace; the pooled workers in containers of their own
+  (#82) are workers too, so they name `worker` rather than a kind of their own. Correction, segmenting, and triage read
+  meetings and conversations that may concern any number of projects, and Elysia works for the whole workspace, so
+  only workers, Project Managers, and summaries run for one project.
+- **Attaching to a kind.** A step says which kind its work is (`Step::AGENT_KIND`, `None` for one that only fetches,
+  transcribes with the local Whisper, or indexes: it runs no model of Claude's, has no setting, and the page says so;
+  one that reads its model while declaring none is a programming error). An agent outside the step framework says so
+  in `Agent::kind`. A new kind is added to `AgentKind`, the enum's migration, and the web app's words.
 - **The catalog.** `agent_models::catalog` lists every step of every workflow in `workflows::declared`, then every
-  agent. That list is also the one the engine checks its registered steps against as it starts, and it refuses to
-  start while a step it registers is named by none of them, so no step runs unlisted. A new workflow is added there.
-- **Defaults.** Opus 5.5 (`claude-opus-5-5`) at high effort for every step and agent, except turn summaries, which
-  run on Haiku 5.5 at low effort: a summary is a sentence or two about a turn already done, written for every turn.
-- **Stored.** `model_settings` holds a row for each agent an admin changed: its model, and its effort as the CLI's
-  `--effort` names it (`low`, `medium`, `high`, `xhigh`, or `max`). A choice equal to the default removes the row, so
-  the agent follows its default should a later build change it. Every change is recorded in the workspace's history
-  (`user_events`, `model_setting_changed`, with the setting before and after, `null` for the default) and announced
-  as `modelSetting.changed` with the agent's name alone.
+  agent, each with its kind. That list is also the one the engine checks its registered steps against as it starts,
+  and it refuses to start while a step it registers is named by none of them, so no step runs unlisted. A new workflow
+  is added there.
+- **Defaults** belong to kinds: Opus 5.5 (`claude-opus-5-5`) at high effort, except summaries, which run on Haiku 5.5
+  at low effort: a summary is a sentence or two about a turn already done, written for every turn.
+- **Resolving.** `agent_models::for_step` and `for_agent` are the one place a turn's model is resolved, given the
+  project the turn works for. The first of these that is set wins (`agent_models::resolve`, a pure function tested on
+  its own and against Postgres):
+
+  1. the project's override of the agent's kind;
+  2. the agent's own setting;
+  3. the kind's setting for the workspace;
+  4. the kind's default.
+
+  The narrower choice wins at every level. A project is narrower than the workspace, so its override beats everything
+  set for the workspace. Within the workspace one agent is narrower than its kind, so an agent's own setting stays the
+  exception it was set to be: an admin who later sets the kind does not silently undo it, and the page never shows a
+  setting that no longer does anything.
+- **Who resolves.** Each caller resolves as its turn starts, so a change applies from the next turn. A coding or Studio
+  session's turn and its summary resolve with the session's project; Elysia's dispatcher and the meetings loop with
+  none. A step's turn resolves through `StepContext::model`, with no project, since every step today reads meetings
+  or the company doc; it writes "Runs on X at Y effort, from Z" to the step's log, a retry's included. A step that
+  works for one project, such as a Project Manager's, carries the project in its input and resolves with it through
+  `for_step`. Every caller passes the result to the runner (`TurnRequest::model` and `effort`), so `--model` and
+  `--effort` override whatever the agents' configuration repository's settings name.
+- **Stored.** `model_settings` holds a row for each agent an admin set, and `kind_model_settings` one for each kind an
+  admin set for the workspace (`project_id` null) and each kind a project overrides: a model, and an effort as the
+  CLI's `--effort` names it (`low`, `medium`, `high`, `xhigh`, or `max`). A choice equal to what it would follow
+  without one removes the row instead (for an agent, its kind's setting or default; for a kind, its default; for a
+  project, the workspace's choice for the kind), so it keeps following that should it change.
+- **Who may change what.** The workspace's kinds, steps, and agents are admins' alone. A project's overrides are set
+  by whoever may edit the project, today any signed-in person, as `PATCH /api/v1/projects/{id}` allows.
+- **History and events.** Every change is recorded in the workspace's history in the same transaction (`user_events`:
+  `model_setting_changed` with `{ agent, before, after }`, and `kind_model_setting_changed` with
+  `{ kind, projectId, before, after }`, `null` for what it followed) and announced by name and id alone:
+  `modelSetting.changed { agent }` and `kindModelSetting.changed { kind, projectId }`.
 - **Models.** Any id or alias the CLI's `--model` takes, such as `opus[1m]`: a letter or digit, then letters, digits,
-  dots, underscores, hyphens, and brackets, so never a flag. The page suggests the current Claude models (Fable 5.1,
-  Opus 5.5, Sonnet 5.5, Haiku 5.5), and the API and the column's check both refuse anything else.
-- **Resolving.** `agent_models::for_step` and `for_agent` are the one place a turn's model is resolved: its setting,
-  or its default. Each caller resolves as its turn starts, so a change applies from the next turn: a step's turn
-  through `StepContext::model` (the company doc's review and transcript correction read it), which also writes
-  "Runs on X at Y effort" to the step's log, a retry's included;
-  Elysia's dispatcher, the session turn queue, turn summaries, and the meetings loop each before submitting. Every one
-  passes both to the runner (`TurnRequest::model` and `effort`), so `--model` and `--effort` override whatever the
-  agents' configuration repository's settings name.
-- **The page.** Settings, Models (`/settings/models`), admins only (`docs/frontend.md`, Models).
-- **Overrides per agent kind and per project** are on the roadmap (#146). They layer over this: the resolvers take the
-  scope a turn runs in (its project) and read rows keyed by that scope and the same agent name before falling back to
-  what is resolved here, so nothing that submits a turn changes for them.
+  dots, underscores, hyphens, and brackets, so never a flag. The pages suggest the current Claude models (Fable 5.1,
+  Opus 5.5, Sonnet 5.5, Haiku 5.5), and the API and the columns' checks both refuse anything else.
+- **What it costs.** The pages show each suggested model's price per million tokens (`agent_models::MODEL_PRICES`,
+  Anthropic's published first-party prices), so one model's cost reads beside another's; a subscription's usage
+  windows fill in proportion to the same tokens. Effort changes how many tokens a turn spends, not their price. They
+  also total what each kind's turns spent over the last 30 days (`USAGE_WINDOW`), the cost and tokens Claude Code
+  reported, where turns keep them: today only session turns do, in their `finished` events (`session_events`, read
+  through the partial index `session_events_finished_at`), so workers' spend is shown, workspace-wide and per project,
+  and every other kind says it is not recorded. The Activity log, which records every turn the runner runs
+  (`docs/activity.md`), is what lets every kind show its spend.
+- **The pages.** Settings, Models (`/settings/models`), admins only, and a project's Models page
+  (`/projects/:projectId/models`), for anyone who may edit it (`docs/frontend.md`, Models).
 
 ## Follow-ups
 

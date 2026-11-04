@@ -47,6 +47,7 @@ use uuid::Uuid;
 use self::redis_link::RedisLink;
 pub use self::signals::{Signal, SignalReceiver, Wake};
 
+use crate::agent_models::AgentKind;
 use crate::backups::BackupsStatus;
 use crate::mail::hosting::MailServerStatus;
 use crate::models::step_job::StepJobState;
@@ -156,6 +157,14 @@ pub enum ServerEvent {
     /// their pages load the list again.
     #[serde(rename = "modelSetting.changed")]
     ModelSettingChanged { agent: String },
+    /// Someone chose what a kind of agent runs on, for the workspace (`projectId` null) or for
+    /// one project, or put it back. The kind and project alone: admins load the workspace's
+    /// settings again, and a page showing the project's loads them again.
+    #[serde(rename = "kindModelSetting.changed")]
+    KindModelSettingChanged {
+        kind: AgentKind,
+        project_id: Option<Uuid>,
+    },
     /// A check in a run moved on, or (`checkId` null, `state` `finished`) the run ended. Ids and
     /// states only: a check's message can name what an account reaches, and the run answers the
     /// person who started it.

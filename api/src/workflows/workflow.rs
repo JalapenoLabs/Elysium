@@ -29,6 +29,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::Step;
+use crate::agent_models::AgentKind;
 use crate::models::workflow_run::NewRun;
 
 /// Begins declaring the workflow named `name`, which runs list it by and the Runs page shows in
@@ -102,8 +103,8 @@ pub struct Workflow<Input> {
 #[derive(Debug, Clone, Copy)]
 pub struct DeclaredStep {
     name: &'static str,
-    /// What the step declares as [`Step::RUNS_MODEL`].
-    runs_model: bool,
+    /// What the step declares as [`Step::AGENT_KIND`].
+    agent_kind: Option<AgentKind>,
     /// The step's type, which the steps registered by its name must be.
     pub(super) type_id: TypeId,
 }
@@ -112,7 +113,7 @@ impl DeclaredStep {
     fn of<Declared: Step>() -> Self {
         Self {
             name: Declared::NAME,
-            runs_model: Declared::RUNS_MODEL,
+            agent_kind: Declared::AGENT_KIND,
             type_id: TypeId::of::<Declared>(),
         }
     }
@@ -122,9 +123,9 @@ impl DeclaredStep {
         self.name
     }
 
-    /// Whether its work is an agent turn, which runs on its model setting.
-    pub fn runs_model(&self) -> bool {
-        self.runs_model
+    /// The kind of agent its work is, or `None` when it runs no model.
+    pub fn agent_kind(&self) -> Option<AgentKind> {
+        self.agent_kind
     }
 }
 

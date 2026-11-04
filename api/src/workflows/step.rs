@@ -25,7 +25,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::Outline;
-use crate::agent_models;
+use crate::agent_models::{self, AgentKind, Source};
 use crate::database::Pool;
 use crate::models::model_setting::ModelChoice;
 use crate::models::step_job::StepOutcome;
@@ -50,11 +50,13 @@ pub trait Step: Send + Sync + 'static {
     /// of its steps and a build without one fails that step.
     const NAME: &'static str;
 
-    /// Whether its work is an agent turn, which runs on the model and effort its setting names
-    /// ([`StepContext::model`]). A step that only fetches, transcribes with the local Whisper,
-    /// or embeds runs no model of Claude's, has no setting, and the settings page says so. Every
-    /// step declares it, so none is offered a setting that changes nothing, or lacks one it reads.
-    const RUNS_MODEL: bool;
+    /// The kind of agent its work is, when its work is an agent turn, which runs on the model and
+    /// effort resolved for it ([`StepContext::model`]): its own setting, its kind's, or the
+    /// kind's default. `None` for a step that only fetches, transcribes with the local Whisper,
+    /// or embeds: it runs no model of Claude's, has no setting, and the settings page says so.
+    /// Every step declares it, so none is offered a setting that changes nothing, or lacks one
+    /// it reads.
+    const AGENT_KIND: Option<AgentKind>;
 
     /// What it takes. Serialized when a run starts at this step, and read back from the queue
     /// before each attempt.
@@ -131,8 +133,8 @@ pub struct StepContext {
     pub log: StepLog,
     /// The step's registered name, which its model setting is filed under.
     pub(super) step: &'static str,
-    /// What the step declared as [`Step::RUNS_MODEL`].
-    pub(super) runs_model: bool,
+    /// What the step declared as [`Step::AGENT_KIND`].
+    pub(super) agent_kind: Option<AgentKind>,
     pub(super) database: Pool,
 }
 
@@ -163,44 +165,57 @@ impl StepContext {
             attempt: 1,
             log: StepLog::default(),
             step: Called::NAME,
-            runs_model: Called::RUNS_MODEL,
+            agent_kind: Called::AGENT_KIND,
             database,
         }
     }
 }
 
 impl StepContext {
-    /// The model and effort this step's agent turn runs on, read from its setting now, as the
-    /// turn starts, so an admin's change applies from the next turn. Written to the log, so the
-    /// Runs page says which model did the work.
+    /// The model and effort this step's agent turn runs on, resolved now, as the turn starts, so
+    /// a change applies from the next turn: its own setting, its kind's, or the kind's default
+    /// (`crate::agent_models`, Resolving). Written to the log with where it came from, so the
+    /// Runs page says which model did the work and why.
+    ///
+    /// The turn works for the whole workspace, so no project's override applies: every step
+    /// today reads meetings or the company doc. A step whose turn works for one project, such
+    /// as a Project Manager's, carries the project in its input and resolves with it through
+    /// [`agent_models::for_step`].
     ///
     /// # Errors
-    /// A retryable failure when the setting cannot be read.
+    /// A retryable failure when the settings cannot be read.
     ///
     /// # Panics
     /// Panics when the step declared that it runs no model, which only a programming error can
     /// cause: the settings page would offer it no setting to read.
     pub async fn model(&self) -> Result<ModelChoice, StepFailure> {
-        assert!(
-            self.runs_model,
-            "step {} reads its model setting but declares RUNS_MODEL = false",
-            self.step
-        );
+        let Some(kind) = self.agent_kind else {
+            panic!(
+                "step {} reads its model setting but declares AGENT_KIND = None",
+                self.step
+            );
+        };
         let read = async {
             let mut connection = self.database.get().await?;
-            anyhow::Ok(agent_models::for_step(&mut connection, self.step).await?)
+            anyhow::Ok(agent_models::for_step(&mut connection, self.step, kind, None).await?)
         };
-        let choice = read.await.map_err(|error| {
+        let resolved = read.await.map_err(|error| {
             StepFailure::retryable(format!(
                 "Could not read this step's model setting: {error:#}"
             ))
         })?;
+        let from = match resolved.source {
+            Source::Project => "this project's setting",
+            Source::Agent => "this step's own setting",
+            Source::Kind => "its kind's setting",
+            Source::Default => "its kind's default",
+        };
         self.log.line(&format!(
-            "Runs on {} at {} effort",
-            choice.model,
-            choice.effort.as_str()
+            "Runs on {} at {} effort, from {from}",
+            resolved.choice.model,
+            resolved.choice.effort.as_str()
         ));
-        Ok(choice)
+        Ok(resolved.choice)
     }
 }
 
@@ -254,8 +269,8 @@ pub(super) type ErasedStep = dyn Fn(Value, StepContext) -> StepFuture + Send + S
 struct Registered {
     /// The step's type, so a workflow naming a different type by the same name is caught.
     type_id: TypeId,
-    /// What it declared as [`Step::RUNS_MODEL`], handed to every attempt's context.
-    runs_model: bool,
+    /// What it declared as [`Step::AGENT_KIND`], handed to every attempt's context.
+    agent_kind: Option<AgentKind>,
     run: Arc<ErasedStep>,
 }
 
@@ -263,7 +278,7 @@ struct Registered {
 pub(super) struct Found {
     /// The name it was registered by.
     pub(super) name: &'static str,
-    pub(super) runs_model: bool,
+    pub(super) agent_kind: Option<AgentKind>,
     pub(super) run: Arc<ErasedStep>,
 }
 
@@ -312,7 +327,7 @@ impl Steps {
         });
         let registered = Arc::new(Registered {
             type_id: TypeId::of::<Registering>(),
-            runs_model: Registering::RUNS_MODEL,
+            agent_kind: Registering::AGENT_KIND,
             run,
         });
         let previous = self.by_name.insert(name, registered);
@@ -366,7 +381,7 @@ impl Steps {
             .get_key_value(name)
             .map(|(name, registered)| Found {
                 name,
-                runs_model: registered.runs_model,
+                agent_kind: registered.agent_kind,
                 run: Arc::clone(&registered.run),
             })
     }

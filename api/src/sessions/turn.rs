@@ -33,6 +33,8 @@ pub(super) struct Follower {
     pub queue: TurnQueue,
     pub session_id: i64,
     pub studio_item_id: Option<Uuid>,
+    /// The project the session works for, whose override of the summaries' kind applies.
+    pub project_id: Option<Uuid>,
     pub turn_id: Uuid,
     pub scrubber: Scrubber,
     /// Held until the turn ends, then revoked: the turn's access to Elysium's tools.
@@ -54,6 +56,7 @@ impl Follower {
                     let Self {
                         queue,
                         session_id,
+                        project_id,
                         turn_id,
                         grant,
                         ..
@@ -61,7 +64,10 @@ impl Follower {
                     // The turn is over: its tools stop answering it.
                     grant.revoke().await;
                     if summary::deserves_summary(outcome.status) {
-                        summary::summarize(&queue, session_id, turn_id, &digest, outcome).await;
+                        summary::summarize(
+                            &queue, session_id, project_id, turn_id, &digest, outcome,
+                        )
+                        .await;
                     }
                     return;
                 }

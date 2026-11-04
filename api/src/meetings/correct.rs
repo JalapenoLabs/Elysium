@@ -43,6 +43,7 @@ use super::correction::{self, Background, Base, Edit};
 use super::source::TranscriptLine;
 use super::transcribe::TranscribedMeeting;
 use crate::action_items::{Actor, Transition, WorkError};
+use crate::agent_models::AgentKind;
 use crate::company_doc;
 use crate::database::Pool;
 use crate::models::action_item::{
@@ -449,7 +450,7 @@ impl CorrectTranscript {
 impl Step for CorrectTranscript {
     const NAME: &'static str = "correct_transcript";
     /// It reads the transcripts and corrects them in agent turns.
-    const RUNS_MODEL: bool = true;
+    const AGENT_KIND: Option<AgentKind> = Some(AgentKind::Correction);
     type Input = TranscribedMeeting;
     type Output = CorrectedMeeting;
 

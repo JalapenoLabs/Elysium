@@ -54,10 +54,12 @@ Self-improvement (learning from feedback, self-healing connectors) is designed i
 - A step implements `workflows::Step` (a name, typed input and output) and never knows its workflow; a workflow is
   declared from step types (`workflows::declare`), each taking what the one before gives, and a run may enter it at
   any step with that step's input. See `docs/engine.md`, Workflows and steps.
-- Every agent's turn (a step's, Elysia's, a coding or Studio session's, a turn summary, meeting segmentation) runs on
-  its model setting, resolved by `crate::agent_models` as the turn starts: Opus 5.5 at high effort by default, turn
-  summaries Haiku 5.5 at low. Admins choose them under Settings, Models. Every step declares `RUNS_MODEL`, and every
-  workflow is listed in `workflows::declared`. See `docs/engine.md`, Models.
+- Every agent's turn (a step's, Elysia's, a coding or Studio session's, a turn summary, meeting segmentation) belongs
+  to one kind (`agent_models::AgentKind`: worker, Project Manager, correction, segmenting, triage, Elysia, summaries)
+  and runs on the model resolved by `crate::agent_models` as the turn starts: the project's override of its kind, its
+  own setting, its kind's, then the kind's default (Opus 5.5 at high, summaries Haiku 5.5 at low). Admins set the
+  workspace's under Settings, Models; whoever may edit a project sets its own. Every step declares `AGENT_KIND`, and
+  every workflow is listed in `workflows::declared`. See `docs/engine.md`, Models.
 - nginx, Kratos, Hydra, and the updater never bind-mount their configuration: each directory's `Dockerfile` builds it
   into a local image, rebuilt on every `up` (`pull_policy: build`), so a deploy that changes a file recreates exactly
   the services that use it. Each image has one building service. See `docs/infrastructure.md`, Configuration images.

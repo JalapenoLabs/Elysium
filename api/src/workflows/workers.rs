@@ -227,7 +227,7 @@ impl Workers {
                     attempt: claim.job.attempts,
                     log: log.clone(),
                     step: found.name,
-                    runs_model: found.runs_model,
+                    agent_kind: found.agent_kind,
                     database: self.inner.database.clone(),
                 };
                 // The row's check keeps input set on every step its run reached.

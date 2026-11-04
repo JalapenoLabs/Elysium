@@ -150,9 +150,11 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/learning-categories`         | `201` `{ category }`; admins                        |
 | PATCH  | `/api/v1/learning-categories/{key}`   | `200` `{ category }`; admins                        |
 | DELETE | `/api/v1/learning-categories/{key}`   | `204`; admins; `?moveTo=` names where its learnings go |
-| GET    | `/api/v1/model-settings`              | `200` `{ agents: AgentModel[], suggestedModels, efforts }`; admins |
+| GET    | `/api/v1/model-settings`              | `200` `{ kinds: KindModel[], agents: AgentModel[], usageSince, choices }`; admins |
+| PUT    | `/api/v1/model-settings/kinds/{kind}` | `200` `{ kind }`; admins; `{ model, effort }`        |
+| DELETE | `/api/v1/model-settings/kinds/{kind}` | `200` `{ kind }`; admins; back on its default        |
 | PUT    | `/api/v1/model-settings/{agent}`      | `200` `{ agent }`; admins; `{ model, effort }`       |
-| DELETE | `/api/v1/model-settings/{agent}`      | `200` `{ agent }`; admins; back on its default       |
+| DELETE | `/api/v1/model-settings/{agent}`      | `200` `{ agent }`; admins; follows its kind again    |
 | GET    | `/api/v1/search?q=&limit=`            | `200` `{ results: SearchHit[] }`: items, projects, sessions, and initiatives by title |
 | GET    | `/api/v1/runs`                        | `200` `{ runs: Run[], hasMore }`, newest first, 50 at a time; `?before=` a run id |
 | GET    | `/api/v1/runs/{id}`                   | `200` `{ run, steps: Step[], history: RunHistoryEntry[] }` |
@@ -199,6 +201,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PUT    | `/api/v1/projects/{id}/cover`         | `200` `{ project }`; the body is the image file     |
 | DELETE | `/api/v1/projects/{id}/cover`         | `200` `{ project }`; the image is kept to restore    |
 | POST   | `/api/v1/projects/{id}/cover/restore` | `200` `{ project }`, showing the removed cover again |
+| GET    | `/api/v1/projects/{id}/model-settings` | `200` `{ kinds: ProjectKindModel[], usageSince, choices }` |
+| PUT    | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; `{ model, effort }`        |
+| DELETE | `/api/v1/projects/{id}/model-settings/{kind}` | `200` `{ kind }`; follows the workspace again |
 | GET    | `/api/v1/storage-locations`           | `200` `{ locations: StorageLocation[] }`, by name   |
 | POST   | `/api/v1/storage-locations`           | `201` `{ location }`                                |
 | GET    | `/api/v1/storage-locations/{id}`      | `200` `{ location }`                                |
@@ -583,17 +588,35 @@ which they move to first, each as a revision in its history. See `docs/knowledge
 
 Every route answers admins alone, and anyone else `403 admin_only`: it decides what every turn costs.
 
-An `AgentModel` has `name` (a step's name or an agent's, such as `elysia`), `kind` (`step` or `agent`), `default` (its
-`{ model, effort }` until an admin chooses otherwise, or `null` for a step that runs no model), and `setting` (the
-admin's `{ model, effort, updatedAt }`, or `null` while it runs on its default). The list holds every step of every
-declared workflow, first to last, then every agent; `suggestedModels` are the current Claude models, strongest first,
-and `efforts` the CLI's levels, lowest first.
+A `KindModel` has `name` (`worker`, `project_manager`, `correction`, `segmenting`, `triage`, `elysia`, or
+`summaries`), `default` (its `{ model, effort }`), `setting` (the admin's `{ model, effort, updatedAt }`, or `null`
+while it runs on its default), `runsInProjects` (whether a project may override it), and `usage` (what its turns spent
+since `usageSince`, 30 days back: `{ turns, costUsdMicros, inputTokens, outputTokens }`, or `null` where its turns
+record no cost). The kinds come in the order the page lists them.
+
+An `AgentModel` has `name` (a step's name or an agent's, such as `elysia`), `isStep`, `kind` (its kind, or `null` for a
+step that runs no model), `setting` (the admin's choice for it alone, or `null` while it follows its kind), and
+`resolved` (what its turns run on outside any project, `{ model, effort, source }`, where `source` is `agent`,
+`kind`, or `default`; `null` for a step that runs no model). The list holds every step of every declared workflow,
+first to last, then every agent.
+
+`choices` is what every page that sets a model offers: `suggestedModels`, the current Claude models, strongest first;
+`modelPrices`, each one's `{ model, inputCentsPerMillionTokens, outputCentsPerMillionTokens }`; and `efforts`, the
+CLI's levels, lowest first.
 
 `PUT` takes `model`, trimmed, an id or alias the CLI takes (a letter or digit, then up to 99 letters, digits, dots,
 underscores, hyphens, or brackets), and `effort` (`low`, `medium`, `high`, `xhigh`, or `max`); anything else answers
-`400`. A choice equal to the default removes the setting. A name no step or agent has answers `404`, and a step that
-runs no model `409`. Each change is recorded in the workspace's history and announced as `modelSetting.changed`; one
-that changes nothing announces nothing. See `docs/engine.md`, Models.
+`400`. A choice equal to what it would follow without one (for a kind, its default; for an agent, its kind's setting
+or default) removes the setting. A name no kind, step, or agent has answers `404`, and a step that runs no model
+`409`. Each change is recorded in the workspace's history and announced, an agent's as `modelSetting.changed` and a
+kind's as `kindModelSetting.changed`; one that changes nothing announces nothing. See `docs/engine.md`, Models.
+
+`/api/v1/projects/{id}/model-settings` answers whoever may edit the project. A `ProjectKindModel` has `name`, one of
+the kinds that run in projects (`worker`, `project_manager`, `summaries`); `setting`, the project's own choice or
+`null`; `workspace`, what the kind follows without it (`{ model, effort, source }`, `source` `kind` or `default`); and
+`usage`, as a `KindModel`'s but the project's turns alone. `PUT` and `DELETE` take and answer one kind the same way; a
+kind that works for the whole workspace answers `409 kind_not_in_projects`, and a project or kind that does not exist
+`404`.
 
 ### `/api/v1/runs`
 

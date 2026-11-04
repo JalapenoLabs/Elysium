@@ -126,6 +126,56 @@ pub async fn after(
     Ok(decode_rows(session_id, rows))
 }
 
+/// What the turns of coding and Studio sessions spent, summed from each turn's `finished`
+/// event: the cost and tokens Claude Code reported, over every attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, QueryableByName, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordedUsage {
+    /// Turns that finished, whether or not they reported a cost.
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub turns: i64,
+    /// Millionths of a US dollar. On a subscription it is what the same tokens would cost on
+    /// the API, since Claude Code reports that either way.
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub cost_usd_micros: i64,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub input_tokens: i64,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub output_tokens: i64,
+}
+
+/// What session turns that finished at or after `since` spent, every session's, or with
+/// `project` only those of that project's sessions.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn usage_since(
+    connection: &mut AsyncPgConnection,
+    since: DateTime<Utc>,
+    project: Option<Uuid>,
+) -> QueryResult<RecordedUsage> {
+    // `session_events_finished_at` holds exactly these rows by time, so a window reads only
+    // the turns' last events. `SUM(BIGINT)` is `NUMERIC`, so each sum is cast back in SQL.
+    diesel::sql_query(
+        "SELECT \
+            COUNT(*) AS turns, \
+            COALESCE(SUM((event.payload ->> 'costUsdMicros')::BIGINT), 0)::BIGINT \
+                AS cost_usd_micros, \
+            COALESCE(SUM((event.payload ->> 'inputTokens')::BIGINT), 0)::BIGINT AS input_tokens, \
+            COALESCE(SUM((event.payload ->> 'outputTokens')::BIGINT), 0)::BIGINT \
+                AS output_tokens \
+        FROM session_events event \
+        JOIN coding_sessions session ON session.id = event.session_id \
+        WHERE event.payload ->> 'kind' = 'finished' \
+            AND event.occurred_at >= $1 \
+            AND ($2::UUID IS NULL OR session.project_id = $2)",
+    )
+    .bind::<diesel::sql_types::Timestamptz, _>(since)
+    .bind::<diesel::sql_types::Nullable<diesel::sql_types::Uuid>, _>(project)
+    .get_result(connection)
+    .await
+}
+
 const fn columns() -> (
     session_events::sequence,
     session_events::turn_id,
