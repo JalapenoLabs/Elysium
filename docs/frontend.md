@@ -100,8 +100,8 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
   icon={<ConnectorLogo kind={kind} />}
   help={t('page.help')}
   badges={<Chip>{state}</Chip>}
-  // Optional: search and filters, then the one action that stands on its own.
-  tools={<SearchField />}
+  // Optional: a list's own search, then the one action that stands on its own.
+  tools={<ListSearchField label={t('toolbar.search')} value={search} onChange={setSearch} />}
   primaryAction={<Button>...</Button>}
   // Everything else the page can do.
   actions={[
@@ -116,9 +116,16 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
 - **Breadcrumbs.** With `parents`, the header opens with an icon-only back button, a link to the last parent, then
   the breadcrumbs ending in the title. A top-level page has neither.
 - **Titlebar.** The large title on the left, everything else on the right, centered on one line, in this order:
-  `tools` (the slot for a list's search field and filters button), `primaryAction`, a lone action's button, Save,
-  then the Actions menu, so Save keeps the top right corner unless the menu is there. There are no subtitles; a
-  page that truly needs explaining puts it behind `help`.
+  `tools`, the page's list controls, `primaryAction`, a lone action's button, Save, then the Actions menu, so Save
+  keeps the top right corner unless the menu is there. There are no subtitles; a page that truly needs explaining
+  puts it behind `help`.
+- **List controls.** Every `Page` holds a slot after `tools` for its list (`pageTools.ts`): the page's list table
+  renders its search, filters button, Columns, and export there through uikit's `controls`
+  (`~/.claude/docs/ux.md`, Table layout). `usePageToolsContainer` hands the slot to anything inside the page, so a
+  list in a child route, such as All items under the Action items tabs, reaches the titlebar its layout draws. Only
+  the page's own list passes it on; a table that is one section of a page keeps its Columns and export above itself.
+  A list shown as tiles too searches with `ListSearchField` in `tools` instead, which looks and behaves like the
+  table's: narrow until typed into, wider after, and focused by Ctrl+F. An empty slot takes no room.
 - **Actions.** `actions` is data (`PageAction` in `pageActions.ts`), so the rule lives in one place,
   `arrangePageActions`: a lone harmless action is its own outlined button, and anything more is one Actions menu on
   the far right, each item with its icon and destructive ones (`isDanger`) in red below a divider. A destructive
@@ -684,10 +691,13 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   minute (`ACTION_ITEMS_CLOCK_TICK_MS`) and fetches nothing. The API's `next` route is not used by the frontend.
 - **Inbox** (`InboxPage`, `InboxTriageCard`) takes the inbox oldest first: Accept `A`, Dismiss `D`, Open `O`, with the
   next few titles listed below.
-- **All items** (`ActionItemListPage`) is `ActionItemTable` (uikit's `SmartTable`) under `ActionItemFiltersBar`:
-  states (the inbox and open by default), project (or no project), initiative, waiting, snoozed, and a Deleted items
-  switch that lists deleted items instead, each with a Restore row action. Filters live in the address (`actionItemFilters.ts`),
-  with only what differs from the defaults written, so a filtered list survives opening an item and coming back.
+- **All items** (`ActionItemListPage`) is `ActionItemTable` (uikit's `SmartTable`), its search, filters, Columns, and
+  export in the titlebar. The filters drawer offers states (the inbox and open by default, shown as a tag like any
+  filter), project (or no project), initiative, waiting, snoozed, and deleted items, which lists deleted items instead,
+  each with a Restore row action (`useActionItemFilterDefinitions`). Filters live in the address
+  (`actionItemFilters.ts`, which also maps them to the drawer's values), with only what differs from the defaults
+  written, so a filtered list survives opening an item and coming back. The page applies them itself, so a list that
+  nothing matches says so while its tags stay to take a filter off.
 - **Item page** (`ActionItemPage`, which loads the item for `ActionItemView`) edits the title (the page's title) and
   notes in place with `InlineEditableText`, kept by the page's Save (see Saving). `useActionItemPageActions` gives its header the first state change the
   state allows as the primary action (`transitionsByState` mirrors the API's table), and an Actions menu with the
@@ -722,8 +732,10 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
 - **History** (`HistoryTimeline`) lists entries newest first, each an actor and a sentence built by
   `historyPresentation.ts` from the entry's kind and data, with every field an edit changed. Unknown kinds and
   malformed data still read as something.
-- **Initiatives** (`InitiativesPage`, `InitiativeTable`) list name, state, progress, target date, and projects, active
-  ones by default, with a Deleted initiatives switch like items', each deleted one with a Restore row action. Progress is always resolved and total together
+- **Initiatives** (`InitiativesPage`, `InitiativeTable`) list name, state, progress, target date, and projects, with
+  the same titlebar controls as All items. The drawer filters states (active by default), project (or no project),
+  and deleted initiatives, each with a Restore row action; filters live in the address (`initiativeFilters.ts`).
+  Progress is always resolved and total together
   (`InitiativeProgressSummary`), with a bar beside the counts, never a percentage.
 - **Initiative page** (`InitiativePage`, which loads the initiative for `InitiativeView`) edits the name (the page's
   title, with its state chip beside it) and the description in place, and Delete is its Actions menu. It edits state,
@@ -780,13 +792,16 @@ matter when changing it:
 - `/coding/<number>` (`getCodingSessionUrl`) opens that session's conversation once Dockview and the sessions are both
   loaded, then replaces the address with `/coding`; a number no session has goes straight to `/coding`. The project
   page links sessions this way.
-- The Sessions panel shows its sessions as a table or as tiles. `SessionsToolbar` heads both: a search field, the
-  result count, and, on the right, a Table and Tiles switch (HeroUI's `ToggleButtonGroup`, as on the Projects page).
-  Search matches the number, title, project, state, and last activity as shown, so the table's own search
-  and toolbar are hidden. Both views read one `SessionSummary` per session, built by `describeSession` in
-  `sessionPresentation.ts` (project name, activity state and its label, last activity in the viewer's zone), and
-  `searchSessionSummaries` filters them once for either view. The table's columns render and sort from those
-  summaries; last activity sorts by the instant rather than the words shown.
+- The Sessions panel shows its sessions as a table or as tiles. `SessionsToolbar` is the panel's titlebar for both:
+  `ListSearchField`, the result count, the table's filters, Columns, and export, and, on the right, a Table and Tiles
+  switch (HeroUI's `ToggleButtonGroup`, as on the Projects page). Search matches the number, title, project, state,
+  and last activity as shown, so the table's own search is hidden. The filters drawer filters state and project,
+  kept in the Coding page's address (`sessionFilters.ts`). Both views read one `SessionSummary` per session, built
+  by `describeSession` in `sessionPresentation.ts` (project name, activity state and its label, last activity in the
+  viewer's zone); `searchSessionSummaries` and `filterSessionSummaries` narrow them once for either view. The table
+  stays mounted behind the tiles, hidden, because its filters drawer, their tags, and the export serve the tiles too;
+  its Columns show only in the table view. The table's columns render and sort from those summaries; last activity
+  sorts by the instant rather than the words shown.
 - The table's row actions open, rename, and delete a session.
 - `SessionTiles` is a grid that fits as many 16rem columns as the panel is wide, down to one at phone width. Each
   tile shows the number, title, state chip, project, and last activity, with `SessionRowActions`, a menu of the same
@@ -864,10 +879,11 @@ sidebar's Runs link and both pages are for members alone; a guest who opens one 
 ### Projects page
 
 `src/pages/Projects/ProjectsPage.tsx` lists projects in a table view (uikit's `SmartTable`) or a tiles view (HeroUI
-cards). One toolbar drives both: search matches name and description, and sort is by name, session count, or last
-update, in either direction. `projectListing.ts` does the filtering and sorting once, so switching views keeps
-the same results in the same order. The table's own search and toolbar are hidden, so its Columns and export buttons
-sit in a strip above it, and its column headers sort through the same state as the toolbar. The chosen view is remembered per browser under
+cards). The titlebar's `ListSearchField` matches name and description, and `ProjectsToolbar`, above either view,
+counts the results, sorts by name, session count, or last update, in either direction, and switches views.
+`projectListing.ts` does the filtering and sorting once, so switching views keeps the same results in the same order.
+The table's own search is hidden, its Columns and export sit in the titlebar beside the search, and its column
+headers sort through the same state as the toolbar. The chosen view is remembered per browser under
 `elysium.projects.view.v1`; search and sort reset on each visit. The listing only opens projects: clicking a row
 (uikit's row highlight, which never shows as highlighted) or a tile, itself a link, goes to `/projects/:projectId`.
 The cover thumbnail opts out of the row click with `data-no-row-highlight`, so previewing it does not navigate.
@@ -940,17 +956,21 @@ filters drawer, and selection bar the kit renders into the body.
   never sorts by its words), and, on tables that export, `exportValue` (what the CSV holds).
 - **Pagination.** Every table passes `pagination: { show: true }`, 25 rows a page by default.
 - **Controls in the titlebar.** `controls: { container }` renders the search, filters, Columns, and export into an
-  element, such as one in `PageHeader`'s `tools`, while the table keeps their state. A table with
-  `toolbar: { show: false }` still shows its Columns chooser above it.
+  element, the page's list slot (`usePageToolsContainer`, see Page header) or the Sessions panel's toolbar, while the
+  table keeps their state. A table with `toolbar: { show: false }` still shows its Columns chooser above it.
 - **Filters** come from a column's `filter` and from `filters.definitions`, with `filters.values` and
-  `onValuesChange` to keep them in the address. They open in a drawer and show as tags above the table.
+  `onValuesChange` to keep them in the address. They open in a drawer and show as tags above the table. Elysium's
+  lists declare them without `matches` and apply them themselves, from the address, so a page knows when nothing
+  matches.
 - **Export.** `csvExport` adds a one-click CSV of the filtered, sorted rows; `exportValue` gives a column whose
   accessor is a sort key its real value. The data tables export (action items, initiatives, projects, coding
   sessions, runs, and learnings); the settings tables do not. A CSV holds states and other labels as words, dates as
   their UTC instants, and leaves images out.
 - **Multi-select.** `enableSelection` with `selectionActions` and `bulkEdit` gives the floating selection bar, its
   hotkeys, and select-everything across pages. Phones get none.
-- **Empty lists.** The kit has no empty-state slot, so render the empty message instead of the table.
+- **Empty lists.** The kit has no empty-state slot, so render the empty message instead of the table. A list whose
+  controls are in the titlebar keeps its table mounted with no rows, hidden behind the message, since the controls
+  and filter tags live only while the table does (`emptyNotice` on `ActionItemTable` and `InitiativeTable`).
 
 ### `@jalapenolabs/cli/eslint`
 
