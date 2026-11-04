@@ -60,9 +60,10 @@ export function ReplyComposer(props: Props) {
   const draft = drafts[0] ?? null
   // `null` until the person types, so the box shows a stored draft's text once it loads.
   const [ typed, setTyped ] = useState<string | null>(() => readSavedReply(record.id))
-  const [ place, setPlace ] = useState<ReplyPlace>(props.replies.through === 'connector'
-    ? props.replies.places[0] ?? 'thread'
-    : 'thread')
+  // The kind's first place unless the person picks another; none lets the API choose.
+  const [ place, setPlace ] = useState<ReplyPlace | null>(props.replies.through === 'connector'
+    ? props.replies.places[0] ?? null
+    : null)
   const [ chosenMailboxId, setChosenMailboxId ] = useState<string | null>(null)
   const [ isSending, setIsSending ] = useState(false)
 
@@ -94,9 +95,7 @@ export function ReplyComposer(props: Props) {
       if (!current) {
         current = (await createReplyDraft({
           recordId: record.id,
-          place: isMail
-            ? undefined
-            : place,
+          place: place ?? undefined,
           mailAccountId: isMail
             ? mailboxId ?? undefined
             : undefined,
@@ -165,7 +164,7 @@ export function ReplyComposer(props: Props) {
       {props.replies.through === 'connector' && canChoosePlace && <OptionSelect
         className='w-56'
         label={t('reply.place')}
-        value={place}
+        value={place ?? ''}
         options={props.replies.places.map((option) => ({ id: option, label: t(placeLabelKeys[option]) }))}
         onChange={(value) => setPlace(value === 'conversation'
           ? 'conversation'

@@ -141,7 +141,7 @@ What she may do without asking follows the tiers in `docs/vision.md`. Everything
 | Recording her own work and asking questions                        | Done             |
 | Drafting (replies, documents), labelling, filing                   | Done and shown   |
 | Any change to action items or initiatives                          | Waits for you, as a changeset |
-| Anything sent in a person's name (a comment, a closed issue, mail) | Waits for you, as a changeset |
+| Anything sent in a person's name (a comment, a closed issue, mail) | Waits for you, as a changeset or a draft the person sends |
 | Deleting anything, payments                                        | Waits for you    |
 
 Which kinds move up, and when, is not decided.

@@ -326,8 +326,8 @@ not served; its segments reach the timeline. See `docs/meetings.md`.
 A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
 attributedBy, createdAt }`), `createdBy`, and `createdAt`. `GET /timeline` takes `projectId`, `actionItemId` (the record
-that raised that item), `before` (an `occurredAt`, for the next page), and `limit` (1 to 200, default 50). `GET /timeline/{id}/media` streams the clip in
-`media.clip`, privately cached for good. Every route answers the record's owner alone. See `docs/connectors.md`.
+that raised that item), `before` (an `occurredAt`, for the next page), and `limit` (1 to 200, default 50).
+`GET /timeline/{id}/media` streams the clip in `media.clip`, privately cached for good. Every route answers the record's owner alone. See `docs/connectors.md`.
 
 ### `/api/v1/drafts`
 

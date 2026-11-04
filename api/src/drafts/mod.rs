@@ -424,6 +424,8 @@ async fn record_sent(
                         .map(|existing| existing.id)
                         .ok_or(diesel::result::Error::NotFound)?
                 }
+                // Only a reader can have recorded the message first, and a mail sent from a
+                // mailbox has no reader and a new Message-ID, so this answers nothing it could.
                 (None, _, _) => return Err(diesel::result::Error::NotFound),
             };
             let sent = draft::mark_sent(connection, draft_id, record_id, now).await?;
