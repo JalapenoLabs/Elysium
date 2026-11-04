@@ -10,11 +10,14 @@ import type {
 import type { Changeset, ChangesetOperation } from './api/routes/changesetRoutes'
 import type { CodingSession } from './api/routes/codingSessionRoutes'
 import type { Connector } from './api/routes/connectorRoutes'
+import type { Draft } from './api/routes/draftRoutes'
+import type { MailAccount } from './api/routes/mailRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
 import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
 import type { Project } from './api/routes/projectRoutes'
 import type { StorageLocation } from './api/routes/storageRoutes'
 import type { StudioAsset, StudioFeedback, StudioItem } from './api/routes/studioRoutes'
+import type { TimelineRecord } from './api/routes/timelineRoutes'
 import type { User } from './api/routes/userRoutes'
 
 // Records shaped as the API sends them, for tests. Each starts from plain defaults and
@@ -335,6 +338,64 @@ export function makeConnector(overrides: Partial<Connector> & Pick<Connector, 'i
     lastRun: null,
     createdBy: CREATED_BY,
     createdAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeTimelineRecord(
+  overrides: Partial<TimelineRecord> & Pick<TimelineRecord, 'id'>,
+): TimelineRecord {
+  return {
+    sourceKind: 'slack',
+    connectorId: 'connector-1',
+    externalId: 'T1/C1/1730000000.000200',
+    occurredAt: CREATED_AT,
+    actor: 'Ada',
+    title: '#launch in Mooreslab',
+    body: 'Are we launching Friday?',
+    url: null,
+    media: null,
+    metadata: {},
+    actionItemId: null,
+    projects: [],
+    createdBy: CREATED_BY,
+    createdAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeDraft(overrides: Partial<Draft> & Pick<Draft, 'id'>): Draft {
+  return {
+    replyToRecordId: null,
+    connectorId: 'connector-1',
+    mailAccountId: null,
+    target: {},
+    place: 'thread',
+    body: 'Friday works.',
+    state: 'draft',
+    lastError: null,
+    attemptedAt: null,
+    sentAt: null,
+    sentRecordId: null,
+    createdBy: CREATED_BY,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeMailAccount(overrides: Partial<MailAccount> & Pick<MailAccount, 'id'>): MailAccount {
+  return {
+    kind: 'gmail',
+    address: 'alex@example.com',
+    displayName: 'Alex',
+    isActive: true,
+    lastCheckedAt: null,
+    lastError: null,
+    createdAt: CREATED_AT,
+    createdBy: CREATED_BY,
+    updatedAt: CREATED_AT,
+    mailDomainId: null,
     ...overrides,
   }
 }

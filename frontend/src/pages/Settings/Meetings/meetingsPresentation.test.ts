@@ -44,7 +44,16 @@ function makeDefinition(
   kind: ConnectorKindDefinition['kind'],
   provides: ConnectorKindDefinition['provides'],
 ): ConnectorKindDefinition {
-  return { kind, provides, scope: 'personal', account: 'browser', startUrl: null, content: [], checks: []}
+  return {
+    kind,
+    provides,
+    scope: 'personal',
+    account: 'browser',
+    startUrl: null,
+    content: [],
+    checks: [],
+    replies: { through: 'never' },
+  }
 }
 
 describe('meetingSourcesOf', () => {

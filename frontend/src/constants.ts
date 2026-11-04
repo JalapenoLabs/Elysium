@@ -52,6 +52,10 @@ export const BYTES_PER_GIGABYTE = 1_000_000_000
 // Which view the Projects page last showed, remembered per browser.
 export const PROJECTS_VIEW_STORAGE_KEY = 'elysium.projects.view.v1'
 
+// What a person typed into a record's reply box, per record, kept in session storage so a
+// reload never loses it. The record's id follows the prefix.
+export const REPLY_DRAFT_STORAGE_PREFIX = 'elysium.reply.v1.'
+
 // Snoozing an item to a day wakes it at this hour in the viewer's zone, and "later today"
 // snoozes it this many hours from now.
 export const SNOOZE_WAKE_HOUR = 9

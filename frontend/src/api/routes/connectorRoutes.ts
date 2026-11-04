@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ReplyPlace } from './draftRoutes'
+
 // Misc
 import { apiClient } from '../index'
 
@@ -56,6 +58,14 @@ export type AccountField = {
   required: boolean
 }
 
+// Mirrors `Replies` in api/src/connectors/kinds/mod.rs: how what a kind reads is answered as its
+// person. `connector` sends through the connector itself, in any of `places`; `mailbox` sends
+// mail from one of the person's own mailboxes.
+export type ConnectorReplies =
+  | { through: 'never' }
+  | { through: 'connector', places: ReplyPlace[] }
+  | { through: 'mailbox' }
+
 // What the hub knows about a kind; structure only, every id named from translations.
 export type ConnectorKindDefinition = {
   kind: ConnectorKind
@@ -67,6 +77,7 @@ export type ConnectorKindDefinition = {
   startUrl: string | null
   content: ContentField[]
   checks: CheckSpec[]
+  replies: ConnectorReplies
 }
 
 export type AccountDefinition = {

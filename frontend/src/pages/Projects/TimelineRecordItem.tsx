@@ -13,6 +13,7 @@ import { timelineRecordUpserted } from '../../store/timelineRecordsSlice'
 // User interface
 import { Button, Chip, Link, toast } from '@heroui/react'
 import { SegmentClip } from './SegmentClip'
+import { RecordReply } from '../../replies/RecordReply'
 
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
@@ -34,7 +35,8 @@ type Props = {
 }
 
 // One record on a project's timeline. A meeting segment shows its summary, its clip, and its
-// transcript excerpt on request; other records show their text. Elysia's attribution says how
+// transcript excerpt on request; other records show their text, and a message can be answered
+// with Reply. Elysia's attribution says how
 // sure she was, and the person can confirm it or take the record off this project.
 export function TimelineRecordItem(props: Props) {
   const { t } = useTranslation([ 'timeline', 'common' ])
@@ -113,6 +115,10 @@ export function TimelineRecordItem(props: Props) {
     </div>}
 
     {!media && record.body && <p className='mt-2 line-clamp-3 text-sm opacity-80'>{record.body}</p>}
+
+    <div className='mt-3 empty:hidden'>
+      <RecordReply record={record} />
+    </div>
 
     {attribution && <div className='mt-3 flex flex-wrap items-center gap-2 text-xs'>
       <span className='opacity-60'>{

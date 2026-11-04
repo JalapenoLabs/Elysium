@@ -52,6 +52,8 @@ export type TimelineRecord = {
 
 export type TimelineQuery = {
   projectId?: string
+  // Only the record that raised this action item.
+  actionItemId?: string
   // An `occurredAt`: only records before it, for the next page.
   before?: string
   limit?: number
@@ -67,6 +69,9 @@ export function timelineKey(query: TimelineQuery) {
   const parameters = new URLSearchParams()
   if (query.projectId) {
     parameters.set('projectId', query.projectId)
+  }
+  if (query.actionItemId) {
+    parameters.set('actionItemId', query.actionItemId)
   }
   if (query.before) {
     parameters.set('before', query.before)

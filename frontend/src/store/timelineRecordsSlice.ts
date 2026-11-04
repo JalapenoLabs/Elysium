@@ -34,3 +34,9 @@ export const selectTimelineRecordsByProjectId = createSelector(
     (record) => record.projects.some((attribution) => attribution.projectId === projectId),
   ),
 )
+
+// The record that raised an action item, if one did and it is loaded.
+export const selectTimelineRecordByActionItemId = createSelector(
+  [ selectAll, (_state: RootState, actionItemId: string) => actionItemId ],
+  (records, actionItemId) => records.find((record) => record.actionItemId === actionItemId) ?? null,
+)

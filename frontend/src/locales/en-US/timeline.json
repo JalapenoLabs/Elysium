@@ -10,6 +10,7 @@
     "gmail": "Gmail",
     "teams": "Teams",
     "slack": "Slack",
+    "mail": "Mail",
     "other": "Record"
   },
   "segment": {
@@ -26,5 +27,27 @@
     "removed": "Removed from this project's timeline.",
     "confirmed": "Kept on this project's timeline."
   },
-  "openSource": "Open at the source"
+  "openSource": "Open at the source",
+  "reply": {
+    "heading": "Reply",
+    "open": "Reply",
+    "label": "Your reply",
+    "placeholder": "Write a reply",
+    "hint": "Ctrl+Enter sends",
+    "place": "Where",
+    "places": {
+      "thread": "In the thread",
+      "conversation": "In the conversation"
+    },
+    "from": "From",
+    "to": "To {{recipient}}",
+    "send": "Send",
+    "sending": "Sending",
+    "discard": "Discard",
+    "sent": "Sent",
+    "failed": "Not sent: {{reason}}",
+    "loadError": "Your drafts for this message could not be loaded.",
+    "noMailbox": "Replying by mail needs a mailbox of your own.",
+    "connectMailbox": "Connect one under Email"
+  }
 }

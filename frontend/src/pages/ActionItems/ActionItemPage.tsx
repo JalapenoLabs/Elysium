@@ -19,6 +19,7 @@ import { ActionItemHistory } from './ActionItemHistory'
 import { ActionItemLinks } from './ActionItemLinks'
 import { ActionItemSessions } from './ActionItemSessions'
 import { RestoreActionItemButton } from './RestoreActionItemButton'
+import { ActionItemReply } from '../../replies/ActionItemReply'
 
 // Misc
 import { updateActionItem } from '../../api/routes/actionItemRoutes'
@@ -28,9 +29,9 @@ import { UrlTree } from '../../urls'
 import { NOTES_MAX_CHARACTERS, TITLE_MAX_CHARACTERS } from './actionItemFormSchema'
 
 // `/action-items/:itemId`: one item, edited in place. The title and notes are edited where
-// they are shown, its fields sit in a panel beside them, and its links to Jira and GitHub,
-// its conversation, the coding sessions started from it, and its history follow. A deleted
-// item is shown read-only, with Restore.
+// they are shown, its fields sit in a panel beside them, and its links to Jira and GitHub, the
+// reply box of the message that raised it, its conversation, the coding sessions started from
+// it, and its history follow. A deleted item is shown read-only, with Restore.
 export function ActionItemPage() {
   const { t } = useTranslation([ 'actionItems', 'common' ])
   const dispatch = useAppDispatch()
@@ -123,6 +124,7 @@ export function ActionItemPage() {
             />}
         </section>
         <ActionItemLinks item={item} />
+        {!isDeleted && <ActionItemReply itemId={item.id} />}
         <section className='relaxed'>
           <h2 className='compact text-lg font-semibold'>{t('comments.heading')}</h2>
           <ActionItemComments item={item} />

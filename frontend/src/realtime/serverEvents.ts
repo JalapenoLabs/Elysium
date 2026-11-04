@@ -66,6 +66,9 @@ export type ServerEvent =
     type: 'timelineRecord.created',
     data: { id: string, sourceKind: string, createdBy: string, actionItemId: string | null },
   }
+  // A draft was written, changed, discarded, or sent, or its send failed. Its id and writer
+  // alone, since its text is theirs.
+  | { type: 'draft.changed', data: { id: string, createdBy: string } }
   // A meeting was read, or its processing moved on. Never its title, which its owner loads.
   | { type: 'meeting.changed', data: { id: string, state: MeetingState, createdBy: string } }
   // An entry an item's or an initiative's write recorded.

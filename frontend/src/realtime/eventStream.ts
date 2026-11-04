@@ -30,6 +30,7 @@ import { llmDeleted, llmUpserted, llmUsageUpdated } from '../store/llmsSlice'
 import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSlice'
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
+import { draftRemoved, draftUpserted } from '../store/draftsSlice'
 import { meetingUpserted } from '../store/meetingsSlice'
 import {
   passwordVaultDeleted,
@@ -53,6 +54,7 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
+import { getDraft } from '../api/routes/draftRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { EVENT_STREAM_PATH, EVENT_STREAM_RETRY_INITIAL_MS, EVENT_STREAM_RETRY_MAX_MS } from '../constants'
 
@@ -178,6 +180,22 @@ const handlers: Handlers = {
       return
     }
     void mutate((key) => typeof key === 'string' && key.startsWith('v1/timeline'))
+  },
+  // A draft is its writer's alone, and the event carries no text: it is loaded by id, and one
+  // that is gone was discarded.
+  'draft.changed': (event) => {
+    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
+      return
+    }
+    getDraft(event.data.id)
+      .then((response) => store.dispatch(draftUpserted(response.draft)))
+      .catch((error: unknown) => {
+        if (error instanceof HTTPError && error.response.status === 404) {
+          store.dispatch(draftRemoved(event.data.id))
+          return
+        }
+        console.debug('A changed draft could not be loaded', { error, draftId: event.data.id })
+      })
   },
   // Like a record, a meeting is its owner's alone, and the event carries no content: the
   // meeting is loaded by id.

@@ -11,6 +11,7 @@ const sourceLabelKeys: Record<string, ParseKeys<'timeline'>> = {
   gmail: 'sources.gmail',
   teams: 'sources.teams',
   slack: 'sources.slack',
+  mail: 'sources.mail',
 }
 
 export function sourceLabelKey(sourceKind: string): ParseKeys<'timeline'> {

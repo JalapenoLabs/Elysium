@@ -14,6 +14,7 @@ import { actionItemsLoaded, actionItemUpserted, deletedActionItemsLoaded } from 
 import { browserSessionsLoaded } from '../store/browserSessionsSlice'
 import { changesetsLoaded, changesetUpserted } from '../store/changesetsSlice'
 import { connectorsLoaded } from '../store/connectorsSlice'
+import { recordDraftsLoaded } from '../store/draftsSlice'
 import { codingSessionsLoaded, codingSessionsUpserted } from '../store/codingSessionsSlice'
 import { useAppDispatch } from '../store/hooks'
 import { elysiaMessagesLoaded, elysiaTurnsLoaded, elysiaUpdated } from '../store/elysiaSlice'
@@ -58,6 +59,7 @@ import { getBackups } from '../api/routes/backupRoutes'
 import { listBrowserSessions } from '../api/routes/browserSessionRoutes'
 import { getChangeset, listChangesets } from '../api/routes/changesetRoutes'
 import { listConnectors } from '../api/routes/connectorRoutes'
+import { listRecordDrafts, recordDraftsKey } from '../api/routes/draftRoutes'
 import { listCodingSessions, listSessionEvents } from '../api/routes/codingSessionRoutes'
 import { getElysia, listElysiaMessages, listElysiaTurns } from '../api/routes/elysiaRoutes'
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
@@ -177,6 +179,31 @@ export function useMeetingsLoader(): LoadStatus {
   const { data, error } = useSWR('v1/meetings', async () => {
     const response = await listMeetings()
     dispatch(meetingsLoaded(response.meetings))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// The record that raised an action item, when one did, so the item's page can answer it.
+// Records merge into Redux, so the buffered copy may be applied too.
+export function useActionItemRecordLoader(actionItemId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const query = { actionItemId, limit: 1 }
+  const { data, error } = useSWR(timelineKey(query), () => listTimeline(query))
+  useEffect(() => {
+    if (data) {
+      dispatch(timelineRecordsLoaded(data.records))
+    }
+  }, [ data, dispatch ])
+  return toLoadStatus(data !== undefined, error)
+}
+
+// A record's drafts that were never sent, which its reply box continues.
+export function useRecordDraftsLoader(recordId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(recordDraftsKey(recordId), async () => {
+    const response = await listRecordDrafts(recordId)
+    dispatch(recordDraftsLoaded({ recordId, drafts: response.drafts }))
     return response
   })
   return toLoadStatus(data !== undefined, error)
