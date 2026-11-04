@@ -36,8 +36,8 @@ jobs:
   api:
     name: Publish API
     # Last: auto-update treats a release as available once its API tag exists, and then pulls
-    # the workspace image of the same tag, so that one must already be there.
-    needs: workspace
+    # the workspace and Whisper images of the same tag, so those must already be there.
+    needs: [ workspace, whisper ]
     runs-on: [ self-hosted, linux, rocky9, docker ]
 
     steps:
@@ -96,5 +96,27 @@ jobs:
           repository: jalapenolabs/elysium-workspace
           context: workspace
           dockerfile: workspace/Dockerfile
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  whisper:
+    name: Publish Whisper
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # The image meetings are transcribed in, with its model. The engine pulls the one of its
+      # own release. Its 3 GB model layer changes only with the model, so Docker Hub already
+      # holds it on every push after the first.
+      - name: Publish
+        uses: ./.github/actions/docker-publish
+        with:
+          repository: jalapenolabs/elysium-whisper
+          context: whisper
+          dockerfile: whisper/Dockerfile
           username: ${{ vars.DOCKERHUB_USERNAME }}
           token: ${{ secrets.DOCKERHUB_TOKEN }}

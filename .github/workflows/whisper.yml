@@ -1,0 +1,91 @@
+# Copyright © 2026 Jalapeno Labs
+
+# The Whisper image meetings are transcribed in. See docs/meetings.md and docs/ci.md.
+name: Whisper
+
+# Deliberately unfiltered by path, like every workflow here: this job is a required check,
+# and a required check a path filter skipped would stay pending forever. See docs/ci.md.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+    types: [ checks_requested ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: whisper-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Whisper image
+    # Elysium is public and these runners are self-hosted, so a fork's pull request never
+    # reaches them.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    env:
+      # Unique per run, because runners in the pool can share one Docker daemon.
+      IMAGE: elysium-whisper:ci-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Every model file is checked against its pinned SHA-256 as it is added; the warm build
+      # cache keeps the 3 GB model between runs, keyed by that checksum.
+      - name: Build the image
+        run: docker build --tag "${IMAGE}" whisper
+
+      # The engine runs it with no network and the recording on standard input
+      # (api/src/whisper/), so the check does the same, on twelve seconds of public-domain
+      # speech, and reads the transcript back.
+      - name: Transcribe a recording with no network
+        run: |
+          set -euo pipefail
+          docker run --rm --interactive --network none --cpus 4 --cap-drop ALL \
+            --security-opt no-new-privileges "${IMAGE}" --threads 4 \
+            < whisper/fixtures/librivox-intro.opus > "${RUNNER_TEMP}/transcript.json"
+          python3 - "${RUNNER_TEMP}/transcript.json" <<'EOF'
+          import json, sys
+          transcript = json.load(open(sys.argv[1]))
+          text = " ".join(segment["text"] for segment in transcript["segments"]).lower()
+          words = [word for segment in transcript["segments"] for word in segment["words"]]
+          assert transcript["language"] == "en", transcript["language"]
+          assert "public domain" in text, text
+          assert words and all(word["endMs"] >= word["startMs"] for word in words)
+          print(f"heard {len(words)} words: {text}")
+          EOF
+
+      # A file with no audio stream, and one that is no recording at all, each answer the exit
+      # code the engine reads them by (whisper/transcribe.py): 3, which skips the step, and 2.
+      - name: Tell a file with no audio, and no recording, apart
+        run: |
+          set -euo pipefail
+          python3 - "${RUNNER_TEMP}/picture.png" <<'EOF'
+          import struct, sys, zlib
+          def chunk(kind, data):
+              return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+          header = struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0)
+          pixels = zlib.compress(b"\x00\x00\x00\x00")
+          png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", pixels) + chunk(b"IEND", b"")
+          open(sys.argv[1], "wb").write(png)
+          EOF
+          transcribe() {
+            status=0
+            docker run --rm --interactive --network none "${IMAGE}" --threads 1 > /dev/null || status=$?
+            echo "${status}"
+          }
+          test "$(transcribe < "${RUNNER_TEMP}/picture.png")" = 3
+          test "$(printf 'no recording at all' | transcribe)" = 2
+
+      - name: Remove the image
+        if: always()
+        run: docker image rm "${IMAGE}" > /dev/null 2>&1 || true
