@@ -24,6 +24,7 @@ pub mod elysia;
 pub mod environment_variable;
 pub mod github_credential;
 pub mod initiative;
+pub mod initiative_bulk;
 pub mod initiative_link;
 pub mod issue_report;
 pub mod jira_credential;

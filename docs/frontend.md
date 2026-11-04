@@ -730,7 +730,12 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   each with a Restore row action (`useActionItemFilterDefinitions`). Filters live in the address
   (`actionItemFilters.ts`, which also maps them to the drawer's values), with only what differs from the defaults
   written, so a filtered list survives opening an item and coming back. The page applies them itself, so a list that
-  nothing matches says so while its tags stay to take a filter off.
+  nothing matches says so while its tags stay to take a filter off. Selecting rows opens the floating selection bar
+  (`useActionItemBulkActions`): Change state (Open, Resolved, Dismissed), Change priority, Snooze (the presets, Pick a
+  day, or End the snooze), Add to initiative, Remove from initiative, and Delete, at once with Undo; deleted items
+  Restore together. Each is one change through `POST /api/v1/action-items/bulk`, sent in parts of at most
+  `ACTION_ITEM_BULK_MAX_ITEMS`; the answer lands in Redux at once (`actionItemsUpserted`), the toast counts what
+  changed, and a warning that stays names, by title, an item the change was refused for.
 - **Item page** (`ActionItemPage`, which loads the item for `ActionItemView`) edits the title (the page's title) and
   notes in place with `InlineEditableText`, kept by the page's Save (see Saving). `useActionItemPageActions` gives its header the first state change the
   state allows as the primary action (`transitionsByState` mirrors the API's table), and an Actions menu with the
@@ -768,7 +773,8 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
 - **Initiatives** (`InitiativesPage`, `InitiativeTable`) list name, state, progress, target date, and projects, with
   the same titlebar controls as All items. The drawer filters states (active by default), project (or no project),
   and deleted initiatives, each with a Restore row action; filters live in the address (`initiativeFilters.ts`).
-  Progress is always resolved and total together
+  Selecting rows offers Change state and Delete with Undo, or Restore, through `POST /api/v1/initiatives/bulk`
+  (`useInitiativeBulkActions`). Progress is always resolved and total together
   (`InitiativeProgressSummary`), with a bar beside the counts, never a percentage.
 - **Initiative page** (`InitiativePage`, which loads the initiative for `InitiativeView`) edits the name (the page's
   title, with its state chip beside it) and the description in place, and Delete is its Actions menu. It edits state,
@@ -837,7 +843,11 @@ matter when changing it:
   stays mounted behind the tiles, hidden, because its filters drawer, their tags, and the export serve the tiles too;
   its Columns show only in the table view. The table's columns render and sort from those summaries; last activity
   sorts by the instant rather than the words shown.
-- The table's row actions open, rename, and delete a session.
+- The table's row actions open, rename, and delete a session. Selecting rows in the table view offers Delete for the
+  selection, confirmed once with the countdown that deleting can't be undone (`deleteSessions` in
+  `CodingActionsContext`). Each session is deleted by its own request: a delete stops the session's turns and removes
+  its directory in the workspace, work a database transaction cannot hold, so a bulk route would only loop the same
+  requests. One that fails is named in a toast and the rest still go.
 - `SessionTiles` is a grid that fits as many 16rem columns as the panel is wide, down to one at phone width. Each
   tile shows the number, title, state chip, project, and last activity, with `SessionRowActions`, a menu of the same
   three, in its corner. The title's link stretches over the whole card, so clicking a tile opens the session as clicking the title
@@ -1007,7 +1017,9 @@ filters drawer, and selection bar the kit renders into the body.
   sessions, runs, and learnings); the settings tables do not. A CSV holds states and other labels as words, dates as
   their UTC instants, and leaves images out.
 - **Multi-select.** `enableSelection` with `selectionActions` and `bulkEdit` gives the floating selection bar, its
-  hotkeys, and select-everything across pages. Phones get none.
+  hotkeys, and select-everything across pages. Phones get none. The kit draws the checkboxes but holds no selection,
+  so the table passes `rowSelection` and `onRowSelectionChange` from its own state; without them the checkboxes do
+  nothing. All items, Initiatives, and the Sessions table select; an enum column changes from a drop-up (`choices`).
 - **Empty lists.** The kit has no empty-state slot, so render the empty message instead of the table. A list whose
   controls are in the titlebar keeps its table mounted with no rows, hidden behind the message, since the controls
   and filter tags live only while the table does (`emptyNotice` on `ActionItemTable` and `InitiativeTable`).

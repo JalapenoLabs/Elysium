@@ -97,6 +97,9 @@ export const ACTION_ITEM_PERSON_MAX_CHARACTERS = 320
 // is sent in parts of this size.
 export const ACTION_ITEM_BULK_MAX_ITEMS = 1000
 
+// The most initiatives one bulk change names, matching the API's `MAX_INITIATIVES`.
+export const INITIATIVE_BULK_MAX_INITIATIVES = 1000
+
 // How long typing in a link picker's search rests before Jira is asked, so a word typed
 // quickly is one search rather than one per letter.
 export const LINK_SEARCH_DELAY_MS = 350

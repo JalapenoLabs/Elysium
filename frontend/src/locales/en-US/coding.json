@@ -141,7 +141,13 @@
   },
   "delete": {
     "title": "Delete {{title}}?",
-    "body": "“{{title}}” stops, and its directory, with its clones and history, is deleted."
+    "body": "“{{title}}” stops, and its directory, with its clones and history, is deleted.",
+    "manyTitle_one": "Delete {{count, compact}} session?",
+    "manyTitle_other": "Delete {{count, compact}} sessions?",
+    "manyBody": "{{titles}} stop, and their directories, with their clones and history, are deleted.",
+    "quoted": "“{{title}}”",
+    "more_one": "{{count, compact}} more",
+    "more_other": "{{count, compact}} more"
   },
   "conversation": {
     "fromItem": "From {{title}}",
@@ -175,6 +181,10 @@
     "created": "{{title}} started",
     "renamed": "Session renamed",
     "deleted": "{{title}} deleted",
+    "deletedMany_one": "{{count, compact}} session deleted",
+    "deletedMany_other": "{{count, compact}} sessions deleted",
+    "deleteFailed": "{{title}} could not be deleted.",
+    "deleteFailedBecause": "{{title}} could not be deleted: {{reason}}",
     "promptFailed": "The prompt could not be sent"
   },
   "watermark": "Open a session from the Sessions panel.",

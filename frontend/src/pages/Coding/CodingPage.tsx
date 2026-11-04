@@ -27,6 +27,7 @@ import { SessionsPanel } from './SessionsPanel'
 // Misc
 import { getUpstreamErrorMessage } from '../../api/errors'
 import { deleteCodingSession } from '../../api/routes/codingSessionRoutes'
+import { listFormat } from '../../format/intl'
 import { useConfirm } from '../../hooks/useConfirm'
 import { useCodingSessionsLoader } from '../../hooks/useServerData'
 import { getNewCodingSessionUrl, NEW_SESSION_ITEM_PARAM, UrlTree } from '../../urls'
@@ -41,6 +42,9 @@ import {
   showSessionsPanel,
 } from './codingLayout'
 import { toast } from '../../toast/toast'
+
+// How many sessions a delete of a selection names in its confirmation; the rest are counted.
+const DELETE_NAMED_SESSIONS = 3
 
 const panelComponents = {
   [CODING_PANEL_COMPONENTS.sessions]: SessionsPanel,
@@ -109,6 +113,46 @@ export function CodingPage() {
         toast.success(t('toasts.deleted', { title: session.title }))
       },
     }),
+    // One request per session rather than a bulk route: each delete stops the session's turns
+    // and removes its directory in the workspace, work no database transaction can hold, so
+    // one route for many would only run these same steps in a loop. One that fails is named
+    // and the rest still go.
+    deleteSessions: (sessions) => {
+      const quoted = sessions
+        .slice(0, DELETE_NAMED_SESSIONS)
+        .map((session) => t('delete.quoted', { title: session.title }))
+      const unnamedCount = sessions.length - quoted.length
+      if (unnamedCount) {
+        quoted.push(t('delete.more', { count: unnamedCount }))
+      }
+      confirm({
+        title: t('delete.manyTitle', { count: sessions.length }),
+        message: t('delete.manyBody', { titles: listFormat({ type: 'conjunction' }).format(quoted) }),
+        isIrreversible: true,
+        confirmText: t('common:actions.delete'),
+        onConfirm: async () => {
+          let deletedCount = 0
+          for (const session of sessions) {
+            try {
+              await deleteCodingSession(session.id)
+              dispatch(codingSessionDeleted(session.id))
+              deletedCount += 1
+            }
+            catch (error) {
+              const reason = getUpstreamErrorMessage(error)
+              console.debug('CodingPage failed to delete a selected session', { error, sessionId: session.id })
+              const message = reason
+                ? t('toasts.deleteFailedBecause', { title: session.title, reason })
+                : t('toasts.deleteFailed', { title: session.title })
+              toast.danger(message)
+            }
+          }
+          if (deletedCount) {
+            toast.success(t('toasts.deletedMany', { count: deletedCount }))
+          }
+        },
+      })
+    },
   }), [ openRename, confirm, dispatch, t ])
 
   useEffect(() => {

@@ -96,7 +96,9 @@ them to or take them out of an initiative, delete, or restore them (`POST /api/v
 A state is named as where the items should end up, and each item takes the transition that leads there from its own
 state, so a selection of inbox and open items can be resolved together. Every item goes through the write it would take
 alone, in one transaction, each in a savepoint of its own: an item the rules refuse is left as it was and reported,
-and the rest apply. `api/src/models/action_item_bulk.rs` holds the queries; `Transition::toward` the rule.
+and the rest apply. `api/src/models/action_item_bulk.rs` holds the queries; `Transition::toward` the rule. Initiatives
+change many at once the same way: a state, delete, or restore (`POST /api/v1/initiatives/bulk`,
+`api/src/models/initiative_bulk.rs`).
 
 ## Ownership and multiple users
 

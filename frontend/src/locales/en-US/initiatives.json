@@ -31,6 +31,20 @@
     "emptyDeleted": "No deleted initiatives match these filters.",
     "restore": "Restore"
   },
+  "bulk": {
+    "state": "Change state",
+    "toasts": {
+      "stateChanged_one": "Set {{count, compact}} initiative to {{state}}.",
+      "stateChanged_other": "Set {{count, compact}} initiatives to {{state}}.",
+      "deleted_one": "Deleted {{count, compact}} initiative.",
+      "deleted_other": "Deleted {{count, compact}} initiatives.",
+      "restored_one": "Restored {{count, compact}} initiative.",
+      "restored_other": "Restored {{count, compact}} initiatives.",
+      "refusedOne": "Left “{{name}}” as it is, since it cannot take that change.",
+      "refusedMore_one": "Left “{{name}}” and {{count, compact}} more as they are, since they cannot take that change.",
+      "refusedMore_other": "Left “{{name}}” and {{count, compact}} more as they are, since they cannot take that change."
+    }
+  },
   "table": {
     "name": "Name",
     "state": "State",

@@ -13,6 +13,8 @@ export type CodingActions = {
   openSession: (session: CodingSession) => void
   renameSession: (session: CodingSession) => void
   deleteSession: (session: CodingSession) => void
+  // A selection, after one confirmation; each is deleted as `deleteSession` deletes one.
+  deleteSessions: (sessions: CodingSession[]) => void
 }
 
 export const CodingActionsContext = createContext<CodingActions | null>(null)

@@ -8,6 +8,7 @@
 
 mod add_link;
 mod add_project;
+mod change_initiatives;
 mod create_initiative;
 mod delete_initiative;
 mod get_initiative;
@@ -45,6 +46,7 @@ pub fn router() -> Router<AppState> {
             "/",
             get(list_initiatives::handle).post(create_initiative::handle),
         )
+        .route("/bulk", post(change_initiatives::handle))
         .route(
             "/{id}",
             get(get_initiative::handle)

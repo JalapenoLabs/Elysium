@@ -77,6 +77,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PUT    | `/api/v1/action-items/{id}/links/{linkId}/primary` | `200` `{ links }`                      |
 | DELETE | `/api/v1/action-items/{id}/links/{linkId}/writes/{writeId}` | `204`; cancels a pending write |
 | GET    | `/api/v1/initiatives`                 | `200` `{ initiatives: Initiative[] }`, by name      |
+| POST   | `/api/v1/initiatives/bulk`            | `200` `{ initiatives, refused }`; one change to many |
 | POST   | `/api/v1/initiatives`                 | `201` `{ initiative }`                              |
 | GET    | `/api/v1/initiatives/{id}`            | `200` `{ initiative }`, deleted or not              |
 | PATCH  | `/api/v1/initiatives/{id}`            | `200` `{ initiative }`                              |
@@ -662,6 +663,11 @@ An `Initiative` has `id`, `name`, `description`, `state` (`active`, `achieved`, 
 accepts `description` (up to 20,000), `targetAt`, and `projectIds`; it starts `active`. `PATCH` accepts any of `name`,
 `description`, `targetAt` (`null` removes it), and `state`, in any direction. Deleting keeps its items as members;
 they stop listing it until it is restored.
+
+`POST /bulk` applies one change to many initiatives, as the item route does: `{ initiativeIds, change }`, with 1 to
+1,000 ids and `change` one of `{ kind: "state", state }`, `{ kind: "delete" }`, or `{ kind: "restore" }`. Each goes
+through its own route's write in one transaction, and one the records refuse is listed in `refused` as
+`{ initiativeId, message }` while the rest apply (`src/models/initiative_bulk.rs`).
 
 `progress` answers `{ resolved, total, burnup }`, with `burnup` a list of `{ at, resolved, total }`: a point at the
 initiative's creation, one at every moment either count changed, and one now.

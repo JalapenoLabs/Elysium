@@ -110,6 +110,34 @@ export function restoreInitiative(initiativeId: string) {
     .json<InitiativeResponse>()
 }
 
+// Mirrors `BulkInitiativeChange` in api/src/models/initiative_bulk.rs: one change for every
+// initiative a selection names.
+export type InitiativeBulkChange =
+  | { kind: 'state', state: InitiativeState }
+  | { kind: 'delete' }
+  | { kind: 'restore' }
+
+// Mirrors `InitiativeRefusal` in api/src/models/initiative_bulk.rs. `message` is the API's
+// English reason, for logs; people are told by name.
+export type InitiativeRefusal = {
+  initiativeId: string
+  message: string
+}
+
+type ChangeInitiativesResponse = {
+  // Every initiative the change applied to, as it stands now.
+  initiatives: Initiative[]
+  refused: InitiativeRefusal[]
+}
+
+// At most `INITIATIVE_BULK_MAX_INITIATIVES` ids, written in one transaction; one the records
+// refuse is answered in `refused` while the rest apply.
+export function changeInitiatives(initiativeIds: string[], change: InitiativeBulkChange) {
+  return apiClient
+    .post('v1/initiatives/bulk', { json: { initiativeIds, change }})
+    .json<ChangeInitiativesResponse>()
+}
+
 // Progress now, and the burnup: a point at creation, one at every moment either count
 // changed, and one now. Clients draw it as steps.
 export type InitiativeProgressResponse = InitiativeProgress & {

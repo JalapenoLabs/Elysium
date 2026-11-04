@@ -34,13 +34,16 @@ import {
 } from './initiativeFilters'
 import { initiativeStateLabelKeys } from './initiativePresentation'
 import { useInitiativeActions } from './useInitiativeActions'
+import { useInitiativeBulkActions } from './useInitiativeBulkActions'
 
 // `/action-items/initiatives`: every initiative with its progress, its search, filters,
 // Columns, and export in the titlebar, the active ones by default. Filters live in the address,
 // like the item list's. Deleted ones show in their place when asked for, each with Restore.
+// Selecting rows offers a state change and delete, or restore, on the floating bar.
 export function InitiativesPage() {
   const { t } = useTranslation('initiatives')
   const actions = useInitiativeActions()
+  const bulkActions = useInitiativeBulkActions()
   const toolsContainer = usePageToolsContainer()
   const [ searchParams, setSearchParams ] = useSearchParams()
   const filters = readInitiativeFilters(searchParams)
@@ -127,6 +130,9 @@ export function InitiativesPage() {
       rowActions={filters.deleted
         ? deletedRowActions
         : undefined}
+      selectionActions={filters.deleted
+        ? bulkActions.deletedActions
+        : bulkActions.liveActions}
     />}
   </div>
 }

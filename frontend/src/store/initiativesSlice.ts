@@ -22,6 +22,18 @@ const initialState = {
   deleted: initiativesAdapter.getInitialState(),
 }
 
+type InitiativesState = typeof initialState
+
+function fileInitiative(state: InitiativesState, initiative: Initiative) {
+  if (initiative.deletedAt) {
+    initiativesAdapter.removeOne(state.live, initiative.id)
+    initiativesAdapter.setOne(state.deleted, initiative)
+    return
+  }
+  initiativesAdapter.removeOne(state.deleted, initiative.id)
+  initiativesAdapter.setOne(state.live, initiative)
+}
+
 export const initiativesSlice = createSlice({
   name: 'initiatives',
   initialState,
@@ -34,14 +46,13 @@ export const initiativesSlice = createSlice({
     },
     // Files the initiative under live or deleted by its `deletedAt`.
     initiativeUpserted(state, action: PayloadAction<Initiative>) {
-      const initiative = action.payload
-      if (initiative.deletedAt) {
-        initiativesAdapter.removeOne(state.live, initiative.id)
-        initiativesAdapter.setOne(state.deleted, initiative)
-        return
+      fileInitiative(state, action.payload)
+    },
+    // The initiatives one change to a selection answered with, filed in one update.
+    initiativesUpserted(state, action: PayloadAction<Initiative[]>) {
+      for (const initiative of action.payload) {
+        fileInitiative(state, initiative)
       }
-      initiativesAdapter.removeOne(state.deleted, initiative.id)
-      initiativesAdapter.setOne(state.live, initiative)
     },
     initiativeDeleted(state, action: PayloadAction<string>) {
       initiativesAdapter.removeOne(state.live, action.payload)
@@ -65,6 +76,7 @@ export const {
   initiativesLoaded,
   deletedInitiativesLoaded,
   initiativeUpserted,
+  initiativesUpserted,
   initiativeDeleted,
 } = initiativesSlice.actions
 

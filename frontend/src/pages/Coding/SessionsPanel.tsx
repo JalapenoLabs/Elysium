@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { DataTableAction, SmartTableFilter } from '@jalapenolabs/uikit'
+import type { DataTableAction, DataTableSelectionAction, SmartTableFilter } from '@jalapenolabs/uikit'
+import type { RowSelectionState } from '@tanstack/react-table'
 import type { SessionSummary } from './sessionPresentation'
 
 // Core
@@ -94,6 +95,7 @@ export function SessionsPanel() {
   const filters = readSessionFilters(searchParams)
   // The toolbar's slot for the table's filters, Columns, and export.
   const [ controlsContainer, setControlsContainer ] = useState<HTMLDivElement | null>(null)
+  const [ rowSelection, setRowSelection ] = useState<RowSelectionState>({})
   const view = useAppSelector(selectSessionsView)
 
   const sessions = useAppSelector(selectCodingSessions)
@@ -202,6 +204,15 @@ export function SessionsPanel() {
     },
   ], [ t, actions ])
 
+  // Deleting can't be undone, so the page confirms once for the whole selection.
+  const selectionActions = useMemo((): DataTableSelectionAction<SessionSummary>[] => [{
+    id: 'delete',
+    label: t('common:actions.delete'),
+    icon: <LuTrash2 className='size-4' aria-hidden />,
+    isDanger: true,
+    onPress: (rows) => actions.deleteSessions(rows.map((summary) => summary.session)),
+  }], [ t, actions ])
+
   if (sessionsStatus === 'loading') {
     return <div className='grid h-full place-items-center'>
       <Spinner />
@@ -264,6 +275,11 @@ export function SessionsPanel() {
         ),
       }}
       rowActions={rowActions}
+      // The tiles have no checkboxes, so selecting belongs to the table view.
+      enableSelection={isTable}
+      rowSelection={rowSelection}
+      onRowSelectionChange={setRowSelection}
+      selectionActions={selectionActions}
       csvExport={{ fileName: 'coding-sessions' }}
       pagination={{ show: true }}
       enableSorting
