@@ -19,7 +19,7 @@
     "@heroui/styles": "^3.2.5",
     "@hookform/resolvers": "^5.9.1",
     "@internationalized/date": "^3.12.4",
-    "@jalapenolabs/uikit": "https://github.com/JalapenoLabs/uikit.git#commit=b98c8deeecf84cd954ad5bb58a4d719680f9b6f6",
+    "@jalapenolabs/uikit": "https://github.com/JalapenoLabs/uikit.git#commit=9d2be783954c2aafbeb0793d92f3709e95a7d319",
     "@novnc/novnc": "1.7.0",
     "@ory/client-fetch": "^1.22.66",
     "@react-aria/i18n": "^3.13.1",

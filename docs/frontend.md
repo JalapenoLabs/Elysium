@@ -808,15 +808,28 @@ only fetches git dependencies from approved repositories, so `.yarnrc.yml` appro
 ### `@jalapenolabs/uikit`
 
 A React component kit. It styles itself with one scoped stylesheet (`jala-table-*` classes) themed through CSS
-variables, so it does not depend on Tailwind or HeroUI. `src/index.css` points the table's variables at the
-HeroUI theme so accents match.
+variables, so it does not depend on Tailwind or HeroUI. `src/theme/matter.css` points the variables at the palette
+through `html .jala-table-theme`, the class every table surface carries, including the tooltips, menus, dialogs,
+filters drawer, and selection bar the kit renders into the body.
 
 - **`SmartTable`** takes `managedColumns` built with `createManagedColumns`. Each column needs a label, a search
   value (what the user sees, not raw data), and a `cell` renderer.
 - **Labels.** Pass `useSmartTableLabels()` as `labels`. The kit ships English strings, and that hook supplies ours
-  from i18next.
-- **Row actions.** Render them as a regular column, as `LlmTable` does. The kit's built-in actions tray appears
-  only on hover, above the row.
+  from i18next (`common.table`).
+- **Row actions.** `rowActions` float over the right of the hovered row as icon-only buttons with tooltips, at
+  most three, the rest in an ellipsis menu; screens that cannot hover get the ellipsis menu on every row. Tables
+  that still render actions as a last column move onto it with #181.
+- **Long cells** clamp to three lines (`cellLineClamp`, a column's `lineClamp`). A click expands the row; tables
+  whose rows navigate set `cellOverflow: 'modal'`, so a double-click opens a clamped cell instead.
+- **Controls in the titlebar.** `controls: { container }` renders the search, filters, Columns, and export into an
+  element, such as one in `PageHeader`'s `tools`, while the table keeps their state. A table with
+  `toolbar: { show: false }` still shows its Columns chooser above it.
+- **Filters** come from a column's `filter` and from `filters.definitions`, with `filters.values` and
+  `onValuesChange` to keep them in the address. They open in a drawer and show as tags above the table.
+- **Export.** `csvExport` adds a one-click CSV of the filtered, sorted rows; `exportValue` gives a column whose
+  accessor is a sort key its real value.
+- **Multi-select.** `enableSelection` with `selectionActions` and `bulkEdit` gives the floating selection bar, its
+  hotkeys, and select-everything across pages. Phones get none.
 - **Empty lists.** The kit has no empty-state slot, so render the empty message instead of the table.
 
 ### `@jalapenolabs/cli/eslint`
@@ -1025,7 +1038,8 @@ They were checked as a pair against each theme's page for lightness, chroma, col
 dark mode steps them toward the middle of the lightness band, since Matter's accent and green sit outside it. Change
 them together and check them again.
 
-The same file points uikit's `--jala-table-*` variables at the palette, including the dark table colors.
+The same file points uikit's `--jala-table-*` variables at the palette through `html .jala-table-theme`, including
+the dark table colors.
 
 `src/theme/dockview.css` defines `dockview-theme-elysium`, which points Dockview's `--dv-*` variables at the same
 tokens.

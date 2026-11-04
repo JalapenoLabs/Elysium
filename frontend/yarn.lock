@@ -1100,9 +1100,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@jalapenolabs/uikit@https://github.com/JalapenoLabs/uikit.git#commit=b98c8deeecf84cd954ad5bb58a4d719680f9b6f6":
+"@jalapenolabs/uikit@https://github.com/JalapenoLabs/uikit.git#commit=9d2be783954c2aafbeb0793d92f3709e95a7d319":
   version: 0.1.0
-  resolution: "@jalapenolabs/uikit@https://github.com/JalapenoLabs/uikit.git#commit=b98c8deeecf84cd954ad5bb58a4d719680f9b6f6"
+  resolution: "@jalapenolabs/uikit@https://github.com/JalapenoLabs/uikit.git#commit=9d2be783954c2aafbeb0793d92f3709e95a7d319"
   dependencies:
     "@dnd-kit/core": "npm:^6.1.0"
     "@dnd-kit/sortable": "npm:^8.0.0"
@@ -1115,7 +1115,7 @@ __metadata:
   peerDependencies:
     react: ">=18.0.0"
     react-dom: ">=18.0.0"
-  checksum: 10c0/443ab86f4c1f583852acbe5d996fbf3931b4345d49e594b14357126d8cc89644a6edf1896bbe4df11d241215d017fe22d6a39253221ffae36b59e9403659b49a
+  checksum: 10c0/3f798a9aeb8f3111cf3891569261f1877f8355e2eace54b77f352d871fe86dd516e3bd84cdf601e35f81dc3144a6ed4ad1a37301fca73bd8e3cd0058d4e513e7
   languageName: node
   linkType: hard
 
@@ -3805,7 +3805,7 @@ __metadata:
     "@hookform/resolvers": "npm:^5.9.1"
     "@internationalized/date": "npm:^3.12.4"
     "@jalapenolabs/cli": "https://github.com/JalapenoLabs/cli.git#commit=e3f02f8f98034ebe59c9b084aa23fb4a8d613b6e"
-    "@jalapenolabs/uikit": "https://github.com/JalapenoLabs/uikit.git#commit=b98c8deeecf84cd954ad5bb58a4d719680f9b6f6"
+    "@jalapenolabs/uikit": "https://github.com/JalapenoLabs/uikit.git#commit=9d2be783954c2aafbeb0793d92f3709e95a7d319"
     "@novnc/novnc": "npm:1.7.0"
     "@ory/client-fetch": "npm:^1.22.66"
     "@react-aria/i18n": "npm:^3.13.1"
