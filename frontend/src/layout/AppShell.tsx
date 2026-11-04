@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
-import { Outlet, useHref, useMatches, useNavigate } from 'react-router'
+import { Outlet, useMatches, useNavigate } from 'react-router'
+import { useRouterHref } from './useRouterHref'
 
 // Redux
 import { useAppSelector } from '../store/hooks'
@@ -38,8 +39,8 @@ export function AppShell() {
 
   // HeroUI components are built on React Aria. Handing it the router's navigate
   // makes every `href` on a HeroUI Link or Button a client-side route change
-  // instead of a full page load.
-  return <AriaRouterProvider navigate={navigate} useHref={useHref}>
+  // instead of a full page load, while a link to another site keeps its address.
+  return <AriaRouterProvider navigate={navigate} useHref={useRouterHref}>
     {/* Inside the router's provider, so the report dialog's links navigate in the app. */}
     <ReportIssueGate>
       <div className='flex h-dvh overflow-hidden'>

@@ -2,7 +2,8 @@
 
 // Core
 import { useTranslation } from 'react-i18next'
-import { Outlet, useHref, useNavigate } from 'react-router'
+import { Outlet, useNavigate } from 'react-router'
+import { useRouterHref } from '../../layout/useRouterHref'
 
 // User interface
 import { RouterProvider as AriaRouterProvider, Toast } from '@heroui/react'
@@ -15,7 +16,7 @@ export function AuthLayout() {
   const { t } = useTranslation('common')
   const navigate = useNavigate()
 
-  return <AriaRouterProvider navigate={navigate} useHref={useHref}>
+  return <AriaRouterProvider navigate={navigate} useHref={useRouterHref}>
     <main className='relative isolate flex min-h-dvh flex-col items-center justify-center overflow-hidden px-4 py-12'>
       <AuthSplash />
       <div className='auth-splash-rise relative flex w-full max-w-md flex-col items-center'>

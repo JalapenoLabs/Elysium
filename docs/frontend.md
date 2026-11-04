@@ -111,8 +111,9 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
 - **Workspace pages.** A page that manages its own scrolling (the Coding page, a Studio item) renders `PageHeader`
   alone in its top bar, with the same props, and passes `className` for its spacing.
 
-`AppShell` also mounts HeroUI's `RouterProvider`, wired to React Router's `navigate` and `useHref`. That makes any
-HeroUI `Link` `href` a client-side navigation. It also mounts the toast region.
+`AppShell` also mounts HeroUI's `RouterProvider`, wired to React Router's `navigate` and `useRouterHref`
+(`src/layout/useRouterHref.ts`). That makes any HeroUI `Link` `href` a client-side navigation, while a full URL to
+another site keeps its own address. It also mounts the toast region.
 
 ## Routes
 
