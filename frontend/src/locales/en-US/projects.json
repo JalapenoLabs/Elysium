@@ -116,5 +116,72 @@
     "initiativesHeading": "Initiatives",
     "newInitiative": "New initiative",
     "initiativesEmpty": "No initiatives in this project yet."
+  },
+  "manager": {
+    "tab": "Project Manager",
+    "loadError": "The Project Manager could not be loaded.",
+    "statuses": {
+      "running": "Working",
+      "held": "Held by a usage limit",
+      "errored": "Last turn failed",
+      "waiting": "Starting soon",
+      "idle": "Idle"
+    },
+    "waiting_one": "{{count, compact}} change waits for its next turn",
+    "waiting_other": "{{count, compact}} changes wait for its next turn",
+    "heldUntil": "Carries on {{time}}",
+    "empty": "Nothing has woken the Project Manager yet.",
+    "composer": {
+      "label": "Write to the Project Manager",
+      "hint": "Ctrl+Enter sends",
+      "send": "Send",
+      "failed": "The message could not be sent."
+    },
+    "turn": {
+      "working": "Working…",
+      "noSummary": "Finished without a summary",
+      "statuses": {
+        "running": "Running",
+        "succeeded": "Succeeded",
+        "failed": "Failed"
+      },
+      "wokenBy": "What woke it",
+      "records_one": "{{count, compact}} record new on the timeline",
+      "records_other": "{{count, compact}} records new on the timeline",
+      "batches_one": "{{count, compact}} batch finished",
+      "batches_other": "{{count, compact}} batches finished",
+      "fromElysia": "Elysia",
+      "fromYou": "You",
+      "fromSomeone": "Someone",
+      "reply": "Its reply",
+      "log": "What it did",
+      "noLog": "It wrote nothing to its log.",
+      "logError": "Its log could not be loaded."
+    }
+  },
+  "batches": {
+    "tab": "Work batches",
+    "label": "The Project Manager's work batches",
+    "empty": "No work batches yet.",
+    "columns": {
+      "title": "Batch",
+      "priority": "Priority",
+      "state": "State",
+      "submitted": "Submitted",
+      "result": "Result"
+    },
+    "priorities": {
+      "asap": "ASAP",
+      "normal": "Normal",
+      "scheduled": "Scheduled"
+    },
+    "scheduledFor": "Scheduled for {{time}}",
+    "states": {
+      "queued": "Queued",
+      "running": "Running",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    }
   }
 }

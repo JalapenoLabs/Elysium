@@ -153,6 +153,11 @@ export const TIMELINE_PAGE_SIZE = 50
 // a change she made is created by, such as attributing a meeting's topic to a project.
 export const ELYSIA_USER_ID = '00000000-0000-0000-0000-000000000002'
 
+// Every Project Manager's machine user, as the API seeds it (`PROJECT_MANAGER_USER_ID` in
+// api/src/models/user.rs): what it puts on a project's timeline is the workspace's, not one
+// person's, so nobody moves it between projects.
+export const PROJECT_MANAGER_USER_ID = '00000000-0000-0000-0000-000000000004'
+
 // The zxcvbn score, out of 4, a new password must reach before the form submits.
 export const PASSWORD_MIN_SCORE = 3
 

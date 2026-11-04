@@ -5,7 +5,7 @@ import type { AttributionHistoryEntry, Attribution, TimelineRecord } from '../..
 import type { Project } from '../../api/routes/projectRoutes'
 
 // Misc
-import { ELYSIA_USER_ID } from '../../constants'
+import { ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID } from '../../constants'
 
 // What each kind of record is called. A kind added later reads as a plain record until it
 // gets its own name.
@@ -16,6 +16,7 @@ const sourceLabelKeys: Record<string, ParseKeys<'timeline'>> = {
   teams: 'sources.teams',
   slack: 'sources.slack',
   mail: 'sources.mail',
+  project_manager: 'sources.project_manager',
 }
 
 export function sourceLabelKey(sourceKind: string): ParseKeys<'timeline'> {
@@ -34,6 +35,12 @@ export function segmentDetails(record: TimelineRecord) {
       ? meetingTitle
       : '',
   } as const
+}
+
+// Whether a record is the workspace's rather than one person's: what a Project Manager put on
+// its project's timeline. Nobody answers it or moves it between projects.
+export function isWorkspaceRecord(record: TimelineRecord): boolean {
+  return record.createdBy === PROJECT_MANAGER_USER_ID
 }
 
 // Whether a clip plays as video; anything else plays as audio.

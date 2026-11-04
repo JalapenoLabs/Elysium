@@ -32,6 +32,7 @@ import { draftsSlice } from './draftsSlice'
 import { meetingsSlice } from './meetingsSlice'
 import { modelSettingsSlice } from './modelSettingsSlice'
 import { notificationsSlice } from './notificationsSlice'
+import { projectManagersSlice } from './projectManagersSlice'
 import { projectsSlice } from './projectsSlice'
 import { passwordVaultSlice } from './passwordVaultSlice'
 import { realtimeSlice } from './realtimeSlice'
@@ -89,6 +90,7 @@ export function createAppStore() {
       [meetingsSlice.name]: meetingsSlice.reducer,
       [modelSettingsSlice.name]: modelSettingsSlice.reducer,
       [notificationsSlice.name]: notificationsSlice.reducer,
+      [projectManagersSlice.name]: projectManagersSlice.reducer,
       [projectsSlice.name]: projectsSlice.reducer,
       [realtimeSlice.name]: realtimeSlice.reducer,
       [runsSlice.name]: runsSlice.reducer,

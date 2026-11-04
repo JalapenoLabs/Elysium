@@ -57,6 +57,7 @@
   },
   "agents": {
     "elysia": "Elysia",
+    "project_manager": "Project Managers",
     "coding_session": "Coding sessions",
     "studio_session": "Studio sessions",
     "turn_summary": "Turn summaries",

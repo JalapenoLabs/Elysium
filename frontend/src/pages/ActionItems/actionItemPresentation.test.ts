@@ -28,6 +28,10 @@ describe('describeActor', () => {
   it('names machines by their kind and detail', () => {
     expect(describeActor('elysia')).toEqual({ key: 'actors.elysia', values: { detail: '' }})
     expect(describeActor('session:12')).toEqual({ key: 'actors.session', values: { detail: '12' }})
+    expect(describeActor('project_manager:0199a3c4-0000-7000-8000-00000000beef')).toEqual({
+      key: 'actors.projectManager',
+      values: { detail: '0199a3c4-0000-7000-8000-00000000beef' },
+    })
     expect(describeActor('watcher:jira')).toEqual({ key: 'actors.watcher', values: { detail: 'jira' }})
     expect(describeActor('system')).toEqual({ key: 'actors.system', values: { detail: '' }})
   })

@@ -113,6 +113,9 @@ export type ServerEvent =
   | { type: 'elysiaMessage.created', data: ElysiaMessage }
   // One of her turns was queued, started, ended, or cancelled.
   | { type: 'elysiaTurn.upserted', data: ElysiaTurn }
+  // A project's Project Manager changed: something woke it, a turn started or ended, or a batch
+  // of its was submitted or moved on. The project's id alone; its page loads it.
+  | { type: 'projectManager.changed', data: { projectId: string } }
   | { type: 'environmentVariable.upserted', data: EnvironmentVariable }
   | { type: 'environmentVariable.deleted', data: { id: string } }
   | { type: 'githubCredential.upserted', data: GithubCredential }

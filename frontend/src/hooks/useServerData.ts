@@ -18,6 +18,7 @@ import { recordDraftsLoaded } from '../store/draftsSlice'
 import { codingSessionsLoaded, codingSessionsUpserted } from '../store/codingSessionsSlice'
 import { companyDocLoaded } from '../store/companyDocSlice'
 import { useAppDispatch } from '../store/hooks'
+import { projectManagerLoaded, turnLogLoaded } from '../store/projectManagersSlice'
 import { elysiaMessagesLoaded, elysiaTurnsLoaded, elysiaUpdated } from '../store/elysiaSlice'
 import { environmentVariablesLoaded } from '../store/environmentVariablesSlice'
 import { githubCredentialsLoaded } from '../store/githubCredentialsSlice'
@@ -82,6 +83,12 @@ import { listModelSettings, MODEL_SETTINGS_KEY } from '../api/routes/modelSettin
 import { getPasswordVault } from '../api/routes/passwordVaultRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
 import { getRun, getStepLog, listRuns } from '../api/routes/runRoutes'
+import {
+  getProjectManager,
+  getProjectManagerKey,
+  getProjectManagerTurn,
+  getProjectManagerTurnKey,
+} from '../api/routes/projectManagerRoutes'
 import { listStorageLocations } from '../api/routes/storageRoutes'
 import { getStudioItem, listStudioItems } from '../api/routes/studioRoutes'
 import { listTimeline, timelineKey } from '../api/routes/timelineRoutes'
@@ -477,6 +484,35 @@ export function useStepLogLoader(runId: string, stepId: string, isOpen: boolean)
   const { data, error } = useSWR(key, async () => {
     const response = await getStepLog(runId, stepId)
     dispatch(stepLogLoaded({ stepId, log: response.log }))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// A project's Project Manager, which only the company's members read: its turns quote what was
+// ingested. The response replaces what Redux holds of it, so it is applied from the fetcher.
+export function useProjectManagerLoader(projectId: string, isEnabled: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isEnabled
+    ? getProjectManagerKey(projectId)
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await getProjectManager(projectId)
+    dispatch(projectManagerLoaded(response.projectManager))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One of its turns' log, read when the turn is opened, and again when the turn changes.
+export function useProjectManagerTurnLoader(projectId: string, turnId: string, isOpen: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isOpen
+    ? getProjectManagerTurnKey(projectId, turnId)
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await getProjectManagerTurn(projectId, turnId)
+    dispatch(turnLogLoaded({ turnId, log: response.log }))
     return response
   })
   return toLoadStatus(data !== undefined, error)

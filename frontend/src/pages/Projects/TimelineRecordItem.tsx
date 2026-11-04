@@ -16,7 +16,7 @@ import { RecordReply } from '../../replies/RecordReply'
 // Misc
 import { formatDateTime } from '../../format/dates'
 import { formatMediaPosition } from '../../format/durations'
-import { segmentDetails, sourceLabelKey } from './timelinePresentation'
+import { isWorkspaceRecord, segmentDetails, sourceLabelKey } from './timelinePresentation'
 
 type Props = {
   record: TimelineRecord
@@ -24,7 +24,8 @@ type Props = {
 
 // One record, on a project's timeline or a meeting's topics. A meeting segment shows its
 // summary, its clip, and its transcript excerpt on request; other records show their text, and a
-// message can be answered with Reply. Below, the projects it is on, which the person corrects.
+// message can be answered with Reply. Below, the projects it is on, which the person corrects. A
+// Project Manager's record is the workspace's, on its own project, so it shows neither.
 export function TimelineRecordItem(props: Props) {
   const { t } = useTranslation([ 'timeline', 'common' ])
   const [ showsTranscript, setShowsTranscript ] = useState(false)
@@ -86,12 +87,14 @@ export function TimelineRecordItem(props: Props) {
 
     {!media && record.body && <p className='mt-2 line-clamp-3 text-sm opacity-80'>{record.body}</p>}
 
-    <div className='mt-3 empty:hidden'>
-      <RecordReply record={record} />
-    </div>
+    {!isWorkspaceRecord(record) && <>
+      <div className='mt-3 empty:hidden'>
+        <RecordReply record={record} />
+      </div>
 
-    <div className='mt-3'>
-      <RecordProjects record={record} />
-    </div>
+      <div className='mt-3'>
+        <RecordProjects record={record} />
+      </div>
+    </>}
   </li>
 }

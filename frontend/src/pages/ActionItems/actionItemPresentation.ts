@@ -77,6 +77,7 @@ export const transitionsByState = {
 const actorKeysByKind = new Map<string, ParseKeys<'actionItems'>>([
   [ 'elysia', 'actors.elysia' ],
   [ 'session', 'actors.session' ],
+  [ 'project_manager', 'actors.projectManager' ],
   [ 'watcher', 'actors.watcher' ],
   [ 'system', 'actors.system' ],
 ])
@@ -90,9 +91,10 @@ export type ActorNames = {
 // For actors that are never people, such as a changeset's proposer.
 const NO_NAMES: ActorNames = { namesById: {}, meId: null }
 
-// Who did something: a person (`user:<id>`), `elysia`, `session:<number>`, `watcher:<provider>`,
-// or `system` (Elysium itself), with the part after the colon as `detail`. A bare `user` is the
-// one person who used Elysium before accounts. An actor this build does not know is shown as sent.
+// Who did something: a person (`user:<id>`), `elysia`, `session:<number>`,
+// `project_manager:<project id>`, `watcher:<provider>`, or `system` (Elysium itself), with the
+// part after the colon as `detail`. A bare `user` is the one person who used Elysium before
+// accounts. An actor this build does not know is shown as sent.
 export function describeActor(actor: string, names: ActorNames = NO_NAMES) {
   const [ kind, detail = '' ] = actor.split(':', 2)
 

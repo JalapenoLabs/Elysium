@@ -62,6 +62,7 @@ export const sourceLabelKeys = {
 // server, so a name a newer API sends reads as its name in code as words.
 export const agentNameKeys = new Map<string, ParseKeys<'models'>>([
   [ 'elysia', 'agents.elysia' ],
+  [ 'project_manager', 'agents.project_manager' ],
   [ 'coding_session', 'agents.coding_session' ],
   [ 'studio_session', 'agents.studio_session' ],
   [ 'turn_summary', 'agents.turn_summary' ],

@@ -69,9 +69,15 @@ import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
+import { getProjectManagerKey } from '../api/routes/projectManagerRoutes'
 import { getRun, getStepLog } from '../api/routes/runRoutes'
 import { getTimelineRecord } from '../api/routes/timelineRoutes'
-import { EVENT_STREAM_PATH, EVENT_STREAM_RETRY_INITIAL_MS, EVENT_STREAM_RETRY_MAX_MS } from '../constants'
+import {
+  EVENT_STREAM_PATH,
+  EVENT_STREAM_RETRY_INITIAL_MS,
+  EVENT_STREAM_RETRY_MAX_MS,
+  PROJECT_MANAGER_USER_ID,
+} from '../constants'
 
 // The universal event stream: one EventSource for the whole app, open for as long as
 // someone may use the workspace. Every change the API announces lands in Redux through here,
@@ -279,11 +285,23 @@ const handlers: Handlers = {
   },
   // The event carries no content; a page showing its owner's timeline reloads it. The inbox
   // item it raised arrives as its own `actionItem.upserted`.
+  // A Project Manager's records are the workspace's, which its members read.
   'timelineRecord.created': (event) => {
-    if (event.data.createdBy !== store.getState().auth.me?.user.id) {
+    const state = store.getState()
+    const isOwn = event.data.createdBy === state.auth.me?.user.id
+    const isWorkspaces = event.data.createdBy === PROJECT_MANAGER_USER_ID && selectIsCompanyMember(state)
+    if (!isOwn && !isWorkspaces) {
       return
     }
     void mutate((key) => typeof key === 'string' && key.startsWith('v1/timeline'))
+  },
+  // Its page loads it again, and the turns it has open with it, each only while a page holds it.
+  'projectManager.changed': (event) => {
+    if (!selectIsCompanyMember(store.getState())) {
+      return
+    }
+    const key = getProjectManagerKey(event.data.projectId)
+    void mutate((candidate) => typeof candidate === 'string' && candidate.startsWith(key))
   },
   // A record moved between projects, or its history grew: it is loaded by id, so a project it
   // left stops listing it, and the timeline's pages and histories that are open reload, so

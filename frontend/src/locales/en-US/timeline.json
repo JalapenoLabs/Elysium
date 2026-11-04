@@ -10,6 +10,7 @@
     "teams": "Teams",
     "slack": "Slack",
     "mail": "Mail",
+    "project_manager": "Project Manager",
     "other": "Record"
   },
   "segment": {

@@ -7,9 +7,11 @@ import { useTranslation } from 'react-i18next'
 
 // Redux
 import { selectProjectActionItems } from '../../store/actionItemsSlice'
+import { selectIsCompanyMember } from '../../store/authSlice'
 import { selectCodingSessionsByProjectId } from '../../store/codingSessionsSlice'
 import { useAppSelector } from '../../store/hooks'
 import { selectProjectInitiatives } from '../../store/initiativesSlice'
+import { selectProjectManager } from '../../store/projectManagersSlice'
 
 // User interface
 import { Spinner, Tabs } from '@heroui/react'
@@ -17,27 +19,32 @@ import { PageTabs } from '../../components/PageTabs'
 import { CodingSessionsTable } from '../Coding/CodingSessionsTable'
 import { ProjectInitiatives } from './ProjectInitiatives'
 import { ProjectItems } from './ProjectItems'
+import { ProjectManagerPanel } from './ProjectManagerPanel'
 import { ProjectTimeline } from './ProjectTimeline'
+import { WorkBatchesTable } from './WorkBatchesTable'
 
 // Misc
 import {
   useActionItemsLoader,
   useCodingSessionsLoader,
   useInitiativesLoader,
+  useProjectManagerLoader,
   useProjectTimelineLoader,
 } from '../../hooks/useServerData'
 import { useTabParam } from '../../hooks/useTabParam'
 import { DEFAULT_STATES } from '../ActionItems/actionItemFilters'
 
-const TABS = [ 'items', 'initiatives', 'timeline', 'sessions' ] as const
+const TABS = [ 'items', 'initiatives', 'timeline', 'manager', 'batches', 'sessions' ] as const
 
 type Props = {
   projectId: string
 }
 
 // A project's lists below what it is about, one per tab, each named with its total: the items
-// still owed, its initiatives, its timeline, and its coding sessions. The open tab lives in the
-// address, and switching never asks about the page's unsaved changes, which stay as they are.
+// still owed, its initiatives, its timeline, its Project Manager's turns and work batches, and its
+// coding sessions. The Project Manager's quote what was ingested, so only the company's members
+// see those two. The open tab lives in the address, and switching never asks about the page's
+// unsaved changes, which stay as they are.
 export function ProjectLists(props: Props) {
   const { t } = useTranslation([ 'projects', 'timeline' ])
   const [ selectedTab, selectTab ] = useTabParam(TABS)
@@ -49,6 +56,9 @@ export function ProjectLists(props: Props) {
   const projectItems = useAppSelector((state) => selectProjectActionItems(state, props.projectId))
   const initiatives = useAppSelector((state) => selectProjectInitiatives(state, props.projectId))
   const sessions = useAppSelector((state) => selectCodingSessionsByProjectId(state, props.projectId))
+  const isMember = useAppSelector(selectIsCompanyMember)
+  const managerStatus = useProjectManagerLoader(props.projectId, isMember)
+  const manager = useAppSelector((state) => selectProjectManager(state, props.projectId))
 
   // What All items lists by default: the inbox and open items.
   const owedItems: ActionItem[] = []
@@ -78,6 +88,12 @@ export function ProjectLists(props: Props) {
           : null,
       },
       { id: 'timeline', label: t('timeline:title'), count: timeline.total },
+      ...isMember
+        ? [
+          { id: 'manager', label: t('manager.tab'), count: null },
+          { id: 'batches', label: t('batches.tab'), count: manager?.batches.length ?? null },
+        ]
+        : [],
       {
         id: 'sessions',
         label: t('page.sessionsHeading'),
@@ -105,6 +121,16 @@ export function ProjectLists(props: Props) {
     <Tabs.Panel id='timeline'>
       <ProjectTimeline projectId={props.projectId} />
     </Tabs.Panel>
+    {isMember && <Tabs.Panel id='manager'>
+      <ProjectManagerPanel projectId={props.projectId} status={managerStatus} />
+    </Tabs.Panel>}
+    {isMember && <Tabs.Panel id='batches'>{
+      manager
+        ? <WorkBatchesTable batches={manager.batches} />
+        : <div className='grid place-items-center py-10'>
+          <Spinner />
+        </div>
+    }</Tabs.Panel>}
     <Tabs.Panel id='sessions'>{
       sessionsStatus === 'loading'
         ? <div className='grid place-items-center py-10'>
