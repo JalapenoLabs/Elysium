@@ -43,6 +43,13 @@
     margin-inline: auto;
     max-width: 72rem;
   }
+
+  /* A link styled as a button (`<Link className={buttonVariants()}>`, which is how anything
+     that goes somewhere looks like a button) keeps a button's gap between its icon and its
+     label. HeroUI's link styles set it to zero; this comes later in the same layer. */
+  .link.button {
+    gap: calc(var(--spacing) * 2);
+  }
 }
 
 /* A page titlebar's right side (`PageHeader`). On phones it stacks under the title, every
