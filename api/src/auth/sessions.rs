@@ -36,7 +36,7 @@ const _: () = assert!(REVOCATION_GRACE.as_secs() > kratos::REQUEST_TIMEOUT.as_se
 /// How long a Kratos answer is trusted, unless a revocation drops it first, and never past the
 /// session's own expiry ([`cache_lifetime`]).
 ///
-/// It no longer decides how long a revoked session lasts: every way a session ends forgets it at
+/// It does not decide how long a revoked session lasts: every way a session ends forgets it at
 /// once. What it still bounds is a change the API never hears of, made in Kratos directly, such as
 /// an operator using Kratos's admin API; a quarter hour keeps that within minutes while a busy
 /// session asks Kratos about four times an hour rather than on every request.
@@ -135,11 +135,18 @@ pub async fn sign_out(
         .await
         .ok()
         .map(|session| session.identity.id);
-    let clearing = kratos.log_out(cookie).await?;
-    if let Some(identity) = identity {
+    let outcome = kratos.log_out(cookie).await;
+    // Forgotten when Kratos already had no such session too: the cache then held an answer
+    // Kratos no longer agrees with, such as one a Redis that was unreachable at a revocation
+    // kept, and signing out is the moment to drop it. Not when Kratos could not be asked, since
+    // the session lives on and its next request would have to reach Kratos.
+    let ended = matches!(outcome, Ok(_) | Err(KratosError::NoSession));
+    if let Some(identity) = identity
+        && ended
+    {
         forget(redis, identity).await;
     }
-    Ok(clearing)
+    outcome
 }
 
 /// Ends `session_id`, one of `identity`'s other sessions, at the request of the session `cookie`

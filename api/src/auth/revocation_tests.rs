@@ -518,6 +518,29 @@ async fn signing_out_refuses_the_session_on_its_next_request() {
     assert_eq!(stack.me(&cookie).await, StatusCode::UNAUTHORIZED);
 }
 
+/// A cached answer Kratos no longer agrees with, such as one a Redis that was unreachable at a
+/// revocation kept, is dropped when the person signs out, though Kratos has no session to end.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run by scripts/verify-migrations.sh"]
+async fn signing_out_drops_a_cached_session_kratos_already_ended() {
+    let stack = Stack::start().await;
+    let (cookie, _) = stack.kratos.sign_in();
+    assert_eq!(stack.me(&cookie).await, StatusCode::OK);
+    stack.kratos.end(&cookie);
+    assert_eq!(
+        stack.me(&cookie).await,
+        StatusCode::OK,
+        "the cache still answers for it"
+    );
+
+    let (status, _) = stack
+        .call(Method::POST, "/api/v1/auth/sign-out", &cookie)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    assert_eq!(stack.me(&cookie).await, StatusCode::UNAUTHORIZED);
+}
+
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run by scripts/verify-migrations.sh"]
 async fn signing_out_without_a_session_answers_as_done() {

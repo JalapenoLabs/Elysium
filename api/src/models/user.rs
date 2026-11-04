@@ -442,9 +442,9 @@ async fn refresh_profile(
 /// costs one write every few minutes rather than one per request.
 ///
 /// The row just read already says when the user was last seen, so a request within the
-/// granularity sends nothing at all. Sending the guarded update anyway, matching no row, was the
-/// costliest part of a request's `users` work: three times the read itself (`docs/auth.md`, The
-/// per-request `users` read). The guard stays for requests racing past that check together.
+/// granularity sends nothing at all. Sending the guarded update anyway, matching no row, would
+/// cost three times the read itself (`docs/auth.md`, The per-request `users` read). The guard
+/// stays for requests racing past that check together.
 ///
 /// # Errors
 /// Propagates any database error.
