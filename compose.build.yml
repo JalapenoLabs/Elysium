@@ -48,6 +48,14 @@ services:
       whisper-image:
         condition: service_completed_successfully
 
+  # The embedding model, built from this checkout with its model. The model is about 550 MB,
+  # downloaded once and kept in the build cache by its checksum.
+  embeddings:
+    image: elysium-embeddings:local
+    build:
+      context: ./embeddings
+      provenance: false
+
   # Builds the agent workspace's image from this checkout and exits. The engine creates and
   # runs the workspace container itself, from this tag.
   workspace-image:

@@ -36,8 +36,9 @@ jobs:
   api:
     name: Publish API
     # Last: auto-update treats a release as available once its API tag exists, and then pulls
-    # the workspace and Whisper images of the same tag, so those must already be there.
-    needs: [ workspace, whisper ]
+    # the workspace, Whisper, and embedding images of the same tag, so those must already be
+    # there.
+    needs: [ workspace, whisper, embeddings ]
     runs-on: [ self-hosted, linux, rocky9, docker ]
 
     steps:
@@ -118,5 +119,27 @@ jobs:
           repository: jalapenolabs/elysium-whisper
           context: whisper
           dockerfile: whisper/Dockerfile
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  embeddings:
+    name: Publish Embeddings
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # The embedding model the knowledge base is searched by, with its model; the compose
+      # service `embeddings` runs the one of its own release. Its 550 MB model layer changes
+      # only with the model, so Docker Hub already holds it on every push after the first.
+      - name: Publish
+        uses: ./.github/actions/docker-publish
+        with:
+          repository: jalapenolabs/elysium-embeddings
+          context: embeddings
+          dockerfile: embeddings/Dockerfile
           username: ${{ vars.DOCKERHUB_USERNAME }}
           token: ${{ secrets.DOCKERHUB_TOKEN }}

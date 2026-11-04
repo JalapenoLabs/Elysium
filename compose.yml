@@ -70,6 +70,9 @@ x-server-environment: &server-environment
   # The image meetings are transcribed in, Whisper with its model built in, from the same
   # release. The engine creates one container of it per transcription, with no network.
   WHISPER_IMAGE: jalapenolabs/elysium-whisper:${ELYSIUM_VERSION:-latest}
+  # The embedding model the knowledge base's passages and searches are embedded by, on the
+  # `embeddings` network. See docs/knowledge.md, Embeddings.
+  EMBEDDINGS_URL: http://embeddings:8080
   MAIL_INGRESS_ADDRESS: *mail-ingress-address
   TZ: UTC
 
@@ -249,6 +252,8 @@ services:
       # nginx.
       agents:
         aliases: [ api ]
+      # The embedding model, which a search embeds its query with.
+      embeddings:
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -281,6 +286,8 @@ services:
       docker-control:
       # The mail server's management API, and the mailboxes it hosts.
       mail:
+      # The embedding model, which every passage of the knowledge base is embedded by.
+      embeddings:
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -301,6 +308,44 @@ services:
       - engine-data:/var/lib/elysium
     # Long enough for turns to be stopped and recorded before Docker escalates to SIGKILL.
     stop_grace_period: 30s
+
+  # The embedding model: nomic-embed-text-v1.5 served by text-embeddings-inference, with the
+  # model built in (embeddings/Dockerfile). It embeds the knowledge base's passages for the
+  # engine and searches' queries for the API, and nothing else reaches it: its only network has
+  # no route out, so no text leaves the host. Long-lived rather than a container per job, as
+  # Whisper is, because it is called all day, takes about 1.5 GiB, and starts in seconds; the
+  # engine waits for nothing from it, and embeds once it answers. See docs/knowledge.md,
+  # Embeddings.
+  embeddings:
+    container_name: elysium-embeddings
+    image: jalapenolabs/elysium-embeddings:${ELYSIUM_VERSION:-latest}
+    restart: unless-stopped
+    networks:
+      - embeddings
+    # Four CPUs, which is also how many threads ONNX Runtime works on, since it counts the
+    # container's CPU quota; a host needs at least four. A quarter of the default weight, so the
+    # API, Postgres, and agents' turns win whenever they want the same cores, and a backfill
+    # takes what is left. 1.5 GiB was the peak while measuring; 3 GiB leaves room.
+    cpus: 4
+    cpu_shares: 256
+    mem_limit: 3g
+    memswap_limit: 3g
+    pids_limit: 256
+    # It reads its model and does arithmetic. Its socket between router and model goes in
+    # /tmp, which is all it writes.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ ALL ]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      # Warming the model up took 16 seconds on 4 CPUs of a Ryzen 9 7950X.
+      start_period: 90s
 
   postgres:
     container_name: elysium-postgres
@@ -415,6 +460,11 @@ networks:
   # A fixed name, because the engine attaches the workspace to it by name.
   agents:
     name: elysium-agents
+
+  # The embedding service, the engine, and the API alone. Internal, so it has no route out of
+  # the host: nothing sent to the model can leave it.
+  embeddings:
+    internal: true
 
 volumes:
   postgres-data:

@@ -81,6 +81,19 @@ nginx to it, add nothing to that.
 - Its log reaches every company member through the run's page, so the transcriber reports progress, durations, and
   counts, never what was said.
 
+## Embeddings
+
+- The knowledge base's passages and searches' queries are embedded on the host by the embedding service, never by an
+  outside service, so no text leaves the host (`docs/knowledge.md`, Embeddings).
+- Its only network, `embeddings`, is internal, with no route out of the host, and only the engine and the API join
+  it. nginx does not, so nothing public reaches it, and the workspace does not, so agents cannot call it.
+- It answers anyone on that network without authentication, which is why nothing else joins it. What it holds is a
+  public model; what reaches it is text every company member may already read (`docs/knowledge.md`, Who sees what).
+- It runs as an unprivileged user on a read-only root with `/tmp` as a tmpfs, every capability dropped, and no new
+  privileges, capped at 4 CPUs, 3 GiB, and 256 processes.
+- The engine checks that it serves the model the engine expects before recording an embedding, and its log carries
+  counts and durations, never a passage's text.
+
 ## Browsers
 
 - A browser is signed in to its owner's accounts, so every browser route answers its owner alone, and another

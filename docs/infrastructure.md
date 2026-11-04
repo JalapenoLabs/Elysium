@@ -53,9 +53,12 @@ volume with `docker compose down --volumes`, which destroys the data.
 | `postgres` | `pgvector/pgvector:0.8.7-pg18-trixie` (by digest) | `elysium-postgres` | Postgres 18.6 with pgvector; volume `postgres-data`, `timezone=UTC` |
 | `redis`    | `redis:8.10.1-alpine`      | `elysium-redis`    | Password required, AOF on, `redis-data` |
 | `docker-proxy` | `tecnativa/docker-socket-proxy:v0.5.0` | `elysium-docker-proxy` | The API's and the engine's filtered Docker API |
+| `embeddings` | `jalapenolabs/elysium-embeddings` (`embeddings/Dockerfile`) | `elysium-embeddings` | The embedding model, on the internal `embeddings` network; 4 CPUs, 3 GiB; see `docs/knowledge.md`, Embeddings |
 | `updater`  | `updater/Dockerfile` (`docker:29.9.1-cli`) | `elysium-updater` | Profile `auto-update` only; holds the Docker socket |
 
-The `docker-control` network is internal and joins only the API, the engine, and `docker-proxy`. The `elysium-mail`
+The `docker-control` network is internal and joins only the API, the engine, and `docker-proxy`. The `embeddings`
+network is internal too, and joins only the API, the engine, and the embedding service, which is on no other network,
+so nothing sent to the model can leave the host. The `elysium-mail`
 network (subnet `172.29.53.0/24`) joins nginx at the fixed address `172.29.53.2`, the API, the engine, and the Stalwart
 container; every other address comes from `172.29.53.128/25`. Change the subnet, the range, and `x-mail-ingress-address` together if
 the subnet collides with one on the host.
@@ -85,6 +88,12 @@ release, with no network at all, and removes it when the transcription ends. The
 input and the transcript comes out on its standard output, over Docker's attach stream. The development stack builds
 the image as `elysium-whisper:dev` (service `whisper-image`) before the engine starts, and production from a checkout
 as `elysium-whisper:local`. See `docs/meetings.md`, Transcription.
+
+The embedding model is a compose service, `embeddings`, unlike Whisper: it is called all day, by the engine for every
+passage of the knowledge base and by the API for every search, so it stays running. Production runs
+`jalapenolabs/elysium-embeddings` of the same release; the development stack builds it as `elysium-embeddings:dev`
+and production from a checkout as `elysium-embeddings:local`, each service building and running its own image. Its
+four CPUs mean a host needs at least four. See `docs/knowledge.md`, Embeddings.
 
 The engine keeps one volume of its own, `engine-data` at `/var/lib/elysium`: the Bitwarden CLI's state, so it stays
 signed in as the same device across restarts, and each database dump of a running backup until it is uploaded (see
@@ -211,13 +220,14 @@ the build inside the API image.
 
 ## Published images
 
-`.github/workflows/publish.yml` pushes four images to Docker Hub under the `jalapenolabs` organization:
+`.github/workflows/publish.yml` pushes five images to Docker Hub under the `jalapenolabs` organization:
 
 | Image                                  | Built from                         | Runs                                       |
 |----------------------------------------|------------------------------------|--------------------------------------------|
 | `jalapenolabs/elysium-api`             | `api/Dockerfile`, stage `app`      | The API and the web app, and the engine    |
 | `jalapenolabs/elysium-workspace`       | `workspace/Dockerfile`             | Agent turns, in the container the engine makes |
 | `jalapenolabs/elysium-whisper`         | `whisper/Dockerfile`               | Meetings' transcriptions, a container the engine makes for each |
+| `jalapenolabs/elysium-embeddings`      | `embeddings/Dockerfile`            | The embedding model, the compose service `embeddings` |
 | `jalapenolabs/elysium-oauth-broker`    | `oauth-broker/Dockerfile`          | The OAuth broker, standalone               |
 
 Every push to `main` publishes `main` and `sha-<commit>`. A tag `vX.Y.Z` publishes `X.Y.Z`, and moves `X.Y` and
@@ -279,8 +289,9 @@ applying records it as succeeded. Every change is published as `updates.status`.
 1. Pulls the target's API image, unless Docker has it already (release tags never move), and unpacks the
    configuration it carries.
 2. Pulls every other Elysium image that configuration names at the target's version, such as the workspace image
-   agents run in and the Whisper image meetings are transcribed in, which are not compose services. `publish.yml`
-   pushes the API image last, so a release whose API tag exists has all of them.
+   agents run in and the Whisper image meetings are transcribed in, which are not compose services, and the
+   embedding image, which is, so a failed pull stops the update before anything changes. `publish.yml` pushes the API
+   image last, so a release whose API tag exists has all of them.
 3. Backs up Elysium's, Kratos's, and Hydra's databases with `pg_dump` into `backups/<time>-<running>/`, keeping the
    newest five. This copy stays on the host and exists only to undo the update; the nightly backup off the host is
    separate (see Backups below).

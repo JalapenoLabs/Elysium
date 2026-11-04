@@ -1,0 +1,97 @@
+# Copyright © 2026 Jalapeno Labs
+
+# The embedding model the knowledge base is searched by. See docs/knowledge.md and docs/ci.md.
+name: Embeddings
+
+# Deliberately unfiltered by path, like every workflow here: this job is a required check,
+# and a required check a path filter skipped would stay pending forever. See docs/ci.md.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+    types: [ checks_requested ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: embeddings-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Embeddings image
+    # Elysium is public and these runners are self-hosted, so a fork's pull request never
+    # reaches them.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    env:
+      # Unique per run, because runners in the pool can share one Docker daemon.
+      IMAGE: elysium-embeddings:ci-${{ github.run_id }}-${{ github.run_attempt }}
+      CONTAINER: elysium-embeddings-ci-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # Every model file is checked against its pinned SHA-256 as it is added; the warm build
+      # cache keeps the 550 MB model between runs, keyed by that checksum.
+      - name: Build the image
+        run: docker build --tag "${IMAGE}" embeddings
+
+      # Run as compose runs it, but with no network at all: the requests reach it through
+      # `docker exec`, which needs none.
+      - name: Start it with no network
+        run: |
+          set -euo pipefail
+          docker run --detach --name "${CONTAINER}" --network none --cpus 4 --memory 3g \
+            --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges "${IMAGE}"
+          for _ in $(seq 120); do
+            if docker exec "${CONTAINER}" curl -sf http://127.0.0.1:8080/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "${CONTAINER}"
+          exit 1
+
+      # The model the engine records embeddings as made by (api/src/embeddings/mod.rs, MODEL),
+      # vectors of the column's size and unit length, and a query nearer the passage that
+      # answers it than one that does not.
+      - name: Embed by meaning
+        run: |
+          set -euo pipefail
+          docker exec "${CONTAINER}" curl -sS --fail-with-body http://127.0.0.1:8080/info \
+            > "${RUNNER_TEMP}/info.json"
+          python3 -I -c 'import json, sys; print(json.dumps({"inputs": sys.argv[1:]}))' \
+            "search_query: how do I restore a database backup?" \
+            "search_document: The restore replaces each database whole with its dump. Everything written since the backup is lost." \
+            "search_document: Colors come from the Matter VS Code theme and live in matter.css." \
+            | docker exec -i "${CONTAINER}" curl -sS --fail-with-body \
+                -H 'content-type: application/json' --data-binary @- http://127.0.0.1:8080/embed \
+            > "${RUNNER_TEMP}/embeddings.json"
+          python3 -I - "${RUNNER_TEMP}/info.json" "${RUNNER_TEMP}/embeddings.json" api/src/embeddings/mod.rs <<'EOF'
+          import json, math, re, sys
+          info = json.load(open(sys.argv[1]))
+          query, relevant, unrelated = json.load(open(sys.argv[2]))
+          model = re.search(r'pub const MODEL: &str = "([^"]+)";', open(sys.argv[3]).read()).group(1)
+          assert info["served_model_name"] == model, (info["served_model_name"], model)
+          assert all(len(vector) == 768 for vector in (query, relevant, unrelated))
+          assert all(abs(math.fsum(value * value for value in vector) - 1) < 1e-4 for vector in (query, relevant, unrelated))
+          near = math.fsum(a * b for a, b in zip(query, relevant))
+          far = math.fsum(a * b for a, b in zip(query, unrelated))
+          assert near > far + 0.2, (near, far)
+          print(f"serves {model}; similarity to the answer {near:.3f}, to the other passage {far:.3f}")
+          EOF
+
+      - name: Remove the container and the image
+        if: always()
+        run: |
+          docker rm --force "${CONTAINER}" > /dev/null 2>&1 || true
+          docker image rm "${IMAGE}" > /dev/null 2>&1 || true
