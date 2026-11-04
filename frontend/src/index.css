@@ -135,7 +135,8 @@ html .jala-table-sort-button:has(.numeric-column-header) {
 
 /* A link in a table cell flows as text, so its lines count toward uikit's three-line clamp.
    HeroUI makes every link an inline flex box, which the clamp counts as one line however
-   tall it wraps, so a long title would never clamp, nor open on a double-click. */
-.jala-table-cell-clamp .link {
+   tall it wraps, so a long title would never clamp, nor open on a double-click. A link styled
+   as a button keeps its button layout. */
+.jala-table-cell-clamp .link:not(.button) {
   display: inline;
 }
