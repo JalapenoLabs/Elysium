@@ -37,8 +37,7 @@ type Props = {
 // A new connector that signs in with a token: the account it owns, what it reads, and its
 // checks, run against what was typed before anything is stored. Create waits for a finished
 // run, since it is what proves the token works, and offers "Create anyway" when a required
-// check failed. Changing anything after a run asks for another. Enter runs the checks, then
-// creates.
+// check failed. Changing anything after a run asks for another.
 export function NewTokenConnectorForm(props: Props) {
   const { t } = useTranslation([ 'connectors', 'common' ])
   const dispatch = useAppDispatch()
@@ -101,12 +100,9 @@ export function NewTokenConnectorForm(props: Props) {
     }
   }
 
+  // Save, Enter, and Ctrl+S submit the form only once Save can be pressed, after a finished run.
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!isFinished) {
-      void runChecks()
-      return
-    }
     void create()
   }
 

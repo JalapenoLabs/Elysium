@@ -142,6 +142,21 @@ export function searchKinds(
   return kinds.filter((kind) => wordsOf(kind).toLowerCase().includes(needle))
 }
 
+// The ids a selection's stored value picks. A stored connector keeps some picks as the provider
+// described them, `{ id, key, name }` (Jira's allowlist, Confluence's spaces), and others as
+// bare ids, so both read as the id the options are matched by.
+export function pickedIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.map((entry: unknown) => {
+    if (typeof entry === 'object' && entry !== null && 'id' in entry) {
+      return String(entry.id)
+    }
+    return String(entry)
+  })
+}
+
 // What a new connector of a kind read through a browser starts reading: everything each of its
 // selections can pick, since nothing can be listed until its person signs in. It is narrowed on
 // the connector's page afterwards.

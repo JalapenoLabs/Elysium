@@ -22,6 +22,7 @@ import { Button, Checkbox, Label, ListBox, Select, Switch, toast } from '@heroui
 import { getApiErrorMessage } from '../../../api/errors'
 import { listConnectorOptions } from '../../../api/routes/connectorRoutes'
 import { useStorageLocationsLoader } from '../../../hooks/useServerData'
+import { pickedIds } from './connectorPresentation'
 
 // Everything a selection picks, as the API spells it.
 const EVERYTHING = '*'
@@ -102,7 +103,7 @@ export function ContentFields(props: Props) {
       }
 
       const current = props.value[field.id]
-      const picked = Array.isArray(current) ? current.map(String) : []
+      const picked = pickedIds(current)
       const fieldOptions = options[field.id]
       return <div key={field.id}>
         <p className='compact text-sm font-medium'>{label}</p>

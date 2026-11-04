@@ -222,7 +222,7 @@ Esc lead back.
   - A token kind asks for its sign-in, what it reads (a selection loads its options from what the typed account
     reaches), and Test connection, which runs its checks live against what was typed. The page's Save, "Create
     connector", waits for a finished run, and reads "Create anyway" when a required check failed; changing anything
-    asks for another run. Enter runs the checks, then creates.
+    asks for another run.
   - A browser kind's page has Start browser, which creates the connector with its browser and opens the connector's
     page, where its person signs in, narrows what it reads, and runs its checks.
   - An unknown kind goes back to the grid.

@@ -14,6 +14,7 @@ import {
   describeOutcome,
   filterConnectors,
   hasRequiredFailure,
+  pickedIds,
   searchKinds,
   startingContent,
   summarize,
@@ -165,5 +166,21 @@ describe('connectorOwningBrowser', () => {
   it('finds nothing for an id no browser connector owns', () => {
     expect(connectorOwningBrowser([ jira, waiting, outlook ], 'browser-2')).toBeNull()
     expect(connectorOwningBrowser([ jira, waiting, outlook ], 'gone')).toBeNull()
+  })
+})
+
+describe('pickedIds', () => {
+  // A Jira connector's allowlist and a Confluence connector's spaces come back as the provider
+  // described each pick; read as text they were "[object Object]", so nothing showed as picked
+  // and the next change dropped every earlier pick.
+  it('reads a pick stored as the provider described it as its id', () => {
+    expect(pickedIds([{ id: '10001', key: 'ELY', name: 'Elysium' }, { id: 7, name: 'Board' }]))
+      .toEqual([ '10001', '7' ])
+  })
+
+  it('reads bare ids as they are, and anything else as no pick', () => {
+    expect(pickedIds([ 'C1', 42 ])).toEqual([ 'C1', '42' ])
+    expect(pickedIds('*')).toEqual([])
+    expect(pickedIds(undefined)).toEqual([])
   })
 })
