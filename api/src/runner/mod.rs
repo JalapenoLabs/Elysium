@@ -241,6 +241,13 @@ pub enum TurnMode {
     /// and nothing kept to resume. An agent's configuration must not steer it, and a session
     /// nobody resumes would only fill the transcripts directory.
     Text { system_prompt: String },
+    /// A text turn whose session is kept, so the next turn of the same conversation resumes it
+    /// (`TurnRequest::resume`): no built-in tools, no settings or MCP servers beyond the request's
+    /// own, `system_prompt` in place of Claude Code's, as for [`Self::Text`]. For an agent that
+    /// hears one conversation over many turns, such as the one handling a person's messages, and
+    /// answers each in text. Its session is found again by the turn's working directory, so every
+    /// turn of one session runs in the same one.
+    ResumableText { system_prompt: String },
 }
 
 /// A submitted turn.

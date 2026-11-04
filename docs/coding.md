@@ -68,6 +68,14 @@ disk. A fetch that fails fails the turns that need it, with git's message.
 
 The runner keeps nothing: callers record the events they show.
 
+A turn runs in one of three modes (`TurnMode`):
+
+| Mode            | What it is                                                                                      | Used by |
+|-----------------|-------------------------------------------------------------------------------------------------|---------|
+| `Agent`         | Every built-in tool, the workspace's `~/.claude`, and a session the next turn resumes            | Coding and Studio sessions, Elysia |
+| `Text`          | No built-in tools (`--tools=`), only the request's MCP servers (`--strict-mcp-config`), no settings (`--setting-sources=`), its own system prompt, and no session kept (`--no-session-persistence`) | Turn summaries, correction, segmenting, the company doc's review |
+| `ResumableText` | As `Text`, with its session kept for the next turn to resume; Claude Code finds a session by its working directory, so every turn of one runs in the same one | The agent handling a conversation (`docs/engine.md`, Conversations) |
+
 ### Credentials
 
 A turn runs on the active Claude credentials in priority order (`claude-code-oauth` as a subscription token,

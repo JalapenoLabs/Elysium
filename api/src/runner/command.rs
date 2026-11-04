@@ -147,20 +147,24 @@ impl AttemptCommand {
             argv.push("--append-system-prompt".to_owned());
             argv.push(append.clone());
         }
-        if let TurnMode::Text { system_prompt } = &self.mode {
-            argv.extend([
-                // An empty list removes every built-in tool.
-                "--tools=".to_owned(),
-                // Only the request's own MCP servers, never ones from settings or plugins.
-                "--strict-mcp-config".to_owned(),
-                // No user, project, or local settings: the agents' configuration repository
-                // must not steer a text turn.
-                "--setting-sources=".to_owned(),
-                "--no-session-persistence".to_owned(),
-                "--system-prompt".to_owned(),
-                system_prompt.clone(),
-            ]);
+        let (system_prompt, keeps_session) = match &self.mode {
+            TurnMode::Agent => return argv,
+            TurnMode::Text { system_prompt } => (system_prompt, false),
+            TurnMode::ResumableText { system_prompt } => (system_prompt, true),
+        };
+        argv.extend([
+            // An empty list removes every built-in tool.
+            "--tools=".to_owned(),
+            // Only the request's own MCP servers, never ones from settings or plugins.
+            "--strict-mcp-config".to_owned(),
+            // No user, project, or local settings: the agents' configuration repository must
+            // not steer a text turn.
+            "--setting-sources=".to_owned(),
+        ]);
+        if !keeps_session {
+            argv.push("--no-session-persistence".to_owned());
         }
+        argv.extend(["--system-prompt".to_owned(), system_prompt.clone()]);
         argv
     }
 
@@ -307,6 +311,34 @@ mod tests {
             .position(|argument| argument == "--system-prompt")
             .expect("--system-prompt");
         assert_eq!(argv[system_prompt + 1], "Summarize the log.");
+    }
+
+    #[test]
+    fn a_resumable_text_turn_keeps_its_session_and_resumes_the_one_named() {
+        let argv = AttemptCommand {
+            mode: TurnMode::ResumableText {
+                system_prompt: "Read the conversation.".to_owned(),
+            },
+            ..command()
+        }
+        .argv();
+        for flag in ["--tools=", "--strict-mcp-config", "--setting-sources="] {
+            assert!(argv.contains(&flag.to_owned()), "{flag}");
+        }
+        assert!(
+            !argv.contains(&"--no-session-persistence".to_owned()),
+            "the next turn resumes what this one keeps"
+        );
+        let resume = argv
+            .iter()
+            .position(|argument| argument == "--resume")
+            .expect("--resume");
+        assert_eq!(argv[resume + 1], "session-a");
+        let system_prompt = argv
+            .iter()
+            .position(|argument| argument == "--system-prompt")
+            .expect("--system-prompt");
+        assert_eq!(argv[system_prompt + 1], "Read the conversation.");
     }
 
     #[test]
