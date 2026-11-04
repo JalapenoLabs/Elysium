@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { CsvValue } from '@jalapenolabs/uikit'
 import type { OnChangeFn, SortingState } from '@tanstack/react-table'
 import type { Project } from '../../api/routes/projectRoutes'
 import type { ProjectSort } from './projectListing'
@@ -99,12 +100,10 @@ export function ProjectTable(props: Props) {
         <Link href={getProjectViewUrl(project.id)} className='font-medium text-inherit no-underline'>{
           project.name
         }</Link>
-        {project.description && <div className='max-w-md truncate text-xs opacity-70'>{
-          project.description
-        }</div>}
+        {project.description && <div className='text-xs opacity-70'>{project.description}</div>}
       </div>,
       sessions: (project: Project) => formatNumber(props.sessionCounts[project.id] ?? 0),
-      updated: (project: Project) => <DateText value={project.updatedAt} />,
+      updated: (project: Project) => <DateText value={project.updatedAt} isFocusable={false} />,
     } satisfies Record<ProjectColumnKey, (project: Project) => unknown>
 
     // Search matches names and descriptions only.
@@ -120,6 +119,15 @@ export function ProjectTable(props: Props) {
       updated: (project: Project) => project.updatedAt,
     } satisfies Record<ProjectColumnKey, ((project: Project) => string | number) | null>
 
+    // The export holds each project's name, its count, and the instant it changed; a cover is
+    // an image, so it stays out.
+    const exportValue = {
+      cover: null,
+      name: (project: Project) => project.name,
+      sessions: (project: Project) => props.sessionCounts[project.id] ?? 0,
+      updated: (project: Project) => project.updatedAt,
+    } satisfies Record<ProjectColumnKey, ((project: Project) => CsvValue) | null>
+
     return createManagedColumns<Project, ProjectColumnKey>({
       columnKeys: PROJECT_COLUMN_KEYS,
       getColumnLabel: (columnKey) => t(columnLabelKeys[columnKey]),
@@ -129,6 +137,7 @@ export function ProjectTable(props: Props) {
       getSearchValue: (columnKey) => columnKey === 'name'
         ? searchText
         : null,
+      getExportValue: (columnKey) => exportValue[columnKey],
       createColumnDef: ({ columnKey, columnId, columnLabel }) => {
         const toSortValue = sortValue[columnKey]
         if (!toSortValue) {
@@ -168,8 +177,12 @@ export function ProjectTable(props: Props) {
     toolbar={{ show: false }}
     sorting={sorting}
     onSortingChange={onSortingChange}
+    csvExport={{ fileName: 'projects' }}
+    pagination={{ show: true }}
     enableSorting
-    // A row click opens the project; nothing is ever shown as highlighted.
+    // A row click opens the project; nothing is ever shown as highlighted. Since a click goes
+    // somewhere, a clamped cell opens in full on a double-click instead of expanding the row.
+    cellOverflow='modal'
     enableRowHighlight
     highlightedRowId={null}
     onHighlightedRowChange={(projectId) => {

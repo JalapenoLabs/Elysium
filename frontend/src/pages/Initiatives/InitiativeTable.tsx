@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ReactNode } from 'react'
+import type { CsvValue, DataTableAction } from '@jalapenolabs/uikit'
 import type { Initiative } from '../../api/routes/initiativeRoutes'
 
 // Core
@@ -33,11 +33,11 @@ type Props = {
   // Where column widths and order are remembered; each place the table appears has its own.
   storageId: string
   isSearchable?: boolean
-  // A trailing column of actions per row, such as restoring a deleted initiative.
-  renderRowActions?: (initiative: Initiative) => ReactNode
+  // Shown over a row while it is hovered, such as restoring a deleted initiative.
+  rowActions?: DataTableAction<Initiative>[]
 }
 
-const INITIATIVE_COLUMN_KEYS = [ 'name', 'state', 'progress', 'target', 'projects', 'rowActions' ] as const
+const INITIATIVE_COLUMN_KEYS = [ 'name', 'state', 'progress', 'target', 'projects' ] as const
 type InitiativeColumnKey = typeof INITIATIVE_COLUMN_KEYS[number]
 
 const columnLabelKeys = {
@@ -46,7 +46,6 @@ const columnLabelKeys = {
   progress: 'table.progress',
   target: 'table.target',
   projects: 'table.projects',
-  rowActions: 'common:actions.moreActions',
 } as const satisfies Record<InitiativeColumnKey, string>
 
 // Starting widths in pixels, summing to less than the page's content column.
@@ -56,7 +55,6 @@ const columnSizes = {
   progress: 240,
   target: 150,
   projects: 200,
-  rowActions: 120,
 } as const satisfies Record<InitiativeColumnKey, number>
 
 // Initiatives in a table, each with its progress as counts. Clicking a row opens it.
@@ -67,7 +65,6 @@ export function InitiativeTable(props: Props) {
   const [ search, setSearch ] = useState('')
   useProjectsLoader()
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
-  const renderRowActions = props.renderRowActions
 
   const managedColumns = useMemo(() => {
     // Deleted projects leave no name behind, so they are skipped.
@@ -102,11 +99,12 @@ export function InitiativeTable(props: Props) {
         t(initiativeStateLabelKeys[initiative.state])
       }</Chip>,
       progress: (initiative: Initiative) => <InitiativeProgressSummary progress={initiative.progress} />,
-      target: (initiative: Initiative) => initiative.targetAt && <DateText isDay value={initiative.targetAt} />,
-      projects: (initiative: Initiative) => <span className='line-clamp-2'>{projectsText(initiative)}</span>,
-      rowActions: (initiative: Initiative) => <div data-no-row-highlight className='flex justify-end'>{
-        renderRowActions?.(initiative)
-      }</div>,
+      target: (initiative: Initiative) => initiative.targetAt && <DateText
+        isDay
+        isFocusable={false}
+        value={initiative.targetAt}
+      />,
+      projects: projectsText,
     } satisfies Record<InitiativeColumnKey, (initiative: Initiative) => unknown>
 
     const searchValue = {
@@ -115,8 +113,7 @@ export function InitiativeTable(props: Props) {
       progress: progressText,
       target: targetText,
       projects: projectsText,
-      rowActions: null,
-    } satisfies Record<InitiativeColumnKey, ((initiative: Initiative) => string) | null>
+    } satisfies Record<InitiativeColumnKey, (initiative: Initiative) => string>
 
     // Progress sorts by how much is left, the question a list of goals is usually asked.
     const sortValue = {
@@ -127,41 +124,33 @@ export function InitiativeTable(props: Props) {
         ? Date.parse(initiative.targetAt)
         : Number.POSITIVE_INFINITY,
       projects: projectsText,
-      rowActions: null,
-    } satisfies Record<InitiativeColumnKey, ((initiative: Initiative) => string | number) | null>
+    } satisfies Record<InitiativeColumnKey, (initiative: Initiative) => string | number>
 
-    const columnKeys = renderRowActions
-      ? INITIATIVE_COLUMN_KEYS
-      : INITIATIVE_COLUMN_KEYS.filter((columnKey) => columnKey !== 'rowActions')
+    // The export holds what the table shows: the state by name, progress as its counts in words
+    // (a spreadsheet reads "3/10" as a date), and the target day itself.
+    const exportValue = {
+      name: (initiative: Initiative) => initiative.name,
+      state: (initiative: Initiative) => t(initiativeStateLabelKeys[initiative.state]),
+      progress: progressText,
+      target: (initiative: Initiative) => initiative.targetAt,
+      projects: projectsText,
+    } satisfies Record<InitiativeColumnKey, (initiative: Initiative) => CsvValue>
 
     return createManagedColumns<Initiative, InitiativeColumnKey>({
-      columnKeys,
+      columnKeys: INITIATIVE_COLUMN_KEYS,
       getColumnLabel: (columnKey) => t(columnLabelKeys[columnKey]),
-      getSearchKey: (columnKey) => searchValue[columnKey]
-        ? columnKey
-        : null,
+      getSearchKey: (columnKey) => columnKey,
       getSearchValue: (columnKey) => searchValue[columnKey],
-      createColumnDef: ({ columnKey, columnId, columnLabel }) => {
-        const toSortValue = sortValue[columnKey]
-        if (!toSortValue) {
-          return {
-            id: columnId,
-            header: () => <span className='sr-only'>{columnLabel}</span>,
-            enableSorting: false,
-            size: columnSizes[columnKey],
-            cell: ({ row }) => renderCell[columnKey](row.original),
-          }
-        }
-        return {
-          id: columnId,
-          header: columnLabel,
-          accessorFn: toSortValue,
-          size: columnSizes[columnKey],
-          cell: ({ row }) => renderCell[columnKey](row.original),
-        }
-      },
+      getExportValue: (columnKey) => exportValue[columnKey],
+      createColumnDef: ({ columnKey, columnId, columnLabel }) => ({
+        id: columnId,
+        header: columnLabel,
+        accessorFn: sortValue[columnKey],
+        size: columnSizes[columnKey],
+        cell: ({ row }) => renderCell[columnKey](row.original),
+      }),
     })
-  }, [ t, i18n.language, projectNames, renderRowActions ])
+  }, [ t, i18n.language, projectNames ])
 
   return <SmartTable
     ids={{
@@ -180,8 +169,13 @@ export function InitiativeTable(props: Props) {
     toolbar={props.isSearchable
       ? undefined
       : { show: false }}
+    rowActions={props.rowActions}
+    csvExport={{ fileName: 'initiatives' }}
+    pagination={{ show: true }}
     enableSorting
-    // A row click opens the initiative; nothing is ever shown as highlighted.
+    // A row click opens the initiative; nothing is ever shown as highlighted. Since a click goes
+    // somewhere, a clamped cell opens in full on a double-click instead of expanding the row.
+    cellOverflow='modal'
     enableRowHighlight
     highlightedRowId={null}
     onHighlightedRowChange={(initiativeId) => {

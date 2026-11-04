@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { DataTableAction } from '@jalapenolabs/uikit'
 import type { SessionSummary } from './sessionPresentation'
 
 // Core
@@ -16,8 +17,7 @@ import { selectSessionsView, sessionsViewChanged } from '../../store/sessionsVie
 // User interface
 import { buttonVariants, Chip, Link, Spinner } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
-import { LuPlus } from 'react-icons/lu'
-import { SessionRowActions } from './SessionRowActions'
+import { LuMessagesSquare, LuPencil, LuPlus, LuTrash2 } from 'react-icons/lu'
 import { SessionsToolbar } from './SessionsToolbar'
 import { SessionTiles } from './SessionTiles'
 
@@ -40,7 +40,6 @@ const SESSION_COLUMN_KEYS = [
   'project',
   'state',
   'lastActivity',
-  'rowActions',
 ] as const
 type SessionColumnKey = typeof SESSION_COLUMN_KEYS[number]
 
@@ -50,7 +49,6 @@ const columnLabelKeys = {
   project: 'sessions.project',
   state: 'sessions.state',
   lastActivity: 'sessions.lastActivity',
-  rowActions: 'common:actions.moreActions',
 } as const satisfies Record<SessionColumnKey, string>
 
 // Starting widths in pixels, sized for the panel's default half of the workspace.
@@ -60,19 +58,17 @@ const columnSizes = {
   project: 170,
   state: 120,
   lastActivity: 170,
-  rowActions: 56,
 } as const satisfies Record<SessionColumnKey, number>
 
-// What each sortable column sorts by. Last activity sorts by the instant, not the words
-// shown, so an August session never follows a September one.
+// What each column sorts by, which is also what the export holds. Last activity sorts by the
+// instant, not the words shown, so an August session never follows a September one.
 const sortValue = {
   number: (summary: SessionSummary) => String(summary.session.id),
   title: (summary: SessionSummary) => summary.session.title,
   project: (summary: SessionSummary) => summary.projectName,
   state: (summary: SessionSummary) => summary.stateLabel,
   lastActivity: (summary: SessionSummary) => summary.session.activity.lastActivityAt ?? '',
-  rowActions: null,
-} as const satisfies Record<SessionColumnKey, ((summary: SessionSummary) => string) | null>
+} as const satisfies Record<SessionColumnKey, (summary: SessionSummary) => string>
 
 // The overview panel: every coding session, with what it is doing now, as a table or as
 // tiles. Opening one focuses its conversation panel.
@@ -125,9 +121,6 @@ export function SessionsPanel() {
         summary.stateLabel
       }</Chip>,
       lastActivity: (summary: SessionSummary) => summary.lastActivity,
-      rowActions: (summary: SessionSummary) => <SessionRowActions
-        session={summary.session}
-      />,
     } satisfies Record<SessionColumnKey, (summary: SessionSummary) => unknown>
 
     return createManagedColumns<SessionSummary, SessionColumnKey>({
@@ -136,26 +129,13 @@ export function SessionsPanel() {
       // The panel's toolbar searches, for both views; the table's own search is hidden.
       getSearchKey: () => null,
       getSearchValue: (columnKey) => sortValue[columnKey],
-      createColumnDef: ({ columnKey, columnId, columnLabel }) => {
-        const toSortValue = sortValue[columnKey]
-        if (!toSortValue) {
-          return {
-            id: columnId,
-            header: () => <span className='sr-only'>{columnLabel}</span>,
-            enableSorting: false,
-            size: columnSizes[columnKey],
-            cell: ({ row }) => renderCell[columnKey](row.original),
-          }
-        }
-
-        return {
-          id: columnId,
-          header: columnLabel,
-          accessorFn: toSortValue,
-          size: columnSizes[columnKey],
-          cell: ({ row }) => renderCell[columnKey](row.original),
-        }
-      },
+      createColumnDef: ({ columnKey, columnId, columnLabel }) => ({
+        id: columnId,
+        header: columnLabel,
+        accessorFn: sortValue[columnKey],
+        size: columnSizes[columnKey],
+        cell: ({ row }) => renderCell[columnKey](row.original),
+      }),
       columnDefOverrides: {
         number: ({ columnId, columnLabel }) => ({
           id: columnId,
@@ -168,6 +148,29 @@ export function SessionsPanel() {
       },
     })
   }, [ t, actions ])
+
+  // The tiles show the same three in their own menu (`SessionRowActions`).
+  const rowActions = useMemo((): DataTableAction<SessionSummary>[] => [
+    {
+      id: 'open',
+      label: t('sessions.open'),
+      icon: <LuMessagesSquare className='size-4' aria-hidden />,
+      onPress: (row) => actions.openSession(row.original.session),
+    },
+    {
+      id: 'rename',
+      label: t('common:actions.rename'),
+      icon: <LuPencil className='size-4' aria-hidden />,
+      onPress: (row) => actions.renameSession(row.original.session),
+    },
+    {
+      id: 'delete',
+      label: t('common:actions.delete'),
+      icon: <LuTrash2 className='size-4' aria-hidden />,
+      isDanger: true,
+      onPress: (row) => actions.deleteSession(row.original.session),
+    },
+  ], [ t, actions ])
 
   if (sessionsStatus === 'loading') {
     return <div className='grid h-full place-items-center'>
@@ -216,6 +219,9 @@ export function SessionsPanel() {
       getRowId={(summary) => String(summary.session.id)}
       labels={labels}
       toolbar={{ show: false }}
+      rowActions={rowActions}
+      csvExport={{ fileName: 'coding-sessions' }}
+      pagination={{ show: true }}
       enableSorting
       stickyHeader={false}
     />}

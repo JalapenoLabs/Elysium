@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { DataTableAction } from '@jalapenolabs/uikit'
 import type { Initiative } from '../../api/routes/initiativeRoutes'
 
 // Core
@@ -12,28 +13,25 @@ import { selectDeletedInitiatives, selectLiveInitiatives } from '../../store/ini
 
 // User interface
 import { Label, Spinner, Switch } from '@heroui/react'
+import { LuUndo2 } from 'react-icons/lu'
 import { EmptyNotice } from '../../components/EmptyNotice'
 import { OptionSelect } from '../../components/OptionSelect'
 import { InitiativeTable } from './InitiativeTable'
-import { RestoreInitiativeButton } from './RestoreInitiativeButton'
 
 // Misc
 import { INITIATIVE_STATES } from '../../api/routes/initiativeRoutes'
 import { useDeletedInitiativesLoader, useInitiativesLoader } from '../../hooks/useServerData'
 import { initiativeStateLabelKeys } from './initiativePresentation'
+import { useInitiativeActions } from './useInitiativeActions'
 
 // Every state, as the state filter's key.
 const ALL_STATES = 'all'
-
-// Defined once, outside the page, so the table's columns are not rebuilt on every render.
-function renderRestoreButton(initiative: Initiative) {
-  return <RestoreInitiativeButton initiative={initiative} />
-}
 
 // `/action-items/initiatives`: every initiative with its progress, the active ones first
 // by default. Deleted ones show in their place when asked for, each with Restore.
 export function InitiativesPage() {
   const { t } = useTranslation('initiatives')
+  const actions = useInitiativeActions()
   const [ stateFilter, setStateFilter ] = useState<string>('active')
   const [ isShowingDeleted, setIsShowingDeleted ] = useState(false)
   const liveStatus = useInitiativesLoader()
@@ -50,6 +48,17 @@ export function InitiativesPage() {
   const initiatives = stateFilter === ALL_STATES
     ? shown
     : shown.filter((initiative) => initiative.state === stateFilter)
+
+  // Only a deleted initiative has anything to do from its row. Restoring resolves once the answer
+  // is in, so its button spins until then.
+  const deletedRowActions: DataTableAction<Initiative>[] = [{
+    id: 'restore',
+    label: t('list.restore'),
+    icon: <LuUndo2 className='size-4' aria-hidden />,
+    onPress: async (row) => {
+      await actions.restore(row.original)
+    },
+  }]
 
   const stateOptions = [
     { id: ALL_STATES, label: t('list.allStates') },
@@ -94,8 +103,8 @@ export function InitiativesPage() {
         ? 'elysium.initiatives.deleted.table.v1'
         : 'elysium.initiatives.table.v1'}
       isSearchable
-      renderRowActions={isShowingDeleted
-        ? renderRestoreButton
+      rowActions={isShowingDeleted
+        ? deletedRowActions
         : undefined}
     />}
   </div>

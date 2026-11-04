@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { CsvValue } from '@jalapenolabs/uikit'
 import type { WorkflowRun } from '../../api/routes/runRoutes'
 
 // Core
@@ -18,6 +19,8 @@ import { RunDuration } from './RunDuration'
 
 // Misc
 import { DateText } from '../../format/DateText'
+import { formatDateTime } from '../../format/dates'
+import { formatDuration } from '../../format/durations'
 import { useUsersLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getRunViewUrl } from '../../urls'
@@ -60,20 +63,49 @@ export function RunTable(props: Props) {
   const managedColumns = useMemo(() => {
     const startedBy = (run: WorkflowRun) => userNames[run.createdBy] ?? t('common:table.someone')
 
+    // How long a finished run took; one still going has no length yet.
+    function elapsed(run: WorkflowRun) {
+      if (!run.startedAt || !run.finishedAt) {
+        return null
+      }
+      return Date.parse(run.finishedAt) - Date.parse(run.startedAt)
+    }
+
+    // Search matches what the user sees.
     const searchValue = {
       run: (run: WorkflowRun) => `${names.workflow(run.workflow)} ${names.source(run.sourceKind)} ${run.sourceId}`,
       state: (run: WorkflowRun) => t(runStateLabelKeys[run.state]),
       startedBy,
-      started: (run: WorkflowRun) => run.createdAt,
-      duration: (run: WorkflowRun) => run.finishedAt ?? '',
+      started: (run: WorkflowRun) => formatDateTime(run.createdAt),
+      duration: (run: WorkflowRun) => {
+        const milliseconds = elapsed(run)
+        return milliseconds === null
+          ? ''
+          : formatDuration(milliseconds)
+      },
     } satisfies Record<RunColumnKey, (run: WorkflowRun) => string>
+
+    // Sorting follows the text, except the start, which sorts in time, and the duration, which
+    // sorts by length with a run still going longest.
+    const sortValue = {
+      ...searchValue,
+      started: (run: WorkflowRun) => Date.parse(run.createdAt),
+      duration: (run: WorkflowRun) => elapsed(run) ?? Number.POSITIVE_INFINITY,
+    } satisfies Record<RunColumnKey, (run: WorkflowRun) => string | number>
+
+    // The export names the workflow, and holds the instant it started.
+    const exportValue = {
+      ...searchValue,
+      run: (run: WorkflowRun) => names.workflow(run.workflow),
+      started: (run: WorkflowRun) => run.createdAt,
+    } satisfies Record<RunColumnKey, (run: WorkflowRun) => CsvValue>
 
     const renderCell = {
       run: (run: WorkflowRun) => <div className='min-w-0'>
         <Link href={getRunViewUrl(run.id)} className='font-medium text-inherit no-underline'>{
           names.workflow(run.workflow)
         }</Link>
-        <div className='truncate text-xs opacity-70'>{
+        <div className='text-xs opacity-70'>{
           t('run.source', { kind: names.source(run.sourceKind), id: run.sourceId })
         }</div>
       </div>,
@@ -81,7 +113,7 @@ export function RunTable(props: Props) {
         t(runStateLabelKeys[run.state])
       }</Chip>,
       startedBy,
-      started: (run: WorkflowRun) => <DateText value={run.createdAt} />,
+      started: (run: WorkflowRun) => <DateText value={run.createdAt} isFocusable={false} />,
       duration: (run: WorkflowRun) => <RunDuration
         startedAt={run.startedAt}
         finishedAt={run.finishedAt}
@@ -94,10 +126,11 @@ export function RunTable(props: Props) {
       getColumnLabel: (columnKey) => t(columnLabelKeys[columnKey]),
       getSearchKey: (columnKey) => columnKey,
       getSearchValue: (columnKey) => searchValue[columnKey],
+      getExportValue: (columnKey) => exportValue[columnKey],
       createColumnDef: ({ columnKey, columnId, columnLabel }) => ({
         id: columnId,
         header: columnLabel,
-        accessorFn: searchValue[columnKey],
+        accessorFn: sortValue[columnKey],
         size: columnSizes[columnKey],
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
@@ -118,6 +151,8 @@ export function RunTable(props: Props) {
       value: search,
       onChange: setSearch,
     }}
+    csvExport={{ fileName: 'runs' }}
+    pagination={{ show: true }}
     enableSorting
     stickyHeader={false}
   />

@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { DataTableAction } from '@jalapenolabs/uikit'
 import type { ActionItem } from '../../api/routes/actionItemRoutes'
 
 // Core
@@ -12,26 +13,23 @@ import { selectDeletedActionItems, selectLiveActionItems } from '../../store/act
 
 // User interface
 import { Spinner } from '@heroui/react'
+import { LuUndo2 } from 'react-icons/lu'
 import { EmptyNotice } from '../../components/EmptyNotice'
 import { ActionItemFiltersBar } from './ActionItemFiltersBar'
 import { ActionItemTable } from './ActionItemTable'
-import { RestoreActionItemButton } from './RestoreActionItemButton'
 
 // Misc
 import { useActionItemsLoader, useDeletedActionItemsLoader } from '../../hooks/useServerData'
 import { useNow } from '../../hooks/useNow'
 import { filterActionItems, readActionItemFilters, writeActionItemFilters } from './actionItemFilters'
-
-// Defined once, outside the page, so the table's columns are not rebuilt on every render.
-function renderRestoreButton(item: ActionItem) {
-  return <RestoreActionItemButton item={item} />
-}
+import { useActionItemActions } from './useActionItemActions'
 
 // `/action-items/all`: every item in a table, filtered from the address so a filtered view
 // survives opening an item and coming back. Deleted items show in place of the rest when
 // asked for, each with Restore.
 export function ActionItemListPage() {
   const { t } = useTranslation('actionItems')
+  const actions = useActionItemActions()
   const [ searchParams, setSearchParams ] = useSearchParams()
   const filters = readActionItemFilters(searchParams)
   const now = useNow()
@@ -50,6 +48,17 @@ export function ActionItemListPage() {
     filters,
     now,
   )
+
+  // Only a deleted item has anything to do from its row. Restoring resolves once the answer is
+  // in, so its button spins until then.
+  const deletedRowActions: DataTableAction<ActionItem>[] = [{
+    id: 'restore',
+    label: t('list.restore'),
+    icon: <LuUndo2 className='size-4' aria-hidden />,
+    onPress: async (row) => {
+      await actions.restore(row.original)
+    },
+  }]
 
   return <div>
     <ActionItemFiltersBar
@@ -77,8 +86,8 @@ export function ActionItemListPage() {
         ? 'elysium.action-items.deleted.table.v1'
         : 'elysium.action-items.all.table.v1'}
       isSearchable
-      renderRowActions={filters.deleted
-        ? renderRestoreButton
+      rowActions={filters.deleted
+        ? deletedRowActions
         : undefined}
     />}
   </div>

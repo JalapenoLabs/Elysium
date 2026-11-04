@@ -1,6 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ReactNode } from 'react'
+import type { CsvValue, DataTableAction } from '@jalapenolabs/uikit'
 import type { ActionItem } from '../../api/routes/actionItemRoutes'
 
 // Core
@@ -42,8 +42,8 @@ type Props = {
   storageId: string
   // Shows the search field and column controls, for the full list.
   isSearchable?: boolean
-  // A trailing column of actions per row, such as restoring a deleted item.
-  renderRowActions?: (item: ActionItem) => ReactNode
+  // Shown over a row while it is hovered, such as restoring a deleted item.
+  rowActions?: DataTableAction<ActionItem>[]
   // Columns that would only repeat the page's own subject, such as Initiatives on an
   // initiative's page. Pass a constant, so the columns are not rebuilt on every render.
   omittedColumns?: readonly ItemColumnKey[]
@@ -57,7 +57,6 @@ const ITEM_COLUMN_KEYS = [
   'projects',
   'initiatives',
   'updated',
-  'rowActions',
 ] as const
 export type ItemColumnKey = typeof ITEM_COLUMN_KEYS[number]
 
@@ -69,7 +68,6 @@ const columnLabelKeys = {
   projects: 'table.projects',
   initiatives: 'table.initiatives',
   updated: 'table.updated',
-  rowActions: 'common:actions.moreActions',
 } as const satisfies Record<ItemColumnKey, string>
 
 // Starting widths in pixels, summing to less than the page's content column.
@@ -81,7 +79,6 @@ const columnSizes = {
   projects: 180,
   initiatives: 180,
   updated: 170,
-  rowActions: 120,
 } as const satisfies Record<ItemColumnKey, number>
 
 // Action items in a table. Clicking a row opens the item. The list page, an initiative's
@@ -95,7 +92,6 @@ export function ActionItemTable(props: Props) {
   useInitiativesLoader()
   const projectNames = useAppSelector(selectProjectNamesById, shallowEqual)
   const initiativeNames = useAppSelector(selectInitiativeNamesById, shallowEqual)
-  const renderRowActions = props.renderRowActions
   const omittedColumns = props.omittedColumns
 
   // The overdue items as one string, so the columns rebuild (which resets the table's
@@ -135,21 +131,16 @@ export function ActionItemTable(props: Props) {
         }
         return <DateText
           isDay
+          isFocusable={false}
           value={item.dueAt}
           className={overdue.has(item.id)
             ? 'text-danger'
             : undefined}
         />
       },
-      projects: (item: ActionItem) => <span className='line-clamp-2'>{namesText(item.projectIds, projectNames)}</span>,
-      initiatives: (item: ActionItem) => <span className='line-clamp-2'>{
-        namesText(item.initiativeIds, initiativeNames)
-      }</span>,
-      updated: (item: ActionItem) => <DateText value={item.updatedAt} />,
-      // Actions sit apart from the row's click, so pressing one never opens the item.
-      rowActions: (item: ActionItem) => <div data-no-row-highlight className='flex justify-end'>{
-        renderRowActions?.(item)
-      }</div>,
+      projects: (item: ActionItem) => namesText(item.projectIds, projectNames),
+      initiatives: (item: ActionItem) => namesText(item.initiativeIds, initiativeNames),
+      updated: (item: ActionItem) => <DateText value={item.updatedAt} isFocusable={false} />,
     } satisfies Record<ItemColumnKey, (item: ActionItem) => unknown>
 
     // Search matches what the user sees.
@@ -163,8 +154,7 @@ export function ActionItemTable(props: Props) {
       projects: (item: ActionItem) => namesText(item.projectIds, projectNames),
       initiatives: (item: ActionItem) => namesText(item.initiativeIds, initiativeNames),
       updated: (item: ActionItem) => formatDateTime(item.updatedAt),
-      rowActions: null,
-    } satisfies Record<ItemColumnKey, ((item: ActionItem) => string) | null>
+    } satisfies Record<ItemColumnKey, (item: ActionItem) => string>
 
     // Sorting follows meaning rather than text: states in their lifecycle order, priority
     // from urgent down, dates in time with undated items last.
@@ -178,45 +168,37 @@ export function ActionItemTable(props: Props) {
       projects: (item: ActionItem) => namesText(item.projectIds, projectNames),
       initiatives: (item: ActionItem) => namesText(item.initiativeIds, initiativeNames),
       updated: (item: ActionItem) => Date.parse(item.updatedAt),
-      rowActions: null,
-    } satisfies Record<ItemColumnKey, ((item: ActionItem) => string | number) | null>
+    } satisfies Record<ItemColumnKey, (item: ActionItem) => string | number>
 
-    // The actions column appears only where there are actions to show.
-    const columnKeys = ITEM_COLUMN_KEYS.filter((columnKey) => {
-      if (columnKey === 'rowActions') {
-        return Boolean(renderRowActions)
-      }
-      return !omittedColumns?.includes(columnKey)
-    })
+    // The export holds what the table shows, in full: states and priorities by name, the
+    // instants themselves for dates, and every project and initiative.
+    const exportValue = {
+      title: (item: ActionItem) => item.title,
+      state: (item: ActionItem) => t(stateLabelKeys[item.state]),
+      priority: (item: ActionItem) => t(priorityLabelKeys[item.priority]),
+      due: (item: ActionItem) => item.dueAt,
+      projects: (item: ActionItem) => namesText(item.projectIds, projectNames),
+      initiatives: (item: ActionItem) => namesText(item.initiativeIds, initiativeNames),
+      updated: (item: ActionItem) => item.updatedAt,
+    } satisfies Record<ItemColumnKey, (item: ActionItem) => CsvValue>
+
+    const columnKeys = ITEM_COLUMN_KEYS.filter((columnKey) => !omittedColumns?.includes(columnKey))
 
     return createManagedColumns<ActionItem, ItemColumnKey>({
       columnKeys,
       getColumnLabel: (columnKey) => t(columnLabelKeys[columnKey]),
-      getSearchKey: (columnKey) => searchValue[columnKey]
-        ? columnKey
-        : null,
+      getSearchKey: (columnKey) => columnKey,
       getSearchValue: (columnKey) => searchValue[columnKey],
-      createColumnDef: ({ columnKey, columnId, columnLabel }) => {
-        const toSortValue = sortValue[columnKey]
-        if (!toSortValue) {
-          return {
-            id: columnId,
-            header: () => <span className='sr-only'>{columnLabel}</span>,
-            enableSorting: false,
-            size: columnSizes[columnKey],
-            cell: ({ row }) => renderCell[columnKey](row.original),
-          }
-        }
-        return {
-          id: columnId,
-          header: columnLabel,
-          accessorFn: toSortValue,
-          size: columnSizes[columnKey],
-          cell: ({ row }) => renderCell[columnKey](row.original),
-        }
-      },
+      getExportValue: (columnKey) => exportValue[columnKey],
+      createColumnDef: ({ columnKey, columnId, columnLabel }) => ({
+        id: columnId,
+        header: columnLabel,
+        accessorFn: sortValue[columnKey],
+        size: columnSizes[columnKey],
+        cell: ({ row }) => renderCell[columnKey](row.original),
+      }),
     })
-  }, [ t, i18n.language, projectNames, initiativeNames, renderRowActions, omittedColumns, overdueIds ])
+  }, [ t, i18n.language, projectNames, initiativeNames, omittedColumns, overdueIds ])
 
   return <SmartTable
     ids={{
@@ -235,8 +217,13 @@ export function ActionItemTable(props: Props) {
     toolbar={props.isSearchable
       ? undefined
       : { show: false }}
+    rowActions={props.rowActions}
+    csvExport={{ fileName: 'action-items' }}
+    pagination={{ show: true }}
     enableSorting
-    // A row click opens the item; nothing is ever shown as highlighted.
+    // A row click opens the item; nothing is ever shown as highlighted. Since a click goes
+    // somewhere, a clamped cell opens in full on a double-click instead of expanding the row.
+    cellOverflow='modal'
     enableRowHighlight
     highlightedRowId={null}
     onHighlightedRowChange={(itemId) => {

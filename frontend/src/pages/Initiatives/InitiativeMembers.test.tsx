@@ -6,16 +6,17 @@ import type { ToastOptions } from '../../toast/toast'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'react-redux'
+import { MemoryRouter } from 'react-router'
 
 // Redux
 import { createAppStore } from '../../store'
 import { actionItemsLoaded, selectActionItemById } from '../../store/actionItemsSlice'
 
 // User interface
-import { LeaveInitiativeButton } from './LeaveInitiativeButton'
+import { InitiativeMembers } from './InitiativeMembers'
 
 // Misc
-import { makeActionItem } from '../../testFixtures'
+import { makeActionItem, makeInitiative } from '../../testFixtures'
 
 // The membership requests are the network boundary; toasts are watched for their Undo.
 const routes = vi.hoisted(() => ({
@@ -35,6 +36,12 @@ const toasts = vi.hoisted(() => ({
 
 vi.mock('../../toast/toast', () => ({ toast: toasts }))
 
+// Every loader answers as loaded: the items arrive through Redux.
+vi.mock('../../hooks/useServerData', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>()
+  return Object.fromEntries(Object.keys(actual).map((name) => [ name, () => 'loaded' ]))
+})
+
 const MEMBER = makeActionItem({ id: 'item-1', title: 'Reply to Sam', initiativeIds: [ 'initiative-1' ]})
 const LEFT = { ...MEMBER, initiativeIds: []}
 
@@ -44,12 +51,14 @@ beforeEach(() => {
   routes.joinInitiative.mockResolvedValue({ item: MEMBER })
 })
 
-describe('LeaveInitiativeButton', () => {
-  it('takes the item out at once and puts it back with Undo', async () => {
+describe('InitiativeMembers', () => {
+  it('takes an item out from its row at once and puts it back with Undo', async () => {
     const store = createAppStore()
     store.dispatch(actionItemsLoaded([ MEMBER ]))
     render(<Provider store={store}>
-      <LeaveInitiativeButton item={MEMBER} initiativeId='initiative-1' />
+      <MemoryRouter>
+        <InitiativeMembers initiative={makeInitiative({ id: 'initiative-1' })} />
+      </MemoryRouter>
     </Provider>)
 
     fireEvent.click(screen.getByRole('button', { name: 'Take out of this initiative' }))

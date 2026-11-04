@@ -272,7 +272,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/learnings`         | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as tabs in `?tab=` |
 | `/settings/learnings/new`     | `NewLearningPage`        | Save a learning; a takeaway one already has revises it   |
 | `/settings/learnings/:learningId` | `LearningPage`       | One learning, corrected in place, with its history and Undo |
-| `/settings/learning-categories` | `LearningCategoriesPage` | Every learning category, the workspace's own reordered and removed from the row menu; admins |
+| `/settings/learning-categories` | `LearningCategoriesPage` | Every learning category, the workspace's own reordered and removed from their rows; admins |
 | `/settings/learning-categories/new` | `NewLearningCategoryPage` | Add one of the workspace's own categories; admins |
 | `/settings/learning-categories/:categoryKey/edit` | `EditLearningCategoryPage` | Rename or describe one; under `/edit`, since a key may be `new` |
 | `/settings/storage`           | `ManageStoragePage`      | Storage locations Elysium saves files to                 |
@@ -348,7 +348,7 @@ offers them in autofill. See `docs/auth.md`.
   - **Passkeys, Lookup codes, Sessions.** Each list with its action above it.
 - **Users** (`/settings/users`). Admins only. Workspace access settings, then pending sign-ups pinned above everyone
   approved. The access switches and each person's role are the page's fields, kept by its Save; a role the API
-  refuses, such as the last admin's, stays picked. Approving, disabling, and the rest of a row's menu act at once.
+  refuses, such as the last admin's, stays picked. Approving, disabling, and the rest of a row's actions act at once.
   Users flow through SWR, then `usersSlice`, then the `user.*` events. The directory entry is hidden from others and
   badges the pending count.
 - **Updates** (`/settings/updates`). Admins only. The release running, auto-update's state with what it waits for, a
@@ -433,7 +433,7 @@ success toast carries Undo.
 - **After the toast.** Undo lasts as long as its toast, at least 6 seconds. A deleted record is restored after that
   from its list's Deleted filter, or from its own page's Restore.
 - **Where it lives.** Each area's delete owns its Undo: `useActionItemActions`, `useInitiativeActions`,
-  `useStudioItemActions`, `LeaveInitiativeButton`, `useProjectActions`, and `ReplyComposer`.
+  `useStudioItemActions`, `InitiativeMembers`, `useProjectActions`, and `ReplyComposer`.
 
 `src/gates/ReportIssueGate.tsx` holds the one report dialog, inside `AppShell` so its links navigate in the app. Any
 surface that shows an error offers Report with `ReportIssueButton` or `useReportIssue()(subject)`; see
@@ -448,8 +448,9 @@ Manage LLMs is split into these files:
 - `ManageLlmsPage` owns data loading and confirms deletes through `useConfirm`. Its Add LLM menu lists the provider
   types.
 - `LlmTable` renders the credentials with uikit's `SmartTable`: search, result count, sorting, and column
-  controls. Column widths and order persist in localStorage.
-- `LlmRowActions` is the per-row menu to edit, activate or deactivate, and delete.
+  controls. Column widths and order persist in localStorage. The name, over its description, links to the edit page;
+  a signed-in account's email has its own column, and each usage window (`ClaudeUsageWindow`) is a column of its
+  own, its percentage over its bar and when it resets below. A row's actions activate or deactivate it and delete it.
 - `AddLlmPage` and `EditLlmPage` are full pages, not modals. Each provider type has its own add page under
   `/settings/llms/new/`, named by its slug in `llmSlugByType` (`llmProviders.ts`): `claude-account`,
   `claude-api-key`, `claude-code-oauth`, `openai-api-key`, and `codex-oauth` (`chatgpt-oauth`). A slug it does not
@@ -466,8 +467,8 @@ Below the credentials, admins see Agent configuration (`AgentConfigurationSettin
 agent's Claude Code configuration is checked out from, saved to the workspace settings (see `docs/coding.md`).
 
 Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone or
-bucket with directory, projects, limit, and a Default chip on Studio's default) whose row menu edits, tests, or
-deletes one; delete confirms through `useConfirm`. Adding and editing are their own pages: `StorageLocationEditorLayout`
+bucket with directory, projects, limit, and a Default chip on Studio's default). The name links to the edit page, and
+a row's actions test or delete one; delete confirms through `useConfirm`. Adding and editing are their own pages: `StorageLocationEditorLayout`
 holds the breadcrumbs and title, and `StorageLocationForm` lays out the form beside a `StorageSetupChecklist` for the
 chosen provider. A stored location's form also has the Studio's default switch, sent only when changed.
 
@@ -525,10 +526,10 @@ comes from what Jira said the token reaches.
   the table's scope summary. `JiraSetupChecklist` renders `src/components/SetupChecklist.tsx`, as GitHub's and
   Storage's do. See `docs/jira.md`.
 
-Environment variables under `src/pages/Settings/Environment/` follow GitHub's shape: a table (key in monospace, value,
-description) whose row menu edits or deletes one, and add and edit as their own pages built from
-`EnvironmentVariableEditorLayout` and `EnvironmentVariableForm`. A secret's value shows as a mask beside a Secret chip; a
-visible one is truncated in monospace. The form is a key, a Secret switch, the value (a multi-line text area, or a
+Environment variables under `src/pages/Settings/Environment/` follow GitHub's shape: a table (key in monospace, linking
+to its edit page, value, description) whose row action deletes one, and add and edit as their own pages built from
+`EnvironmentVariableEditorLayout` and `EnvironmentVariableForm`. A secret's value shows only as a Secret chip; a visible
+one is in monospace. The form is a key, a Secret switch, the value (a multi-line text area, or a
 password field while Secret is on), and a description. `EnvironmentVisibilityNote` sits beside the form and above the
 table, saying that the agent can read every value and that secret only hides it from Elysium and its session logs.
 While editing a secret the value is optional and keeps the stored one, and it turns required when Secret is switched
@@ -540,19 +541,20 @@ Email under `src/pages/Settings/Email/` has two sections.
 `MailServerSection` follows the mail server's state from Redux. With no server it links to creating one
 (`NewMailServerPage`, `MailServerForm`: the first domain, and a hostname that follows it as `mail.<domain>` until
 edited, which goes back to Email once creation starts); while it is created it shows the current step from
-`mailServer.updated` events; once ready it lists domains in `MailDomainTable`, with Add domain
-(`NewMailDomainPage`, `MailDomainForm`), a remove confirmation (which only explains while the domain has mailboxes),
-and `MailDomainDnsModal`, which checks the domain's records through SWR each time it opens and lists them with copy
-buttons (`DnsRecordRow`). Each create page says why when the server cannot take what it creates
-(`mailServerBlockerKeys`, `getMailboxBlockerKey` in `mailPresentation.ts`) instead of showing its form.
+`mailServer.updated` events; once ready it lists domains in `MailDomainTable` (the default domain marked in its own
+column, whose row action to remove it is disabled), with Add domain (`NewMailDomainPage`, `MailDomainForm`), a remove
+confirmation (which only explains while the domain has mailboxes), and `MailDomainDnsModal`, which checks the
+domain's records through SWR each time it opens and lists them with copy buttons (`DnsRecordRow`). Each create page
+says why when the server cannot take what it creates (`mailServerBlockerKeys`, `getMailboxBlockerKey` in
+`mailPresentation.ts`) instead of showing its form.
 
 The mailboxes section shows `MailAccountTable`. `MailboxSourceActions` offers Connect Gmail, Connect Outlook, and
 Create mailbox, disabling each with the reason: no broker (from `GET /api/v1/mail/capabilities`, read through SWR),
 no ready mail server, or no domain. Create mailbox links to `NewMailboxPage`, whose `CreateMailboxForm` picks one of
 the server's domains. The Connect buttons are plain anchors to the API's OAuth start route, because the answer is a redirect to the broker; a client-side route change would not follow it.
 `useOAuthOutcomeToast` announces the `mailConnected` or `mailError` the callback returns with, then strips it from
-the URL. The row menu opens the mailbox's edit page, tests the connection, sends a test message, and disconnects;
-the disconnect confirmation says whether mail is deleted (self-hosted) or only forgotten (OAuth). The edit page
+the URL. The address links to the mailbox's edit page, and a row's actions test the connection, send a test message,
+and disconnect, or delete a self-hosted mailbox; the disconnect confirmation says whether mail is deleted (self-hosted) or only forgotten (OAuth). The edit page
 (`EditMailboxPage`, `MailboxForm`) holds the sender name and whether the mailbox is active, kept by its Save.
 
 ### Learnings
@@ -588,9 +590,9 @@ page folds it in, in the settings frame:
 (`docs/knowledge.md`, Categories), in the settings frame; anyone else is told it is for admins.
 
 - **The list** (`LearningCategoriesPage`, `LearningCategoryTable`) shows every category in the order it is offered,
-  unsorted, since the order is the point: its name over its key, its description, and its learnings. A built-in row
-  says Built-in where the row menu would be; the workspace's own have a menu (`LearningCategoryRowActions`) to edit,
-  move up or down, and remove.
+  unsorted, since the order is the point: its name over its key, whether it is built in, its description, and its
+  learnings. Built-in ones are fixed; the workspace's own link to their edit page from their name, and their row
+  actions move them up or down and remove them.
 - **Removing** (`RemoveLearningCategoryModal`) names the category, says in bold that it can't be undone, and holds its
   button for five seconds with the same `CountdownButton` the confirm gate uses. When learnings are filed under it, it
   asks where they move, and the button waits for an answer too.
@@ -622,7 +624,7 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   next few titles listed below.
 - **All items** (`ActionItemListPage`) is `ActionItemTable` (uikit's `SmartTable`) under `ActionItemFiltersBar`:
   states (the inbox and open by default), project (or no project), initiative, waiting, snoozed, and a Deleted items
-  switch that lists deleted items instead, each with Restore. Filters live in the address (`actionItemFilters.ts`),
+  switch that lists deleted items instead, each with a Restore row action. Filters live in the address (`actionItemFilters.ts`),
   with only what differs from the defaults written, so a filtered list survives opening an item and coming back.
 - **Item page** (`ActionItemPage`, which loads the item for `ActionItemView`) edits the title (the page's title) and
   notes in place with `InlineEditableText`, kept by the page's Save (see Saving). `useActionItemPageActions` gives its header the first state change the
@@ -659,13 +661,13 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   `historyPresentation.ts` from the entry's kind and data, with every field an edit changed. Unknown kinds and
   malformed data still read as something.
 - **Initiatives** (`InitiativesPage`, `InitiativeTable`) list name, state, progress, target date, and projects, active
-  ones by default, with a Deleted initiatives switch like items'. Progress is always resolved and total together
+  ones by default, with a Deleted initiatives switch like items', each deleted one with a Restore row action. Progress is always resolved and total together
   (`InitiativeProgressSummary`), with a bar beside the counts, never a percentage.
 - **Initiative page** (`InitiativePage`, which loads the initiative for `InitiativeView`) edits the name (the page's
   title, with its state chip beside it) and the description in place, and Delete is its Actions menu. It edits state,
   target date, and projects in `InitiativeDetailsPanel`. All of them are kept by the page's Save. `BurnupChart` draws total and resolved as steps from the API's burnup, with a legend,
   direct end labels, a crosshair and tooltip that snap to the nearest change (by pointer or arrow keys), and the same
-  numbers in a table beneath; its geometry is `burnup.ts`. `InitiativeMembers` lists the items with a button to take
+  numbers in a table beneath; its geometry is `burnup.ts`. `InitiativeMembers` lists the items with a row action to take
   one out (at once, with Undo), adds existing items from a search, and links to a new item started in the initiative.
   `InitiativeContainers` lists the epics, saved filters, milestones, and labels it follows from the `initiativeLinks`
   slice, each with when the watcher last read it or why it could not, and whether it held more than the watcher reads.
@@ -723,9 +725,10 @@ matter when changing it:
   `sessionPresentation.ts` (project name, activity state and its label, last activity in the viewer's zone), and
   `searchSessionSummaries` filters them once for either view. The table's columns render and sort from those
   summaries; last activity sorts by the instant rather than the words shown.
+- The table's row actions open, rename, and delete a session.
 - `SessionTiles` is a grid that fits as many 16rem columns as the panel is wide, down to one at phone width. Each
-  tile shows the number, title, state chip, project, and last activity, with `SessionRowActions` in its
-  corner. The title's link stretches over the whole card, so clicking a tile opens the session as clicking the title
+  tile shows the number, title, state chip, project, and last activity, with `SessionRowActions`, a menu of the same
+  three, in its corner. The title's link stretches over the whole card, so clicking a tile opens the session as clicking the title
   in the table does; the menu sits above it. The panel is a Tailwind `@container`, so the toolbar and grid follow the
   panel's width, not the window's.
 - The chosen view is saved per browser under `elysium.coding.sessions.view.v1` and defaults to Table. It is held the
@@ -801,8 +804,8 @@ sidebar's Runs link and both pages are for members alone; a guest who opens one 
 `src/pages/Projects/ProjectsPage.tsx` lists projects in a table view (uikit's `SmartTable`) or a tiles view (HeroUI
 cards). One toolbar drives both: search matches name and description, and sort is by name, session count, or last
 update, in either direction. `projectListing.ts` does the filtering and sorting once, so switching views keeps
-the same results in the same order. The table's own search and toolbar are hidden, and its column headers sort
-through the same state as the toolbar. The chosen view is remembered per browser under
+the same results in the same order. The table's own search and toolbar are hidden, so its Columns and export buttons
+sit in a strip above it, and its column headers sort through the same state as the toolbar. The chosen view is remembered per browser under
 `elysium.projects.view.v1`; search and sort reset on each visit. The listing only opens projects: clicking a row
 (uikit's row highlight, which never shows as highlighted) or a tile, itself a link, goes to `/projects/:projectId`.
 The cover thumbnail opts out of the row click with `data-no-row-highlight`, so previewing it does not navigate.
@@ -859,18 +862,30 @@ filters drawer, and selection bar the kit renders into the body.
   value (what the user sees, not raw data), and a `cell` renderer.
 - **Labels.** Pass `useSmartTableLabels()` as `labels`. The kit ships English strings, and that hook supplies ours
   from i18next (`common.table`).
-- **Row actions.** `rowActions` float over the right of the hovered row as icon-only buttons with tooltips, at
-  most three, the rest in an ellipsis menu; screens that cannot hover get the ellipsis menu on every row. Tables
-  that still render actions as a last column move onto it with #181.
+- **Row actions.** Every table's per-row actions are `rowActions`, never a column: they float over the right of the
+  hovered row as icon-only buttons with tooltips, at most three, the rest in an ellipsis menu, and screens that
+  cannot hover get the ellipsis menu on every row. An action's `onPress` gets the TanStack row (`row.original` is the
+  record) and may return a promise, which spins its button until it settles. A label is fixed, so an action that
+  flips, such as Activate and Deactivate, is two actions with `isVisible`. Actions are buttons and cannot be links,
+  so a row's edit or view page is its name's `Link`, a real address that opens in a new tab too.
 - **Long cells** clamp to three lines (`cellLineClamp`, a column's `lineClamp`). A click expands the row; tables
-  whose rows navigate set `cellOverflow: 'modal'`, so a double-click opens a clamped cell instead.
+  whose rows navigate (action items, initiatives, projects, and a project's or item's sessions) set
+  `cellOverflow: 'modal'`, so a double-click opens a clamped cell instead. Cells leave clamping to the kit: an inner
+  `truncate` or `line-clamp` would clip text the kit cannot see overflow, leaving no way to read it.
+- **Columns** hold one data point, or two stacked and left aligned, such as a name over its email; never two side by
+  side. Each table keeps three lookups by column key: `searchValue` (the text the user sees, which the search
+  matches), `sortValue` (the column's accessor: numbers, instants as `Date.parse`, and lifecycle indexes, so a column
+  never sorts by its words), and, on tables that export, `exportValue` (what the CSV holds).
+- **Pagination.** Every table passes `pagination: { show: true }`, 25 rows a page by default.
 - **Controls in the titlebar.** `controls: { container }` renders the search, filters, Columns, and export into an
   element, such as one in `PageHeader`'s `tools`, while the table keeps their state. A table with
   `toolbar: { show: false }` still shows its Columns chooser above it.
 - **Filters** come from a column's `filter` and from `filters.definitions`, with `filters.values` and
   `onValuesChange` to keep them in the address. They open in a drawer and show as tags above the table.
 - **Export.** `csvExport` adds a one-click CSV of the filtered, sorted rows; `exportValue` gives a column whose
-  accessor is a sort key its real value.
+  accessor is a sort key its real value. The data tables export (action items, initiatives, projects, coding
+  sessions, runs, and learnings); the settings tables do not. A CSV holds states and other labels as words, dates as
+  their UTC instants, and leaves images out.
 - **Multi-select.** `enableSelection` with `selectionActions` and `bulkEdit` gives the floating selection bar, its
   hotkeys, and select-everything across pages. Phones get none.
 - **Empty lists.** The kit has no empty-state slot, so render the empty message instead of the table.
@@ -1138,7 +1153,9 @@ per language and options, in the language i18next renders in, and lint fails on 
 - Months are never numbers. `common:dates` holds the order of a date's parts, the day's ordinal suffix, and "at";
   the parts come from `Intl`'s `formatToParts`, never its punctuation, which changes between ICU versions.
 - `DateText` shows the short date in a `<time>` with the full timestamp in a tooltip. Tables and lists use it. A day
-  such as a due date passes `isDay`, so its tooltip leaves out the time.
+  such as a due date passes `isDay`, so its tooltip leaves out the time. Its trigger is a tab stop, so the timestamp
+  reaches the keyboard; tables pass `isFocusable={false}`, since a page of rows would otherwise put a tab stop on every
+  date between the controls, and the tooltip still shows on hover.
 - Translations compress counts with `{{count, compact}}`, registered in `src/i18n.ts`; `count` stays a number for
   choosing the plural. `src/format/translations.test.ts` fails on a `{{count}}` without it. Identifiers, such as a
   session's number, and exact limits stay plain.

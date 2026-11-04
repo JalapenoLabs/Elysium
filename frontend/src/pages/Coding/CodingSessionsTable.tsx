@@ -68,7 +68,7 @@ export function CodingSessionsTable(props: Props) {
       if (!lastActivityAt) {
         return t('sessions.never')
       }
-      return <DateText value={lastActivityAt} />
+      return <DateText value={lastActivityAt} isFocusable={false} />
     }
 
     const renderCell = {
@@ -91,6 +91,7 @@ export function CodingSessionsTable(props: Props) {
       lastActivity,
     } satisfies Record<SessionColumnKey, (session: CodingSession) => unknown>
 
+    // Each sorts by its value, which is also what the export holds: the instant for last activity.
     const sortValue = {
       number: (session: CodingSession) => String(session.id),
       title: (session: CodingSession) => session.title,
@@ -138,8 +139,12 @@ export function CodingSessionsTable(props: Props) {
     getRowId={(session) => String(session.id)}
     labels={labels}
     toolbar={{ show: false }}
+    csvExport={{ fileName: 'coding-sessions' }}
+    pagination={{ show: true }}
     enableSorting
-    // A row click opens the session; nothing is ever shown as highlighted.
+    // A row click opens the session; nothing is ever shown as highlighted. Since a click goes
+    // somewhere, a clamped cell opens in full on a double-click instead of expanding the row.
+    cellOverflow='modal'
     enableRowHighlight
     highlightedRowId={null}
     onHighlightedRowChange={(sessionId) => {
