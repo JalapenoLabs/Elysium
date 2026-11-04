@@ -96,7 +96,7 @@ Everything else follows these rules:
   Postgres server and credentials.
 - `users` holds every principal: people, mapped to their Kratos identity, and the seeded machines (the system user,
   Elysia, and the coding agent), which can never sign in. Roles are one enum: `admin`, `member`, `guest`, `agent`,
-  `system`. Guests have a member's access until roles are built out.
+  `system`. Guests have a member's access, except the knowledge base, until roles are built out.
 - The first person to sign up becomes the admin; everyone after waits for an admin's approval. Admins can close
   sign-up and require an authenticator app. The workspace always keeps one active admin. Approved people are never
   deleted, only disabled.
