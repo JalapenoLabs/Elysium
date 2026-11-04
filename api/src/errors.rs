@@ -103,6 +103,22 @@ impl From<crate::action_items::WorkError> for ApiError {
     }
 }
 
+impl From<crate::models::work_batch::ChangeError> for ApiError {
+    fn from(error: crate::models::work_batch::ChangeError) -> Self {
+        use crate::models::work_batch::ChangeError;
+
+        match error {
+            ChangeError::NotFound => Self::NotFound,
+            ChangeError::Refused(_reason) => Self::CodedConflict {
+                code: "work_batch_moved_on",
+                message: "this batch moved on, so it no longer allows that change",
+            },
+            ChangeError::Invalid(reason) => Self::BadRequest(reason),
+            ChangeError::Database(database) => database.into(),
+        }
+    }
+}
+
 impl From<crate::models::attribution::UndoError> for ApiError {
     fn from(error: crate::models::attribution::UndoError) -> Self {
         use crate::models::attribution::UndoError;

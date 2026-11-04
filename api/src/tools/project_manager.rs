@@ -31,7 +31,9 @@ pub const SERVER: ToolServer = ToolServer {
         you submitted and where each stands; check it before submitting, so no work is \
         submitted twice. manager_submit_batch hands a piece of work to a worker: write its goal \
         so a worker who has seen nothing else can finish it, and name the records and action \
-        items it came from. manager_cancel_batch withdraws a batch no worker has taken yet.",
+        items it came from. Batches wait in one queue for the whole workspace, which a person or \
+        Elysia may reorder or pause. manager_cancel_batch withdraws a batch no worker has started \
+        on yet.",
     ),
     tools: &TOOLS,
 };
@@ -54,8 +56,10 @@ const TOOLS: [Tool; 5] = [
     Tool {
         name: "manager_batches",
         description: "Lists this project's work batches, newest first: each one's id, title, \
-            priority, when it is scheduled, where it stands, and what its worker reported. By \
-            default every state; pass states for some.",
+            priority, when it is scheduled, where it stands (queued for a slot, paused by a person \
+            or Elysia, assigned a slot and waiting for its worker, running, succeeded, failed, or \
+            cancelled), and what its worker reported or why it was cancelled. By default every \
+            state; pass states for some.",
         input_schema: batches_schema,
         run: |context, scope, arguments| run_batches(context, scope, arguments).boxed(),
     },
@@ -71,8 +75,8 @@ const TOOLS: [Tool; 5] = [
     },
     Tool {
         name: "manager_cancel_batch",
-        description: "Withdraws one of this project's batches that no worker has taken yet, \
-            saying why.",
+        description: "Withdraws one of this project's batches that no worker has started on \
+            yet (queued, paused, or assigned), saying why.",
         input_schema: cancel_schema,
         run: |context, scope, arguments| run_cancel(context, scope, arguments).boxed(),
     },
@@ -133,7 +137,10 @@ fn batches_schema() -> Value {
                 "type": "array",
                 "items": {
                     "type": "string",
-                    "enum": ["queued", "running", "succeeded", "failed", "cancelled"],
+                    "enum": [
+                        "queued", "paused", "assigned", "running", "succeeded", "failed",
+                        "cancelled",
+                    ],
                 },
                 "minItems": 1,
                 "uniqueItems": true,

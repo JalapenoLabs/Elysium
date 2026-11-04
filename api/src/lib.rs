@@ -67,6 +67,7 @@ mod updates;
 mod version;
 mod web_app;
 mod whisper;
+mod worker_pool;
 mod workflows;
 mod youtrack;
 

@@ -41,6 +41,8 @@ pub mod studio_items;
 pub mod timeline;
 mod updates;
 pub mod users;
+pub mod work_batches;
+mod work_queue;
 pub mod workspace_settings;
 
 use axum::Router;
@@ -118,5 +120,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/password-vault", password_vault::router())
         .nest("/updates", updates::router())
         .nest("/users", users::router())
+        .nest("/work-batches", work_batches::router())
+        .nest("/work-queue", work_queue::router())
         .nest("/workspace-settings", workspace_settings::router())
 }

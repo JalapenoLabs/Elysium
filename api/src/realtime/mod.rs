@@ -52,6 +52,7 @@ use crate::backups::BackupsStatus;
 use crate::mail::hosting::MailServerStatus;
 use crate::models::knowledge_ask::KnowledgeAskState;
 use crate::models::step_job::StepJobState;
+use crate::models::work_batch::BatchState;
 use crate::models::workflow_run::WorkflowRunState;
 use crate::passwords::VaultStatus;
 use crate::routes::v1::action_items::{
@@ -342,6 +343,19 @@ pub enum ServerEvent {
         run_id: Uuid,
         state: StepJobState,
     },
+    /// A work batch was submitted, changed while it waited, given or relieved of a slot, or
+    /// moved on. Ids and its state alone: its goal quotes what was ingested, so members load it
+    /// by id, and the work queue again.
+    #[serde(rename = "workBatch.changed")]
+    WorkBatchChanged {
+        id: Uuid,
+        project_id: Uuid,
+        state: BatchState,
+    },
+    /// The worker pool's size, the CPU cores it follows, or a usage hold changed; members load
+    /// the work queue again.
+    #[serde(rename = "workerPool.changed")]
+    WorkerPoolChanged,
 }
 
 impl ServerEvent {

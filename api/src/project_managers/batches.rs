@@ -10,7 +10,7 @@
 
 use std::collections::HashSet;
 
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde::Deserialize;
@@ -21,14 +21,15 @@ use super::timeline;
 use crate::database::schema::{action_item_projects, action_items};
 use crate::models::timeline_record;
 use crate::models::user::PROJECT_MANAGER_USER_ID;
-use crate::models::work_batch::{self, NewWorkBatch, Priority, Repository, WorkBatch};
-use crate::realtime::{EventBus, ServerEvent};
+use crate::models::work_batch::{self, ChangeError, NewWorkBatch, Priority, Repository, WorkBatch};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::coding_sessions::validate_repository_url;
+use crate::worker_pool::actions;
 
 /// The longest title, matching `work_batches.title`.
 const TITLE_MAX_CHARACTERS: usize = 200;
 
-/// The longest goal and cancellation reason, matching `work_batches.goal` and `result`.
+/// The longest goal, matching `work_batches.goal`.
 const TEXT_MAX_CHARACTERS: usize = 20_000;
 
 /// The most repositories one batch needs, as a coding session clones at most.
@@ -37,9 +38,6 @@ const REPOSITORIES_MAX: usize = 16;
 /// The most records and action items one batch names as its provenance. A batch is one piece of
 /// work; more than this is several.
 const PROVENANCE_MAX: usize = 50;
-
-/// How far ahead a batch may be scheduled. Further than a year is a plan, not a batch.
-const SCHEDULE_HORIZON: TimeDelta = TimeDelta::days(365);
 
 /// A batch as a Project Manager submits it.
 #[derive(Debug, Clone, Deserialize)]
@@ -117,26 +115,7 @@ pub fn check(submission: &Submission, now: DateTime<Utc>) -> Result<(), String> 
         }
     }
 
-    match (submission.priority, submission.scheduled_for) {
-        (Priority::Scheduled, None) => {
-            return Err(
-                "a scheduled batch needs scheduledFor, the time it is due, with its offset"
-                    .to_owned(),
-            );
-        }
-        (Priority::Scheduled, Some(at)) if at <= now => {
-            return Err(
-                "scheduledFor is not in the future; submit it as asap or normal instead".to_owned(),
-            );
-        }
-        (Priority::Scheduled, Some(at)) if at > now + SCHEDULE_HORIZON => {
-            return Err("scheduledFor is more than a year away".to_owned());
-        }
-        (Priority::Asap | Priority::Normal, Some(_)) => {
-            return Err("scheduledFor is only for a scheduled batch".to_owned());
-        }
-        _ => {}
-    }
+    work_batch::check_schedule(submission.priority, submission.scheduled_for, now)?;
 
     for (name, ids) in [
         ("recordIds", &submission.record_ids),
@@ -208,11 +187,13 @@ pub async fn submit(
         action_item_id: None,
         conversation_id: None,
     });
-    events.publish(&ServerEvent::ProjectManagerChanged { project_id });
+    actions::announce(events, &batch);
+    events.signal(&Signal::WorkerPool);
     Ok(batch)
 }
 
-/// Withdraws `project_id`'s queued batch `batch_id`, saying `reason`, and announces it.
+/// Withdraws `project_id`'s batch `batch_id` while no worker has started on it, saying `reason`,
+/// as its Project Manager, and announces it.
 ///
 /// # Errors
 /// [`BatchError::Refused`] when the project has no such batch waiting; any database error.
@@ -223,22 +204,25 @@ pub async fn cancel(
     batch_id: Uuid,
     reason: &str,
 ) -> Result<WorkBatch, BatchError> {
-    let reason = reason.trim();
-    if reason.is_empty() || reason.chars().count() > TEXT_MAX_CHARACTERS {
-        return Err(BatchError::Refused(format!(
-            "reason must hold text, at most {TEXT_MAX_CHARACTERS} characters"
-        )));
-    }
-    let cancelled = work_batch::cancel(connection, project_id, batch_id, reason)
-        .await?
-        .ok_or_else(|| {
-            BatchError::Refused(format!(
-                "batch {batch_id} is not a queued batch of this project; a worker may have taken \
-                 it already. Call manager_batches for where each stands"
-            ))
-        })?;
-    events.publish(&ServerEvent::ProjectManagerChanged { project_id });
-    Ok(cancelled)
+    actions::cancel(
+        connection,
+        events,
+        batch_id,
+        Some(project_id),
+        reason,
+        PROJECT_MANAGER_USER_ID,
+    )
+    .await
+    .map_err(|error| match error {
+        ChangeError::NotFound => BatchError::Refused(format!(
+            "batch {batch_id} is not a batch of this project. Call manager_batches for yours"
+        )),
+        ChangeError::Refused(reason) => BatchError::Refused(format!(
+            "{reason}. Call manager_batches for where each stands"
+        )),
+        ChangeError::Invalid(reason) => BatchError::Refused(reason),
+        ChangeError::Database(error) => BatchError::Database(error),
+    })
 }
 
 /// Refuses a submission naming a record not attributed to its project, or an action item that is
@@ -289,6 +273,8 @@ async fn refuse_unknown_provenance(
 
 #[cfg(test)]
 mod tests {
+    use chrono::TimeDelta;
+
     use super::*;
 
     fn submission() -> Submission {

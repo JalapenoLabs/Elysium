@@ -11,13 +11,12 @@ pub mod send_message;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use serde_json::Value;
 use uuid::Uuid;
 
 use crate::models::project_manager::{Turn, TurnStatus, Wake, WakeKind};
-use crate::models::work_batch::{BatchState, Priority, WorkBatch};
 use crate::project_managers::Snapshot;
 use crate::project_managers::status::Status;
+use crate::routes::v1::work_batches::BatchResponse;
 
 /// A project's Project Manager, as its page shows it.
 #[derive(Debug, Clone, Serialize)]
@@ -117,51 +116,6 @@ impl From<Wake> for WakeResponse {
             body: wake.body,
             created_by: wake.created_by,
             created_at: wake.created_at,
-        }
-    }
-}
-
-/// One work batch.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BatchResponse {
-    id: Uuid,
-    title: String,
-    goal: String,
-    /// `[{ url, baseBranch? }]`.
-    repositories: Value,
-    priority: Priority,
-    scheduled_for: Option<DateTime<Utc>>,
-    state: BatchState,
-    result: Option<String>,
-    /// The turn that submitted it.
-    turn_id: Option<Uuid>,
-    source_record_ids: Value,
-    action_item_ids: Value,
-    timeline_record_id: Option<Uuid>,
-    created_at: DateTime<Utc>,
-    started_at: Option<DateTime<Utc>>,
-    finished_at: Option<DateTime<Utc>>,
-}
-
-impl From<WorkBatch> for BatchResponse {
-    fn from(batch: WorkBatch) -> Self {
-        Self {
-            id: batch.id,
-            title: batch.title,
-            goal: batch.goal,
-            repositories: batch.repositories,
-            priority: batch.priority,
-            scheduled_for: batch.scheduled_for,
-            state: batch.state,
-            result: batch.result,
-            turn_id: batch.turn_id,
-            source_record_ids: batch.source_record_ids,
-            action_item_ids: batch.action_item_ids,
-            timeline_record_id: batch.timeline_record_id,
-            created_at: batch.created_at,
-            started_at: batch.started_at,
-            finished_at: batch.finished_at,
         }
     }
 }

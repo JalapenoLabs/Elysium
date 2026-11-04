@@ -8,12 +8,14 @@
 //! Changes to items and initiatives she proposes as changesets ([`propose`]), which a person
 //! approves before anything is written; she cannot change them directly. She talks to a
 //! project's Project Manager by writing to it (`elysia_message_project_manager`), which wakes it
-//! as a person's message does (`crate::project_managers`).
+//! as a person's message does (`crate::project_managers`). She reads the worker pool's queue and
+//! reorders, pauses, or cancels what waits in it ([`work_queue`]), as a person may.
 //!
 //! Each tool's database work is a function of a connection, so it is tested against Postgres
 //! without a turn; the `run_*` wrappers only parse, connect, and announce.
 
 mod propose;
+mod work_queue;
 
 use std::collections::HashMap;
 
@@ -50,12 +52,15 @@ pub const SERVER: ToolServer = ToolServer {
         People see all of this in your panel and the changeset review as soon as you write it. \
         Each project has a Project Manager that plans its work and hands it to workers; when \
         you learn something a project's work should follow, such as a changed deadline or a \
-        priority, tell it with elysia_message_project_manager.",
+        priority, tell it with elysia_message_project_manager. Their batches wait in one queue \
+        for the workspace's workers, which elysia_work_queue shows in order; when a person asks, \
+        or what you learned calls for it, run a batch next, change its priority, or pause it with \
+        elysia_change_batch, and withdraw one with elysia_cancel_batch.",
     ),
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 7] = [
+const TOOLS: [Tool; 10] = [
     Tool {
         name: "elysia_overview",
         description: "Shows the workspace: every action item in the inbox or open, newest \
@@ -113,6 +118,31 @@ const TOOLS: [Tool; 7] = [
         run: |context, scope, arguments| {
             run_message_project_manager(context, scope, arguments).boxed()
         },
+    },
+    Tool {
+        name: "elysia_work_queue",
+        description: "Shows the worker pool and its queue: how many workers run at once and how \
+            many are busy, whether a usage limit holds it, the batches in its slots, and every \
+            batch waiting, in the order the pool hands out slots, then those scheduled for \
+            later and those paused. Each names its project.",
+        input_schema: work_queue::queue_schema,
+        run: |context, scope, arguments| work_queue::run_queue(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "elysia_change_batch",
+        description: "Changes a batch no worker has started on: runNext puts it before \
+            everything else; priority (asap, normal, or scheduled with scheduledFor) moves it \
+            between the tiers; paused holds it back or lets it wait again. Recorded in its \
+            history as yours. Answers the batch.",
+        input_schema: work_queue::change_schema,
+        run: |context, scope, arguments| work_queue::run_change(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "elysia_cancel_batch",
+        description: "Withdraws a batch no worker has started on, saying why. Its Project \
+            Manager is told at once, so say what it should know.",
+        input_schema: work_queue::cancel_schema,
+        run: |context, scope, arguments| work_queue::run_cancel(context, scope, arguments).boxed(),
     },
 ];
 

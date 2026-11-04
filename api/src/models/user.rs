@@ -235,6 +235,9 @@ pub struct WorkspaceSettings {
     pub agent_configuration_repository: Option<String>,
     /// The storage location the databases are backed up to every night. See `crate::backups`.
     pub backup_storage_location_id: Option<Uuid>,
+    /// How many workers run at once; `None` follows the default the engine derives from its CPU
+    /// cores. See `crate::worker_pool`.
+    pub worker_pool_size: Option<i32>,
 }
 
 /// A partial update of the workspace settings. `None` leaves a setting as it is.
@@ -255,6 +258,12 @@ pub struct WorkspaceSettingsChanges {
         reason = "leave as it is, clear, and set are three distinct changes"
     )]
     pub backup_storage_location_id: Option<Option<Uuid>>,
+    /// `Some(None)` follows the default size again.
+    #[expect(
+        clippy::option_option,
+        reason = "leave as it is, follow the default, and set are three distinct changes"
+    )]
+    pub worker_pool_size: Option<Option<i32>>,
 }
 
 impl WorkspaceSettingsChanges {
@@ -263,6 +272,7 @@ impl WorkspaceSettingsChanges {
             && self.require_mfa.is_none()
             && self.agent_configuration_repository.is_none()
             && self.backup_storage_location_id.is_none()
+            && self.worker_pool_size.is_none()
     }
 }
 
@@ -720,12 +730,14 @@ pub async fn update_workspace_settings(
                         "requireMfa": before.require_mfa,
                         "agentConfigurationRepository": before.agent_configuration_repository,
                         "backupStorageLocationId": before.backup_storage_location_id,
+                        "workerPoolSize": before.worker_pool_size,
                     },
                     "after": {
                         "signupOpen": after.signup_open,
                         "requireMfa": after.require_mfa,
                         "agentConfigurationRepository": after.agent_configuration_repository,
                         "backupStorageLocationId": after.backup_storage_location_id,
+                        "workerPoolSize": after.worker_pool_size,
                     },
                 }),
             )
@@ -1177,12 +1189,14 @@ mod tests {
                     "requireMfa": false,
                     "agentConfigurationRepository": null,
                     "backupStorageLocationId": null,
+                    "workerPoolSize": null,
                 },
                 "after": {
                     "signupOpen": false,
                     "requireMfa": false,
                     "agentConfigurationRepository": null,
                     "backupStorageLocationId": null,
+                    "workerPoolSize": null,
                 },
             })]
         );

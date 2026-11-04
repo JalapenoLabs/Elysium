@@ -1575,6 +1575,19 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    work_batch_events (id) {
+        id -> Uuid,
+        work_batch_id -> Uuid,
+        kind -> Text,
+        data -> Jsonb,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::WorkBatchPriority;
     use super::sql_types::WorkBatchState;
 
@@ -1597,6 +1610,22 @@ diesel::table! {
         updated_at -> Timestamptz,
         started_at -> Nullable<Timestamptz>,
         finished_at -> Nullable<Timestamptz>,
+        pinned_at -> Nullable<Timestamptz>,
+        assigned_at -> Nullable<Timestamptz>,
+        claim_token -> Nullable<Uuid>,
+        lease_expires_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    worker_pool (singleton) {
+        singleton -> Bool,
+        cpu_count -> Int4,
+        usage_held_until -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -1645,6 +1674,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         agent_configuration_repository -> Nullable<Text>,
         backup_storage_location_id -> Nullable<Uuid>,
+        worker_pool_size -> Nullable<Int4>,
     }
 }
 
@@ -1792,10 +1822,13 @@ diesel::joinable!(timeline_records -> connectors (connector_id));
 diesel::joinable!(timeline_records -> users (created_by));
 diesel::joinable!(token_accounts -> users (created_by));
 diesel::joinable!(turn_summaries -> coding_sessions (session_id));
+diesel::joinable!(work_batch_events -> users (created_by));
+diesel::joinable!(work_batch_events -> work_batches (work_batch_id));
 diesel::joinable!(work_batches -> project_manager_turns (turn_id));
 diesel::joinable!(work_batches -> projects (project_id));
 diesel::joinable!(work_batches -> timeline_records (timeline_record_id));
 diesel::joinable!(work_batches -> users (created_by));
+diesel::joinable!(worker_pool -> users (created_by));
 diesel::joinable!(workflow_run_events -> step_jobs (step_job_id));
 diesel::joinable!(workflow_run_events -> users (created_by));
 diesel::joinable!(workflow_run_events -> workflow_runs (run_id));
@@ -1888,7 +1921,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     update_checks,
     user_events,
     users,
+    work_batch_events,
     work_batches,
+    worker_pool,
     workflow_run_events,
     workflow_runs,
     workspace_settings,

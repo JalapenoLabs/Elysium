@@ -31,6 +31,9 @@ pub struct WorkspaceSettingsResponse {
     require_mfa: bool,
     /// The git repository every agent's `~/.claude` is checked out from.
     agent_configuration_repository: Option<String>,
+    /// How many workers run at once; `null` follows the default the engine derives from its CPU
+    /// cores, which the work queue reports.
+    worker_pool_size: Option<i32>,
     updated_by: Uuid,
     updated_at: DateTime<Utc>,
 }
@@ -41,6 +44,7 @@ impl From<WorkspaceSettings> for WorkspaceSettingsResponse {
             signup_open: settings.signup_open,
             require_mfa: settings.require_mfa,
             agent_configuration_repository: settings.agent_configuration_repository,
+            worker_pool_size: settings.worker_pool_size,
             updated_by: settings.updated_by,
             updated_at: settings.updated_at,
         }

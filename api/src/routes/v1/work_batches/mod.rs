@@ -1,0 +1,127 @@
+// Copyright © 2026 Jalapeno Labs
+
+//! `/api/v1/work-batches`: one work batch with its history, and what people do to it while it
+//! waits: run it next, change its priority, pause or resume it, and cancel it. A batch's goal
+//! quotes what was ingested, so every route answers the company's members alone, as a project's
+//! Project Manager does. See `docs/engine.md`, Workers and the pool.
+//!
+//! Each change goes through `crate::worker_pool::actions`, as Elysia's and a Project Manager's
+//! do, so it is recorded in the batch's history with who made it, announced, and signalled to
+//! the engine's pool.
+
+mod cancel_work_batch;
+mod get_work_batch;
+#[cfg(test)]
+mod tests;
+mod update_work_batch;
+
+use axum::Router;
+use axum::routing::{get, post};
+use chrono::{DateTime, Utc};
+use diesel_async::AsyncPgConnection;
+use serde::Serialize;
+use serde_json::{Value, json};
+use uuid::Uuid;
+
+use crate::models::work_batch::{self, BatchEvent, BatchState, Priority, WorkBatch};
+use crate::state::AppState;
+
+pub fn router() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/{id}",
+            get(get_work_batch::handle).patch(update_work_batch::handle),
+        )
+        .route("/{id}/cancel", post(cancel_work_batch::handle))
+}
+
+/// One work batch, whole.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchResponse {
+    id: Uuid,
+    project_id: Uuid,
+    title: String,
+    goal: String,
+    /// `[{ url, baseBranch? }]`.
+    repositories: Value,
+    priority: Priority,
+    scheduled_for: Option<DateTime<Utc>>,
+    state: BatchState,
+    result: Option<String>,
+    /// The turn that submitted it.
+    turn_id: Option<Uuid>,
+    source_record_ids: Value,
+    action_item_ids: Value,
+    timeline_record_id: Option<Uuid>,
+    /// While someone asked for it to run next.
+    pinned_at: Option<DateTime<Utc>>,
+    /// When the pool gave it a slot.
+    assigned_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+    started_at: Option<DateTime<Utc>>,
+    finished_at: Option<DateTime<Utc>>,
+}
+
+impl From<WorkBatch> for BatchResponse {
+    fn from(batch: WorkBatch) -> Self {
+        Self {
+            id: batch.id,
+            project_id: batch.project_id,
+            title: batch.title,
+            goal: batch.goal,
+            repositories: batch.repositories,
+            priority: batch.priority,
+            scheduled_for: batch.scheduled_for,
+            state: batch.state,
+            result: batch.result,
+            turn_id: batch.turn_id,
+            source_record_ids: batch.source_record_ids,
+            action_item_ids: batch.action_item_ids,
+            timeline_record_id: batch.timeline_record_id,
+            pinned_at: batch.pinned_at,
+            assigned_at: batch.assigned_at,
+            created_at: batch.created_at,
+            started_at: batch.started_at,
+            finished_at: batch.finished_at,
+        }
+    }
+}
+
+/// One entry of a batch's history.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchEventResponse {
+    id: Uuid,
+    /// `submitted`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`,
+    /// `assigned`, `unassigned`, `started`, or `finished`.
+    kind: String,
+    data: Value,
+    created_by: Uuid,
+    created_at: DateTime<Utc>,
+}
+
+impl From<BatchEvent> for BatchEventResponse {
+    fn from(event: BatchEvent) -> Self {
+        Self {
+            id: event.id,
+            kind: event.kind,
+            data: event.data,
+            created_by: event.created_by,
+            created_at: event.created_at,
+        }
+    }
+}
+
+/// Batch `batch` with its history, as every route here answers it.
+async fn with_history(
+    connection: &mut AsyncPgConnection,
+    batch: WorkBatch,
+) -> diesel::QueryResult<Value> {
+    let history: Vec<BatchEventResponse> = work_batch::history(connection, batch.id)
+        .await?
+        .into_iter()
+        .map(BatchEventResponse::from)
+        .collect();
+    Ok(json!({ "batch": BatchResponse::from(batch), "history": history }))
+}

@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `PATCH /api/v1/workspace-settings`: open or close sign-up, require an authenticator app of
-//! everyone, or name the repository agents' `~/.claude` comes from.
+//! everyone, name the repository agents' `~/.claude` comes from, or size the worker pool.
 //!
 //! A changed repository is fetched into the workspace in the background; a fetch that fails
 //! is logged, and the next turn's preparation reports it to whoever started the turn.
@@ -38,6 +38,13 @@ pub struct RequestBody {
         reason = "absent, null, and a URL are three distinct requests"
     )]
     agent_configuration_repository: Option<Option<String>>,
+    /// Absent leaves it, `null` follows the default, and a whole number of at least one sets it.
+    #[serde(default, with = "::serde_with::rust::double_option")]
+    #[expect(
+        clippy::option_option,
+        reason = "absent, null, and a size are three distinct requests"
+    )]
+    worker_pool_size: Option<Option<i32>>,
 }
 
 pub async fn handle(
@@ -51,10 +58,17 @@ pub async fn handle(
         .map(|repository| repository.map(|url| validate_repository(&url)).transpose())
         .transpose()?;
     let repository_changes = repository.is_some();
+    if body.worker_pool_size.flatten().is_some_and(|size| size < 1) {
+        return Err(ApiError::BadRequest(
+            "workerPoolSize must be at least one worker".to_owned(),
+        ));
+    }
+    let pool_changes = body.worker_pool_size.is_some();
     let changes = WorkspaceSettingsChanges {
         signup_open: body.signup_open,
         require_mfa: body.require_mfa,
         agent_configuration_repository: repository,
+        worker_pool_size: body.worker_pool_size,
         ..WorkspaceSettingsChanges::default()
     };
 
@@ -69,6 +83,11 @@ pub async fn handle(
     if repository_changes {
         // The runner is the engine's; it fetches the new repository into the workspace.
         state.events.signal(&Signal::AgentConfiguration);
+    }
+    if pool_changes {
+        // The pool is the engine's; it fills slots it gained, or takes back those it lost.
+        state.events.signal(&Signal::WorkerPool);
+        state.events.publish(&ServerEvent::WorkerPoolChanged);
     }
 
     let response = WorkspaceSettingsResponse::from(settings);

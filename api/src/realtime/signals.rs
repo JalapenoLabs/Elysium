@@ -42,6 +42,9 @@ pub enum Signal {
     /// Something woke a project's Project Manager: a message, a record on its project, or a
     /// batch's result.
     ProjectManagers,
+    /// A work batch was submitted, resumed, or reprioritized, a slot was given back, or the
+    /// pool's size changed: the pool hands out what is free now.
+    WorkerPool,
     /// A Claude account was signed in, or a turn finished: the account keeper reads usage now.
     ClaudeAccounts,
     /// The workspace settings changed, so the runner fetches `~/.claude` again.

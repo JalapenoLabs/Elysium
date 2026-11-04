@@ -144,11 +144,14 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
     if !context.batches.is_empty() {
         prompt.push_str("\n## Finished batches\n");
         for batch in &context.batches {
-            let state = match batch.state {
-                BatchState::Succeeded => "succeeded",
-                BatchState::Failed => "failed",
-                BatchState::Cancelled => "was cancelled",
-                BatchState::Queued | BatchState::Running => "is still under way",
+            let (state, result_label) = match batch.state {
+                BatchState::Succeeded => ("succeeded", "Its worker reported"),
+                BatchState::Failed => ("failed", "Its worker reported"),
+                BatchState::Cancelled => ("was cancelled", "Why"),
+                BatchState::Queued
+                | BatchState::Paused
+                | BatchState::Assigned
+                | BatchState::Running => ("is still under way", "So far"),
             };
             let _ = write!(
                 prompt,
@@ -156,7 +159,7 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
                 batch.title, batch.id
             );
             if let Some(result) = &batch.result {
-                let _ = writeln!(prompt, "  Its worker reported: {}", result.trim());
+                let _ = writeln!(prompt, "  {result_label}: {}", result.trim());
             }
         }
     }

@@ -10,6 +10,8 @@
 //!   (`crate::sessions::queue`), Elysia's intake and dispatcher (`crate::elysia`), every project's
 //!   Project Manager (`crate::project_managers`), and the Claude account keeper that refreshes
 //!   what turns run on (`crate::claude_accounts`);
+//! - **the worker pool**: the scheduler that hands its slots to Project Managers' work batches
+//!   (`crate::worker_pool`);
 //! - **workflow runs**: the step workers that claim each run's steps from the queue and run them
 //!   (`crate::workflows`), and the schedule that starts the company doc's review
 //!   (`crate::company_doc::workflow`);
@@ -81,6 +83,7 @@ use crate::sessions::queue::{TurnQueue, TurnQueueDeps};
 use crate::sessions::{Sessions, SessionsDeps};
 use crate::tools::grants::Grants;
 use crate::updates::{Updates, UpdatesDeps};
+use crate::worker_pool;
 use crate::workflows::workers::{Workers, WorkersDeps};
 use crate::workflows::{self, Steps};
 use crate::youtrack::Youtrack;
@@ -252,6 +255,11 @@ pub async fn run() -> Result<()> {
             grants.clone(),
             shutdown.clone(),
         ),
+    ));
+    // The worker pool's slots, handed to Project Managers' batches in order.
+    loops.push((
+        "worker_pool.scheduler",
+        worker_pool::start(database.clone(), events.clone(), shutdown.clone()),
     ));
     let elysia = Elysia::new(TurnRunner::Host(runner.clone()), grants);
     let elysia_tasks = elysia.start(

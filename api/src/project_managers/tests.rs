@@ -504,14 +504,19 @@ async fn a_submitted_batch_lands_on_the_timeline_and_its_result_wakes_its_projec
     assert_eq!(on_timeline[0].0.title, "Annual pricing");
     assert_eq!(on_timeline[0].0.metadata["priority"], "asap");
 
-    // A worker takes it and finishes it: its Project Manager wakes with the result.
-    work_batch::start(&mut connection, batch.id)
+    // The pool hands it a slot, and a worker takes it and finishes it: its Project Manager
+    // wakes with the result.
+    let slots = work_batch::assign(&mut connection, &[batch.id], 1, Utc::now())
+        .await
+        .expect("assigns");
+    let slot = slots.into_iter().next().expect("a slot");
+    work_batch::start(&mut connection, &slot)
         .await
         .expect("starts")
-        .expect("it was queued");
+        .expect("it was assigned");
     let finished = work_batch::finish(
         &mut connection,
-        batch.id,
+        &slot,
         true,
         "Annual pricing is live behind a flag.",
         crate::models::user::SYSTEM_USER_ID,
