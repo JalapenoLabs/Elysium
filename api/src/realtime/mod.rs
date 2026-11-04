@@ -241,6 +241,10 @@ pub enum ServerEvent {
     /// they read; its page loads it by id.
     #[serde(rename = "projectManager.changed")]
     ProjectManagerChanged { project_id: Uuid },
+    /// A project's worker setup changed: the repositories it declares or its tools script. The
+    /// project's id alone; its page loads the setup by id.
+    #[serde(rename = "projectWorkerSetup.changed")]
+    ProjectWorkerSetupChanged { project_id: Uuid },
     #[serde(rename = "environmentVariable.upserted")]
     EnvironmentVariableUpserted(EnvironmentVariableResponse),
     #[serde(rename = "environmentVariable.deleted")]

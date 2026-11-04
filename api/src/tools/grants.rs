@@ -114,7 +114,8 @@ impl Grants {
         let token = hex::encode(random);
         let digest = digest(&token);
         let created_by = match scope {
-            CallScope::Session(_) => CODING_AGENT_USER_ID,
+            // A pool worker is a coding agent too, working a batch rather than a session.
+            CallScope::Session(_) | CallScope::Worker(_) => CODING_AGENT_USER_ID,
             CallScope::Elysia(_) => ELYSIA_USER_ID,
             CallScope::ProjectManager(_) => PROJECT_MANAGER_USER_ID,
         };

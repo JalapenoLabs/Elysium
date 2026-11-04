@@ -735,10 +735,29 @@ What coding sessions are grouped under.
 | `github_access` | `github_access` | `default`, `none`, or `specific`; defaults to `default` |
 | `github_credential_id` | `UUID` | References `github_credentials`, `ON DELETE SET NULL`; set only for `specific` |
 | `manager_writes_directly` | `BOOLEAN` | Whether its Project Manager's changes apply as it makes them; defaults to false, proposing each |
+| `tools_setup_script` | `TEXT` | Nullable, 1 to 20,000 characters: bash run as root in every worker's container before its repositories are cloned |
 
 `Project` in `api/src/models/project.rs` leaves `cover_image` out, so listing projects never loads images;
 `find_cover` reads it for the one route that serves a cover. A removed cover is neither served nor reported:
-`Project::cover_updated_at` is the one that shows.
+`Project::cover_updated_at` is the one that shows. It leaves `tools_setup_script` out too, which only workers and the
+project's Workers page read (`api/src/models/worker_setup.rs`).
+
+### `project_repositories`
+
+The repositories a project declares for its workers, in order, each with what readies it once cloned; see
+`docs/engine.md`, Workers. Replaced whole by `worker_setup::replace`, so the position is unique per project only at
+commit (deferred), and two repositories may swap places in one save.
+
+| Column         | Type          | Notes                                                                 |
+|----------------|---------------|-----------------------------------------------------------------------|
+| `id`           | `UUID`        | UUIDv7, primary key                                                   |
+| `project_id`   | `UUID`        | References `projects`, cascading                                      |
+| `position`     | `INTEGER`     | From 0; unique per project                                            |
+| `url`          | `TEXT`        | 1 to 2,048 characters, held to a coding session's rules by the API    |
+| `base_branch`  | `TEXT`        | Nullable, 1 to 255 characters; the remote's default when unset        |
+| `setup_script` | `TEXT`        | Nullable, 1 to 20,000 characters: bash run as the agent in its directory once cloned |
+| `created_by`   | `UUID`        | References `users`: who saved the setup                               |
+| `created_at`   | `TIMESTAMPTZ` | Set on insert                                                         |
 
 ### `project_issue_trackers`
 
@@ -1520,6 +1539,12 @@ orders in code; `work_batches_in_slots` on `project_id` while claimed counts eac
 | `assigned_at`        | `TIMESTAMPTZ`         | When the pool gave it a slot; set while `assigned` or `running`, kept once it ended, never while it waits |
 | `claim_token`        | `UUID`                | The engine holding its slot; set exactly while `assigned` or `running` |
 | `lease_expires_at`   | `TIMESTAMPTZ`         | Until when that engine holds the slot unless it renews; set exactly with `claim_token` |
+| `worker_session_id`  | `TEXT`                | The Claude Code session its worker's turns resume, once its first turn reported one |
+| `waiting_on`         | `work_batch_wait`     | `review`, `ci`, or `question`: what its worker waits on, keeping its container; only while `running` |
+| `waiting_detail`     | `TEXT`                | 1 to 4,000 characters: what it waits for, in its worker's words; set exactly with `waiting_on` |
+| `waiting_until`      | `TIMESTAMPTZ`         | When its worker looks again, or the moment a question was answered; set exactly with `waiting_on` |
+| `worker_report`      | `JSONB`               | How its worker said its last turn ended, filed by the worker's tools until the engine takes it: `{ kind: "finished", succeeded, result }` or `{ kind: "waiting", on, detail, until }` |
+| `worker_log`         | `TEXT`                | What its worker said and which tools it called, one line each, scrubbed, the newest 64 KiB; empty by default |
 
 ### `work_batch_events`
 
@@ -1529,9 +1554,9 @@ A batch's history, one row per change, shaped like `workflow_run_events`; see `d
 |-----------------|---------------|------------------------------------------------------------------------|
 | `id`            | `UUID`        | UUIDv7, primary key, so entries order as written                       |
 | `work_batch_id` | `UUID`        | References `work_batches`, cascading                                   |
-| `kind`          | `TEXT`        | `submitted`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`, `assigned`, `unassigned`, `started`, or `finished` |
+| `kind`          | `TEXT`        | `submitted`, `pinned`, `unpinned`, `reprioritized`, `paused`, `resumed`, `cancelled`, `assigned`, `unassigned`, `started`, `waiting`, `answered`, or `finished` |
 | `data`          | `JSONB`       | A JSON object shaped by `kind`                                         |
-| `created_by`    | `UUID`        | Who did it: a person, Elysia, the Project Managers' machine user, or the system user for the pool |
+| `created_by`    | `UUID`        | Who did it: a person, Elysia, the Project Managers' machine user, the system user for the pool, or the coding agent for its worker |
 | `created_at`    | `TIMESTAMPTZ` | When it was done                                                       |
 
 ### `worker_pool`

@@ -27,9 +27,7 @@ use futures_util::{Stream, StreamExt};
 use tokio::io::AsyncWriteExt;
 
 use super::WorkspacePath;
-use super::workspace::{
-    AGENT_USER, CONTAINER_NAME, SCRIPT_TIMEOUT, WorkspaceContainer, WorkspaceError,
-};
+use super::workspace::{AGENT_USER, SCRIPT_TIMEOUT, WorkspaceContainer, WorkspaceError};
 
 /// Exit statuses the scripts below use to say why they refused.
 const EXIT_MISSING: i64 = 66;
@@ -195,7 +193,7 @@ impl WorkspaceContainer {
         let exec = self
             .docker()
             .create_exec(
-                CONTAINER_NAME,
+                self.name(),
                 ExecConfig {
                     cmd: Some(script_argv(vec![
                         WRITE_SCRIPT.to_owned(),
@@ -327,7 +325,7 @@ impl WorkspaceContainer {
         let exec = self
             .docker()
             .create_exec(
-                CONTAINER_NAME,
+                self.name(),
                 ExecConfig {
                     cmd: Some(script_argv(script_and_arguments)),
                     user: Some(AGENT_USER.to_owned()),

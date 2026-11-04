@@ -114,8 +114,8 @@ const MODEL_MAX_CHARACTERS: usize = 100;
 #[ExistingTypePath = "crate::database::schema::sql_types::AgentKind"]
 #[serde(rename_all = "snake_case")]
 pub enum AgentKind {
-    /// Agents that do a project's work: today coding sessions and Studio sessions, in the
-    /// shared workspace; the engine's pooled workers (#82) join them.
+    /// Agents that do a project's work: coding sessions and Studio sessions in the shared
+    /// workspace, and the pool's workers, each in a container of its own.
     Worker,
     /// Each project's Project Manager, which plans its work and submits it as batches
     /// (`crate::project_managers`).
@@ -211,6 +211,9 @@ pub enum Agent {
     CodingSession,
     /// A Studio item's session's turns, which make single assets (`crate::studio`).
     StudioSession,
+    /// A pool worker's turns, each running one Project Manager's batch to completion in a
+    /// container of its own (`crate::worker_pool::worker`), resolved with the batch's project.
+    BatchWorker,
     /// The one or two sentence summary of each finished session turn
     /// (`crate::sessions::summary`).
     TurnSummary,
@@ -221,11 +224,12 @@ pub enum Agent {
 
 impl Agent {
     /// Every agent, in the order the settings page lists them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Elysia,
         Self::ProjectManager,
         Self::CodingSession,
         Self::StudioSession,
+        Self::BatchWorker,
         Self::TurnSummary,
         Self::KnowledgeAsk,
     ];
@@ -237,6 +241,7 @@ impl Agent {
             Self::ProjectManager => "project_manager",
             Self::CodingSession => "coding_session",
             Self::StudioSession => "studio_session",
+            Self::BatchWorker => "batch_worker",
             Self::TurnSummary => "turn_summary",
             Self::KnowledgeAsk => "knowledge_ask",
         }
@@ -247,7 +252,7 @@ impl Agent {
         match self {
             Self::Elysia => AgentKind::Elysia,
             Self::ProjectManager => AgentKind::ProjectManager,
-            Self::CodingSession | Self::StudioSession => AgentKind::Worker,
+            Self::CodingSession | Self::StudioSession | Self::BatchWorker => AgentKind::Worker,
             Self::TurnSummary => AgentKind::Summaries,
             // Reading what was said across the whole workspace, for no one project, and answering
             // only with what it says: triage's work, which a person reads and acts on.
@@ -809,6 +814,7 @@ mod tests {
     fn todays_agents_belong_to_the_kinds_the_engine_names() {
         assert_eq!(Agent::CodingSession.kind(), AgentKind::Worker);
         assert_eq!(Agent::StudioSession.kind(), AgentKind::Worker);
+        assert_eq!(Agent::BatchWorker.kind(), AgentKind::Worker);
         assert_eq!(Agent::TurnSummary.kind(), AgentKind::Summaries);
         assert_eq!(Agent::Elysia.kind(), AgentKind::Elysia);
         assert_eq!(Agent::ProjectManager.kind(), AgentKind::ProjectManager);

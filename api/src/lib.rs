@@ -22,6 +22,7 @@ mod browser;
 mod claude_accounts;
 mod cli;
 mod company_doc;
+mod compose;
 mod config;
 mod confluence;
 mod connections;

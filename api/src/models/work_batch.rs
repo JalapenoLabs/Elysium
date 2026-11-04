@@ -45,7 +45,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::database::schema::{work_batch_events, work_batches};
-use crate::models::user::{PROJECT_MANAGER_USER_ID, SYSTEM_USER_ID};
+use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID, SYSTEM_USER_ID};
 use crate::models::{project_manager, promise};
 
 /// How many batches one page of a project's batches holds at most.
@@ -149,6 +149,13 @@ pub struct WorkBatch {
     pub assigned_at: Option<DateTime<Utc>>,
     /// Until when its slot's holder owns the slot, unless it renews.
     pub lease_expires_at: Option<DateTime<Utc>>,
+    /// The Claude Code session its worker's turns resume, once its first turn reported one.
+    pub worker_session_id: Option<String>,
+    /// What its worker waits on while it keeps its container, with what it said and when it
+    /// looks again; all three or none ([`worker::Wait`]).
+    pub waiting_on: Option<worker::Wait>,
+    pub waiting_detail: Option<String>,
+    pub waiting_until: Option<DateTime<Utc>>,
 }
 
 impl WorkBatch {
@@ -219,6 +226,10 @@ pub enum EventKind {
     Unassigned,
     /// A worker started on it. No data.
     Started,
+    /// Its worker waits, keeping its container: `{ on, detail, until }`.
+    Waiting,
+    /// Its Project Manager answered the question its worker waits on: `{ answer }`.
+    Answered,
     /// Its worker ended it: `{ succeeded }`.
     Finished,
 }
@@ -237,6 +248,8 @@ impl EventKind {
             Self::Assigned => "assigned",
             Self::Unassigned => "unassigned",
             Self::Started => "started",
+            Self::Waiting => "waiting",
+            Self::Answered => "answered",
             Self::Finished => "finished",
         }
     }
@@ -955,18 +968,11 @@ pub async fn unassign(
         .await
 }
 
-/// A worker starts on `slot`'s batch. `None` when the slot was lost, or the batch is no longer
-/// waiting for a worker.
+/// A worker starts on `slot`'s batch, as the coding agent. `None` when the slot was lost, or
+/// the batch is no longer waiting for a worker.
 ///
 /// # Errors
 /// Propagates any database error.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pool's workers (#85) start their batches through it"
-    )
-)]
 pub async fn start(
     connection: &mut AsyncPgConnection,
     slot: &Slot,
@@ -995,7 +1001,7 @@ pub async fn start(
                 started.id,
                 EventKind::Started,
                 json!({}),
-                SYSTEM_USER_ID,
+                CODING_AGENT_USER_ID,
             )
             .await?;
             Ok(Some(started))
@@ -1013,13 +1019,6 @@ pub async fn start(
 ///
 /// # Errors
 /// Propagates any database error, including a result outside 1 to 20,000 characters.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the pool's workers (#85) report their batches through it"
-    )
-)]
 pub async fn finish(
     connection: &mut AsyncPgConnection,
     slot: &Slot,
@@ -1046,6 +1045,11 @@ pub async fn finish(
                 work_batches::finished_at.eq(diesel::dsl::now),
                 work_batches::claim_token.eq(None::<Uuid>),
                 work_batches::lease_expires_at.eq(None::<DateTime<Utc>>),
+                // A finished batch waits on nothing, and its worker has nothing left to report.
+                work_batches::waiting_on.eq(None::<worker::Wait>),
+                work_batches::waiting_detail.eq(None::<String>),
+                work_batches::waiting_until.eq(None::<DateTime<Utc>>),
+                work_batches::worker_report.eq(None::<Value>),
             ))
             .returning(WorkBatch::as_returning())
             .get_result(connection)
@@ -1084,6 +1088,8 @@ const fn state_words(state: BatchState) -> &'static str {
         BatchState::Cancelled => "cancelled",
     }
 }
+
+pub mod worker;
 
 #[cfg(test)]
 mod tests;

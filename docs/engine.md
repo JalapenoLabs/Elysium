@@ -17,7 +17,8 @@ below), the company doc's scheduled review (The company doc, below), every proje
 submits work batches for the worker pool and writes its project's action items and their issues in Jira, YouTrack,
 and GitHub (Project Managers, below), and the pool's scheduler, which hands its slots to
 those batches in order, with the work queue people and Elysia reorder, pause, and cancel from (Workers and the pool,
-below), and the promises people make in conversations, which their projects' Project Managers keep with a follow-up the
+below), a worker for each slot, running its batch in a container of its own until it is done (Workers, below), and the
+promises people make in conversations, which their projects' Project Managers keep with a follow-up the
 person sends (Follow-ups, below).
 
 ## A service of its own
@@ -28,10 +29,11 @@ person sends (Follow-ups, below).
 - The API serves clients alone: the web app, its `/api`, and MCP clients, and agents' calls to Elysium's tools
   (`/api/agent-tools`). It starts no loop. The engine does all background work and serves no HTTP beyond its health
   check (`GET /health`): the runner and the workspace it prepares, sessions' turns, Elysia's intake and dispatcher,
-  the Project Managers' dispatcher, the Claude account keeper, the link watcher, connector ingest, the conversation
-  loop, the Confluence and YouTrack readers, meetings, every
-  read someone asked for, the knowledge base's embedder, backfill, and answerer, the browser reconciler, the mail server brought back up, the password vault, update checks,
-  the nightly database backups, and moving identities onto the current schema (`api/src/engine/`).
+  the Project Managers' dispatcher, the worker pool and its workers, the Claude account keeper, the link watcher,
+  connector ingest, the conversation loop, the Confluence and YouTrack readers, meetings, every read someone asked
+  for, the knowledge base's embedder, backfill, and answerer, the browser reconciler, the mail server brought back up,
+  the password vault, update checks, the nightly database backups, and moving identities onto the current schema
+  (`api/src/engine/`).
 - One engine runs: its container name, `elysium-engine`, holds compose to one. Elysia's intake listens to the event
   bus, which every process hears in full, so it must run in exactly one process, and the engine is it.
 - Either process can crash and restart without the other. Stopping the engine leaves the web app working: every page
@@ -60,6 +62,9 @@ never work, since every loop also looks on a timer. What the engine knows that a
 | Writes to a project's Project Manager     | `project_manager_wakes`                  | Starts its turn, runs it, records it         |
 | Runs a waiting batch next, reprioritizes, pauses, resumes, or cancels it; sizes the pool | `work_batches`, `workspace_settings.worker_pool_size` | Hands out the slots that are free, takes back any the pool lost |
 | Shows the work queue                      | `worker_pool`                            | Records the CPU cores it sees and any usage hold |
+| Answers a worker's report, through its tools | `work_batches.worker_report`          | Takes it as the worker's turn ends, and finishes the batch or waits |
+| Answers a Project Manager's answer to a worker's question | `work_batch_events` (`answered`), `work_batches.waiting_until` | Ends the worker's wait, and starts its next turn with the answer |
+| Saves a project's worker setup            | `project_repositories`, `projects.tools_setup_script` | Readies the next worker's container with it |
 | Retries, skips, or resumes a run's step   | `step_jobs`                              | Claims each due step, runs it, records it    |
 | Asks the knowledge base a question        | `knowledge_asks`                         | Takes each queued ask, answers it, ends it   |
 
@@ -72,7 +77,8 @@ never work, since every loop also looks on a timer. What the engine knows that a
   died is claimed again once its lease lapses. A Project Manager's turn left running is failed and gives what woke it
   back, so its next turn takes it again. A slot of the worker pool an engine held is taken over by the next once its
   lease lapses, or at once when the engine let it go as it stopped; its batch keeps its state, since a worker's
-  container outlives the engine (Workers and the pool, below). Tool grants are not revoked at start, since the sessions queue, Elysia's
+  container outlives the engine, and the engine that takes the slot finds the container and resumes its worker's
+  session (Workers, below). Tool grants are not revoked at start, since the sessions queue, Elysia's
   dispatcher, and the Project Managers' dispatcher start together and each grants its first turn's tools at once: every
   grant is leased instead, renewed while its turn runs, so one a stopped engine left lapses within a minute and is
   swept by the next grant minted (`docs/coding.md`, Elysium's tools).
@@ -81,7 +87,8 @@ never work, since every loop also looks on a timer. What the engine knows that a
   sealed with the encryption key (`docs/passwords.md`, The CLI). An engine that does not answer within 10 seconds
   (3 for its status, 90 for connecting) reads as a vault that is not answering.
 - **Docker.** Both reach the filtered `docker-proxy`. The engine creates and replaces everything: the workspace, the
-  mail server's reconcile, browsers' containers, backups' dumps, and a container per transcription. The API works in
+  mail server's reconcile, browsers' containers, backups' dumps, a container per transcription, and each worker's
+  container, volume, and network. The API works in
   what exists while a person waits: files in the workspace, cloning a new session's repositories, Claude sign-ins,
   creating the mail server, and resetting or removing a browser. Every change to a browser's containers, in either process, holds one Postgres
   advisory lock (`api/src/database/advisory.rs`).
@@ -433,7 +440,8 @@ trackers (Its writes, below), and its tabs on the project's page.
     wake per turn would spend a Project Manager's turn on every prompt anyone types into a session of the project; the
     work it dispatched reports back through the batch's result below, and it reads the rest on its timeline when
     something else wakes it;
-  - **a batch's result**: a worker finishing its batch (`work_batch::finish`, which the pool's workers call);
+  - **a batch's result**: a worker finishing its batch (`work_batch::finish`, which the pool's workers call), or its
+    worker asking a question it waits on (Workers, below);
   - **a person**: the Project Manager tab's composer (`POST /api/v1/projects/{id}/project-manager/messages`);
   - **Elysia**: her `elysia_message_project_manager` tool (`docs/elysia.md`, Tools);
   - **a promise**: one segmenting found on its project, or one whose work just finished (Follow-ups, below); a promise
@@ -461,7 +469,8 @@ trackers (Its writes, below), and its tabs on the project's page.
   heads it; the text before it is its reply.
 - **Its tools.** `elysium_project_manager` (`api/src/tools/project_manager.rs`): `manager_timeline` and
   `manager_record` read its project's timeline, every owner's records on it, `manager_batches` lists its batches,
-  `manager_submit_batch` submits one, `manager_cancel_batch` withdraws one no worker has started on, and
+  `manager_submit_batch` submits one, `manager_cancel_batch` withdraws one no worker has started on,
+  `manager_answer_batch` answers the question a running batch's worker waits on, and
   `manager_promises`, `manager_tie_promise`, and `manager_draft_follow_up` keep its promises (Follow-ups, below), and
   `manager_make_changes` changes its project's action items and files their issues (Its writes, below). It also gets
   `elysium_work`, scoped to its project, to read items and initiatives, and `elysium_knowledge`. Every call is checked
@@ -477,7 +486,6 @@ trackers (Its writes, below), and its tabs on the project's page.
   turn (`docs/activity.md`).
 - **Who sees it.** Its turns quote what was ingested, so its routes answer the company's members alone, as the
   knowledge base does.
-- **On the roadmap.** Workers that run its batches in containers of their own (#85).
 - The limits (debounce, longest wait, concurrency, wakes per turn, prompt budget) are constants in
   `api/src/project_managers/`.
 
@@ -554,7 +562,8 @@ and publishes `workBatch.changed` and `projectManager.changed`.
   with who made it: `submitted` by its Project Manager; `pinned` and `unpinned` (run next, and back to its place),
   `reprioritized` (`{ before, after }`, each `{ priority, scheduledFor }`), `paused` (`{ from }`), `resumed`, and
   `cancelled` (`{ reason }`) by a person, Elysia, or its Project Manager; `assigned` and `unassigned` by the pool, as the
-  system user; `started` and `finished` (`{ succeeded }`) by its worker. A change that moves nothing writes nothing.
+  system user; `started`, `waiting` (`{ on, detail, until }`), and `finished` (`{ succeeded }`) by its worker, as the
+  coding agent; and `answered` (`{ answer }`) by its Project Manager. A change that moves nothing writes nothing.
 - **One way in.** The work queue's routes, Elysia's tools, and a Project Manager's tools all change a batch through
   `worker_pool::actions`, so each change is checked, recorded, announced, and signalled alike.
 
@@ -571,8 +580,8 @@ and publishes `workBatch.changed` and `projectManager.changed`.
   cancel anything queued.
 
 Built: the scheduler, its order, its leases, the usage gate, the admin's size, and the work queue people and Elysia
-change it from (`api/src/worker_pool/`). The workers themselves, which start a container for each batch the pool holds,
-are #85.
+change it from (`api/src/worker_pool/`), and the workers, one per slot, each in a container of its own
+(`api/src/worker_pool/worker/`, Workers, below).
 
 ### The order
 
@@ -594,7 +603,7 @@ would have.
 
 - **The hand-off.** A slot handed out is a batch moved from `queued` to `assigned`, claimed under a token of its own and
   a 60 second lease (`work_batch::assign`). The engine's pool holds it and renews its lease on every look, every 15
-  seconds. A worker (#85) takes it by starting the batch (`work_batch::start`, `assigned` to `running`) and gives it
+  seconds. A worker takes it by starting the batch (`work_batch::start`, `assigned` to `running`) and gives it
   back by finishing it (`work_batch::finish`). Every write a holder makes is fenced by its token, so an engine whose
   lease lapsed records nothing over the one that took the slot over.
 - **Giving a slot back.** Finishing, failing, pausing or cancelling a batch no worker started on, and taking back the
@@ -630,14 +639,100 @@ order, those scheduled for later, and those paused. People change a batch with `
 `POST /api/v1/work-batches/{id}/cancel`; admins size the pool from Settings, Worker pool. The page is `/work-queue`
 (`docs/frontend.md`, Work queue). A batch's goal and title quote what was ingested, so the queue and its batches
 answer the company's members alone.
-- A project declares its repositories, each with an optional setup script, and one setup script for tools. A batch
-  names the repositories it needs; the engine clones them with `--recurse-submodules`, runs their setup, and starts
-  Claude Code with `~/.claude` from the configuration repository. A submodule the token cannot read stops setup with
-  a message naming it. Workers may clone more themselves.
-- A worker runs its batch to completion (`/goal`, `/steamroll-issues`) and keeps its container while it waits, on a
-  review, CI, or a question, for days if need be.
-- Each repository sets who merges: auto-merge once CI is green with no open review threads, failing closed when review
-  state cannot be read, or wait for a human. Waiting is the default.
+
+### Workers
+
+Built: each slot's worker (`api/src/worker_pool/worker/`), the project's worker setup with its Workers page, and the
+worker's own tools.
+
+- **A container of its own.** A worker is Claude Code in `elysium-worker-<batch id>`, from the workspace image of the
+  release, on a volume and a bridge network of the same name. One slot is one worker. Its network is joined by the API
+  alone, as `api`, so its agent calls Elysium's tools at `http://api:8080` as the shared workspace's do. Its turns are
+  `docker exec` as `agent`, each with a desktop and a Blender of its own, as a session's are (`docs/coding.md`).
+- **Its setup.** A project declares its repositories, each with an optional setup script, and one tools script
+  (`project_repositories`, `projects.tools_setup_script`, the project's Workers page, `docs/frontend.md`). A worker
+  starting runs the tools script as root, then clones each repository its batch names into `repos/<name>` with
+  `--recurse-submodules`, through `gh` with the project's GitHub token, and runs that repository's setup script as the
+  agent in its directory (`api/src/worker_pool/worker/setup.rs`). The tools script installs tools system-wide: the
+  batch's directory is the agent's, and what root writes there would be root's. A repository the batch names that the
+  project does not declare is cloned with no setup script, and the batch's base branch wins over the project's. A
+  submodule that does not clone, one the token cannot read or that is gone, stops setup, and the batch fails with a
+  result naming the submodule, its URL, and what git said. Setup runs once per container: a marker on its volume says
+  it finished. Workers may clone more repositories themselves.
+- **`~/.claude`** is fetched from the configuration repository into the worker's own volume as its container comes up,
+  as the shared workspace's is (`docs/coding.md`, `~/.claude`), which is where `/steamroll-issues` and the agents'
+  settings come from.
+- **Its turns** run on a runner of its own, so a worker never waits for the shared workspace's eight turn slots; the
+  pool's size bounds workers. Every turn's prompt is `/goal`, holding out until the worker has reported on its batch
+  with `worker_finish` or `worker_wait` as the last thing it did, a condition it can always make true itself. Its
+  standing instructions (`api/src/worker_pool/worker/instructions.md`) have it work the batch through with
+  `/steamroll-issues`, open pull requests and never merge one, and end every turn with one report. The batch (its goal,
+  repositories, and action items) and why this turn starts (the first, after a wait with any answers given, after an
+  interruption, after a usage limit, or after a turn that did not report) are appended to its system prompt, which a
+  resumed session reads afresh (`api/src/worker_pool/worker/brief.rs`). Each turn resumes the worker's Claude Code
+  session (`work_batches.worker_session_id`), on what the `batch_worker` agent resolves to for the batch's project
+  (Models, below).
+- **Its tools.** `elysium_worker` (`api/src/tools/worker.rs`): `worker_batch` reads the batch and the answers given
+  since it last began to wait, `worker_finish` reports the batch done or impossible with its result, and `worker_wait`
+  reports what it waits on (`review`, `ci`, or `question`), what for, and when to look again, 5 minutes to a day (by
+  default 15 minutes for CI, an hour for a review, four hours for a question). The API answers them and holds no claim
+  on the slot, so each only files its report on the batch (`worker_report`), the last of a turn winning; the engine
+  whose worker ran the turn takes it as the turn ends and acts on it under the slot's token
+  (`api/src/models/work_batch/worker.rs`). A worker also gets `elysium_knowledge`, which it reads as the coding agent
+  and which refuses it proposals to the company doc, and `elysium_passwords` while the vault is up. Not `elysium_work`,
+  whose writes are recorded as a session's or a Project Manager's, and not `elysium_storage`, whose tools move files
+  in the shared workspace.
+- **Finishing.** `worker_finish` finishes the batch (`work_batch::finish`, as the coding agent), which gives its slot
+  back and wakes its Project Manager in the same transaction; then the engine signals `workerPool` and
+  `projectManagers`, publishes `workBatch.changed` and `projectManager.changed`, and removes the container, its volume,
+  and its network. A batch that cannot be set up (its container did not come up after three tries 30 seconds apart, a
+  script or a clone failed, or its repositories would share a directory) fails the same way, saying why.
+- **Waiting.** `worker_wait` keeps the container and the slot: the batch stays `running`, with `waiting_on`,
+  `waiting_detail`, and `waiting_until` set and a `waiting` entry in its history, and the worker starts its next turn
+  when it is time to look again. A question also wakes the batch's Project Manager, whose turn shows the question under
+  the batch; `manager_answer_batch` answers it, recorded as `answered`, which ends the wait at once (the waiting worker
+  hears `workerPool`), and the next turn quotes the answer. A person answers through the Project Manager's composer. A
+  worker waiting holds no activity, so auto-update may restart the stack meanwhile.
+- **Strikes.** A turn that ends without a report, fails, or goes quiet past the runner's heartbeat is run again, told
+  why, up to three turns in a row (`MAX_STRIKES`) before the batch fails. A turn every credential's usage stopped waits
+  for the reset, or 15 minutes when none is known, and carries on, keeping its slot.
+- **Restarts.** An engine that stops interrupts its workers' turns and leaves their containers. The engine that takes a
+  slot over finds the container, stops any turn an earlier engine left in it, and acts on a report filed before the
+  stop; failing that it waits out a wait that was under way, or starts a turn that resumes the session where it was cut
+  short. A worker's running turn holds an `agentTurn` activity, so auto-update waits for it.
+- **Each look.** After each of the scheduler's looks its workers look too: a worker for every slot it holds, a stop
+  for the worker of a slot it lost (paused or cancelled before the worker started, or taken over), the API joined to
+  each worker's network again (compose drops the join when it recreates the API), each container's CPU limit kept at
+  the pool's share, and whatever this deployment's workers left in Docker removed for a batch no worker runs any more.
+  A batch another engine may still hold, `assigned` or `running`, is left alone.
+- **CPU.** The pool's default leaves the host's cores minus two for workers, at least one, and those cores are shared
+  evenly across the pool's size: each worker's container is limited to its share (`worker_pool::worker_nano_cpus`),
+  one core each at the default size, more in a smaller pool, less in a larger one, so every slot busy at once never
+  takes more than those cores however an admin sizes the pool. A worker also has half Docker's default CPU weight, so
+  the API, the engine, and Postgres win under contention, and at most 8,192 processes. Memory is not limited: what a
+  build needs varies too much for one cap that never kills a good build, so a host is sized for its pool.
+- **What it reaches.** The internet, through its own bridge (GitHub, package registries, the model provider, and
+  whatever else its setup and work fetch), and of Elysium only the API, whose agent tools answer it under its turn's
+  grant. Nothing else: not Postgres, Redis, Kratos, Hydra, `docker-proxy`, the embedding service, the shared workspace,
+  or another worker (`docs/security.md`, Agents).
+- **Secrets.** The project's GitHub token reaches the worker as `GH_TOKEN`, with git routed through `gh`, as a session's
+  does (`docs/github.md`), with every workspace environment variable. Every turn's events, setup's output, and the log
+  are scrubbed of those secrets, and of every password the vault handed out, before anything of them is stored or
+  shown.
+- **What it records.** Its log (`work_batches.worker_log`): what it said and which tools it called, one line each, the
+  newest 64 KiB, stored every 30 seconds while a turn runs and read on the batch's page. The full stream is Claude
+  Code's own transcript on the worker's volume, removed with it, until Activity records every turn
+  (`docs/activity.md`).
+- The limits (strikes, tries, timeouts, the log's size, the wait bounds) are constants in
+  `api/src/worker_pool/worker/` and `api/src/tools/worker.rs`.
+
+On the roadmap:
+
+- Each repository sets who merges a worker's pull requests: auto-merge once CI is green with no open review threads,
+  failing closed when review state cannot be read, or wait for a human. Waiting is the default, and until it is built a
+  worker never merges (#86).
+- An egress allowlist for workers' networks: GitHub, the package registries, and the model provider alone.
+- Waking a worker that waits on a review or CI when the link watcher sees it change, rather than at its next look.
 
 ## Models
 
@@ -648,14 +743,14 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
 - **What has a setting.** An agent is anything whose work is a turn on the runner, named as it is in code: a workflow
   step whose work is an agent turn, by its step name, and the agents outside the step framework: Elysia
   (`elysia`), every project's Project Manager (`project_manager`), coding sessions (`coding_session`), Studio sessions
-  (`studio_session`), turn summaries (`turn_summary`), and the knowledge base's answers to questions
-  (`knowledge_ask`).
+  (`studio_session`), the pool's workers (`batch_worker`), turn summaries (`turn_summary`), and the knowledge base's
+  answers to questions (`knowledge_ask`).
 - **Kinds.** Every agent belongs to one kind (`agent_models::AgentKind`, stored as the enum `agent_kind`), the one
   typed list of what sort of work a turn is:
 
   | Kind              | Its agents today                                   | Runs for one project |
   |-------------------|----------------------------------------------------|----------------------|
-  | `worker`          | Coding sessions, Studio sessions                   | Yes                  |
+  | `worker`          | Coding sessions, Studio sessions, the pool's workers (`batch_worker`) | Yes |
   | `project_manager` | Every project's Project Manager (`project_manager`) | Yes                 |
   | `correction`      | Transcript correction (`correct_transcript`)       | No                   |
   | `segmenting`      | Segmenting meetings and conversations (`segment_meeting`) | No            |
@@ -665,9 +760,9 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
 
   An answer from the knowledge base is triage's: like deciding what a message asks for, it reads what was said across
   the workspace for no one project, and a person acts on what it says, so it runs on Opus 5.5 at high effort, which
-  cites faithfully, unless an admin picks a faster model for it on its own row. A worker today is a coding or Studio
-  session in the shared workspace; the pooled workers in containers of their own
-  (#85) are workers too, so they name `worker` rather than a kind of their own. Correction, segmenting, and triage read
+  cites faithfully, unless an admin picks a faster model for it on its own row. A worker is a coding or Studio session
+  in the shared workspace, or one of the pool's workers in a container of its own, so they share the `worker` kind
+  rather than each having one. Correction, segmenting, and triage read
   meetings and conversations that may concern any number of projects, and Elysia works for the whole workspace, so
   only workers, Project Managers, and summaries run for one project.
 - **Attaching to a kind.** A step says which kind its work is (`Step::AGENT_KIND`, `None` for one that only fetches,
@@ -693,13 +788,13 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
   set for the workspace. Within the workspace one agent is narrower than its kind, so an agent's own setting stays the
   exception it was set to be: an admin who later sets the kind does not silently undo it, and the page never shows a
   setting that no longer does anything.
-- **Who resolves.** Each caller resolves as its turn starts, so a change applies from the next turn. A coding or Studio
-  session's turn and its summary resolve with the session's project, a Project Manager's turn with its project, and
-  Elysia's dispatcher with none. A step's turn resolves through `StepContext::model`, with no project, since every
-  step today reads meetings, conversations, or the company doc; it writes "Runs on X at Y effort, from Z" to the
-  step's log, a retry's included. A step that works for one project carries the project in its input and resolves
-  with it through `for_step`. Every caller passes the result to the runner (`TurnRequest::model` and `effort`), so `--model` and
-  `--effort` override whatever the agents' configuration repository's settings name.
+- **Who resolves.** Each caller resolves as its turn starts, so a change applies from the next turn. A coding or
+  Studio session's turn and its summary resolve with the session's project, a Project Manager's turn and a pool
+  worker's with their project, and Elysia's dispatcher with none. A step's turn resolves through `StepContext::model`,
+  with no project, since every step today reads meetings, conversations, or the company doc; it writes "Runs on X at Y
+  effort, from Z" to the step's log, a retry's included. A step that works for one project carries the project in its
+  input and resolves with it through `for_step`. Every caller passes the result to the runner (`TurnRequest::model`
+  and `effort`), so `--model` and `--effort` override whatever the agents' configuration repository's settings name.
 - **Stored.** `model_settings` holds a row for each agent an admin set, and `kind_model_settings` one for each kind an
   admin set for the workspace (`project_id` null) and each kind a project overrides: a model, and an effort as the
   CLI's `--effort` names it (`low`, `medium`, `high`, `xhigh`, or `max`). A choice equal to what it would follow

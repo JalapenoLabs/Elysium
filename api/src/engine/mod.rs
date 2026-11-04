@@ -10,7 +10,8 @@
 //!   (`crate::sessions::queue`), Elysia's intake and dispatcher (`crate::elysia`), every project's
 //!   Project Manager (`crate::project_managers`), and the Claude account keeper that refreshes
 //!   what turns run on (`crate::claude_accounts`);
-//! - **the worker pool**: the scheduler that hands its slots to Project Managers' work batches
+//! - **the worker pool**: the scheduler that hands its slots to Project Managers' work batches,
+//!   and a worker for each slot, running its batch in a container of its own
 //!   (`crate::worker_pool`);
 //! - **workflow runs**: the step workers that claim each run's steps from the queue and run them
 //!   (`crate::workflows`), and the schedule that starts the company doc's review
@@ -84,6 +85,7 @@ use crate::sessions::{Sessions, SessionsDeps};
 use crate::tools::grants::Grants;
 use crate::updates::{Updates, UpdatesDeps};
 use crate::worker_pool;
+use crate::worker_pool::worker as batch_workers;
 use crate::workflows::workers::{Workers, WorkersDeps};
 use crate::workflows::{self, Steps};
 use crate::youtrack::Youtrack;
@@ -166,7 +168,7 @@ pub async fn run() -> Result<()> {
         events: events.clone(),
         anthropic: Anthropic::new(http.clone()),
         workspace,
-        turn_signal,
+        turn_signal: turn_signal.clone(),
     });
     loops.push((
         "claude_accounts.keeper",
@@ -256,10 +258,29 @@ pub async fn run() -> Result<()> {
             shutdown.clone(),
         ),
     ));
-    // The worker pool's slots, handed to Project Managers' batches in order.
+    // The worker pool's slots, handed to Project Managers' batches in order, each run by a
+    // worker in a container of its own.
+    let batch_workers = batch_workers::Workers::new(
+        batch_workers::WorkerDeps {
+            database: database.clone(),
+            cipher: Arc::clone(&cipher),
+            events: events.clone(),
+            containers: services::build_worker_containers(&config)?,
+            grants: grants.clone(),
+            passwords: passwords.clone(),
+            activity: activity.clone(),
+            turn_signal: turn_signal.clone(),
+        },
+        &shutdown,
+    );
     loops.push((
         "worker_pool.scheduler",
-        worker_pool::start(database.clone(), events.clone(), shutdown.clone()),
+        worker_pool::start(
+            database.clone(),
+            events.clone(),
+            batch_workers,
+            shutdown.clone(),
+        ),
     ));
     let elysia = Elysia::new(TurnRunner::Host(runner.clone()), grants);
     let elysia_tasks = elysia.start(

@@ -41,7 +41,8 @@ use crate::models::attribution::ELYSIA_ACTOR;
 use crate::models::project_manager::{self, Finished, Turn, TurnStatus, Wake, WakeKind};
 use crate::models::promise::{self, PromiseState, Work};
 use crate::models::user::{self, ELYSIA_USER_ID};
-use crate::models::{action_item, project, timeline_record, work_batch};
+use crate::models::work_batch::worker::Wait;
+use crate::models::{action_item, project, timeline_record, work_batch, worker_setup};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::tools::grants::Grants;
 use crate::tools::{self, CallScope, ProjectManagerScope};
@@ -347,6 +348,9 @@ async fn load_context(
         .into_iter()
         .map(|batch| PromptBatch {
             waiting_promises: waiting_by_batch.remove(&batch.id).unwrap_or_default(),
+            question: batch
+                .waiting_detail
+                .filter(|_detail| batch.waiting_on == Some(Wait::Question)),
             id: batch.id,
             title: batch.title,
             state: batch.state,
@@ -377,6 +381,12 @@ async fn load_context(
             id: project.id,
             name: project.name,
             description: project.description,
+            repositories: worker_setup::find(connection, turn.project_id)
+                .await?
+                .repositories
+                .into_iter()
+                .map(|repository| repository.url)
+                .collect(),
         },
         messages,
         records,

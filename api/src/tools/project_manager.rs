@@ -27,10 +27,14 @@ use super::{
 use crate::models::attribution::{ELYSIA_ACTOR, PROJECT_MANAGER_ACTOR, SESSION_ACTOR_PREFIX};
 use crate::models::promise::{self, Promise, PromiseState, Work};
 use crate::models::timeline_record::{self, Attribution, TimelineRecord};
+use crate::models::user::PROJECT_MANAGER_USER_ID;
+use crate::models::work_batch::worker as batch_worker;
 use crate::models::work_batch::{self, BatchState, WorkBatch};
 use crate::project_managers::batches::{self, BatchError, Submission};
 use crate::project_managers::promises::{self, PromiseError};
+use crate::realtime::Signal;
 use crate::tools::work::manager_changes;
+use crate::worker_pool::actions::announce;
 
 pub const SERVER: ToolServer = ToolServer {
     name: "elysium_project_manager",
@@ -43,7 +47,8 @@ pub const SERVER: ToolServer = ToolServer {
         so a worker who has seen nothing else can finish it, and name the records and action \
         items it came from. Batches wait in one queue for the whole workspace, which a person or \
         Elysia may reorder or pause. manager_cancel_batch withdraws a batch no worker has started \
-        on yet. manager_promises lists what the person promised to tell people once the \
+        on yet. A running batch's worker may wait on a question only you or the person can \
+        answer; manager_answer_batch answers it. manager_promises lists what the person promised to tell people once the \
         project's work is done; manager_tie_promise ties a promise to the batch or action item \
         that keeps it, and manager_draft_follow_up drafts its follow-up, in the person's voice, \
         once that work is done. A follow-up is never sent until the person sends it. \
@@ -55,7 +60,7 @@ pub const SERVER: ToolServer = ToolServer {
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 9] = [
+const TOOLS: [Tool; 10] = [
     Tool {
         name: "manager_timeline",
         description: "Lists the records on this project's timeline, newest first: each one's \
@@ -139,6 +144,15 @@ const TOOLS: [Tool; 9] = [
         input_schema: manager_changes::schema,
         run: |context, scope, arguments| manager_changes::run(context, scope, arguments).boxed(),
     },
+    Tool {
+        name: "manager_answer_batch",
+        description: "Answers the question a running batch's worker waits on, which \
+            manager_batches shows as waitingOn question with its waitingDetail. The worker's \
+            next turn starts at once with your answer, word for word. Answer only what you know; \
+            when the person has to decide, ask them, and answer once they have.",
+        input_schema: answer_schema,
+        run: |context, scope, arguments| run_answer(context, scope, arguments).boxed(),
+    },
 ];
 
 /// How many records `manager_timeline` lists at most, and when the call does not say.
@@ -163,6 +177,71 @@ const PROMISE_EXCERPT_CHARACTERS: usize = 600;
 
 fn id_property(description: &str) -> Value {
     json!({ "type": "string", "format": "uuid", "description": description })
+}
+
+fn answer_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "batchId": id_property("The running batch whose worker asked, from manager_batches."),
+            "answer": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": ANSWER_MAX_CHARACTERS,
+                "description": "The answer, as the worker will read it.",
+            },
+        },
+        "required": ["batchId", "answer"],
+        "additionalProperties": false,
+    })
+}
+
+/// The longest answer to a worker's question, in characters.
+const ANSWER_MAX_CHARACTERS: usize = 8_000;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AnswerArguments {
+    batch_id: Uuid,
+    answer: String,
+}
+
+async fn run_answer(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let manager = scope.project_manager()?;
+    let arguments: AnswerArguments = parse_arguments(arguments)?;
+    let answer = arguments.answer.trim();
+    if answer.is_empty() || answer.chars().count() > ANSWER_MAX_CHARACTERS {
+        return Err(ToolError::Invalid(format!(
+            "answer must hold text, at most {ANSWER_MAX_CHARACTERS} characters"
+        )));
+    }
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let answered = batch_worker::answer(
+        &mut connection,
+        arguments.batch_id,
+        manager.project_id,
+        answer,
+        PROJECT_MANAGER_USER_ID,
+    )
+    .await
+    .map_err(|error| match error {
+        batch_worker::AnswerError::Refused(reason) => ToolError::Invalid(reason),
+        batch_worker::AnswerError::Database(error) => {
+            internal(scope, "manager.answer_batch", &error)
+        }
+    })?;
+    announce(&context.events, &answered);
+    // The waiting worker listens for the pool's signal and starts its next turn.
+    context.events.signal(&Signal::WorkerPool);
+    Ok(json!({ "batch": batch_view(&answered) }))
 }
 
 fn timeline_schema() -> Value {
@@ -728,5 +807,8 @@ fn batch_view(batch: &WorkBatch) -> Value {
         "submittedAt": batch.created_at,
         "startedAt": batch.started_at,
         "finishedAt": batch.finished_at,
+        "waitingOn": batch.waiting_on,
+        "waitingDetail": batch.waiting_detail,
+        "waitingUntil": batch.waiting_until,
     })
 }

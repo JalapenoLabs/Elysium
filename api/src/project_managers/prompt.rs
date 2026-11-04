@@ -45,6 +45,8 @@ pub struct ProjectBrief {
     pub id: Uuid,
     pub name: String,
     pub description: String,
+    /// The repositories it declares for its workers, which its batches name.
+    pub repositories: Vec<String>,
 }
 
 /// A message a person or Elysia sent it.
@@ -85,6 +87,8 @@ pub struct PromptBatch {
     /// The promises still waiting on it, which a batch that failed leaves for the Project Manager
     /// to tie to the work that replaces it.
     pub waiting_promises: Vec<Uuid>,
+    /// The question its worker waits on, which the Project Manager answers.
+    pub question: Option<String>,
 }
 
 /// A promise its Project Manager has to act on: one just found, which waits for its work, or one
@@ -183,34 +187,9 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
     }
 
     if !context.batches.is_empty() {
-        prompt.push_str("\n## Finished batches\n");
+        prompt.push_str("\n## Batches\n");
         for batch in &context.batches {
-            let (state, result_label) = match batch.state {
-                BatchState::Succeeded => ("succeeded", "Its worker reported"),
-                BatchState::Failed => ("failed", "Its worker reported"),
-                BatchState::Cancelled => ("was cancelled", "Why"),
-                BatchState::Queued
-                | BatchState::Paused
-                | BatchState::Assigned
-                | BatchState::Running => ("is still under way", "So far"),
-            };
-            let _ = write!(
-                prompt,
-                "\n- \"{}\" (batch {}) {state}.\n",
-                batch.title, batch.id
-            );
-            if let Some(result) = &batch.result {
-                let _ = writeln!(prompt, "  {result_label}: {}", result.trim());
-            }
-            if !batch.waiting_promises.is_empty() {
-                let ids: Vec<String> = batch.waiting_promises.iter().map(Uuid::to_string).collect();
-                let _ = writeln!(
-                    prompt,
-                    "  Promises still wait on it: {}. Tie each to the work that replaces it with \
-                     manager_tie_promise.",
-                    ids.join(", ")
-                );
-            }
+            render_batch(&mut prompt, batch);
         }
     }
 
@@ -258,6 +237,18 @@ fn render_project(prompt: &mut String, project: &ProjectBrief) {
     if !description.is_empty() {
         let _ = writeln!(prompt, "Its description: {description}");
     }
+    if project.repositories.is_empty() {
+        prompt.push_str(
+            "It declares no repositories for its workers yet; a batch may still name any it \
+             needs.\n",
+        );
+    } else {
+        let _ = writeln!(
+            prompt,
+            "The repositories it declares for its workers, which a batch names as it needs: {}",
+            project.repositories.join(", ")
+        );
+    }
 }
 
 /// Whether its changes apply at once, and where its issues file.
@@ -280,6 +271,44 @@ fn render_writes(prompt: &mut String, writes: &Writes) {
         Err(reason) => {
             let _ = writeln!(prompt, "You cannot file issues: {reason}.");
         }
+    }
+}
+
+/// One batch that woke the turn: where it stands, what its worker reported, the question it
+/// waits on, and the promises a failed one leaves.
+fn render_batch(prompt: &mut String, batch: &PromptBatch) {
+    let (state, result_label) = match batch.state {
+        BatchState::Succeeded => ("succeeded", "Its worker reported"),
+        BatchState::Failed => ("failed", "Its worker reported"),
+        BatchState::Cancelled => ("was cancelled", "Why"),
+        BatchState::Queued | BatchState::Paused | BatchState::Assigned | BatchState::Running => {
+            ("is still under way", "So far")
+        }
+    };
+    let _ = write!(
+        prompt,
+        "\n- \"{}\" (batch {}) {state}.\n",
+        batch.title, batch.id
+    );
+    if let Some(result) = &batch.result {
+        let _ = writeln!(prompt, "  {result_label}: {}", result.trim());
+    }
+    if let Some(question) = &batch.question {
+        let _ = writeln!(
+            prompt,
+            "  Its worker waits on your answer to: {}\n  Answer it with manager_answer_batch, \
+             or ask the person when only they can decide.",
+            question.trim()
+        );
+    }
+    if !batch.waiting_promises.is_empty() {
+        let ids: Vec<String> = batch.waiting_promises.iter().map(Uuid::to_string).collect();
+        let _ = writeln!(
+            prompt,
+            "  Promises still wait on it: {}. Tie each to the work that replaces it with \
+             manager_tie_promise.",
+            ids.join(", ")
+        );
     }
 }
 
@@ -428,6 +457,7 @@ mod tests {
                 id: Uuid::nil(),
                 name: "Launch".to_owned(),
                 description: "The spring launch.".to_owned(),
+                repositories: vec!["https://github.com/JalapenoLabs/Launch.git".to_owned()],
             },
             writes: Writes {
                 direct: false,
@@ -485,6 +515,7 @@ mod tests {
             state: BatchState::Failed,
             result: Some("The tests need a Stripe key.".to_owned()),
             waiting_promises: Vec::new(),
+            question: None,
         });
 
         let prompt = render(&woken, now());
@@ -545,6 +576,29 @@ mod tests {
     }
 
     #[test]
+    fn a_worker_waiting_on_a_question_asks_for_an_answer() {
+        let mut woken = context();
+        woken.batches.push(PromptBatch {
+            id: Uuid::nil(),
+            title: "Annual pricing".to_owned(),
+            state: BatchState::Running,
+            result: None,
+            waiting_promises: Vec::new(),
+            question: Some("Should annual plans get the launch discount too?".to_owned()),
+        });
+        let prompt = render(&woken, now());
+        assert!(prompt.contains("is still under way"));
+        assert!(prompt.contains(
+            "Its worker waits on your answer to: Should annual plans get the launch discount too?"
+        ));
+        assert!(prompt.contains("manager_answer_batch"));
+        assert!(prompt.contains(
+            "The repositories it declares for its workers, which a batch names as it needs: \
+             https://github.com/JalapenoLabs/Launch.git"
+        ));
+    }
+
+    #[test]
     fn a_failed_batch_names_the_promises_still_waiting_on_it() {
         let mut woken = context();
         let waiting = Uuid::now_v7();
@@ -554,6 +608,7 @@ mod tests {
             state: BatchState::Failed,
             result: None,
             waiting_promises: vec![waiting],
+            question: None,
         });
         let prompt = render(&woken, now());
         assert!(prompt.contains(&format!("Promises still wait on it: {waiting}")));

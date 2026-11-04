@@ -12,8 +12,8 @@
 //! table, listed in [`SERVERS`]: [`storage`] for the project's storage locations, for coding
 //! sessions; [`work`] for its action items and initiatives, for coding sessions and Project
 //! Managers; [`elysia`] for Elysia's own turns; [`project_manager`] for a Project Manager's
-//! own; [`passwords`] for the logins any agent may sign in with; and [`knowledge`] for the
-//! company's knowledge base, which every agent reads.
+//! own; [`worker`] for a pool worker's own; [`passwords`] for the logins any agent may sign in
+//! with; and [`knowledge`] for the company's knowledge base, which every agent reads.
 //!
 //! Results are JSON text. A failure answers the agent with what to fix, never with an
 //! internal error chain: database and decryption failures are logged here and reported
@@ -27,6 +27,7 @@ pub mod passwords;
 pub mod project_manager;
 pub mod storage;
 pub mod work;
+pub mod worker;
 
 use std::sync::Arc;
 
@@ -92,6 +93,8 @@ pub enum CallScope {
     Elysia(ElysiaScope),
     /// One turn of a project's Project Manager, which reaches its own project alone.
     ProjectManager(ProjectManagerScope),
+    /// One turn of a pool worker, which reaches its own batch alone.
+    Worker(WorkerScope),
 }
 
 impl CallScope {
@@ -102,7 +105,7 @@ impl CallScope {
     pub fn session(&self) -> Result<&SessionScope, ToolError> {
         match self {
             Self::Session(session) => Ok(session),
-            Self::Elysia(_) | Self::ProjectManager(_) => {
+            Self::Elysia(_) | Self::ProjectManager(_) | Self::Worker(_) => {
                 Err(ToolError::WrongAgent("coding sessions"))
             }
         }
@@ -115,7 +118,9 @@ impl CallScope {
     pub fn elysia(&self) -> Result<&ElysiaScope, ToolError> {
         match self {
             Self::Elysia(elysia) => Ok(elysia),
-            Self::Session(_) | Self::ProjectManager(_) => Err(ToolError::WrongAgent("Elysia")),
+            Self::Session(_) | Self::ProjectManager(_) | Self::Worker(_) => {
+                Err(ToolError::WrongAgent("Elysia"))
+            }
         }
     }
 
@@ -126,18 +131,43 @@ impl CallScope {
     pub fn project_manager(&self) -> Result<&ProjectManagerScope, ToolError> {
         match self {
             Self::ProjectManager(manager) => Ok(manager),
-            Self::Session(_) | Self::Elysia(_) => Err(ToolError::WrongAgent("Project Managers")),
+            Self::Session(_) | Self::Elysia(_) | Self::Worker(_) => {
+                Err(ToolError::WrongAgent("Project Managers"))
+            }
         }
     }
 
-    /// Who called, for logs: `session:<n>`, `elysia:<turn>`, or `project_manager:<turn>`.
+    /// The turn one of a pool worker's tools runs for.
+    ///
+    /// # Errors
+    /// Returns [`ToolError::WrongAgent`] for anyone else.
+    pub fn worker(&self) -> Result<&WorkerScope, ToolError> {
+        match self {
+            Self::Worker(worker) => Ok(worker),
+            Self::Session(_) | Self::Elysia(_) | Self::ProjectManager(_) => {
+                Err(ToolError::WrongAgent("the worker pool's workers"))
+            }
+        }
+    }
+
+    /// Who called, for logs: `session:<n>`, `elysia:<turn>`, `project_manager:<turn>`, or
+    /// `worker:<batch>`.
     pub fn label(&self) -> String {
         match self {
             Self::Session(session) => format!("session:{}", session.session_id),
             Self::Elysia(elysia) => format!("elysia:{}", elysia.turn_id),
             Self::ProjectManager(manager) => format!("project_manager:{}", manager.turn_id),
+            Self::Worker(worker) => format!("worker:{}", worker.batch_id),
         }
     }
+}
+
+/// One turn of a pool worker: the batch it runs, and that batch's project.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerScope {
+    pub batch_id: Uuid,
+    pub project_id: Uuid,
 }
 
 /// One turn of a project's Project Manager: the project it plans, and the turn, which what it
@@ -209,11 +239,12 @@ pub enum Instructions {
 }
 
 /// Every server Elysium serves, looked up by name when a call arrives.
-pub const SERVERS: [&ToolServer; 6] = [
+pub const SERVERS: [&ToolServer; 7] = [
     &storage::SERVER,
     &work::SERVER,
     &elysia::SERVER,
     &project_manager::SERVER,
+    &worker::SERVER,
     &passwords::SERVER,
     &knowledge::SERVER,
 ];

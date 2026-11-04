@@ -45,6 +45,7 @@ use crate::runner::workspace::WorkspaceContainer;
 use crate::storage::Storage;
 use crate::version::VersionInfo;
 use crate::whisper::Whisper;
+use crate::worker_pool::worker::container::Containers;
 use crate::youtrack::Youtrack;
 use crate::{connections, shutdown};
 
@@ -258,6 +259,20 @@ pub fn build_workspace(config: &Config) -> Result<WorkspaceContainer> {
     Ok(WorkspaceContainer::new(
         build_docker(config, WORKSPACE_DOCKER_TIMEOUT_SECONDS)?,
         config.workspace_image.clone(),
+    ))
+}
+
+/// The worker pool's containers, each from the workspace image of this release. Their client
+/// allows a whole day per call, as the workspace's does: a worker's turn is one exec stream held
+/// open for the whole turn.
+///
+/// # Errors
+/// Fails when `DOCKER_URL` is not a URL Docker can be reached at.
+pub fn build_worker_containers(config: &Config) -> Result<Containers> {
+    Ok(Containers::new(
+        build_docker(config, WORKSPACE_DOCKER_TIMEOUT_SECONDS)?,
+        config.workspace_image.clone(),
+        &config.encryption_key,
     ))
 }
 

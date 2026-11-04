@@ -1,8 +1,9 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `/api/v1/projects`: what coding sessions are grouped under, the models a project's own agents
-//! run on (`/{id}/model-settings`, `docs/engine.md`, Models), and its Project Manager
-//! (`/{id}/project-manager`, [`project_manager`]).
+//! run on (`/{id}/model-settings`, `docs/engine.md`, Models), its Project Manager
+//! (`/{id}/project-manager`, [`project_manager`]), and how its workers' containers are readied
+//! (`/{id}/worker-setup`, `docs/engine.md`, Workers).
 
 mod create_project;
 mod delete_cover;
@@ -16,6 +17,7 @@ mod restore_cover;
 mod set_model_setting;
 mod update_project;
 mod upload_cover;
+mod worker_setup;
 
 pub use list_projects::list;
 
@@ -74,6 +76,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{id}/project-manager/turns/{turn_id}",
             get(project_manager::get_turn::handle),
+        )
+        .route(
+            "/{id}/worker-setup",
+            get(worker_setup::get).put(worker_setup::put),
         )
 }
 

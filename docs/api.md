@@ -220,11 +220,14 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/projects/{id}/project-manager/destinations?provider=&credentialId=` | `200` `{ destinations: [{ reference, name }] }`; members only |
 | POST   | `/api/v1/projects/{id}/project-manager/messages` | `201` `{ projectManager }`; `{ body }`, wakes it; members only |
 | GET    | `/api/v1/projects/{id}/project-manager/turns/{turnId}` | `200` `{ turn, log }`; members only |
+| GET    | `/api/v1/projects/{id}/worker-setup`  | `200` `{ workerSetup }`: its repositories and tools script |
+| PUT    | `/api/v1/projects/{id}/worker-setup`  | `200` `{ workerSetup }`; replaces the whole setup   |
 | GET    | `/api/v1/promises?followUpItemId=`    | `200` `{ promises: Promise[] }`: the one promise an item follows up, or none; members only |
 | GET    | `/api/v1/work-queue`                  | `200` `{ workQueue }`: the pool, its slots, and every batch waiting, in order; members only |
 | GET    | `/api/v1/work-batches/{id}`           | `200` `{ batch, history }`; members only            |
 | PATCH  | `/api/v1/work-batches/{id}`           | `200` as `GET`; `priority` (with `scheduledFor`), `paused`, `runNext`; `409` `work_batch_moved_on`; members only |
 | POST   | `/api/v1/work-batches/{id}/cancel`    | `200` as `GET`; an optional `reason`; `409` `work_batch_moved_on`; members only |
+| GET    | `/api/v1/work-batches/{id}/worker-log` | `200` `{ log }`: its worker's log; members only    |
 | GET    | `/api/v1/storage-locations`           | `200` `{ locations: StorageLocation[] }`, by name   |
 | POST   | `/api/v1/storage-locations`           | `201` `{ location }`                                |
 | GET    | `/api/v1/storage-locations/{id}`      | `200` `{ location }`                                |
@@ -461,6 +464,16 @@ dropping metadata (`api/src/images.rs`). Anything refused answers `400`; a large
 `GET /{id}/cover` serves it with `Cache-Control: private, max-age=31536000, immutable`: clients add `coverUpdatedAt` to
 the URL, so each cover version has its own. Cover changes publish `project.upserted`.
 
+`GET /{id}/worker-setup` answers `{ workerSetup: { toolsSetupScript, repositories } }`: how the project readies its
+workers' containers (`docs/engine.md`, Workers). `toolsSetupScript` is bash run as root in every worker's container
+before anything is cloned, or `null`; `repositories` lists what the project declares, in order, each `{ id, url,
+baseBranch, setupScript }`, `setupScript` being bash run as the agent in the repository's directory once it is cloned.
+`PUT` takes the same shape without ids and replaces the whole setup: at most 16 repositories, each held to a coding
+session's rules (`docs/coding.md`, Repositories), none listed twice and no two cloning into one directory ignoring
+case, a base branch of at most 255 characters, and scripts of at most 20,000 characters, a script of only whitespace
+being none; anything refused answers `400` naming the rule. Anyone who may edit the project reads and changes it, and
+a change publishes `projectWorkerSetup.changed`; the next worker that starts uses it.
+
 `GET /{id}/project-manager` answers the project's Project Manager (`docs/engine.md`, Project Managers): `status`
 (`running`, `held`, `errored`, `waiting`, or `idle`), `waiting` (how many wakes wait for its next turn),
 `usagePausedUntil` (while a usage limit holds it), its latest 30 `turns`, newest first, its latest 100 `batches`, newest
@@ -510,14 +523,17 @@ without its goal; at most the 1,000 oldest waiting batches are read.
 
 `GET /work-batches/{id}` answers `{ batch, history }`: the batch whole, as `GET /projects/{id}/project-manager` lists
 it, and its history oldest first, each entry `{ id, kind, data, createdBy, createdAt }` (`docs/engine.md`, Work
-batches). `PATCH` takes any of `priority` (`asap`, `normal`, or `scheduled` with `scheduledFor`, with its offset, in the
-future and within a year), `paused` (true holds back a batch no worker started on, giving back a slot it held; false
-lets a paused one wait again), and `runNext` (true runs a due, queued batch before everything else; false puts it back
-in its place), applied in that order in one transaction, each recorded as the caller; a change that moves nothing
-records nothing. `POST /cancel` takes an optional `reason` (up to 20,000 characters), which its Project Manager is
-told. Both answer as `GET` does; a change the batch's state no longer allows answers `409` with `code`
-`work_batch_moved_on`, and one that breaks a rule whatever the state (a time in the past, pausing and running next at
-once) `400`.
+batches). A running batch whose worker waits, keeping its container, also carries `waitingOn` (`review`, `ci`, or
+`question`), `waitingDetail`, and `waitingUntil`, all `null` otherwise. `GET /work-batches/{id}/worker-log` answers `{
+log }`: what its worker said and which tools it called, one line each, scrubbed of its secrets, the newest 64 KiB,
+empty before it started. `PATCH` takes any of `priority` (`asap`, `normal`, or `scheduled` with `scheduledFor`, with
+its offset, in the future and within a year), `paused` (true holds back a batch no worker started on, giving back a
+slot it held; false lets a paused one wait again), and `runNext` (true runs a due, queued batch before everything
+else; false puts it back in its place), applied in that order in one transaction, each recorded as the caller; a
+change that moves nothing records nothing. `POST /cancel` takes an optional `reason` (up to 20,000 characters), which
+its Project Manager is told. Both answer as `GET` does; a change the batch's state no longer allows answers `409` with
+`code` `work_batch_moved_on`, and one that breaks a rule whatever the state (a time in the past, pausing and running
+next at once) `400`.
 
 ### `/api/v1/storage-locations`
 

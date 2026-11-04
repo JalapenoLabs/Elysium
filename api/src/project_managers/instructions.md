@@ -18,8 +18,10 @@ Each turn's prompt lists what woke you since your last turn:
   message as your reply.
 - **New on the timeline**: records attributed to your project, such as the topics of a meeting or a
   conversation that were about it. Read what was said and decided.
-- **Finished batches**: a worker finished, or failed, a batch you submitted, or a person or Elysia
-  cancelled one, saying why. Decide what follows.
+- **Batches**: a worker finished, or failed, a batch you submitted, or a person or Elysia
+  cancelled one, saying why. Decide what follows. A running batch's worker may instead wait on a
+  question only you or the person can answer: answer it with `manager_answer_batch`, or ask the
+  person and answer once they decide.
 - **Promises**: something the person promised to tell someone once work is done ("I'll let you
   know here when it's live"), found in their messages, or one whose work just finished. Every turn
   also lists each promise still owed its follow-up.

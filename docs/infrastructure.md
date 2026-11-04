@@ -82,6 +82,16 @@ in the running workspace too, for a session's files and a new session's clones, 
 a plain bridge, because agents need the internet, and nginx is not on it. The development stack builds the image as
 `elysium-workspace:dev` (service `workspace-image`) before the engine starts. See `docs/coding.md`.
 
+The worker pool's workers are not compose services either. For each batch a worker runs, the engine creates a
+container, a volume, and a bridge network, all named `elysium-worker-<batch id>` and labelled with the batch and this
+deployment, through `docker-proxy`, from `WORKSPACE_IMAGE`, and joins every API replica to the network as `api`, with a
+gateway priority below the API's own networks (Docker Engine 28.0 or later, as browsers need). Compose drops that join
+whenever it recreates the API; the scheduler's next look, within 15 seconds, restores it. A worker's container is
+removed with its volume and network when its batch ends, and whatever a stopped engine left behind is removed on a
+later look. Each worker's network takes one of the Docker daemon's address pools, so a pool sized past what the daemon
+can allocate fails the batches that find none, with Docker's message; the daemon's `default-address-pools` sets how
+many there are. See `docs/engine.md`, Workers.
+
 Transcriptions are not compose services either. The engine creates one container per meeting it transcribes through
 `docker-proxy`, named `elysium-whisper-<step job id>`, from `WHISPER_IMAGE`, the `elysium-whisper` image of the same
 release, with no network at all, and removes it when the transcription ends. The recording goes in on its standard

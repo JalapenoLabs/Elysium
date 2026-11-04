@@ -82,6 +82,9 @@ the session's later turns without one.
 an id names one. `api/src/routes/v1/coding_sessions/github_token.rs` resolves the choice and opens the token. A token
 that cannot be decrypted refuses the session rather than starting the agent without the access it was promised.
 
+A worker of the pool has no session level: it takes its batch's project's choice as it starts, the project's token or
+the workspace default or none, and gets it the same way, clones and every turn alike (`docs/engine.md`, Workers).
+
 ## How the agent gets the token
 
 Only one token per session, set in each turn's environment and in the environment of the session's clones:

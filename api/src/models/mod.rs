@@ -72,4 +72,5 @@ pub mod update_check;
 pub mod user;
 pub mod work_batch;
 pub mod worker_pool;
+pub mod worker_setup;
 pub mod workflow_run;

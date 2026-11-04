@@ -523,8 +523,16 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 - Its size is an admin setting (`workspace_settings.worker_pool_size`), by default one worker per CPU core the engine
   sees minus two, at least one, with no maximum.
 - A slot is a batch `assigned` under a lease the engine renews, fenced by its token and taken over by the next engine
-  once it lapses or is released at shutdown. A worker (#85) takes it with `work_batch::start` and gives it back with
+  once it lapses or is released at shutdown. A worker takes it with `work_batch::start` and gives it back with
   `work_batch::finish`.
+- Each slot is one worker (`api/src/worker_pool/worker/`): Claude Code in a container of its own from the workspace
+  image, `elysium-worker-<batch id>`, with its own volume and a bridge network only the API joins, limited to its share
+  of the cores the pool leaves workers (`worker_pool::worker_nano_cpus`). It runs the project's tools script as root,
+  clones the batch's repositories with `--recurse-submodules` and runs each declared repository's setup script
+  (`project_repositories`, `projects.tools_setup_script`), then runs `/goal` turns resuming one Claude Code session
+  until it reports through its `elysium_worker` tools: `worker_finish` ends the batch and removes the container;
+  `worker_wait` (a review, CI, or a question its Project Manager answers) keeps it. The API files a report; only the
+  engine holding the slot acts on it. See `docs/engine.md`, Workers.
 - People, Elysia, and Project Managers change a waiting batch only through `worker_pool::actions` (run next, priority,
   pause, resume, cancel), each change recorded in `work_batch_events` with who made it. The work queue is `/work-queue`,
   for members.

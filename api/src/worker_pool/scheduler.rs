@@ -15,8 +15,11 @@
 //!    handed out last that no worker has started on;
 //! 4. unless a usage limit holds the pool, hands each free slot to the next batch in order.
 //!
+//! After each look the workers (`super::worker`) look too: a worker for every slot held, none
+//! for a slot lost, each at the pool's CPU share.
+//!
 //! At shutdown it lets the leases it holds lapse, so the next engine takes them over as it
-//! starts.
+//! starts, and stops its workers, leaving their containers for that engine.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -27,6 +30,7 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::queue;
+use super::worker::Workers;
 use crate::database::Pool;
 use crate::models::work_batch::{self, BatchState, Slot};
 use crate::models::worker_pool;
@@ -39,18 +43,21 @@ use crate::worker_pool::actions::announce;
 const LOOK_INTERVAL: Duration = Duration::from_secs(15);
 
 /// The scheduler's state between looks: the slots it holds, each batch's id and the token
-/// fencing its slot.
+/// fencing its slot, and the pool's size as it last read it.
 struct Scheduler {
     database: Pool,
     events: EventBus,
     cpu_count: i32,
     held: HashMap<Uuid, Uuid>,
+    size: Option<usize>,
 }
 
-/// Hands out the pool's slots until `shutdown`, on a host with `cpu_count` cores.
+/// Hands out the pool's slots until `shutdown`, on a host with `cpu_count` cores, and keeps a
+/// worker running for each slot it holds.
 pub(super) async fn run(
     database: Pool,
     events: EventBus,
+    workers: Workers,
     cpu_count: usize,
     shutdown: CancellationToken,
 ) {
@@ -61,6 +68,7 @@ pub(super) async fn run(
         events,
         cpu_count: i32::try_from(cpu_count).unwrap_or(i32::MAX),
         held: HashMap::new(),
+        size: None,
     };
     loop {
         let next_look = match scheduler.look().await {
@@ -77,6 +85,17 @@ pub(super) async fn run(
                 LOOK_INTERVAL
             }
         };
+        let held: Vec<(Uuid, Uuid)> = scheduler
+            .held
+            .iter()
+            .map(|(batch_id, token)| (*batch_id, *token))
+            .collect();
+        let size = scheduler
+            .size
+            .unwrap_or_else(|| super::default_size(cpu_count));
+        workers
+            .look(&held, super::worker_nano_cpus(cpu_count, size))
+            .await;
         tokio::select! {
             () = shutdown.cancelled() => break,
             () = wake.woken() => {}
@@ -84,6 +103,7 @@ pub(super) async fn run(
         }
     }
     scheduler.release().await;
+    workers.shutdown().await;
     event!(
         name: "worker_pool.scheduler.stopped",
         Level::INFO,
@@ -122,6 +142,7 @@ impl Scheduler {
             .scheduled
             .first()
             .and_then(|batch| batch.scheduled_for);
+        self.size = waiting.pool.size;
         let Some(size) = waiting.pool.size else {
             return Ok(next_due);
         };

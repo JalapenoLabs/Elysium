@@ -40,13 +40,19 @@ pub fn socket(session_id: i64) -> WorkspacePath {
 
 /// Session `session_id`'s desktop, for its turn's MCP servers.
 pub fn server(session_id: i64) -> McpServer {
+    server_at(&socket(session_id))
+}
+
+/// A desktop that serves its view on `socket`, for a turn's MCP servers. A pool worker's turns
+/// run in a container of their own, so its desktop's socket is that container's alone.
+pub fn server_at(socket: &WorkspacePath) -> McpServer {
     McpServer::Stdio {
         name: SERVER_NAME.to_owned(),
         command: COMMAND.to_owned(),
         arguments: Vec::new(),
         environment: vec![EnvironmentEntry {
             key: "ELYSIUM_DESKTOP_SOCKET".to_owned(),
-            value: SecretString::from(socket(session_id).absolute()),
+            value: SecretString::from(socket.absolute()),
         }],
     }
 }

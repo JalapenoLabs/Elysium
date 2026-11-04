@@ -35,6 +35,15 @@ between them carries nothing secret in the clear (`docs/realtime.md`, Signals).
 - The workspace shares `elysium-agents` with the API alone, so it reaches no other service: not Postgres, Redis,
   Kratos, Hydra, or `docker-proxy`. Agents reach Elysium only at `/api/agent-tools`, with a per-turn grant scoped to
   their session, and nginx answers `404` for that path on the public origin.
+- Each of the worker pool's workers runs in a container of its own, `elysium-worker-<batch id>`, on a network of its
+  own that the API alone joins (`docs/engine.md`, Workers). A worker reaches the internet (GitHub, package registries,
+  the model provider, and whatever else its work fetches) and Elysium's tools under its turn's grant, scoped to its
+  batch; it reaches no other service, not the shared workspace, and not another worker, and nothing reaches it. Its
+  network is a plain bridge, since its setup and work fetch from the internet; an allowlist of the hosts it may reach
+  is on the roadmap.
+- A worker is given the project's GitHub token as `GH_TOKEN` and every workspace environment variable, as a session
+  is, and its events, setup's output, and log are scrubbed of their secret values before anything of them is stored
+  or shown. Its project's tools script runs as root in its own container, which is its boundary.
 - The API reads and writes workspace files through `docker exec` as `agent`, confined to a session's directory by
   `realpath`, so a symlink an agent plants cannot point the API elsewhere. Neither the API nor the engine mounts the
   volume.
@@ -61,8 +70,10 @@ Neither mounts the Docker socket: both reach `docker-proxy`, which answers only 
 and exec endpoints, on an internal network no other service joins. Build, swarm, secrets, and system endpoints are refused.
 
 - **The engine** creates and replaces everything: the workspace and every turn in it, browsers' containers and
-  networks, the mail server brought back up, backups' dumps (`pg_dump` in the Postgres container), and a Whisper
-  container for each transcription.
+  networks, the mail server brought back up, backups' dumps (`pg_dump` in the Postgres container), a Whisper
+  container for each transcription, and each worker's container, volume, and network, which it joins the API to and
+  limits to its share of the CPU through the container update endpoint. The proxy's allowlist needs nothing new for
+  them: containers, volumes, networks, and exec are already allowed.
 - **The API** works in what exists while a person waits: files in the workspace and a new session's clones, Claude
   sign-ins, creating the mail server, and resetting or removing a browser. It never creates or replaces the workspace.
 
@@ -287,3 +298,5 @@ Application secrets never go there. They are stored in Postgres, encrypted with 
 - Deciding on `blob:` in the web app's `connect-src`, which Studio's viewer needs to show textured models. It would let
   the app fetch blob URLs it created itself, and nothing from another origin.
 - TLS termination at nginx.
+- An egress allowlist for workers' networks: GitHub, the package registries, and the model provider alone, through a
+  proxy their networks route through.

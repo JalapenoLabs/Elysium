@@ -24,6 +24,12 @@ sibling container keeps the API image small and lets the agents' toolchain chang
 containers were not chosen: a turn would pay a container start, and work that spans turns (clones, build caches,
 Claude's own transcripts) would need its own volume per conversation.
 
+The worker pool's workers are the exception, by design: each runs its batch in a container of its own from the same
+image, `elysium-worker-<batch id>`, with its own volume, network, and CPU limit, because a batch runs for hours or days
+of its own turns, builds heavily, and holds its project's GitHub token (`docs/engine.md`, Workers). Its turns run on a
+runner of their own in that container, exactly as here (the turn script, credentials, `~/.claude` fetched into its own
+volume, a Blender and a desktop each turn), and never take one of the shared workspace's eight turn slots.
+
 | Path                    | Holds                                                                         |
 |-------------------------|-------------------------------------------------------------------------------|
 | `/workspace`            | The volume `elysium-workspace`: everything that outlives the container        |

@@ -182,6 +182,10 @@ pub mod sql_types {
     pub struct WorkBatchState;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "work_batch_wait"))]
+    pub struct WorkBatchWait;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "workflow_run_state"))]
     pub struct WorkflowRunState;
 }
@@ -1309,6 +1313,21 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    project_repositories (id) {
+        id -> Uuid,
+        project_id -> Uuid,
+        position -> Int4,
+        url -> Text,
+        base_branch -> Nullable<Text>,
+        setup_script -> Nullable<Text>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::ProjectCoverFit;
     use super::sql_types::GithubAccess;
 
@@ -1326,6 +1345,7 @@ diesel::table! {
         created_by -> Uuid,
         cover_removed_at -> Nullable<Timestamptz>,
         manager_writes_directly -> Bool,
+        tools_setup_script -> Nullable<Text>,
     }
 }
 
@@ -1662,6 +1682,7 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::WorkBatchPriority;
     use super::sql_types::WorkBatchState;
+    use super::sql_types::WorkBatchWait;
 
     work_batches (id) {
         id -> Uuid,
@@ -1686,6 +1707,12 @@ diesel::table! {
         assigned_at -> Nullable<Timestamptz>,
         claim_token -> Nullable<Uuid>,
         lease_expires_at -> Nullable<Timestamptz>,
+        worker_session_id -> Nullable<Text>,
+        waiting_on -> Nullable<WorkBatchWait>,
+        waiting_detail -> Nullable<Text>,
+        waiting_until -> Nullable<Timestamptz>,
+        worker_report -> Nullable<Jsonb>,
+        worker_log -> Text,
     }
 }
 
@@ -1880,6 +1907,8 @@ diesel::joinable!(project_manager_wakes -> users (created_by));
 diesel::joinable!(project_manager_wakes -> work_batches (work_batch_id));
 diesel::joinable!(project_managers -> projects (project_id));
 diesel::joinable!(project_managers -> users (created_by));
+diesel::joinable!(project_repositories -> projects (project_id));
+diesel::joinable!(project_repositories -> users (created_by));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
 diesel::joinable!(projects -> users (created_by));
 diesel::joinable!(promises -> projects (project_id));
@@ -1995,6 +2024,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     project_manager_turns,
     project_manager_wakes,
     project_managers,
+    project_repositories,
     projects,
     promises,
     secret_copies,

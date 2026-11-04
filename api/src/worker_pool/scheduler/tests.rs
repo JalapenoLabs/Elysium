@@ -26,6 +26,7 @@ async fn scheduler(url: &SecretString, cpu_count: i32) -> Scheduler {
         events: EventBus::in_process(),
         cpu_count,
         held: HashMap::new(),
+        size: None,
     }
 }
 

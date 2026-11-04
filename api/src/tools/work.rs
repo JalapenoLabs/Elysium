@@ -206,7 +206,7 @@ impl TryFrom<&CallScope> for WorkScope {
                     action_item_id: None,
                 });
             }
-            CallScope::Elysia(_) => {
+            CallScope::Elysia(_) | CallScope::Worker(_) => {
                 return Err(ToolError::WrongAgent(
                     "coding sessions and Project Managers",
                 ));

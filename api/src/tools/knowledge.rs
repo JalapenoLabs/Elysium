@@ -37,7 +37,7 @@ use crate::errors::ApiError;
 use crate::mcp::knowledge::{GET_DESCRIPTION, MEETINGS_DESCRIPTION, SEARCH_DESCRIPTION};
 use crate::models::coding_session;
 use crate::models::company_doc::{CompanyDocError, Proposer, Section};
-use crate::models::user::{self, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
+use crate::models::user::{self, CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 use crate::routes::v1::knowledge::{
     self, DocumentArguments, ListMeetingsRequest, SearchKnowledgeRequest,
 };
@@ -176,6 +176,9 @@ async fn reader(context: &ToolContext, scope: &CallScope) -> Result<Uuid, ToolEr
     let session_id = match scope {
         CallScope::Elysia(_) => return Ok(ELYSIA_USER_ID),
         CallScope::ProjectManager(_) => return Ok(PROJECT_MANAGER_USER_ID),
+        // A pool worker is the coding agent at work on its batch, which a Project Manager, not
+        // a person, started.
+        CallScope::Worker(_) => return Ok(CODING_AGENT_USER_ID),
         CallScope::Session(session) => session.session_id,
     };
     let mut connection = context
@@ -306,6 +309,12 @@ async fn run_propose(
             workflow_run_id: None,
         },
         CallScope::ProjectManager(manager) => Proposer::ProjectManager(manager.project_id),
+        CallScope::Worker(_) => {
+            return Err(ToolError::WrongAgent(
+                "coding sessions, Project Managers, and Elysia; tell your Project Manager \
+                 what the company doc should say in your worker_finish result",
+            ));
+        }
     };
     let mut connection = context
         .database

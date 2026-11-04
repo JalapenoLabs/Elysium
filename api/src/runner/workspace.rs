@@ -20,8 +20,14 @@
 //! The image is the published `elysium-workspace` of the same release as the API. A
 //! container running any other image is replaced, keeping its volume, the first time the
 //! API needs it, which is at startup, before any turn runs.
+//!
+//! A worker of the pool runs in a container of its own from the same image
+//! ([`WorkspaceContainer::worker`], `crate::worker_pool::worker`): its own volume, network, and
+//! CPU limit, named after its batch, so nothing it does reaches the shared workspace or another
+//! worker. Everything else here (turns, scripts, files) works the same in either.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use bollard::Docker;
@@ -29,17 +35,18 @@ use bollard::container::LogOutput;
 use bollard::errors::Error as DockerError;
 use bollard::exec::StartExecResults;
 use bollard::models::{
-    ContainerCreateBody, EndpointSettings, ExecConfig, HostConfig, NetworkingConfig, RestartPolicy,
-    RestartPolicyNameEnum, VolumeCreateRequest,
+    ContainerCreateBody, ContainerUpdateBody, EndpointSettings, ExecConfig, HostConfig,
+    NetworkingConfig, RestartPolicy, RestartPolicyNameEnum, VolumeCreateRequest,
 };
 use bollard::query_parameters::{
     CreateContainerOptionsBuilder, CreateImageOptionsBuilder, RemoveContainerOptionsBuilder,
+    RemoveVolumeOptionsBuilder,
 };
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 use tracing::{Level, event};
 
-pub(super) const CONTAINER_NAME: &str = "elysium-workspace";
+const CONTAINER_NAME: &str = "elysium-workspace";
 const VOLUME_NAME: &str = "elysium-workspace";
 const NETWORK_NAME: &str = "elysium-agents";
 /// What other containers on [`NETWORK_NAME`] call the workspace.
@@ -89,12 +96,63 @@ pub struct ScriptOutput {
 pub struct WorkspaceContainer {
     docker: Docker,
     image: String,
+    place: Arc<Place>,
 }
 
+/// Which container a [`WorkspaceContainer`] is, which decides its name and how it is created.
+#[derive(Debug)]
+enum Place {
+    /// The one workspace sessions, Project Managers, Elysia, and every step's turn share.
+    Shared,
+    /// A worker of the pool's own container.
+    Worker(WorkerContainer),
+}
+
+/// What sets one worker's container apart: its name, which its volume and network share, the
+/// labels that say whose it is, and how much of the host's CPU it may use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerContainer {
+    /// Shared by the container, its volume, and its network, which must already exist.
+    pub name: String,
+    pub labels: HashMap<String, String>,
+    /// Its CPU limit, in billionths of a CPU, as Docker's `NanoCpus` counts it.
+    pub nano_cpus: i64,
+}
+
+/// A worker's processes and threads, with room for a parallel build and a desktop, and nothing
+/// like a fork bomb.
+const WORKER_PIDS_LIMIT: i64 = 8_192;
+
+/// Half Docker's default CPU weight of 1024: under contention the API, the engine, and Postgres
+/// get twice the share a worker does, on top of each worker's own limit.
+const WORKER_CPU_SHARES: i64 = 512;
+
 impl WorkspaceContainer {
-    /// `image` is a full reference such as `jalapenolabs/elysium-workspace:v1.2.0`.
-    pub const fn new(docker: Docker, image: String) -> Self {
-        Self { docker, image }
+    /// The shared workspace. `image` is a full reference such as
+    /// `jalapenolabs/elysium-workspace:v1.2.0`.
+    pub fn new(docker: Docker, image: String) -> Self {
+        Self {
+            docker,
+            image,
+            place: Arc::new(Place::Shared),
+        }
+    }
+
+    /// A worker's own container of `image`, as `worker` describes it.
+    pub fn worker(docker: Docker, image: String, worker: WorkerContainer) -> Self {
+        Self {
+            docker,
+            image,
+            place: Arc::new(Place::Worker(worker)),
+        }
+    }
+
+    /// The container's name, which execs and scripts run in.
+    pub fn name(&self) -> &str {
+        match self.place.as_ref() {
+            Place::Shared => CONTAINER_NAME,
+            Place::Worker(worker) => &worker.name,
+        }
     }
 
     /// The Docker client, for the file operations in `super::files`.
@@ -109,7 +167,7 @@ impl WorkspaceContainer {
     pub async fn ensure_running(&self) -> Result<(), WorkspaceError> {
         self.ensure_image().await?;
 
-        match self.docker.inspect_container(CONTAINER_NAME, None).await {
+        match self.docker.inspect_container(self.name(), None).await {
             Ok(existing) => {
                 let current_image = existing
                     .config
@@ -125,7 +183,7 @@ impl WorkspaceContainer {
                     );
                     let options = RemoveContainerOptionsBuilder::new().force(true).build();
                     self.docker
-                        .remove_container(CONTAINER_NAME, Some(options))
+                        .remove_container(self.name(), Some(options))
                         .await?;
                     return self.create().await;
                 }
@@ -134,7 +192,7 @@ impl WorkspaceContainer {
                     .and_then(|state| state.running)
                     .unwrap_or(false);
                 if !running {
-                    self.docker.start_container(CONTAINER_NAME, None).await?;
+                    self.docker.start_container(self.name(), None).await?;
                 }
                 Ok(())
             }
@@ -150,7 +208,7 @@ impl WorkspaceContainer {
     /// # Errors
     /// Propagates Docker's refusal, other than the container not existing.
     pub async fn is_running(&self) -> Result<bool, WorkspaceError> {
-        match self.docker.inspect_container(CONTAINER_NAME, None).await {
+        match self.docker.inspect_container(self.name(), None).await {
             Ok(existing) => Ok(existing
                 .state
                 .and_then(|state| state.running)
@@ -181,21 +239,75 @@ impl WorkspaceContainer {
     }
 
     async fn create(&self) -> Result<(), WorkspaceError> {
+        // Creating a volume that exists answers the one there, so a replaced container keeps it.
+        let (volume, labels) = match self.place.as_ref() {
+            Place::Shared => (VOLUME_NAME, managed_labels()),
+            Place::Worker(worker) => (worker.name.as_str(), worker.labels.clone()),
+        };
         self.docker
             .create_volume(VolumeCreateRequest {
-                name: Some(VOLUME_NAME.to_owned()),
-                labels: Some(managed_labels()),
+                name: Some(volume.to_owned()),
+                labels: Some(labels),
                 ..Default::default()
             })
             .await?;
         let options = CreateContainerOptionsBuilder::new()
-            .name(CONTAINER_NAME)
+            .name(self.name())
             .build();
+        let spec = match self.place.as_ref() {
+            Place::Shared => container_spec(&self.image),
+            Place::Worker(worker) => worker_spec(&self.image, worker),
+        };
+        self.docker.create_container(Some(options), spec).await?;
+        self.docker.start_container(self.name(), None).await?;
+        event!(name: "runner.workspace.created", Level::INFO, container.name = self.name(), "created");
+        Ok(())
+    }
+
+    /// Changes a running worker's CPU limit to `nano_cpus` billionths of a CPU, in place.
+    ///
+    /// # Errors
+    /// Propagates Docker's refusal, such as a container that does not exist.
+    pub async fn set_cpu_limit(&self, nano_cpus: i64) -> Result<(), WorkspaceError> {
         self.docker
-            .create_container(Some(options), container_spec(&self.image))
+            .update_container(
+                self.name(),
+                ContainerUpdateBody {
+                    nano_cpus: Some(nano_cpus),
+                    ..Default::default()
+                },
+            )
             .await?;
-        self.docker.start_container(CONTAINER_NAME, None).await?;
-        event!(name: "runner.workspace.created", Level::INFO, container.name = CONTAINER_NAME, "created");
+        Ok(())
+    }
+
+    /// Removes a worker's container and its volume, once its batch ended. What is already gone
+    /// is skipped, so a half-removed worker can be removed again. The shared workspace is never
+    /// removed.
+    ///
+    /// # Errors
+    /// Propagates Docker's refusal.
+    ///
+    /// # Panics
+    /// Called on the shared workspace, which is a programming error.
+    pub async fn remove_with_volume(&self) -> Result<(), WorkspaceError> {
+        let Place::Worker(worker) = self.place.as_ref() else {
+            panic!("only a worker's container is ever removed");
+        };
+        let options = RemoveContainerOptionsBuilder::new().force(true).build();
+        match self
+            .docker
+            .remove_container(&worker.name, Some(options))
+            .await
+        {
+            Err(error) if !has_status(&error, 404) => return Err(error.into()),
+            _removed_or_missing => {}
+        }
+        let options = RemoveVolumeOptionsBuilder::new().force(true).build();
+        match self.docker.remove_volume(&worker.name, Some(options)).await {
+            Err(error) if !has_status(&error, 404) => return Err(error.into()),
+            _removed_or_missing => {}
+        }
         Ok(())
     }
 
@@ -212,7 +324,7 @@ impl WorkspaceContainer {
         let exec = self
             .docker
             .create_exec(
-                CONTAINER_NAME,
+                self.name(),
                 ExecConfig {
                     cmd: Some(command.argv),
                     env: Some(command.environment),
@@ -356,6 +468,31 @@ fn container_spec(image: &str) -> ContainerCreateBody {
     }
 }
 
+/// A worker's container: the workspace's, on its own volume and network, with no alias, under
+/// its CPU limit and weight and a process limit. Like the workspace, it publishes nothing.
+fn worker_spec(image: &str, worker: &WorkerContainer) -> ContainerCreateBody {
+    ContainerCreateBody {
+        image: Some(image.to_owned()),
+        hostname: Some("worker".to_owned()),
+        env: Some(vec!["TZ=UTC".to_owned()]),
+        labels: Some(worker.labels.clone()),
+        host_config: Some(HostConfig {
+            binds: Some(vec![format!("{}:/workspace", worker.name)]),
+            restart_policy: Some(RestartPolicy {
+                name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
+                maximum_retry_count: None,
+            }),
+            network_mode: Some(worker.name.clone()),
+            init: Some(true),
+            nano_cpus: Some(worker.nano_cpus),
+            cpu_shares: Some(WORKER_CPU_SHARES),
+            pids_limit: Some(WORKER_PIDS_LIMIT),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 fn managed_labels() -> HashMap<String, String> {
     HashMap::from([(MANAGED_LABEL.0.to_owned(), MANAGED_LABEL.1.to_owned())])
 }
@@ -428,6 +565,35 @@ mod tests {
             Some(&["elysium-workspace:/workspace".to_owned()][..])
         );
         assert_eq!(host_config.network_mode.as_deref(), Some(NETWORK_NAME));
+    }
+
+    #[test]
+    fn a_worker_runs_on_its_own_volume_and_network_under_its_limits() {
+        let worker = WorkerContainer {
+            name: "elysium-worker-1".to_owned(),
+            labels: HashMap::from([("dev.elysium.managed".to_owned(), "worker".to_owned())]),
+            nano_cpus: 1_500_000_000,
+        };
+        let spec = worker_spec("elysium-workspace:dev", &worker);
+        let host_config = spec.host_config.expect("host config");
+        assert!(host_config.port_bindings.is_none());
+        assert_eq!(host_config.privileged, None);
+        assert_eq!(
+            host_config.binds.as_deref(),
+            Some(&["elysium-worker-1:/workspace".to_owned()][..]),
+            "never the shared workspace's volume"
+        );
+        assert_eq!(
+            host_config.network_mode.as_deref(),
+            Some("elysium-worker-1")
+        );
+        assert_eq!(host_config.nano_cpus, Some(1_500_000_000));
+        assert_eq!(host_config.cpu_shares, Some(WORKER_CPU_SHARES));
+        assert_eq!(host_config.pids_limit, Some(WORKER_PIDS_LIMIT));
+        assert!(
+            spec.networking_config.is_none(),
+            "no alias on any shared network"
+        );
     }
 
     #[test]

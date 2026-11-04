@@ -19,9 +19,7 @@ use futures_util::stream::BoxStream;
 use tokio::io::AsyncWrite;
 
 use super::WorkspacePath;
-use super::workspace::{
-    AGENT_USER, CONTAINER_NAME, SCRIPT_TIMEOUT, WorkspaceContainer, WorkspaceError,
-};
+use super::workspace::{AGENT_USER, SCRIPT_TIMEOUT, WorkspaceContainer, WorkspaceError};
 
 /// `$1` is the socket. Exits 0 when something listens there.
 const PROBE_SCRIPT: &str = r#"[ -S "$1" ]"#;
@@ -76,7 +74,7 @@ impl WorkspaceContainer {
         let exec = self
             .docker()
             .create_exec(
-                CONTAINER_NAME,
+                self.name(),
                 ExecConfig {
                     cmd: Some(vec![
                         "socat".to_owned(),

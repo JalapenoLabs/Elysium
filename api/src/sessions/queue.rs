@@ -50,10 +50,10 @@ use crate::tools::{self, CallScope, SessionScope, ToolServer};
 const LOOK_INTERVAL: Duration = Duration::from_secs(30);
 
 /// The MCP server name every turn's Blender answers as.
-const BLENDER_SERVER: &str = "blender";
+pub(crate) const BLENDER_SERVER: &str = "blender";
 
 /// The per-turn Blender launcher the workspace image installs (`workspace/blender`).
-const BLENDER_COMMAND: &str = "elysium-blender-mcp";
+pub(crate) const BLENDER_COMMAND: &str = "elysium-blender-mcp";
 
 /// Runs sessions' turns. Cheap to clone; every clone is the same queue.
 #[derive(Debug, Clone)]
@@ -373,7 +373,7 @@ fn resume_of(session: &CodingSession) -> Option<crate::runner::HarnessSessionId>
 /// A turn's environment: every workspace variable, then the session's GitHub token with the
 /// git configuration that routes git through `gh`. Also answers the secrets among them, which
 /// the turn's output is scrubbed of.
-fn turn_environment(
+pub(crate) fn turn_environment(
     variables: Vec<TurnVariable>,
     github: Option<&SecretString>,
 ) -> (Vec<EnvironmentEntry>, Vec<SecretString>) {

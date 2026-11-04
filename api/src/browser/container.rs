@@ -48,6 +48,8 @@ use sha2::{Digest, Sha256};
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use crate::compose::{self, ComposeError};
+
 /// Neko 3.1.6 with Chromium 154, pinned by digest. A new Neko release can change the
 /// protocol the frontend speaks and the files below replace, so moving it is a reviewed
 /// change. See docs/browser.md.
@@ -59,13 +61,6 @@ const IMAGE_DIGEST: &str =
 /// The compose service's fixed container name, which the API joins to every browser's
 /// network so it can pass the media port along.
 const NGINX_CONTAINER: &str = "elysium-nginx";
-
-/// The compose service the API runs as, whose every replica joins each browser's network.
-const API_SERVICE: &str = "api";
-
-/// The labels compose gives each container it runs: its project, and its service.
-const COMPOSE_PROJECT_LABEL: &str = "com.docker.compose.project";
-const COMPOSE_SERVICE_LABEL: &str = "com.docker.compose.service";
 
 /// The gateway priority nginx and the API join a browser's network with. Docker routes a
 /// container's default gateway, and the ports it publishes, through its network of highest
@@ -463,39 +458,22 @@ impl BrowserContainers {
     /// The ids of every container that reaches a browser over its network: this process's own,
     /// the engine, which reads pages over `DevTools`; every replica of the API, which relays the
     /// stream and reads pages for connector checks; and nginx, which passes the media. The API's
-    /// replicas are its compose project's containers of the service [`API_SERVICE`]. Docker sets
-    /// `HOSTNAME` to the container's short id.
+    /// replicas are its compose project's containers of the API's service (`crate::compose`).
     async fn members(&self) -> Result<Vec<String>, ContainerError> {
-        let hostname = std::env::var("HOSTNAME").unwrap_or_default();
-        let own = match self.docker.inspect_container(&hostname, None).await {
-            Ok(container) => container,
-            Err(error) if has_status(&error, 404) || hostname.is_empty() => {
-                return Err(ContainerError::OwnContainerUnknown(hostname));
-            }
-            Err(error) => return Err(error.into()),
-        };
-        let project = own
-            .config
-            .as_ref()
-            .and_then(|config| config.labels.as_ref())
-            .and_then(|labels| labels.get(COMPOSE_PROJECT_LABEL))
-            .cloned();
-        let mut members = vec![own.id.unwrap_or(hostname)];
-
+        let (own, project) =
+            compose::own_container(&self.docker)
+                .await
+                .map_err(|error| match error {
+                    ComposeError::Docker(docker) => ContainerError::Docker(docker),
+                    ComposeError::OwnContainerUnknown(hostname) => {
+                        ContainerError::OwnContainerUnknown(hostname)
+                    }
+                })?;
+        let mut members = vec![own];
         if let Some(project) = project {
-            let filters = HashMap::from([(
-                "label".to_owned(),
-                vec![
-                    format!("{COMPOSE_PROJECT_LABEL}={project}"),
-                    format!("{COMPOSE_SERVICE_LABEL}={API_SERVICE}"),
-                ],
-            )]);
-            let options = ListContainersOptionsBuilder::new()
-                .filters(&filters)
-                .build();
-            for api in self.docker.list_containers(Some(options)).await? {
-                members.extend(api.id);
-            }
+            members.extend(
+                compose::service_containers(&self.docker, &project, compose::API_SERVICE).await?,
+            );
         }
         let nginx = self.docker.inspect_container(NGINX_CONTAINER, None).await?;
         members.extend(nginx.id);
@@ -546,7 +524,7 @@ pub fn host_name(port: u16) -> String {
 /// `elysium/browser/deployment:<key>`, as `kratos/entrypoint.sh` derives Kratos's secrets
 /// from the same key under their own purposes. Anyone who can reach Docker reads it, which
 /// is harmless: it names the deployment and reveals nothing about the key.
-fn deployment_label(encryption_key: &SecretString) -> String {
+pub(crate) fn deployment_label(encryption_key: &SecretString) -> String {
     let digest = Sha256::digest(format!(
         "elysium/browser/deployment:{}",
         encryption_key.expose_secret()

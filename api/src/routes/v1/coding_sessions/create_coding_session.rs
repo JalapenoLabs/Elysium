@@ -246,7 +246,7 @@ fn refuse_shared_directories(repositories: &[RepositoryRequest]) -> Result<(), A
 /// What makes two URLs the same repository. github.com names are case-insensitive and
 /// reachable over HTTPS and SSH alike; any other host is compared as written, without a
 /// trailing slash or `.git`.
-fn repository_identity(url: &str) -> String {
+pub(crate) fn repository_identity(url: &str) -> String {
     if let Some(repository) = Repository::from_url(url) {
         return format!("github.com/{}/{}", repository.owner, repository.name).to_lowercase();
     }
@@ -267,7 +267,7 @@ fn repository_to_clone(repository: RepositoryRequest) -> RepositoryClone {
 
 /// The directory a repository is cloned into: the URL's last path segment without
 /// `.git`. Only plain names are accepted, so none can escape the session's directory.
-fn repository_directory(url: &str) -> Option<&str> {
+pub(crate) fn repository_directory(url: &str) -> Option<&str> {
     let last_segment = url.trim_end_matches('/').rsplit(['/', ':']).next()?;
     let name = last_segment.strip_suffix(".git").unwrap_or(last_segment);
 
