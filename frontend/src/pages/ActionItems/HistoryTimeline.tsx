@@ -17,6 +17,7 @@ import { selectProjectNamesById } from '../../store/projectsSlice'
 import { Link, Spinner } from '@heroui/react'
 
 // Misc
+import { formatDateTime } from '../../format/dates'
 import { useActorNames } from '../../hooks/useActorNames'
 import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { getChangesetViewUrl } from '../../urls'
@@ -32,7 +33,7 @@ type Props = {
 // An item's or initiative's history, newest first: who did what, and when, with each field
 // an edit changed. An entry a changeset's applying or undoing recorded links to its review.
 export function HistoryTimeline(props: Props) {
-  const { t, i18n } = useTranslation([ 'actionItems', 'initiatives' ])
+  const { t } = useTranslation([ 'actionItems', 'initiatives' ])
   useProjectsLoader()
   useInitiativesLoader()
   const actorNames = useActorNames()
@@ -49,13 +50,12 @@ export function HistoryTimeline(props: Props) {
     return <p className='text-sm text-danger'>{t('history.loadError')}</p>
   }
 
-  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
   const context: HistoryContext = {
     subject: props.subject,
     projectNames,
     initiativeNames,
     itemTitles,
-    formatInstant: (instant) => dateFormatter.format(new Date(instant)),
+    formatInstant: (instant) => formatDateTime(instant),
   }
 
   return <ol className='flex flex-col gap-4 border-l border-separator pl-4'>{

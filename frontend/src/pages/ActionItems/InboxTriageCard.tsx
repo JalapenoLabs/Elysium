@@ -15,6 +15,7 @@ import { ActionItemMemberships } from './ActionItemMemberships'
 import { ShortcutHint } from './ShortcutHint'
 
 // Misc
+import { formatDateTime } from '../../format/dates'
 import { getActionItemViewUrl } from '../../urls'
 import { useActionItemActions } from './useActionItemActions'
 import { useQuickActionHotkey } from './useQuickActionHotkey'
@@ -32,12 +33,11 @@ type Props = {
 
 // One inbox item and the two decisions triage makes: accept it into Next, or dismiss it.
 export function InboxTriageCard(props: Props) {
-  const { t, i18n } = useTranslation('actionItems')
+  const { t } = useTranslation('actionItems')
   const navigate = useNavigate()
   const actions = useActionItemActions()
   const [ isActing, setIsActing ] = useState(false)
   const item = props.item
-  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
 
   async function decide(transition: ActionItemTransition) {
     if (isActing) {
@@ -59,7 +59,7 @@ export function InboxTriageCard(props: Props) {
   return <Card className='relaxed'>
     <Card.Header>
       <p className='text-xs opacity-60'>{
-        t('inbox.arrived', { date: dateFormatter.format(new Date(item.createdAt)) })
+        t('inbox.arrived', { date: formatDateTime(item.createdAt) })
       }</p>
       <Card.Title className='text-2xl font-bold'>
         <Link href={getActionItemViewUrl(item.id)} className='text-inherit no-underline hover:underline'>{

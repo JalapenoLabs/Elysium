@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 import { buttonVariants, Card, Chip, Link } from '@heroui/react'
 
 // Misc
+import { formatDateTime } from '../../format/dates'
 import { getChangesetViewUrl } from '../../urls'
 import { describeActor } from '../ActionItems/actionItemPresentation'
 import {
@@ -24,11 +25,10 @@ type Props = {
 // One changeset in the list: what it is for, who proposed it and when, how many changes it
 // holds, and where it stands, opening its review.
 export function ChangesetListItem(props: Props) {
-  const { t, i18n } = useTranslation([ 'changesets', 'actionItems' ])
+  const { t } = useTranslation([ 'changesets', 'actionItems' ])
   const changeset = props.changeset
   const proposer = describeActor(changeset.proposer)
-  const date = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
-    .format(new Date(changeset.createdAt))
+  const date = formatDateTime(changeset.createdAt)
   const tally = tallyDecisions(changeset)
   const isPending = changeset.state === 'pending'
 

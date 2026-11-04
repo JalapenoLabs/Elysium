@@ -20,6 +20,8 @@ import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 
 // Misc
 import { ACTION_ITEM_PRIORITIES, ACTION_ITEM_STATES } from '../../api/routes/actionItemRoutes'
+import { DateText } from '../../format/DateText'
+import { formatDate, formatDateTime } from '../../format/dates'
 import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getActionItemViewUrl } from '../../urls'
@@ -104,9 +106,6 @@ export function ActionItemTable(props: Props) {
     .join(',')
 
   const managedColumns = useMemo(() => {
-    // Timestamps arrive as UTC; this is where they become the viewer's local time.
-    const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' })
-    const dateTimeFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
     const overdue = new Set(overdueIds.split(','))
 
     // Deleted projects and initiatives leave no name behind, so they are skipped.
@@ -134,18 +133,19 @@ export function ActionItemTable(props: Props) {
         if (!item.dueAt) {
           return ''
         }
-        return <span className={overdue.has(item.id)
-          ? 'text-danger'
-          : undefined}
-        >{
-          dateFormatter.format(new Date(item.dueAt))
-        }</span>
+        return <DateText
+          isDay
+          value={item.dueAt}
+          className={overdue.has(item.id)
+            ? 'text-danger'
+            : undefined}
+        />
       },
       projects: (item: ActionItem) => <span className='line-clamp-2'>{namesText(item.projectIds, projectNames)}</span>,
       initiatives: (item: ActionItem) => <span className='line-clamp-2'>{
         namesText(item.initiativeIds, initiativeNames)
       }</span>,
-      updated: (item: ActionItem) => dateTimeFormatter.format(new Date(item.updatedAt)),
+      updated: (item: ActionItem) => <DateText value={item.updatedAt} />,
       // Actions sit apart from the row's click, so pressing one never opens the item.
       rowActions: (item: ActionItem) => <div data-no-row-highlight className='flex justify-end'>{
         renderRowActions?.(item)
@@ -158,11 +158,11 @@ export function ActionItemTable(props: Props) {
       state: (item: ActionItem) => t(stateLabelKeys[item.state]),
       priority: (item: ActionItem) => t(priorityLabelKeys[item.priority]),
       due: (item: ActionItem) => item.dueAt
-        ? dateFormatter.format(new Date(item.dueAt))
+        ? formatDate(item.dueAt)
         : '',
       projects: (item: ActionItem) => namesText(item.projectIds, projectNames),
       initiatives: (item: ActionItem) => namesText(item.initiativeIds, initiativeNames),
-      updated: (item: ActionItem) => dateTimeFormatter.format(new Date(item.updatedAt)),
+      updated: (item: ActionItem) => formatDateTime(item.updatedAt),
       rowActions: null,
     } satisfies Record<ItemColumnKey, ((item: ActionItem) => string) | null>
 

@@ -9,6 +9,8 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Misc
+import { formatDateTime, formatShortDate } from '../../format/dates'
+import { formatNumber } from '../../format/numbers'
 import { useElementWidth } from '../../hooks/useElementWidth'
 import { createBurnupScales, getNearestPointIndex, getStepPath } from './burnup'
 
@@ -29,12 +31,10 @@ type Props = {
 // shows both counts, by pointer or by arrow keys, and the same numbers are listed in a table
 // below the chart.
 export function BurnupChart(props: Props) {
-  const { t, i18n } = useTranslation('initiatives')
+  const { t } = useTranslation('initiatives')
   const { ref, width } = useElementWidth<HTMLDivElement>()
   const [ activeIndex, setActiveIndex ] = useState<number | null>(null)
   const points = props.points
-  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' })
-  const dateTimeFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
 
   const box: ChartBox = { width, height: CHART_HEIGHT, padding: PADDING }
   const scales = createBurnupScales(points, box)
@@ -111,12 +111,12 @@ export function BurnupChart(props: Props) {
             textAnchor='end'
             dominantBaseline='middle'
             className='fill-muted text-xs tabular-nums'
-          >{tick}</text>
+          >{formatNumber(tick)}</text>
         </g>)}
 
         {/* The first and last moments along the bottom */}
         <text x={PADDING.left} y={plotBottom + 18} className='fill-muted text-xs'>{
-          dateFormatter.format(new Date(points[0].at))
+          formatShortDate(points[0].at)
         }</text>
         <text x={plotRight} y={plotBottom + 18} textAnchor='end' className='fill-muted text-xs'>{
           t('burnup.now')
@@ -195,15 +195,15 @@ export function BurnupChart(props: Props) {
         }}
         role='status'
       >
-        <p className='mb-1 opacity-70'>{dateTimeFormatter.format(new Date(active.at))}</p>
+        <p className='mb-1 opacity-70'>{formatDateTime(active.at)}</p>
         <p className='flex items-center gap-2'>
           <span className='inline-block h-0.5 w-3 rounded-full bg-chart-scope' aria-hidden />
-          <span className='font-semibold tabular-nums'>{active.total}</span>
+          <span className='font-semibold tabular-nums'>{formatNumber(active.total)}</span>
           <span className='opacity-70'>{t('burnup.total')}</span>
         </p>
         <p className='flex items-center gap-2'>
           <span className='inline-block h-0.5 w-3 rounded-full bg-chart-resolved' aria-hidden />
-          <span className='font-semibold tabular-nums'>{active.resolved}</span>
+          <span className='font-semibold tabular-nums'>{formatNumber(active.resolved)}</span>
           <span className='opacity-70'>{t('burnup.resolved')}</span>
         </p>
       </div>}
@@ -222,9 +222,9 @@ export function BurnupChart(props: Props) {
           </thead>
           <tbody>{
             points.map((point, index) => <tr key={index} className='border-t border-separator'>
-              <td className='py-1'>{dateTimeFormatter.format(new Date(point.at))}</td>
-              <td className='py-1 text-right tabular-nums'>{point.total}</td>
-              <td className='py-1 text-right tabular-nums'>{point.resolved}</td>
+              <td className='py-1'>{formatDateTime(point.at)}</td>
+              <td className='py-1 text-right tabular-nums'>{formatNumber(point.total)}</td>
+              <td className='py-1 text-right tabular-nums'>{formatNumber(point.resolved)}</td>
             </tr>)
           }</tbody>
         </table>

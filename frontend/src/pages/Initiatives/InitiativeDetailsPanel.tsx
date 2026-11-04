@@ -21,6 +21,7 @@ import { OptionSelect } from '../../components/OptionSelect'
 import { getLocalTimeZone } from '@internationalized/date'
 
 // Misc
+import { formatDateTime } from '../../format/dates'
 import {
   addInitiativeProject,
   INITIATIVE_STATES,
@@ -39,14 +40,13 @@ type Props = {
 // The side panel of an initiative's page: its state, target date, and projects, each saved
 // as soon as it changes.
 export function InitiativeDetailsPanel(props: Props) {
-  const { t, i18n } = useTranslation([ 'initiatives', 'actionItems', 'common' ])
+  const { t } = useTranslation([ 'initiatives', 'actionItems', 'common' ])
   const dispatch = useAppDispatch()
   useProjectsLoader()
   const projects = useAppSelector(selectAllProjects)
   const initiative = props.initiative
   const isReadOnly = Boolean(initiative.deletedAt)
   const timeZone = getLocalTimeZone()
-  const dateTimeFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
 
   function reportFailure(error: unknown, context: string) {
     console.debug(`InitiativeDetailsPanel failed to ${context}`, { error, initiativeId: initiative.id })
@@ -132,11 +132,11 @@ export function InitiativeDetailsPanel(props: Props) {
 
       <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm'>
         <dt className='opacity-60'>{t('fields.created')}</dt>
-        <dd>{dateTimeFormatter.format(new Date(initiative.createdAt))}</dd>
+        <dd>{formatDateTime(initiative.createdAt)}</dd>
         <dt className='opacity-60'>{t('fields.createdBy')}</dt>
         <dd><UserName userId={initiative.createdBy} /></dd>
         <dt className='opacity-60'>{t('fields.updated')}</dt>
-        <dd>{dateTimeFormatter.format(new Date(initiative.updatedAt))}</dd>
+        <dd>{formatDateTime(initiative.updatedAt)}</dd>
       </dl>
     </Card.Content>
   </Card>

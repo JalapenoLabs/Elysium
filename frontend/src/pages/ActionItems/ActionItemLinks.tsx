@@ -26,6 +26,7 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
+import { formatCalendarDay } from '../../format/dates'
 import {
   addActionItemLink,
   makePrimaryActionItemLink,
@@ -126,7 +127,7 @@ type LinkRowProps = {
 }
 
 function LinkRow(props: LinkRowProps) {
-  const { t, i18n } = useTranslation([ 'actionItems', 'common' ])
+  const { t } = useTranslation([ 'actionItems', 'common' ])
   const dispatch = useAppDispatch()
   const confirm = useConfirm()
   const link = props.link
@@ -185,11 +186,7 @@ function LinkRow(props: LinkRowProps) {
     }
     if (remote.dueDate) {
       // A day, not an instant, so it is shown as the provider wrote it.
-      const dueFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeZone: 'UTC' })
-      details.push(t('links.providerDue', {
-        provider,
-        date: dueFormatter.format(new Date(`${remote.dueDate}T00:00:00Z`)),
-      }))
+      details.push(t('links.providerDue', { provider, date: formatCalendarDay(remote.dueDate) }))
     }
   }
 

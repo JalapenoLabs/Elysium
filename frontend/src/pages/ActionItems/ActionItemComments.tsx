@@ -21,6 +21,7 @@ import { Button, Description, Dropdown, Form, Label, Spinner, TextArea, TextFiel
 import { LuEllipsis } from 'react-icons/lu'
 
 // Misc
+import { DateText } from '../../format/DateText'
 import {
   createActionItemComment,
   deleteActionItemComment,
@@ -44,7 +45,7 @@ type Props = {
 // An item's conversation, oldest first, with a composer below. Only a person's own
 // comments can be edited or deleted; the API refuses anyone else's.
 export function ActionItemComments(props: Props) {
-  const { t, i18n } = useTranslation([ 'actionItems', 'common' ])
+  const { t } = useTranslation([ 'actionItems', 'common' ])
   const dispatch = useAppDispatch()
   const confirm = useConfirm()
   const prompt = usePrompt()
@@ -54,7 +55,6 @@ export function ActionItemComments(props: Props) {
   const [ draft, setDraft ] = useState('')
   const [ isPosting, setIsPosting ] = useState(false)
   const isDeleted = Boolean(props.item.deletedAt)
-  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
 
   async function post() {
     const body = draft.trim()
@@ -140,7 +140,7 @@ export function ActionItemComments(props: Props) {
           <div className='level mb-1 text-xs'>
             <span>
               <span className='font-semibold'>{t(author.key, author.values)}</span>
-              <span className='ml-2 opacity-60'>{dateFormatter.format(new Date(comment.createdAt))}</span>
+              <DateText value={comment.createdAt} className='ml-2 opacity-60' />
               {isEdited && <span className='ml-2 opacity-60'>{t('comments.edited')}</span>}
             </span>
             {isOwn && !isDeleted && <Dropdown>

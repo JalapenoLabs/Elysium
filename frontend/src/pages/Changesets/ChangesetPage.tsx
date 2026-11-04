@@ -21,6 +21,7 @@ import { LuCheckCheck, LuUndo2, LuX } from 'react-icons/lu'
 import { ChangesetOperationCard } from './ChangesetOperationCard'
 
 // Misc
+import { formatDateTime } from '../../format/dates'
 import {
   useActionItemsLoader,
   useChangesetLoader,
@@ -37,7 +38,7 @@ import { useChangesetActions } from './useChangesetActions'
 // change is approved or rejected, all at once or one by one, and applied once every change
 // is decided. After, each change shows how it ended, and an applied changeset can be undone.
 export function ChangesetPage() {
-  const { t, i18n } = useTranslation([ 'changesets', 'actionItems', 'common' ])
+  const { t } = useTranslation([ 'changesets', 'actionItems', 'common' ])
   const actions = useChangesetActions()
   const { changesetId = '' } = useParams()
   const status = useChangesetLoader(changesetId)
@@ -66,13 +67,12 @@ export function ChangesetPage() {
     }</div>
   }
 
-  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
   const context: DescribeContext = {
     operations: changeset.operations,
     itemsById,
     initiativeNames,
     projectNames,
-    formatInstant: (instant) => dateFormatter.format(new Date(instant)),
+    formatInstant: (instant) => formatDateTime(instant),
   }
   const proposer = describeActor(changeset.proposer)
   const tally = tallyDecisions(changeset)

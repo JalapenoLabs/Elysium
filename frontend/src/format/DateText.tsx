@@ -6,10 +6,13 @@ import type { DateInput } from './dates'
 import { Tooltip } from '@heroui/react'
 
 // Misc
-import { formatDateTime, formatShortDate } from './dates'
+import { formatDate, formatDateTime, formatShortDate } from './dates'
 
 type Props = {
   value: DateInput
+  // A day rather than a moment, such as a due date, whose time of day is only the day's end:
+  // the tooltip leaves the time out.
+  isDay?: boolean
   className?: string
 }
 
@@ -30,7 +33,9 @@ export function DateText(props: Props) {
         }</time>
     </Tooltip.Trigger>
     <Tooltip.Content>{
-      formatDateTime(props.value)
+      props.isDay
+        ? formatDate(props.value)
+        : formatDateTime(props.value)
     }</Tooltip.Content>
   </Tooltip>
 }

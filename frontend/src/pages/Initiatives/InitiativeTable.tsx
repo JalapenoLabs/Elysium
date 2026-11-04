@@ -20,6 +20,8 @@ import { InitiativeProgressSummary } from './InitiativeProgressSummary'
 
 // Misc
 import { INITIATIVE_STATES } from '../../api/routes/initiativeRoutes'
+import { DateText } from '../../format/DateText'
+import { formatDate } from '../../format/dates'
 import { useProjectsLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getInitiativeViewUrl } from '../../urls'
@@ -68,8 +70,6 @@ export function InitiativeTable(props: Props) {
   const renderRowActions = props.renderRowActions
 
   const managedColumns = useMemo(() => {
-    const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' })
-
     // Deleted projects leave no name behind, so they are skipped.
     function projectsText(initiative: Initiative) {
       return initiative.projectIds
@@ -81,7 +81,7 @@ export function InitiativeTable(props: Props) {
       if (!initiative.targetAt) {
         return ''
       }
-      return dateFormatter.format(new Date(initiative.targetAt))
+      return formatDate(initiative.targetAt)
     }
     function progressText(initiative: Initiative) {
       return t('progress.counts', initiative.progress)
@@ -102,7 +102,7 @@ export function InitiativeTable(props: Props) {
         t(initiativeStateLabelKeys[initiative.state])
       }</Chip>,
       progress: (initiative: Initiative) => <InitiativeProgressSummary progress={initiative.progress} />,
-      target: targetText,
+      target: (initiative: Initiative) => initiative.targetAt && <DateText isDay value={initiative.targetAt} />,
       projects: (initiative: Initiative) => <span className='line-clamp-2'>{projectsText(initiative)}</span>,
       rowActions: (initiative: Initiative) => <div data-no-row-highlight className='flex justify-end'>{
         renderRowActions?.(initiative)

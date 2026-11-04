@@ -15,6 +15,7 @@ import { LuExternalLink, LuPlus, LuUnlink } from 'react-icons/lu'
 import { AddContainerModal } from './AddContainerModal'
 
 // Misc
+import { formatDateTime } from '../../format/dates'
 import { removeInitiativeLink } from '../../api/routes/initiativeRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
 import { useInitiativeLinksLoader } from '../../hooks/useServerData'
@@ -28,14 +29,13 @@ type Props = {
 // The epics, filters, milestones, and labels an initiative follows. Their open issues join it
 // as items, and leave it when the container is unlinked, so nothing is tracked twice.
 export function InitiativeContainers(props: Props) {
-  const { t, i18n } = useTranslation([ 'initiatives', 'actionItems', 'common' ])
+  const { t } = useTranslation([ 'initiatives', 'actionItems', 'common' ])
   const dispatch = useAppDispatch()
   const confirm = useConfirm()
   const status = useInitiativeLinksLoader(props.initiative.id)
   const links = useAppSelector((state) => selectInitiativeLinks(state, props.initiative.id))
   const addState = useOverlayState()
   const isReadOnly = Boolean(props.initiative.deletedAt)
-  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
 
   function remove(link: InitiativeLink) {
     confirm({
@@ -66,7 +66,7 @@ export function InitiativeContainers(props: Props) {
       return <p className='mt-1 text-xs opacity-60'>{t('containers.waiting')}</p>
     }
     return <p className='mt-1 text-xs opacity-60'>{
-      t('containers.synced', { date: dateFormatter.format(new Date(link.syncedAt)) })
+      t('containers.synced', { date: formatDateTime(link.syncedAt) })
     }</p>
   }
 

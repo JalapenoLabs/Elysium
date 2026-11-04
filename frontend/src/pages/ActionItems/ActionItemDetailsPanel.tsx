@@ -22,6 +22,7 @@ import { MultiPicker } from '../../components/MultiPicker'
 import { getLocalTimeZone } from '@internationalized/date'
 
 // Misc
+import { formatDateTime } from '../../format/dates'
 import {
   ACTION_ITEM_PRIORITIES,
   addActionItemProject,
@@ -42,7 +43,7 @@ type Props = {
 // The side panel of an item's page: its fields, each saved as soon as it changes. Snoozing
 // and waiting are actions at the top of the page, since they are things done to the item.
 export function ActionItemDetailsPanel(props: Props) {
-  const { t, i18n } = useTranslation([ 'actionItems', 'common' ])
+  const { t } = useTranslation([ 'actionItems', 'common' ])
   const dispatch = useAppDispatch()
   useProjectsLoader()
   useInitiativesLoader()
@@ -51,7 +52,6 @@ export function ActionItemDetailsPanel(props: Props) {
   const item = props.item
   const isReadOnly = Boolean(item.deletedAt)
   const timeZone = getLocalTimeZone()
-  const dateTimeFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
   const owner = describeOwner(item)
 
   function reportFailure(error: unknown, context: string) {
@@ -167,11 +167,11 @@ export function ActionItemDetailsPanel(props: Props) {
         <dt className='opacity-60'>{t('fields.owner')}</dt>
         <dd>{t(owner.key, owner.values)}</dd>
         <dt className='opacity-60'>{t('fields.created')}</dt>
-        <dd>{dateTimeFormatter.format(new Date(item.createdAt))}</dd>
+        <dd>{formatDateTime(item.createdAt)}</dd>
         <dt className='opacity-60'>{t('fields.createdBy')}</dt>
         <dd><UserName userId={item.createdBy} /></dd>
         <dt className='opacity-60'>{t('fields.updated')}</dt>
-        <dd>{dateTimeFormatter.format(new Date(item.updatedAt))}</dd>
+        <dd>{formatDateTime(item.updatedAt)}</dd>
       </dl>
     </Card.Content>
   </Card>

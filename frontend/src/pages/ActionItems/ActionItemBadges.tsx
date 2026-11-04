@@ -10,6 +10,7 @@ import { Chip } from '@heroui/react'
 import { LuAlarmClock, LuCalendar, LuHourglass } from 'react-icons/lu'
 
 // Misc
+import { formatDate, formatDateTime } from '../../format/dates'
 import {
   describeOwner,
   isOverdue,
@@ -32,10 +33,8 @@ type Props = {
 // normal, when it is due (in red once overdue), a snooze, who it waits on, and whose it is
 // when it is not the user's.
 export function ActionItemBadges(props: Props) {
-  const { t, i18n } = useTranslation('actionItems')
+  const { t } = useTranslation('actionItems')
   const item = props.item
-  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' })
-  const dateTimeFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
   const owner = describeOwner(item)
 
   return <div className='flex flex-wrap items-center gap-2'>
@@ -54,12 +53,12 @@ export function ActionItemBadges(props: Props) {
     >
       <LuCalendar className='size-3' aria-hidden />
       <span>{isOverdue(item, props.now)
-        ? t('badges.overdue', { date: dateFormatter.format(new Date(item.dueAt)) })
-        : t('badges.due', { date: dateFormatter.format(new Date(item.dueAt)) })}</span>
+        ? t('badges.overdue', { date: formatDate(item.dueAt) })
+        : t('badges.due', { date: formatDate(item.dueAt) })}</span>
     </Chip>}
     {item.snoozedUntil && isSnoozed(item, props.now) && <Chip size='sm' variant='soft'>
       <LuAlarmClock className='size-3' aria-hidden />
-      <span>{t('badges.snoozed', { date: dateTimeFormatter.format(new Date(item.snoozedUntil)) })}</span>
+      <span>{t('badges.snoozed', { date: formatDateTime(item.snoozedUntil) })}</span>
     </Chip>}
     {item.waitingOn && <Chip size='sm' variant='soft' color='warning'>
       <LuHourglass className='size-3' aria-hidden />
