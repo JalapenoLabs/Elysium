@@ -21,7 +21,7 @@ below), and the company doc's scheduled review (The company doc, below).
   (`/api/agent-tools`). It starts no loop. The engine does all background work and serves no HTTP beyond its health
   check (`GET /health`): the runner and the workspace it prepares, sessions' turns, Elysia's intake and dispatcher,
   the Claude account keeper, the link watcher, connector ingest, the Confluence and YouTrack readers, meetings, every
-  read someone asked for, the knowledge base's embedder, the browser reconciler, the mail server brought back up, the password vault, update checks,
+  read someone asked for, the knowledge base's embedder and backfill, the browser reconciler, the mail server brought back up, the password vault, update checks,
   the nightly database backups, and moving identities onto the current schema (`api/src/engine/`).
 - One engine runs: its container name, `elysium-engine`, holds compose to one. Elysia's intake listens to the event
   bus, which every process hears in full, so it must run in exactly one process, and the engine is it.
@@ -94,7 +94,9 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
   so one step can be retried, skipped, or resumed alone. Runs show in the web app the way GitHub Actions shows jobs.
 - Work with no source of its own is a loop of the engine, not a workflow. Embedding the knowledge base's passages is
   the same small job for every passage of every source, so the embedder is a loop over the index itself
-  (`docs/knowledge.md`, The embedder); a run per document would fill the Runs page with one-step runs.
+  (`docs/knowledge.md`, The embedder); a run per document would fill the Runs page with one-step runs. The backfill
+  that indexes the timeline records stored before they were indexed on write is a loop for the same reason
+  (`docs/knowledge.md`, The backfill).
 
 Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and two production
 workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps so far are `fetch_meeting` and

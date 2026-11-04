@@ -829,6 +829,19 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    knowledge_backfills (source) {
+        source -> Text,
+        version -> Nullable<Int4>,
+        through_id -> Nullable<Uuid>,
+        finished_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     knowledge_documents (id) {
         id -> Uuid,
         source -> Text,
@@ -1491,6 +1504,7 @@ diesel::joinable!(jira_credential_boards -> jira_credentials (jira_credential_id
 diesel::joinable!(jira_credential_projects -> jira_credentials (jira_credential_id));
 diesel::joinable!(jira_credentials -> users (created_by));
 diesel::joinable!(jira_done_transitions -> jira_credentials (jira_credential_id));
+diesel::joinable!(knowledge_backfills -> users (created_by));
 diesel::joinable!(knowledge_documents -> company_doc_sections (company_doc_section));
 diesel::joinable!(knowledge_documents -> learnings (learning_id));
 diesel::joinable!(knowledge_documents -> timeline_records (timeline_record_id));
@@ -1589,6 +1603,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     jira_credential_projects,
     jira_credentials,
     jira_done_transitions,
+    knowledge_backfills,
     knowledge_documents,
     knowledge_passages,
     learning_categories,

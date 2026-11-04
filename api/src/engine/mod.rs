@@ -15,7 +15,9 @@
 //! - **readers**: the link watcher, connector ingest, the Confluence and YouTrack readers,
 //!   meetings, and every read someone asked for ([`syncs`]);
 //! - **the knowledge base**: the embedder, which gives every passage of the index its embedding
-//!   through the embedding service (`crate::knowledge::embedder`);
+//!   through the embedding service (`crate::knowledge::embedder`), and the backfill, which
+//!   indexes the timeline records stored before records were indexed on write
+//!   (`crate::knowledge::backfill`);
 //! - **keepers**: the browser reconciler, the mail server brought back up, the password vault and
 //!   the requests the API sends it (`crate::passwords::remote`), update checks, nightly backups,
 //!   and moving identities onto the current schema.
@@ -58,6 +60,7 @@ use crate::connectors::ingest::Ingest;
 use crate::elysia::Elysia;
 use crate::elysia::runner::TurnRunner;
 use crate::embeddings::Embeddings;
+use crate::knowledge::backfill::Backfill;
 use crate::knowledge::embedder::Embedder;
 use crate::meetings::fetch::{FetchMeeting, FetchMeetingDeps};
 use crate::meetings::sources::Sources;
@@ -288,6 +291,9 @@ pub async fn run() -> Result<()> {
         Embeddings::new(http.clone(), config.embeddings.clone()),
     );
     loops.push(("knowledge.embedder", embedder.start(shutdown.clone())));
+    // Records stored before they were indexed on write; ends once every one is indexed.
+    let backfill = Backfill::new(database.clone());
+    loops.push(("knowledge.backfill", backfill.start(shutdown.clone())));
 
     // Keepers.
     let browsers = services::build_browsers(

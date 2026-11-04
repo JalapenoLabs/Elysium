@@ -722,7 +722,7 @@ async fn reindex(
     let source = KnowledgeSource::CompanyDocSection(section.section);
     let passages = passages::split(&section.content);
     if passages.is_empty() {
-        return knowledge_document::remove(connection, source).await;
+        return knowledge_document::remove(connection, &source).await;
     }
     let document = IndexedDocument {
         source,

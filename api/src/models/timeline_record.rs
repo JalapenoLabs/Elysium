@@ -12,11 +12,13 @@ use chrono::{DateTime, Utc};
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::upsert::excluded;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
 
 use crate::database::schema::{timeline_record_projects, timeline_records};
+use crate::knowledge::records;
+use crate::models::knowledge_document::{self, KnowledgeSource};
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
 #[diesel(table_name = timeline_records, check_for_backend(diesel::pg::Pg))]
@@ -68,23 +70,145 @@ pub struct Attribution {
 /// Stores `record` unless its account already recorded the same external id, and returns it
 /// when it is new. Reading the same message twice therefore records it once.
 ///
+/// A new record enters the knowledge index ([`index`]) in the same transaction, so every
+/// record, whoever stored it, is searchable the moment it commits, and a record that fails to
+/// store leaves nothing indexed.
+///
 /// # Errors
 /// Propagates any database error.
 pub async fn insert_new(
     connection: &mut AsyncPgConnection,
     record: NewTimelineRecord,
 ) -> QueryResult<Option<TimelineRecord>> {
-    diesel::insert_into(timeline_records::table)
-        .values(record)
-        .on_conflict((
-            timeline_records::connector_id,
+    // A savepoint when the caller's transaction is already open, as every caller's is.
+    connection
+        .transaction(async |connection| {
+            let stored = diesel::insert_into(timeline_records::table)
+                .values(record)
+                .on_conflict((
+                    timeline_records::connector_id,
+                    timeline_records::external_id,
+                ))
+                .do_nothing()
+                .returning(TimelineRecord::as_returning())
+                .get_result(connection)
+                .await
+                .optional()?;
+            if let Some(stored) = &stored {
+                index(connection, stored).await?;
+            }
+            Ok(stored)
+        })
+        .await
+}
+
+/// Puts `record` in the knowledge index as it reads now (`crate::knowledge::records`), or
+/// takes it out when it says nothing. Indexing it again changes nothing unless its text did.
+///
+/// A record that is one version of a page (`records::revision`) is indexed only while it is
+/// the newest version its connector recorded, and indexing it takes every older version out,
+/// so the index holds what the page says now. Two transactions indexing versions of one page
+/// wait for each other, so whichever commits last still leaves the newest one alone indexed.
+///
+/// Call it inside the transaction that stores or changes the record.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn index(connection: &mut AsyncPgConnection, record: &TimelineRecord) -> QueryResult<()> {
+    let source = KnowledgeSource::TimelineRecord {
+        id: record.id,
+        kind: record.source_kind.clone(),
+    };
+    if let Some(revision) = records::revision(record) {
+        let newest = keep_newest_version(connection, &revision).await?;
+        if newest != Some(record.id) {
+            return knowledge_document::remove(connection, &source).await;
+        }
+    }
+    let Some(document) = records::document(record) else {
+        return knowledge_document::remove(connection, &source).await;
+    };
+    knowledge_document::upsert(connection, &document)
+        .await
+        .map(drop)
+}
+
+/// Takes every version of `revision`'s page out of the index but its newest, and answers the
+/// newest one's id.
+async fn keep_newest_version(
+    connection: &mut AsyncPgConnection,
+    revision: &records::Revision<'_>,
+) -> QueryResult<Option<Uuid>> {
+    // Held until the transaction ends, and taken before the versions are read, so a version
+    // another transaction records meanwhile is seen once it commits rather than missed.
+    let key = format!(
+        "knowledge.revisions:{}:{}",
+        revision.connector_id, revision.prefix
+    );
+    diesel::sql_query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind::<diesel::sql_types::Text, _>(key)
+        .execute(connection)
+        .await?;
+
+    let versions: Vec<(Uuid, String, Option<String>)> = timeline_records::table
+        .filter(timeline_records::connector_id.eq(revision.connector_id))
+        .filter(
+            timeline_records::external_id
+                .like(starting_with(revision.prefix))
+                .escape('\\'),
+        )
+        .select((
+            timeline_records::id,
+            timeline_records::source_kind,
             timeline_records::external_id,
         ))
-        .do_nothing()
-        .returning(TimelineRecord::as_returning())
-        .get_result(connection)
-        .await
-        .optional()
+        .load(connection)
+        .await?;
+    let newest = versions
+        .iter()
+        .filter_map(|(id, _, external_id)| {
+            let (_, number) = crate::confluence::reader::version_of(external_id.as_deref()?)?;
+            Some((number, *id))
+        })
+        .max()
+        .map(|(_, id)| id);
+    for (id, kind, _) in versions {
+        if Some(id) != newest {
+            knowledge_document::remove(connection, &KnowledgeSource::TimelineRecord { id, kind })
+                .await?;
+        }
+    }
+    Ok(newest)
+}
+
+/// A `LIKE` pattern matching every text that starts with `prefix`, escaped with `\`.
+fn starting_with(prefix: &str) -> String {
+    let escaped = prefix
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("{escaped}%")
+}
+
+/// Up to `limit` records of every owner, in id order, after `after` when it is given: the walk
+/// the knowledge index's backfill takes (`crate::knowledge::backfill`).
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn after_id(
+    connection: &mut AsyncPgConnection,
+    after: Option<Uuid>,
+    limit: i64,
+) -> QueryResult<Vec<TimelineRecord>> {
+    let mut query = timeline_records::table
+        .order(timeline_records::id.asc())
+        .limit(limit)
+        .select(TimelineRecord::as_select())
+        .into_boxed();
+    if let Some(after) = after {
+        query = query.filter(timeline_records::id.gt(after));
+    }
+    query.load(connection).await
 }
 
 /// The record `connector_id` keeps under `external_id`, if it has one.
@@ -170,16 +294,12 @@ pub async fn has_raised_item(
     connector_id: Uuid,
     prefix: &str,
 ) -> QueryResult<bool> {
-    let escaped = prefix
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_");
     diesel::select(diesel::dsl::exists(
         timeline_records::table
             .filter(timeline_records::connector_id.eq(connector_id))
             .filter(
                 timeline_records::external_id
-                    .like(format!("{escaped}%"))
+                    .like(starting_with(prefix))
                     .escape('\\'),
             )
             .filter(timeline_records::action_item_id.is_not_null()),
@@ -394,6 +514,73 @@ mod tests {
             metadata: json!({}),
             created_by: TEST_PERSON_ID,
         }
+    }
+
+    /// The record's document, as `(source, title, created_by)`, and its passages in order.
+    async fn indexed(
+        connection: &mut AsyncPgConnection,
+        record_id: Uuid,
+    ) -> Option<((String, String, Uuid), Vec<String>)> {
+        use crate::database::schema::{knowledge_documents, knowledge_passages};
+
+        let (document_id, document) = knowledge_documents::table
+            .filter(knowledge_documents::timeline_record_id.eq(record_id))
+            .select((
+                knowledge_documents::id,
+                (
+                    knowledge_documents::source,
+                    knowledge_documents::title,
+                    knowledge_documents::created_by,
+                ),
+            ))
+            .first::<(Uuid, (String, String, Uuid))>(connection)
+            .await
+            .optional()
+            .expect("the index is read")?;
+        let passages = knowledge_passages::table
+            .filter(knowledge_passages::document_id.eq(document_id))
+            .order(knowledge_passages::position.asc())
+            .select(knowledge_passages::content)
+            .load(connection)
+            .await
+            .expect("the passages are read");
+        Some((document, passages))
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_new_record_is_searchable_the_moment_it_is_stored() {
+        let (_url, mut connection) = migrated_database().await;
+        let mut mail = record_at(0);
+        mail.body = "WAY-123 ships Friday.".to_owned();
+
+        let stored = insert_new(&mut connection, mail)
+            .await
+            .expect("stored")
+            .expect("new");
+
+        assert_eq!(
+            indexed(&mut connection, stored.id).await,
+            Some((
+                ("gmail".to_owned(), "Launch plan".to_owned(), TEST_PERSON_ID),
+                vec!["Launch plan\n\nFrom Sam\n\nWAY-123 ships Friday.".to_owned()],
+            ))
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_record_that_says_nothing_is_stored_but_not_indexed() {
+        let (_url, mut connection) = migrated_database().await;
+        let mut empty = record_at(0);
+        empty.title = String::new();
+        empty.actor = String::new();
+
+        let stored = insert_new(&mut connection, empty)
+            .await
+            .expect("stored")
+            .expect("new");
+        assert_eq!(indexed(&mut connection, stored.id).await, None);
     }
 
     #[tokio::test]

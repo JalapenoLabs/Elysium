@@ -358,7 +358,7 @@ async fn indexing_again_keeps_the_embedding_of_every_passage_whose_text_held() {
     .expect("saved");
     let source = KnowledgeSource::Learning(saved.learning.id);
     let document = |passages: &[&str]| IndexedDocument {
-        source,
+        source: source.clone(),
         title: "A learning".to_owned(),
         url: None,
         occurred_at: Utc::now(),

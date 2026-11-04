@@ -270,7 +270,8 @@ Each segment is a timeline record:
 
 Its projects are attributed by `elysia` with her confidence; a person's attribution replaces hers, as for any record.
 Each record publishes `timelineRecord.created`, which Elysia's intake hears. `GET /api/v1/timeline/{id}/media`
-streams the clip from storage to the record's owner alone.
+streams the clip from storage to the record's owner alone. Each segment is a document of the knowledge index, stored
+with its record: its title, its summary, and its excerpt, never its clip (`docs/knowledge.md`, Timeline records).
 
 ## In the web app
 

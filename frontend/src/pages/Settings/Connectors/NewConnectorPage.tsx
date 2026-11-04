@@ -44,10 +44,17 @@ export function NewConnectorPage() {
     ? definitions.accountOf(definition.account)
     : null
 
+  // A personal kind's reading is its person's alone, but what it reads is in the knowledge base
+  // every member searches (docs/knowledge.md, Who sees what), so it says so where it is added.
+  const help = definition?.scope === 'personal'
+    ? t('form.sharedKnowledge', { name })
+    : undefined
+
   return <SettingsPage
     title={name}
     icon={<ConnectorLogo kind={connectorKind} className='size-8' />}
     parents={parents}
+    help={help}
   >
     {(!definition || !accountDefinition) && <div className='grid place-items-center py-10'><Spinner /></div>}
     {definition?.account === 'browser' && <NewBrowserConnector definition={definition} />}

@@ -74,7 +74,9 @@ checks:
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
 redo, concurrent migrators, the pending-migration refusal, the rebuild for a changed collation, the knowledge
-index's cascades and columns, passages embedded by the embedder against a fake embedding service, learnings saved, revised, undone, deleted, and indexed with them, learning categories
+index's cascades and columns, timeline records indexed as they are stored with a page's newest version alone, the
+backfill's walk across batches and its resume, passages embedded by the embedder against a fake embedding service,
+learnings saved, revised, undone, deleted, and indexed with them, learning categories
 added, reordered, and removed with their learnings moved, and every LLM,
 storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
@@ -438,6 +440,20 @@ company doc.
 | `created_by`         | `UUID`        | References `users`: whose record it came from, for the person filter; never access control |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger              |
 
+### `knowledge_backfills`
+
+How far each backfill of the knowledge index has got, one row per source that needs one, seeded by its migration as
+the system user; only `timeline_record` today. See `docs/knowledge.md`, The backfill.
+
+| Column        | Type          | Notes                                                                        |
+|---------------|---------------|------------------------------------------------------------------------------|
+| `source`      | `TEXT`        | Primary key: `timeline_record`                                               |
+| `version`     | `INTEGER`     | The version of how the source is indexed (`INDEXED_AS`) the walk goes to; `NULL` before the first |
+| `through_id`  | `UUID`        | The last row the walk indexed, in id order; not a reference, since the row may go |
+| `finished_at` | `TIMESTAMPTZ` | When the walk reached the end; `NULL` while it is under way                  |
+| `created_by`  | `UUID`        | References `users`; the system user                                          |
+| `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                                                        |
+
 ### `knowledge_passages`
 
 A document's text in order. Primary key `(document_id, position)`; cascades with its document, whose creator it
@@ -454,8 +470,9 @@ embedding.
 | `embedding_model` | `TEXT`        | The model and revision that made the embedding; set exactly with it      |
 
 `knowledge_passages_search_vector` (GIN) serves full-text matches, `knowledge_passages_embedding` (HNSW,
-`vector_cosine_ops`) nearest neighbours by cosine distance, and the partial `knowledge_passages_unembedded` what the
-embedding model has still to do. `schema.rs` names the two column types `Tsvector` and `Vector`, placeholders
+`vector_cosine_ops`) nearest neighbours by cosine distance, the partial `knowledge_passages_unembedded` what the
+embedding model has still to do, and the partial `knowledge_passages_embedding_model` the embeddings another model
+made, which the engine forgets as it starts. `schema.rs` names the two column types `Tsvector` and `Vector`, placeholders
 `diesel print-schema` generates.
 
 ### `learnings`

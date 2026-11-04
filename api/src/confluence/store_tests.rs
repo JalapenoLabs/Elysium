@@ -29,6 +29,7 @@ use crate::models::action_item_link::{
 use crate::models::connector::{self, AccountRef, Connector};
 use crate::models::jira_credential::{self, Allowed, Allowlist, NewJiraCredential, VerifiedToken};
 use crate::models::link_watch_cursor;
+use crate::models::timeline_record::{self, NewTimelineRecord};
 use crate::realtime::EventBus;
 use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, cipher, migrated_database};
 
@@ -305,4 +306,78 @@ async fn the_watchers_pass_and_link_counts_belong_to_jira_never_to_confluence() 
         .expect("counts load");
     assert_eq!(counts.get(&jira.id), Some(&1));
     assert!(!counts.contains_key(&confluence.id));
+}
+
+/// The records whose documents the index holds, by record id, each with its passages in order.
+async fn indexed_records(connection: &mut AsyncPgConnection) -> Vec<(Uuid, String)> {
+    use crate::database::schema::{knowledge_documents, knowledge_passages};
+
+    let rows: Vec<(Option<Uuid>, String)> = knowledge_documents::table
+        .inner_join(knowledge_passages::table)
+        .order((
+            knowledge_documents::timeline_record_id.asc(),
+            knowledge_passages::position.asc(),
+        ))
+        .select((
+            knowledge_documents::timeline_record_id,
+            knowledge_passages::content,
+        ))
+        .load(connection)
+        .await
+        .expect("the index is read");
+    rows.into_iter()
+        .map(|(record_id, content)| (record_id.expect("a record's document"), content))
+        .collect()
+}
+
+/// Version `external_id` of a Confluence page or comment, read by `connector_id`.
+fn version(connector_id: Uuid, external_id: &str, body: &str) -> NewTimelineRecord {
+    NewTimelineRecord {
+        id: Uuid::now_v7(),
+        source_kind: ConnectorKind::Confluence.as_str().to_owned(),
+        connector_id: Some(connector_id),
+        external_id: Some(external_id.to_owned()),
+        occurred_at: Utc::now(),
+        actor: "Grace".to_owned(),
+        title: "Launch plan".to_owned(),
+        body: body.to_owned(),
+        url: None,
+        media: None,
+        metadata: json!({}),
+        created_by: TEST_PERSON_ID,
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn the_index_holds_each_page_once_at_its_newest_version() {
+    let (_url, mut connection) = migrated_database().await;
+    let wiki = confluence_connector(&mut connection, &cipher(), true).await;
+    let mut stored = Vec::new();
+    for (external_id, body) in [
+        ("page:42:1", "Ships Monday."),
+        ("comment:43:1", "Looks good."),
+        ("page:42:2", "Ships Friday."),
+        // The same version read again, as an overlapping read does, is recorded once.
+        ("page:42:2", "Ships Friday."),
+        ("page:42:4", "Shipped."),
+        // An older version read after a newer one stays out of the index.
+        ("page:42:3", "Ships today."),
+    ] {
+        let record = version(wiki.id, external_id, body);
+        stored.push(
+            timeline_record::insert_new(&mut connection, record)
+                .await
+                .expect("stored")
+                .map(|record| record.id),
+        );
+    }
+    assert_eq!(stored[3], None, "a version is recorded once");
+
+    let page = |body: &str| format!("Launch plan\n\nFrom Grace\n\n{body}");
+    let comment = stored[1].expect("the comment is new");
+    let newest = stored[4].expect("the newest version is new");
+    let mut expected = vec![(comment, page("Looks good.")), (newest, page("Shipped."))];
+    expected.sort();
+    assert_eq!(indexed_records(&mut connection).await, expected);
 }

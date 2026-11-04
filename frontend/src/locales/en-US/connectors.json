@@ -247,7 +247,8 @@
     "createAnyway": "Create anyway",
     "requiredFailed": "A required check failed. Fix it, or create the connector anyway and come back to it.",
     "created": "Connector added",
-    "signInTo": "Sign in to {{name}}"
+    "signInTo": "Sign in to {{name}}",
+    "sharedKnowledge": "Everyone in your workspace can search what {{name}} reads, in the knowledge base."
   },
   "signIn": {
     "title": "Sign in",

@@ -606,7 +606,7 @@ async fn set_deleted(
 /// Puts `learning` in the index as it now stands, or takes it out while it is deleted.
 async fn reindex(connection: &mut AsyncPgConnection, learning: &Learning) -> QueryResult<()> {
     if learning.deleted_at.is_some() {
-        return knowledge_document::remove(connection, KnowledgeSource::Learning(learning.id))
+        return knowledge_document::remove(connection, &KnowledgeSource::Learning(learning.id))
             .await;
     }
     knowledge_document::upsert(connection, &indexed_document(learning))

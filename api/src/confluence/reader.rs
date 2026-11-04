@@ -417,6 +417,15 @@ fn content_prefix(change: &Change) -> String {
     format!("{}:{}:", change.content_type.as_str(), change.id)
 }
 
+/// A record's external id read back as the prefix every version of its page or comment shares
+/// ([`content_prefix`]) and the version it is, such as `("page:42:", 7)`; `None` for an id this
+/// reader did not write.
+pub fn version_of(external_id: &str) -> Option<(&str, u64)> {
+    let split = external_id.rfind(':')? + 1;
+    let version = external_id[split..].parse().ok()?;
+    Some((&external_id[..split], version))
+}
+
 /// The title a change is shown under: its own, or for an untitled comment, its page's.
 fn title_of(change: &Change) -> String {
     if !change.title.is_empty() {
@@ -528,6 +537,17 @@ mod tests {
 
     fn attention_of(change: &Change) -> Option<Attention> {
         attention(change, &storage::render(&change.storage), ME)
+    }
+
+    #[test]
+    fn a_records_external_id_reads_back_as_its_content_and_version() {
+        let page = change(ContentType::Page, "grace", "<p>Ship it</p>");
+        let read = to_read(&page, &storage::render(&page.storage), false);
+
+        assert_eq!(read.external_id, "page:101:3");
+        assert_eq!(version_of(&read.external_id), Some(("page:101:", 3)));
+        assert_eq!(version_of("page:101:"), None);
+        assert_eq!(version_of("C1/1730000000.000100"), None);
     }
 
     #[test]

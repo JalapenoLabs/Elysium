@@ -6,7 +6,8 @@ and can ask about past meetings, decisions, conversations, and what other agents
 benefits from what anyone's agent saves.
 
 This doc is the design. Little of it is built; the roadmap is the issues in the Knowledge base milestone. Built so
-far: the index's tables in Postgres (Search, below); learnings, saved through the routes, the MCP server, and
+far: the index's tables in Postgres (Search, below); every timeline record indexed as it is stored, with the engine's
+backfill for what was stored before (Timeline records, below); learnings, saved through the routes, the MCP server, and
 Settings, Learnings, filed under the built-in categories and the workspace's own, and indexed as they are saved
 (Learnings, below); the company doc, edited in Settings, Company doc, proposed to by its scheduled review and by
 agents, read by every agent, and indexed as it changes (The company doc, below); and the embedding model, with the
@@ -31,7 +32,8 @@ leaves the company, and no client's information flows into work for another.
 There is no per-owner or per-connector setting. Connecting a mailbox or a chat is what puts its content in the
 knowledge base, so every admin and member, and every agent acting for one (Elysia, coding agents, and MCP clients
 signed in as a person), can search and read a coworker's indexed mailbox and direct messages, and `knowledge_ask` can
-answer from them. Once records are indexed, a mail or chat connector says so where it is added.
+answer from them. A personal connector (mail, chat, or meetings) says so where it is added: its form's help reads
+"Everyone in your workspace can search what Outlook reads, in the knowledge base."
 
 Guests are outside the company and outside "everyone". A guest and their agent reach no knowledge base
 (`docs/rooms.md`), so the rule reaches a guest in two ways only: what is posted in a room they are in is indexed for
@@ -92,8 +94,8 @@ is built to the same rule.
   by `knowledge::passages::split` (`api/src/knowledge/`): at paragraph breaks, packed back together up to 1,600
   characters (about 400 tokens), with a longer paragraph cut at the last whitespace that fits. The cut depends on the
   text alone, so the same text always gives the same passages.
-- Learnings and the company doc's sections are indexed in the transaction that changes them. Indexing timeline
-  records, with a backfill, is on the roadmap: it maps each record kind to its passages and calls the same upsert.
+- Timeline records, learnings, and the company doc's sections are indexed in the transaction that stores or changes
+  them, through the same upsert (Timeline records, below).
 - The full-text vector uses Postgres's `english` configuration, generated from the passage: words are stemmed and stop
   words dropped on both sides, so a question asked in a sentence matches, while a key such as `WAY-123` stays a
   phrase of its exact tokens. Searches parse their query with `english` too.
@@ -106,6 +108,71 @@ is built to the same rule.
 - The engine's embedder embeds new and changed passages as they arrive, from what the partial index
   `knowledge_passages_unembedded` holds. Until then a passage is found by its words alone.
 - The web app has a Knowledge page: search, browse learnings, and ask.
+
+## Timeline records
+
+Every timeline record (`docs/connectors.md`, The timeline) is a source of the index: mail, Slack and Teams messages,
+Confluence pages and comments, YouTrack issues and comments, meeting segments, and messages a person sent. The code is
+`api/src/knowledge/records.rs`, which says what a record's document is, and `timeline_record::index`
+(`api/src/models/`), which puts it in the index.
+
+- **On write.** `timeline_record::insert_new`, which every reader, the meetings loop, and sending go through, indexes
+  a new record in the same transaction that stores it, so a record is found by its words the moment it commits and a
+  record that fails to store leaves nothing indexed. `timelineRecord.created` still carries ids alone; nothing listens
+  to it to index. A kind recorded later, such as Jira's or GitHub's issues, is indexed the moment it is on the
+  timeline, with nothing added for it.
+- **One record, one document.** The index holds a meeting by its segments (each is a record of its own,
+  `docs/meetings.md`, Segment records), a conversation by its messages, and a page by its newest version. The
+  document's source is the record's kind (`slack`, `meeting`, `confluence`), its title, link, and date the record's,
+  and it is attributed to the record's owner (`created_by`), whose timeline it is on.
+- **Its text** is the record's title, `From <actor>`, and its body, in that order, cut into passages as every source
+  is. A meeting segment names its speakers on every line of its excerpt, so it gives its summary in place of the
+  actor. A record with no title, actor, or body has no document.
+- **Content, never metadata.** A record's `metadata` and `media` are never indexed: they hold the provider's ids, where
+  a reply goes, and where a clip is kept, not what was said. Nothing a connector signs in with is on a record.
+- **Size.** Sources keep their own limits: Confluence and sent mail 20,000 characters, Slack 4,000, webmail previews
+  and Teams 1,000. A body is indexed up to 100,000 characters (`BODY_MAX_CHARACTERS`), about 63 passages and fifteen
+  seconds of the embedding model on four CPUs, which only a long meeting segment's excerpt reaches; past that it is
+  cut, so one pathological body cannot hold the embedder for minutes. The record itself keeps all of it.
+- **A page's newest version.** Confluence records each version of a page or comment as a record of its own
+  (`page:<id>:<version>`), so the timeline shows every edit. The index holds what the page says now: indexing a
+  version takes every older version of its connector's page out of the index, and an older version read after a
+  newer one, as an overlapping read can, stays out. Versions of one page are indexed under a transaction-level
+  advisory lock, so two transactions indexing them at once still leave only the newest. A record whose connector
+  was removed stands on its own, since its versions can no longer be told from another site's.
+- **Deleted records** leave the index with their document, which cascades. A provider deleting a message or a page is
+  not read by any reader today, so it leaves the record, and its document, in place.
+- **The same text twice.** Two people whose connectors read the same channel or space each have the record, and the
+  index has both documents, with the same `content_sha256`. Search collapses them (on the roadmap with hybrid search).
+
+### The backfill
+
+The engine's backfill (`api/src/knowledge/backfill.rs`) indexes the records stored before records were indexed on
+write. Like the embedder it is a loop of the engine's own rather than a workflow, since it has no source of its own
+(`docs/engine.md`, Workflows and steps), and it never holds up the engine's start.
+
+- **The walk.** It takes every record in id order, 100 at a time, and indexes each exactly as storing it does, in one
+  transaction with its row in `knowledge_backfills` (`docs/database.md`), which records the batch's last id. An engine
+  that stops part way resumes after the last batch it committed; a batch cut short is taken again, and indexing a
+  record twice changes nothing. A batch shorter than 100 is the end: every record stored since was indexed as it was
+  stored.
+- **Its pace.** It rests a second between batches, about 360,000 records an hour, so a large timeline never crowds
+  the readers' and the API's writes. The embedder takes passages newest documents first, so what was just saved is
+  still found by meaning within seconds while the backfill's older passages wait their turn.
+- **Once per version.** It walks to `INDEXED_AS` in `records.rs`. A walk that reached the end is never walked again
+  until a release changes what a record's text is, or how text is cut into passages, and bumps that version; the
+  next engine then walks every record once more, and a record whose text came out the same keeps its passages and
+  their embeddings. A release rolled back to an older version leaves the newer walk's text in place.
+- **Failures.** A database not answering stops the walk where it is, logged as `knowledge.backfill.failed`, and it is
+  tried again 30 seconds later. Its log carries counts, the version, and durations, never a word of a record.
+
+### Not on the timeline yet
+
+- **Jira and GitHub issues and comments** are not read onto the timeline: the link watcher follows linked issues'
+  state (`docs/action-items.md`), and no reader records their text. Once one does, they are indexed with nothing more.
+- **Agent turn summaries** are kept in `turn_summaries` (`docs/coding.md`, Turn summaries), not on the timeline, so
+  they are not indexed yet. Whether they become timeline records of their session's project or a source of the index
+  of their own is still to be decided.
 
 ## Embeddings
 
@@ -181,7 +248,8 @@ with thousands of one-step runs. Its queue is the index itself.
   a passage saved now is found by its words at once and by meaning within seconds.
 - **Another model.** As the engine starts, every embedding another model made is forgotten (`embedding` and
   `embedding_model` set to `NULL`), so a release that changes the model re-embeds every passage through the same
-  queue. Vectors of two models are not comparable, so meanwhile those passages are found by their words alone.
+  queue. The look is an index scan of `knowledge_passages_embedding_model`, for the models before and after the
+  current one, so it stays cheap however many passages the timeline brings. Vectors of two models are not comparable, so meanwhile those passages are found by their words alone.
 - **Checked before it writes.** Once a pass, when there is work, it asks the service's `/info` which model it serves.
   A service serving another, such as a deployment whose images drifted apart, embeds nothing, and each pass logs it
   at error level (`knowledge.embeddings.wrong_model`). Every vector is checked to be 768 finite numbers.

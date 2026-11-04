@@ -31,6 +31,7 @@ pub mod initiative_link;
 pub mod issue_report;
 pub mod jira_credential;
 pub mod jira_done_transition;
+pub mod knowledge_backfill;
 pub mod knowledge_document;
 pub mod learning;
 pub mod learning_category;

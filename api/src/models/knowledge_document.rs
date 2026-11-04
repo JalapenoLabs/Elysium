@@ -27,8 +27,11 @@ use crate::embeddings::Embedding;
 use crate::models::company_doc::Section;
 
 /// What a document was made from. Each kind is a column of its own, unique and cascading.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KnowledgeSource {
+    /// The timeline record with this id, of this kind (`timeline_records.source_kind`), which
+    /// the search's source filter names it by, such as `slack` or `meeting`.
+    TimelineRecord { id: Uuid, kind: String },
     /// The learning with this id.
     Learning(Uuid),
     /// This section of the company doc.
@@ -37,8 +40,9 @@ pub enum KnowledgeSource {
 
 impl KnowledgeSource {
     /// What the search's source filter calls documents of this kind.
-    pub const fn label(self) -> &'static str {
+    pub fn label(&self) -> &str {
         match self {
+            Self::TimelineRecord { kind, .. } => kind,
             Self::Learning(_) => "learning",
             Self::CompanyDocSection(_) => "company_doc",
         }
@@ -65,7 +69,7 @@ pub struct IndexedDocument {
 #[derive(Insertable, AsChangeset)]
 #[diesel(table_name = knowledge_documents)]
 struct DocumentFields {
-    source: &'static str,
+    source: String,
     title: String,
     // A document whose source has no link of its own clears the one it had.
     #[diesel(treat_none_as_null = true)]
@@ -98,12 +102,17 @@ fn content_sha256(passages: &[String]) -> String {
 /// text it was indexed from.
 async fn lock(
     connection: &mut AsyncPgConnection,
-    source: KnowledgeSource,
+    source: &KnowledgeSource,
 ) -> QueryResult<Option<(Uuid, String)>> {
     let query = knowledge_documents::table
         .select((knowledge_documents::id, knowledge_documents::content_sha256))
         .for_update();
     match source {
+        KnowledgeSource::TimelineRecord { id, .. } => query
+            .filter(knowledge_documents::timeline_record_id.eq(id))
+            .first(connection)
+            .await
+            .optional(),
         KnowledgeSource::Learning(id) => query
             .filter(knowledge_documents::learning_id.eq(id))
             .first(connection)
@@ -120,12 +129,25 @@ async fn lock(
 /// Inserts a new document for `source`, naming it in its column.
 async fn insert(
     connection: &mut AsyncPgConnection,
-    source: KnowledgeSource,
+    source: &KnowledgeSource,
     fields: DocumentFields,
 ) -> QueryResult<Uuid> {
     let id = Uuid::now_v7();
     let insert = diesel::insert_into(knowledge_documents::table);
     match source {
+        KnowledgeSource::TimelineRecord {
+            id: timeline_record_id,
+            ..
+        } => {
+            insert
+                .values((
+                    knowledge_documents::id.eq(id),
+                    knowledge_documents::timeline_record_id.eq(timeline_record_id),
+                    fields,
+                ))
+                .execute(connection)
+                .await?;
+        }
         KnowledgeSource::Learning(learning_id) => {
             insert
                 .values((
@@ -166,7 +188,7 @@ pub async fn upsert(
 ) -> QueryResult<Uuid> {
     let sha256 = content_sha256(&document.passages);
     let fields = DocumentFields {
-        source: document.source.label(),
+        source: document.source.label().to_owned(),
         title: document.title.clone(),
         url: document.url.clone(),
         occurred_at: document.occurred_at,
@@ -174,8 +196,8 @@ pub async fn upsert(
         created_by: document.created_by,
     };
 
-    let Some((id, indexed_sha256)) = lock(connection, document.source).await? else {
-        let id = insert(connection, document.source, fields).await?;
+    let Some((id, indexed_sha256)) = lock(connection, &document.source).await? else {
+        let id = insert(connection, &document.source, fields).await?;
         write_passages(connection, id, &document.passages).await?;
         return Ok(id);
     };
@@ -194,16 +216,22 @@ pub async fn upsert(
 /// changes nothing.
 ///
 /// A source deleted from its table needs no call: its document cascades with it. This is for a
-/// source that stays but leaves the index, such as a learning deleted softly.
+/// source that stays but leaves the index, such as a learning deleted softly, or a page's older
+/// version once a newer one is recorded.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn remove(
     connection: &mut AsyncPgConnection,
-    source: KnowledgeSource,
+    source: &KnowledgeSource,
 ) -> QueryResult<()> {
     let documents = knowledge_documents::table;
     match source {
+        KnowledgeSource::TimelineRecord { id, .. } => {
+            diesel::delete(documents.filter(knowledge_documents::timeline_record_id.eq(id)))
+                .execute(connection)
+                .await?;
+        }
         KnowledgeSource::Learning(id) => {
             diesel::delete(documents.filter(knowledge_documents::learning_id.eq(id)))
                 .execute(connection)
@@ -309,7 +337,13 @@ pub async fn forget_embeddings_not_made_by(
     connection: &mut AsyncPgConnection,
     model: &str,
 ) -> QueryResult<usize> {
-    diesel::update(knowledge_passages::table.filter(knowledge_passages::embedding_model.ne(model)))
+    // Before or after `model` rather than not `model`: a btree answers the two ranges from
+    // `knowledge_passages_embedding_model`, but never an inequality, so this stays an index scan
+    // however many passages the current model has embedded.
+    let made_by_another = knowledge_passages::embedding_model
+        .lt(model)
+        .or(knowledge_passages::embedding_model.gt(model));
+    diesel::update(knowledge_passages::table.filter(made_by_another))
         .set((
             knowledge_passages::embedding.eq(sql::<Nullable<Vector>>("NULL")),
             knowledge_passages::embedding_model.eq(None::<String>),

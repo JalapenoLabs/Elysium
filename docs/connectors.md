@@ -546,8 +546,8 @@ record by id.
 happened, who it came from, a title, a plain-text body, a link, optionally a span inside a recording (`media`, for a
 meeting segment), and free `metadata`. A record belongs to whoever it was ingested for, and only they list it: a
 person's mail is theirs even when it is about a shared project. That ownership is of the feed, its attributions, and
-its recordings, not of the text: the knowledge base, still to be built, indexes every record for everyone in the
-workspace (`docs/knowledge.md`, Who sees what).
+its recordings, not of the text: the knowledge base indexes every record for everyone in the workspace, in the
+transaction that stores it (`docs/knowledge.md`, Timeline records, and Who sees what).
 
 `timeline_record_projects` attributes records to projects, each with a confidence and who attributed it. A person's
 attribution has a confidence of 1 and replaces whatever was guessed for that project; Elysia's carry her
