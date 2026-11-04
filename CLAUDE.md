@@ -395,7 +395,13 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
 
 - Every page holds one server-sent event stream, `GET /api/v1/events`. Any write or watcher that changes what a
   client shows publishes to it. Components never poll. See `docs/realtime.md`.
-- The event bus is in-process, so the API runs as a single replica until the bus moves to Redis pub/sub.
+- The bus is one Redis pub/sub channel, so any process built from the API's crate publishes to every browser,
+  including one that serves no HTTP, such as the engine. Each process relays its one subscription into an in-process
+  channel. Events keep their shapes, and the ones about a person's data carry ids, never content.
+- `hello` is sent only while the process holds its subscription; while it is down the stream answers `503`. Any event
+  that may have been lost on the way through Redis (a dropped subscription, a failed publish, a full queue) ends in
+  `resync`, never in silence.
+- The API still runs as a single replica, because its background loops run in it until they move into the engine.
 
 ## Time is UTC on the server
 

@@ -671,7 +671,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/crypto.rs`          | Secret sealing                                   |
 | `src/errors.rs`          | `ApiError` and its mapping to HTTP responses     |
 | `src/state.rs`           | `AppState`: browsers, pool, Redis, cipher, version, bus, runner, sessions, GitHub, Jira, links, mail, storage, shutdown token |
-| `src/realtime.rs`        | Event bus and the `ServerEvent` envelope          |
+| `src/realtime/`          | Event bus over Redis, and the `ServerEvent` envelope |
 | `src/runner/`            | Agent turns: the workspace container, the Claude Code CLI, credentials, and workspace files |
 | `src/sessions/`          | Coding and Studio sessions on the runner: directories, turns, recorded events, activity |
 | `src/jira/`              | Jira Cloud's REST API and Atlassian Document Format |

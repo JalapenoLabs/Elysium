@@ -115,7 +115,8 @@ The intake (`api/src/elysia/intake.rs`) keeps, from the event stream:
   GitHub;
 - a person creating an item or commenting on one;
 - a decision on a changeset she proposed;
-- `timelineRecord.created`: mail, chat, and meetings, once connectors ingest them.
+- `timelineRecord.created`: mail, chat, and meetings, once connectors ingest them;
+- `resync`: changes may have been lost on their way to her (`docs/realtime.md`), so she checks the workspace herself.
 
 It ignores her own changes, coding agents' changes, and a person's other edits (snoozing, renaming). The first kept
 change opens a batch, and 30 seconds later the batch becomes one `event` turn, so a burst costs one turn. A new batch

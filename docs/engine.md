@@ -5,7 +5,8 @@ and dispatches work, so that a meeting with leadership or a message from a cowor
 hours later, done. Elysium is built around one company or major prospect per instance, and the engine works for that
 company.
 
-This doc is the design. Little of it is built; the roadmap is the issues in the Engine milestone.
+This doc is the design. Little of it is built; the roadmap is the issues in the Engine milestone. Built so far: the
+event stream through Redis pub/sub.
 
 ## A service of its own
 
@@ -16,8 +17,10 @@ This doc is the design. Little of it is built; the roadmap is the issues in the 
   nightly database backups, and Elysia's dispatcher, along with the runner and the worker pool. Either process can crash and restart without the
   other.
 - Postgres is the job queue: steps are claimed with `FOR UPDATE SKIP LOCKED`, with attempts and states on the row.
-- The event stream moves to Redis pub/sub, so the engine's changes reach every browser through the API exactly as the
-  API's own do.
+- The event stream runs through Redis pub/sub, so the engine's changes reach every browser through the API exactly as
+  the API's own do. The engine publishes with `EventBus::connect` and `publish`, which need no HTTP server, and calls
+  `EventBus::close` last on the way out; its in-process listeners, such as Elysia's intake, subscribe the same way the
+  API's do (`docs/realtime.md`, The bus).
 
 ## Workflows and steps
 

@@ -110,8 +110,9 @@ stream, a browser's stream), so each file holds only what differs. `nginx/mail.c
 Stalwart with the PROXY protocol; see `docs/mail.md`. `nginx/browser.conf` passes each media port to the browser
 that owns it; see `docs/browser.md`.
 
-The API has no container name so it could scale, but it must run as one replica today: its event bus is
-in-process (see `docs/realtime.md`).
+The API has no container name so it could scale, but it must run as one replica today: its background loops run
+in-process until they move into the engine (`docs/engine.md`). The event bus already spans processes through Redis
+pub/sub (`docs/realtime.md`).
 
 ## Startup order
 
@@ -398,4 +399,5 @@ Formatting, lints, tests, migrations, and every image are checked on each pull r
 
 ## Roadmap
 
-- Redis pub/sub for the event bus, so the API can run more than one replica.
+- The `elysium-engine` service, which takes over the API's background loops so the API can run more than one replica
+  (`docs/engine.md`).

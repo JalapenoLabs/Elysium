@@ -14,7 +14,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | Type                 | `data`                   | Sent when                                                  |
 |----------------------|--------------------------|------------------------------------------------------------|
 | `hello`              | none                     | First message on every connection                          |
-| `resync`             | none                     | This client fell behind and missed events                  |
+| `resync`             | none                     | This client may have missed events: it fell behind, or Redis lost some on the way |
 | `actionItem.upserted` | `ActionItem`            | An item was created, changed, restored, or joined or left a project or initiative |
 | `actionItem.deleted` | `{ id }`                 | An item was deleted (softly; it may be restored)           |
 | `actionItemLink.upserted` | `ActionItemLink`    | A link was added or promoted, the watcher read a change, or a write it owes was owed, tried, landed, or cancelled |
@@ -108,14 +108,43 @@ Delivery is at most once. Nothing is stored or replayed, and the stream carries 
 - A `session.event` is recorded before it is published, so a client that refetches a session's history after one
   always finds it.
 
-The bus is an in-process `tokio::sync::broadcast` channel (`api/src/realtime.rs`). An event published on one API
-process never reaches clients of another, so the API runs as a single replica.
+## The bus
+
+Events travel through one Redis pub/sub channel, `elysium:events`, so any process built from the API's crate publishes
+to every browser: the API's own writes, and a process that serves no HTTP, such as the engine (`docs/engine.md`),
+reach clients the same way (`api/src/realtime/`).
+
+- Every process holds one subscription to the channel and relays what arrives into its own in-process
+  `tokio::sync::broadcast` channel, which its event streams and in-process listeners (Elysia's intake) read.
+- Publishing sends to Redis alone, never straight to the publishing process's own listeners, so every process hears
+  every event in the one order Redis delivers them. A process's own events reach the channel in the order it
+  published them: `publish` queues without waiting, and one task sends the queue in order, a batch per pipeline.
+- A process starts serving only once Redis has confirmed its subscription, and the stream opens only while the
+  subscription holds: while it is down, `GET /api/v1/events` answers `503`, and the browser retries with backoff.
+  So `hello` always means "subscribed".
+- A lost subscription (the connection closed, or a ping every 15 seconds went unanswered) is logged, reconnected with
+  backoff up to 10 seconds, and confirmed. Only then do the process's listeners receive `resync`, since one that
+  reloaded any earlier could still miss what is published before the subscription returned.
+- A publish that fails loses its batch: it is logged, and `resync` is published on the channel as soon as Redis
+  answers again, so every process's clients refetch. Events that do not fit in the queue (4096) while Redis is slow
+  or away are dropped, logged once, and followed by `resync` after the events still queued.
+- A `resync` always goes out after the events it stands in for would have, so a client never applies an event older
+  than what its refetch read.
+- On shutdown the bus closes last, after every loop that publishes has stopped, and flushes its queue for up to 5
+  seconds, so a stopping process's last changes still reach every other process's clients.
+
+Pub/sub channels span the whole Redis server, so the store-backed tests each use a channel of their own. A second bus
+on its own connections stands in for a second process in `api/src/realtime/tests.rs`, and a TCP proxy the test cuts
+proves that a dropped subscription and a failed publish each end in `resync`, and that no stream opens meanwhile.
+
+The bus serves any number of processes. The API's background loops still run inside it, so the API runs as a single
+replica until they move into the engine.
 
 ## Shutdown
 
 Streams end when shutdown begins. The shutdown signal cancels a token that every stream, agent turn, and the link
 watcher observes, so open streams do not hold up the graceful drain. Browsers reconnect on their own and receive `hello`
-from the next process.
+from the next process. The bus itself closes last, as above.
 
 ## Frontend
 
@@ -129,20 +158,17 @@ envelope into Redux through a lookup table typed against `ServerEvent` (`src/rea
 - `resync`, and `hello` on any connection but a page load's first, revalidate every SWR key a mounted component
   holds; the loaders put the responses in Redux. Data no component shows is fetched when one mounts.
   `session.resync` revalidates that session's history.
-- Browsers retry a dropped stream by themselves, but give up after an HTTP error response such as a 502 while the
-  API restarts. The module then reopens the stream, backing off from 1 to 30 seconds.
+- Browsers retry a dropped stream by themselves, but give up after an HTTP error response, such as a 502 while the
+  API restarts or the 503 while its subscription is down. The module then reopens the stream, backing off from 1 to
+  30 seconds.
 - `realtimeSlice` tracks the connection: `connecting` until a stream first opens or fails, and again after it is
   stopped. The topbar dot is green when connected and amber while reconnecting.
 - `src/bugs/67.test.tsx` holds a page load to one read of each thing, and proves a reconnection still refetches.
 
 ## Adding an event
 
-1. Add a variant to `ServerEvent` in `api/src/realtime.rs` with its `serde(rename)`.
+1. Add a variant to `ServerEvent` in `api/src/realtime/mod.rs` with its `serde(rename)`.
 2. Publish it where the change happens, after the write succeeds.
 3. Add it to `ServerEvent` in `frontend/src/realtime/serverEvents.ts`. The handler table then fails typecheck
    until the new type is handled.
 4. Add a row to the table above.
-
-## Roadmap
-
-- Redis pub/sub behind the bus, so more than one API replica can serve streams.
