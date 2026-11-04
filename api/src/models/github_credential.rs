@@ -160,6 +160,23 @@ pub async fn list(connection: &mut AsyncPgConnection) -> QueryResult<Vec<GithubC
         .await
 }
 
+/// The credentials `person` added, by name: the tokens that act as them, which is what a
+/// problem report is filed with.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn list_created_by(
+    connection: &mut AsyncPgConnection,
+    person: Uuid,
+) -> QueryResult<Vec<GithubCredential>> {
+    github_credentials::table
+        .filter(github_credentials::created_by.eq(person))
+        .order(github_credentials::name.asc())
+        .select(GithubCredential::as_select())
+        .load(connection)
+        .await
+}
+
 /// One credential by id.
 ///
 /// # Errors

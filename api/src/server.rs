@@ -321,6 +321,7 @@ pub async fn serve() -> Result<()> {
         events,
         elysia,
         github,
+        issue_reports: crate::issue_reports::IssueReports::default(),
         jira,
         links,
         mail,

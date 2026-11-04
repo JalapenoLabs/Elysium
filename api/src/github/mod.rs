@@ -66,6 +66,10 @@ pub enum GithubError {
     /// The token is wrong, expired, or revoked. The message says what to check.
     #[error("{0}")]
     Unauthorized(&'static str),
+    /// GitHub accepted the token but refused this write: `403` for a token without the
+    /// permission, or `404` for a repository the token cannot see. The message is GitHub's.
+    #[error("{0}")]
+    NoAccess(String),
     #[error("{0}")]
     Refused(String),
 }
@@ -552,9 +556,22 @@ impl Reply {
 
     /// An unsuccessful answer as an error carrying GitHub's own message.
     fn refusal(&self) -> GithubError {
-        let message = serde_json::from_str::<ErrorBody>(&self.body)
-            .map_or_else(|_error| self.status.to_string(), |error| error.message);
-        GithubError::Refused(format!("GitHub: {message}"))
+        GithubError::Refused(format!("GitHub: {}", self.message()))
+    }
+
+    /// An unsuccessful answer to a write, telling a token that may not make it (`403`, or
+    /// `404` for a repository it cannot see) from any other refusal.
+    fn write_refusal(&self) -> GithubError {
+        if matches!(self.status, StatusCode::FORBIDDEN | StatusCode::NOT_FOUND) {
+            return GithubError::NoAccess(format!("GitHub: {}", self.message()));
+        }
+        self.refusal()
+    }
+
+    /// GitHub's own message, or the status when the body carries none.
+    fn message(&self) -> String {
+        serde_json::from_str::<ErrorBody>(&self.body)
+            .map_or_else(|_error| self.status.to_string(), |error| error.message)
     }
 }
 

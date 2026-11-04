@@ -23,6 +23,26 @@ use super::{Github, GithubError, Paged, Repository};
 /// The most issues one page of a listing holds, which is GitHub's own ceiling.
 const PAGE_SIZE: u32 = 100;
 
+/// How many search results are read. A search for one fingerprint finds one issue, or a few
+/// when two people opened theirs before search had indexed the first.
+const SEARCH_PAGE_SIZE: u32 = 20;
+
+/// An issue just opened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatedIssue {
+    pub number: u64,
+    /// Where a person reads it.
+    pub url: String,
+}
+
+/// An open issue a search found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundIssue {
+    pub number: u64,
+    pub url: String,
+    pub body: String,
+}
+
 /// One issue or pull request, named the way GitHub writes it: `owner/name#12`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssueRef {
@@ -264,16 +284,18 @@ impl Github {
         Ok(())
     }
 
-    /// Writes a comment on an issue or a pull request, as the token's account.
+    /// Writes a comment on an issue or a pull request, as the token's account, and answers where
+    /// the comment reads.
     ///
     /// # Errors
-    /// As [`Github::close_issue`].
+    /// Returns [`GithubError::NoAccess`] for a token that may not comment there, and otherwise
+    /// as [`Github::close_issue`].
     pub async fn comment(
         &self,
         token: &SecretString,
         issue: &IssueRef,
         body: &str,
-    ) -> Result<(), GithubError> {
+    ) -> Result<String, GithubError> {
         let url = self.repository_url(
             &issue.repository,
             &["issues", &issue.number.to_string(), "comments"],
@@ -281,9 +303,92 @@ impl Github {
         let request = json!({ "body": body });
         let reply = self.send(Method::POST, &url, token, Some(&request)).await?;
         if !reply.status.is_success() {
+            return Err(reply.write_refusal());
+        }
+        let created: CreatedCommentBody = reply.read("a comment")?;
+        Ok(created.html_url)
+    }
+
+    /// Opens an issue on `repository`, as the token's account.
+    ///
+    /// # Errors
+    /// Returns [`GithubError::NoAccess`] for a token that may not open issues there, such as a
+    /// classic token without `public_repo` or a fine-grained token for another owner, and
+    /// otherwise as [`Github::issue`].
+    pub async fn create_issue(
+        &self,
+        token: &SecretString,
+        repository: &Repository,
+        title: &str,
+        body: &str,
+    ) -> Result<CreatedIssue, GithubError> {
+        let url = self.repository_url(repository, &["issues"]);
+        let request = json!({ "title": title, "body": body });
+        let reply = self.send(Method::POST, &url, token, Some(&request)).await?;
+        if !reply.status.is_success() {
+            return Err(reply.write_refusal());
+        }
+        let created: CreatedIssueBody = reply.read("an issue")?;
+        Ok(CreatedIssue {
+            number: created.number,
+            url: created.html_url,
+        })
+    }
+
+    /// The open issues of `repository` whose body holds `word`, through GitHub's issue search,
+    /// with their bodies so a caller can confirm what it was looking for.
+    ///
+    /// Search is GitHub's index, not its database: an issue opened in the last minute or so may
+    /// not be found yet. `word` must be letters and digits alone, so it is searched as one term.
+    ///
+    /// # Errors
+    /// Returns [`GithubError::Refused`] for a `word` that is not one term, and otherwise as
+    /// [`Github::issue`].
+    pub async fn search_open_issues(
+        &self,
+        token: &SecretString,
+        repository: &Repository,
+        word: &str,
+    ) -> Result<Vec<FoundIssue>, GithubError> {
+        if word.is_empty()
+            || !word
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric())
+        {
+            return Err(GithubError::Refused(format!(
+                "{word:?} is not one search term"
+            )));
+        }
+        // In its own block: the serializer is not `Send`, so it must be gone before the await.
+        let parameters = {
+            let mut parameters = url::form_urlencoded::Serializer::new(String::new());
+            parameters.append_pair(
+                "q",
+                &format!(
+                    "repo:{}/{} is:issue is:open in:body {word}",
+                    repository.owner, repository.name
+                ),
+            );
+            parameters.append_pair("per_page", &SEARCH_PAGE_SIZE.to_string());
+            parameters.finish()
+        };
+        let url = self.url(&format!("/search/issues?{parameters}"));
+
+        let reply = self.get(&url, token).await?;
+        if !reply.status.is_success() {
             return Err(reply.refusal());
         }
-        Ok(())
+        let found: SearchBody = reply.read("search results")?;
+        Ok(found
+            .items
+            .into_iter()
+            .filter(|item| item.state == "open" && item.pull_request.is_none())
+            .map(|item| FoundIssue {
+                number: item.number,
+                url: item.html_url,
+                body: item.body.unwrap_or_default(),
+            })
+            .collect())
     }
 
     /// One milestone, or `None` when the token cannot see it.
@@ -434,6 +539,36 @@ struct IssueBody {
 #[derive(Deserialize)]
 struct LoginBody {
     login: String,
+}
+
+/// The parts of `POST /repos/{owner}/{repo}/issues`'s answer Elysium reads.
+#[derive(Deserialize)]
+struct CreatedIssueBody {
+    number: u64,
+    html_url: String,
+}
+
+/// The part of `POST .../issues/{number}/comments`'s answer Elysium reads.
+#[derive(Deserialize)]
+struct CreatedCommentBody {
+    html_url: String,
+}
+
+/// `GET /search/issues`'s answer.
+#[derive(Deserialize)]
+struct SearchBody {
+    items: Vec<SearchItemBody>,
+}
+
+#[derive(Deserialize)]
+struct SearchItemBody {
+    number: u64,
+    html_url: String,
+    state: String,
+    /// `null` for an issue opened with no body.
+    body: Option<String>,
+    /// Present on a pull request, which `is:issue` already leaves out.
+    pull_request: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]

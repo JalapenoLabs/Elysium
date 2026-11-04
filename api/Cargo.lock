@@ -1063,6 +1063,7 @@ dependencies = [
  "mimalloc",
  "percent-encoding",
  "redis",
+ "regex",
  "reqwest",
  "rmcp",
  "rustls",

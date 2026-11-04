@@ -303,6 +303,7 @@ pub async fn app_state_with_storage(
         events,
         elysia: Elysia::new(TurnRunner::Host(runner.clone()), sessions.grants().clone()),
         github,
+        issue_reports: crate::issue_reports::IssueReports::default(),
         jira,
         links,
         mail,

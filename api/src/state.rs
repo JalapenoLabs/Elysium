@@ -18,6 +18,7 @@ use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::elysia::Elysia;
 use crate::github::Github;
+use crate::issue_reports::IssueReports;
 use crate::jira::Jira;
 use crate::mail::Mail;
 use crate::meetings::Meetings;
@@ -58,6 +59,8 @@ pub struct AppState {
     /// Elysia, and the signal that tells her dispatcher to look at the queue.
     pub elysia: Elysia,
     pub github: Github,
+    /// Files problem reports on Elysium's own GitHub repository. See `crate::issue_reports`.
+    pub issue_reports: IssueReports,
     pub jira: Jira,
     /// Action item links, through one provider trait, and the watcher's wake signal.
     pub links: Links,

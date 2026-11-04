@@ -24,6 +24,7 @@ mod errors;
 mod git_info;
 mod github;
 mod images;
+mod issue_reports;
 mod jira;
 mod mail;
 mod mcp;

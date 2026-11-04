@@ -19,6 +19,14 @@ use validator::ValidationErrors;
 pub enum ApiError {
     #[error("{0}")]
     BadRequest(String),
+    /// A request the frontend explains in its own words, named by a stable `code`, such as a
+    /// GitHub token that may not file a report.
+    #[error("{message}")]
+    CodedBadRequest { code: &'static str, message: String },
+    /// A person past a limit the code sets, such as the reports they may file a day. Named by a
+    /// stable `code`; the message says when the limit lifts.
+    #[error("{message}")]
+    TooManyRequests { code: &'static str, message: String },
     #[error("request failed validation")]
     Validation(#[from] ValidationErrors),
     /// The request named something the credential it was made with may not touch, such as
@@ -156,7 +164,9 @@ impl From<crate::github::GithubError> for ApiError {
         match error {
             // A token GitHub will not accept is the client's to fix, not an upstream fault.
             GithubError::Unauthorized(message) => Self::BadRequest(message.to_owned()),
-            refused @ GithubError::Refused(_) => Self::BadGateway(refused.to_string()),
+            refused @ (GithubError::NoAccess(_) | GithubError::Refused(_)) => {
+                Self::BadGateway(refused.to_string())
+            }
         }
     }
 }
@@ -252,6 +262,14 @@ impl ApiError {
     pub fn into_status_and_body(self) -> (StatusCode, Value) {
         match self {
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, json!({ "message": message })),
+            Self::CodedBadRequest { code, message } => (
+                StatusCode::BAD_REQUEST,
+                json!({ "message": message, "code": code }),
+            ),
+            Self::TooManyRequests { code, message } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                json!({ "message": message, "code": code }),
+            ),
             Self::Validation(errors) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 json!({ "message": "request failed validation", "fields": errors }),

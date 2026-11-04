@@ -35,6 +35,7 @@ pub(crate) const LOGIN: &str = "alex-navarro";
 #[derive(Debug, Clone)]
 pub(crate) struct FakeIssue {
     pub(crate) title: String,
+    pub(crate) body: String,
     pub(crate) is_open: bool,
     pub(crate) state_reason: Option<String>,
     pub(crate) assignee: Option<String>,
@@ -50,6 +51,7 @@ impl FakeIssue {
     pub(crate) fn open(title: &str) -> Self {
         Self {
             title: title.to_owned(),
+            body: String::new(),
             is_open: true,
             state_reason: None,
             assignee: None,
@@ -90,6 +92,10 @@ struct FakeState {
     refuse_writes: bool,
     /// When set, pull requests are refused as a token without Pull requests read would be.
     refuse_pull_requests: bool,
+    /// When set, search finds nothing, as GitHub's does for an issue it has not indexed yet.
+    search_lags: bool,
+    /// How many comments were written, which numbers the next one.
+    comments: u64,
     received: Vec<Received>,
 }
 
@@ -201,6 +207,12 @@ impl FakeGithub {
         self.with_state(|state| state.refuse_pull_requests = true);
     }
 
+    /// Makes search find nothing, as it does before GitHub has indexed a new issue, or find
+    /// again.
+    pub(crate) fn lag_search(&self, lags: bool) {
+        self.with_state(|state| state.search_lags = lags);
+    }
+
     /// Makes every write fail, as it does for a token without write access, or stop failing.
     pub(crate) fn refuse_writes(&self, refuse: bool) {
         self.with_state(|state| state.refuse_writes = refuse);
@@ -233,6 +245,7 @@ fn issue_json(origin: &str, repository: &str, number: u64, issue: &FakeIssue) ->
     let mut body = json!({
         "number": number,
         "title": issue.title,
+        "body": issue.body,
         "html_url": format!("https://github.com/{repository}/{page}/{number}"),
         "repository_url": format!("{origin}/repos/{repository}"),
         "state": if issue.is_open { "open" } else { "closed" },
@@ -413,13 +426,81 @@ async fn answer(
 
         (Method::POST, ["repos", owner, name, "issues", number, "comments"]) => {
             let repository = format!("{owner}/{name}");
-            let held = number
+            let Some(number) = number
                 .parse::<u64>()
-                .is_ok_and(|number| state.issues.contains_key(&(repository, number)));
-            if !held {
+                .ok()
+                .filter(|number| state.issues.contains_key(&(repository.clone(), *number)))
+            else {
                 return github_error(StatusCode::NOT_FOUND, "Not Found");
+            };
+            state.comments += 1;
+            let id = state.comments;
+            let html_url =
+                format!("https://github.com/{repository}/issues/{number}#issuecomment-{id}");
+            (
+                StatusCode::CREATED,
+                axum::Json(json!({ "id": id, "html_url": html_url })),
+            )
+                .into_response()
+        }
+
+        (Method::POST, ["repos", owner, name, "issues"]) => {
+            let repository = format!("{owner}/{name}");
+            let request: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+            let Some(title) = request["title"].as_str().filter(|title| !title.is_empty()) else {
+                return github_error(StatusCode::UNPROCESSABLE_ENTITY, "Validation Failed");
+            };
+            let number = state
+                .issues
+                .keys()
+                .filter(|(held, _number)| *held == repository)
+                .map(|(_repository, number)| *number)
+                .max()
+                .unwrap_or(0)
+                + 1;
+            let issue = FakeIssue {
+                body: request["body"].as_str().unwrap_or_default().to_owned(),
+                updated_at: Utc::now(),
+                ..FakeIssue::open(title)
+            };
+            let created = issue_json(&origin, &repository, number, &issue);
+            state.issues.insert((repository, number), issue);
+            (StatusCode::CREATED, axum::Json(created)).into_response()
+        }
+
+        // `repo:owner/name is:issue is:open in:body <word>`, the one search Elysium makes.
+        (Method::GET, ["search", "issues"]) => {
+            let search = parameter(&query, "q").unwrap_or_default();
+            let mut repository = None;
+            let mut words = Vec::new();
+            for term in search.split_whitespace() {
+                if let Some(named) = term.strip_prefix("repo:") {
+                    repository = Some(named.to_owned());
+                } else if !term.contains(':') {
+                    words.push(term.to_owned());
+                }
             }
-            (StatusCode::CREATED, axum::Json(json!({ "id": 1 }))).into_response()
+            let items: Vec<Value> = if state.search_lags {
+                Vec::new()
+            } else {
+                state
+                    .issues
+                    .iter()
+                    .filter(|((held, _number), issue)| {
+                        repository.as_deref() == Some(held.as_str())
+                            && issue.is_open
+                            && issue.pull_request.is_none()
+                            && words.iter().all(|word| issue.body.contains(word.as_str()))
+                    })
+                    .map(|((held, number), issue)| issue_json(&origin, held, *number, issue))
+                    .collect()
+            };
+            axum::Json(json!({
+                "total_count": items.len(),
+                "incomplete_results": false,
+                "items": items,
+            }))
+            .into_response()
         }
 
         (Method::GET, ["repos", owner, name, "milestones", number]) => {

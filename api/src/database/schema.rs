@@ -70,6 +70,10 @@ pub mod sql_types {
     pub struct InitiativeState;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "issue_report_filing"))]
+    pub struct IssueReportFiling;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "link_kind"))]
     pub struct LinkKind;
 
@@ -607,6 +611,22 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::IssueReportFiling;
+
+    issue_reports (id) {
+        id -> Uuid,
+        fingerprint -> Text,
+        issue_number -> Int8,
+        issue_url -> Text,
+        filed_as -> IssueReportFiling,
+        url -> Text,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
 
     jira_credential_boards (jira_credential_id, board_id) {
         jira_credential_id -> Uuid,
@@ -1098,6 +1118,7 @@ diesel::joinable!(initiative_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(initiative_projects -> initiatives (initiative_id));
 diesel::joinable!(initiative_projects -> projects (project_id));
 diesel::joinable!(initiatives -> users (created_by));
+diesel::joinable!(issue_reports -> users (created_by));
 diesel::joinable!(jira_credential_boards -> jira_credentials (jira_credential_id));
 diesel::joinable!(jira_credential_projects -> jira_credentials (jira_credential_id));
 diesel::joinable!(jira_credentials -> users (created_by));
@@ -1168,6 +1189,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     initiative_links,
     initiative_projects,
     initiatives,
+    issue_reports,
     jira_credential_boards,
     jira_credential_projects,
     jira_credentials,

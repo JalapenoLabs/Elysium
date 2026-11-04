@@ -15,6 +15,7 @@ pub mod environment_variables;
 mod events;
 pub mod github_credentials;
 pub mod initiatives;
+pub mod issue_reports;
 pub mod jira_credentials;
 pub mod llms;
 pub mod mail;
@@ -69,6 +70,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/environment-variables", environment_variables::router())
         .nest("/github-credentials", github_credentials::router())
         .nest("/initiatives", initiatives::router())
+        .nest("/issue-reports", issue_reports::router())
         .nest("/jira-credentials", jira_credentials::router())
         .nest("/llms", llms::router())
         .nest("/mail", mail::router())

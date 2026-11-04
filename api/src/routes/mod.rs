@@ -154,6 +154,16 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
 
+        // Routes that answer writes alone, so the reads above cannot reach them.
+        for path in ["/api/v1/issue-reports", "/api/v1/issue-reports/preview"] {
+            let (status, body) = send(&state, Method::POST, path, None).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{path}: {body}");
+            assert_eq!(body["code"], "cross_origin", "{path}");
+            let (status, body) =
+                send(&state, Method::POST, path, Some("http://localhost:4000")).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{path}: {body}");
+        }
+
         let (status, _) = send(&state, Method::GET, "/api/v1/auth/status", None).await;
         assert_eq!(
             status,
