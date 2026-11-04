@@ -55,6 +55,9 @@ pub enum KratosError {
 pub struct Session {
     pub id: Uuid,
     pub expires_at: DateTime<Utc>,
+    /// When the person last proved who they are: signing in, or signing in again because a
+    /// change asked for a recent sign-in. Kratos never moves it when a session is extended.
+    pub authenticated_at: DateTime<Utc>,
     pub authenticator_assurance_level: AssuranceLevel,
     pub identity: Identity,
 }
@@ -346,6 +349,31 @@ impl Kratos {
         )
         .await
         .map(drop)
+    }
+
+    /// Replaces the secret of the identity's authenticator app with the one `totp_url` carries,
+    /// in one write: codes from the old app work until it lands, and codes from the new one from
+    /// then on. Kratos stores an app as `{"totp_url": "otpauth://..."}` and reads only its
+    /// secret at sign-in. A credential's config is patched in place, as Kratos's own tests patch
+    /// a password's hash; the credential itself, and its type, stay Kratos's.
+    ///
+    /// Only `super::authenticator_change` calls it, which forgets the person's cached sessions
+    /// after, since no settings webhook fires for an admin write.
+    ///
+    /// # Errors
+    /// Returns [`KratosError::NotFound`] for an unknown identity, and [`KratosError::Refused`]
+    /// when Kratos refuses, as it does for an identity without an app.
+    pub(super) async fn replace_authenticator(
+        &self,
+        id: Uuid,
+        totp_url: &str,
+    ) -> Result<(), KratosError> {
+        let patch = json!([{
+            "op": "replace",
+            "path": "/credentials/totp/config/totp_url",
+            "value": totp_url,
+        }]);
+        self.patch_identity(id, patch).await
     }
 
     /// Lets an identity sign in, or stops it.

@@ -249,6 +249,7 @@ mod tests {
         Session {
             id: Uuid::now_v7(),
             expires_at: now + remaining,
+            authenticated_at: now,
             authenticator_assurance_level: AssuranceLevel::Aal1,
             identity: Identity {
                 id: Uuid::now_v7(),

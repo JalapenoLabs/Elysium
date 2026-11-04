@@ -201,6 +201,7 @@ pub async fn signed_in_cookie(state: &crate::state::AppState) -> String {
     let session = Session {
         id: Uuid::now_v7(),
         expires_at: chrono::Utc::now() + chrono::Duration::hours(72),
+        authenticated_at: chrono::Utc::now(),
         authenticator_assurance_level: AssuranceLevel::Aal2,
         identity: Identity {
             id: TEST_PERSON_KRATOS_ID,

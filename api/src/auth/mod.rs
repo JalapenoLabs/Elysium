@@ -20,6 +20,7 @@
 //! Handlers then name who they act for with [`CurrentUser`], [`MemberUser`] for the knowledge
 //! base, which guests may not reach, or [`AdminUser`] for what only admins may do.
 
+pub mod authenticator_change;
 pub mod hook_key;
 pub mod identity_schemas;
 pub mod kratos;
@@ -171,6 +172,9 @@ pub enum AccessRefusal {
     AccountDisabled,
     /// The workspace requires an authenticator app, and this person has not set one up.
     MfaEnrollmentRequired,
+    /// A change to how the person signs in, asked of a session that signed in too long ago. They
+    /// sign in again, then retry. Kratos asks the same of its own changes.
+    RecentSignInRequired,
     AdminOnly,
     /// A guest, asking for what only the company's own people may reach, such as the knowledge
     /// base.
@@ -194,6 +198,7 @@ impl AccessRefusal {
             Self::AccountPending => "account_pending",
             Self::AccountDisabled => "account_disabled",
             Self::MfaEnrollmentRequired => "mfa_enrollment_required",
+            Self::RecentSignInRequired => "recent_sign_in_required",
             Self::AdminOnly => "admin_only",
             Self::MembersOnly => "members_only",
             Self::CrossOrigin => "cross_origin",
@@ -209,6 +214,7 @@ impl AccessRefusal {
             Self::MfaEnrollmentRequired => {
                 "this workspace requires an authenticator app; set one up to continue"
             }
+            Self::RecentSignInRequired => "sign in again to change how you sign in",
             Self::AdminOnly => "only an admin can do this",
             Self::MembersOnly => "only the company's members can reach its knowledge base",
             Self::CrossOrigin => "the request came from another site",

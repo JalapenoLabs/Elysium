@@ -52,6 +52,7 @@ thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-rustls = { version = "0.26.5", default-features = false, features = ["ring", "tls12"] }
 tokio-tungstenite = "0.29.0"
+totp-rs = { version = "6.0.0", default-features = false, features = ["std", "otpauth", "qr", "zeroize"] }
 tokio-util = { version = "0.7.18", features = ["io", "rt"] }
 tower = "0.5.3"
 tower-http = { version = "0.7.1", features = ["catch-panic", "compression-br", "compression-gzip", "cors", "fs", "request-id", "set-header", "timeout", "trace"] }

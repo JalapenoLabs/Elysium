@@ -3,7 +3,8 @@
 //! A revoked session or MCP token is refused on its very next request (#188), though the API
 //! caches what Kratos and Hydra said about it: signing out, ending one's other sessions, an admin
 //! signing someone out, Kratos's own revocation on a settings change, disconnecting an MCP
-//! client, and deleting one. With Redis down, every request asks Kratos or Hydra instead and
+//! client, and deleting one. Moving to a new authenticator app writes to Kratos's admin API,
+//! which fires no webhook, so it forgets the person's sessions itself (#165). With Redis down, every request asks Kratos or Hydra instead and
 //! nothing is refused for it. Since answers are cached for minutes (#190), a session in use still
 //! rolls: it is extended as soon as it is due, whatever the cache holds.
 //!
@@ -100,6 +101,8 @@ struct FakeKratos {
     sessions: Arc<Mutex<KratosSessions>>,
     whoami_calls: Arc<AtomicUsize>,
     extensions: Arc<AtomicUsize>,
+    /// Every `totp_url` an admin patch wrote, oldest first.
+    authenticator_urls: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeKratos {
@@ -109,6 +112,7 @@ impl FakeKratos {
             sessions: Arc::default(),
             whoami_calls: Arc::default(),
             extensions: Arc::default(),
+            authenticator_urls: Arc::default(),
         }
     }
 
@@ -120,10 +124,24 @@ impl FakeKratos {
     /// Signs the person in with a session that has `remaining` left to live, as one that was
     /// last extended `SESSION_LIFESPAN - remaining` ago.
     fn sign_in_expiring_in(&self, remaining: chrono::Duration) -> (String, Uuid) {
+        self.sign_in_with(Utc::now(), remaining)
+    }
+
+    /// Signs the person in with a session that last proved who they are `ago`.
+    fn signed_in_ago(&self, ago: chrono::Duration) -> String {
+        self.sign_in_with(Utc::now() - ago, SESSION_LIFESPAN).0
+    }
+
+    fn sign_in_with(
+        &self,
+        authenticated_at: chrono::DateTime<Utc>,
+        remaining: chrono::Duration,
+    ) -> (String, Uuid) {
         let cookie = format!("ory_st_{}", Uuid::now_v7().simple());
         let session = Session {
             id: Uuid::now_v7(),
             expires_at: Utc::now() + remaining,
+            authenticated_at,
             authenticator_assurance_level: AssuranceLevel::Aal2,
             identity: Identity {
                 id: self.person.identity,
@@ -158,6 +176,13 @@ impl FakeKratos {
         self.extensions.load(Ordering::SeqCst)
     }
 
+    fn authenticator_urls(&self) -> Vec<String> {
+        self.authenticator_urls
+            .lock()
+            .expect("the fake's lock is never poisoned")
+            .clone()
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, KratosSessions> {
         self.sessions
             .lock()
@@ -183,7 +208,10 @@ impl FakeKratos {
                 "/admin/identities/{id}/sessions",
                 delete(kratos_end_everywhere),
             )
-            .route("/admin/identities/{id}", patch(kratos_patch_identity))
+            .route(
+                "/admin/identities/{id}",
+                get(kratos_identity).patch(kratos_patch_identity),
+            )
             .route("/admin/sessions/{id}/extend", patch(kratos_extend))
             .with_state(self.clone())
     }
@@ -302,7 +330,28 @@ async fn kratos_end_everywhere(
     StatusCode::NO_CONTENT
 }
 
-async fn kratos_patch_identity() -> axum::Json<Value> {
+/// The person's identity, with a password and an authenticator app.
+async fn kratos_identity(Path(id): Path<Uuid>) -> axum::Json<Value> {
+    axum::Json(json!({ "id": id, "credentials": { "password": {}, "totp": {} } }))
+}
+
+/// Records the `totp_url` a patch writes, as replacing an authenticator app does.
+async fn kratos_patch_identity(
+    State(kratos): State<FakeKratos>,
+    axum::Json(operations): axum::Json<Value>,
+) -> axum::Json<Value> {
+    let written = operations
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|operation| operation["path"] == "/credentials/totp/config/totp_url");
+    if let Some(url) = written.and_then(|operation| operation["value"].as_str()) {
+        kratos
+            .authenticator_urls
+            .lock()
+            .expect("the fake's lock is never poisoned")
+            .push(url.to_owned());
+    }
     axum::Json(json!({}))
 }
 
@@ -461,6 +510,25 @@ impl Stack {
             .get(header::SET_COOKIE)
             .map(|value| value.to_str().expect("ASCII").to_owned());
         (response.status(), set_cookie)
+    }
+
+    /// The router's answer to `POST path` with a JSON `body` and `cookie`, and its JSON.
+    async fn post_json(&self, path: &str, cookie: &str, body: &Value) -> (StatusCode, Value) {
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(path)
+            .header(header::COOKIE, format!("{SESSION_COOKIE}={cookie}"))
+            .header(header::ORIGIN, ORIGIN)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .expect("a request builds");
+        let response = self.send(request).await;
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("the body reads");
+        let json = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        (status, json)
     }
 
     /// Whether the session `cookie` holds reaches the workspace.
@@ -739,4 +807,109 @@ async fn a_session_in_use_rolls_though_its_answer_is_cached() {
         2,
         "asked again once after the extension, then answered from the cache"
     );
+}
+
+/// The code an authenticator app holding `secret_key` shows now.
+fn current_code(secret_key: &str) -> String {
+    let secret = totp_rs::Secret::try_from_base32(secret_key).expect("the key is base32");
+    totp_rs::Builder::new()
+        .with_secret(secret)
+        .build()
+        .expect("a 160-bit secret builds")
+        .generate_current()
+        .to_string()
+}
+
+/// #165: moving to a new authenticator app swaps the secret in Kratos through its admin API,
+/// which fires no settings webhook, so the move forgets the person's cached sessions itself and
+/// every other session asks Kratos again on its next request.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run by scripts/verify-migrations.sh"]
+async fn moving_to_a_new_authenticator_app_forgets_the_cached_sessions() {
+    let stack = Stack::start().await;
+    let (laptop, _) = stack.kratos.sign_in();
+    let (phone, _) = stack.kratos.sign_in();
+    assert_eq!(stack.me(&phone).await, StatusCode::OK);
+    assert_eq!(stack.me(&phone).await, StatusCode::OK);
+
+    let (status, started) = stack
+        .post_json("/api/v1/me/authenticator-replacement", &laptop, &json!({}))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let secret_key = started["secretKey"].as_str().expect("a key to type");
+    assert!(
+        stack.kratos.authenticator_urls().is_empty(),
+        "the old app is still the one in use"
+    );
+
+    let (status, refused) = stack
+        .post_json(
+            "/api/v1/me/authenticator-replacement/confirm",
+            &laptop,
+            &json!({ "code": "000000", "nickname": "Bitwarden" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(refused["code"], "authenticator_code_invalid");
+    assert!(
+        stack.kratos.authenticator_urls().is_empty(),
+        "a wrong code changes nothing"
+    );
+
+    let (status, _) = stack
+        .post_json(
+            "/api/v1/me/authenticator-replacement/confirm",
+            &laptop,
+            &json!({ "code": current_code(secret_key), "nickname": "Bitwarden" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let written = stack.kratos.authenticator_urls();
+    assert_eq!(written.len(), 1);
+    assert!(
+        written[0].contains(&format!("secret={secret_key}")),
+        "{}",
+        written[0]
+    );
+
+    let asked_after_move = stack.kratos.whoami_calls();
+    assert_eq!(stack.me(&phone).await, StatusCode::OK);
+    assert_eq!(
+        stack.kratos.whoami_calls(),
+        asked_after_move + 1,
+        "the phone's cached answer was forgotten, so it asked Kratos again"
+    );
+
+    let (status, _) = stack
+        .post_json(
+            "/api/v1/me/authenticator-replacement/confirm",
+            &laptop,
+            &json!({ "code": current_code(secret_key), "nickname": "Bitwarden" }),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "a finished move cannot be confirmed twice"
+    );
+}
+
+/// #165: a move changes how the person signs in, so it asks for a recent sign-in as Kratos does,
+/// read from Kratos rather than the cache.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run by scripts/verify-migrations.sh"]
+async fn moving_to_a_new_authenticator_app_needs_a_recent_sign_in() {
+    let stack = Stack::start().await;
+    let stale = stack.kratos.signed_in_ago(chrono::Duration::minutes(20));
+    let (status, refused) = stack
+        .post_json("/api/v1/me/authenticator-replacement", &stale, &json!({}))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(refused["code"], "recent_sign_in_required");
+
+    let fresh = stack.kratos.signed_in_ago(chrono::Duration::minutes(1));
+    let (status, _) = stack
+        .post_json("/api/v1/me/authenticator-replacement", &fresh, &json!({}))
+        .await;
+    assert_eq!(status, StatusCode::OK);
 }

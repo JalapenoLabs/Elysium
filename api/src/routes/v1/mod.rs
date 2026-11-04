@@ -5,6 +5,7 @@
 pub mod action_items;
 mod auth_status;
 mod authenticator_nickname;
+mod authenticator_replacement;
 mod backups;
 pub mod browser_sessions;
 pub mod changesets;
@@ -55,6 +56,14 @@ pub fn router(state: &AppState) -> Router<AppState> {
         .route(
             "/me/authenticator-nickname",
             put(authenticator_nickname::set).delete(authenticator_nickname::clear),
+        )
+        .route(
+            "/me/authenticator-replacement",
+            post(authenticator_replacement::start),
+        )
+        .route(
+            "/me/authenticator-replacement/confirm",
+            post(authenticator_replacement::confirm),
         )
         .route("/me/sessions", delete(my_sessions::end_others))
         .route("/me/sessions/{id}", delete(my_sessions::end_one))

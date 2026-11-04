@@ -290,6 +290,17 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    authenticator_replacements (user_id) {
+        user_id -> Uuid,
+        secret_encrypted -> Bytea,
+        expires_at -> Timestamptz,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::BrowserState;
 
     browser_sessions (id) {
@@ -1354,6 +1365,7 @@ diesel::joinable!(action_item_projects -> projects (project_id));
 diesel::joinable!(action_items -> users (created_by));
 diesel::joinable!(agent_tool_grants -> users (created_by));
 diesel::joinable!(authenticator_nicknames -> users (user_id));
+diesel::joinable!(authenticator_replacements -> users (user_id));
 diesel::joinable!(browser_sessions -> users (created_by));
 diesel::joinable!(changeset_operations -> changesets (changeset_id));
 diesel::joinable!(changesets -> projects (project_id));
@@ -1463,6 +1475,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     action_items,
     agent_tool_grants,
     authenticator_nicknames,
+    authenticator_replacements,
     browser_sessions,
     changeset_operations,
     changesets,
