@@ -22,9 +22,9 @@
   "categoryDescriptions": {
     "decision": "A choice that was made and why, so it is not argued again",
     "convention": "How work is done here: style, naming, process, review",
-    "procedure": "Steps known to work for a task that comes back",
+    "procedure": "Steps known to work for a task that comes back: setting up, deploying, restoring",
     "pitfall": "Something that behaves other than expected, and the way around it",
-    "reference": "Facts about a tool, API, or service worth not looking up again",
+    "reference": "Facts about a tool, API, or service worth not looking up again: limits, endpoints, flags",
     "environment": "Where things are: hosts, paths, accounts, and how they connect",
     "people": "Who owns, reviews, or decides what, and how they want work delivered",
     "project": "A project's or a client's goals, constraints, and current state",
