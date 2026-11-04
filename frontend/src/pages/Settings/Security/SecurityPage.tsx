@@ -113,7 +113,7 @@ export function SecurityPage() {
       </Tabs.ListContainer>
       <Tabs.Panel id='general'>
         <PasswordCard flow={flow} onSubmit={settings.submit} />
-        <TwoFactorCard flow={flow} onSubmit={settings.submit} />
+        <TwoFactorCard flow={flow} />
       </Tabs.Panel>
       <Tabs.Panel id='passkeys'>
         <PasskeysSection flow={flow} onSubmit={settings.submit} />

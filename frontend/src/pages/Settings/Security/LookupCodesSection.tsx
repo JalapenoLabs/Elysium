@@ -7,8 +7,13 @@ import type { SettingsSubmission } from '../../../hooks/useKratosSettingsFlow'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+// Redux
+import { selectMe } from '../../../store/authSlice'
+import { useAppSelector } from '../../../store/hooks'
+
 // User interface
 import { Alert, Button } from '@heroui/react'
+import { BackupCodesList } from './BackupCodesList'
 
 // Misc
 import { useConfirm } from '../../../hooks/useConfirm'
@@ -28,12 +33,13 @@ const lookupBodies = {
   confirm: { method: 'lookup_secret', lookup_secret_confirm: true },
 } as const satisfies Record<LookupAction, SettingsSubmission>
 
-// One-time codes that stand in for the authenticator app when the phone is lost, on the Lookup
+// One-time codes that stand in for the authenticator app when the phone is lost, on the Backup
 // codes tab. Each works once; new ones replace the old only after this person confirms they
-// saved them.
+// saved them, which copying or downloading them helps with.
 export function LookupCodesSection(props: Props) {
   const { t } = useTranslation([ 'auth', 'common' ])
   const confirm = useConfirm()
+  const me = useAppSelector(selectMe)
   const [ pending, setPending ] = useState<LookupAction | null>(null)
   const lookup = readLookupCodes(props.flow)
 
@@ -63,14 +69,7 @@ export function LookupCodesSection(props: Props) {
           <Alert.Description>{t('security.lookup.saveThem')}</Alert.Description>
         </Alert.Content>
       </Alert>}
-      <ul className='grid grid-cols-2 gap-2 sm:grid-cols-4'>{
-        lookup.codes.map((entry, index) => <li
-          key={entry.code ?? `used-${index}`}
-          className='rounded-md bg-surface-secondary px-3 py-2 text-center font-mono text-sm'
-        >{
-            entry.code ?? <span className='opacity-50'>{t('security.lookup.used')}</span>
-          }</li>)
-      }</ul>
+      <BackupCodesList codes={lookup.codes} appName={me?.authenticatorNickname ?? ''} />
     </div>}
 
     <div className='level-left flex-wrap'>

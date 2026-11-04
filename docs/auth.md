@@ -134,8 +134,55 @@ app holds Elysium's codes. Kratos holds one app per identity and has nowhere for
   answers `409` unless Kratos holds an app to name.
 - **Read through `/me`**, as `authenticatorNickname`. Security shows it only while Kratos says the app is
   set up, so a name left behind is never shown beside another app.
-- **Removed with the app.** Security forgets it when the person removes their app, and when they set one
-  up without a name; an admin's Reset authenticator forgets it too.
+- **Removed with the app.** Remove 2FA forgets it, and so does an admin's Reset authenticator. Adding an app
+  and moving to a new one both ask for a name, so a new app never shows an old app's.
+
+### Authenticator apps
+
+Adding, changing, and removing an authenticator app each have a page of their own under Security
+(`/settings/security/two-factor/new`, `/edit`, `/remove`; `docs/frontend.md`, Accounts). Each first checks the
+session signed in recently enough to finish (Recent sign-in, below), and sends the person to confirm it's them
+before they start rather than when their last step is refused.
+
+**Adding one** goes through Kratos's settings flow, in three steps: name the app, download backup codes, then
+scan the app and enter its code. Two settings flows carry it:
+
+- **The codes' flow** makes new lookup codes (`lookup_secret_regenerate`). Kratos holds them in the flow, unsaved,
+  while the person downloads them; any codes they already had keep working.
+- **The app's flow** verifies the app (`totp_code`). Kratos stores it and marks the session as having used it, so
+  the session stays signed in with two factors.
+- **Then the codes' flow confirms the codes** (`lookup_secret_confirm`), which replaces any the person had; the
+  page says so before they download. They cannot share one flow: a successful settings change starts the flow's
+  internal state over, which would drop the unsaved codes.
+- **Leaving cancels it.** Nothing is stored until the app is verified, which the page allows only after the codes
+  are downloaded, so leaving at any step leaves both flows to expire in Kratos with nothing applied. That is the
+  pending state the rule "leaving without downloading cancels 2FA" needs, and it lives in Kratos, not Elysium.
+- **The one gap.** If saving the codes fails after the app was verified, 2FA is on with a working app and the
+  person's earlier codes, if any. The page keeps the last step open to save them again, and on a reload finds the
+  app verified and offers only that.
+
+**Moving to a new app** cannot go through Kratos's flow, which offers a new app only once the old one is removed
+and would leave the person without 2FA in between. So the API moves it (`api/src/auth/authenticator_change.rs`),
+keeping the current app until the new one is verified:
+
+1. `POST /api/v1/me/authenticator-replacement` makes the new app's secret as Kratos makes one (20 random bytes,
+   SHA-1, six digits, 30-second steps, issued by Elysium to the person's email) and holds it sealed in
+   `authenticator_replacements`, one row per person, for 15 minutes. It answers the QR code and the key.
+2. `POST .../confirm` checks a code from the new app as Kratos checks one at sign-in, the current step or one either
+   side, then writes the new secret over the old in one admin patch of the credential's config
+   (`/credentials/totp/config/totp_url`), names the app, and drops the held secret. Codes from the old app work
+   until that write, and only the new app's after it.
+3. The patch is an admin write, which fires no settings webhook, so the API forgets the person's cached sessions
+   itself, as the webhook would have (Ending a session, below). No session ends: each asks Kratos once more.
+
+- **Refusals.** A wrong code answers `400 authenticator_code_invalid`, a held app past its 15 minutes `409
+  authenticator_replacement_expired`, and someone with no app to move from `409`.
+- **Expiry.** An expired row is never read, and every start removes all expired rows, so no background job sweeps
+  them. Walking away mid-move leaves the current app as it was.
+- **Beside `/me`.** Both routes sit outside the workspace's access rule, like the nickname.
+
+**Removing one** unlinks the app through Kratos's flow and, unless the person keeps them, turns the backup codes off
+too, since codes alone would still count as a second factor.
 
 ## Sessions
 
@@ -158,7 +205,9 @@ app holds Elysium's codes. Kratos holds one app per identity and has nowhere for
   refused on their next request.
 - **Password changes.** Changing a password signs out every other session.
 - **Recent sign-in.** Changing a password, passkey, or authenticator requires having signed in within the last 15
-  minutes. Kratos asks for a fresh sign-in otherwise.
+  minutes. Kratos asks for a fresh sign-in otherwise, and moving to a new authenticator app asks the same
+  (`403 recent_sign_in_required`). The API reads the sign-in's time from Kratos for that, not from the cache: signing
+  in again is no settings change, so the cached answer could still say the earlier one.
 
 ### Ending a session
 

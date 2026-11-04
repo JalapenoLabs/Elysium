@@ -61,6 +61,9 @@ import { AddLlmPage } from './pages/Settings/Llms/AddLlmPage'
 import { EditLlmPage } from './pages/Settings/Llms/EditLlmPage'
 import { ManageLlmsPage } from './pages/Settings/Llms/ManageLlmsPage'
 import { McpPage } from './pages/Settings/Mcp/McpPage'
+import { AddTwoFactorPage } from './pages/Settings/Security/AddTwoFactorPage'
+import { ChangeTwoFactorPage } from './pages/Settings/Security/ChangeTwoFactorPage'
+import { RemoveTwoFactorPage } from './pages/Settings/Security/RemoveTwoFactorPage'
 import { SecurityPage } from './pages/Settings/Security/SecurityPage'
 import { ManageUsersPage } from './pages/Settings/Users/ManageUsersPage'
 import { AddStorageLocationPage } from './pages/Settings/Storage/AddStorageLocationPage'
@@ -219,6 +222,18 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsSecurity,
       element: <SecurityPage />,
+    },
+    {
+      path: UrlTree.settingsTwoFactorNew,
+      element: <AddTwoFactorPage />,
+    },
+    {
+      path: UrlTree.settingsTwoFactorEdit,
+      element: <ChangeTwoFactorPage />,
+    },
+    {
+      path: UrlTree.settingsTwoFactorRemove,
+      element: <RemoveTwoFactorPage />,
     },
     // A browser is a connector's account, shown on the connector's page.
     {

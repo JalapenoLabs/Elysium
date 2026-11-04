@@ -84,6 +84,7 @@ tried again at the next start.
 | `environment_variables` | `value_encrypted` | `environment_variables.value:<id>` |
 | `password_vault` | `client_secret_encrypted` | `password_vault.client_secret` (one row) |
 | `password_vault` | `master_password_encrypted` | `password_vault.master_password` (one row) |
+| `authenticator_replacements` | `secret_encrypted` | `authenticator_replacements.secret:<user id>`, for 15 minutes |
 
 ## Roadmap
 

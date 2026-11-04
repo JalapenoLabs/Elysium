@@ -195,7 +195,9 @@ or menu item that does one thing, such as Resolve, Approve, Link, Forget, or Del
 
 `AppShell` also mounts HeroUI's `RouterProvider`, wired to React Router's `navigate` and `useRouterHref`
 (`src/layout/useRouterHref.ts`). That makes any HeroUI `Link` `href` a client-side navigation, while a full URL to
-another site keeps its own address. It also mounts the toast region.
+another site keeps its own address. A link's `routerOptions` are React Router's own (`src/@types/react-aria.d.ts`),
+so a link can carry state, such as `LEAVE_WITHOUT_ASKING` for one that stays on its page. It also mounts the toast
+region.
 
 Anything that goes somewhere is a real link, so it can be middle-clicked, ctrl+clicked, or opened in a new tab
 (`~/.claude/docs/ux.md`, Buttons): a button is a HeroUI `Link` styled with `buttonVariants(...)`, a menu item is a
@@ -242,7 +244,10 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/account`           | `AccountPage`            | My account: name and email, and the light, dark, or system theme |
 | `/settings/profile`           | redirect                 | To `/settings/account`                                   |
 | `/settings/personal-details`  | redirect                 | To `/settings/account`                                   |
-| `/settings/security`          | `SecurityPage`           | Security: password, two-factor, passkeys, lookup codes, sessions |
+| `/settings/security`          | `SecurityPage`           | Security: password, two-factor, passkeys, backup codes, sessions |
+| `/settings/security/two-factor/new` | `AddTwoFactorPage` | Add 2FA: name, backup codes, then the app; `?step=` resumes it |
+| `/settings/security/two-factor/edit` | `ChangeTwoFactorPage` | Rename the app, or move to a new one        |
+| `/settings/security/two-factor/remove` | `RemoveTwoFactorPage` | Remove 2FA, and its backup codes          |
 | `/settings/browsers`          | redirect                 | To `/settings/connectors`                                |
 | `/settings/browsers/:browserSessionId` | `BrowserSignInRedirect` | To the connector that owns the browser, else the list |
 | `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
@@ -337,15 +342,31 @@ offers them in autofill. See `docs/auth.md`.
   success it reports after every save is dropped for the page's own toast, so nothing moves the page.
 - **My account** (`/settings/account`). First and last name side by side (`PersonNameFields`, also on sign-up), the
   email below them, saved to Kratos by the page's Save; then the theme, which applies as soon as it is picked.
-- **Security** (`/settings/security`). Tabs, the open one kept in `?tab=`: General, Passkeys, Lookup codes,
-  and Sessions, where lists show their totals beside their names.
+- **Security** (`/settings/security`). Tabs, the open one kept in `?tab=`: General, Passkeys, Backup codes (Kratos's
+  lookup codes), and Sessions, where lists show their totals beside their names.
   - **General.** A Password card whose Change password opens `ChangePasswordModal`, which asks for the new password
     twice. A Two-factor authentication card showing whether it is on, the authenticator app by its nickname, and
-    whether lookup codes are set up, with Add 2FA, or Change 2FA and Remove 2FA. Adding sets the app up in a modal
-    (`AuthenticatorEnrollment`: an optional nickname, the QR code and key, and the code). Changing renames the app, or
-    moves to a new one, which removes the old app first, since Kratos offers a new QR code only then, and sets the
-    new one up in the same modal.
-  - **Passkeys, Lookup codes, Sessions.** Each list with its action above it.
+    whether backup codes are set up, with Add 2FA, or Change 2FA and Remove 2FA, each a link to its own page.
+  - **Passkeys, Backup codes, Sessions.** Each list with its action above it. Codes on show copy and download as one
+    file, as they do while 2FA is added (`BackupCodesList`).
+- **Two-factor pages.** Each opens with `useRecentSignIn`, which sends someone whose sign-in has less than five
+  minutes of Kratos's 15 left to confirm it's them first, coming back to the page. How each change reaches Kratos is in
+  `docs/auth.md`, Authenticator apps. Security and these pages are where someone the workspace requires to set up an
+  app may be.
+  - **Add 2FA** (`/two-factor/new`). Three steps with a clickable progress bar (`StepProgress`): the app's nickname,
+    then its backup codes, then the QR code and key with the six-digit code. Next on the codes step stays disabled
+    until they are downloaded, in one click, as a text file named for the app and the local time
+    (`backupCodesFile.ts`). The step, the name, and both Kratos flows' ids are in the address
+    (`useKratosSettingsFlow`'s `flowParam`), so a reload resumes with the same unsaved codes. The page's Save is Turn
+    on 2FA, in the header and below the last step. Moving between steps never asks about leaving; leaving the page
+    does, and cancels.
+  - **Change 2FA** (`/two-factor/edit`). The nickname, saved by the page's Save, and Move to a new app, which shows
+    the new app's QR code and key from the API and switches once its code is entered; the current app works until
+    then.
+  - **Remove 2FA** (`/two-factor/remove`). What stops, with "Also turn off backup codes" on by default, and Remove 2FA
+    enabled after a five-second countdown.
+  - **Copying.** The setup key and backup codes copy with `CopyButton`, an icon-only button that confirms with a
+    toast.
 - **Users** (`/settings/users`). Admins only. Workspace access settings, then pending sign-ups pinned above everyone
   approved. The access switches and each person's role are the page's fields, kept by its Save; a role the API
   refuses, such as the last admin's, stays picked. Approving, disabling, and the rest of a row's actions act at once.

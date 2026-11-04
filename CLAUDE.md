@@ -104,6 +104,10 @@ Everything else follows these rules:
 - A session or MCP token that ends is refused on its next request, though the API caches what Kratos and Hydra say:
   sessions end only through the API (`crate::auth::sessions`, `crate::oauth::tokens`), which forgets them in the same
   step, and nginx keeps browsers from ending one through Kratos directly.
+- 2FA is never off while it changes. Adding an app saves nothing until the app is verified, after its backup codes
+  are downloaded. Moving to a new app is the API's own change: it holds the new secret sealed until a code from it
+  checks out, then swaps it into Kratos in one admin write (`api/src/auth/authenticator_change.rs`). See
+  `docs/auth.md`, Authenticator apps.
 - An identity holds an email and a first and last name. A change to what identities hold is a new Kratos schema
   registered beside the old one, never an edit of it, and the API moves each identity onto it when it starts
   (`api/src/auth/identity_schemas.rs`). See `docs/auth.md`, Identity schemas.

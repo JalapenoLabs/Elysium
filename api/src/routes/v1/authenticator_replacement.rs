@@ -16,6 +16,7 @@ use axum::{Extension, Json};
 use chrono::{DateTime, Utc};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
+use tracing::{Level, event};
 
 use crate::auth::authenticator_change::{self, NewAuthenticator, REPLACEMENT_LIFETIME};
 use crate::auth::kratos::Session;
@@ -131,10 +132,28 @@ pub async fn confirm(
     )
     .await?;
 
-    // The new app is in use from here, whatever follows: forgetting the held secret and naming
-    // the app are Elysium's own records, and a failure in them is reported without undoing it.
-    authenticator_replacement::clear(&mut connection, principal.user.id).await?;
-    authenticator_nickname::set(&mut connection, principal.user.id, nickname).await?;
+    // The new app is in use from here, whatever follows, so the move answers as done. Forgetting
+    // the held secret and naming the app are Elysium's own records: a failure in either is
+    // logged, since answering it as an error would send the person to set up yet another app.
+    // A held secret left behind expires on its own.
+    if let Err(error) = authenticator_replacement::clear(&mut connection, principal.user.id).await {
+        event!(
+            name: "auth.authenticator.replacement.clear_failure",
+            Level::WARN,
+            error.message = %error,
+            "moved to a new authenticator app, but could not forget its held secret",
+        );
+    }
+    if let Err(error) =
+        authenticator_nickname::set(&mut connection, principal.user.id, nickname).await
+    {
+        event!(
+            name: "auth.authenticator.nickname.set_failure",
+            Level::WARN,
+            error.message = %error,
+            "moved to a new authenticator app, but could not name it",
+        );
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

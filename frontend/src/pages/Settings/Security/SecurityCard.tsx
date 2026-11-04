@@ -8,7 +8,7 @@ type Props = {
   status?: ReactNode
   // What the feature holds now, above its actions.
   children?: ReactNode
-  // Buttons along the bottom, each opening the modal that does the work.
+  // Buttons along the bottom, each opening the modal or page that does the work.
   actions: ReactNode
 }
 

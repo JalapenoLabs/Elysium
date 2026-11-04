@@ -66,3 +66,33 @@ export function clearAuthenticatorNickname() {
   return apiClient
     .delete('v1/me/authenticator-nickname')
 }
+
+// A new authenticator app to move to, held by the API until a code from it checks out. The app
+// in use keeps working until then.
+export type AuthenticatorReplacement = {
+  // A PNG `data:` URL.
+  qrCode: string
+  secretKey: string
+  expiresAt: string
+}
+
+// Answers 403 `recent_sign_in_required` for a sign-in too old to change how this person signs
+// in, and 409 when they have no authenticator app to move from.
+export function startAuthenticatorReplacement() {
+  return apiClient
+    .post('v1/me/authenticator-replacement')
+    .json<AuthenticatorReplacement>()
+}
+
+type ConfirmAuthenticatorReplacementRequest = {
+  code: string
+  nickname: string
+}
+
+// Makes the new app the one in use, in place of the old one, and names it. Answers 400
+// `authenticator_code_invalid` for a wrong code, and 409 `authenticator_replacement_expired`
+// once the new app waited too long.
+export function confirmAuthenticatorReplacement(body: ConfirmAuthenticatorReplacementRequest) {
+  return apiClient
+    .post('v1/me/authenticator-replacement/confirm', { json: body })
+}

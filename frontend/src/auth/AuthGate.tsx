@@ -43,7 +43,9 @@ export function AuthGate() {
     return response
   })
 
+  // Security, and two-factor authentication's pages under it, where an app is set up.
   const isOnSecurityPage = location.pathname === UrlTree.settingsSecurity
+    || location.pathname.startsWith(`${UrlTree.settingsSecurity}/`)
   const mustEnroll = refusal === 'mfa_enrollment_required' || Boolean(me?.mfaEnrollmentRequired)
   const hasAccess = me?.user.status === 'active' && !mustEnroll && !refusal
 
@@ -85,7 +87,7 @@ export function AuthGate() {
     }</div>
   }
 
-  // The security page is the one place someone who must set up an authenticator may be.
+  // Security is the one place someone who must set up an authenticator may be.
   if (mustEnroll && !isOnSecurityPage) {
     return <Navigate to={UrlTree.settingsSecurity} replace />
   }

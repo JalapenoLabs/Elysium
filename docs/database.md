@@ -1037,6 +1037,19 @@ identity, and this only names it. See `docs/auth.md`, Authenticator nicknames.
 | `created_at` | `TIMESTAMPTZ` | Set on insert                                                      |
 | `updated_at` | `TIMESTAMPTZ` | Maintained by trigger                                              |
 
+### `authenticator_replacements`
+
+The new authenticator app a person is moving to, held until a code from it is verified, so the app in use keeps
+working until then. A child of `users`, one row at a time; starting again replaces it. See `docs/auth.md`,
+Authenticator apps.
+
+| Column             | Type          | Notes                                                                   |
+|--------------------|---------------|-------------------------------------------------------------------------|
+| `user_id`          | `UUID`        | Primary key; references `users`, `ON DELETE CASCADE`                    |
+| `secret_encrypted` | `BYTEA`       | The new app's TOTP secret, sealed (`docs/secrets.md`)                   |
+| `expires_at`       | `TIMESTAMPTZ` | 15 minutes after the start; refused after it, removed at the next start |
+| `created_at`       | `TIMESTAMPTZ` | Set on insert, and again when replaced                                  |
+
 ### `workspace_settings`
 
 One row, always present (`singleton` is its key and must be true).

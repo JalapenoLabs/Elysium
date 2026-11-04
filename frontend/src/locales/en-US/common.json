@@ -8,6 +8,7 @@
     "done": "Done",
     "edit": "Edit",
     "gotIt": "Got it",
+    "next": "Next",
     "rename": "Rename",
     "retry": "Retry",
     "save": "Save",
@@ -17,6 +18,10 @@
   "confirm": {
     "irreversible": "This can't be undone.",
     "countdown": "{{action}} ({{seconds}})"
+  },
+  "clipboard": {
+    "copied": "Copied",
+    "failed": "Could not copy. Select the text and copy it instead."
   },
   "search": {
     "placeholder": "Search",

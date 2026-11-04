@@ -126,6 +126,16 @@ export const NAME_PART_MAX_LENGTH = 50
 // The longest nickname for an authenticator app (`authenticator_nicknames` in the API).
 export const AUTHENTICATOR_NICKNAME_MAX_LENGTH = 50
 
+// How recently a person must have signed in to change how they sign in: Kratos's
+// `privileged_session_max_age` (kratos/kratos.yml), which the API's move to a new authenticator
+// app asks too. Change them together.
+export const RECENT_SIGN_IN_MS = 15 * 60 * 1000
+
+// How long a two-factor page leaves to finish once it opens. A sign-in with less of the
+// recent-sign-in window left than this is renewed before the page starts, so a change is not
+// refused halfway through for a sign-in that aged while the person scanned a code.
+export const TWO_FACTOR_WORKING_TIME_MS = 5 * 60 * 1000
+
 // Whether Elysia's panel is open beside the page, remembered per browser.
 export const ELYSIA_PANEL_STORAGE_KEY = 'elysium.elysia.panel.v1'
 

@@ -41,6 +41,10 @@ export const UrlTree = {
   settingsProfile: '/settings/profile',
   settingsPersonalDetails: '/settings/personal-details',
   settingsSecurity: '/settings/security',
+  // Two-factor authentication's own pages, each opened from its card on Security.
+  settingsTwoFactorNew: '/settings/security/two-factor/new',
+  settingsTwoFactorEdit: '/settings/security/two-factor/edit',
+  settingsTwoFactorRemove: '/settings/security/two-factor/remove',
   settingsUsers: '/settings/users',
   settingsBrowsers: '/settings/browsers',
   settingsBrowser: '/settings/browsers/:browserSessionId',
