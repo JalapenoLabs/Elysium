@@ -433,6 +433,18 @@ See `docs/mcp.md`.
 
 ## Pages and components
 
+### Icon buttons and menus
+
+- **Icon-only buttons** (`~/.claude/docs/ux.md`, Brevity) are HeroUI's `isIconOnly`, named by `aria-label`, and the
+  trigger of a `Tooltip` that shows the same name: the button is the tooltip's first child, never inside
+  `Tooltip.Trigger`, which is a tab stop of its own. Only a button that is disabled, and so fires no hover, sits in
+  a wrapper for its tooltip (`PageSaveButton`). Copying is `CopyButton`.
+- **Menus** (Dropdowns). Every item leads with its icon; destructive items are last, below a `Separator`, red, and
+  fill red under the mouse or keyboard (`.menu-item--danger` in `src/theme/matter.css`), and each asks first or
+  offers Undo. A trigger with text ends with a chevron.
+- `src/bugs/171.test.ts` reads every source file and fails on an icon-only button without a name or a tooltip it
+  triggers, and on a dropdown item without an icon.
+
 ### Global search
 
 The topbar's search (`src/search/`) is Elysium's one way to reach anything (`~/.claude/docs/ux.md`, Global
@@ -862,6 +874,9 @@ matter when changing it:
   the API (`sessionRepositories.ts`).
 - `DockviewReact` needs a sized parent. The page is a flex column whose Dockview wrapper is `min-h-0 flex-1`,
   inside a workspace-layout `main`.
+- Every tab is `CodingTab`, Dockview's own tab with a translated close button and its tooltip. Once a group's tabs
+  no longer fit, as on a phone, `CodingTabsMenu` at the end of its strip lists them all, in place of Dockview's
+  overflow list (`disableTabsOverflowList`), which has no name or tooltip; the strip scrolls sideways as well.
 
 ### Studio
 
@@ -1201,7 +1216,9 @@ base variables for each theme. HeroUI derives the hover, soft, and secondary sha
   colors deepened for contrast.
 - **Adjustments for legibility.** Link text uses a brighter blue in dark mode and a darker one in light mode,
   because `#267fb5` alone falls short of body-text contrast. Borders sit a step lighter than Matter's own, which
-  vanish against the page.
+  vanish against the page. Dividers (`--separator`) are a 16% tint of the muted text rather than a color, so one
+  shows the same on the page, the side panels, and the menus and popovers, which sit lighter than the page in dark
+  mode.
 
 ### Fields
 
