@@ -34,7 +34,7 @@ pub use self::step::{Done, Step, StepContext, StepFailure, StepLog, Steps};
 pub use self::workflow::{Outline, Start, Workflow, declare};
 use crate::models::workflow_run::{self, NewRun, Settled, Started};
 use crate::realtime::{EventBus, ServerEvent, Signal};
-use crate::{company_doc, meetings};
+use crate::{company_doc, conversations, meetings};
 
 /// Every workflow this build runs. It is the one list the engine checks the steps it registers
 /// against as it starts ([`Steps::assert_runs`], [`Steps::assert_declared_in`]), and the one the
@@ -44,6 +44,7 @@ pub fn declared() -> Vec<Outline> {
     vec![
         meetings::workflow::workflow().outline(),
         company_doc::workflow::workflow().outline(),
+        conversations::workflow::workflow().outline(),
     ]
 }
 

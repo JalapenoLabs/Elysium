@@ -743,6 +743,35 @@ fn read_of(message: &Message, team: &Team, state: &State) -> Read {
         ),
         wants_attention,
         metadata,
+        conversation: Some(conversation_of(message, team, &place, &sender)),
+    }
+}
+
+/// The conversation `message` was said in (`super::Conversation`): a direct or group message
+/// whole, and a channel by thread, a top-level message starting its own. `place` and `sender`
+/// name it as the message's title does.
+fn conversation_of(
+    message: &Message,
+    team: &Team,
+    place: &str,
+    sender: &str,
+) -> super::Conversation {
+    let (key, title) = match message.kind {
+        ConversationKind::Channel => {
+            let root = message.thread_ts.as_deref().unwrap_or(&message.ts);
+            (
+                format!("{}/{}/{root}", team.id, message.conversation),
+                format!("{place} in {}", team.name),
+            )
+        }
+        ConversationKind::Group | ConversationKind::Direct => (
+            format!("{}/{}", team.id, message.conversation),
+            format!("{sender} in {place} in {}", team.name),
+        ),
+    };
+    super::Conversation {
+        key,
+        title: truncate(&title, TITLE_MAX_CHARACTERS),
     }
 }
 

@@ -250,13 +250,15 @@ async fn the_event_stream_delivers_what_another_process_publishes() {
         source_kind: "mail".to_owned(),
         created_by: Uuid::nil(),
         action_item_id: None,
+        conversation_id: None,
     });
     let delivered: Value = serde_json::from_str(&next_frame(&mut body).await).expect("json");
     assert_eq!(
         delivered,
         json!({
             "type": "timelineRecord.created",
-            "data": { "id": id, "sourceKind": "mail", "createdBy": Uuid::nil(), "actionItemId": null },
+            "data": { "id": id, "sourceKind": "mail", "createdBy": Uuid::nil(), "actionItemId": null,
+                "conversationId": null },
         }),
         "ids and kinds, exactly as the API's own events are sent"
     );

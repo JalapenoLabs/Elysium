@@ -54,6 +54,9 @@ pub enum Signal {
     Workflows,
     /// Someone asked the knowledge base a question: the engine's answerer takes it now.
     KnowledgeAsks,
+    /// A message that asks something of its person joined its conversation: the engine's
+    /// conversation loop starts that conversation's quiet window now.
+    Conversations,
     /// Someone asked for connector `connector_id` to be read now.
     ConnectorSync { connector_id: Uuid },
     /// A request to the password vault, sealed for the engine. See `crate::passwords::remote`.

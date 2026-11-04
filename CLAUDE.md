@@ -274,6 +274,12 @@ Everything else follows these rules:
 - Ingest runs every minute. A new unread message raises an inbox item in the same transaction as its record,
   recorded as `watcher:<service>`: connecting a mailbox is the consent, as linking a container is for the link
   watcher. The first read baselines the mailbox without raising anything.
+- Every direct message and mention joins its conversation (a Slack direct message or thread, a Teams chat or thread,
+  a mail thread by sender and subject) in the transaction that records it, as rows the engine claims, never timers.
+  Ten seconds after a conversation's newest message, the engine starts a `request` run: segmenting, then the
+  conversation's agent, one Claude session resumed every turn, which raises an inbox item as Elysia for each question
+  or request the person owes, may wait 30 seconds once per run, and is given what arrives while it runs. It never
+  sends. See `docs/engine.md`, Conversations.
 - `timelineRecord.created` carries ids and kinds, never content, because every client hears every event. It is the
   seam Elysia's triage builds on.
 - A person answers what a connector read as themselves: each kind declares `replies` (through the connector itself,

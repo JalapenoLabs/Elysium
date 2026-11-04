@@ -18,9 +18,9 @@
 //! run are registered once in [`Steps`](super::Steps), which one workflow or many may share.
 //!
 //! A run starts from a workflow with its source and input ([`Workflow::new_run`]), or enters it
-//! at a later step with that step's own input ([`Workflow::new_run_at`]): a Slack request has a
-//! conversation to segment and nothing to fetch. Either way the run's steps are the workflow's
-//! from that step on, each a row of the queue.
+//! at a later step with that step's own input ([`Workflow::new_run_at`]): a meeting fetched
+//! before segmenting was one of its steps is carried on from segmenting. Either way the run's
+//! steps are the workflow's from that step on, each a row of the queue.
 
 use std::any::TypeId;
 use std::marker::PhantomData;

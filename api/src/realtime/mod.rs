@@ -198,6 +198,9 @@ pub enum ServerEvent {
         created_by: Uuid,
         /// The inbox item it raised, when it raised one.
         action_item_id: Option<Uuid>,
+        /// The conversation it joined, when it is a message work starts from: that
+        /// conversation's request run handles it, so Elysia's intake leaves it alone.
+        conversation_id: Option<Uuid>,
     },
     /// What a record is attributed to changed: a person confirmed, added, removed, or undid an
     /// attribution, or segmenting read its conversation again. Its id and owner alone; its

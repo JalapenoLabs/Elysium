@@ -273,6 +273,7 @@ pub async fn send(state: &AppState, person: &User, id: Uuid) -> Result<Draft, Ap
                     source_kind: created.source_kind,
                     created_by: created.created_by,
                     action_item_id: None,
+                    conversation_id: None,
                 });
             }
             finished

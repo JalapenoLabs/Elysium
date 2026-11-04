@@ -298,19 +298,22 @@ the copy maps onto Whisper's word timings by time alone: a step cuts a segment's
 ### Segmentation
 
 `segment_meeting` (`api/src/meetings/segment.rs`; the prompts and the checks on the answers are `segmentation.rs`) is
-the workflow's last step. It is named for the meetings it segments, and its model setting is filed under that name; it
-takes either of two things to segment (`TranscriptToSegment`, untagged, so each reads as its own JSON):
+the workflow's last step, and the first of the request workflow (`docs/engine.md`, Conversations). It is named for the
+meetings it segments, and its model setting is filed under that name; it takes either of two things to segment
+(`TranscriptToSegment`, untagged, so each reads as its own JSON):
 
 - **A meeting** past its correction (`CorrectedMeeting`), or what the transcription or the fetch gave when a person
   skipped the steps between.
 - **A conversation** (`ConversationToSegment`: `{ title, recordIds }`), messages already on one person's timeline,
-  which intake gathers from a direct message thread or a channel and enters the workflow with at this step
-  (`Workflow::new_run_at`). `title` is what the conversation is called where it was had, such as `#launch in
-  Mooreslab`.
+  which `crate::conversations` gathers from a direct message, a thread, or a mail thread, and starts a request run
+  with once the conversation goes quiet: the messages the run takes and up to 20 before them. `title` is what the
+  conversation is called where it was had, such as `#launch in Mooreslab`.
 
 What it gives (`Segmented`) is every topic in order, each with its title, summary, span, the projects Elysia attributed
-it to with her confidence, and its records: a meeting segment's own, or a conversation topic's messages. Steps after it
-read from that what landed on which project.
+it to with her confidence, and its records: a meeting segment's own, or a conversation topic's messages. For a
+conversation it also names every record it read (`recordIds`), so a conversation's input, which a person skipping the
+step hands on, reads as a `Segmented` with no topics and still names its messages. Steps after it read from that what
+landed on which project.
 
 **The turn.** One text turn on the runner (`TurnMode::Text`, `docs/coding.md`) through `StepContext::model`, on the
 segmenting kind: Opus 5.5 at high effort unless an admin chose another for the step, the kind, or (where a kind runs in
@@ -361,9 +364,15 @@ auto-update waits for clips being cut.
 person's records fails for good), ordered by when they were said, and segmented in one turn. Each message is then
 attributed to its topic's projects, and the reading replaces what Elysia said of those messages before: an attribution
 of hers that it no longer makes is taken off, so a conversation read again as it grows keeps no guess its fuller
-reading dropped. A person's attributions are never touched (`docs/connectors.md`, The timeline). No record is made: a
-conversation's messages are already its records, and a topic of one is a run of them. Each message whose attributions
-changed is announced as `timelineRecord.changed`.
+reading dropped. A person's attributions are never touched (`docs/connectors.md`, The timeline). Each message whose
+attributions changed is announced as `timelineRecord.changed`.
+
+**A conversation's topics are not records.** A meeting needs its segments as records because nothing else of it is on
+the timeline; a conversation's messages already are, each attributed to its topic's projects, so a topic record would
+show every message on a project's timeline twice. A conversation is also read again as it grows, which merges and
+splits its topics, so a topic has no identity a record, and a person's correction of it, could keep. A topic's title
+and summary are in the run's output (`Segmented`), which the handling agent reads on its run's first turn and the
+steps after segmenting read from.
 
 **What it logs.** Counts, line and message counts, and storage paths, never a title or a word that was said.
 
@@ -471,6 +480,3 @@ with its record: its title, its summary, and its excerpt, never its clip (`docs/
 - Passing long prompts to the CLI on standard input, so a transcript never has to be shortened to fit an argument,
   and a long meeting's correction reads the company doc once rather than in every turn.
 - Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.
-- Whether a conversation's topics become records of their own, with their summaries on the project's timeline, once
-  intake segments conversations (#81); today a topic's summary is in the step's output, and its messages carry its
-  projects.

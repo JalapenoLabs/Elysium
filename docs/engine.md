@@ -11,8 +11,9 @@ on a Postgres queue of step jobs with the Runs page (Runs, below), the step and 
 with the model and effort every kind of agent, step, and agent runs on, workspace-wide and per project (Workflows and
 steps, and Models, below), the meeting workflow, which fetches each meeting, transcribes its recording with a local
 Whisper, corrects its transcript against everything Elysium knows, waiting for its person's approval when asked, and
-segments it onto projects' timelines, a step that segments a conversation too (Meetings, below), and the company doc's
-scheduled review (The company doc, below).
+segments it onto projects' timelines, a step that segments a conversation too (Meetings, below), the request workflow,
+which gathers every direct message and mention per conversation and starts work once it goes quiet (Conversations,
+below), and the company doc's scheduled review (The company doc, below).
 
 ## A service of its own
 
@@ -22,7 +23,8 @@ scheduled review (The company doc, below).
 - The API serves clients alone: the web app, its `/api`, and MCP clients, and agents' calls to Elysium's tools
   (`/api/agent-tools`). It starts no loop. The engine does all background work and serves no HTTP beyond its health
   check (`GET /health`): the runner and the workspace it prepares, sessions' turns, Elysia's intake and dispatcher,
-  the Claude account keeper, the link watcher, connector ingest, the Confluence and YouTrack readers, meetings, every
+  the Claude account keeper, the link watcher, connector ingest, the conversation loop, the Confluence and YouTrack
+  readers, meetings, every
   read someone asked for, the knowledge base's embedder, backfill, and answerer, the browser reconciler, the mail server brought back up, the password vault, update checks,
   the nightly database backups, and moving identities onto the current schema (`api/src/engine/`).
 - One engine runs: its container name, `elysium-engine`, holds compose to one. Elysia's intake listens to the event
@@ -102,10 +104,11 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
   that indexes the timeline records stored before they were indexed on write is a loop for the same reason
   (`docs/knowledge.md`, The backfill).
 
-Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and two production
+Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and three production
 workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps are `fetch_meeting`, `transcribe_meeting`,
-`correct_transcript`, and `segment_meeting`, and `company_doc_review` (`api/src/company_doc/workflow.rs`), one step,
-`review_company_doc`.
+`correct_transcript`, and `segment_meeting`; `request` (`api/src/conversations/workflow.rs`), which starts at
+segmenting, `segment_meeting` then `handle_request`; and `company_doc_review` (`api/src/company_doc/workflow.rs`), one
+step, `review_company_doc`.
 The engine registers every production step in `api/src/engine/mod.rs` and checks each workflow in
 `workflows::declared` against them there, and every step it registers against those workflows. Tests declare their
 own.
@@ -248,15 +251,107 @@ the Runs page.
   nearest its ends, and puts every topic on the timeline as a record of its own, attributed to its projects, beside
   agent work and every other record, so a project reads top to bottom across meetings. The person corrects what a
   topic is about from its meeting's page or a project's timeline, every change recorded in history and undoable, and
-  Elysia never overrides them. Its input also takes a conversation, records already on a person's timeline, so a
-  request workflow enters at this step (`Workflow::new_run_at`); a conversation's topics attribute its messages. See
+  Elysia never overrides them. Its input also takes a conversation, records already on a person's timeline, and the
+  request workflow starts at this step (Conversations, below); a conversation's topics attribute its messages. See
   `docs/meetings.md`, Segmentation.
 
 ## Conversations
 
-- Every direct message and mention starts work after a 10 second quiet window. The agent handling it may wait another
-  30 seconds for more before proceeding, and later messages in that conversation go to the same agent session rather
-  than starting another.
+Built: every direct message and mention starts work after a 10 second quiet window, as a run of the `request`
+workflow. The agent handling it may wait another 30 seconds for more before proceeding, and later messages in that
+conversation go to the same agent session rather than starting another. The code is `api/src/conversations/`; the
+rows are `conversations` and `conversation_messages` (`docs/database.md`).
+
+### Gathering
+
+- Each reader of messages names the conversation a message was said in (`connectors::Conversation`: a key in its
+  kind's own terms, and what the conversation is called), so a request gathers with the messages answering it:
+
+  | Kind              | One conversation                                                        | Key                                  |
+  |-------------------|-------------------------------------------------------------------------|--------------------------------------|
+  | Slack             | A direct or group message; in a channel, one thread                     | `team/conversation`, or `team/channel/<thread's first ts>` |
+  | Teams             | A chat (one-on-one, group, or a meeting's); in a channel, one thread    | The chat's id, or `<channel>;messageid=<thread's first message>` |
+  | Outlook and Gmail | One sender's mail under one subject, its `Re:`, `Fwd:`, `AW:` aside     | The sender and the subject, lowercased |
+
+  A channel's top-level message starts its own thread, which is where replies to it go. Mail is threaded by sender and
+  subject because the page scripts read no thread id a reply shares with what it answers.
+- A message that wants attention (a direct or group message, a mention, a reply in a thread the person follows, an
+  unread mail; `docs/connectors.md`, Ingest) joins its conversation in the transaction that records it, making the
+  conversation when it is new (`conversations::gather`). One that wants none, such as the person's own reply, joins
+  only a conversation being worked on (a message waits in it, or its run is live), as context; otherwise it starts
+  nothing. Only a baselined connector's messages gather, as only they raise items, so connecting an account starts no
+  work on its backlog. Confluence and YouTrack records are not messages and gather nowhere.
+- A message that wakes signals `conversations`, and its `timelineRecord.created` names the conversation
+  (`conversationId`), which is how Elysia's intake leaves it to the run (`docs/elysia.md`, Triggers).
+
+### The quiet window
+
+- A conversation is owed a run once it has gone 10 seconds (`QUIET_WINDOW`) without a new message and holds a
+  message no run has taken that wakes, or that a live run's agent was given (below). The window runs from when
+  Elysium read the newest message, kept on its row, not a timer: the engine's conversation loop
+  (`conversations::Conversations`) looks when ingest signals, when the next conversation goes quiet, and every 30
+  seconds, and an engine that restarts finds exactly the conversations its predecessor would have
+  (`conversations::quiet`, a pure function).
+- Starting a run is a claim: under the conversation's row lock, in one transaction, the loop reads its waiting
+  messages again, starts the run, and marks them taken by it (`conversation_messages.run_id`). Two looks never take
+  one message, and none is taken by a run that was not stored. A run takes at most 50 messages, and reads up to 20
+  taken before them again for context.
+- A conversation has one live run, as every workflow's source does. A quiet conversation whose run is still working
+  is looked at again every 5 seconds; one whose run failed or is held waits, as a meeting's does, until a person
+  retries or skips its step.
+
+### The request workflow
+
+`request` (`api/src/conversations/workflow.rs`) is about one conversation (source `conversation`, its id) and starts
+at segmenting, since a request has nothing to fetch, transcribe, or correct. Its run is started by the system user.
+
+| Step              | Kind         | What happens                                                                  |
+|-------------------|--------------|-------------------------------------------------------------------------------|
+| `segment_meeting` | `segmenting` | Cuts the messages it reads into topics, attributing each to its topic's projects (`docs/meetings.md`, Segmentation) |
+| `handle_request`  | `triage`     | Gives the conversation's agent what it has not seen, and raises an inbox item for each question or request the person owes |
+
+`handle_request` (`api/src/conversations/handle.rs`; its prompt and the checks on its answers are `handling.rs`):
+
+- **One session per conversation.** The agent is one Claude session, kept on the conversation's row and resumed by
+  every turn of every run, so it remembers what it raised and what the person answered. Its turns are text in, text
+  out with the session kept (`TurnMode::ResumableText`, `docs/coding.md`): no tools and no settings, so it can neither
+  send nor change anything. Its runner conversation is the conversation's id, so two turns of one never overlap.
+- **Turns.** Each turn gives the agent every message of the conversation it has not been given, oldest first, up to
+  50, numbered for that turn; a run's first turn also names what segmenting found (each topic's title, summary, and
+  projects). Then the step looks again: a message that arrived while the turn ran goes to the same session in the next
+  turn, not to a new run. The step ends when nothing is left to give, after at most six turns (`MAX_TURNS`), so a chat
+  that never stops holds a worker slot for a bounded time and its newest messages pass to the next run. The messages
+  it gave that no run took are what that next run's segmenting reads; its agent, which has seen them, skips the step.
+- **The answer** is `{ "wait": true }`, or `{ "items": [{ "title", "notes", "messages" }] }`: one item for each
+  question someone asked the person and each thing someone asked them to do that the person has not answered or done
+  in the conversation, naming the messages it comes from. Greetings, thanks, and information raise nothing. Nothing in
+  it is trusted: an item needs a title (at most 200 characters), names only messages its turn gave, and one answer
+  raises at most five. An answer with no JSON, or of the wrong shape, fails the attempt, which the run's backoff tries
+  again.
+- **Waiting.** When the newest message reads as unfinished ("one sec", "also..."), the agent may ask to wait, once per
+  run (`conversations.waited_in_run_id`). The step records the wait's end on the conversation (`waiting_until`, 30
+  seconds on), waits it out, then gives the agent what arrived meanwhile, or tells it nothing did, and asks again. The
+  end is a row, so an attempt that takes over after its engine stopped waits only what is left of it.
+- **Once.** Each turn's session, the messages it was given (`delivered_at`), its wait, and the items it raised land in
+  one transaction under the conversation's lock. An attempt that takes over gives the agent only what no landed turn
+  gave, so no message is given twice and no item raised twice; a turn cut short before it landed is asked again,
+  resuming the session as it was.
+- **Items.** Each is an inbox item raised by Elysia, owned by the person: what they owe as its title, the agent's
+  notes, then the messages it came from quoted under the conversation's title with a link to the last, in the
+  projects segmenting attributed those messages to with a confidence of at least 0.5. An inbox item is the person's to
+  accept or dismiss, so raising one changes nothing in their name; nothing is ever sent, and answering is the person's
+  own Send (`docs/connectors.md`, Sending).
+- **What it logs.** Turn and message counts and how many items each turn raised, never a title or a word said.
+
+What it gives (`Handled`) is the conversation, its turns and messages, and the items it raised.
+
+### Roadmap
+
+- Ingest still raises an inbox item for each message that wants attention, so a direct message's question shows as
+  that message's item and as the agent's. Whether the agent's item replaces the message's is open.
+- Drafting a reply with each item, for the person to Send.
+- Readers that hear a message as it arrives (IMAP `IDLE`, webhooks): the window is already measured from when a
+  message is read, so a reader faster than once a minute makes it matter.
 
 ## The company doc
 
@@ -348,7 +443,7 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
   | `project_manager` | None yet (#84, #85)                                | Yes                  |
   | `correction`      | Transcript correction (`correct_transcript`)       | No                   |
   | `segmenting`      | Segmenting meetings and conversations (`segment_meeting`) | No            |
-  | `triage`          | Answers asked of the knowledge base (`knowledge_ask`) | No                |
+  | `triage`          | Handling a conversation's messages (`handle_request`), and answers asked of the knowledge base (`knowledge_ask`) | No |
   | `elysia`          | Elysia, and the company doc's review, done in her name | No               |
   | `summaries`       | Turn summaries                                     | Yes                  |
 

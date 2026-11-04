@@ -11,12 +11,12 @@
 //!   Whisper heard nearest its ends; and each segment becomes a timeline record, with its
 //!   transcript excerpt, summary, span, and clip, attributed to its projects, in one transaction
 //!   that also marks the meeting done.
-//! - **A conversation** that intake gathered: direct messages and mentions already on the
-//!   timeline, named by their records. Its messages are cut into topics the same way, by their
-//!   numbers rather than by time, and each message is attributed to its topic's projects. No
-//!   record is made: a conversation's messages are already its records, and a topic of one is a
-//!   run of them. A run that enters the workflow here starts at this step with a conversation
-//!   (`Workflow::new_run_at`).
+//! - **A conversation** that `crate::conversations` gathered: direct messages and mentions
+//!   already on the timeline, named by their records. Its messages are cut into topics the same
+//!   way, by their numbers rather than by time, and each message is attributed to its topic's
+//!   projects. No record is made: a conversation's messages are already its records, and a
+//!   topic of one is a run of them, so a topic record would put every message on a project's
+//!   timeline twice. The request workflow starts at this step with a conversation.
 //!
 //! What it gives ([`Segmented`]) names every topic's span, projects, and records, for the steps
 //! after it, which read what landed on which project.
@@ -106,10 +106,19 @@ pub struct ConversationToSegment {
 }
 
 /// What [`SegmentMeeting`] gives: every topic it found, in order.
+///
+/// A conversation not segmented, because a person skipped the step or no message of it was
+/// left, reads as this with no topics and its `recordIds`, so the step after segmenting still
+/// knows whose messages it was handed (`docs/engine.md`, A step).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Segmented {
+    #[serde(default)]
     pub segments: Vec<SegmentedTopic>,
+    /// Every record segmenting read: a conversation's messages, those in no topic included.
+    /// Empty for a meeting, whose records are its segments'.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub record_ids: Vec<Uuid>,
 }
 
 /// One topic, and where it landed.
@@ -637,6 +646,7 @@ impl SegmentMeeting {
                     source_kind: record.source_kind.clone(),
                     created_by: record.created_by,
                     action_item_id: None,
+                    conversation_id: None,
                 });
         }
         self.inner.events.publish(&ServerEvent::MeetingChanged {
@@ -916,7 +926,10 @@ fn meeting_topics(segments: &[Segment], record_ids: &[Option<Uuid>]) -> Segmente
                 .collect(),
         })
         .collect();
-    Segmented { segments }
+    Segmented {
+        segments,
+        record_ids: Vec::new(),
+    }
 }
 
 /// A conversation's topics as the step gives them, each with its messages' records.
@@ -939,7 +952,10 @@ fn conversation_topics(
                 .collect(),
         })
         .collect();
-    Segmented { segments }
+    Segmented {
+        segments,
+        record_ids: records.iter().map(|record| record.id).collect(),
+    }
 }
 
 /// How long the meeting ran: what the source said, or where its transcript ends.

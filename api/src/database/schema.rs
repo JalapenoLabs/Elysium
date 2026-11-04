@@ -537,6 +537,36 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    conversation_messages (timeline_record_id) {
+        timeline_record_id -> Uuid,
+        conversation_id -> Uuid,
+        wakes -> Bool,
+        received_at -> Timestamptz,
+        run_id -> Nullable<Uuid>,
+        delivered_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    conversations (id) {
+        id -> Uuid,
+        connector_id -> Uuid,
+        key -> Text,
+        title -> Text,
+        harness_session_id -> Nullable<Text>,
+        waiting_until -> Nullable<Timestamptz>,
+        waited_in_run_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::DatabaseBackupTrigger;
     use super::sql_types::DatabaseBackupStatus;
 
@@ -1565,6 +1595,12 @@ diesel::joinable!(connectors -> jira_credentials (jira_credential_id));
 diesel::joinable!(connectors -> storage_locations (storage_location_id));
 diesel::joinable!(connectors -> token_accounts (token_account_id));
 diesel::joinable!(connectors -> users (created_by));
+diesel::joinable!(conversation_messages -> conversations (conversation_id));
+diesel::joinable!(conversation_messages -> timeline_records (timeline_record_id));
+diesel::joinable!(conversation_messages -> workflow_runs (run_id));
+diesel::joinable!(conversations -> connectors (connector_id));
+diesel::joinable!(conversations -> users (created_by));
+diesel::joinable!(conversations -> workflow_runs (waited_in_run_id));
 diesel::joinable!(database_backups -> storage_locations (storage_location_id));
 diesel::joinable!(database_backups -> users (created_by));
 diesel::joinable!(deployment_updates -> users (created_by));
@@ -1683,6 +1719,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     connector_check_results,
     connector_runs,
     connectors,
+    conversation_messages,
+    conversations,
     database_backups,
     deployment_updates,
     drafts,

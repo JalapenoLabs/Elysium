@@ -26,6 +26,7 @@ mod config;
 mod confluence;
 mod connections;
 mod connectors;
+mod conversations;
 mod crypto;
 mod database;
 mod drafts;

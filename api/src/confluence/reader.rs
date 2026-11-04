@@ -312,6 +312,8 @@ impl Reader {
                 ConnectorKind::Confluence,
                 &read,
                 raised,
+                // Pages and comments are no conversation's messages.
+                false,
             )
             .await?;
             if stored {
@@ -459,6 +461,8 @@ fn to_read(change: &Change, rendered: &Rendered, wants_attention: bool) -> Read 
             "spaceName": change.space_name,
             "pageId": change.container.as_ref().map(|container| container.id.clone()),
         }),
+        // A page and its comments are not a conversation.
+        conversation: None,
     }
 }
 

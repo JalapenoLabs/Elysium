@@ -58,8 +58,10 @@ pub fn classify(message: &str) -> Option<Value> {
             data.get("proposer").and_then(Value::as_str) == Some("elysia")
                 && data.get("state").and_then(Value::as_str) != Some("pending")
         }
-        // Mail, chat, and meetings arrive here once connectors ingest them.
-        "timelineRecord.created" => true,
+        // Mail, chat, and meetings arrive here once connectors ingest them. A message that
+        // joined a conversation is that conversation's request run's to handle
+        // (`crate::conversations`), so she is not woken for it too.
+        "timelineRecord.created" => data.get("conversationId").is_none_or(Value::is_null),
         _ => false,
     };
     relevant.then_some(change)
@@ -245,6 +247,21 @@ mod tests {
 
         let record = bus("timelineRecord.created", &json!({ "id": "x" }));
         assert!(classify(&record).is_some());
+
+        let ungathered = bus(
+            "timelineRecord.created",
+            &json!({ "id": "x", "conversationId": null }),
+        );
+        assert!(classify(&ungathered).is_some());
+    }
+
+    #[test]
+    fn a_message_its_conversation_handles_is_not_hers_too() {
+        let gathered = bus(
+            "timelineRecord.created",
+            &json!({ "id": "x", "conversationId": "0199a3c4-0000-7000-8000-00000000beef" }),
+        );
+        assert!(classify(&gathered).is_none());
     }
 
     #[test]

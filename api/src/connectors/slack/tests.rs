@@ -409,6 +409,89 @@ fn direct_messages_mentions_and_thread_replies_want_attention_unless_the_person_
 }
 
 #[test]
+fn a_direct_message_is_one_conversation_and_a_channel_one_per_thread() {
+    let mut state = State::default();
+    state.names.insert("T1/U1".to_owned(), "Ada".to_owned());
+    state.names.insert("T1/C1".to_owned(), "launch".to_owned());
+    let mut reply = message(
+        "C1",
+        ConversationKind::Channel,
+        "1730000004.000000",
+        "U1",
+        "Done",
+    );
+    reply.thread_ts = Some("1730000001.000000".to_owned());
+    let mut direct_reply = message(
+        "D1",
+        ConversationKind::Direct,
+        "1730000006.000000",
+        "U1",
+        "In a thread",
+    );
+    direct_reply.thread_ts = Some("1730000003.000000".to_owned());
+    let messages = vec![
+        message(
+            "C1",
+            ConversationKind::Channel,
+            "1730000001.000000",
+            "U1",
+            "<@U0ME> can you look?",
+        ),
+        reply,
+        message(
+            "C1",
+            ConversationKind::Channel,
+            "1730000002.000000",
+            "U1",
+            "<@U0ME> another thing",
+        ),
+        message(
+            "D1",
+            ConversationKind::Direct,
+            "1730000003.000000",
+            "U1",
+            "Quick question",
+        ),
+        direct_reply,
+    ];
+    let reads = reads(&messages, &counted(vec![], false), &state);
+    let said_in = |ts: &str| {
+        let read = reads
+            .iter()
+            .find(|read| read.external_id.ends_with(ts))
+            .expect("read");
+        let conversation = read.conversation.clone().expect("a message names one");
+        (conversation.key, conversation.title)
+    };
+
+    let thread = (
+        "T1/C1/1730000001.000000".to_owned(),
+        "#launch in Mooreslab".to_owned(),
+    );
+    assert_eq!(
+        said_in("1730000001.000000"),
+        thread,
+        "a top-level message starts its thread"
+    );
+    assert_eq!(said_in("1730000004.000000"), thread, "its reply joins it");
+    assert_eq!(
+        said_in("1730000002.000000").0,
+        "T1/C1/1730000002.000000",
+        "another top-level message is another thread"
+    );
+    let direct = (
+        "T1/D1".to_owned(),
+        "Ada in a direct message in Mooreslab".to_owned(),
+    );
+    assert_eq!(said_in("1730000003.000000"), direct);
+    assert_eq!(
+        said_in("1730000006.000000"),
+        direct,
+        "a direct message is one, threads and all"
+    );
+}
+
+#[test]
 fn a_record_is_named_linked_and_written_in_plain_text() {
     let mut state = State::default();
     state.names.insert("T1/U1".to_owned(), "Ada".to_owned());

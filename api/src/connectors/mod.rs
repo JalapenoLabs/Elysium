@@ -224,6 +224,31 @@ pub struct Read {
     pub wants_attention: bool,
     /// What else the record keeps, in its kind's own terms, such as a page's space and version.
     pub metadata: serde_json::Value,
+    /// The conversation it was said in, for a message: what gathers it with the messages around
+    /// it before work starts on them (`crate::conversations`). `None` for what is not a message,
+    /// such as a page or an issue.
+    pub conversation: Option<Conversation>,
+}
+
+/// A conversation as the reader of a message names it, in its kind's own terms.
+///
+/// A conversation is the unit a person answers in, so a message that asks something gathers with
+/// the messages answering it:
+///
+/// | Kind              | One conversation                                             |
+/// |-------------------|--------------------------------------------------------------|
+/// | Slack             | A direct or group message; in a channel, one thread          |
+/// | Teams             | A chat (one-on-one, group, or a meeting's); in a channel, one thread |
+/// | Outlook and Gmail | One sender's mail under one subject, `Re:` and `Fwd:` aside |
+///
+/// A channel's top-level message starts its own thread, which is where replies to it go.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conversation {
+    /// Unique within the connector, and stable for as long as the conversation lasts.
+    pub key: String,
+    /// What it is called where it is had, such as `#launch in Mooreslab`, which the agent
+    /// handling it is told.
+    pub title: String,
 }
 
 /// What one read of an account found.

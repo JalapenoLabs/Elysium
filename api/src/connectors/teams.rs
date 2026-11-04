@@ -363,8 +363,20 @@ pub fn parse_page(value: &Value, selection: &Selection) -> Result<TeamsReading, 
         if let Some(parent) = &message.parent_id {
             metadata["parentId"] = json!(parent);
         }
+        // A chat is one conversation; a channel is one per thread, named as Teams addresses a
+        // thread's replies, by its first message (a first message names itself as its parent).
+        let conversation_key = if conversation.is_chat {
+            message.conversation_id.clone()
+        } else {
+            let root = message.parent_id.as_deref().unwrap_or(&message.id);
+            format!("{};messageid={root}", message.conversation_id)
+        };
 
         items.push(Read {
+            conversation: Some(super::Conversation {
+                key: conversation_key,
+                title: truncate(&conversation.name, TITLE_MAX_CHARACTERS),
+            }),
             external_id: format!("{}/{}", message.conversation_id, message.id),
             occurred_at: Some(created_at),
             actor: truncate(&message.from_name, ACTOR_MAX_CHARACTERS),
@@ -507,6 +519,31 @@ mod tests {
         );
         let chat = item(&reading, "1730000200000");
         assert_eq!(chat.metadata["isChat"], json!(true));
+    }
+
+    #[test]
+    fn a_chat_is_one_conversation_and_a_channel_one_per_thread() {
+        let reading = fixture_reading(&Selection::All);
+        let key_of = |message_id: &str| {
+            item(&reading, message_id)
+                .conversation
+                .clone()
+                .expect("a message names its conversation")
+                .key
+        };
+        assert_eq!(
+            key_of("1730000420000"),
+            "19:channel1@thread.tacv2;messageid=1730000410000",
+            "a channel reply is its thread's"
+        );
+        let chat = item(&reading, "1730000200000");
+        assert_eq!(key_of("1730000200000"), chat.metadata["conversationId"]);
+        assert_eq!(
+            chat.conversation
+                .as_ref()
+                .map(|said_in| said_in.title.as_str()),
+            Some("Ada Lovelace")
+        );
     }
 
     #[test]

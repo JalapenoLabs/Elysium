@@ -58,6 +58,8 @@ use crate::confluence::Confluence;
 use crate::confluence::reader::{Reader as ConfluenceReader, ReaderDeps as ConfluenceReaderDeps};
 use crate::connectors::activity::Activity;
 use crate::connectors::ingest::Ingest;
+use crate::conversations::Conversations;
+use crate::conversations::handle::{HandleRequest, HandleRequestDeps};
 use crate::elysia::Elysia;
 use crate::elysia::runner::TurnRunner;
 use crate::knowledge::answerer::{Answerer, AnswererDeps};
@@ -210,6 +212,11 @@ pub async fn run() -> Result<()> {
         runner: runner.clone(),
         workspace: meeting_workspace,
     }));
+    steps.register(HandleRequest::new(HandleRequestDeps {
+        database: database.clone(),
+        events: events.clone(),
+        runner: runner.clone(),
+    }));
     steps.register(ReviewCompanyDoc::new(ReviewCompanyDocDeps {
         database: database.clone(),
         events: events.clone(),
@@ -227,6 +234,8 @@ pub async fn run() -> Result<()> {
         steps,
     });
     loops.push(("workflows.workers", workers.start(shutdown.clone())));
+    let conversations = Conversations::new(database.clone(), events.clone());
+    loops.push(("conversations", conversations.start(shutdown.clone())));
     // The company doc's review, every few hours while something new was ingested.
     loops.push((
         "company_doc.review",

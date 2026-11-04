@@ -162,6 +162,7 @@ fn parse_page(value: &serde_json::Value) -> Result<Reading, ConnectorError> {
         .into_iter()
         .filter(|message| !message.id.trim().is_empty())
         .map(|message| Read {
+            conversation: Some(conversation_of(&message.from, &message.subject)),
             external_id: message.id,
             occurred_at: message
                 .received_at
@@ -181,6 +182,43 @@ fn parse_page(value: &serde_json::Value) -> Result<Reading, ConnectorError> {
         items,
         state: None,
     })
+}
+
+/// The conversation a mail from `from` under `subject` belongs to: that sender's mail under that
+/// subject, without the `Re:` and `Fwd:` a reply or forward puts in front, ignoring case. The
+/// page scripts read no thread id a reply shares with what it answers, so sender and subject
+/// stand in for one, as mail clients that thread by subject do.
+fn conversation_of(from: &str, subject: &str) -> super::Conversation {
+    let topic = subject_without_prefixes(subject);
+    let sender = from.trim();
+    let title = if topic.is_empty() {
+        format!("Mail from {sender}")
+    } else {
+        topic.to_owned()
+    };
+    super::Conversation {
+        key: format!("{}\n{}", sender.to_lowercase(), topic.to_lowercase()),
+        title: truncate(&title, TITLE_MAX_CHARACTERS),
+    }
+}
+
+/// The prefixes a reply or a forward puts in front of a subject, in the forms mail clients
+/// write most: English's, and the `AW:` and `WG:` German clients write.
+const SUBJECT_PREFIXES: [&str; 6] = ["re:", "fw:", "fwd:", "aw:", "wg:", "tr:"];
+
+/// `subject` without any run of reply and forward prefixes in front of it, such as
+/// `Re: Fwd: Launch`'s `Re: Fwd: `.
+fn subject_without_prefixes(subject: &str) -> &str {
+    let mut rest = subject.trim();
+    loop {
+        let Some(prefix) = SUBJECT_PREFIXES.iter().find(|prefix| {
+            rest.get(..prefix.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+        }) else {
+            return rest;
+        };
+        rest = rest[prefix.len()..].trim_start();
+    }
 }
 
 fn truncate(text: &str, max_characters: usize) -> String {
@@ -215,6 +253,35 @@ mod tests {
             reading.items[1].occurred_at.map(|at| at.to_rfc3339()),
             Some("2026-10-20T09:15:00+00:00".to_owned())
         );
+    }
+
+    #[test]
+    fn a_reply_is_its_threads_by_sender_and_subject() {
+        let launch = conversation_of("Ada <ada@example.com>", "Launch");
+        assert_eq!(launch.title, "Launch");
+        for reply in [
+            "Re: Launch",
+            "RE: Fwd:  launch",
+            "fw: re: Launch ",
+            "AW: Launch",
+        ] {
+            assert_eq!(
+                conversation_of("ada <ADA@example.com>", reply).key,
+                launch.key,
+                "{reply}"
+            );
+        }
+        assert_ne!(
+            conversation_of("Grace", "Launch").key,
+            launch.key,
+            "another sender"
+        );
+        assert_ne!(
+            conversation_of("Ada <ada@example.com>", "Relaunch").key,
+            launch.key,
+            "a subject that only starts like a prefix"
+        );
+        assert_eq!(conversation_of("Grace", "Re: ").title, "Mail from Grace");
     }
 
     #[test]

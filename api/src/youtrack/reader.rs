@@ -334,6 +334,8 @@ impl YoutrackReader {
                 ConnectorKind::Youtrack,
                 read,
                 raised,
+                // Issues and comments are no conversation's messages.
+                false,
             )
             .await?;
             if stored {
@@ -398,6 +400,8 @@ fn reads_of(
             url: Some(url.clone()),
             wants_attention: assigned_to_me && !reported_by_me,
             metadata: json!({}),
+            // An issue and its comments are not a conversation.
+            conversation: None,
         });
     }
     let mention = format!("@{me}");
@@ -413,6 +417,8 @@ fn reads_of(
             wants_attention: !by_me
                 && (assigned_to_me || reported_by_me || comment.text.contains(&mention)),
             metadata: json!({}),
+            // An issue and its comments are not a conversation.
+            conversation: None,
         });
     }
     reads

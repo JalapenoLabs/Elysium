@@ -387,6 +387,11 @@ own methods, not Slack's published API, so their shapes are read defensively and
   (`docs/action-items.md`), so the item, with the message's subject, sender, and body, is seen by everyone signed in.
   The item is recorded as the watcher of that service, `watcher:outlook`: like the link watcher, it records what
   already happened in a provider, and the person consented when they connected the mailbox.
+- Each new message joins the conversation it was said in, in the same transaction: one that wants attention always,
+  another only while its conversation is being worked on. Each reader names the conversation (`Read.conversation`):
+  in Slack a direct or group message, or a channel thread; in Teams a chat, or a channel thread; in mail one sender's
+  mail under one subject. Once the conversation goes quiet, a request run starts work on it (`docs/engine.md`,
+  Conversations).
 - The connector's first signed-in read records what the mailbox already holds without raising anything, so
   connecting a mailbox does not fill the inbox with its backlog. Its cursor remembers that (`{"baselined": true}`).
 - A read that fails keeps the cursor and records the reason in `last_error`.
@@ -533,15 +538,15 @@ subject. A mail sent is recorded as `mail`, with no connector.
 | `connector.changed`          | A connector was added or changed: paused, its content, a sync starting or ending, a read finding something, its checks. Its id alone |
 | `connector.deleted`          | A connector was removed, or the account it read through                       |
 | `connectorCheckRun.updated`  | A check in a run moved on, or the run ended (`checkId` null, `state` `finished`) |
-| `timelineRecord.created`     | A record was stored, read or sent: its id, kind, owner, and the item it raised. Never its content |
+| `timelineRecord.created`     | A record was stored, read or sent: its id, kind, owner, the item it raised, and the conversation it joined. Never its content |
 | `draft.changed`              | A draft was written, edited, discarded, or a send of it began, landed, or failed: its id and writer |
 | `actionItem.upserted`        | The item a record raised, like any item write                                 |
 
 `connector.changed` carries the id alone because a connector's view names whose mailbox or meetings it reads and every
 client hears every event; clients load it by id, which answers only those who may see it.
 
-`timelineRecord.created` is the seam Elysia's triage builds on: her dispatcher hears it in process and loads the
-record by id.
+`timelineRecord.created` is the seam Elysia's triage builds on: her intake hears it in process and loads the record by
+id, except a message that joined a conversation, which that conversation's request run handles.
 
 ## The timeline
 
@@ -588,9 +593,7 @@ shows it); `PUT` and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribu
 - YouTrack Server, on a customer's own host, beside YouTrack Cloud.
 - GitHub content: picking repositories rather than reading whatever the token reaches.
 - Keeping a token account's `identity` and `checked_at` current from its checks.
-- Elysia's triage on `timelineRecord.created`: classifying each message and drafting replies for review.
-  Conversations are attributed to projects by segmenting them, once intake gathers them (#81, `docs/meetings.md`,
-  Segmentation).
+- Drafting replies for review with what a conversation's agent raises (`docs/engine.md`, Conversations).
 - Sending checked against a signed-in Slack and Teams: Slack's `chat.postMessage` with the web client's session, and
   Teams' chat service token, address, and message shape.
 - Replies that thread in the recipient's mail client, once mail is read over IMAP and records keep `Message-ID`.

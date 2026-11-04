@@ -298,6 +298,38 @@ indexed by connector and by start time.
 | `records`      | `INTEGER`     | How many things it recorded: records, meetings, or linked changes |
 | `error`        | `TEXT`        | Why it failed; at most 2048 characters                          |
 
+### `conversations`
+
+Where direct messages and mentions gather per conversation before a request run starts work on them, and where the
+agent handling a conversation keeps its session (`docs/engine.md`, Conversations). Unique per connector and key;
+indexed by owner.
+
+| Column               | Type          | Notes                                                                    |
+|----------------------|---------------|--------------------------------------------------------------------------|
+| `id`                 | `UUID`        | UUIDv7, primary key; a request run's source id                           |
+| `connector_id`       | `UUID`        | References `connectors`, cascading                                       |
+| `key`                | `TEXT`        | The conversation in its kind's own terms; 1 to 1024 characters           |
+| `title`              | `TEXT`        | What it is called where it is had, as its newest waking message named it; 1 to 2048 characters |
+| `harness_session_id` | `TEXT`        | The Claude session its agent's turns resume; null until its first turn   |
+| `waiting_until`      | `TIMESTAMPTZ` | When a wait its agent asked for ends, after which it is owed a turn; null while none is waited out |
+| `waited_in_run_id`   | `UUID`        | References `workflow_runs`, set null: the run whose agent used its one wait |
+| `created_by`         | `UUID`        | References `users`: the connector's person, whose conversation it is     |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` |                                                                |
+
+### `conversation_messages`
+
+Each message a conversation gathered, and how far work on it got. A child of its conversation, whose owner it takes.
+Indexed by conversation and arrival, and partially over what still waits on a run or an agent.
+
+| Column               | Type          | Notes                                                                    |
+|----------------------|---------------|--------------------------------------------------------------------------|
+| `timeline_record_id` | `UUID`        | Primary key; references `timeline_records`, cascading                    |
+| `conversation_id`    | `UUID`        | References `conversations`, cascading                                    |
+| `wakes`              | `BOOLEAN`     | Whether it asks something of the person, which is what starts work       |
+| `received_at`        | `TIMESTAMPTZ` | When Elysium read it; the quiet window runs from the newest              |
+| `run_id`             | `UUID`        | References `workflow_runs`, set null: the request run that took it, whose segmenting reads it |
+| `delivered_at`       | `TIMESTAMPTZ` | When a handling agent was given it                                       |
+
 ### `timeline_records`
 
 Everything ingested, newest first by `occurred_at` (indexed). Unique on `(connector_id, external_id)`, so an

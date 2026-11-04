@@ -53,6 +53,7 @@ export const runNameKeys = {
   workflows: new Map<string, ParseKeys<'runs'>>([
     [ 'meeting', 'names.workflows.meeting' ],
     [ 'company_doc_review', 'names.workflows.company_doc_review' ],
+    [ 'request', 'names.workflows.request' ],
   ]),
   steps: new Map<string, ParseKeys<'runs'>>([
     [ 'fetch_meeting', 'names.steps.fetch_meeting' ],
@@ -60,10 +61,12 @@ export const runNameKeys = {
     [ 'correct_transcript', 'names.steps.correct_transcript' ],
     [ 'segment_meeting', 'names.steps.segment_meeting' ],
     [ 'review_company_doc', 'names.steps.review_company_doc' ],
+    [ 'handle_request', 'names.steps.handle_request' ],
   ]),
   sources: new Map<string, ParseKeys<'runs'>>([
     [ 'meeting', 'names.sources.meeting' ],
     [ 'company_doc', 'names.sources.company_doc' ],
+    [ 'conversation', 'names.sources.conversation' ],
   ]),
 } as const
 export type RunNameKind = keyof typeof runNameKeys

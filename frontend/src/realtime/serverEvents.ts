@@ -88,7 +88,14 @@ export type ServerEvent =
   // Something was ingested onto someone's timeline. Never its content, which its owner loads.
   | {
     type: 'timelineRecord.created',
-    data: { id: string, sourceKind: string, createdBy: string, actionItemId: string | null },
+    data: {
+      id: string
+      sourceKind: string
+      createdBy: string
+      actionItemId: string | null
+      // The conversation it joined, when it is a message work starts from.
+      conversationId: string | null
+    },
   }
   // What a record is attributed to changed. Its id and owner alone; its owner loads it.
   | { type: 'timelineRecord.changed', data: { id: string, createdBy: string } }

@@ -120,7 +120,8 @@ The intake (`api/src/elysia/intake.rs`) keeps, from the event stream:
   GitHub;
 - a person creating an item or commenting on one;
 - a decision on a changeset she proposed;
-- `timelineRecord.created`: mail, chat, and meetings, once connectors ingest them;
+- `timelineRecord.created`: mail, chat, and meetings, once connectors ingest them, except a message that joined a
+  conversation (`conversationId`), which that conversation's request run handles (`docs/engine.md`, Conversations);
 - `resync`: changes may have been lost on their way to her (`docs/realtime.md`), so she checks the workspace herself.
 
 It ignores her own changes, coding agents' changes, and a person's other edits (snoozing, renaming). The first kept

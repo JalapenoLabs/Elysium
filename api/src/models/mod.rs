@@ -21,6 +21,7 @@ pub mod company_doc;
 pub mod connector;
 pub mod connector_check;
 pub mod connector_run;
+pub mod conversation;
 pub mod database_backup;
 pub mod deployment_update;
 pub mod draft;

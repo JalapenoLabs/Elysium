@@ -44,6 +44,7 @@ use super::readers;
 use super::{BrowserReader, ConnectorKind, Read, ReadInput, Reading, SignInState};
 use crate::action_items::Actor;
 use crate::browser::devtools::Devtools;
+use crate::conversations::{self, Gathered};
 use crate::database::Pool;
 use crate::models::action_item::{
     self, ActionItem, ActionItemPriority, ActionItemState, NewActionItem, Owner,
@@ -53,7 +54,7 @@ use crate::models::browser_session;
 use crate::models::connector::{self, Connector, PollOutcome};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
-use crate::realtime::{EventBus, ServerEvent};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::action_items::publish_item_write;
 
 /// How often every connector is read. A minute keeps new mail prompt without reading a page
@@ -277,6 +278,7 @@ impl Ingest {
                 kind,
                 read,
                 raised,
+                baselined,
             )
             .await?
             {
@@ -291,6 +293,11 @@ impl Ingest {
 /// is given, and publishes both. Answers whether it was new: an item the connector already
 /// recorded, by its external id, is skipped and nothing is published.
 ///
+/// When `gathers`, a message also joins the conversation it was said in
+/// (`crate::conversations::gather`), in the same transaction, so work starts on it once its
+/// conversation goes quiet. Only a baselined connector's messages gather, as only they raise
+/// items: connecting an account must not start work on its backlog.
+///
 /// Every connector that ingests records through here, so a record and the item it raises are
 /// always written together and announced the same way.
 ///
@@ -303,53 +310,92 @@ pub(crate) async fn record(
     kind: ConnectorKind,
     read: &Read,
     raised: Option<NewActionItem>,
+    gathers: bool,
 ) -> anyhow::Result<bool> {
     let now = Utc::now();
-    let Some((record, raised)) = store_read(connection, connector, kind, read, raised, now).await?
+    let Some(stored) = store_read(connection, connector, kind, read, raised, gathers, now).await?
     else {
         return Ok(false);
     };
-    let action_item_id = raised.as_ref().map(|item| item.record.id);
-    if let Some(raised) = raised {
+    let action_item_id = stored.raised.as_ref().map(|item| item.record.id);
+    if let Some(raised) = stored.raised {
         publish_item_write(events, connection, raised, &[], now)
             .await
             .map_err(|error| anyhow::anyhow!("cannot publish a raised item: {error}"))?;
     }
     events.publish(&ServerEvent::TimelineRecordCreated {
-        id: record.id,
-        source_kind: record.source_kind,
-        created_by: record.created_by,
+        id: stored.record.id,
+        source_kind: stored.record.source_kind,
+        created_by: stored.record.created_by,
         action_item_id,
+        conversation_id: stored.gathered.map(|gathered| gathered.conversation_id),
     });
+    // The engine's conversation loop starts its quiet window now rather than at its next look.
+    if stored.gathered.is_some_and(|gathered| gathered.wakes) {
+        events.signal(&Signal::Conversations);
+    }
     Ok(true)
 }
 
-/// Stores a read as a record and, when `raised` is given, the inbox item it raises, in one
-/// transaction: a record never points at an item that was not written, nor an item lack its
-/// record. Answers nothing for an item the connector already recorded.
+/// What [`store_read`] wrote for a read it had not recorded before.
+struct Stored {
+    record: TimelineRecord,
+    raised: Option<Recorded<ActionItem>>,
+    gathered: Option<Gathered>,
+}
+
+/// Stores a read as a record, with the inbox item `raised` when one is given and its place in
+/// its conversation when it `gathers`, in one transaction: a record never points at an item that
+/// was not written, nor an item lack its record, and no message waits in a conversation without
+/// its record. Answers nothing for an item the connector already recorded.
 async fn store_read(
     connection: &mut AsyncPgConnection,
     connector: &Connector,
     kind: ConnectorKind,
     read: &Read,
     raised: Option<NewActionItem>,
+    gathers: bool,
     now: DateTime<Utc>,
-) -> anyhow::Result<Option<(TimelineRecord, Option<Recorded<ActionItem>>)>> {
+) -> anyhow::Result<Option<Stored>> {
     let new = new_record(connector, kind, read);
+    let conversation = read.conversation.as_ref().filter(|_said_in| gathers);
+    let wakes = read.wants_attention;
     let stored = connection
         .transaction(async move |connection| {
-            let Some(record) = timeline_record::insert_new(connection, new).await? else {
+            let Some(mut record) = timeline_record::insert_new(connection, new).await? else {
                 return Ok(None);
             };
-            let Some(raised) = raised else {
-                return Ok(Some((record, None)));
+            let gathered = match conversation {
+                Some(conversation) => {
+                    let message = conversations::Message {
+                        record: &record,
+                        conversation,
+                        wakes,
+                    };
+                    conversations::gather(connection, connector, message, now).await?
+                }
+                None => None,
             };
-            let created = action_item::create(connection, raised, Actor::Connector(kind), now)
-                .await
-                .map_err(|error| anyhow::anyhow!("cannot raise an inbox item: {error}"))?;
-            let record =
-                timeline_record::set_action_item(connection, record.id, created.record.id).await?;
-            Ok::<_, anyhow::Error>(Some((record, Some(created))))
+            let raised = match raised {
+                Some(raised) => {
+                    let created =
+                        action_item::create(connection, raised, Actor::Connector(kind), now)
+                            .await
+                            .map_err(|error| {
+                                anyhow::anyhow!("cannot raise an inbox item: {error}")
+                            })?;
+                    record =
+                        timeline_record::set_action_item(connection, record.id, created.record.id)
+                            .await?;
+                    Some(created)
+                }
+                None => None,
+            };
+            Ok::<_, anyhow::Error>(Some(Stored {
+                record,
+                raised,
+                gathered,
+            }))
         })
         .await?;
     Ok(stored)
@@ -423,6 +469,7 @@ mod tests {
             url: None,
             wants_attention: true,
             metadata: json!({}),
+            conversation: None,
         }
     }
 
