@@ -49,6 +49,8 @@ pub use self::signals::{Signal, SignalReceiver, Wake};
 
 use crate::backups::BackupsStatus;
 use crate::mail::hosting::MailServerStatus;
+use crate::models::step_job::StepJobState;
+use crate::models::workflow_run::WorkflowRunState;
 use crate::passwords::VaultStatus;
 use crate::routes::v1::action_items::{
     ActionItemLinkResponse, ActionItemResponse, CommentResponse, HistoryEntryResponse,
@@ -281,6 +283,19 @@ pub enum ServerEvent {
     /// What the vault's CLI is doing changed: starting, ready, failed, or a sync finished.
     #[serde(rename = "passwordVault.status")]
     PasswordVaultStatus(VaultStatus),
+    /// A workflow run started, or it or one of its steps moved on, or a person acted on it.
+    /// Its id and state alone: a run's input, output, and logs hold what it read, so clients
+    /// load it by id.
+    #[serde(rename = "workflowRun.changed")]
+    WorkflowRunChanged { id: Uuid, state: WorkflowRunState },
+    /// A step of a run moved on, or wrote to its log. Ids and its state alone, for the same
+    /// reason; a client showing its log loads it again.
+    #[serde(rename = "stepJob.changed")]
+    StepJobChanged {
+        id: Uuid,
+        run_id: Uuid,
+        state: StepJobState,
+    },
 }
 
 impl ServerEvent {

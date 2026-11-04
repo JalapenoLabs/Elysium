@@ -6,7 +6,8 @@ hours later, done. Elysium is built around one company or major prospect per ins
 company.
 
 This doc is the design. Little of it is built; the roadmap is the issues in the Engine milestone. Built so far: the
-event stream through Redis pub/sub, and the engine as a service of its own that runs every background loop.
+event stream through Redis pub/sub, the engine as a service of its own that runs every background loop, and workflow
+runs on a Postgres queue of step jobs, with the Runs page (Runs, below).
 
 ## A service of its own
 
@@ -44,12 +45,15 @@ never work, since every loop also looks on a timer. What the engine knows that a
 | Adds a browser, or resets one             | `browser_sessions`                       | Brings its container up; records its state   |
 | Answers the updater                       | `process_activities`, `update_checks`    | Records what it runs, and what Docker Hub lists |
 | Queues Elysia's messages and answers      | `elysia_turns`                           | Runs them                                    |
+| Retries, skips, or resumes a run's step   | `step_jobs`                              | Claims each due step, runs it, records it    |
 
-- **Taking work** is one engine's, so a row is taken with a conditional update on its state. #75's workflow runs
-  generalize this into a queue of step jobs claimed with `FOR UPDATE SKIP LOCKED`, with attempts on the row.
+- **Taking work** is one engine's, so a turn, a backup, or a sync is taken with a conditional update on its state.
+  A run's steps are a queue of their own, claimed with `FOR UPDATE SKIP LOCKED` under a lease, with attempts on the
+  row, so they stay correct with any number of claimers (Runs, below).
 - **Settling after a restart.** An engine that starts finishes what its predecessor cut short: a turn whose CLI had
   started is finished (its history ends where the turn stopped), one still waiting for a slot is queued again, a backup
-  it had taken fails, every tool grant is revoked, and every connector still marked syncing is read.
+  it had taken fails, every tool grant is revoked, and every connector still marked syncing is read. A run's step that
+  an engine still held when it died is claimed again once its lease lapses.
 - **The password vault** is the one thing the API asks while a request waits: its CLI and `bw serve` run in the
   engine, on its data volume and its loopback, and the API's routes and agents' password tools ask it over the bus,
   sealed with the encryption key (`docs/passwords.md`, The CLI). An engine that does not answer within 10 seconds
@@ -85,6 +89,75 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
   never numbered. A meeting workflow starts by fetching; a Slack request workflow starts at segmenting.
 - A run is one workflow on one source. Each step of a run is its own job row with state, attempts, input, and output,
   so one step can be retried, skipped, or resumed alone. Runs show in the web app the way GitHub Actions shows jobs.
+- The step trait and workflow declarations are next on the roadmap. They build on the queue below, registering their
+  steps by name and starting runs; nothing in the queue knows what a step does.
+
+## Runs
+
+Built: the queue every workflow runs on (`api/src/workflows/`, `api/src/models/workflow_run.rs` and `step_job.rs`), and
+the Runs page. No workflow is declared on it yet.
+
+### A run and its steps
+
+- A run (`workflow_runs`) is one workflow, by its name in code, on one source: a kind and an id, such as a meeting. It
+  holds the input its first step receives and who or what started it (`created_by`: a person, or the system user or
+  Elysia for what Elysium starts itself).
+- A run is started with its steps' names in order (`workflows::start`), and each becomes a job row (`step_jobs`). The
+  first receives the run's input; each after it receives the output of the step before, or that step's own input when
+  it was skipped. Steps are named; their order is a position the web app never shows.
+- A workflow has one live run per source until it succeeds: starting it again answers the run already there, so
+  whatever notices a source may start its run every time it does. Once a run succeeds, the source may run again.
+- A run's state is derived from its steps whenever one moves, in the same transaction: `queued` until a step starts,
+  `running`, `held` while a step waits for a person, `failed` while a step failed for good (the run carries its
+  reason), and `succeeded` once every step succeeded or was skipped. Every write to a run or its steps locks the run's
+  row first, so the engine's writes and a person's never deadlock.
+
+### Claims, leases, and attempts
+
+- The engine's step workers (`api/src/workflows/workers.rs`) claim due steps with `FOR UPDATE SKIP LOCKED`, four at a
+  time per engine, oldest first: queued steps whose backoff has passed, and running steps whose lease lapsed. A claim
+  sets a new token and a 60 second lease, renewed every 15 seconds while the step runs, and counts an attempt. Every
+  write of an attempt (its log, its renewal, how it ended) is fenced by its token, so an engine whose lease lapsed
+  records nothing over the attempt that replaced it, and stops its step when a renewal finds the claim gone.
+- An engine that dies stops renewing, and its steps are claimed again once their leases lapse; the lost attempt
+  counts. One that stops cleanly drops its running steps where they are and gives them back queued, the attempt
+  uncounted, for the next engine to take at once.
+- A step that fails retryably is tried again after 30 seconds, doubling each attempt up to ten minutes, three attempts
+  in all. Then, or when it fails for good, the step fails and its run stops with the reason. A step whose engine died
+  on every attempt is failed the same way. Every failed attempt's reason is written to the step's log.
+- A step may therefore run more than once for one success, so every step does its work idempotently.
+- The workers look at the queue when the API signals `workflows`, when a step they ran ends, when the next backoff
+  ends, and every 30 seconds in case a signal was lost. A running step holds a `workflowStep` activity, so auto-update
+  waits for it.
+- The limits (attempts, lease, backoff, concurrency, the log's size) are constants in code.
+
+### Steps
+
+- A step is found by its name in a registry (`workflows::Steps`) and called with a `StepCall`: its run, the run's
+  workflow and source, its input as JSON, which attempt it is, and a log to write lines to, stored every second, the
+  newest 64 KiB kept across attempts. A run naming a step this build lacks fails that step.
+- A step answers how its attempt ended: succeeded, with its output and a one-line summary its row collapses to; held,
+  with its output and what a person should look at, which stops the run without failing it; or failed, with its reason
+  and whether it may be retried.
+
+### A person's actions
+
+- **Retry** a failed step: it is queued again with a fresh set of attempts, and its run goes on from it.
+- **Skip** a step that has not run, failed, or is held: the step after it receives the input it would have.
+- **Resume** a held step: it succeeds with the output it was held with, and the run goes on.
+- Each is a write through `/api/v1/runs` (a member's session, Elysium's own origin), recorded in the run's history
+  (`workflow_run_events`) with who did it, then announced, and signalled to the engine. A run's start is recorded
+  there too. Entries' `data`: `started` holds `{ steps }`, `retried` the `{ error }` it had failed with, `skipped` the
+  `{ from }` state, and `resumed` nothing.
+- Runs read what was ingested, so they answer the company's members alone, as the knowledge base does.
+
+### Progress
+
+- Every change reaches clients as `workflowRun.changed` (a run's id and state) and `stepJob.changed` (a step's id, its
+  run, and its state, also sent when it logs), never input, output, or logs (`docs/realtime.md`). The web app loads
+  what it shows by id.
+- The Runs page (`/runs`) lists runs newest first; a run's page shows each step like a GitHub Actions step, collapsed
+  to its state, summary, and duration, expanding to its log (`docs/frontend.md`, Runs).
 
 ## Meetings
 

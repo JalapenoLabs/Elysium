@@ -126,6 +126,10 @@ pub mod sql_types {
     pub struct SessionTurnStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "step_job_state"))]
+    pub struct StepJobState;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "storage_location_kind"))]
     pub struct StorageLocationKind;
 
@@ -148,6 +152,10 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "vector"))]
     pub struct Vector;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "workflow_run_state"))]
+    pub struct WorkflowRunState;
 }
 
 diesel::table! {
@@ -1033,6 +1041,31 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::StepJobState;
+
+    step_jobs (id) {
+        id -> Uuid,
+        run_id -> Uuid,
+        position -> Int4,
+        step -> Text,
+        state -> StepJobState,
+        input -> Nullable<Jsonb>,
+        output -> Nullable<Jsonb>,
+        summary -> Nullable<Text>,
+        error -> Nullable<Text>,
+        log -> Text,
+        attempts -> Int4,
+        available_at -> Nullable<Timestamptz>,
+        claim_token -> Nullable<Uuid>,
+        lease_expires_at -> Nullable<Timestamptz>,
+        started_at -> Nullable<Timestamptz>,
+        finished_at -> Nullable<Timestamptz>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
 
     storage_location_projects (storage_location_id, project_id) {
         storage_location_id -> Uuid,
@@ -1248,6 +1281,40 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    workflow_run_events (id) {
+        id -> Uuid,
+        run_id -> Uuid,
+        step_job_id -> Nullable<Uuid>,
+        kind -> Text,
+        created_by -> Uuid,
+        data -> Jsonb,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::WorkflowRunState;
+
+    workflow_runs (id) {
+        id -> Uuid,
+        workflow -> Text,
+        source_kind -> Text,
+        source_id -> Text,
+        state -> WorkflowRunState,
+        input -> Jsonb,
+        error -> Nullable<Text>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        started_at -> Nullable<Timestamptz>,
+        finished_at -> Nullable<Timestamptz>,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     workspace_settings (singleton) {
         singleton -> Bool,
         signup_open -> Bool,
@@ -1344,6 +1411,7 @@ diesel::joinable!(projects -> users (created_by));
 diesel::joinable!(session_events -> coding_sessions (session_id));
 diesel::joinable!(session_turns -> coding_sessions (session_id));
 diesel::joinable!(session_turns -> users (created_by));
+diesel::joinable!(step_jobs -> workflow_runs (run_id));
 diesel::joinable!(storage_location_projects -> projects (project_id));
 diesel::joinable!(storage_location_projects -> storage_locations (storage_location_id));
 diesel::joinable!(storage_locations -> users (created_by));
@@ -1364,6 +1432,10 @@ diesel::joinable!(timeline_records -> connectors (connector_id));
 diesel::joinable!(timeline_records -> users (created_by));
 diesel::joinable!(token_accounts -> users (created_by));
 diesel::joinable!(turn_summaries -> coding_sessions (session_id));
+diesel::joinable!(workflow_run_events -> step_jobs (step_job_id));
+diesel::joinable!(workflow_run_events -> users (created_by));
+diesel::joinable!(workflow_run_events -> workflow_runs (run_id));
+diesel::joinable!(workflow_runs -> users (created_by));
 diesel::joinable!(workspace_settings -> storage_locations (backup_storage_location_id));
 diesel::joinable!(workspace_settings -> users (updated_by));
 
@@ -1420,6 +1492,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     secret_copies,
     session_events,
     session_turns,
+    step_jobs,
     storage_location_projects,
     storage_locations,
     studio_assets,
@@ -1433,5 +1506,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     update_checks,
     user_events,
     users,
+    workflow_run_events,
+    workflow_runs,
     workspace_settings,
 );

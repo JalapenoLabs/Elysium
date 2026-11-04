@@ -143,6 +143,17 @@ impl From<crate::models::learning_category::CategoryError> for ApiError {
     }
 }
 
+impl From<crate::models::step_job::StepActionError> for ApiError {
+    fn from(error: crate::models::step_job::StepActionError) -> Self {
+        use crate::models::step_job::StepActionError;
+
+        match error {
+            StepActionError::Database(database) => database.into(),
+            StepActionError::Refused(message) => Self::Conflict(message),
+        }
+    }
+}
+
 impl From<crate::models::user::AccountError> for ApiError {
     fn from(error: crate::models::user::AccountError) -> Self {
         use crate::models::user::AccountError;

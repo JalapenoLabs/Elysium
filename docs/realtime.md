@@ -75,6 +75,8 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `passwordVault.updated` | `PasswordVault`  | The vault was connected, its credentials replaced, or its collection chosen |
 | `passwordVault.deleted` | none             | The vault was removed                                      |
 | `passwordVault.status`  | `VaultStatus`    | The vault's CLI began starting, became ready, failed, or synced |
+| `workflowRun.changed`   | `{ id, state }`  | A run started, it or one of its steps moved on, or a person acted on a step; never its input, output, or logs, see `docs/engine.md`, Runs |
+| `stepJob.changed`       | `{ id, runId, state }` | A run's step moved on, or wrote to its log; members load what they show by id |
 
 Payload shapes are the same JSON the REST routes return; see `docs/api.md` and `docs/coding.md`.
 
@@ -149,8 +151,9 @@ Beside the events, the bus carries signals between processes on a channel of the
 event stream relays to a browser (`api/src/realtime/signals.rs`). A signal tells a loop to look at work that is
 already recorded: the API queued a session's turn (`sessionTurns`), Elysia's queue changed (`elysia`), a link owes its
 provider a write (`linkWatcher`), a backup or a sync was asked for (`backups`, `connectorSync`), a browser is owed a
-container (`browsers`), a Claude account was signed in (`claudeAccounts`), or the agents' configuration repository
-changed (`agentConfiguration`).
+container (`browsers`), a Claude account was signed in (`claudeAccounts`), the agents' configuration repository
+changed (`agentConfiguration`), or a workflow run was started or a person retried, skipped, or resumed one of its
+steps (`workflows`).
 
 - A signal carries no state, so a lost one costs latency and never work: every loop that listens also looks on a
   timer. `EventBus::signal` sends like `publish`, without waiting, and the same link to Redis carries it, so a lost

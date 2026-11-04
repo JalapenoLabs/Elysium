@@ -47,6 +47,10 @@ Self-improvement (learning from feedback, self-healing connectors) is designed i
   Elysia, every connector's reader, the keepers, update checks, and backups. It serves nothing but `/health`. They
   meet only in Postgres and on the bus: the API records what it asks for as a row and signals the engine
   (`crate::realtime::Signal`). See `docs/engine.md`.
+- Work that takes steps is a workflow run: one workflow on one source, each step a row (`step_jobs`) the engine's
+  workers claim with `FOR UPDATE SKIP LOCKED` under a lease they renew, retry with backoff, and record. A person
+  retries, skips, or resumes a step on the Runs page (`/runs`); clients hear ids and states only. See
+  `docs/engine.md`, Runs.
 - nginx, Kratos, Hydra, and the updater never bind-mount their configuration: each directory's `Dockerfile` builds it
   into a local image, rebuilt on every `up` (`pull_policy: build`), so a deploy that changes a file recreates exactly
   the services that use it. Each image has one building service. See `docs/infrastructure.md`, Configuration images.

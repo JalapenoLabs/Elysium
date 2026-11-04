@@ -79,7 +79,8 @@ added, reordered, and removed with their learnings moved, and every LLM,
 storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link
 query, every `elysium_work` tool against its project scope, each link provider against a faked provider, the
-watcher's passes, changesets proposed, decided, applied in part, and undone, accounts and their guardrails, and the
+watcher's passes, changesets proposed, decided, applied in part, and undone, workflow runs claimed by two claimers at
+once, leased, taken back, backed off, retried, skipped, and resumed, accounts and their guardrails, and the
 router itself refusing every workspace route without a session. Plain `cargo test` skips them because they need `TEST_DATABASE_URL`, and the router tests
 `TEST_REDIS_URL`. A router test signs in by caching a Kratos session in Redis (`test_support::signed_in_cookie`).
 
@@ -1217,3 +1218,63 @@ Every release the updater was told to apply, and how it ended; see `docs/infrast
 | `started_at`   | `TIMESTAMPTZ`              | Set on insert                                                     |
 | `finished_at`  | `TIMESTAMPTZ`              | Set exactly once it leaves `applying`                             |
 | `created_by`   | `UUID`                     | The admin who asked for it, or the system user for an automatic update |
+
+### `workflow_runs`
+
+Every run of a workflow on a source; see `docs/engine.md`, Runs. `workflow_runs_one_live_per_source`, a partial unique
+index on the workflow and source where the run has not succeeded, keeps one live run per source, which starting it
+again answers.
+
+| Column        | Type                 | Notes                                                                  |
+|---------------|----------------------|------------------------------------------------------------------------|
+| `id`          | `UUID`               | UUIDv7, primary key                                                    |
+| `workflow`    | `TEXT`               | The workflow's name in code, `snake_case`                              |
+| `source_kind` | `TEXT`               | What it is about, such as `meeting`, `snake_case`                      |
+| `source_id`   | `TEXT`               | That thing's id, 1 to 255 characters                                   |
+| `state`       | `workflow_run_state` | `queued`, `running`, `held`, `failed`, or `succeeded`, derived from its steps |
+| `input`       | `JSONB`              | What its first step receives                                           |
+| `error`       | `TEXT`               | The failed step's reason, 1 to 2000 characters; set exactly while `failed` |
+| `created_by`  | `UUID`               | Who or what started it: a person, or a machine user                    |
+| `created_at`  | `TIMESTAMPTZ`        | When it was started                                                    |
+| `started_at`  | `TIMESTAMPTZ`        | When its first step was first claimed                                  |
+| `finished_at` | `TIMESTAMPTZ`        | Set exactly while `failed` or `succeeded`                              |
+| `updated_at`  | `TIMESTAMPTZ`        | Maintained by trigger                                                  |
+
+### `step_jobs`
+
+Each step of a run, in order, and the engine's queue; see `docs/engine.md`, Runs. `step_jobs_claimable` (queued, by
+`available_at`) and `step_jobs_leased` (running, by `lease_expires_at`) serve the claim.
+
+| Column             | Type             | Notes                                                                  |
+|--------------------|------------------|------------------------------------------------------------------------|
+| `id`               | `UUID`           | UUIDv7, primary key                                                    |
+| `run_id`           | `UUID`           | References `workflow_runs`, cascading                                  |
+| `position`         | `INTEGER`        | Orders the run's steps, unique per run; never shown                    |
+| `step`             | `TEXT`           | The step's name in code, `snake_case`                                  |
+| `state`            | `step_job_state` | `pending`, `queued`, `running`, `held`, `failed`, `skipped`, or `succeeded` |
+| `input`            | `JSONB`          | Set once the run reaches it                                            |
+| `output`           | `JSONB`          | Set exactly while `succeeded` or `held`                                |
+| `summary`          | `TEXT`           | The one line its row collapses to, 1 to 500 characters                 |
+| `error`            | `TEXT`           | Why its last attempt failed, 1 to 2000 characters                      |
+| `log`              | `TEXT`           | What it wrote, every attempt's, the newest 65536 characters            |
+| `attempts`         | `INTEGER`        | Claims since its run or a person last queued it                        |
+| `available_at`     | `TIMESTAMPTZ`    | Set exactly while `queued`: the earliest it may be claimed             |
+| `claim_token`      | `UUID`           | Set exactly while `running`, new at every claim; fences the attempt's writes |
+| `lease_expires_at` | `TIMESTAMPTZ`    | Set exactly while `running`: when the claim lapses unless renewed      |
+| `started_at`       | `TIMESTAMPTZ`    | When its last attempt started                                          |
+| `finished_at`      | `TIMESTAMPTZ`    | When its last attempt ended                                            |
+| `updated_at`       | `TIMESTAMPTZ`    | Maintained by trigger                                                  |
+
+### `workflow_run_events`
+
+A run's history: its start, and every step a person retried, skipped, or resumed. Shaped like `learning_events`.
+
+| Column        | Type          | Notes                                                                  |
+|---------------|---------------|------------------------------------------------------------------------|
+| `id`          | `UUID`        | UUIDv7, primary key, so entries order as written                       |
+| `run_id`      | `UUID`        | References `workflow_runs`, cascading                                  |
+| `step_job_id` | `UUID`        | The step it was about, cascading; `NULL` for the run's own entries     |
+| `kind`        | `TEXT`        | `started`, `retried`, `skipped`, or `resumed`                          |
+| `created_by`  | `UUID`        | Who did it                                                             |
+| `data`        | `JSONB`       | Shaped by `kind`; see `docs/engine.md`, A person's actions             |
+| `created_at`  | `TIMESTAMPTZ` | When it was done                                                       |

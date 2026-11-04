@@ -27,6 +27,7 @@ pub mod meetings;
 pub mod oauth;
 pub mod password_vault;
 pub mod projects;
+mod runs;
 pub mod storage_locations;
 pub mod studio_items;
 pub mod timeline;
@@ -82,6 +83,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/mail", mail::router())
         .nest("/meetings", meetings::router())
         .nest("/projects", projects::router())
+        .nest("/runs", runs::router())
         .nest("/storage-locations", storage_locations::router())
         .nest("/timeline", timeline::router())
         .nest("/studio-items", studio_items::router())

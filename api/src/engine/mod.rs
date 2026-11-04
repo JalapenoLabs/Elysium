@@ -9,6 +9,8 @@
 //! - **agent turns**: the runner and the workspace it prepares, sessions' turns
 //!   (`crate::sessions::queue`), Elysia's intake and dispatcher (`crate::elysia`), and the Claude
 //!   account keeper that refreshes what turns run on (`crate::claude_accounts`);
+//! - **workflow runs**: the step workers that claim each run's steps from the queue and run them
+//!   (`crate::workflows`);
 //! - **readers**: the link watcher, connector ingest, the Confluence and YouTrack readers,
 //!   meetings, and every read someone asked for ([`syncs`]);
 //! - **keepers**: the browser reconciler, the mail server brought back up, the password vault and
@@ -58,6 +60,8 @@ use crate::sessions::queue::{TurnQueue, TurnQueueDeps};
 use crate::sessions::{Sessions, SessionsDeps};
 use crate::tools::grants::Grants;
 use crate::updates::{Updates, UpdatesDeps};
+use crate::workflows::Steps;
+use crate::workflows::workers::{Workers, WorkersDeps};
 use crate::youtrack::Youtrack;
 use crate::youtrack::reader::{ReaderDeps, YoutrackReader};
 
@@ -145,6 +149,14 @@ pub async fn run() -> Result<()> {
         "claude_accounts.keeper",
         claude_accounts.start(shutdown.clone()),
     ));
+    // Workflow runs, step by step. Their steps are registered by the workflows that use them.
+    let workers = Workers::new(WorkersDeps {
+        database: database.clone(),
+        events: events.clone(),
+        activity: activity.clone(),
+        steps: Steps::new(),
+    });
+    loops.push(("workflows.workers", workers.start(shutdown.clone())));
     let elysia = Elysia::new(TurnRunner::Host(runner.clone()), grants);
     let elysia_tasks = elysia.start(
         database.clone(),

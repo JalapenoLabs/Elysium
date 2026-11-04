@@ -3,10 +3,10 @@
 //! Work in progress that a restart of the stack would cut short.
 //!
 //! Auto-update restarts every container, so it waits until nothing is running that a
-//! restart would interrupt: an agent turn on this host, or a backup of the databases
-//! (`crate::backups`). Whatever starts such work
-//! calls [`Activities::begin`] and holds the returned [`ActivityGuard`] for as long as the
-//! work runs. Dropping the guard, on success, failure, cancellation, or a panic that
+//! restart would interrupt: an agent turn on this host, a backup of the databases
+//! (`crate::backups`), or a step of a workflow run (`crate::workflows`). Whatever starts
+//! such work calls [`Activities::begin`] and holds the returned [`ActivityGuard`] for as
+//! long as the work runs. Dropping the guard, on success, failure, cancellation, or a panic that
 //! unwinds through it, ends the activity, so a turn can never be left counted by an early
 //! return.
 //!
@@ -58,6 +58,8 @@ pub enum ActivityKind {
     AgentTurn,
     /// A backup of the databases, which a restart would leave half uploaded.
     DatabaseBackup,
+    /// A step of a workflow run, which a restart would stop and leave for another attempt.
+    WorkflowStep,
 }
 
 /// One piece of running work, as Settings shows it.

@@ -59,6 +59,7 @@ mod tools;
 mod updates;
 mod version;
 mod web_app;
+mod workflows;
 mod youtrack;
 
 use anyhow::Result;

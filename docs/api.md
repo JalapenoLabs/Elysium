@@ -144,6 +144,12 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/learning-categories`         | `201` `{ category }`; admins                        |
 | PATCH  | `/api/v1/learning-categories/{key}`   | `200` `{ category }`; admins                        |
 | DELETE | `/api/v1/learning-categories/{key}`   | `204`; admins; `?moveTo=` names where its learnings go |
+| GET    | `/api/v1/runs`                        | `200` `{ runs: Run[], hasMore }`, newest first, 50 at a time; `?before=` a run id |
+| GET    | `/api/v1/runs/{id}`                   | `200` `{ run, steps: Step[], history: RunHistoryEntry[] }` |
+| GET    | `/api/v1/runs/{id}/steps/{stepId}/log` | `200` `{ log }`, every attempt's                   |
+| POST   | `/api/v1/runs/{id}/steps/{stepId}/retry` | `200` as `GET /runs/{id}`; `409` unless the step failed |
+| POST   | `/api/v1/runs/{id}/steps/{stepId}/skip` | `200` as `GET /runs/{id}`; `409` while it runs or once done |
+| POST   | `/api/v1/runs/{id}/steps/{stepId}/resume` | `200` as `GET /runs/{id}`; `409` unless the step is held |
 | GET    | `/api/v1/github-credentials`          | `200` `{ credentials: GithubCredential[] }`, by name |
 | POST   | `/api/v1/github-credentials`          | `201` `{ credential }`; checked with GitHub first   |
 | GET    | `/api/v1/github-credentials/{id}`     | `200` `{ credential }`                              |
@@ -519,6 +525,18 @@ own counted from 0, past the end meaning last; the key never changes. A built-in
 `DELETE`. `DELETE` of a category with learnings answers `409 category_in_use` unless `moveTo` names another category,
 which they move to first, each as a revision in its history. See `docs/knowledge.md`, Categories.
 
+### `/api/v1/runs`
+
+Every route answers admins and members, and a guest `403 members_only`: a run reads what was ingested.
+
+A `Run` has `id`, `workflow`, `sourceKind`, `sourceId`, `state` (`queued`, `running`, `held`, `failed`, or
+`succeeded`), `error` (the failed step's reason), `createdBy`, `createdAt`, `startedAt`, and `finishedAt`. A `Step`
+has `id`, `runId`, `step` (its name), `state` (`pending`, `queued`, `running`, `held`, `failed`, `skipped`, or
+`succeeded`), `summary`, `error`, `attempts`, `availableAt` (when a step backing off is tried again), `startedAt`, and
+`finishedAt`; its input and output stay on the server. A `RunHistoryEntry` has `id`, `runId`, `stepJobId`, `kind`,
+`createdBy`, `data`, and `createdAt`. A step is reached through its own run: another run's id answers `404`. Each
+action records who took it in the run's history and signals the engine. See `docs/engine.md`, Runs.
+
 ### `/api/v1/action-items`
 
 An `ActionItem` has `id`, `title`, `notes`, `state` (`inbox`, `open`, `resolved`, `dismissed`), `priority` (`urgent`,
@@ -745,6 +763,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/issue_reports/`     | Problem reports filed on Elysium's GitHub repository: subjects, redaction, fingerprints, rendering, and filing, see `docs/issue-reporting.md` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
 | `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), the link watcher, and changesets' operations, dependencies, and decisions |
+| `src/workflows/`         | Workflow runs: the step registry, starting a run, announcing what moved, and the engine's step workers |
 | `src/tools/`             | The MCP servers agents call at `/api/agent-tools`: `elysium_storage`, `elysium_work`, and Elysia's `elysia`, see `docs/coding.md` |
 
 ## Logging
