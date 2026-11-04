@@ -127,12 +127,10 @@ export function SignupPage() {
   const isMismatched = confirmation.length > 0 && confirmation !== password
 
   return <div>
-    <h1 className='text-2xl font-bold'>{t('signup.heading')}</h1>
-    <p className='relaxed mt-1 text-sm opacity-70'>{
-      status?.firstSignUp
-        ? t('signup.firstDescription')
-        : t('signup.description')
-    }</p>
+    <div className='relaxed'>
+      <h1 className='text-2xl font-bold'>{t('signup.heading')}</h1>
+      {status?.firstSignUp && <p className='mt-1 text-sm opacity-70'>{t('signup.firstDescription')}</p>}
+    </div>
 
     {loadFailed && <Alert status='danger' className='compact'>
       <Alert.Indicator />

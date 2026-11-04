@@ -23,11 +23,12 @@ export function getLoginMode(flow: Pick<LoginFlow, 'requested_aal' | 'refresh'> 
   return 'signIn'
 }
 
+// Only a sign-in asked for again says why; the others need no more than their heading.
 export const loginCopyByMode = {
-  signIn: { heading: 'login.heading', description: 'login.description' },
+  signIn: { heading: 'login.heading', description: null },
   refresh: { heading: 'login.refresh.heading', description: 'login.refresh.description' },
-  secondFactor: { heading: 'login.secondFactor.heading', description: 'login.secondFactor.description' },
-} as const satisfies Record<LoginMode, { heading: ParseKeys<'auth'>, description: ParseKeys<'auth'> }>
+  secondFactor: { heading: 'login.secondFactor.heading', description: null },
+} as const satisfies Record<LoginMode, { heading: ParseKeys<'auth'>, description: ParseKeys<'auth'> | null }>
 
 // Kratos answers a password sign-in on an account with an authenticator app by redirecting
 // to its own endpoint for a second-factor flow. The sign-in page asks for the code itself,

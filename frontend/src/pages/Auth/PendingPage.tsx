@@ -54,10 +54,9 @@ export function PendingPage() {
   return <div className='text-center'>
     <LuHourglass className='relaxed mx-auto size-10 text-accent' aria-hidden />
     <h1 className='text-2xl font-bold'>{t('pending.heading')}</h1>
-    <p className='compact mt-2 text-sm opacity-70'>{
+    <p className='relaxed mt-2 text-sm opacity-70'>{
       t('pending.description', { name: me.user.name })
     }</p>
-    <p className='relaxed text-xs opacity-60'>{t('pending.automatic')}</p>
     <Button
       variant='outline'
       isPending={isSigningOut}

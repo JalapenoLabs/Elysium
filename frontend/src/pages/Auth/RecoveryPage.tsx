@@ -103,16 +103,14 @@ export function RecoveryPage() {
     : null
 
   return <div>
-    <h1 className='text-2xl font-bold'>{
-      isSent
-        ? t('recovery.sent.title')
-        : t('recovery.heading')
-    }</h1>
-    <p className='relaxed mt-1 text-sm opacity-70'>{
-      isSent
-        ? t('recovery.sent.description')
-        : t('recovery.description')
-    }</p>
+    <div className='relaxed'>
+      <h1 className='text-2xl font-bold'>{
+        isSent
+          ? t('recovery.sent.title')
+          : t('recovery.heading')
+      }</h1>
+      {isSent && <p className='mt-1 text-sm opacity-70'>{t('recovery.sent.description')}</p>}
+    </div>
 
     {loadFailed && <Alert status='danger' className='compact'>
       <Alert.Indicator />

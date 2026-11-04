@@ -146,10 +146,12 @@ export function LoginPage() {
   const isRefresh = mode === 'refresh'
 
   return <div>
-    <h1 className='text-2xl font-bold'>{t(loginCopyByMode[mode].heading)}</h1>
-    <p className='relaxed mt-1 text-sm opacity-70'>{
-      t(loginCopyByMode[mode].description)
-    }</p>
+    <div className='relaxed'>
+      <h1 className='text-2xl font-bold'>{t(loginCopyByMode[mode].heading)}</h1>
+      {loginCopyByMode[mode].description && <p className='mt-1 text-sm opacity-70'>{
+        t(loginCopyByMode[mode].description)
+      }</p>}
+    </div>
 
     {notice === 'disabled' && <Alert status='warning' className='compact'>
       <Alert.Indicator />
