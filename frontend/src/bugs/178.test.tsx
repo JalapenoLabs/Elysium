@@ -13,6 +13,7 @@ import { createAppStore } from '../store'
 import { Button, useOverlayState } from '@heroui/react'
 import { ListSearchField } from '../components/ListSearchField'
 import { ElysiaHoursDialog } from '../elysia/ElysiaHoursDialog'
+import { KnowledgeAskPage } from '../pages/Knowledge/Ask/KnowledgeAskPage'
 import { PromptGate } from '../gates/PromptGate'
 import { SnoozeDateModal } from '../pages/ActionItems/SnoozeDateModal'
 import { PromptComposer } from '../pages/Coding/PromptComposer'
@@ -32,6 +33,13 @@ vi.mock('../api/routes/elysiaRoutes', async (importOriginal) => ({
   updateElysiaSettings: settings.update,
 }))
 
+const knowledge = vi.hoisted(() => ({ ask: vi.fn(), list: vi.fn() }))
+vi.mock('../api/routes/knowledgeRoutes', async (importOriginal) => ({
+  ...await importOriginal<object>(),
+  askKnowledge: knowledge.ask,
+  listKnowledgeAsks: knowledge.list,
+}))
+
 // jsdom has no ResizeObserver, which HeroUI's fields use for layout alone.
 class InertObserver {
   observe() {}
@@ -42,6 +50,9 @@ class InertObserver {
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', InertObserver)
   settings.update.mockReset()
+  knowledge.ask.mockReset()
+  knowledge.list.mockReset()
+  knowledge.list.mockResolvedValue({ asks: []})
 })
 
 afterEach(() => {
@@ -119,6 +130,21 @@ describe('issue #178: Ctrl+Enter submits a text area', () => {
 
     fireEvent.keyDown(field, { key: 'Enter', metaKey: true })
     await waitFor(() => expect(onSend).toHaveBeenCalledWith('Fix the build'))
+  })
+
+  it('asks the knowledge base on Ctrl+Enter, never on Enter alone', async () => {
+    knowledge.ask.mockReturnValue(new Promise(() => undefined))
+    render(<Provider store={createAppStore()}>
+      <KnowledgeAskPage />
+    </Provider>)
+    const field = screen.getByRole('textbox')
+    fireEvent.change(field, { target: { value: 'When do we deploy?' }})
+
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect(knowledge.ask).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(knowledge.ask).toHaveBeenCalledWith('When do we deploy?'))
   })
 })
 

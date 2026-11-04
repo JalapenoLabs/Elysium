@@ -34,10 +34,11 @@ export function KnowledgeAskCard(props: Props) {
       <DateText value={ask.createdAt} className='text-xs opacity-70' />
     </div>
 
-    {waitingKey && <p role='status' className='flex items-center gap-2 text-sm opacity-70'>
-      <Spinner size='sm' aria-hidden />
-      <span>{t(waitingKey)}</span>
-    </p>}
+    {/* The spinner announces itself as a status, so the words beside it are plain text. */}
+    {waitingKey && <div className='flex items-center gap-2 text-sm opacity-70'>
+      <Spinner size='sm' aria-label={t(waitingKey)} />
+      <span aria-hidden>{t(waitingKey)}</span>
+    </div>}
 
     {ask.state === 'failed' && <div className='flex flex-wrap items-center gap-3'>
       <p className='text-sm text-warning'>{ask.error ?? t('ask.failed')}</p>

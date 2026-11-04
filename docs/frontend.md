@@ -502,8 +502,8 @@ How the keys fit together (`~/.claude/docs/ux.md`, Hotkeys). Each has one owner,
   browser's check of a disabled submit button. A destructive confirmation never uses it: `ConfirmGate`'s `danger`
   tone blocks Enter (see Confirm and prompt gates).
 - **Text areas.** Every text area that submits does so on Ctrl or Cmd with Enter through the same handler, Enter
-  alone adding a line: the coding session and Studio prompts, Elysia's conversation and answers, comments, replies,
-  the report note, and a multi-line prompt such as editing a comment. A page's own form saves with Ctrl+S instead,
+  alone adding a line: the coding session and Studio prompts, Elysia's conversation and answers, the knowledge base's
+  question, comments, replies, the report note, and a multi-line prompt such as editing a comment. A page's own form saves with Ctrl+S instead,
   and `InlineEditableText` finishes on Enter, or Ctrl+Enter when multi-line. `src/bugs/178.test.tsx` covers these.
 
 ### Global search
