@@ -228,12 +228,13 @@ describe('GlobalSearch', () => {
     renderSearch()
     type('settings')
 
-    fireEvent.keyDown(field(), { key: 'Escape' })
+    // A page goes up a level on an Esc nobody used (`readPageShortcut`); both of these are used.
+    const clearReachedPage = fireEvent.keyDown(field(), { key: 'Escape' })
+    expect(clearReachedPage).toBe(false)
     expect(field().value).toBe('')
 
-    // A page goes up a level on an Esc nobody used (`readPageShortcut`); this one is used.
-    const reachedPage = fireEvent.keyDown(field(), { key: 'Escape' })
-    expect(reachedPage).toBe(false)
+    const leaveReachedPage = fireEvent.keyDown(field(), { key: 'Escape' })
+    expect(leaveReachedPage).toBe(false)
     expect(document.activeElement).not.toBe(field())
   })
 })
