@@ -22,6 +22,7 @@ import { SessionsToolbar } from './SessionsToolbar'
 import { SessionTiles } from './SessionTiles'
 
 // Misc
+import { formatShortDateTime } from '../../format/dates'
 import { useCodingSessionsLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { UrlTree } from '../../urls'
@@ -76,7 +77,7 @@ const sortValue = {
 // The overview panel: every coding session, with what it is doing now, as a table or as
 // tiles. Opening one focuses its conversation panel.
 export function SessionsPanel() {
-  const { t, i18n } = useTranslation([ 'coding', 'common' ])
+  const { t } = useTranslation([ 'coding', 'common' ])
   const actions = useCodingActions()
   const labels = useSmartTableLabels()
   const dispatch = useAppDispatch()
@@ -90,17 +91,12 @@ export function SessionsPanel() {
 
   // Both views and the search read the same summaries, derived once per change.
   const summaries = useMemo(() => {
-    // Timestamps arrive as UTC; this is where they become the viewer's local time.
-    const dateFormatter = new Intl.DateTimeFormat(i18n.language, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    })
     const context = {
       projectNames,
-      formatInstant: (instant: string) => dateFormatter.format(new Date(instant)),
+      formatInstant: (instant: string) => formatShortDateTime(instant),
     }
     return sessions.map((session) => describeSession(session, t, context))
-  }, [ sessions, projectNames, t, i18n.language ])
+  }, [ sessions, projectNames, t ])
 
   const listedSummaries = useMemo(
     () => searchSessionSummaries(summaries, search),

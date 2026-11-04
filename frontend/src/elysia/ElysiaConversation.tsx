@@ -16,6 +16,7 @@ import { LuSendHorizontal } from 'react-icons/lu'
 
 // Misc
 import { listElysiaMessages, sendElysiaMessage } from '../api/routes/elysiaRoutes'
+import { formatShortDateTime } from '../format/dates'
 import { useElysiaMessagesLoader } from '../hooks/useServerData'
 import { useUserNames } from '../hooks/useUserNames'
 import { ELYSIA_MESSAGE_PAGE_SIZE } from '../constants'
@@ -31,7 +32,7 @@ type Props = {
 // The conversation with Elysia, oldest first, with the composer below. Her reply arrives as
 // an `elysiaMessage.created` event when her turn ends.
 export function ElysiaConversation(props: Props) {
-  const { t, i18n } = useTranslation('elysia')
+  const { t } = useTranslation('elysia')
   const dispatch = useAppDispatch()
   const status = useElysiaMessagesLoader()
   const messages = useAppSelector(selectElysiaMessages)
@@ -41,7 +42,6 @@ export function ElysiaConversation(props: Props) {
   const [ isLoadingEarlier, setIsLoadingEarlier ] = useState(false)
   const [ hasEarlier, setHasEarlier ] = useState<boolean | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
-  const timeFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' })
 
   const lastMessageId = messages.at(-1)?.id
   useEffect(() => {
@@ -129,7 +129,7 @@ export function ElysiaConversation(props: Props) {
                 ? t('name')
                 : userNames[message.createdBy] ?? t('conversation.you')
             }</span>
-            <span className='ml-2 opacity-60'>{timeFormatter.format(new Date(message.createdAt))}</span>
+            <span className='ml-2 opacity-60'>{formatShortDateTime(message.createdAt)}</span>
           </div>
           <p className='text-sm whitespace-pre-line'>{message.body}</p>
         </li>)

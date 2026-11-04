@@ -19,6 +19,7 @@ import { Time } from '@internationalized/date'
 
 // Misc
 import { updateElysiaSettings } from '../api/routes/elysiaRoutes'
+import { formatWeekday } from '../format/dates'
 import { WEEKDAYS, fromUtcWindows, localOffsetMinutes, toUtcWindows } from './hours'
 
 // A new schedule starts as working hours, Monday to Friday.
@@ -35,7 +36,7 @@ type Props = {
 // Edits the hours Elysia may start work on her own: one daily range on chosen days, in the
 // viewer's zone. A person's own messages are answered whatever the hours say.
 export function ElysiaHoursDialog(props: Props) {
-  const { t, i18n } = useTranslation('elysia')
+  const { t } = useTranslation('elysia')
   const dispatch = useAppDispatch()
   const offset = localOffsetMinutes()
   const saved = fromUtcWindows(props.availability, offset)
@@ -56,7 +57,6 @@ export function ElysiaHoursDialog(props: Props) {
   const startMinute = start.hour * 60 + start.minute
   const endMinute = end.hour * 60 + end.minute
   const isValid = isAnyTime || (Boolean(days.length) && startMinute < endMinute)
-  const dayFormatter = new Intl.DateTimeFormat(i18n.language, { weekday: 'short' })
 
   async function save() {
     const availability = isAnyTime
@@ -114,7 +114,7 @@ export function ElysiaHoursDialog(props: Props) {
                     </Checkbox.Control>
                     <span className='text-sm'>{
                       // 2026-10-19 is a Monday, so day 0 lands on it.
-                      dayFormatter.format(new Date(2026, 9, 19 + day))
+                      formatWeekday(new Date(2026, 9, 19 + day))
                     }</span>
                   </Checkbox.Content>
                 </Checkbox>)

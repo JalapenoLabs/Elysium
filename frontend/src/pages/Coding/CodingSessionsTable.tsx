@@ -12,6 +12,7 @@ import { Chip, Link } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 
 // Misc
+import { DateText } from '../../format/DateText'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getCodingSessionUrl } from '../../urls'
 import {
@@ -54,26 +55,20 @@ const columnSizes = {
 // A list of coding sessions outside the Coding page, such as a project's or an action
 // item's. Clicking one opens its conversation on the Coding page.
 export function CodingSessionsTable(props: Props) {
-  const { t, i18n } = useTranslation('coding')
+  const { t } = useTranslation('coding')
   const navigate = useNavigate()
   const labels = useSmartTableLabels()
 
   const managedColumns = useMemo(() => {
-    // Timestamps arrive as UTC; this is where they become the viewer's local time.
-    const dateFormatter = new Intl.DateTimeFormat(i18n.language, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    })
-
     function stateLabel(session: CodingSession) {
       return t(activityStateLabelKeys[session.activity.state])
     }
-    function lastActivityText(session: CodingSession) {
+    function lastActivity(session: CodingSession) {
       const lastActivityAt = session.activity.lastActivityAt
       if (!lastActivityAt) {
         return t('sessions.never')
       }
-      return dateFormatter.format(new Date(lastActivityAt))
+      return <DateText value={lastActivityAt} />
     }
 
     const renderCell = {
@@ -93,7 +88,7 @@ export function CodingSessionsTable(props: Props) {
       >{
         stateLabel(session)
       }</Chip>,
-      lastActivity: lastActivityText,
+      lastActivity,
     } satisfies Record<SessionColumnKey, (session: CodingSession) => unknown>
 
     const sortValue = {
@@ -126,7 +121,7 @@ export function CodingSessionsTable(props: Props) {
         }),
       },
     })
-  }, [ t, i18n.language ])
+  }, [ t ])
 
   if (!props.sessions.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

@@ -26,10 +26,9 @@ import { HTTPError } from 'ky'
 import { updateProject } from '../../api/routes/projectRoutes'
 import { useCodingSessionsLoader, useProjectsLoader } from '../../hooks/useServerData'
 import { useUserNames } from '../../hooks/useUserNames'
+import { formatDate } from '../../format/dates'
 import { UrlTree } from '../../urls'
 import { DESCRIPTION_MAX_CHARACTERS, NAME_MAX_CHARACTERS } from './projectFormSchema'
-
-const createdFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
 
 // `/projects/:projectId`: one project, edited in place. The name and description come
 // first and are edited where they are shown, the cover runs across the page below them, and the Actions menu holds
@@ -110,7 +109,7 @@ export function ProjectPage() {
         <p className='mt-2 text-xs opacity-60'>{
           t('page.createdBy', {
             name: userNames[project.createdBy] ?? t('common:table.someone'),
-            date: createdFormatter.format(new Date(project.createdAt)),
+            date: formatDate(project.createdAt),
           })
         }</p>
       </div>

@@ -12,6 +12,7 @@ import { RestoreStudioItemButton } from './RestoreStudioItemButton'
 import { StudioThumbnail } from './StudioThumbnail'
 
 // Misc
+import { formatDate } from '../../format/dates'
 import { getStudioItemUrl } from '../../urls'
 import { activityStateChipColors, activityStateLabelKeys } from '../Coding/sessionPresentation'
 import { getTileActivityState, getTileThumbnail } from './studioListing'
@@ -33,7 +34,7 @@ type Props = {
 // One item in the grid: its picture, title, what its agent is doing when there is one to report,
 // and how many images and models it holds.
 export function StudioItemTile(props: Props) {
-  const { t, i18n } = useTranslation([ 'studio', 'coding' ])
+  const { t } = useTranslation([ 'studio', 'coding' ])
   const item = props.item
   const activityState = getTileActivityState(props.latestSession)
   const thumbnail = getTileThumbnail(item, props.latestSession)
@@ -67,7 +68,7 @@ export function StudioItemTile(props: Props) {
       {item.deletedAt && <div className='level items-center text-xs'>
         <span className='opacity-70'>{
           t('grid.deletedOn', {
-            date: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(new Date(item.deletedAt)),
+            date: formatDate(item.deletedAt),
           })
         }</span>
         <div className='relative z-10'>

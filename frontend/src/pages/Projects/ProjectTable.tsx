@@ -17,6 +17,8 @@ import { ProjectCover } from './ProjectCover'
 
 // Misc
 import { getProjectCoverUrl } from '../../api/routes/projectRoutes'
+import { DateText } from '../../format/DateText'
+import { formatNumber } from '../../format/numbers'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getProjectViewUrl } from '../../urls'
 import { DEFAULT_PROJECT_SORT, PROJECT_SORT_KEYS } from './projectListing'
@@ -50,7 +52,7 @@ const columnSizes = {
 // The table view. Its column headers sort through the same state as the toolbar, and a
 // row opens its project.
 export function ProjectTable(props: Props) {
-  const { t, i18n } = useTranslation([ 'projects', 'common' ])
+  const { t } = useTranslation([ 'projects', 'common' ])
   const navigate = useNavigate()
   const labels = useSmartTableLabels()
 
@@ -70,13 +72,6 @@ export function ProjectTable(props: Props) {
   }
 
   const managedColumns = useMemo(() => {
-    // Timestamps arrive as UTC; this is where they become the viewer's local time.
-    const dateFormatter = new Intl.DateTimeFormat(i18n.language, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    })
-    const countFormatter = new Intl.NumberFormat(i18n.language)
-
     const renderCell = {
       cover: (project: Project) => {
         const coverUrl = getProjectCoverUrl(project)
@@ -108,8 +103,8 @@ export function ProjectTable(props: Props) {
           project.description
         }</div>}
       </div>,
-      sessions: (project: Project) => countFormatter.format(props.sessionCounts[project.id] ?? 0),
-      updated: (project: Project) => dateFormatter.format(new Date(project.updatedAt)),
+      sessions: (project: Project) => formatNumber(props.sessionCounts[project.id] ?? 0),
+      updated: (project: Project) => <DateText value={project.updatedAt} />,
     } satisfies Record<ProjectColumnKey, (project: Project) => unknown>
 
     // Search matches names and descriptions only.
@@ -155,7 +150,7 @@ export function ProjectTable(props: Props) {
         }
       },
     })
-  }, [ t, i18n.language, props.sessionCounts ])
+  }, [ t, props.sessionCounts ])
 
   return <SmartTable
     ids={{

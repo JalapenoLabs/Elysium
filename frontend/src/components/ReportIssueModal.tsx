@@ -34,6 +34,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorCode, getApiErrorMessage, getUpstreamErrorMessage } from '../api/errors'
 import { fileIssueReport, previewIssueReport } from '../api/routes/issueReportRoutes'
+import { formatDateTime } from '../format/dates'
 import { ISSUE_REPORT_NOTE_MAX_CHARACTERS, ISSUE_REPORT_PREVIEW_DELAY_MS } from '../constants'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { getNewConnectorUrl } from '../urls'
@@ -163,7 +164,7 @@ export function ReportIssueModal(props: Props) {
             }</p>}
 
             {previous && <p className='text-sm'>
-              <span>{t('dialog.previous', { when: new Date(previous.reportedAt).toLocaleString() })}</span>
+              <span>{t('dialog.previous', { when: formatDateTime(previous.reportedAt) })}</span>
               {' '}
               <Link href={previous.url} target='_blank' rel='noreferrer' className='text-link'>
                 <span>{t('dialog.viewPrevious')}</span>

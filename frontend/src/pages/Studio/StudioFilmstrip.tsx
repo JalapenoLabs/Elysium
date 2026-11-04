@@ -12,6 +12,7 @@ import { StudioImage } from './StudioImage'
 
 // Misc
 import { getStudioAssetContentUrl } from '../../api/routes/studioRoutes'
+import { formatDateTime, formatShortDateTime } from '../../format/dates'
 
 const FRAME_CLASS_NAME = [
   'flex w-24 shrink-0 cursor-pointer flex-col gap-1 rounded-lg p-1 text-left text-xs',
@@ -37,8 +38,7 @@ type Props = {
 // Two strips under the stage: every model and image the item holds, then the versions of
 // the one shown, so a render can be compared turn by turn.
 export function StudioFilmstrip(props: Props) {
-  const { t, i18n } = useTranslation('studio')
-  const dateFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' })
+  const { t } = useTranslation('studio')
 
   // What a frame shows for an image that fails to load, in place of an empty box.
   const noImage = <LuImageOff className='size-8 opacity-60' aria-hidden />
@@ -100,12 +100,12 @@ export function StudioFilmstrip(props: Props) {
           const isSelected = version.id === props.shownVersionId
           const label = index === 0
             ? t('stage.latest')
-            : dateFormatter.format(new Date(version.createdAt))
+            : formatShortDateTime(version.createdAt)
           return <li key={version.id}>
             <button
               type='button'
               aria-pressed={isSelected}
-              aria-label={t('stage.version', { date: dateFormatter.format(new Date(version.createdAt)) })}
+              aria-label={t('stage.version', { date: formatDateTime(version.createdAt) })}
               className={frameClassName(isSelected)}
               onClick={() => props.onVersionChange(version.id)}
             >

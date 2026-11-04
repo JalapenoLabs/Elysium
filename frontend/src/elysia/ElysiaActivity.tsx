@@ -12,17 +12,17 @@ import { Button, Chip, Spinner, toast } from '@heroui/react'
 
 // Misc
 import { cancelElysiaTurn } from '../api/routes/elysiaRoutes'
+import { formatShortDateTime } from '../format/dates'
 import { useElysiaTurnsLoader } from '../hooks/useServerData'
 import { triggerLabelKey, turnStatusLabelKeys } from './presentation'
 
 // Elysia's turns, newest first: what started each, how it ended, and her one or two
 // sentence summary of what it did.
 export function ElysiaActivity() {
-  const { t, i18n } = useTranslation('elysia')
+  const { t } = useTranslation('elysia')
   const dispatch = useAppDispatch()
   const status = useElysiaTurnsLoader()
   const turns = useAppSelector(selectElysiaTurns)
-  const timeFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' })
 
   async function cancel(turnId: string) {
     try {
@@ -52,7 +52,7 @@ export function ElysiaActivity() {
       <div className='level gap-2 text-xs'>
         <span>
           <span className='font-semibold'>{t(triggerLabelKey(turn.triggerKind))}</span>
-          <span className='ml-2 opacity-60'>{timeFormatter.format(new Date(turn.createdAt))}</span>
+          <span className='ml-2 opacity-60'>{formatShortDateTime(turn.createdAt)}</span>
         </span>
         <Chip size='sm' variant='soft' color={turn.status === 'failed'
           ? 'danger'

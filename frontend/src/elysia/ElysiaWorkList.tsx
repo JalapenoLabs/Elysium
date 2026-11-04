@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 import { Chip } from '@heroui/react'
 
 // Misc
+import { formatShortDateTime } from '../format/dates'
 import { workStatusLabelKeys } from './presentation'
 
 type Props = {
@@ -17,8 +18,7 @@ type Props = {
 
 // What Elysia has taken on and not finished, with when she expects each to be ready.
 export function ElysiaWorkList(props: Props) {
-  const { t, i18n } = useTranslation('elysia')
-  const readyFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
+  const { t } = useTranslation('elysia')
 
   return <ul className='flex flex-col gap-2'>{
     props.work.map((item) => <li key={item.id} className='rounded-xl bg-surface p-3'>
@@ -28,7 +28,7 @@ export function ElysiaWorkList(props: Props) {
       </div>
       {Boolean(item.detail) && <p className='mt-1 text-sm whitespace-pre-line opacity-80'>{item.detail}</p>}
       {item.readyAt && item.status === 'working' && <p className='mt-1 text-xs opacity-60'>{
-        t('work.readyAt', { time: readyFormatter.format(new Date(item.readyAt)) })
+        t('work.readyAt', { time: formatShortDateTime(item.readyAt) })
       }</p>}
       {Boolean(item.revisits) && <p className='mt-1 text-xs opacity-60'>{
         t('work.revisits', { count: item.revisits })

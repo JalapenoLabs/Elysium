@@ -6,6 +6,9 @@ import type { GithubCredential } from '../../api/routes/githubRoutes'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+// Misc
+import { formatDate } from '../../format/dates'
+
 // A token expiring within this many days is worth a warning before a session starts on it.
 const EXPIRY_WARNING_DAYS = 7
 const MILLISECONDS_PER_DAY = 86_400_000
@@ -18,7 +21,7 @@ type Props = {
 // Warns about a session's token that has expired or expires within a week. A warning never
 // blocks the session.
 export function SessionGithubTokenExpiry(props: Props) {
-  const { t, i18n } = useTranslation('coding')
+  const { t } = useTranslation('coding')
   const [ now ] = useState(() => Date.now())
 
   const expiresAt = props.credential?.tokenExpiresAt
@@ -36,7 +39,7 @@ export function SessionGithubTokenExpiry(props: Props) {
   }
   return <p className='text-sm text-warning'>{
     t('create.github.access.expiresSoon', {
-      date: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(expiresAt),
+      date: formatDate(expiresAt),
     })
   }</p>
 }

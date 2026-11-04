@@ -23,6 +23,7 @@ import { ElysiaWorkList } from './ElysiaWorkList'
 
 // Misc
 import { updateElysiaSettings } from '../api/routes/elysiaRoutes'
+import { formatShortDateTime } from '../format/dates'
 import { holdLabelKeys, lightDotClassNames, lightLabelKeys, lightTextClassNames } from './presentation'
 
 type View = 'conversation' | 'activity'
@@ -31,14 +32,13 @@ type View = 'conversation' | 'activity'
 // working on, and the conversation or her activity. It sits in the app shell rather than an
 // overlay, so the page stays usable while she is open.
 export function ElysiaPanel() {
-  const { t, i18n } = useTranslation('elysia')
+  const { t } = useTranslation('elysia')
   const dispatch = useAppDispatch()
   const elysia = useAppSelector(selectElysia)
   const isAdmin = useAppSelector(selectIsAdmin)
   const [ view, setView ] = useState<View>('conversation')
   const [ isSaving, setIsSaving ] = useState(false)
   const [ isHoursOpen, setIsHoursOpen ] = useState(false)
-  const timeFormatter = new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' })
 
   async function changeSettings(body: Parameters<typeof updateElysiaSettings>[0]) {
     setIsSaving(true)
@@ -57,7 +57,7 @@ export function ElysiaPanel() {
 
   function holdText(hold: ElysiaHold) {
     if (hold.kind === 'usage-limit') {
-      return t(holdLabelKeys[hold.kind], { time: timeFormatter.format(new Date(hold.until)) })
+      return t(holdLabelKeys[hold.kind], { time: formatShortDateTime(hold.until) })
     }
     return t(holdLabelKeys[hold.kind])
   }

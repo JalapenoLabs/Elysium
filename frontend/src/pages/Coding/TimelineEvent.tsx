@@ -17,6 +17,7 @@ import {
 } from 'react-icons/lu'
 
 // Misc
+import { formatDuration } from '../../format/durations'
 import { turnStateLabelKeys } from './sessionPresentation'
 
 type Props = {
@@ -41,14 +42,6 @@ type Renderers = {
 
 const BUBBLE_CLASS_NAME = 'max-w-[85%] rounded-2xl px-4 py-2'
 const CODE_BLOCK_CLASS_NAME = 'mt-1 max-h-60 overflow-auto rounded-md bg-surface-secondary p-2 font-mono'
-
-// Formats a tool's elapsed time for a sentence: "850 ms", "2.4 s".
-function formatElapsed(milliseconds: number) {
-  if (milliseconds < 1000) {
-    return `${milliseconds} ms`
-  }
-  return `${(milliseconds / 1000).toFixed(1)} s`
-}
 
 // One renderer per payload kind. Prompts and replies read as a chat; tool calls and
 // lifecycle events are compact lines, with details folded away.
@@ -93,7 +86,7 @@ const renderers: Renderers = {
     else if (payload.ok && payload.elapsedMilliseconds !== null) {
       label = t('conversation.toolSucceeded', {
         tool,
-        duration: formatElapsed(payload.elapsedMilliseconds),
+        duration: formatDuration(payload.elapsedMilliseconds),
       })
     }
 
