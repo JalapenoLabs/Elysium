@@ -11,9 +11,11 @@ import {
   elysiaMessageCreated,
   elysiaMessagesLoaded,
   elysiaPanelToggled,
+  elysiaPanelViewChanged,
   elysiaTurnsLoaded,
   elysiaTurnUpserted,
   selectElysiaMessages,
+  selectElysiaPanelView,
   selectElysiaTurns,
   selectIsElysiaPanelOpen,
 } from './elysiaSlice'
@@ -77,5 +79,13 @@ describe('elysiaSlice', () => {
 
     store.dispatch(elysiaPanelToggled(false))
     expect(selectIsElysiaPanelOpen(store.getState())).toBe(false)
+  })
+
+  it('opens the panel on the conversation, and remembers the view picked', () => {
+    const store = createAppStore()
+    expect(selectElysiaPanelView(store.getState())).toBe('conversation')
+
+    store.dispatch(elysiaPanelViewChanged('activity'))
+    expect(selectElysiaPanelView(store.getState())).toBe('activity')
   })
 })

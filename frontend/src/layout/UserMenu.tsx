@@ -12,7 +12,7 @@ import { Avatar, Button, Dropdown, Label, Separator, Tooltip } from '@heroui/rea
 import { LuLogOut, LuShieldCheck, LuUser } from 'react-icons/lu'
 
 // Misc
-import { signOut } from '../auth/signOut'
+import { askToSignOut } from '../auth/askToSignOut'
 import { useConfirm } from '../hooks/useConfirm'
 import { UrlTree } from '../urls'
 import { getInitials } from './userMenuPresentation'
@@ -29,16 +29,6 @@ export function UserMenu() {
   if (!me) {
     console.debug('UserMenu rendered before the signed-in person loaded')
     return null
-  }
-
-  function confirmSignOut() {
-    confirm({
-      title: t('topbar.signOutConfirm.title'),
-      message: t('topbar.signOutConfirm.message'),
-      confirmText: t('topbar.signOut'),
-      // The page reloads onto the sign-in page, so the dialog never needs closing.
-      onConfirm: signOut,
-    })
   }
 
   return <Dropdown>
@@ -72,7 +62,7 @@ export function UserMenu() {
           <Label>{t('topbar.security')}</Label>
         </Dropdown.Item>
         <Separator />
-        <Dropdown.Item id='signOut' textValue={t('topbar.signOut')} onAction={confirmSignOut}>
+        <Dropdown.Item id='signOut' textValue={t('topbar.signOut')} onAction={() => askToSignOut(confirm)}>
           <LuLogOut className='size-4' aria-hidden />
           <Label>{t('topbar.signOut')}</Label>
         </Dropdown.Item>

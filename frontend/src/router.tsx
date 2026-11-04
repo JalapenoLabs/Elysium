@@ -41,6 +41,7 @@ import { ProjectPage } from './pages/Projects/ProjectPage'
 import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { RunPage } from './pages/Runs/RunPage'
 import { RunsPage } from './pages/Runs/RunsPage'
+import { SearchPage } from './pages/Search/SearchPage'
 import { NewStudioItemPage } from './pages/Studio/NewStudioItemPage'
 import { StudioItemPage } from './pages/Studio/StudioItemPage'
 import { StudioPage } from './pages/Studio/StudioPage'
@@ -202,6 +203,10 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.runView,
       element: <RunPage />,
+    },
+    {
+      path: UrlTree.search,
+      element: <SearchPage />,
     },
     {
       path: UrlTree.settings,

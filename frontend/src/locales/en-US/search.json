@@ -1,0 +1,67 @@
+{
+  "groups": {
+    "pages": "Pages",
+    "actions": "Actions"
+  },
+  "results": {
+    "label": "Search results",
+    "loading": "Loading…",
+    "none": "No results for “{{query}}”",
+    "viewAll": "View all results",
+    "askElysia": "Ask Elysia about “{{query}}”"
+  },
+  "page": {
+    "title": "Search"
+  },
+  "titles": {
+    "openElysia": "Open Elysia",
+    "themeLight": "Use the light theme",
+    "themeDark": "Use the dark theme",
+    "themeSystem": "Match the system theme"
+  },
+  "tags": {
+    "actionItems": "next todo tasks work inbox",
+    "inbox": "triage incoming new unread",
+    "allItems": "list every tasks todo",
+    "initiatives": "goals epics milestones progress burnup",
+    "changesets": "review approvals proposals changes",
+    "projects": "workspaces products",
+    "coding": "sessions agents claude code repositories",
+    "studio": "3d models renders images assets blender",
+    "runs": "workflows engine jobs steps logs",
+    "settings": "preferences configuration options",
+    "account": "profile name email me personal details",
+    "security": "login sign in protection",
+    "password": "change reset passphrase",
+    "twoFactor": "2fa mfa totp otp authenticator app second factor",
+    "passkeys": "webauthn fido security key",
+    "lookupCodes": "backup codes recovery codes",
+    "sessions": "devices signed in browsers",
+    "mcp": "connected apps clients oauth claude codex model context protocol",
+    "meetings": "fireflies transcripts recordings calls",
+    "learnings": "knowledge base takeaways lessons",
+    "learningCategories": "knowledge base tags",
+    "users": "people members team accounts approvals sign ups admins roles",
+    "llms": "claude openai codex api keys tokens models credentials",
+    "email": "mail mailboxes domains gmail outlook stalwart smtp imap",
+    "connectors": "integrations accounts github jira confluence slack teams youtrack outlook gmail browsers",
+    "storage": "buckets s3 bunny google cloud files uploads",
+    "environment": "env variables secrets keys",
+    "passwords": "bitwarden vaultwarden vault logins",
+    "updates": "releases versions upgrade auto update",
+    "backups": "restore databases snapshots",
+    "newActionItem": "add create item task todo",
+    "newInitiative": "add create goal epic",
+    "newProject": "add create",
+    "newCodingSession": "add create start agent claude",
+    "newStudioItem": "add create 3d model render image",
+    "addConnector": "new create integration connect github jira slack outlook",
+    "addEnvironmentVariable": "new create env secret",
+    "addStorageLocation": "new create bucket",
+    "newLearning": "add create knowledge",
+    "newLearningCategory": "add create",
+    "signOut": "log out logout signout leave",
+    "openElysia": "assistant ai chat ask",
+    "theme": "appearance colors mode"
+  }
+}

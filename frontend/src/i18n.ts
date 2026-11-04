@@ -30,6 +30,7 @@ import oauth from './locales/en-US/oauth.json'
 import passwords from './locales/en-US/passwords.json'
 import projects from './locales/en-US/projects.json'
 import runs from './locales/en-US/runs.json'
+import search from './locales/en-US/search.json'
 import settings from './locales/en-US/settings.json'
 import storage from './locales/en-US/storage.json'
 import studio from './locales/en-US/studio.json'
@@ -68,6 +69,7 @@ export const resources = {
     passwords,
     projects,
     runs,
+    search,
     settings,
     storage,
     studio,
@@ -77,13 +79,19 @@ export const resources = {
   },
 } as const
 
+// Every namespace, for code that reads keys from all of them, such as search's registry,
+// which reuses each area's own words.
+export type TranslationNamespace = keyof (typeof resources)[typeof DEFAULT_LOCALE]
+// `Object.keys` only knows it returns strings; these are exactly the bundled namespaces.
+export const TRANSLATION_NAMESPACES = Object.keys(resources[DEFAULT_LOCALE]) as TranslationNamespace[]
+
 await i18next
   .use(initReactI18next)
   .init({
     lng: DEFAULT_LOCALE,
     fallbackLng: DEFAULT_LOCALE,
     defaultNS: DEFAULT_NAMESPACE,
-    ns: Object.keys(resources[DEFAULT_LOCALE]),
+    ns: TRANSLATION_NAMESPACES,
     resources,
     interpolation: {
       // React already escapes rendered strings.

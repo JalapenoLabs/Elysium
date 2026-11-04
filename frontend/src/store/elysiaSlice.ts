@@ -28,7 +28,12 @@ type ElysiaSliceState = {
   turns: ReturnType<typeof turnsAdapter.getInitialState>
   // Whether her panel is open beside the page, remembered per browser.
   isPanelOpen: boolean
+  // What her panel shows below her status. Held here rather than in the panel, so asking her
+  // from search can bring the conversation forward.
+  panelView: ElysiaPanelView
 }
+
+export type ElysiaPanelView = 'conversation' | 'activity'
 
 // Storage can be unavailable (a private window, blocked site data); the panel then starts
 // closed rather than failing to load.
@@ -47,6 +52,7 @@ const initialState: ElysiaSliceState = {
   messages: messagesAdapter.getInitialState(),
   turns: turnsAdapter.getInitialState(),
   isPanelOpen: readStoredPanelOpen(),
+  panelView: 'conversation',
 }
 
 export const elysiaSlice = createSlice({
@@ -73,6 +79,9 @@ export const elysiaSlice = createSlice({
     elysiaPanelToggled(state, action: PayloadAction<boolean | undefined>) {
       state.isPanelOpen = action.payload ?? !state.isPanelOpen
     },
+    elysiaPanelViewChanged(state, action: PayloadAction<ElysiaPanelView>) {
+      state.panelView = action.payload
+    },
   },
 })
 
@@ -83,10 +92,12 @@ export const {
   elysiaTurnsLoaded,
   elysiaTurnUpserted,
   elysiaPanelToggled,
+  elysiaPanelViewChanged,
 } = elysiaSlice.actions
 
 export const selectElysia = (state: RootState) => state.elysia.elysia
 export const selectIsElysiaPanelOpen = (state: RootState) => state.elysia.isPanelOpen
+export const selectElysiaPanelView = (state: RootState) => state.elysia.panelView
 
 export const {
   selectAll: selectElysiaMessages,

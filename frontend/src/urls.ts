@@ -35,6 +35,8 @@ export const UrlTree = {
   studioItem: '/studio/:itemId',
   runs: '/runs',
   runView: '/runs/:runId',
+  // Every result of the topbar's search, for its query.
+  search: '/search',
   settings: '/settings',
   settingsAccount: '/settings/account',
   // My account's earlier addresses, which redirect to it so links and bookmarks still land.
@@ -105,6 +107,12 @@ export const DONE_TRANSITION_PROJECT_PARAM = 'project'
 
 // The query parameter that starts a new coding session from an action item.
 export const NEW_SESSION_ITEM_PARAM = 'item'
+
+// The query parameter that holds what the search page searches for.
+export const SEARCH_QUERY_PARAM = 'q'
+
+// The query parameter that opens one of Security's tabs, which `SecurityPage` reads.
+export const SECURITY_TAB_PARAM = 'tab'
 
 // The query parameters the sign-in page reads: where to go afterwards, whether to ask for
 // the second factor or to confirm a recent sign-in, and a notice to show.
@@ -231,6 +239,17 @@ export function getCodingSessionUrl(sessionId: number) {
 // New session, started from this item.
 export function getNewCodingSessionUrl(actionItemId: string) {
   return `${UrlTree.codingNew}?${NEW_SESSION_ITEM_PARAM}=${encodeURIComponent(actionItemId)}`
+}
+
+// Every search result for the query, as the topbar's View all opens it.
+export function getSearchUrl(query: string) {
+  const params = new URLSearchParams({ [SEARCH_QUERY_PARAM]: query })
+  return `${UrlTree.search}?${params.toString()}`
+}
+
+// One of Security's tabs; General, its first, needs none.
+export function getSecurityTabUrl(tab: 'passkeys' | 'lookup' | 'sessions') {
+  return `${UrlTree.settingsSecurity}?${SECURITY_TAB_PARAM}=${tab}`
 }
 
 export function getStudioItemUrl(itemId: string) {

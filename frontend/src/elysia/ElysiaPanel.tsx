@@ -10,7 +10,13 @@ import { useTranslation } from 'react-i18next'
 // Redux
 import { useAppDispatch, useAppSelector } from '../store/hooks'
 import { selectIsAdmin } from '../store/authSlice'
-import { elysiaPanelToggled, elysiaUpdated, selectElysia } from '../store/elysiaSlice'
+import {
+  elysiaPanelToggled,
+  elysiaPanelViewChanged,
+  elysiaUpdated,
+  selectElysia,
+  selectElysiaPanelView,
+} from '../store/elysiaSlice'
 
 // User interface
 import { Button, Tabs, Tooltip } from '@heroui/react'
@@ -27,8 +33,6 @@ import { formatShortDateTime } from '../format/dates'
 import { holdLabelKeys, lightDotClassNames, lightLabelKeys, lightTextClassNames } from './presentation'
 import { toast } from '../toast/toast'
 
-type View = 'conversation' | 'activity'
-
 // Elysia beside the page: her status, what holds her back, her questions, what she is
 // working on, and the conversation or her activity. It sits in the app shell rather than an
 // overlay, so the page stays usable while she is open.
@@ -37,7 +41,7 @@ export function ElysiaPanel() {
   const dispatch = useAppDispatch()
   const elysia = useAppSelector(selectElysia)
   const isAdmin = useAppSelector(selectIsAdmin)
-  const [ view, setView ] = useState<View>('conversation')
+  const view = useAppSelector(selectElysiaPanelView)
   const [ isSaving, setIsSaving ] = useState(false)
   const [ isHoursOpen, setIsHoursOpen ] = useState(false)
 
@@ -135,9 +139,9 @@ export function ElysiaPanel() {
       className='compact'
       variant='secondary'
       selectedKey={view}
-      onSelectionChange={(key: Key) => setView(key === 'activity'
+      onSelectionChange={(key: Key) => dispatch(elysiaPanelViewChanged(key === 'activity'
         ? 'activity'
-        : 'conversation')}
+        : 'conversation'))}
     >
       <Tabs.ListContainer>
         <Tabs.List aria-label={t('tabs.label')}>
