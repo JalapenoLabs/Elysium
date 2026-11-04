@@ -20,7 +20,7 @@ import { LlmTable } from './LlmTable'
 import { deleteLlm, updateLlm } from '../../../api/routes/llmRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useLlmsLoader } from '../../../hooks/useServerData'
-import { LLM_TYPES, llmTypeLabelKeys } from './llmPresentation'
+import { LLM_TYPES, llmTypeIcons, llmTypeLabelKeys } from './llmPresentation'
 import { getNewLlmUrl, UrlTree } from '../../../urls'
 import { llmSlugByType } from './llmProviders'
 import { toast } from '../../../toast/toast'
@@ -81,14 +81,18 @@ export function ManageLlmsPage() {
       <Dropdown.Popover placement='bottom end'>
         {/* Each provider is a link to its own add page, so it opens in a new tab too. */}
         <Dropdown.Menu aria-label={t('credentials.addMenu')}>{
-          LLM_TYPES.map((type) => <Dropdown.Item
-            key={type}
-            id={type}
-            textValue={t(llmTypeLabelKeys[type])}
-            href={getNewLlmUrl(llmSlugByType[type])}
-          >
-            <Label>{t(llmTypeLabelKeys[type])}</Label>
-          </Dropdown.Item>)
+          LLM_TYPES.map((type) => {
+            const Icon = llmTypeIcons[type]
+            return <Dropdown.Item
+              key={type}
+              id={type}
+              textValue={t(llmTypeLabelKeys[type])}
+              href={getNewLlmUrl(llmSlugByType[type])}
+            >
+              <Icon className='size-4' aria-hidden />
+              <Label>{t(llmTypeLabelKeys[type])}</Label>
+            </Dropdown.Item>
+          })
         }</Dropdown.Menu>
       </Dropdown.Popover>
     </Dropdown>}

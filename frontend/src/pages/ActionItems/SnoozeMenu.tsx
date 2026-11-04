@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Button, Dropdown, Label, useOverlayState } from '@heroui/react'
+import { LuAlarmClockOff, LuCalendarDays, LuChevronDown } from 'react-icons/lu'
 import { SnoozeDateModal } from './SnoozeDateModal'
 
 // Utility
@@ -17,7 +18,7 @@ import { getLocalTimeZone } from '@internationalized/date'
 
 // Misc
 import { getSnoozePresetInstants, SNOOZE_PRESETS } from './actionItemDates'
-import { isSnoozed, snoozePresetLabelKeys } from './actionItemPresentation'
+import { isSnoozed, snoozePresetIcons, snoozePresetLabelKeys } from './actionItemPresentation'
 
 const PICK_DATE = 'pickDate'
 const END_SNOOZE = 'end'
@@ -30,7 +31,8 @@ type Props = {
   // The menu can be opened from outside, such as by a keyboard shortcut.
   isOpen: boolean
   onOpenChange: (isOpen: boolean) => void
-  // The trigger's content, so each view can show its own label and shortcut.
+  // The trigger's content, so each view can show its own label and shortcut. The chevron that
+  // marks it a menu follows it.
   children: ReactNode
   isDisabled?: boolean
   size?: 'sm' | 'md'
@@ -77,21 +79,28 @@ export function SnoozeMenu(props: Props) {
     <Dropdown isOpen={props.isOpen} onOpenChange={props.onOpenChange}>
       <Button size={props.size} variant='outline' isDisabled={props.isDisabled} isPending={isSaving}>
         {props.children}
+        <LuChevronDown className='size-4' aria-hidden />
       </Button>
       <Dropdown.Popover placement='bottom start'>
         <Dropdown.Menu aria-label={t('snooze.label')} onAction={choose}>
-          {SNOOZE_PRESETS.map((preset) => <Dropdown.Item
-            key={preset}
-            id={preset}
-            textValue={t(snoozePresetLabelKeys[preset])}
-          >
-            <Label>{t(snoozePresetLabelKeys[preset])}</Label>
-          </Dropdown.Item>)}
+          {SNOOZE_PRESETS.map((preset) => {
+            const Icon = snoozePresetIcons[preset]
+            return <Dropdown.Item
+              key={preset}
+              id={preset}
+              textValue={t(snoozePresetLabelKeys[preset])}
+            >
+              <Icon className='size-4' aria-hidden />
+              <Label>{t(snoozePresetLabelKeys[preset])}</Label>
+            </Dropdown.Item>
+          })}
           <Dropdown.Item id={PICK_DATE} textValue={t('snooze.pickDate')}>
+            <LuCalendarDays className='size-4' aria-hidden />
             <Label>{t('snooze.pickDate')}</Label>
           </Dropdown.Item>
           {isSnoozed(props.item, props.now)
             ? <Dropdown.Item id={END_SNOOZE} textValue={t('snooze.end')}>
+              <LuAlarmClockOff className='size-4' aria-hidden />
               <Label>{t('snooze.end')}</Label>
             </Dropdown.Item>
             : null}

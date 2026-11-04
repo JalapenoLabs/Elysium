@@ -3,7 +3,6 @@
 import type { IconType } from 'react-icons'
 import type { ActionItem, ActionItemTransition } from '../../api/routes/actionItemRoutes'
 import type { PageAction } from '../../layout/page/pageActions'
-import type { SnoozePreset } from './actionItemDates'
 
 // Core
 import { useState } from 'react'
@@ -13,15 +12,12 @@ import { useTranslation } from 'react-i18next'
 import {
   LuAlarmClock,
   LuAlarmClockOff,
-  LuCalendarClock,
   LuCalendarDays,
   LuCheck,
-  LuClock,
   LuHourglass,
   LuInbox,
   LuRotateCcw,
   LuSquareTerminal,
-  LuSunrise,
   LuTimerOff,
   LuTrash2,
   LuX,
@@ -33,7 +29,13 @@ import { getLocalTimeZone } from '@internationalized/date'
 // Misc
 import { getNewCodingSessionUrl, UrlTree } from '../../urls'
 import { getSnoozePresetInstants, SNOOZE_PRESETS } from './actionItemDates'
-import { isSnoozed, snoozePresetLabelKeys, transitionLabelKeys, transitionsByState } from './actionItemPresentation'
+import {
+  isSnoozed,
+  snoozePresetIcons,
+  snoozePresetLabelKeys,
+  transitionLabelKeys,
+  transitionsByState,
+} from './actionItemPresentation'
 import { useActionItemActions } from './useActionItemActions'
 
 const transitionIcons = {
@@ -42,12 +44,6 @@ const transitionIcons = {
   dismiss: LuX,
   reopen: LuRotateCcw,
 } as const satisfies Record<ActionItemTransition, IconType>
-
-const snoozePresetIcons = {
-  laterToday: LuClock,
-  tomorrow: LuSunrise,
-  nextWeek: LuCalendarClock,
-} as const satisfies Record<SnoozePreset, IconType>
 
 type Options = {
   item: ActionItem

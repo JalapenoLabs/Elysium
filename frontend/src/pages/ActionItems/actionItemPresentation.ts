@@ -7,7 +7,11 @@ import type {
   ActionItemState,
   ActionItemTransition,
 } from '../../api/routes/actionItemRoutes'
+import type { IconType } from 'react-icons'
 import type { SnoozePreset } from './actionItemDates'
+
+// User interface
+import { LuCalendarClock, LuClock, LuSunrise } from 'react-icons/lu'
 
 type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
 
@@ -51,6 +55,13 @@ export const snoozePresetLabelKeys = {
   tomorrow: 'snooze.tomorrow',
   nextWeek: 'snooze.nextWeek',
 } as const satisfies Record<SnoozePreset, ParseKeys<'actionItems'>>
+
+// Lead each snooze choice, in the Next card's Snooze menu and the item page's submenu alike.
+export const snoozePresetIcons = {
+  laterToday: LuClock,
+  tomorrow: LuSunrise,
+  nextWeek: LuCalendarClock,
+} as const satisfies Record<SnoozePreset, IconType>
 
 // What each state allows, mirroring `Transition` in api/src/action_items/mod.rs, so a page
 // offers only what the API would accept.

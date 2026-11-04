@@ -1,7 +1,11 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ParseKeys } from 'i18next'
+import type { IconType } from 'react-icons'
 import type { Llm, LlmType, UsageWindow } from '../../../api/routes/llmRoutes'
+
+// User interface
+import { LuKeyRound, LuLogIn, LuSquareTerminal } from 'react-icons/lu'
 
 // Every provider type, in the order the Add LLM menu offers them. A signed-in Claude account
 // comes first: Elysium keeps it fresh and can show its usage.
@@ -20,6 +24,16 @@ export const llmTypeLabelKeys = {
   'claude-code-oauth': 'types.claude-code-oauth',
   'claude-account': 'types.claude-account',
 } as const satisfies Record<LlmType, ParseKeys<'llms'>>
+
+// How each type's credential is had, leading it in the Add LLM menu: signing in, an API token,
+// or a token a CLI prints.
+export const llmTypeIcons = {
+  'chatgpt-oauth': LuSquareTerminal,
+  'chatgpt-api-token': LuKeyRound,
+  'claude-api-token': LuKeyRound,
+  'claude-code-oauth': LuSquareTerminal,
+  'claude-account': LuLogIn,
+} as const satisfies Record<LlmType, IconType>
 
 // Whether a person types the type's token in. A Claude account's token comes from signing
 // in, and the keeper owns its lifetime, so its form has neither a token nor an expiry.
