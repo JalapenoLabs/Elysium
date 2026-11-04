@@ -11,7 +11,7 @@ use axum::extract::{Path, State};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::MeetingResponse;
+use super::response;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::meetings::workflow;
@@ -30,5 +30,6 @@ pub async fn handle(
         .context("no database connection available")?;
     // A meeting that has not failed answers 404 as well: there is nothing to retry.
     let retried = workflow::retry(&mut connection, &state.events, id, current.id()).await?;
-    Ok(Json(json!({ "meeting": MeetingResponse::new(retried) })))
+    let answered = response(&mut connection, retried).await?;
+    Ok(Json(json!({ "meeting": answered })))
 }

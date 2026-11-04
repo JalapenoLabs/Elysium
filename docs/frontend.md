@@ -305,6 +305,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/jira/:credentialId/edit` | `EditJiraCredentialPage` | Edit a Jira site                                   |
 | `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
 | `/settings/meetings`          | `MeetingsPage`           | Recent meetings and meeting sources, as tabs in `?tab=`  |
+| `/settings/meetings/:meetingId` | `MeetingPage`        | One meeting: its transcript as heard beside its corrections, Approve, and its hold |
 | `/settings/company-doc`       | `CompanyDocPage`         | The company doc, edited in place, its proposals beside each section, and its history; members |
 | `/settings/learnings`         | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as tabs in `?tab=` |
 | `/settings/learnings/new`     | `NewLearningPage`        | Save a learning; a takeaway one already has revises it   |

@@ -10,7 +10,7 @@
 use diesel_async::AsyncConnection;
 use secrecy::SecretString;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::{
@@ -21,6 +21,7 @@ use crate::auth::CurrentUser;
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
 use crate::connectors::{AccountKind, ConnectorKind, Scope};
 use crate::errors::ApiError;
+use crate::meetings::WAIT_FOR_APPROVAL_FIELD;
 use crate::meetings::fireflies::Fireflies;
 use crate::meetings::source::{ListedMeeting, MeetingSource, SourceError};
 use crate::models::connector::{self, AccountRef, Connector, NewConnector};
@@ -45,11 +46,18 @@ pub const DEFINITION: Definition = Definition {
     account: AccountKind::Fireflies,
     provides: &[Provides::Meetings],
     start_url: None,
-    content: &[ContentField {
-        id: "storageLocationId",
-        field: ContentFieldType::StorageLocation,
-        required: true,
-    }],
+    content: &[
+        ContentField {
+            id: "storageLocationId",
+            field: ContentFieldType::StorageLocation,
+            required: true,
+        },
+        ContentField {
+            id: WAIT_FOR_APPROVAL_FIELD,
+            field: ContentFieldType::Toggle,
+            required: false,
+        },
+    ],
     checks: &[
         CheckSpec {
             id: "sign_in",
@@ -98,6 +106,17 @@ struct NewKey {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Content {
     storage_location_id: Uuid,
+    /// Off unless its person turns it on; a form saved before the field existed sends none.
+    #[serde(default)]
+    wait_for_approval: bool,
+}
+
+impl Content {
+    /// What the connector keeps in `connectors.content`. The storage location is a column of
+    /// its own, so a removed location is caught by its foreign key.
+    fn stored(&self) -> Value {
+        json!({ WAIT_FOR_APPROVAL_FIELD: self.wait_for_approval })
+    }
 }
 
 /// The key of `current`'s token account `id`.
@@ -267,13 +286,16 @@ pub async fn create(
                 current.id(),
             );
             new_connector.storage_location_id = Some(content.storage_location_id);
+            new_connector.content = content.stored();
             connector::create(connection, new_connector).await
         })
         .await?;
     Ok(created)
 }
 
-/// Moves where the connector keeps new recordings. Meetings already kept stay where they are.
+/// Moves where the connector keeps new recordings, and sets whether it waits for its person's
+/// approval before acting on meetings. Meetings already kept stay where they are, and a
+/// meeting already corrected keeps the decision its correction made.
 ///
 /// # Errors
 /// [`ApiError::BadRequest`] for content that names no storage location.
@@ -288,7 +310,7 @@ pub async fn update_content(
     let updated = connector::set_content(
         &mut connection,
         stored.id,
-        stored.content.clone(),
+        content.stored(),
         Some(content.storage_location_id),
     )
     .await?;

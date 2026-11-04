@@ -7,7 +7,6 @@
 //! A meeting is transcribed once: [`record`] writes only for a meeting that has none, so a
 //! later attempt of the step keeps what the first stored, as a meeting's fetch does.
 
-use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
@@ -15,20 +14,15 @@ use uuid::Uuid;
 
 use crate::database::schema::meeting_transcriptions;
 
+/// A meeting's transcription as the steps after it read it: the transcript, and the hash they
+/// name it by. Its meeting is the one it was found by.
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = meeting_transcriptions, check_for_backend(diesel::pg::Pg))]
-#[expect(
-    dead_code,
-    reason = "the transcription step reads only the hash; correction (#79) and segmenting (#80) \
-              read the transcript"
-)]
 pub struct MeetingTranscription {
-    pub meeting_id: Uuid,
     /// A `crate::whisper::WhisperTranscript`.
     pub transcript: Value,
     /// The SHA-256 of `transcript` as it was serialized to be stored, as hex.
     pub transcript_hash: String,
-    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -77,6 +71,7 @@ pub async fn record(
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use serde_json::json;
 
     use super::*;

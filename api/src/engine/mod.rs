@@ -62,6 +62,7 @@ use crate::elysia::runner::TurnRunner;
 use crate::embeddings::Embeddings;
 use crate::knowledge::backfill::Backfill;
 use crate::knowledge::embedder::Embedder;
+use crate::meetings::correct::{CorrectTranscript, CorrectTranscriptDeps};
 use crate::meetings::fetch::{FetchMeeting, FetchMeetingDeps};
 use crate::meetings::sources::Sources;
 use crate::meetings::transcribe::{TranscribeMeeting, TranscribeMeetingDeps};
@@ -192,6 +193,11 @@ pub async fn run() -> Result<()> {
         cipher: Arc::clone(&cipher),
         storage: foundation.storage.clone(),
         whisper,
+    }));
+    steps.register(CorrectTranscript::new(CorrectTranscriptDeps {
+        database: database.clone(),
+        events: events.clone(),
+        runner: runner.clone(),
     }));
     steps.register(ReviewCompanyDoc::new(ReviewCompanyDocDeps {
         database: database.clone(),

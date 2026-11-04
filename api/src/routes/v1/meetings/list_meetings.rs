@@ -1,31 +1,50 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `GET /api/v1/meetings`: the signed-in person's meetings, newest first.
+//!
+//! `reviewItemId` keeps the meeting whose corrected transcript an inbox item asks to review,
+//! which the item's page links to.
 
 use anyhow::Context;
 use axum::Json;
-use axum::extract::State;
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{Query, State};
+use serde::Deserialize;
 use serde_json::{Value, json};
+use uuid::Uuid;
 
-use super::MeetingResponse;
+use super::responses;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::models::meeting;
+use crate::models::{meeting, meeting_correction};
 use crate::state::AppState;
 
 /// The most meetings one listing answers: the recent ones a person checks on.
 const LIMIT: i64 = 100;
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Filters {
+    review_item_id: Option<Uuid>,
+}
+
 pub async fn handle(
     State(state): State<AppState>,
     current: CurrentUser,
+    query: Result<Query<Filters>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
+    let Query(filters) = query?;
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
-    let meetings = meeting::list_owned(&mut connection, current.id(), LIMIT).await?;
-    let responses: Vec<MeetingResponse> = meetings.into_iter().map(MeetingResponse::new).collect();
-    Ok(Json(json!({ "meetings": responses })))
+    let meetings = match filters.review_item_id {
+        Some(item_id) => {
+            meeting_correction::meetings_reviewed_by(&mut connection, item_id, current.id()).await?
+        }
+        None => meeting::list_owned(&mut connection, current.id(), LIMIT).await?,
+    };
+    let answered = responses(&mut connection, meetings).await?;
+    Ok(Json(json!({ "meetings": answered })))
 }

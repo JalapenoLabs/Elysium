@@ -641,14 +641,46 @@ pub async fn resume(
     step_id: Uuid,
     actor: Actor,
 ) -> Result<Settled, StepActionError> {
+    let_through(connection, run_id, step_id, actor, None).await
+}
+
+/// Lets held step `step_id` of run `run_id` through with `output` in place of the output it
+/// was held with, which the run goes on with: for what knows how the person's decision changes
+/// it, such as approving a corrected transcript, which the step held saying it was not yet
+/// approved.
+///
+/// # Errors
+/// `Refused` unless the step is held; `NotFound` for an unknown run or step.
+pub async fn resume_with(
+    connection: &mut AsyncPgConnection,
+    run_id: Uuid,
+    step_id: Uuid,
+    actor: Actor,
+    output: Value,
+) -> Result<Settled, StepActionError> {
+    let_through(connection, run_id, step_id, actor, Some(output)).await
+}
+
+/// [`resume`], with `output` replacing the held one when it is given.
+async fn let_through(
+    connection: &mut AsyncPgConnection,
+    run_id: Uuid,
+    step_id: Uuid,
+    actor: Actor,
+    output: Option<Value>,
+) -> Result<Settled, StepActionError> {
     connection
         .transaction(async move |connection| {
             let (run, step) = locked(connection, run_id, step_id).await?;
             if step.state != StepJobState::Held {
                 return Err(StepActionError::Refused("Only a held step can be resumed."));
             }
+            let output = output.or(step.output);
             diesel::update(step_jobs::table.find(step.id))
-                .set(step_jobs::state.eq(StepJobState::Succeeded))
+                .set((
+                    step_jobs::state.eq(StepJobState::Succeeded),
+                    step_jobs::output.eq(output),
+                ))
                 .execute(connection)
                 .await?;
             workflow_run::record(

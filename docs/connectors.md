@@ -72,7 +72,10 @@ table of its own:
   `jira_credential_boards`): every Jira call made with that token is bounded by it (`docs/jira.md`).
 - Confluence's content is the spaces it reads, in `content` as `{"spaces": "*"}` or
   `{"spaces": [{"id", "key", "name"}]}`, each as Confluence reported it when it was picked.
-- Fireflies' content is the storage location its recordings are kept in, `storage_location_id`, a foreign key.
+- Fireflies' content is the storage location its recordings are kept in, `storage_location_id`, a foreign key, and
+  `{"waitForApproval": bool}`, whether each meeting's run waits for its person to approve the corrected transcript
+  (`docs/meetings.md`, Correction). Every kind that provides meetings declares that toggle; a test fails on one that
+  does not.
 - YouTrack's content is the projects it reads, `{"projects": "*"}` or `{"projects": [<project id>, ...]}`. A pick may
   name a project by its id or short name; what is stored is YouTrack's id, matched against what the token reaches
   when it is saved, so a project the token cannot see is refused then rather than ignored later.
@@ -107,12 +110,12 @@ it. `kinds/mod.rs` is the one place that matches on the kind; routes and the web
 | `gmail`      | `kinds/webmail.rs`     | `mail`     | `browser`     | None: the inbox              | `ingest`                    | From a mailbox |
 | `teams`      | `kinds/teams.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    | Itself, thread or conversation |
 | `slack`      | `kinds/slack.rs`       | `messages` | `browser`     | `conversations`              | `ingest`                    | Itself, thread or conversation |
-| `fireflies`  | `kinds/fireflies.rs`   | `meetings` | `fireflies`   | `storageLocationId`          | `crate::meetings`           | Never   |
+| `fireflies`  | `kinds/fireflies.rs`   | `meetings` | `fireflies`   | `storageLocationId`, `waitForApproval` | `crate::meetings`           | Never   |
 | `youtrack`   | `kinds/youtrack.rs`    | `issues`   | `youtrack`    | `projects`                   | `crate::youtrack::reader`   | Never   |
 
 A definition is structure only: the kind's scope, what it provides, the account kind it signs in with, a browser
-kind's start page, its content fields (a `selection` picked from what the account reaches, or a `storage_location`),
-its ordered checks, and how what it reads is answered (`replies`: never, through the connector itself in the places it
+kind's start page, its content fields (a `selection` picked from what the account reaches, a `storage_location`, or a
+`toggle`, on or off), its ordered checks, and how what it reads is answered (`replies`: never, through the connector itself in the places it
 names, or from a mailbox; see [Sending](#sending)). Account definitions say what a new account asks for (text, email, URL, secret, or a choice).
 `GET /connectors/kinds` serves both, and the web app draws its forms and check lists from them, naming every id from
 its `connectors` translations.

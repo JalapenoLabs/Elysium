@@ -35,9 +35,13 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/connectors/{id}/checks`      | `202` `{ run }`: runs a stored connector's checks    |
 | POST   | `/api/v1/connectors/{id}/sync`        | `202`: reads it now; `409` when paused or already syncing |
 | POST   | `/api/v1/connectors/{id}/sign-in`     | `200` `{ connector }`: starts a browser for one waiting for its own |
-| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, the caller's 100 newest |
+| GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, the caller's 100 newest; `reviewItemId` keeps the one an inbox item asks to review |
 | GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; resumes a failed meeting, `404` for one that has not failed |
+| GET    | `/api/v1/meetings/{id}/transcript`    | `200` `{ original, corrected }`: the transcript as heard and its corrected copy, line for line |
+| POST   | `/api/v1/meetings/{id}/correction/approve` | `200` `{ meeting }`; approves the corrected copy and lets a run held for it go on, `404` before it is corrected |
+| POST   | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; waits for the caller's approval, `409` (`meeting_corrected`) once corrected |
+| DELETE | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; stops waiting, `409` (`meeting_corrected`) once corrected |
 | GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's, newest first |
 | GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`                                  |
 | GET    | `/api/v1/timeline/{id}/media`         | The record's clip, streamed from storage; `404` when it has none |
@@ -351,9 +355,14 @@ a token and `409` for one that has its browser. Someone else's personal connecto
 
 A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durationMs`, `organizer`,
 `participants`, `url`, `state` (`pending`, `recorded`, `segmented`, `done`, or `failed`), `attempts`, `lastError`,
-`hasRecording`, `segmentCount`, `createdAt`, and `updatedAt`. `sourceKind` is the kind of connector it came from,
-such as `fireflies`, and stays when `connectorId` becomes `null` because its connector was removed. Its transcript is
-not served; its segments reach the timeline. See `docs/meetings.md`.
+`hasRecording`, `segmentCount`, `holdForApproval`, `correction` (`{ changedLines, approvedAt, approvedBy,
+reviewItemId, createdAt }`, or `null` before it is corrected), `runId` (its newest run of the meeting workflow),
+`awaitingApproval` (whether that run is held for the caller's approval), `createdAt`, and `updatedAt`. `sourceKind` is
+the kind of connector it came from, such as `fireflies`, and stays when `connectorId` becomes `null` because its
+connector was removed. Its transcript is served to its owner alone by `GET /meetings/{id}/transcript`: `original` is
+`{ basedOn, lines }`, the transcript the copy follows (`source`, or `whisper` when the source sent no lines), or `null`
+while nothing was heard; `corrected` is `{ lines, changedLines, approvedAt, approvedBy }`, or `null` before it is
+corrected; each line is `{ startMs, endMs, speaker, text }`. See `docs/meetings.md`, Correction.
 
 A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
@@ -858,7 +867,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`. The search has a bu
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/browser/`           | The browsers the host streams: their containers, the reconciler, Neko's API, the stream relay, and the DevTools client |
 | `src/connectors/`        | Accounts, kinds and their checks, sync activity, the webmail reader and its page scripts, and the ingest loop |
-| `src/meetings/`          | Meeting sources, one per kind that provides meetings (`sources.rs`), the listing and processing loop, segmentation, and clips cut with `ffmpeg` |
+| `src/meetings/`          | Meeting sources, one per kind that provides meetings (`sources.rs`), the listing and processing loop, the meeting workflow's steps (fetching, transcription, correction), segmentation, and clips cut with `ffmpeg` |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/issue_reports/`     | Problem reports filed on Elysium's GitHub repository: subjects, redaction, fingerprints, rendering, and filing, see `docs/issue-reporting.md` |
 | `src/environment/`       | The rules for which environment variable keys are refused |

@@ -41,6 +41,7 @@ pub mod mail_account;
 pub mod mail_domain;
 pub mod mail_server;
 pub mod meeting;
+pub mod meeting_correction;
 pub mod meeting_transcription;
 pub mod model_setting;
 pub mod password_vault;

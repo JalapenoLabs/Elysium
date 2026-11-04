@@ -81,13 +81,6 @@ pub enum Done<Output> {
     },
     /// It asks a person to look before the run goes on, such as approving a corrected
     /// transcript. `summary` says what to look at; resuming passes `output` on.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "correction (#79) is the first step that holds its run for approval"
-        )
-    )]
     Held { output: Output, summary: String },
     /// It found nothing to do, such as a meeting with no recording to transcribe. `reason` is
     /// the line its row collapses to. Like a person's skip, it gives no output: the step after

@@ -10,7 +10,7 @@ use axum::extract::{Path, State};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::MeetingResponse;
+use super::response;
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::meeting;
@@ -28,5 +28,6 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let found = meeting::find_owned(&mut connection, id, current.id()).await?;
-    Ok(Json(json!({ "meeting": MeetingResponse::new(found) })))
+    let answered = response(&mut connection, found).await?;
+    Ok(Json(json!({ "meeting": answered })))
 }

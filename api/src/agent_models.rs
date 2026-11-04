@@ -292,11 +292,10 @@ mod tests {
             assert_eq!(find(step).kind, EntryKind::Step);
             assert_eq!(find(step).default, None, "{step} has nothing to set");
         }
-        // The company doc's review is an agent turn.
-        assert_eq!(
-            find("review_company_doc").default,
-            Some(ModelChoice::default())
-        );
+        // Correcting a transcript and the company doc's review are agent turns.
+        for step in ["correct_transcript", "review_company_doc"] {
+            assert_eq!(find(step).default, Some(ModelChoice::default()), "{step}");
+        }
         for agent in Agent::ALL {
             let entry = find(agent.name());
             assert_eq!(entry.kind, EntryKind::Agent);

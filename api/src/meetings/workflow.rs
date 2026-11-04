@@ -5,33 +5,35 @@
 //! A meeting is carried in two halves while the engine's meeting steps are built out:
 //!
 //! - **Its run** of the `meeting` workflow ([`workflow`]), one per meeting, fetches it
-//!   ([`FetchMeeting`]), which moves it from `pending` to `recorded`, then transcribes its
-//!   recording with the local Whisper ([`TranscribeMeeting`]). The loop starts the run for each
-//!   `pending` meeting on its processing pass ([`run_for`]), started by the system user, and a
-//!   run whose fetch fails fails the meeting with its reason, so the Meetings page and its
-//!   connector say why.
+//!   ([`FetchMeeting`]), which moves it from `pending` to `recorded`, transcribes its recording
+//!   with the local Whisper ([`TranscribeMeeting`]), and corrects its transcript
+//!   ([`CorrectTranscript`]), which may hold the run for its person's approval. The loop starts
+//!   the run for each `pending` meeting on its processing pass ([`run_for`]), started by the
+//!   system user, and a run whose fetch fails fails the meeting with its reason, so the
+//!   Meetings page and its connector say why.
 //! - **The loop** (`crate::meetings`) segments a `recorded` meeting with one of Elysia's text
-//!   turns and publishes its segments, as it always has. It does not wait for the
-//!   transcription, which nothing it does reads yet; a transcription that fails shows on the
-//!   run's page and leaves the meeting as it is.
+//!   turns and publishes its segments, once its run is through, from the corrected copy the run
+//!   handed on ([`corrected_copy`]), or the source's transcript when it handed on none. A run
+//!   that failed or is held keeps the meeting waiting for a person.
 //!
-//! The steps on the roadmap (correction, segmenting) join the workflow after the
-//! transcription, and segmenting there replaces the loop's half. See `docs/meetings.md`,
-//! Processing.
+//! Segmenting is on the roadmap as a step after the correction, receiving the corrected copy as
+//! its input and replacing the loop's half. See `docs/meetings.md`, Processing.
 
 use chrono::Utc;
 use diesel_async::{AsyncConnection, AsyncPgConnection};
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use super::correct::{self, CorrectTranscript, CorrectedMeeting};
 use super::fetch::{FetchMeeting, MeetingToFetch};
+use super::source::TranscriptLine;
 use super::transcribe::TranscribeMeeting;
 use crate::models::meeting::{self, Meeting, MeetingState};
 use crate::models::step_job::{self, StepActionError, StepJobState};
 use crate::models::user::SYSTEM_USER_ID;
 use crate::models::workflow_run::{self, Actor, NewRun, Settled};
 use crate::realtime::{EventBus, ServerEvent, Signal};
-use crate::workflows::{self, Start, Workflow};
+use crate::workflows::{self, Start, Step, Workflow};
 
 /// What a meeting's run is about, as `workflow_runs.source_kind` names it.
 pub const SOURCE_KIND: &str = "meeting";
@@ -41,7 +43,37 @@ pub fn workflow() -> Workflow<MeetingToFetch> {
     workflows::declare("meeting")
         .first::<FetchMeeting>()
         .then::<TranscribeMeeting>()
+        .then::<CorrectTranscript>()
         .build()
+}
+
+/// The corrected copy meeting `meeting_id`'s newest run handed on past its correction, when it
+/// corrected the meeting: what the loop segments. `None` for a run that has not passed its
+/// correction, skipped it, or ran before the workflow corrected meetings, which leaves the
+/// source's transcript to segment.
+///
+/// # Errors
+/// Propagates any database error, and a stored output or copy that does not read as its shape.
+pub async fn corrected_copy(
+    connection: &mut AsyncPgConnection,
+    meeting_id: Uuid,
+) -> anyhow::Result<Option<Vec<TranscriptLine>>> {
+    let source_id = meeting_id.to_string();
+    let newest =
+        workflow_run::newest(connection, workflow().name(), SOURCE_KIND, &source_id).await?;
+    let Some(run) = newest else {
+        return Ok(None);
+    };
+    let steps = workflow_run::steps_of(connection, run.id).await?;
+    let handed_on = steps
+        .into_iter()
+        .find(|step| step.step == CorrectTranscript::NAME && step.state == StepJobState::Succeeded)
+        .and_then(|step| step.output);
+    let Some(output) = handed_on else {
+        return Ok(None);
+    };
+    let corrected: CorrectedMeeting = serde_json::from_value(output)?;
+    correct::corrected_lines(connection, &corrected).await
 }
 
 /// A run of the meeting workflow on meeting `meeting_id`, which Elysium starts itself.
@@ -154,7 +186,8 @@ mod tests {
             std::sync::Arc::clone(&cipher),
             crate::meetings::sources::Sources::new(reqwest::Client::new()),
         ));
-        steps.register(TranscribeMeeting::for_test(unconnected, cipher));
+        steps.register(TranscribeMeeting::for_test(unconnected.clone(), cipher));
+        steps.register(CorrectTranscript::for_test(unconnected));
         // Panics, as the engine would at startup, if the two drift apart.
         steps.assert_runs(&workflow().outline());
     }
@@ -167,7 +200,11 @@ mod tests {
         assert_eq!(run.workflow, "meeting");
         assert_eq!(
             run.steps,
-            vec!["fetch_meeting".to_owned(), "transcribe_meeting".to_owned()]
+            vec![
+                "fetch_meeting".to_owned(),
+                "transcribe_meeting".to_owned(),
+                "correct_transcript".to_owned(),
+            ]
         );
         assert_eq!(
             (run.source_kind.as_str(), run.source_id),

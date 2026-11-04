@@ -295,6 +295,11 @@ Everything else follows these rules:
   creates through `docker-proxy`, with no network, the recording on standard input and the transcript, every word
   timed, on standard output. It decodes on half the host's CPUs, at most 16, one transcription at a time, and is stored
   once in `meeting_transcriptions`. A meeting without audio skips the step. See `docs/meetings.md`, Transcription.
+- Each meeting's run corrects its transcript (`correct_transcript`) against every transcript it has, the company doc,
+  and other meetings, into a copy beside the raw ones, which are never changed. The model only names lines and their
+  fixed text, each checked word by word, so the copy keeps every line, speaker, and time. A source's "Wait for my
+  approval before acting on meetings", or a meeting held by hand, holds the run with an inbox item until the person
+  approves the copy, and the loop segments only once the run is through. See `docs/meetings.md`, Correction.
 - Nothing the segmentation answer says is trusted: segments must lie inside the meeting in order, and attributions
   must name projects that were offered. A failed step is retried each pass, three times, then retried by the person.
 - Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id, state,

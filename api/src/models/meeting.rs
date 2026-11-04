@@ -97,6 +97,9 @@ pub struct Meeting {
     /// The SHA-256 of the transcript its fetch stored (`crate::meetings::fetch`), as hex.
     /// `None` until it is fetched.
     pub transcript_hash: Option<String>,
+    /// Whether its person asked to approve its corrected transcript before it is acted on,
+    /// whatever its source's setting (`crate::meetings::correct`).
+    pub hold_for_approval: bool,
 }
 
 impl Meeting {
@@ -228,6 +231,37 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<M
         .find(id)
         .select(Meeting::as_select())
         .first(connection)
+        .await
+}
+
+/// The meeting `id`, locked until the transaction ends, so its hold and its corrected
+/// transcript are decided one writer at a time: the correction step deciding whether to hold
+/// its run, and its person holding it by hand or approving it.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist.
+pub async fn lock(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Meeting> {
+    meetings::table
+        .find(id)
+        .for_update()
+        .select(Meeting::as_select())
+        .first(connection)
+        .await
+}
+
+/// Sets whether meeting `id` waits for its person's approval of its corrected transcript.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when it does not exist.
+pub async fn set_hold_for_approval(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    hold: bool,
+) -> QueryResult<Meeting> {
+    diesel::update(meetings::table.find(id))
+        .set(meetings::hold_for_approval.eq(hold))
+        .returning(Meeting::as_returning())
+        .get_result(connection)
         .await
 }
 

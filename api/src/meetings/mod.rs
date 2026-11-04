@@ -36,6 +36,8 @@
 //! every client of the event stream hears it. Each segment's record publishes
 //! `timelineRecord.created`, which is where Elysia's intake hears of it.
 
+pub mod correct;
+pub mod correction;
 pub mod fetch;
 pub mod fireflies;
 pub mod media;
@@ -73,7 +75,7 @@ use crate::models::project;
 use crate::models::storage_location::{self, StorageLocation};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
 use crate::models::token_account;
-use crate::models::workflow_run::WorkflowRunState;
+use crate::models::workflow_run::{self, WorkflowRunState};
 use crate::realtime::{EventBus, ServerEvent};
 use crate::runner::workspace::WorkspaceContainer;
 use crate::runner::{
@@ -109,6 +111,21 @@ const ATTRIBUTED_BY: &str = "elysia";
 
 /// The longest `actor` a record takes: the segment's speakers.
 const ACTOR_MAX_CHARACTERS: usize = 512;
+
+/// The content field every meeting source declares, a toggle: "Wait for my approval before
+/// acting on meetings", off until its person turns it on. See `correct`, Waiting for approval.
+pub const WAIT_FOR_APPROVAL_FIELD: &str = "waitForApproval";
+
+/// Whether meeting source `connector` waits for its person's approval of each meeting's
+/// corrected transcript before the meeting is acted on. A connector that never saved the
+/// field, such as one made before it existed, does not wait.
+pub fn waits_for_approval(connector: &Connector) -> bool {
+    connector
+        .content
+        .get(WAIT_FOR_APPROVAL_FIELD)
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
 
 #[derive(Clone)]
 pub struct Meetings {
@@ -369,6 +386,22 @@ impl Meetings {
             }
         };
         for unfinished_meeting in unfinished {
+            if unfinished_meeting.state() == MeetingState::Recorded {
+                match self.waits_on_run(&unfinished_meeting).await {
+                    Ok(true) => continue,
+                    Ok(false) => {}
+                    Err(error) => {
+                        event!(
+                            name: "meetings.run.unread",
+                            Level::WARN,
+                            meeting.id = %unfinished_meeting.id,
+                            error.message = %format!("{error:#}"),
+                            "cannot read a meeting's run; the next pass tries again",
+                        );
+                        continue;
+                    }
+                }
+            }
             if unfinished_meeting.state() != MeetingState::Pending {
                 self.carry(unfinished_meeting).await;
                 continue;
@@ -435,6 +468,40 @@ impl Meetings {
                 .await;
         }
         Ok(())
+    }
+
+    /// Whether fetched meeting `recorded` waits on its run before the loop segments it: the run
+    /// transcribes and corrects it, and segmenting reads what the correction hands on, so the
+    /// loop takes the meeting only once its run is through. A run that failed or is held for
+    /// approval keeps the meeting waiting, until a person moves the run on from its page or
+    /// approves the corrected transcript. A meeting with no live run (its run succeeded, or it
+    /// has none) is the loop's.
+    async fn waits_on_run(&self, recorded: &Meeting) -> anyhow::Result<bool> {
+        let mut connection = self.connection().await?;
+        let live = workflow_run::find_live(
+            &mut connection,
+            workflow::workflow().name(),
+            workflow::SOURCE_KIND,
+            &recorded.id.to_string(),
+        )
+        .await?;
+        Ok(live.is_some())
+    }
+
+    /// The transcript the loop segments `current` from: the corrected copy its run handed on,
+    /// or the source's transcript when the run did not correct it.
+    async fn transcript_to_segment(
+        &self,
+        current: &Meeting,
+    ) -> anyhow::Result<Vec<TranscriptLine>> {
+        let corrected = {
+            let mut connection = self.connection().await?;
+            workflow::corrected_copy(&mut connection, current.id).await?
+        };
+        match corrected {
+            Some(lines) => Ok(lines),
+            None => transcript_of(current),
+        }
     }
 
     /// Runs a fetched meeting's steps one after another until it is done, or one fails. Its
@@ -511,7 +578,7 @@ impl Meetings {
 
     /// `recorded` to `segmented`: Elysia's topic segments.
     async fn segment(&self, current: &Meeting) -> anyhow::Result<Meeting> {
-        let transcript = transcript_of(current)?;
+        let transcript = self.transcript_to_segment(current).await?;
         let segments = if transcript.is_empty() {
             Vec::new()
         } else {
@@ -606,7 +673,7 @@ impl Meetings {
 
     /// `segmented` to `done`: clips cut and uploaded, and each segment a timeline record.
     async fn publish_segments(&self, current: &Meeting) -> anyhow::Result<Meeting> {
-        let transcript = transcript_of(current)?;
+        let transcript = self.transcript_to_segment(current).await?;
         let segments: Vec<Segment> =
             serde_json::from_value(current.segments.clone().unwrap_or_else(|| json!([])))
                 .context("the meeting's segments are not in the stored shape")?;
@@ -949,6 +1016,7 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             transcript_hash: None,
+            hold_for_approval: false,
         }
     }
 

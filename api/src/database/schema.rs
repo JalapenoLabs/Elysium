@@ -1006,6 +1006,25 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    meeting_corrections (meeting_id) {
+        meeting_id -> Uuid,
+        transcript -> Jsonb,
+        transcript_hash -> Text,
+        based_on -> Text,
+        source_transcript_hash -> Text,
+        whisper_transcript_hash -> Nullable<Text>,
+        changed_lines -> Int4,
+        fixes -> Jsonb,
+        approved_by -> Nullable<Uuid>,
+        approved_at -> Nullable<Timestamptz>,
+        review_item_id -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     meeting_transcriptions (meeting_id) {
         meeting_id -> Uuid,
         transcript -> Jsonb,
@@ -1040,6 +1059,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         transcript_hash -> Nullable<Text>,
+        hold_for_approval -> Bool,
     }
 }
 
@@ -1522,6 +1542,9 @@ diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
 diesel::joinable!(mail_accounts -> users (created_by));
 diesel::joinable!(mail_domains -> users (created_by));
 diesel::joinable!(mail_servers -> users (created_by));
+diesel::joinable!(meeting_corrections -> action_items (review_item_id));
+diesel::joinable!(meeting_corrections -> meetings (meeting_id));
+diesel::joinable!(meeting_corrections -> users (approved_by));
 diesel::joinable!(meeting_transcriptions -> meetings (meeting_id));
 diesel::joinable!(meetings -> connectors (connector_id));
 diesel::joinable!(meetings -> storage_locations (storage_location_id));
@@ -1614,6 +1637,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_accounts,
     mail_domains,
     mail_servers,
+    meeting_corrections,
     meeting_transcriptions,
     meetings,
     model_settings,

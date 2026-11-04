@@ -9,7 +9,8 @@ This doc is the design. Little of it is built; the roadmap is the issues in the 
 event stream through Redis pub/sub, the engine as a service of its own that runs every background loop, workflow runs
 on a Postgres queue of step jobs with the Runs page (Runs, below), the step and workflow framework over that queue,
 with the model and effort every step and agent runs on (Workflows and steps, and Models, below), the meeting
-workflow's first two steps, which fetch each meeting and transcribe its recording with a local Whisper (Meetings,
+workflow's first three steps, which fetch each meeting, transcribe its recording with a local Whisper, and correct its
+transcript against everything Elysium knows, waiting for its person's approval when asked (Meetings,
 below), and the company doc's scheduled review (The company doc, below).
 
 ## A service of its own
@@ -99,8 +100,8 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
   (`docs/knowledge.md`, The backfill).
 
 Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and two production
-workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps so far are `fetch_meeting` and
-`transcribe_meeting`, and `company_doc_review` (`api/src/company_doc/workflow.rs`), one step, `review_company_doc`.
+workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps so far are `fetch_meeting`,
+`transcribe_meeting`, and `correct_transcript`, and `company_doc_review` (`api/src/company_doc/workflow.rs`), one step, `review_company_doc`.
 The engine registers every production step in `api/src/engine/mod.rs` and checks each workflow in
 `workflows::declared` against them there, and every step it registers against those workflows. Tests declare their
 own.
@@ -197,7 +198,9 @@ the Runs page.
 
 - **Retry** a failed step: it is queued again with a fresh set of attempts, and its run goes on from it.
 - **Skip** a step that has not run, failed, or is held: the step after it receives the input it would have.
-- **Resume** a held step: it succeeds with the output it was held with, and the run goes on.
+- **Resume** a held step: it succeeds with the output it was held with, and the run goes on. What knows how a
+  person's decision changes that output resumes it with the changed one instead (`step_job::resume_with`), as
+  approving a corrected transcript does, so the step after it is told it was approved.
 - Each is a write through `/api/v1/runs` (a member's session, Elysium's own origin), recorded in the run's history
   (`workflow_run_events`) with who did it, then announced, and signalled to the engine. A run's start is recorded
   there too. Entries' `data`: `started` holds `{ steps }`, `retried` the `{ error }` it had failed with, `skipped` the
@@ -225,12 +228,15 @@ the Runs page.
   and stores it beside the source's. Anthropic offers no transcription for recorded audio, and nothing leaves the host.
   A meeting without audio skips the step, saying so. See `docs/meetings.md`, Transcription. Every transcript a meeting
   has is an input to correction; more sources mean better corrections.
-- Correction is an agent that reconciles the transcripts against the company doc and other meetings and writes a
-  corrected copy beside the raw one. The web app shows the two as a diff, and the person may approve it. Approval is
-  optional: every later step reads the corrected copy either way, told whether it was approved.
-- Each meeting source has "Wait for my approval before acting on meetings", off by default. On, a run stops after
-  correction with an action item to review the diff, and continues once approved. One meeting can also be held by
-  hand.
+- Built: correction, the run's `correct_transcript` step, is an agent that reconciles the transcripts against the
+  company doc and other meetings and writes a corrected copy beside the raw ones, which it never changes. Its text
+  turns' answers are checked word by word, so the copy keeps the transcript's every line, speaker, and time and only
+  fixes misheard names and terms. The web app shows the two as a diff on the meeting's page, and the person may
+  approve it. Approval is optional: every later step reads the corrected copy either way, told whether it was
+  approved (its output's `approved`). See `docs/meetings.md`, Correction.
+- Built: each meeting source has "Wait for my approval before acting on meetings", off by default. On, a run stops
+  after correction (`Done::Held`) with an inbox item to review the diff, and continues once approved, the output
+  saying so; Resume on the Runs page passes the held output on unapproved. One meeting can also be held by hand.
 - Segmenting attributes spans of the corrected transcript to projects, with their clip and summary, onto each
   project's timeline beside agent work and every other record, so a project reads top to bottom across meetings.
 
@@ -340,8 +346,8 @@ admin page (`api/src/agent_models.rs`).
   Opus 5.5, Sonnet 5.5, Haiku 5.5), and the API and the column's check both refuse anything else.
 - **Resolving.** `agent_models::for_step` and `for_agent` are the one place a turn's model is resolved: its setting,
   or its default. Each caller resolves as its turn starts, so a change applies from the next turn: a step's turn
-  through `StepContext::model` (the company doc's review is the first step that reads it), which also writes "Runs on
-  X at Y effort" to the step's log, a retry's included;
+  through `StepContext::model` (the company doc's review and transcript correction read it), which also writes
+  "Runs on X at Y effort" to the step's log, a retry's included;
   Elysia's dispatcher, the session turn queue, turn summaries, and the meetings loop each before submitting. Every one
   passes both to the runner (`TurnRequest::model` and `effort`), so `--model` and `--effort` override whatever the
   agents' configuration repository's settings name.

@@ -105,7 +105,8 @@ change many at once the same way: a state, delete, or restore (`POST /api/v1/ini
 Elysium is one workspace shared by everyone who signs in (`docs/auth.md`). Every item and initiative records who
 created it (`createdBy`), and every history entry names its actor: `user:<id>` for a person, `elysia`,
 `session:<number>`, `watcher:<provider>`, or `system` for Elysium reporting on its own work, such as a night's
-database backup that failed. Entries written before accounts say `user` alone.
+database backup that failed, or a meeting whose corrected transcript waits for its person's approval
+(`docs/meetings.md`, Correction). Entries written before accounts say `user` alone.
 
 Ownership predates accounts and is still recorded as text:
 

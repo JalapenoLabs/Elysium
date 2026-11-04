@@ -331,6 +331,28 @@ pub async fn newest(
         .optional()
 }
 
+/// The newest run of `workflow` on each of `source_ids` that ever ran, in no order: what a list
+/// of sources, such as meetings, says of each one's run.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn newest_each(
+    connection: &mut AsyncPgConnection,
+    workflow: &str,
+    source_kind: &str,
+    source_ids: &[String],
+) -> QueryResult<Vec<WorkflowRun>> {
+    workflow_runs::table
+        .filter(workflow_runs::workflow.eq(workflow))
+        .filter(workflow_runs::source_kind.eq(source_kind))
+        .filter(workflow_runs::source_id.eq_any(source_ids))
+        .distinct_on(workflow_runs::source_id)
+        .order((workflow_runs::source_id, workflow_runs::id.desc()))
+        .select(WorkflowRun::as_select())
+        .load(connection)
+        .await
+}
+
 /// Run `id`.
 ///
 /// # Errors

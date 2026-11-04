@@ -121,6 +121,8 @@ pub enum ContentFieldType {
     Selection,
     /// One of the workspace's storage locations, by id.
     StorageLocation,
+    /// On or off, a JSON boolean; off when the connector never saved it.
+    Toggle,
 }
 
 /// What the hub knows about a kind of account, so a new one's form can be drawn.
@@ -660,6 +662,20 @@ mod tests {
             );
         }
         assert_eq!(providing(Provides::Meetings), [ConnectorKind::Fireflies]);
+    }
+
+    #[test]
+    fn every_meeting_source_asks_whether_to_wait_for_approval() {
+        // The correction step reads the same field of every meeting source
+        // (`crate::meetings::waits_for_approval`), so none may go without it.
+        for kind in providing(Provides::Meetings) {
+            let asks = definition(kind).content.iter().any(|field| {
+                field.id == crate::meetings::WAIT_FOR_APPROVAL_FIELD
+                    && matches!(field.field, ContentFieldType::Toggle)
+                    && !field.required
+            });
+            assert!(asks, "{} has no waitForApproval toggle", kind.as_str());
+        }
     }
 
     /// Every kind that sends through its connector, in the hub's order.

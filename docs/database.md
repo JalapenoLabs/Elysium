@@ -555,6 +555,7 @@ Meetings read from a meeting source, and how far each one's processing got; see 
 | `recording_path`         | `TEXT`        | The recording's path there; `NULL` when there is none                   |
 | `recording_content_type` | `TEXT`        | The recording's media type                                              |
 | `segments`               | `JSONB`       | Elysia's topic segments; `NULL` until she has read it                   |
+| `hold_for_approval`      | `BOOLEAN`     | Its person asked to approve its corrected transcript before it is acted on, whatever its source's setting; `false` unless set |
 | `state`                  | `TEXT`        | `pending`, `recorded`, `segmented`, `done`, or `failed`                 |
 | `attempts`               | `INTEGER`     | How many times its current step failed                                  |
 | `last_error`             | `TEXT`        | Why the last attempt failed, or `NULL`                                  |
@@ -574,6 +575,26 @@ it has no `created_by`.
 | `transcript`      | `JSONB`       | `{ model, language, languageProbability, durationMs, segments }`, each segment `{ startMs, endMs, text, words }` and each word `{ startMs, endMs, text, probability }` |
 | `transcript_hash` | `TEXT`        | The SHA-256 of `transcript` as it was serialized to be stored, as hex        |
 | `created_at`      | `TIMESTAMPTZ` | Set on insert                                                                |
+
+### `meeting_corrections`
+
+A meeting's corrected transcript, one per meeting, written once by the meeting workflow's correction step beside the
+raw transcripts, which it never changes; see `docs/meetings.md`, Correction. A child of its meeting, so it has no
+`created_by`. Approval is optional; `approved_by` and `approved_at` are set together (`meeting_corrections_approval`).
+
+| Column                    | Type          | Notes                                                                 |
+|---------------------------|---------------|-----------------------------------------------------------------------|
+| `meeting_id`              | `UUID`        | Primary key; references `meetings`, cascading                         |
+| `transcript`              | `JSONB`       | An array of `{ startMs, endMs, speaker, text }`, one per line of the transcript it follows, in its order, with its speakers and times |
+| `transcript_hash`         | `TEXT`        | The SHA-256 of `transcript` as it was serialized to be stored, as hex |
+| `based_on`                | `TEXT`        | `source` or `whisper`: the transcript it follows line by line         |
+| `source_transcript_hash`, `whisper_transcript_hash` | `TEXT` | The transcripts it read; Whisper's `NULL` when there was none |
+| `changed_lines`           | `INTEGER`     | How many lines it changed                                             |
+| `fixes`                   | `JSONB`       | Each distinct fix, `{ heard, written }`, which later corrections read |
+| `approved_by`             | `UUID`        | References `users`: who approved it                                   |
+| `approved_at`             | `TIMESTAMPTZ` | When                                                                  |
+| `review_item_id`          | `UUID`        | References `action_items`, set to `NULL` with it: the inbox item raised when its run held for approval; indexed, for the item's page |
+| `created_at`              | `TIMESTAMPTZ` | Set on insert                                                         |
 
 ### `mail_servers`
 
