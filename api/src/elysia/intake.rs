@@ -37,6 +37,12 @@ pub const DEBOUNCE: Duration = Duration::from_secs(30);
 /// runaway source cannot build a prompt past what a turn can read.
 pub const MAX_EVENTS_PER_TURN: usize = 50;
 
+/// The kinds of record Elysium's own agents put on the timeline, which are never news to her.
+const AGENT_SOURCE_KINDS: [&str; 2] = [
+    crate::project_managers::timeline::SOURCE_KIND,
+    crate::sessions::timeline::SOURCE_KIND,
+];
+
 /// History kinds a person's own action counts for: new work, and notes about it.
 const PERSON_KINDS: [&str; 2] = ["created", "commented"];
 
@@ -62,12 +68,14 @@ pub fn classify(message: &str) -> Option<Value> {
         // Mail, chat, and meetings arrive here once connectors ingest them. A message that
         // joined a conversation is that conversation's request run's to handle
         // (`crate::conversations`), so she is not woken for it too. What a Project Manager
-        // records of its own turns and batches is agents' work, as a session's is.
+        // records of its own turns and batches, and a session's turn summaries, are agents' work.
         "timelineRecord.created" => {
             let in_conversation = data.get("conversationId").is_some_and(|id| !id.is_null());
-            let is_project_managers = data.get("sourceKind").and_then(Value::as_str)
-                == Some(crate::project_managers::timeline::SOURCE_KIND);
-            !in_conversation && !is_project_managers
+            let is_agents_work = data
+                .get("sourceKind")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| AGENT_SOURCE_KINDS.contains(&kind));
+            !in_conversation && !is_agents_work
         }
         _ => false,
     };
@@ -305,12 +313,17 @@ mod tests {
     }
 
     #[test]
-    fn a_project_managers_own_records_are_not_news_to_her() {
+    fn agents_own_records_are_not_news_to_her() {
         let decided = bus(
             "timelineRecord.created",
             &json!({ "id": "x", "sourceKind": "project_manager" }),
         );
         assert!(classify(&decided).is_none());
+        let summarized = bus(
+            "timelineRecord.created",
+            &json!({ "id": "x", "sourceKind": "turn_summary" }),
+        );
+        assert!(classify(&summarized).is_none());
         let segment = bus(
             "timelineRecord.created",
             &json!({ "id": "x", "sourceKind": "meeting" }),

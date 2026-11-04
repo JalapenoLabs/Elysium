@@ -6,10 +6,12 @@
 //! A record belongs to whoever it was ingested for, and only they list it: a person's mail is
 //! theirs even when it is about a shared project.
 //!
-//! What Elysium's own Project Managers put on a project's timeline (their turns and decisions,
-//! `crate::project_managers::timeline`) is nobody's in particular: it belongs to the workspace,
-//! owned by [`PROJECT_MANAGER_USER_ID`], and everyone who reads a timeline reads it
-//! ([`SHARED_OWNERS`]). Only a record's own owner changes what it is attributed to, so nobody
+//! What Elysium's own agents put on a project's timeline is nobody's in particular: it belongs to
+//! the workspace, and everyone who reads a timeline reads it ([`SHARED_OWNERS`]). That is a
+//! Project Manager's turns and decisions (`crate::project_managers::timeline`), owned by
+//! [`PROJECT_MANAGER_USER_ID`], and every coding session's turn summaries
+//! (`crate::sessions::timeline`), owned by [`CODING_AGENT_USER_ID`], since every session is
+//! listed to everyone. Only a record's own owner changes what it is attributed to, so nobody
 //! moves those.
 
 use std::collections::HashMap;
@@ -26,11 +28,11 @@ use crate::knowledge::records;
 use crate::meetings::SEGMENT_SOURCE_KIND;
 use crate::meetings::segmentation::MAX_SEGMENTS;
 use crate::models::knowledge_document::{self, KnowledgeSource};
-use crate::models::user::PROJECT_MANAGER_USER_ID;
+use crate::models::user::{CODING_AGENT_USER_ID, PROJECT_MANAGER_USER_ID};
 
 /// The owners whose records every reader of a timeline reads besides their own: Elysium's own
 /// agents, whose records are about a project rather than any one person's feed.
-pub const SHARED_OWNERS: [Uuid; 1] = [PROJECT_MANAGER_USER_ID];
+pub const SHARED_OWNERS: [Uuid; 2] = [PROJECT_MANAGER_USER_ID, CODING_AGENT_USER_ID];
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
 #[diesel(table_name = timeline_records, check_for_backend(diesel::pg::Pg))]
@@ -66,6 +68,17 @@ pub struct NewTimelineRecord {
     pub media: Option<Value>,
     pub metadata: Value,
     pub created_by: Uuid,
+}
+
+/// A turn summary's record: the record, and the summary it is (`turn_summaries`), which keeps it
+/// one record per turn and deletes it with the summary.
+#[derive(Debug, Clone, Insertable)]
+#[diesel(table_name = timeline_records)]
+struct NewTurnSummaryRecord {
+    #[diesel(embed)]
+    record: NewTimelineRecord,
+    turn_summary_session_id: i64,
+    turn_summary_turn_id: Uuid,
 }
 
 /// Which projects a record is about, with how sure the attribution is.
@@ -109,6 +122,51 @@ pub async fn insert_new(
             if let Some(stored) = &stored {
                 index(connection, stored).await?;
             }
+            Ok(stored)
+        })
+        .await
+}
+
+/// Stores `record` as the record of turn `turn_id`'s summary in session `session_id`, or, when
+/// that summary already has one, gives it `record`'s text, time, and metadata, keeping its id.
+/// Either way it is indexed ([`index`]) in the same transaction, so writing a summary's record
+/// again, as the backfill may, leaves one record that reads as the summary does now.
+///
+/// # Errors
+/// Propagates any database error, including a foreign key violation for a summary that does not
+/// exist.
+pub async fn upsert_turn_summary(
+    connection: &mut AsyncPgConnection,
+    session_id: i64,
+    turn_id: Uuid,
+    record: NewTimelineRecord,
+) -> QueryResult<TimelineRecord> {
+    use diesel::upsert::excluded;
+
+    connection
+        .transaction(async |connection| {
+            let stored = diesel::insert_into(timeline_records::table)
+                .values(NewTurnSummaryRecord {
+                    record,
+                    turn_summary_session_id: session_id,
+                    turn_summary_turn_id: turn_id,
+                })
+                .on_conflict((
+                    timeline_records::turn_summary_session_id,
+                    timeline_records::turn_summary_turn_id,
+                ))
+                .do_update()
+                .set((
+                    timeline_records::occurred_at.eq(excluded(timeline_records::occurred_at)),
+                    timeline_records::actor.eq(excluded(timeline_records::actor)),
+                    timeline_records::title.eq(excluded(timeline_records::title)),
+                    timeline_records::body.eq(excluded(timeline_records::body)),
+                    timeline_records::metadata.eq(excluded(timeline_records::metadata)),
+                ))
+                .returning(TimelineRecord::as_returning())
+                .get_result(connection)
+                .await?;
+            index(connection, &stored).await?;
             Ok(stored)
         })
         .await

@@ -13,7 +13,10 @@ use crate::database::schema::knowledge_backfills;
 /// A source whose rows stored before they were indexed on write are walked by a backfill.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackfillSource {
+    /// Timeline records, each indexed as its document.
     TimelineRecord,
+    /// Turn summaries, each put on its session's project's timeline as a record, which indexes it.
+    TurnSummary,
 }
 
 impl BackfillSource {
@@ -21,6 +24,7 @@ impl BackfillSource {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::TimelineRecord => "timeline_record",
+            Self::TurnSummary => "turn_summary",
         }
     }
 }

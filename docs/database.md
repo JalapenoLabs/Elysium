@@ -333,8 +333,9 @@ Indexed by conversation and arrival, and partially over what still waits on a ru
 ### `timeline_records`
 
 Everything ingested, newest first by `occurred_at` (indexed). Unique on `(connector_id, external_id)`, so an
-item is recorded once per connector. `timeline_records_by_ingestion` on `(created_at, id)` reads it in the order it was
-ingested, as the company doc's review does.
+item is recorded once per connector, and on `(turn_summary_session_id, turn_summary_turn_id)`, so a turn summary is
+one record. `timeline_records_by_ingestion` on `(created_at, id)` reads it in the order it was ingested, as the company
+doc's review does.
 
 | Column                 | Type          | Notes                                                                   |
 |------------------------|---------------|-------------------------------------------------------------------------|
@@ -349,8 +350,9 @@ ingested, as the company doc's review does.
 | `media`                | `JSONB`       | A span inside a recording, for a meeting segment                        |
 | `metadata`             | `JSONB`       | Whatever else the connector keeps                                       |
 | `action_item_id`       | `UUID`        | References `action_items`: the item it raised; `NULL` when it is gone   |
-| `created_by`           | `UUID`        | References `users`; whose timeline it is on, or the Project Managers' machine user for the workspace's own |
+| `created_by`           | `UUID`        | References `users`; whose timeline it is on, or for the workspace's own the Project Managers' machine user or the coding agent's |
 | `created_at`           | `TIMESTAMPTZ` | Set on insert                                                           |
+| `turn_summary_session_id`, `turn_summary_turn_id` | `BIGINT`, `UUID` | Together reference `turn_summaries`, cascading: the summary a `turn_summary` record is. Set on that kind alone, both or neither (`timeline_records_turn_summary_kind`) |
 
 A Slack record's `metadata` keeps where its message was said (`team`, `conversation`, `ts`, and `threadTs` for a
 reply), and a Teams record's its `conversationId`, `messageId`, `parentId` (a channel message's thread), and `isChat`,
@@ -389,11 +391,12 @@ Which projects a record is about. Primary key `(timeline_record_id, project_id)`
 | `timeline_record_id` | `UUID`        | References `timeline_records`                               |
 | `project_id`         | `UUID`        | References `projects`                                       |
 | `confidence`         | `REAL`        | 0 to 1; a person's attribution is 1                         |
-| `attributed_by`      | `TEXT`        | The actor, as history writes it (`user:<id>`, `elysia`, `project_manager`) |
+| `attributed_by`      | `TEXT`        | The actor, as history writes it (`user:<id>`, `elysia`, `project_manager`, `session:<n>`) |
 | `created_at`         | `TIMESTAMPTZ` | Set on insert                                               |
 
 Every write goes through `models::attribution`, which records it in `timeline_record_events`, and a new attribution
-by anyone but a Project Manager wakes the project's Project Manager (`project_manager_wakes`) in the same transaction.
+by Elysia or a person wakes the project's Project Manager (`project_manager_wakes`) in the same transaction; what a
+Project Manager or a session's agent attributes wakes nothing.
 
 ### `timeline_record_events`
 
@@ -538,13 +541,13 @@ hour; the partial `knowledge_asks_waiting` holds what the answerer has still to 
 ### `knowledge_backfills`
 
 How far each backfill of the knowledge index has got, one row per source that needs one, seeded by its migration as
-the system user; only `timeline_record` today. See `docs/knowledge.md`, The backfill.
+the system user: `timeline_record` and `turn_summary`. See `docs/knowledge.md`, The backfill.
 
 | Column        | Type          | Notes                                                                        |
 |---------------|---------------|------------------------------------------------------------------------------|
-| `source`      | `TEXT`        | Primary key: `timeline_record`                                               |
+| `source`      | `TEXT`        | Primary key: `timeline_record` or `turn_summary`                             |
 | `version`     | `INTEGER`     | The version of how the source is indexed (`INDEXED_AS`) the walk goes to; `NULL` before the first |
-| `through_id`  | `UUID`        | The last row the walk indexed, in id order; not a reference, since the row may go |
+| `through_id`  | `UUID`        | The last row the walk indexed, in id order (a summary's turn id); not a reference, since the row may go |
 | `finished_at` | `TIMESTAMPTZ` | When the walk reached the end; `NULL` while it is under way                  |
 | `created_by`  | `UUID`        | References `users`; the system user                                          |
 | `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                                                        |
@@ -925,6 +928,8 @@ Models).
 
 A finished turn's one or two sentence summary; see `docs/coding.md`, Turn summaries. A child of `coding_sessions`, so
 it inherits its session's creator. The primary key is `(session_id, turn_id)`; recording again replaces the summary.
+`turn_summaries_turn_id` serves the backfill's walk in turn order. A summary of a session with a project has a record on
+that project's timeline (`timeline_records.turn_summary_*`), deleted with it.
 
 | Column       | Type          | Notes                                                    |
 |--------------|---------------|----------------------------------------------------------|

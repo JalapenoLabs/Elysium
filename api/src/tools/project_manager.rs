@@ -21,7 +21,7 @@ use uuid::Uuid;
 use super::{
     CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
 };
-use crate::models::attribution::{ELYSIA_ACTOR, PROJECT_MANAGER_ACTOR};
+use crate::models::attribution::{ELYSIA_ACTOR, PROJECT_MANAGER_ACTOR, SESSION_ACTOR_PREFIX};
 use crate::models::promise::{self, Promise, PromiseState, Work};
 use crate::models::timeline_record::{self, Attribution, TimelineRecord};
 use crate::models::work_batch::{self, BatchState, WorkBatch};
@@ -646,6 +646,7 @@ fn record_view(record: &TimelineRecord, attribution: &Attribution, characters: u
     let attributed_by = match attribution.attributed_by.as_str() {
         ELYSIA_ACTOR => "elysia",
         PROJECT_MANAGER_ACTOR => "you",
+        actor if actor.starts_with(SESSION_ACTOR_PREFIX) => "a coding session",
         _ => "a person",
     };
     json!({

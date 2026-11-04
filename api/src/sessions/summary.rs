@@ -10,19 +10,26 @@
 //! every turn, with no tools, no settings, and nothing kept to resume. It runs in a
 //! conversation of its own, so it never queues behind the session's next prompt.
 //!
+//! A summary of a session with a project goes on that project's timeline in the transaction that
+//! records it (`super::timeline`), so the project reads its agents' work beside its meetings and
+//! messages, and the knowledge base finds it.
+//!
 //! A summary is a convenience. One that fails is logged and left out, and the conversation
 //! shows the turn's prompt in its place; it never touches the turn's own outcome.
 
 use std::fmt::Write as _;
 
+use diesel_async::{AsyncConnection, AsyncPgConnection};
 use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::queue::TurnQueue;
 use super::views::TurnSummaryView;
 use crate::agent_models::{self, Agent};
+use crate::models::coding_session;
 use crate::models::model_setting::ModelChoice;
-use crate::models::turn_summary;
+use crate::models::timeline_record::TimelineRecord;
+use crate::models::turn_summary::{self, TurnSummary};
 use crate::realtime::ServerEvent;
 use crate::runner::{
     ConversationId, RunnerEvent, TurnMode, TurnOutcome, TurnRequest, TurnStatus, WorkspacePath,
@@ -157,8 +164,8 @@ fn truncated(text: &str, limit: usize) -> String {
     }
 }
 
-/// Asks for the summary of a turn of `session_id`, which works for `project_id`, records it,
-/// and announces it.
+/// Asks for the summary of a turn of `session_id`, which works for `project_id`, records it with
+/// its record on the project's timeline, and announces both.
 pub(super) async fn summarize(
     queue: &TurnQueue,
     session_id: i64,
@@ -227,18 +234,49 @@ pub(super) async fn summarize(
     };
 
     let recorded = match sessions.inner.database.get().await {
-        Ok(mut connection) => turn_summary::record(&mut connection, session_id, turn_id, &summary)
+        Ok(mut connection) => keep(&mut connection, session_id, turn_id, &summary)
             .await
             .map_err(|error| error.to_string()),
         Err(error) => Err(error.to_string()),
     };
-    match recorded {
-        Ok(row) => sessions
-            .inner
-            .events
-            .publish(&ServerEvent::TurnSummarized(TurnSummaryView::from(row))),
-        Err(message) => failure(&message),
+    let (row, record) = match recorded {
+        Ok(recorded) => recorded,
+        Err(message) => {
+            failure(&message);
+            return;
+        }
+    };
+    let events = &sessions.inner.events;
+    events.publish(&ServerEvent::TurnSummarized(TurnSummaryView::from(row)));
+    if let Some(record) = record {
+        events.publish(&ServerEvent::TimelineRecordCreated {
+            id: record.id,
+            source_kind: record.source_kind,
+            created_by: record.created_by,
+            action_item_id: None,
+            conversation_id: None,
+        });
     }
+}
+
+/// Records `summary` for turn `turn_id` of session `session_id` and, for a session with a
+/// project, its record on the project's timeline, in one transaction, so a summary is never kept
+/// without its record or put on the timeline without being kept.
+async fn keep(
+    connection: &mut AsyncPgConnection,
+    session_id: i64,
+    turn_id: Uuid,
+    summary: &str,
+) -> diesel::QueryResult<(TurnSummary, Option<TimelineRecord>)> {
+    connection
+        .transaction(async |connection| {
+            let row = turn_summary::record(connection, session_id, turn_id, summary).await?;
+            // Read with the summary, so the record follows the session as it stands now.
+            let session = coding_session::find(connection, session_id).await?;
+            let record = super::timeline::record(connection, &row, &session).await?;
+            Ok((row, record))
+        })
+        .await
 }
 
 #[cfg(test)]
@@ -346,5 +384,57 @@ mod tests {
         let long = cleaned(&"word ".repeat(200)).expect("a summary");
         assert_eq!(long.chars().count(), SUMMARY_MAX_CHARACTERS + 1);
         assert!(long.ends_with('…'));
+    }
+
+    // #193: a summary of a session with a project lands on the project's timeline with it.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_summary_is_kept_with_its_record_on_the_sessions_project() {
+        use crate::models::coding_session::NewCodingSession;
+        use crate::models::project::{self, NewProject};
+        use crate::test_support::{TEST_PERSON_ID, migrated_database};
+
+        let (_url, mut connection) = migrated_database().await;
+        let project = project::create(
+            &mut connection,
+            &NewProject {
+                created_by: TEST_PERSON_ID,
+                name: "Elysium".to_owned(),
+                description: String::new(),
+            },
+        )
+        .await
+        .expect("a project");
+        let id = coding_session::reserve_id(&mut connection)
+            .await
+            .expect("an id");
+        coding_session::create(
+            &mut connection,
+            &NewCodingSession {
+                created_by: TEST_PERSON_ID,
+                id,
+                project_id: Some(project.id),
+                title: "Login form".to_owned(),
+                github_credential_id: None,
+                action_item_id: None,
+                studio_item_id: None,
+            },
+        )
+        .await
+        .expect("a session");
+        let turn_id = Uuid::now_v7();
+
+        let (row, record) = keep(&mut connection, id, turn_id, "Fixed the login form.")
+            .await
+            .expect("kept");
+        let record = record.expect("on its project");
+        assert_eq!(row.summary, record.title);
+        assert_eq!(record.occurred_at, row.created_at);
+        let attributions =
+            crate::models::timeline_record::attributions_of(&mut connection, &[record.id])
+                .await
+                .expect("read");
+        assert_eq!(attributions.len(), 1);
+        assert_eq!(attributions[0].project_id, project.id);
     }
 }

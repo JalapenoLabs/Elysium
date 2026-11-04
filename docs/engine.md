@@ -114,8 +114,8 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
 - Work with no source of its own is a loop of the engine, not a workflow. Embedding the knowledge base's passages is
   the same small job for every passage of every source, so the embedder is a loop over the index itself
   (`docs/knowledge.md`, The embedder); a run per document would fill the Runs page with one-step runs. The backfill
-  that indexes the timeline records stored before they were indexed on write is a loop for the same reason
-  (`docs/knowledge.md`, The backfill).
+  that brings into the index what was stored before it was indexed on write (timeline records, and turn summaries not
+  yet on the timeline) is a loop for the same reason (`docs/knowledge.md`, The backfill).
 
 Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and three production
 workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps are `fetch_meeting`, `transcribe_meeting`,
@@ -426,7 +426,11 @@ Built: every project's Project Manager (`api/src/project_managers/`), its wakes,
     a person adding a record to it, or an undo putting one back, all through `models::attribution`
     (`docs/connectors.md`, The timeline). A change of how sure an attribution is wakes nothing, and a record waits once
     however often it is attributed meanwhile. Any workflow that attributes records wakes Project Managers this way,
-    the request workflow included (Conversations, above), with nothing of its own to add;
+    the request workflow included (Conversations, above), with nothing of its own to add. What Elysium's agents put on
+    the timeline wakes nothing: its own records, and a session's turn summaries (`docs/coding.md`, Turn summaries). A
+    wake per turn would spend a Project Manager's turn on every prompt anyone types into a session of the project; the
+    work it dispatched reports back through the batch's result below, and it reads the rest on its timeline when
+    something else wakes it;
   - **a batch's result**: a worker finishing its batch (`work_batch::finish`, which the pool's workers call);
   - **a person**: the Project Manager tab's composer (`POST /api/v1/projects/{id}/project-manager/messages`);
   - **Elysia**: her `elysia_message_project_manager` tool (`docs/elysia.md`, Tools);

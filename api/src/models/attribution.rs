@@ -6,7 +6,8 @@
 //! A record is attributed to a project with a confidence and who attributed it
 //! (`timeline_record_projects`). Elysia attributes as segmenting reads a meeting or a
 //! conversation; a person confirms, adds, or removes; a Project Manager attributes what it puts
-//! on its own project's timeline. Every change goes through this module, which records it in
+//! on its own project's timeline, and a session's agent its turn summaries to the session's
+//! project. Every change goes through this module, which records it in
 //! `timeline_record_events` in the same transaction, with what the attribution was before and
 //! after, so any change can be shown and undone.
 //!
@@ -16,7 +17,11 @@
 //! conversation, a person adding it, an undo putting it back), is news for that project's
 //! Project Manager, so the change wakes it in the same transaction
 //! (`crate::models::project_manager::wake_for_record`). A change of how sure an attribution is
-//! wakes nothing, and neither does what a Project Manager puts on the timeline itself.
+//! wakes nothing, and neither does what Elysium's own agents put on the timeline: a Project
+//! Manager's records are its own, and a session's turn summaries are work the Project Manager
+//! hears of through what it dispatched (a batch's result) or reads on its timeline when something
+//! else wakes it. A wake per turn would spend a Project Manager's turn on every prompt anyone
+//! types into a session of the project.
 //!
 //! # A person's word stands
 //!
@@ -37,7 +42,7 @@ use uuid::Uuid;
 use crate::database::schema::{timeline_record_events, timeline_record_projects};
 use crate::models::project_manager;
 use crate::models::timeline_record::Attribution;
-use crate::models::user::{ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
+use crate::models::user::{CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID};
 
 /// How sure a person's own attribution is.
 pub const PERSON_CONFIDENCE: f32 = 1.0;
@@ -49,6 +54,10 @@ pub const ELYSIA_ACTOR: &str = "elysia";
 /// so the project names which one.
 pub const PROJECT_MANAGER_ACTOR: &str = "project_manager";
 
+/// How a session's agent is named in `attributed_by`, before the session's number, as history
+/// names it everywhere (`session:<n>`).
+pub const SESSION_ACTOR_PREFIX: &str = "session:";
+
 /// Who changes an attribution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Attributor {
@@ -58,15 +67,19 @@ pub enum Attributor {
     Person(Uuid),
     /// A Project Manager, putting its own turns and decisions on its project's timeline.
     ProjectManager,
+    /// The agent of coding session `n`, putting its turn summaries on the session's project.
+    Session(i64),
 }
 
 impl Attributor {
-    /// The actor `attributed_by` names: `elysia`, `user:<id>`, or `project_manager`.
+    /// The actor `attributed_by` names: `elysia`, `user:<id>`, `project_manager`, or
+    /// `session:<n>`.
     fn actor(self) -> String {
         match self {
             Self::Elysia => ELYSIA_ACTOR.to_owned(),
             Self::Person(id) => format!("user:{id}"),
             Self::ProjectManager => PROJECT_MANAGER_ACTOR.to_owned(),
+            Self::Session(id) => format!("{SESSION_ACTOR_PREFIX}{id}"),
         }
     }
 
@@ -76,6 +89,17 @@ impl Attributor {
             Self::Elysia => ELYSIA_USER_ID,
             Self::Person(id) => id,
             Self::ProjectManager => PROJECT_MANAGER_USER_ID,
+            Self::Session(_) => CODING_AGENT_USER_ID,
+        }
+    }
+
+    /// Whether a record this puts newly on a project wakes the project's Project Manager: what
+    /// Elysia and people attribute does, what Elysium's own agents put on the timeline does not
+    /// (the module's docs).
+    const fn wakes_project_manager(self) -> bool {
+        match self {
+            Self::Elysia | Self::Person(_) => true,
+            Self::ProjectManager | Self::Session(_) => false,
         }
     }
 }
@@ -192,7 +216,7 @@ pub async fn attribute(
 ) -> QueryResult<Written> {
     let confidence = match by {
         Attributor::Person(_) => PERSON_CONFIDENCE,
-        Attributor::Elysia | Attributor::ProjectManager => confidence,
+        Attributor::Elysia | Attributor::ProjectManager | Attributor::Session(_) => confidence,
     };
     let after = Held {
         confidence,
@@ -215,7 +239,7 @@ pub async fn attribute(
                 return Ok(Written::Unchanged);
             }
             write(connection, record_id, project_id, &after).await?;
-            if before.is_none() && by != Attributor::ProjectManager {
+            if before.is_none() && by.wakes_project_manager() {
                 project_manager::wake_for_record(connection, project_id, record_id, by.user_id())
                     .await?;
             }

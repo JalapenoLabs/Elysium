@@ -32,6 +32,7 @@ pub mod queue;
 mod restart_tests;
 pub mod scrub;
 mod summary;
+pub mod timeline;
 mod turn;
 pub mod views;
 

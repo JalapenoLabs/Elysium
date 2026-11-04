@@ -1521,6 +1521,8 @@ diesel::table! {
         action_item_id -> Nullable<Uuid>,
         created_by -> Uuid,
         created_at -> Timestamptz,
+        turn_summary_session_id -> Nullable<Int8>,
+        turn_summary_turn_id -> Nullable<Uuid>,
     }
 }
 

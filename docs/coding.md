@@ -244,6 +244,18 @@ row headed by a one or two sentence summary, which expands to the turn's full ev
   turn slots, and holds an agent turn activity, for its few seconds.
 - **Keeping it.** The answer is collapsed to one line of at most 400 characters, recorded in `turn_summaries`, and
   published as `session.summary`. The events route answers a session's summaries with its history.
+- **On the project's timeline.** In the same transaction, a summary of a session with a project becomes a timeline
+  record of that project, kind `turn_summary` (`api/src/sessions/timeline.rs`), attributed to it as certain by the
+  session's agent (`session:<n>`), indexed in the knowledge base, and announced as `timelineRecord.created`. It is the
+  workspace's, owned by the coding agent's machine user, since every session is listed to everyone, so every company
+  member reads it on the project's Timeline tab, where it opens the session's conversation at that turn. One record per
+  turn, deleted with the session; a session without a project keeps its summaries off every timeline. The summaries
+  written before are put there by the knowledge base's backfill. See `docs/knowledge.md`, Turn summaries.
+- **Nothing wakes on it.** A new record on a project wakes its Project Manager (`docs/engine.md`, Project Managers),
+  except what Elysium's agents put there, a summary included: a wake per turn would spend a Project Manager's turn on
+  every prompt anyone types into a session of the project. The work a Project Manager dispatched reports back through
+  its batch's result, and it reads the rest on its timeline (`manager_timeline`) when something else wakes it. Elysia's
+  intake leaves summaries out too; a session's work is followed in its own conversation.
 - **Failure.** A summary that fails (no credential, an empty answer, a database error) is logged as
   `sessions.summary.failure` and left out. The row then shows the first line of the agent's final message, or the
   turn's state. It never touches the turn's own outcome.

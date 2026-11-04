@@ -562,10 +562,12 @@ person's mail is theirs even when it is about a shared project. That ownership i
 its recordings, not of the text: the knowledge base indexes every record for everyone in the workspace, in the
 transaction that stores it (`docs/knowledge.md`, Timeline records, and Who sees what).
 
-What a project's Project Manager puts on its timeline, its turns and the batches it submits (kind `project_manager`,
-`docs/engine.md`, Project Managers), is nobody's feed: it belongs to the workspace, owned by the Project Managers'
-machine user (`timeline_record::SHARED_OWNERS`), and every company member reads it on the project's timeline beside
-their own records; a guest reads only their own. Nobody moves it between projects or answers it.
+What Elysium's own agents put on a project's timeline is nobody's feed: it belongs to the workspace, and every company
+member reads it on the project's timeline beside their own records; a guest reads only their own. Nobody moves it
+between projects or answers it. It is a Project Manager's turns and the batches it submits (kind `project_manager`,
+`docs/engine.md`, Project Managers), owned by the Project Managers' machine user, and every session's turn summaries
+(kind `turn_summary`, `docs/coding.md`, Turn summaries), owned by the coding agent's machine user, since every session
+is listed to everyone (`timeline_record::SHARED_OWNERS`).
 
 `timeline_record_projects` attributes records to projects, each with a confidence and who attributed it. Elysia
 attributes as segmenting reads a meeting or a conversation (`docs/meetings.md`, Segmentation), with her confidence;
@@ -582,7 +584,8 @@ the record's owner confirms, adds, or removes. Every change goes through `models
   changed since answers `409` (`attribution_changed`) rather than losing that change.
 - **A new attribution is news for the project.** A record newly on a project (Elysia's reading, a person adding it, an
   undo putting it back) wakes that project's Project Manager in the same transaction; a change of how sure an
-  attribution is does not, and nor does a Project Manager attributing its own records.
+  attribution is does not, and nor does what Elysium's agents attribute: a Project Manager its own records, and a
+  session's agent (`session:<n>`) its turn summaries.
 
 `GET /api/v1/timeline` lists the caller's records, and for a member the workspace's, newest first, optionally for one project or one meeting's segments
 and before a time, with `total`, how many records the filters match across every page (a project page's Timeline tab

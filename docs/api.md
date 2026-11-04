@@ -396,8 +396,9 @@ attributions answers the record and `entryId`, the history entry it recorded (`n
 `HistoryEntry` has `id`, `timelineRecordId`, `projectId`, `kind` (`attributed` or `unattributed`), `createdBy` (the
 owner, or Elysia's machine user), `before` and `after` (each `{ confidence, attributedBy }` or `null`), `undid`, and
 `createdAt`. Every route answers the record's owner alone, except that `GET /timeline` and `GET /timeline/{id}` also
-answer a member the workspace's records, a Project Manager's turns and batches (`createdBy` its machine user), which
-nobody changes. See `docs/connectors.md`.
+answer a member the workspace's records, which nobody changes: a Project Manager's turns and batches (`createdBy` its
+machine user) and a session's turn summaries (`sourceKind` `turn_summary`, `createdBy` the coding agent's machine user,
+`metadata` naming `sessionId`, `turnId`, and `studioItemId`). See `docs/connectors.md`.
 
 ### `/api/v1/drafts`
 

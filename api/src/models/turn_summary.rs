@@ -8,7 +8,8 @@ use diesel::upsert::on_constraint;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use uuid::Uuid;
 
-use crate::database::schema::turn_summaries;
+use crate::database::schema::{coding_sessions, turn_summaries};
+use crate::models::coding_session::CodingSession;
 
 #[derive(Debug, Clone, Queryable, Selectable)]
 #[diesel(table_name = turn_summaries)]
@@ -67,6 +68,29 @@ pub async fn for_session(
         .select(TurnSummary::as_select())
         .load(connection)
         .await
+}
+
+/// Up to `limit` summaries of every session, each with its session, in turn order, after turn
+/// `after` when it is given: the walk the backfill takes to put the summaries written before they
+/// were recorded on the timeline (`crate::knowledge::backfill`).
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn after_turn(
+    connection: &mut AsyncPgConnection,
+    after: Option<Uuid>,
+    limit: i64,
+) -> QueryResult<Vec<(TurnSummary, CodingSession)>> {
+    let mut query = turn_summaries::table
+        .inner_join(coding_sessions::table)
+        .order(turn_summaries::turn_id.asc())
+        .limit(limit)
+        .select((TurnSummary::as_select(), CodingSession::as_select()))
+        .into_boxed();
+    if let Some(after) = after {
+        query = query.filter(turn_summaries::turn_id.gt(after));
+    }
+    query.load(connection).await
 }
 
 #[cfg(test)]

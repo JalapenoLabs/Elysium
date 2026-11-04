@@ -7,7 +7,7 @@ benefits from what anyone's agent saves.
 
 This doc is the design. Little of it is built; the roadmap is the issues in the Knowledge base milestone. Built so
 far: the index's tables in Postgres (Search, below); every timeline record indexed as it is stored, with the engine's
-backfill for what was stored before (Timeline records, below); learnings, saved through the routes, the MCP server, and
+backfill for what was stored before, agent turn summaries among them (Timeline records, below); learnings, saved through the routes, the MCP server, and
 the Knowledge page, filed under the built-in categories and the workspace's own, and indexed as they are saved
 (Learnings, below); hybrid search, by words and by meaning, with its filters, and opening a document whole, on the
 Knowledge page and in the topbar's search (Hybrid search, below); the company doc, edited in Settings, Company doc,
@@ -193,7 +193,9 @@ search logs its counts and durations at debug (`knowledge.search.answered`), nev
 ## Timeline records
 
 Every timeline record (`docs/connectors.md`, The timeline) is a source of the index: mail, Slack and Teams messages,
-Confluence pages and comments, YouTrack issues and comments, meeting segments, and messages a person sent. The code is
+Confluence pages and comments, YouTrack issues and comments, meeting segments, messages a person sent, and what
+Elysium's agents put on a project's timeline, a Project Manager's turns and batches and a session's turn summaries. The
+code is
 `api/src/knowledge/records.rs`, which says what a record's document is, and `timeline_record::index`
 (`api/src/models/`), which puts it in the index.
 
@@ -227,34 +229,58 @@ Confluence pages and comments, YouTrack issues and comments, meeting segments, a
   index has both documents, with the same `content_sha256`. Search folds them into one result (Hybrid search, The same
   text twice).
 
+### Turn summaries
+
+Every coding and Studio session's turn summary (`docs/coding.md`, Turn summaries) of a session with a project is a
+timeline record of that project, kind `turn_summary` (`api/src/sessions/timeline.rs`), so a project's timeline reads its
+agents' work beside its meetings and messages, and a search finds what an agent did.
+
+- **Written with its summary.** The record is stored, attributed to the session's project as certain, and indexed in
+  the transaction that records the summary, so a summary is never kept without its record.
+- **One per turn.** The record names its summary (`turn_summary_session_id`, `turn_summary_turn_id`, unique), so
+  writing it again, as a replaced summary or the backfill does, leaves one record that reads as the summary does now,
+  and deleting the session deletes it with the summary, as the session's other history goes.
+- **The workspace's.** Every session is listed to everyone, so its summaries are not its starter's feed: the record is
+  owned by the coding agent's machine user, and every company member reads it on the project's timeline, as they read a
+  Project Manager's records (`timeline_record::SHARED_OWNERS`). A guest reads only their own records, as for every
+  shared record. In the index it is attributed to that machine user, so the `person` filter names no person for it.
+- **Its text.** The title is the summary, the actor the session (`Session 12`), and the body empty, so its document is
+  the summary and `From Session 12`. Its metadata names the session, the turn, and the Studio item when the session is
+  one's, which the timeline opens the session's conversation at.
+- **A session without a project**, which only a Studio session can be, keeps its summaries, and they go on no
+  timeline and into no index: a record on no project would read as news on every member's whole timeline.
+
 ### The backfill
 
-The engine's backfill (`api/src/knowledge/backfill.rs`) indexes the records stored before records were indexed on
-write. Like the embedder it is a loop of the engine's own rather than a workflow, since it has no source of its own
-(`docs/engine.md`, Workflows and steps), and it never holds up the engine's start.
+The engine's backfill (`api/src/knowledge/backfill.rs`) brings into the index what was stored before it was indexed
+on write: the timeline records stored before records were indexed, and the turn summaries written before they went on
+the timeline. Like the embedder it is a loop of the engine's own rather than a workflow, since it has no source of its
+own (`docs/engine.md`, Workflows and steps), and it never holds up the engine's start.
 
-- **The walk.** It takes every record in id order, 100 at a time, and indexes each exactly as storing it does, in one
-  transaction with its row in `knowledge_backfills` (`docs/database.md`), which records the batch's last id. An engine
-  that stops part way resumes after the last batch it committed; a batch cut short is taken again, and indexing a
-  record twice changes nothing. A batch shorter than 100 is the end: every record stored since was indexed as it was
-  stored.
-- **Its pace.** It rests a second between batches, about 360,000 records an hour, so a large timeline never crowds
-  the readers' and the API's writes. The embedder takes passages newest documents first, so what was just saved is
-  still found by meaning within seconds while the backfill's older passages wait their turn.
-- **Once per version.** It walks to `INDEXED_AS` in `records.rs`. A walk that reached the end is never walked again
-  until a release changes what a record's text is, or how text is cut into passages, and bumps that version; the
-  next engine then walks every record once more, and a record whose text came out the same keeps its passages and
-  their embeddings. A release rolled back to an older version leaves the newer walk's text in place.
+- **Its sources.** It walks each in turn, each with its own row in `knowledge_backfills` (`docs/database.md`):
+  timeline records, each indexed exactly as storing it does, then turn summaries, each put on its session's project's
+  timeline exactly as writing it does, which indexes the record. A summary of a session without a project is walked
+  past.
+- **The walk.** It takes a source's rows in id order (a summary's by its turn id), 100 at a time, and brings each in,
+  in one transaction with the source's row, which records the batch's last id. An engine that stops part way resumes
+  after the last batch it committed; a batch cut short is taken again, and bringing a row in twice changes nothing. A
+  batch shorter than 100 is the end: every row stored since was brought in as it was stored.
+- **Its pace.** It rests a second between batches, about 360,000 rows an hour, so a large timeline never crowds the
+  readers' and the API's writes. The embedder takes passages newest documents first, so what was just saved is still
+  found by meaning within seconds while the backfill's older passages wait their turn.
+- **Once per version.** Each source walks to its own version: records to `INDEXED_AS` in `records.rs`, summaries to
+  `RECORDED_AS` in `api/src/sessions/timeline.rs`. A walk that reached the end is never walked again until a release
+  changes what it writes (a record's text, how text is cut into passages, what a summary's record holds) and bumps
+  that version; the next engine then walks every row of it once more, and a record whose text came out the same keeps
+  its passages and their embeddings. A release rolled back to an older version leaves the newer walk's text in place.
 - **Failures.** A database not answering stops the walk where it is, logged as `knowledge.backfill.failed`, and it is
-  tried again 30 seconds later. Its log carries counts, the version, and durations, never a word of a record.
+  tried again 30 seconds later, from the first source not yet walked. Its log names the source and carries counts,
+  the version, and durations, never a word of a record.
 
 ### Not on the timeline yet
 
 - **Jira and GitHub issues and comments** are not read onto the timeline: the link watcher follows linked issues'
   state (`docs/action-items.md`), and no reader records their text. Once one does, they are indexed with nothing more.
-- **Agent turn summaries** are kept in `turn_summaries` (`docs/coding.md`, Turn summaries), not on the timeline, so
-  they are not indexed yet. Whether they become timeline records of their session's project or a source of the index
-  of their own is still to be decided.
 
 ## Embeddings
 
