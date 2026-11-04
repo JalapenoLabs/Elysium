@@ -1,15 +1,16 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ParseKeys } from 'i18next'
+import type { ParseKeys, TFunction } from 'i18next'
+import type { LearningCategory } from '../../../api/routes/learningCategoryRoutes'
 import type {
-  LearningCategory,
+  BuiltInLearningCategory,
   LearningContent,
   LearningHistoryEntry,
   LearningHistoryKind,
 } from '../../../api/routes/learningRoutes'
 
 // Misc
-import { LEARNING_HISTORY_KINDS } from '../../../api/routes/learningRoutes'
+import { BUILT_IN_LEARNING_CATEGORIES, LEARNING_HISTORY_KINDS } from '../../../api/routes/learningRoutes'
 
 // The bounds the API holds a learning to (api/src/routes/v1/learnings/save_learning.rs).
 export const TITLE_MAX_CHARACTERS = 300
@@ -25,9 +26,9 @@ export const categoryLabelKeys = {
   people: 'categories.people',
   project: 'categories.project',
   incident: 'categories.incident',
-} as const satisfies Record<LearningCategory, ParseKeys<'learnings'>>
+} as const satisfies Record<BuiltInLearningCategory, ParseKeys<'learnings'>>
 
-// Mirrors the doc comments on `LearningCategory`, which agents read over MCP.
+// Mirrors the built-in descriptions the API seeds, which agents read over MCP.
 export const categoryDescriptionKeys = {
   decision: 'categoryDescriptions.decision',
   convention: 'categoryDescriptions.convention',
@@ -38,7 +39,41 @@ export const categoryDescriptionKeys = {
   people: 'categoryDescriptions.people',
   project: 'categoryDescriptions.project',
   incident: 'categoryDescriptions.incident',
-} as const satisfies Record<LearningCategory, ParseKeys<'learnings'>>
+} as const satisfies Record<BuiltInLearningCategory, ParseKeys<'learnings'>>
+
+// A category as people read it: a built-in one in this app's words, from its translations, and
+// the workspace's own as its admins wrote it.
+export type PresentedLearningCategory = {
+  key: string
+  label: string
+  description: string
+  builtIn: boolean
+}
+
+export function presentLearningCategory(
+  category: LearningCategory,
+  t: TFunction<'learnings'>,
+): PresentedLearningCategory {
+  // A built-in key this app has no words for, such as one a later API seeds, reads as the API
+  // names it.
+  const builtIn = category.builtIn
+    ? BUILT_IN_LEARNING_CATEGORIES.find((known) => known === category.key)
+    : undefined
+  if (!builtIn) {
+    return {
+      key: category.key,
+      label: category.label,
+      description: category.description,
+      builtIn: category.builtIn,
+    }
+  }
+  return {
+    key: category.key,
+    label: t(categoryLabelKeys[builtIn]),
+    description: t(categoryDescriptionKeys[builtIn]),
+    builtIn: true,
+  }
+}
 
 // The fields a revision changes, in the order a learning reads.
 export const LEARNING_FIELDS = [ 'title', 'body', 'category', 'evidence' ] as const satisfies (keyof LearningContent)[]

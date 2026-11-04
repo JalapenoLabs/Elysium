@@ -1,0 +1,62 @@
+{
+  "title": "Learning categories",
+  "adminOnly": "Only admins can manage learning categories.",
+  "add": "Add category",
+  "newTitle": "New category",
+  "editTitle": "Edit {{label}}",
+  "table": {
+    "label": "Learning categories",
+    "category": "Category",
+    "description": "Description",
+    "learnings": "Learnings",
+    "builtIn": "Built-in",
+    "loadError": "The categories could not be loaded."
+  },
+  "actions": {
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "remove": "Remove"
+  },
+  "form": {
+    "label": "Name",
+    "key": "Key",
+    "keyHint": "What learnings store and agents send. It can't be changed later.",
+    "keyFixed": "The key stays as it is, since learnings store it.",
+    "description": "Description",
+    "descriptionHint": "What belongs here. Agents read this to choose a category.",
+    "errors": {
+      "labelRequired": "Name the category.",
+      "labelTooLong": "Keep the name to 60 characters.",
+      "keyInvalid": "Start with a lowercase letter, then use lowercase letters, digits, or underscores.",
+      "keyTooLong": "Keep the key to 50 characters.",
+      "keyTaken": "A category already has this key.",
+      "descriptionRequired": "Describe what belongs here.",
+      "descriptionTooLong": "Keep the description to 500 characters."
+    }
+  },
+  "remove": {
+    "title": "Remove {{label}}?",
+    "body": "Agents and people will no longer file learnings under {{label}}.",
+    "irreversible": "This can't be undone.",
+    "learnings_one": "{{count}} learning is filed under it. Choose where it moves.",
+    "learnings_other": "{{count}} learnings are filed under it. Choose where they move.",
+    "moveTo": "Move to",
+    "chooseCategory": "Choose a category",
+    "confirm": "Remove",
+    "confirmIn": "Remove ({{seconds}})",
+    "cancel": "Never mind"
+  },
+  "page": {
+    "notFound": "This category could not be found.",
+    "builtIn": "{{label}} is one of Elysium's built-in categories, which can't be changed.",
+    "backToList": "Back to learning categories"
+  },
+  "toasts": {
+    "created": "Category added",
+    "saved": "Category saved",
+    "moved": "Category moved",
+    "removed": "{{label}} removed",
+    "removedAndMoved_one": "{{label}} removed, and its learning moved to {{target}}",
+    "removedAndMoved_other": "{{label}} removed, and its {{count}} learnings moved to {{target}}"
+  }
+}

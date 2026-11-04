@@ -59,6 +59,9 @@ import { ManageStoragePage } from './pages/Settings/Storage/ManageStoragePage'
 import { UpdatesPage } from './pages/Settings/Updates/UpdatesPage'
 import { BackupsPage } from './pages/Settings/Backups/BackupsPage'
 import { PasswordsPage } from './pages/Settings/Passwords/PasswordsPage'
+import { EditLearningCategoryPage } from './pages/Settings/LearningCategories/EditLearningCategoryPage'
+import { LearningCategoriesPage } from './pages/Settings/LearningCategories/LearningCategoriesPage'
+import { NewLearningCategoryPage } from './pages/Settings/LearningCategories/NewLearningCategoryPage'
 import { LearningPage } from './pages/Settings/Learnings/LearningPage'
 import { LearningsPage } from './pages/Settings/Learnings/LearningsPage'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
@@ -229,6 +232,18 @@ const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsLearning,
       element: <LearningPage />,
+    },
+    {
+      path: UrlTree.settingsLearningCategories,
+      element: <LearningCategoriesPage />,
+    },
+    {
+      path: UrlTree.settingsLearningCategoryNew,
+      element: <NewLearningCategoryPage />,
+    },
+    {
+      path: UrlTree.settingsLearningCategoryEdit,
+      element: <EditLearningCategoryPage />,
     },
     {
       path: UrlTree.settingsLlms,

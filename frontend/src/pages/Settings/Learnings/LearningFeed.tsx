@@ -18,9 +18,10 @@ import { EmptyNotice } from '../../../components/EmptyNotice'
 
 // Misc
 import { getLearningFeed, LEARNING_FEED_KEY } from '../../../api/routes/learningRoutes'
+import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useUsersLoader } from '../../../hooks/useServerData'
 import { getLearningUrl } from '../../../urls'
-import { categoryLabelKeys, describeHistoryEntry, feedSentenceKeys, fieldLabelKeys } from './learningPresentation'
+import { describeHistoryEntry, feedSentenceKeys, fieldLabelKeys } from './learningPresentation'
 
 // The pages read after the first one, and where the first page ended when they were read.
 type OlderPages = {
@@ -36,6 +37,7 @@ export function LearningFeed() {
   const { t, i18n } = useTranslation([ 'learnings', 'common' ])
   useUsersLoader()
   const userNames = useAppSelector(selectUserNamesById, shallowEqual)
+  const { labels: categoryLabels } = useLearningCategories()
   const firstPage = useSWR(LEARNING_FEED_KEY, () => getLearningFeed(null))
   const [ older, setOlder ] = useState<OlderPages | null>(null)
   const [ isLoadingOlder, setIsLoadingOlder ] = useState(false)
@@ -106,7 +108,7 @@ export function LearningFeed() {
           </div>
           <div className='flex flex-wrap items-center gap-2'>
             <Link href={getLearningUrl(learning.id)} className='font-medium text-link'>{learning.title}</Link>
-            <Chip size='sm' variant='soft'>{t(categoryLabelKeys[learning.category])}</Chip>
+            <Chip size='sm' variant='soft'>{categoryLabels[learning.category] ?? learning.category}</Chip>
           </div>
         </li>
       })

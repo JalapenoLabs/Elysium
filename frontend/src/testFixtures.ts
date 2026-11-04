@@ -13,6 +13,7 @@ import type { Connector } from './api/routes/connectorRoutes'
 import type { Draft } from './api/routes/draftRoutes'
 import type { MailAccount } from './api/routes/mailRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
+import type { LearningCategory } from './api/routes/learningCategoryRoutes'
 import type { Learning, LearningHistoryEntry } from './api/routes/learningRoutes'
 import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
 import type { Project } from './api/routes/projectRoutes'
@@ -236,6 +237,22 @@ export function makeLearning(overrides: Partial<Learning> & Pick<Learning, 'id'>
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     deletedAt: null,
+    ...overrides,
+  }
+}
+
+export function makeLearningCategory(
+  overrides: Partial<LearningCategory> & Pick<LearningCategory, 'key'>,
+): LearningCategory {
+  return {
+    label: overrides.key,
+    description: `Everything about ${overrides.key}.`,
+    position: 0,
+    builtIn: false,
+    learningCount: 0,
+    createdBy: CREATED_BY,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
     ...overrides,
   }
 }

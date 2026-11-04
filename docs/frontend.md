@@ -120,13 +120,16 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/learnings`         | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as tabs in `?tab=` |
 | `/settings/learnings/new`     | `NewLearningPage`        | Save a learning; a takeaway one already has revises it   |
 | `/settings/learnings/:learningId` | `LearningPage`       | One learning, corrected in place, with its history and Undo |
+| `/settings/learning-categories` | `LearningCategoriesPage` | Every learning category, the workspace's own reordered and removed from the row menu; admins |
+| `/settings/learning-categories/new` | `NewLearningCategoryPage` | Add one of the workspace's own categories; admins |
+| `/settings/learning-categories/:categoryKey/edit` | `EditLearningCategoryPage` | Rename or describe one; under `/edit`, since a key may be `new` |
 | `/settings/storage`           | `ManageStoragePage`      | Storage locations Elysium saves files to                 |
 | `/settings/storage/new`       | `AddStorageLocationPage` | Add a storage location                                   |
 | `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s: Personal
-settings, Knowledge base (meetings and learnings, the latter hidden from guests, and the knowledge base's own settings
-as they are built), and Workspace settings.
+settings, Knowledge base (meetings; learnings, hidden from guests; learning categories, for admins alone; and the knowledge
+base's own settings as they are built), and Workspace settings.
 New settings pages add an entry to a section and a route under `/settings`, and render inside `SettingsPage`.
 
 ### Settings pages
@@ -378,9 +381,9 @@ forgotten (OAuth).
 page folds it in, in the settings frame:
 
 - **The list** (`LearningsPage`, `LearningTable`) is uikit's `SmartTable`: the takeaway, opening the learning; its
-  category; who first saved it and through which agent; and when it last changed. Deleted learnings are a tab of their
-  own, and admins get a third, the feed (`LearningFeed`): every change to every learning, newest first, read on with
-  Show older. A guest is told the knowledge base is for members, as the API refuses them (`selectIsCompanyMember`).
+  category; who first saved it and through which agent; and when it last changed. Both lists filter by category, any
+  built-in one or the workspace's own, kept in `?category=`. Deleted learnings are a tab of their own, and admins get a
+  third, the feed (`LearningFeed`): every change to every learning, newest first, read on with Show older. A guest is told the knowledge base is for members, as the API refuses them (`selectIsCompanyMember`).
 - **New learning** (`NewLearningPage`, `LearningForm`) saves from the header's Save and opens the learning saved,
   saying whether it was new or revised one whose takeaway it named. What is typed is kept in session storage
   (`newLearningDraft.ts`) until it is saved; a blank form never overwrites it.
@@ -390,8 +393,31 @@ page folds it in, in the settings frame:
 - **Data.** Learnings flow through SWR, then `learningsSlice`, then `learning.changed`, which carries an id alone, so
   the stream loads the learning by id for the company's members and revalidates its history and the feed. The history
   and the feed are read from SWR alone, since no other view shares them, as an initiative's burnup is.
-- `learningPresentation.ts` holds the category labels and descriptions, the history sentences, and
-  `describeHistoryEntry`; `learningFormSchema.ts` mirrors the API's bounds. Both are tested beside them.
+- **Categories.** `useLearningCategories` loads every category for the company's members (SWR, then
+  `learningCategoriesSlice`, revalidated by `learningCategories.changed` and by `learning.changed`, which moves counts)
+  and gives each its label: a built-in one from this app's translations, by `presentLearningCategory`, and the
+  workspace's own as its admins wrote it. The form's select, its description line, the filter, and every chip read
+  it; a key the list lacks reads as the key. A form holding a category that no longer exists moves to the first.
+- `learningPresentation.ts` holds the built-in category labels and descriptions, `presentLearningCategory`, the
+  history sentences, and `describeHistoryEntry`; `learningFormSchema.ts` mirrors the API's bounds, leaving which
+  category keys exist to the API. Both are tested beside them.
+
+### Learning categories
+
+`src/pages/Settings/LearningCategories/` is where admins manage the workspace's own categories
+(`docs/knowledge.md`, Categories), in the settings frame; anyone else is told it is for admins.
+
+- **The list** (`LearningCategoriesPage`, `LearningCategoryTable`) shows every category in the order it is offered,
+  unsorted, since the order is the point: its name over its key, its description, and its learnings. A built-in row
+  says Built-in where the row menu would be; the workspace's own have a menu (`LearningCategoryRowActions`) to edit,
+  move up or down, and remove.
+- **Removing** (`RemoveLearningCategoryModal`) names the category, says in bold that it can't be undone, and holds its
+  button for five seconds. When learnings are filed under it, it asks where they move, and the button waits for an
+  answer too.
+- **New and edit** are their own pages over `LearningCategoryForm`, saved from the header's Save. A new category's key
+  follows its name (`keyFromLabel`) until the key is typed by hand, and is read-only once saved. What a new one holds
+  is kept in session storage (`newLearningCategoryDraft.ts`) until it is saved. `learningCategoryFormSchema.ts`
+  mirrors the API's bounds.
 
 ### Action items
 

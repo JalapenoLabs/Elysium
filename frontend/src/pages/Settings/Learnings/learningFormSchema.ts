@@ -6,12 +6,12 @@ import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
 // Misc
-import { LEARNING_CATEGORIES } from '../../../api/routes/learningRoutes'
 import { TEXT_MAX_CHARACTERS, TITLE_MAX_CHARACTERS } from './learningPresentation'
 
 // Built per render with `t` so validation messages are already translated. Mirrors the API's
 // bounds, which it checks after trimming the same way: the takeaway on one line, the body and
-// evidence trimmed and never blank.
+// evidence trimmed and never blank. The category is any key the form offers; the workspace adds
+// its own, so the API alone knows which keys exist.
 export function createLearningFormSchema(t: TFunction<'learnings'>) {
   const text = (requiredMessage: string) => z
     .string()
@@ -27,7 +27,7 @@ export function createLearningFormSchema(t: TFunction<'learnings'>) {
         .string()
         .min(1, { error: t('form.errors.titleRequired') })
         .max(TITLE_MAX_CHARACTERS, { error: t('form.errors.titleTooLong') })),
-    category: z.enum(LEARNING_CATEGORIES),
+    category: z.string().min(1, { error: t('form.errors.categoryRequired') }),
     body: text(t('form.errors.bodyRequired')),
     evidence: text(t('form.errors.evidenceRequired')),
   })

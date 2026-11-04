@@ -12,10 +12,10 @@ import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { EmptyNotice } from '../../../components/EmptyNotice'
 
 // Misc
+import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useSmartTableLabels } from '../../../hooks/useSmartTableLabels'
 import { useUserNames } from '../../../hooks/useUserNames'
 import { getLearningUrl } from '../../../urls'
-import { categoryLabelKeys } from './learningPresentation'
 
 type Props = {
   learnings: Learning[]
@@ -40,6 +40,7 @@ export function LearningTable(props: Props) {
   const { t, i18n } = useTranslation([ 'learnings', 'common' ])
   const labels = useSmartTableLabels()
   const userNames = useUserNames()
+  const { labels: categoryLabels } = useLearningCategories()
   const [ search, setSearch ] = useState('')
 
   const managedColumns = useMemo(() => {
@@ -55,13 +56,14 @@ export function LearningTable(props: Props) {
 
     const changedAt = (learning: Learning) => learning.deletedAt ?? learning.updatedAt
     const savedBy = (learning: Learning) => userNames[learning.createdBy] ?? t('common:table.someone')
+    const category = (learning: Learning) => categoryLabels[learning.category] ?? learning.category
 
     const renderCell = {
       title: (learning: Learning) => <Link href={getLearningUrl(learning.id)} className='line-clamp-2 text-link'>{
         learning.title
       }</Link>,
       category: (learning: Learning) => <Chip size='sm' variant='soft'>{
-        t(categoryLabelKeys[learning.category])
+        category(learning)
       }</Chip>,
       savedBy: (learning: Learning) => <div className='flex flex-col'>
         <span>{savedBy(learning)}</span>
@@ -78,7 +80,7 @@ export function LearningTable(props: Props) {
     // is the instant itself so the column sorts in time order.
     const searchValue = {
       title: (learning: Learning) => learning.title,
-      category: (learning: Learning) => t(categoryLabelKeys[learning.category]),
+      category,
       savedBy,
       changedAt,
     } satisfies Record<LearningColumnKey, (learning: Learning) => string>
@@ -96,7 +98,7 @@ export function LearningTable(props: Props) {
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
     })
-  }, [ t, i18n.language, userNames, props.isDeletedList ])
+  }, [ t, i18n.language, userNames, categoryLabels, props.isDeletedList ])
 
   if (!props.learnings.length) {
     return <EmptyNotice>{

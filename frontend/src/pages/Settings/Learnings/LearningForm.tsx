@@ -22,10 +22,11 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
-import { correctLearning, LEARNING_CATEGORIES, saveLearning } from '../../../api/routes/learningRoutes'
+import { BUILT_IN_LEARNING_CATEGORIES, correctLearning, saveLearning } from '../../../api/routes/learningRoutes'
+import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useSettingsSave } from '../settingsSave'
 import { createLearningFormSchema } from './learningFormSchema'
-import { categoryDescriptionKeys, categoryLabelKeys, LEARNING_FIELDS } from './learningPresentation'
+import { LEARNING_FIELDS } from './learningPresentation'
 import { forgetNewLearningDraft, readNewLearningDraft, saveNewLearningDraft } from './newLearningDraft'
 
 const LEARNING_FORM_ID = 'learning-form'
@@ -63,11 +64,13 @@ export function LearningForm(props: Props) {
       }
       : {
         title: '',
-        category: LEARNING_CATEGORIES[0],
+        // The first built-in category, which every workspace has.
+        category: BUILT_IN_LEARNING_CATEGORIES[0],
         body: '',
         evidence: '',
       },
   })
+  const { status: categoriesStatus, categories } = useLearningCategories()
 
   // A new learning's draft comes back as changes to the blank form, so Save is ready for it.
   useEffect(() => {
@@ -85,7 +88,18 @@ export function LearningForm(props: Props) {
 
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
   const values = useWatch({ control: form.control })
-  const category = values.category ?? LEARNING_CATEGORIES[0]
+  const category = values.category ?? BUILT_IN_LEARNING_CATEGORIES[0]
+  const chosen = categories.find((option) => option.key === category)
+
+  // A category that no longer exists, such as one a draft kept after it was removed, gives way
+  // to the first there is, so the form never holds a key the API would refuse.
+  useEffect(() => {
+    if (categoriesStatus !== 'loaded' || chosen || !categories.length) {
+      return
+    }
+    console.debug('LearningForm replaced a category that no longer exists', { category })
+    form.setValue('category', categories[0].key, { shouldDirty: true, shouldValidate: true })
+  }, [ categoriesStatus, chosen, categories, category, form ])
 
   useEffect(() => {
     if (stored) {
@@ -132,9 +146,9 @@ export function LearningForm(props: Props) {
   })
 
   const errors = form.formState.errors
-  const categoryOptions = LEARNING_CATEGORIES.map((option) => ({
-    id: option,
-    label: t(categoryLabelKeys[option]),
+  const categoryOptions = categories.map((option) => ({
+    id: option.key,
+    label: option.label,
   }))
 
   return <Form
@@ -164,18 +178,15 @@ export function LearningForm(props: Props) {
         label={t('form.category')}
         options={categoryOptions}
         value={category}
-        onChange={(value) => {
-          const picked = LEARNING_CATEGORIES.find((option) => option === value)
-          if (!picked) {
-            console.debug('LearningForm ignored an unknown category', { value })
-            return
-          }
-          form.setValue('category', picked, { shouldDirty: true, shouldValidate: true })
-        }}
+        isDisabled={categoriesStatus !== 'loaded'}
+        onChange={(value) => form.setValue('category', value, { shouldDirty: true, shouldValidate: true })}
       />
-      <p className='mt-1 text-xs opacity-70'>{
-        t(categoryDescriptionKeys[category])
-      }</p>
+      {chosen && <p className='mt-1 text-xs opacity-70'>{
+        chosen.description
+      }</p>}
+      {categoriesStatus === 'failed' && <p className='mt-1 text-xs text-danger'>{
+        t('form.errors.categoriesUnavailable')
+      }</p>}
     </div>
 
     {/* Body */}

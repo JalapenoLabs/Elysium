@@ -3,9 +3,10 @@
 // Misc
 import { apiClient } from '../index'
 
-// The fixed list a learning is filed under. Mirrors `LearningCategory` in
-// api/src/models/learning.rs; docs/knowledge.md says what each one holds.
-export const LEARNING_CATEGORIES = [
+// Elysium's nine built-in categories, which every workspace has, seeded in
+// api/migrations/*_add_custom_learning_categories. The web app names and describes them from its
+// translations; a workspace's own categories come from the API (`learningCategoryRoutes.ts`).
+export const BUILT_IN_LEARNING_CATEGORIES = [
   'decision',
   'convention',
   'procedure',
@@ -16,7 +17,7 @@ export const LEARNING_CATEGORIES = [
   'project',
   'incident',
 ] as const
-export type LearningCategory = typeof LEARNING_CATEGORIES[number]
+export type BuiltInLearningCategory = typeof BUILT_IN_LEARNING_CATEGORIES[number]
 
 // The agent that acted for someone: an MCP client, by its id (`mcp:<client id>`) and the
 // name it registered, which is a label only.
@@ -30,7 +31,8 @@ export type Learning = {
   id: string
   title: string
   body: string
-  category: LearningCategory
+  // The key of the category it is filed under, built-in or the workspace's own.
+  category: string
   evidence: string
   // The agent acting for its creator when it was first saved; null when they saved it.
   agent: LearningAgent | null
@@ -65,7 +67,7 @@ export type LearningFeedEntry = {
 export type LearningContent = {
   title: string
   body: string
-  category: LearningCategory
+  category: string
   evidence: string
 }
 

@@ -22,6 +22,7 @@ import { environmentVariablesLoaded } from '../store/environmentVariablesSlice'
 import { githubCredentialsLoaded } from '../store/githubCredentialsSlice'
 import { deletedInitiativesLoaded, initiativesLoaded, initiativeUpserted } from '../store/initiativesSlice'
 import { jiraCredentialsLoaded } from '../store/jiraCredentialsSlice'
+import { learningCategoriesLoaded } from '../store/learningCategoriesSlice'
 import { deletedLearningsLoaded, learningsLoaded, learningUpserted } from '../store/learningsSlice'
 import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
@@ -66,6 +67,7 @@ import { getElysia, listElysiaMessages, listElysiaTurns } from '../api/routes/el
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
 import { listGithubCredentials } from '../api/routes/githubRoutes'
 import { listJiraCredentials } from '../api/routes/jiraRoutes'
+import { LEARNING_CATEGORIES_KEY, listLearningCategories } from '../api/routes/learningCategoryRoutes'
 import { getLearning, listLearnings } from '../api/routes/learningRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
@@ -174,6 +176,21 @@ export function useDeletedLearningsLoader(isEnabled: boolean): LoadStatus {
   const { data, error } = useSWR(key, async () => {
     const response = await listLearnings({ deleted: true })
     dispatch(deletedLearningsLoaded(response.learnings))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Every learning category, built-in and the workspace's own, for the company's members: a
+// guest reaches no knowledge base, so is never asked for it.
+export function useLearningCategoriesLoader(isEnabled: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isEnabled
+    ? LEARNING_CATEGORIES_KEY
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await listLearningCategories()
+    dispatch(learningCategoriesLoaded(response.categories))
     return response
   })
   return toLoadStatus(data !== undefined, error)

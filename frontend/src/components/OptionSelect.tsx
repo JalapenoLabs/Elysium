@@ -13,6 +13,8 @@ type Props = {
   onChange: (value: string) => void
   className?: string
   isDisabled?: boolean
+  // Shown while nothing is chosen, for a select that starts empty.
+  placeholder?: string
   // For a select whose purpose its surroundings already say, such as a table cell: the
   // label is still read by screen readers.
   isLabelHidden?: boolean
@@ -24,6 +26,7 @@ export function OptionSelect(props: Props) {
   return <Select
     className={props.className}
     isDisabled={props.isDisabled}
+    placeholder={props.placeholder}
     value={props.value}
     onChange={(key: Key | null) => {
       if (key === null) {

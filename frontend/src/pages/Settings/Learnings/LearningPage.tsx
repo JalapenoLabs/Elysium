@@ -21,10 +21,10 @@ import { LearningHistory } from './LearningHistory'
 
 // Misc
 import { deleteLearning, restoreLearning } from '../../../api/routes/learningRoutes'
+import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useLearningLoader } from '../../../hooks/useServerData'
 import { useUserNames } from '../../../hooks/useUserNames'
 import { UrlTree } from '../../../urls'
-import { categoryLabelKeys } from './learningPresentation'
 
 // `/settings/learnings/:learningId`: one learning, corrected in place and saved from the header,
 // with its history below. Deleting is soft, so it happens at once with Undo in its toast; a
@@ -36,6 +36,7 @@ export function LearningPage() {
   const status = useLearningLoader(learningId)
   const learning = useAppSelector((state) => selectLearningById(state, learningId))
   const userNames = useUserNames()
+  const { labels: categoryLabels } = useLearningCategories()
   const [ isChanging, setIsChanging ] = useState(false)
 
   async function restore(target: Learning) {
@@ -108,7 +109,7 @@ export function LearningPage() {
       </Button>}
   >
     <div className='relaxed flex flex-wrap items-center gap-2 text-xs'>
-      <Chip size='sm' variant='soft'>{t(categoryLabelKeys[learning.category])}</Chip>
+      <Chip size='sm' variant='soft'>{categoryLabels[learning.category] ?? learning.category}</Chip>
       <span className='opacity-70'>{
         t(savedBy, {
           name: userNames[learning.createdBy] ?? t('common:table.someone'),

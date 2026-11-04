@@ -16,11 +16,13 @@ import { selectDeletedLearnings, selectLiveLearnings } from '../../../store/lear
 import { buttonVariants, Chip, Link, Spinner, Tabs } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
 import { EmptyNotice } from '../../../components/EmptyNotice'
+import { OptionSelect } from '../../../components/OptionSelect'
 import { SettingsPage } from '../SettingsPage'
 import { LearningFeed } from './LearningFeed'
 import { LearningTable } from './LearningTable'
 
 // Misc
+import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { useDeletedLearningsLoader, useLearningsLoader } from '../../../hooks/useServerData'
 import { UrlTree } from '../../../urls'
 
@@ -33,12 +35,18 @@ const tabLabelKeys = {
   feed: 'tabs.feed',
 } as const satisfies Record<Tab, ParseKeys<'learnings'>>
 
-// The open tab lives in the address, so coming back from a learning returns to it.
+// The open tab and the category filter live in the address, so coming back from a learning
+// returns to them.
 const TAB_PARAM = 'tab'
+const CATEGORY_PARAM = 'category'
+
+// The filter's choice for every category, as the select's key; the address then names none.
+const ANY_CATEGORY = 'any'
 
 // `/settings/learnings`: every learning, the deleted ones, and, for admins, the feed of every
-// change, each on its own tab. A guest reaches no knowledge base, so they are told so rather than
-// shown lists the API refuses them. The Knowledge page folds these in once it is built.
+// change, each on its own tab. Both lists filter by category, built-in or the workspace's own.
+// A guest reaches no knowledge base, so they are told so rather than shown lists the API refuses
+// them. The Knowledge page folds these in once it is built.
 export function LearningsPage() {
   const { t } = useTranslation([ 'learnings', 'common' ])
   const isAdmin = useAppSelector(selectIsAdmin)
@@ -54,6 +62,20 @@ export function LearningsPage() {
   const deletedStatus = useDeletedLearningsLoader(isCompanyMember)
   const live = useAppSelector(selectLiveLearnings)
   const deleted = useAppSelector(selectDeletedLearnings)
+  const { categories } = useLearningCategories()
+  const categoryFilter = params.get(CATEGORY_PARAM)
+
+  function filterByCategory(value: string) {
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      if (value === ANY_CATEGORY) {
+        next.delete(CATEGORY_PARAM)
+        return next
+      }
+      next.set(CATEGORY_PARAM, value)
+      return next
+    }, { replace: true })
+  }
 
   function selectTab(key: Key) {
     const tab = TABS.find((candidate) => candidate === key)
@@ -95,12 +117,34 @@ export function LearningsPage() {
     if (status === 'failed') {
       return <p className='py-10 text-center text-sm text-danger'>{t('table.loadError')}</p>
     }
-    return <LearningTable
-      learnings={isDeletedList
-        ? deleted
-        : live}
-      isDeletedList={isDeletedList}
-    />
+    const learnings = isDeletedList
+      ? deleted
+      : live
+    const shown = categoryFilter
+      ? learnings.filter((learning) => learning.category === categoryFilter)
+      : learnings
+    const categoryOptions = [
+      { id: ANY_CATEGORY, label: t('filters.anyCategory') },
+      ...categories.map((category) => ({ id: category.key, label: category.label })),
+    ]
+
+    return <>
+      <div className='relaxed'>
+        <OptionSelect
+          className='w-56'
+          label={t('filters.category')}
+          options={categoryOptions}
+          value={categoryFilter ?? ANY_CATEGORY}
+          onChange={filterByCategory}
+        />
+      </div>
+      {learnings.length > 0 && !shown.length
+        ? <EmptyNotice>{t('filters.noMatches')}</EmptyNotice>
+        : <LearningTable
+          learnings={shown}
+          isDeletedList={isDeletedList}
+        />}
+    </>
   }
 
   return <SettingsPage

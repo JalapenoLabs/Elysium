@@ -150,18 +150,21 @@ knowledge base adds (decisions, incidents, project state).
   belongs there, written for the agent choosing a category for what it learned.
 - **The order.** The built-in categories come first, in the order above, then the workspace's own in the order its
   admins gave them.
-- **Admins manage the workspace's own** (`/api/v1/learning-categories`, `docs/api.md`): add, rename, describe,
-  reorder, and remove. The built-in nine cannot be changed or removed. The list is a workspace setting, so every change is recorded
+- **Admins manage the workspace's own** under Settings, Learning categories (`/api/v1/learning-categories`,
+  `docs/api.md`): add, rename, describe, reorder, and remove. The built-in nine cannot be changed or removed. The list is a workspace setting, so every change is recorded
   in `user_events` with its admin and the values before and after, as the other workspace settings are
   (`learning_category_added`, `learning_category_changed`, `learning_category_removed`).
 - **Removing a category moves its learnings first.** A category that learnings are filed under, deleted ones
   included, is removed only once the admin names the category they move to; otherwise the removal answers
-  `409 category_in_use`. Each move is a revision in that learning's history
+  `409 category_in_use`. The web app asks where they move before it removes one. Each move is a revision in that learning's history
   by the admin, in the same transaction as the removal, so no learning is ever left without a category and each move
   shows in its history. Undoing a move would put back a category that no longer exists, so it answers `409`.
 - **Agents read the list as it stands.** Whenever a client lists the MCP server's tools, `learning_save`'s schema
   offers every category's key with its label and description, so an agent choosing one sees the workspace's own
   beside the nine. A save naming a key no category has is refused with every key there is.
+- **The web app** names and describes the built-in categories from its translations, keyed by their keys, and the
+  workspace's own as their admins wrote them. The learning form, the learnings list's category filter, and every
+  category chip show both together.
 
 The built-in descriptions are in their seed migration, which is what agents read, and in the web app's translations;
 change them together, the seed through a migration of its own.
@@ -210,8 +213,10 @@ guest reaches none of it (Who sees what, above). Admins see a feed of every chan
 
 Settings, Learnings (`/settings/learnings`, in the Knowledge base section) lists the learnings and the deleted ones,
 and for admins the feed, each a tab. A learning's page corrects it, deletes or restores it, and lists its history,
-each change with Undo. New learning is its own page. The Knowledge page (Search, above) folds these in once it is
-built; see `docs/frontend.md`, Learnings.
+each change with Undo. New learning is its own page. Both lists filter by category. Settings, Learning categories
+(`/settings/learning-categories`, beside it, for admins) lists every category and manages the workspace's own. The
+Knowledge page (Search, above) folds these in once it is built; see `docs/frontend.md`, Learnings and Learning
+categories.
 
 ## MCP
 

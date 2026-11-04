@@ -46,6 +46,11 @@
     "emptyDeleted": "No deleted learnings.",
     "loadError": "Learnings could not be loaded."
   },
+  "filters": {
+    "category": "Category",
+    "anyCategory": "Any category",
+    "noMatches": "No learnings in this category."
+  },
   "form": {
     "title": "Takeaway",
     "titleHint": "The rule itself, on one line. Saving a takeaway that exists revises that learning.",
@@ -59,6 +64,8 @@
       "titleTooLong": "Keep the takeaway to 300 characters.",
       "bodyRequired": "Write the body.",
       "evidenceRequired": "Give the evidence.",
+      "categoryRequired": "Choose a category.",
+      "categoriesUnavailable": "The categories could not be loaded.",
       "textTooLong": "Keep it to 20,000 characters.",
       "titleTaken": "Another learning has this takeaway."
     }

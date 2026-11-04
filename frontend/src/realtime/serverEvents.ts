@@ -54,6 +54,9 @@ export type ServerEvent =
   // A learning changed; its id alone, since a guest hears every event and reaches no
   // knowledge base.
   | { type: 'learning.changed', data: { id: string } }
+  // A workspace learning category was added, edited, reordered, or removed. Nothing more, for
+  // the same reason; members load the list again.
+  | { type: 'learningCategories.changed' }
   // A check in a run moved on, or (`checkId` null, `state` finished) the run ended.
   | {
     type: 'connectorCheckRun.updated'

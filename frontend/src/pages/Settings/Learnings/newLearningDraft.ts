@@ -3,7 +3,6 @@
 import type { LearningFormInput } from './learningFormSchema'
 
 // Misc
-import { LEARNING_CATEGORIES } from '../../../api/routes/learningRoutes'
 import { NEW_LEARNING_STORAGE_KEY } from '../../../constants'
 
 // What a new learning's form held, kept for this tab until it is saved, so a reload or a crash
@@ -22,15 +21,12 @@ export function readNewLearningDraft(): LearningFormInput | null {
       return null
     }
     const draft: Record<string, unknown> = { ...parsed }
-    const category = LEARNING_CATEGORIES.find((known) => known === draft.category)
-    if (!category) {
-      console.debug('A new learning draft named no known category, so it was dropped')
-      return null
-    }
+    // Kept as it was typed: whether the category still exists is the form's to check, against
+    // the categories it offers.
     return {
       title: String(draft.title ?? ''),
       body: String(draft.body ?? ''),
-      category,
+      category: String(draft.category ?? ''),
       evidence: String(draft.evidence ?? ''),
     }
   }

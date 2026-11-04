@@ -18,6 +18,7 @@ import {
   LuPlug,
   LuRefreshCw,
   LuShieldCheck,
+  LuTags,
   LuUser,
   LuVariable,
   LuVideo,
@@ -77,6 +78,12 @@ export function SettingsDirectoryPage() {
           title={t('items.learnings.title')}
           description={t('items.learnings.description')}
           href={UrlTree.settingsLearnings}
+        />}
+        {isAdmin && <SettingsDirectoryItem
+          icon={LuTags}
+          title={t('items.learningCategories.title')}
+          description={t('items.learningCategories.description')}
+          href={UrlTree.settingsLearningCategories}
         />}
       </div>
     </section>

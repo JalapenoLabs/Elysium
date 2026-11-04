@@ -45,6 +45,10 @@ export const UrlTree = {
   settingsLearnings: '/settings/learnings',
   settingsLearningNew: '/settings/learnings/new',
   settingsLearning: '/settings/learnings/:learningId',
+  settingsLearningCategories: '/settings/learning-categories',
+  settingsLearningCategoryNew: '/settings/learning-categories/new',
+  // Under its key and `/edit`, since a workspace may name a category `new`.
+  settingsLearningCategoryEdit: '/settings/learning-categories/:categoryKey/edit',
   settingsConnectors: '/settings/connectors',
   settingsConnectorNew: '/settings/connectors/new',
   settingsConnectorNewKind: '/settings/connectors/new/:kind',
@@ -162,6 +166,10 @@ export function getEnvironmentVariableEditUrl(variableId: string) {
 
 export function getLearningUrl(learningId: string) {
   return UrlTree.settingsLearning.replace(':learningId', learningId)
+}
+
+export function getLearningCategoryEditUrl(categoryKey: string) {
+  return UrlTree.settingsLearningCategoryEdit.replace(':categoryKey', categoryKey)
 }
 
 export function getGithubCredentialEditUrl(credentialId: string) {

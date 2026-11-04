@@ -26,6 +26,10 @@
       "title": "Learnings",
       "description": "What people and their agents learned, saved for the next agent, with every change kept."
     },
+    "learningCategories": {
+      "title": "Learning categories",
+      "description": "The categories learnings are filed under: Elysium's built-in ones and your workspace's own."
+    },
     "users": {
       "title": "Users",
       "description": "Approve sign-ups, manage roles and accounts, and choose who may join.",

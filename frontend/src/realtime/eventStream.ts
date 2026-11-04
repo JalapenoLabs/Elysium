@@ -57,6 +57,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
 import { getDraft } from '../api/routes/draftRoutes'
+import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { EVENT_STREAM_PATH, EVENT_STREAM_RETRY_INITIAL_MS, EVENT_STREAM_RETRY_MAX_MS } from '../constants'
@@ -155,8 +156,8 @@ const handlers: Handlers = {
     void mutate('v1/accounts')
   },
   // The event carries the id alone, so the learning is loaded by id, by the company's members
-  // only: a guest's request would be refused. Its history and the admins' feed reload too, if a
-  // page shows them.
+  // only: a guest's request would be refused. Its history, the admins' feed, and the categories,
+  // whose counts it may have moved, reload too, if a page shows them.
   'learning.changed': (event) => {
     if (!selectIsCompanyMember(store.getState())) {
       return
@@ -172,6 +173,14 @@ const handlers: Handlers = {
       })
     void mutate(learningHistoryKey(event.data.id))
     void mutate(LEARNING_FEED_KEY)
+    void mutate(LEARNING_CATEGORIES_KEY)
+  },
+  // The list is short, so it is loaded again whole, by the company's members only.
+  'learningCategories.changed': () => {
+    if (!selectIsCompanyMember(store.getState())) {
+      return
+    }
+    void mutate(LEARNING_CATEGORIES_KEY)
   },
   'connector.deleted': (event) => {
     store.dispatch(connectorDeleted(event.data.id))

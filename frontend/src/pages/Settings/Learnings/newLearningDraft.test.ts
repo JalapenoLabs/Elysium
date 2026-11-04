@@ -38,7 +38,14 @@ describe('newLearningDraft', () => {
     window.sessionStorage.setItem(NEW_LEARNING_STORAGE_KEY, '{ not json')
     expect(readNewLearningDraft()).toBeNull()
 
-    window.sessionStorage.setItem(NEW_LEARNING_STORAGE_KEY, JSON.stringify({ ...draft, category: 'gotcha' }))
+    window.sessionStorage.setItem(NEW_LEARNING_STORAGE_KEY, 'null')
     expect(readNewLearningDraft()).toBeNull()
+  })
+
+  it('keeps a draft filed under one of the workspace\'s own categories', () => {
+    const custom = { ...draft, category: 'eda_tools' }
+    saveNewLearningDraft(custom)
+
+    expect(readNewLearningDraft()).toEqual(custom)
   })
 })
