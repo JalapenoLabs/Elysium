@@ -113,8 +113,7 @@ export function PageHeader(props: PageHeaderProps) {
       {hasEnd && <div className='page-actions'>
         {props.tools}
         {props.primaryAction}
-        {props.save}
-        {props.actions && <PageActions actions={props.actions} />}
+        <PageActions actions={props.actions ?? []} save={props.save} />
       </div>}
     </div>
   </header>

@@ -80,4 +80,14 @@ describe('PageHeader', () => {
     const names = screen.getAllByRole('button').map((button) => button.textContent)
     expect(names).toEqual([ 'Apply', 'Save', 'Actions' ])
   })
+
+  it('keeps Save in the top right corner when the one action is a button', () => {
+    renderHeader({
+      save: <button type='button'>Save</button>,
+      actions: [{ id: 'sync', label: 'Sync now', icon: LuRefreshCw, onAction: () => {} }],
+    })
+
+    const names = screen.getAllByRole('button').map((button) => button.textContent)
+    expect(names).toEqual([ 'Sync now', 'Save' ])
+  })
 })

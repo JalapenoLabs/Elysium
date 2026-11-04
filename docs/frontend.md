@@ -97,8 +97,9 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
 - **Breadcrumbs.** With `parents`, the header opens with an icon-only back button, a link to the last parent, then
   the breadcrumbs ending in the title. A top-level page has neither.
 - **Titlebar.** The large title on the left, everything else on the right, centered on one line, in this order:
-  `tools` (the slot for a list's search field and filters button), `primaryAction`, Save, then the actions. There
-  are no subtitles; a page that truly needs explaining puts it behind `help`.
+  `tools` (the slot for a list's search field and filters button), `primaryAction`, a lone action's button, Save,
+  then the Actions menu, so Save keeps the top right corner unless the menu is there. There are no subtitles; a
+  page that truly needs explaining puts it behind `help`.
 - **Actions.** `actions` is data (`PageAction` in `pageActions.ts`), so the rule lives in one place,
   `arrangePageActions`: a lone harmless action is its own outlined button, and anything more is one Actions menu on
   the far right, each item with its icon and destructive ones (`isDanger`) in red below a divider. A destructive
@@ -107,7 +108,7 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
 - **Phones.** Below `sm` the right side stacks under the title and every control in it spans the full width,
   centered (`.page-actions` in `src/index.css`).
 - **Save.** A form inside the page registers the page's Save with `usePageSave` (`pageSave.ts`); see Settings pages
-  for how it works. Every edit and `/new` page carries it in the header. A `/new` page also keeps its Create button
+  for how it works. A page with a form carries it in the header. A `/new` page also keeps its Create button
   below the form, labelled the same, submitting the same form: two places, one action, as the new project, item, and
   initiative pages do. Moving the item, initiative, and project pages, which save each field as it changes, onto the
   header Save is on the roadmap.

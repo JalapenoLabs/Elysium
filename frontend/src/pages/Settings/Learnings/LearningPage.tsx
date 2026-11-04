@@ -99,15 +99,25 @@ export function LearningPage() {
   return <SettingsPage
     title={learning.title}
     parents={[{ label: t('title'), href: UrlTree.settingsLearnings }]}
-    primaryAction={learning.deletedAt
-      ? <Button variant='outline' isPending={isChanging} onPress={() => restore(learning)}>
-        <LuRotateCcw className='size-4' aria-hidden />
-        <span>{t('page.restore')}</span>
-      </Button>
-      : <Button variant='danger-soft' isPending={isChanging} onPress={() => remove(learning)}>
-        <LuTrash2 className='size-4' aria-hidden />
-        <span>{t('page.delete')}</span>
-      </Button>}
+    primaryAction={learning.deletedAt && <Button
+      variant='outline'
+      isPending={isChanging}
+      onPress={() => restore(learning)}
+    >
+      <LuRotateCcw className='size-4' aria-hidden />
+      <span>{t('page.restore')}</span>
+    </Button>}
+    // Delete, like every destructive action, is in the Actions menu rather than a bare button.
+    actions={learning.deletedAt
+      ? undefined
+      : [{
+        id: 'delete',
+        label: t('page.delete'),
+        icon: LuTrash2,
+        isDanger: true,
+        isPending: isChanging,
+        onAction: () => void remove(learning),
+      }]}
   >
     <div className='relaxed flex flex-wrap items-center gap-2 text-xs'>
       <Chip size='sm' variant='soft'>{categoryLabels[learning.category] ?? learning.category}</Chip>
