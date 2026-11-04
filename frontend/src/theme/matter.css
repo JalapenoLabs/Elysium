@@ -60,7 +60,6 @@
   --danger-foreground: #ffffff;
 
   --border: #dfe4ea;
-  --separator: #e8ecf0;
 
   /* Chart series: the burnup's scope and resolved lines. Validated as a pair against the
      page with the dataviz palette checks (lightness band, chroma, color-blind separation,
@@ -125,7 +124,6 @@
 
   /* Matter's own borders (#14171f) vanish against the page, so these sit a step lighter. */
   --border: #232a36;
-  --separator: #1c222b;
 
   /* Matter's accent and green sit outside the dark lightness band charts need, so the
      series take a step toward the middle. Validated as for light. */
@@ -146,6 +144,40 @@
 [data-theme='dark'] {
   --field-radius: 0.75rem;
   --field-shadow: none;
+
+  /* Dividers divide the page, the side panels, and the menus and popovers that float above
+     them, which sit lighter than the page in dark mode. An opaque color tuned for one of
+     those vanishes on another, so the hairline is a tint of the muted text instead: it
+     lightens a dark surface and darkens a light one by the same step, wherever it is. */
+  --separator: color-mix(in oklab, var(--muted) 16%, transparent);
+}
+
+/* Destructive menu items (`~/.claude/docs/ux.md`, Dropdowns): red text with its icon, and a
+   fully red row under the mouse or the keyboard. HeroUI colors only the label, and hovers
+   every item alike. */
+.menu-item--danger {
+  color: var(--danger);
+}
+
+.menu-item--danger[data-focus-visible='true'] {
+  background: var(--danger);
+  color: var(--danger-foreground);
+
+  [data-slot='label'] {
+    color: inherit;
+  }
+}
+
+@media (hover: hover) {
+  .menu-item--danger:hover,
+  .menu-item--danger[data-hovered='true'] {
+    background: var(--danger);
+    color: var(--danger-foreground);
+
+    [data-slot='label'] {
+      color: inherit;
+    }
+  }
 }
 
 .input,
