@@ -91,6 +91,13 @@ reopening clears both. The table is `Transition` in `api/src/action_items/`.
 Deleting is soft. `deletedAt` hides the item everywhere, and it can be restored from its history. Every write but
 restore refuses a deleted item, and a deleted item counts toward no initiative's progress.
 
+A person can change many items at once from the item list: move them to a state, set a priority, snooze them, add
+them to or take them out of an initiative, delete, or restore them (`POST /api/v1/action-items/bulk`, `docs/api.md`).
+A state is named as where the items should end up, and each item takes the transition that leads there from its own
+state, so a selection of inbox and open items can be resolved together. Every item goes through the write it would take
+alone, in one transaction, each in a savepoint of its own: an item the rules refuse is left as it was and reported,
+and the rest apply. `api/src/models/action_item_bulk.rs` holds the queries; `Transition::toward` the rule.
+
 ## Ownership and multiple users
 
 Elysium is one workspace shared by everyone who signs in (`docs/auth.md`). Every item and initiative records who

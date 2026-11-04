@@ -149,6 +149,14 @@ const fn rule(transition: Transition) -> TransitionRule {
     }
 }
 
+/// Every transition, in the order [`Transition::toward`] considers them.
+const TRANSITIONS: [Transition; 4] = [
+    Transition::Accept,
+    Transition::Resolve,
+    Transition::Dismiss,
+    Transition::Reopen,
+];
+
 impl Transition {
     /// The state an item in `current` moves to.
     ///
@@ -160,6 +168,34 @@ impl Transition {
             return Ok(rule.to);
         }
         Err(rule.refusal)
+    }
+
+    /// The transition that takes an item in `current` to `target`, for a change that names
+    /// where items should end up rather than how, such as one applied to many at once.
+    /// `None` when the item is there already, so asking again changes nothing.
+    ///
+    /// # Errors
+    /// Returns why no transition leads there: the inbox is never a destination, and a
+    /// resolved item is reopened before it is dismissed, or the other way round.
+    pub fn toward(
+        current: ActionItemState,
+        target: ActionItemState,
+    ) -> Result<Option<Self>, &'static str> {
+        if current == target {
+            return Ok(None);
+        }
+        let mut refusal = "an item cannot return to the inbox";
+        for transition in TRANSITIONS {
+            let rule = rule(transition);
+            if rule.to != target {
+                continue;
+            }
+            if rule.from.contains(&current) {
+                return Ok(Some(transition));
+            }
+            refusal = rule.refusal;
+        }
+        Err(refusal)
     }
 }
 
@@ -233,6 +269,50 @@ mod tests {
         Transition::Dismiss
             .apply(ActionItemState::Resolved)
             .expect_err("a resolved item is reopened, not dismissed");
+    }
+
+    #[test]
+    fn a_target_state_picks_the_one_transition_that_leads_there() {
+        let open = ActionItemState::Open;
+        assert_eq!(
+            Transition::toward(ActionItemState::Inbox, open),
+            Ok(Some(Transition::Accept))
+        );
+        assert_eq!(
+            Transition::toward(ActionItemState::Dismissed, open),
+            Ok(Some(Transition::Reopen))
+        );
+        assert_eq!(
+            Transition::toward(ActionItemState::Inbox, ActionItemState::Resolved),
+            Ok(Some(Transition::Resolve))
+        );
+        assert_eq!(
+            Transition::toward(open, ActionItemState::Dismissed),
+            Ok(Some(Transition::Dismiss))
+        );
+    }
+
+    #[test]
+    fn a_target_state_already_reached_changes_nothing() {
+        for state in EVERY_STATE {
+            assert_eq!(Transition::toward(state, state), Ok(None));
+        }
+    }
+
+    #[test]
+    fn a_target_state_no_transition_reaches_is_refused_with_why() {
+        assert_eq!(
+            Transition::toward(ActionItemState::Resolved, ActionItemState::Dismissed),
+            Err("only an item in the inbox or open can be dismissed")
+        );
+        assert_eq!(
+            Transition::toward(ActionItemState::Dismissed, ActionItemState::Resolved),
+            Err("only an item in the inbox or open can be resolved")
+        );
+        assert_eq!(
+            Transition::toward(ActionItemState::Open, ActionItemState::Inbox),
+            Err("an item cannot return to the inbox")
+        );
     }
 
     #[test]

@@ -9,6 +9,7 @@
 mod add_link;
 mod add_project;
 mod cancel_link_write;
+mod change_action_items;
 mod create_action_item;
 mod create_comment;
 mod create_from_link;
@@ -32,6 +33,8 @@ mod transition_action_item;
 mod update_action_item;
 mod update_comment;
 mod wait_on;
+
+use std::collections::HashSet;
 
 use anyhow::Context;
 use axum::Router;
@@ -79,6 +82,7 @@ pub fn router() -> Router<AppState> {
             get(list_action_items::handle).post(create_action_item::handle),
         )
         .route("/next", get(next_action_items::handle))
+        .route("/bulk", post(change_action_items::handle))
         .route("/from-link", post(create_from_link::handle))
         .route(
             "/{id}",
@@ -435,28 +439,53 @@ pub async fn publish_item_write(
     left_initiative_ids: &[Uuid],
     now: DateTime<Utc>,
 ) -> Result<ActionItemResponse, ApiError> {
-    let Recorded { record, history } = written;
-    let id = record.id;
-    let is_deleted = record.deleted_at.is_some();
-    let response = item_responses(connection, vec![record])
+    let response = publish_item_writes(events, connection, vec![written], left_initiative_ids, now)
         .await?
         .pop()
         .context("one item in, one response out")?;
-    if history.is_empty() {
-        return Ok(response);
-    }
-
-    publish_history(events, history);
-    if is_deleted {
-        events.publish(&ServerEvent::ActionItemDeleted { id });
-    } else {
-        events.publish(&ServerEvent::ActionItemUpserted(response.clone()));
-    }
-
-    let mut initiative_ids = action_item::current_initiative_ids(connection, id).await?;
-    initiative_ids.extend_from_slice(left_initiative_ids);
-    publish_initiatives(events, connection, &initiative_ids, now).await?;
     Ok(response)
+}
+
+/// [`publish_item_write`] for writes to many items at once, such as one change applied to a
+/// selection: each initiative whose progress any of them moved is published once.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn publish_item_writes(
+    events: &EventBus,
+    connection: &mut AsyncPgConnection,
+    written: Vec<Recorded<ActionItem>>,
+    left_initiative_ids: &[Uuid],
+    now: DateTime<Utc>,
+) -> Result<Vec<ActionItemResponse>, ApiError> {
+    let mut records = Vec::with_capacity(written.len());
+    let mut changed_ids = HashSet::new();
+    for Recorded { record, history } in written {
+        if !history.is_empty() {
+            changed_ids.insert(record.id);
+            publish_history(events, history);
+        }
+        records.push(record);
+    }
+    let responses = item_responses(connection, records).await?;
+    if changed_ids.is_empty() {
+        return Ok(responses);
+    }
+
+    let mut initiative_ids = left_initiative_ids.to_vec();
+    for response in &responses {
+        if !changed_ids.contains(&response.id) {
+            continue;
+        }
+        if response.deleted_at.is_some() {
+            events.publish(&ServerEvent::ActionItemDeleted { id: response.id });
+        } else {
+            events.publish(&ServerEvent::ActionItemUpserted(response.clone()));
+        }
+        initiative_ids.extend_from_slice(&response.initiative_ids);
+    }
+    publish_initiatives(events, connection, &unique_ids(initiative_ids), now).await?;
+    Ok(responses)
 }
 
 /// A write that names a project that does not exist is the client's mistake.

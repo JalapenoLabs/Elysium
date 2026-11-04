@@ -52,6 +52,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/action-items`                | `200` `{ items: ActionItem[] }`, newest first       |
 | POST   | `/api/v1/action-items`                | `201` `{ item }`                                    |
 | GET    | `/api/v1/action-items/next`           | `200` `{ items: ActionItem[], inboxCount }`, in Next's order |
+| POST   | `/api/v1/action-items/bulk`           | `200` `{ items, refused }`; one change to many items |
 | GET    | `/api/v1/action-items/{id}`           | `200` `{ item }`, deleted or not                    |
 | PATCH  | `/api/v1/action-items/{id}`           | `200` `{ item }`                                    |
 | DELETE | `/api/v1/action-items/{id}`           | `204`; soft, restorable                             |
@@ -566,6 +567,18 @@ an initiative that does not exist or is deleted, answers `400`. `PATCH` accepts 
 `null` to end the snooze. `wait` requires `on`, a name or address up to 320 characters or `null` to stop waiting.
 The transitions answer `409` when the item's state does not allow them. Every write to a deleted item but `restore`
 answers `409`, as do deleting a deleted item and restoring one that is not.
+
+`POST /bulk` applies one change to many items, as a multi-select asks: `{ itemIds, change }`, with 1 to 1,000 ids
+(repeats count once; `MAX_ITEMS` in `src/models/action_item_bulk.rs`) and `change` an object whose `kind` says what it
+does: `state` with `state` (`open`, `resolved`, or `dismissed`; each item takes the transition that leads there from its
+own state, and one already there is left as it is), `priority` with `priority`, `snooze` with `until` (as the item's
+own route), `join-initiative` or `leave-initiative` with `initiativeId`, `delete`, or `restore`. Each item goes through
+the same write its own route makes, in one transaction, recording its own history with the person as the actor; there
+is no changeset, since the person acts directly. An item the records refuse (unknown, deleted, or in a state no
+transition leaves for the one asked) is left as it was and listed in `refused` as `{ itemId, message }`, while the rest
+apply, so the answer is `200` with `items`, every item the change applied to as it stands now. An unknown initiative to
+join answers `404` and a deleted one `409`, for the whole change. Items are written in the order of their ids, so two
+changes over the same items never deadlock. Events go out as for each item's own route, each initiative once.
 
 Membership routes are idempotent: adding an item to a project or initiative it is in, or removing it from one it is
 not in, answers the item unchanged. Adding to an unknown project or initiative answers `404`, and joining a deleted
