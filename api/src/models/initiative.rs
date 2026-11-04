@@ -22,6 +22,7 @@ use crate::database::schema::{action_items, initiative_items, initiative_project
 use crate::models::action_item::ProjectFilter;
 use crate::models::action_item_event::{self, Change, HistoryKind, Recorded, Subject, replaced};
 use crate::models::project;
+use crate::search::{self, SearchTerms};
 
 /// Where an initiative stands.
 #[derive(
@@ -216,6 +217,37 @@ pub async fn list(
     query
         .order((initiatives::name.asc(), initiatives::id.asc()))
         .select(Initiative::as_select())
+        .load(connection)
+        .await
+}
+
+/// The `limit` initiatives whose names match `terms` most closely, as id, name, and state.
+/// Only initiatives the list shows are searched: every one not deleted, in any state. See
+/// `crate::search` for how names match and rank.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn search(
+    connection: &mut AsyncPgConnection,
+    terms: &SearchTerms,
+    limit: i64,
+) -> QueryResult<Vec<(Uuid, String, InitiativeState)>> {
+    let mut query = initiatives::table
+        .filter(initiatives::deleted_at.is_null())
+        .into_boxed();
+    for pattern in terms.word_patterns() {
+        query = query.filter(search::matches(initiatives::name, pattern));
+    }
+
+    query
+        .order((
+            search::matches(initiatives::name, terms.title_start_pattern()).desc(),
+            search::similarity(initiatives::name, terms.text().to_owned()).desc(),
+            initiatives::name.asc(),
+            initiatives::id.asc(),
+        ))
+        .limit(limit)
+        .select((initiatives::id, initiatives::name, initiatives::state))
         .load(connection)
         .await
 }

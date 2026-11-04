@@ -25,6 +25,7 @@ use crate::models::action_item_event::{
     self, Change, HistoryEntry, HistoryKind, Recorded, Subject, replaced,
 };
 use crate::models::{action_item_link_write, project};
+use crate::search::{self, SearchTerms};
 
 /// Where an item stands. See `docs/action-items.md`.
 #[derive(
@@ -387,6 +388,37 @@ pub async fn list(
     query
         .order((action_items::created_at.desc(), action_items::id.desc()))
         .select(ActionItem::as_select())
+        .load(connection)
+        .await
+}
+
+/// The `limit` items whose titles match `terms` most closely, as id, title, and state. Only
+/// items the list shows are searched: every one not deleted, in any state. See
+/// `crate::search` for how titles match and rank.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn search(
+    connection: &mut AsyncPgConnection,
+    terms: &SearchTerms,
+    limit: i64,
+) -> QueryResult<Vec<(Uuid, String, ActionItemState)>> {
+    let mut query = action_items::table
+        .filter(action_items::deleted_at.is_null())
+        .into_boxed();
+    for pattern in terms.word_patterns() {
+        query = query.filter(search::matches(action_items::title, pattern));
+    }
+
+    query
+        .order((
+            search::matches(action_items::title, terms.title_start_pattern()).desc(),
+            search::similarity(action_items::title, terms.text().to_owned()).desc(),
+            action_items::title.asc(),
+            action_items::id.asc(),
+        ))
+        .limit(limit)
+        .select((action_items::id, action_items::title, action_items::state))
         .load(connection)
         .await
 }

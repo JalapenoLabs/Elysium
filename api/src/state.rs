@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 use crate::action_items::links::Links;
 use crate::auth::Auth;
@@ -20,6 +21,7 @@ use crate::issue_reports::IssueReports;
 use crate::jira::Jira;
 use crate::mail::Mail;
 use crate::meetings::sources::Sources;
+use crate::middleware::rate_limit::Limiter;
 use crate::passwords::remote::RemoteVault;
 use crate::realtime::EventBus;
 use crate::sessions::Sessions;
@@ -65,6 +67,8 @@ pub struct AppState {
     /// The password vault agents sign in to things with, which the engine runs. See
     /// `crate::passwords`.
     pub passwords: RemoteVault,
+    /// Each person's budget for the global search, keyed by their user id. See `crate::search`.
+    pub search_limiter: Arc<Limiter<Uuid>>,
     /// Coding and Studio sessions: their turns, events, and activity. See `crate::sessions`.
     pub sessions: Sessions,
     pub storage: Storage,

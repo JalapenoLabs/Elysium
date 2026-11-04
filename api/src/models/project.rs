@@ -16,6 +16,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
 use crate::database::schema::projects;
+use crate::search::{self, SearchTerms};
 
 /// Which projects something applies to: every project, including ones added later, or
 /// only the listed ones.
@@ -191,6 +192,34 @@ pub async fn list(connection: &mut AsyncPgConnection) -> QueryResult<Vec<Project
     projects::table
         .order(projects::name.asc())
         .select(Project::as_select())
+        .load(connection)
+        .await
+}
+
+/// The `limit` projects whose names match `terms` most closely, as id and name. Every
+/// project is searched, as the list shows every one. See `crate::search` for how names match
+/// and rank.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn search(
+    connection: &mut AsyncPgConnection,
+    terms: &SearchTerms,
+    limit: i64,
+) -> QueryResult<Vec<(Uuid, String)>> {
+    let mut query = projects::table.into_boxed();
+    for pattern in terms.word_patterns() {
+        query = query.filter(search::matches(projects::name, pattern));
+    }
+
+    query
+        .order((
+            search::matches(projects::name, terms.title_start_pattern()).desc(),
+            search::similarity(projects::name, terms.text().to_owned()).desc(),
+            projects::name.asc(),
+        ))
+        .limit(limit)
+        .select((projects::id, projects::name))
         .load(connection)
         .await
 }

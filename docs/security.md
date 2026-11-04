@@ -166,6 +166,11 @@ once. The event stream counts as one request per connection. Exceeding the limit
 `Retry-After`, and `x-ratelimit-*` headers. Buckets for idle clients are swept every minute so the key map stays
 bounded.
 
+A route can hold a budget of its own on the same limiter, keyed by something other than an address. The global search
+(`GET /api/v1/search`) is limited per person, keyed by their user id: 20 at once, refilling 5 a second
+(`PER_PERSON` in `api/src/search/mod.rs`), and answers `429` with the code `search_rate_limited` past it. Its keys
+are signed-in people, whom the `users` table bounds, so nothing sweeps them.
+
 The client is the first parseable `X-Forwarded-For` address, then `X-Real-IP`, then the peer address. nginx sets
 `X-Forwarded-For` to the one client address it resolved, replacing whatever the client sent, so a client cannot pick
 its own bucket. Behind a proxy, that address is the client's only when `TRUSTED_PROXY_ADDRESSES` names the proxy.

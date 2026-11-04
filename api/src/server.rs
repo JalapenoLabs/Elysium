@@ -13,7 +13,7 @@
 //! in-flight requests; then the event bus flushes what they published last, the Postgres pool
 //! closes, and the Redis connection drops.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -49,7 +49,7 @@ use crate::tools::grants::Grants;
 use crate::updates::{Updates, UpdatesDeps};
 use crate::youtrack::Youtrack;
 use crate::youtrack::reader::{ReaderDeps, YoutrackReader};
-use crate::{middleware, routes, web_app};
+use crate::{middleware, routes, search, web_app};
 
 /// Serves the API until a shutdown signal arrives.
 ///
@@ -192,6 +192,7 @@ pub(crate) fn build_state(foundation: &Foundation) -> Result<(AppState, JoinHand
         )?,
         meeting_sources: Sources::new(http.clone()),
         passwords,
+        search_limiter: Arc::new(middleware::rate_limit::Limiter::new(search::PER_PERSON)),
         sessions: Sessions::new(SessionsDeps {
             database: database.clone(),
             cipher: Arc::clone(cipher),
@@ -224,7 +225,7 @@ pub(crate) fn build_state(foundation: &Foundation) -> Result<(AppState, JoinHand
 /// Fails when `FRONTEND_DIR` names a directory without a build in it.
 fn build_router(
     config: &Config,
-    rate_limit: Arc<middleware::rate_limit::Limiter>,
+    rate_limit: Arc<middleware::rate_limit::Limiter<IpAddr>>,
     state: &AppState,
 ) -> Result<Router<AppState>> {
     let layers = ServiceBuilder::new()
@@ -260,7 +261,7 @@ fn build_router(
 /// Fails when `frontend_dir` names a directory without a build in it.
 fn assemble_routes<State>(
     api: Router<State>,
-    rate_limit: Arc<middleware::rate_limit::Limiter>,
+    rate_limit: Arc<middleware::rate_limit::Limiter<IpAddr>>,
     frontend_dir: Option<&Path>,
 ) -> Result<Router<State>>
 where

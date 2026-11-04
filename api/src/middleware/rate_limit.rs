@@ -1,11 +1,16 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Per-client token-bucket rate limiting.
+//! Token-bucket rate limiting: per client IP across `/api`, and per person where a route asks.
 //!
 //! Clients are keyed by IP. Because the API only ever sits behind nginx, the IP
 //! comes from the `X-Forwarded-For` / `X-Real-IP` headers nginx sets, falling back
 //! to the peer address. Never expose the API port directly: a client that can
 //! reach it without nginx could forge those headers and dodge its bucket.
+//!
+//! [`Limiter`] is keyed by anything hashable, so a route with a budget of its own, such as
+//! the global search's per person (`crate::search`), holds one keyed by the person's id and
+//! asks it [`Limiter::decide`] from its handler. Such a limiter needs no sweeper: its keys are
+//! signed-in people, whom the `users` table already bounds.
 //!
 //! # The clock
 //!
@@ -22,6 +27,7 @@
 //! clock can produce, so the limiter treats it as a clock that moved underneath it:
 //! it logs, starts every bucket afresh, and admits the request.
 
+use std::hash::Hash;
 use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroU32;
 use std::sync::{Arc, RwLock};
@@ -50,6 +56,12 @@ const REQUESTS_PER_SECOND: u32 = 10;
 /// page load that fires several API calls in parallel.
 pub(crate) const BURST_SIZE: u32 = 30;
 
+/// Every client IP's budget across `/api`.
+const PER_CLIENT: Rate = Rate {
+    per_second: REQUESTS_PER_SECOND,
+    burst: BURST_SIZE,
+};
+
 /// Buckets for clients that stopped talking are dropped on this cadence so the
 /// key map cannot grow without bound under a scan.
 const STALE_KEY_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
@@ -60,43 +72,64 @@ static RATE_LIMIT_LIMIT: HeaderName = HeaderName::from_static("x-ratelimit-limit
 static RATE_LIMIT_REMAINING: HeaderName = HeaderName::from_static("x-ratelimit-remaining");
 static RATE_LIMIT_AFTER: HeaderName = HeaderName::from_static("x-ratelimit-after");
 
-type Buckets<C> =
-    governor::RateLimiter<IpAddr, DefaultKeyedStateStore<IpAddr>, C, StateInformationMiddleware>;
+type Buckets<Key, C> =
+    governor::RateLimiter<Key, DefaultKeyedStateStore<Key>, C, StateInformationMiddleware>;
+
+/// A bucket's budget: how many requests may be spent at once, and how fast they come back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rate {
+    /// Requests that come back each second. Never zero.
+    pub per_second: u32,
+    /// Requests that may be spent at once before the sustained rate applies. Never zero.
+    pub burst: u32,
+}
 
 /// What the limiter decided about one request.
 #[derive(Debug, PartialEq, Eq)]
-enum Decision {
+pub enum Decision {
     Admitted { remaining: u32 },
     Refused { wait: Duration },
 }
 
-/// Every client's bucket, and the clock they are measured against.
-pub struct Limiter<C: Clock + Clone = MonotonicClock> {
+/// Every key's bucket, and the clock they are measured against.
+pub struct Limiter<Key: Clone + Eq + Hash, C: Clock + Clone = MonotonicClock> {
     clock: C,
     quota: Quota,
     /// How long an empty bucket takes to refill. No honest refusal waits longer.
     longest_honest_wait: Duration,
     /// Behind a lock only so a clock that moved can be answered by starting over.
-    buckets: RwLock<Arc<Buckets<C>>>,
+    buckets: RwLock<Arc<Buckets<Key, C>>>,
 }
 
-impl<C: Clock + Clone> Limiter<C> {
-    fn with_clock(clock: C) -> Self {
-        let refill_period = Duration::from_secs(1) / REQUESTS_PER_SECOND;
+impl<Key: Clone + Eq + Hash> Limiter<Key> {
+    /// A limiter giving every key `rate`, timed by the monotonic clock.
+    ///
+    /// # Panics
+    /// Panics when either half of `rate` is zero, which only a constant written wrong can be.
+    pub fn new(rate: Rate) -> Self {
+        Self::with_clock(MonotonicClock, rate)
+    }
+}
+
+impl<Key: Clone + Eq + Hash, C: Clock + Clone> Limiter<Key, C> {
+    fn with_clock(clock: C, rate: Rate) -> Self {
+        let refill_period = Duration::from_secs(1) / rate.per_second;
+        let burst = NonZeroU32::new(rate.burst).expect("a rate's burst is a non-zero constant");
         let quota = Quota::with_period(refill_period)
-            .expect("REQUESTS_PER_SECOND is a non-zero constant")
-            .allow_burst(NonZeroU32::new(BURST_SIZE).expect("BURST_SIZE is a non-zero constant"));
+            .expect("a rate's per_second is a non-zero constant")
+            .allow_burst(burst);
 
         Self {
             buckets: RwLock::new(Arc::new(fresh_buckets(quota, &clock))),
             clock,
             quota,
-            longest_honest_wait: refill_period * BURST_SIZE,
+            longest_honest_wait: refill_period * rate.burst,
         }
     }
 
-    fn decide(&self, client: IpAddr) -> Decision {
-        let wait = match self.check(client) {
+    /// Spends one request from `key`'s bucket, or says how long until one comes back.
+    pub fn decide(&self, key: &Key) -> Decision {
+        let wait = match self.check(key) {
             Ok(remaining) => return Decision::Admitted { remaining },
             Err(wait) => wait,
         };
@@ -113,18 +146,18 @@ impl<C: Clock + Clone> Limiter<C> {
         *self.buckets.write().expect(LOCK_POISONED) =
             Arc::new(fresh_buckets(self.quota, &self.clock));
 
-        match self.check(client) {
+        match self.check(key) {
             Ok(remaining) => Decision::Admitted { remaining },
             Err(wait) => Decision::Refused { wait },
         }
     }
 
     /// One conformance check: the remaining burst, or how long to wait.
-    fn check(&self, client: IpAddr) -> Result<u32, Duration> {
+    fn check(&self, key: &Key) -> Result<u32, Duration> {
         // Cloned out so the read lock is not held across the check.
         let buckets = Arc::clone(&self.buckets.read().expect(LOCK_POISONED));
         buckets
-            .check_key(&client)
+            .check_key(key)
             .map(|snapshot| snapshot.remaining_burst_capacity())
             .map_err(|refusal| refusal.wait_time_from(self.clock.now()))
     }
@@ -136,13 +169,22 @@ impl<C: Clock + Clone> Limiter<C> {
     }
 }
 
-fn fresh_buckets<C: Clock + Clone>(quota: Quota, clock: &C) -> Buckets<C> {
+fn fresh_buckets<Key: Clone + Eq + Hash, C: Clock + Clone>(
+    quota: Quota,
+    clock: &C,
+) -> Buckets<Key, C> {
     governor::RateLimiter::new(quota, DefaultKeyedStateStore::default(), clock.clone())
+}
+
+/// `wait` in whole seconds, rounded up: a client told to retry after zero seconds retries at
+/// once and is refused again.
+pub fn whole_seconds(wait: Duration) -> u64 {
+    wait.as_secs() + u64::from(wait.subsec_nanos() > 0)
 }
 
 /// The limiter plus the background task that keeps it bounded.
 pub struct RateLimiter {
-    pub limiter: Arc<Limiter>,
+    pub limiter: Arc<Limiter<IpAddr>>,
     /// Aborted at shutdown; the sweep has nothing to flush.
     pub sweeper: JoinHandle<()>,
 }
@@ -150,7 +192,7 @@ pub struct RateLimiter {
 /// Builds a limiter allowing [`BURST_SIZE`] immediate requests, refilling
 /// [`REQUESTS_PER_SECOND`] each second.
 pub fn build() -> RateLimiter {
-    let limiter = Arc::new(Limiter::with_clock(MonotonicClock));
+    let limiter = Arc::new(Limiter::new(PER_CLIENT));
 
     let swept = Arc::clone(&limiter);
     let sweeper = tokio::spawn(async move {
@@ -172,7 +214,7 @@ pub fn build() -> RateLimiter {
 
 /// Admits or refuses one request against its client's bucket.
 pub async fn enforce(
-    State(limiter): State<Arc<Limiter>>,
+    State(limiter): State<Arc<Limiter<IpAddr>>>,
     request: Request,
     next: Next,
 ) -> Response {
@@ -188,7 +230,7 @@ pub async fn enforce(
         );
     };
 
-    match limiter.decide(client) {
+    match limiter.decide(&client) {
         Decision::Admitted { remaining } => {
             let mut response = next.run(request).await;
             let headers = response.headers_mut();
@@ -197,9 +239,7 @@ pub async fn enforce(
             response
         }
         Decision::Refused { wait } => {
-            // Rounded up: a client told to retry after zero seconds retries at once and
-            // is refused again.
-            let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
+            let seconds = whole_seconds(wait);
 
             let mut response = json_response(StatusCode::TOO_MANY_REQUESTS, "Too many requests");
             let headers = response.headers_mut();
@@ -290,37 +330,65 @@ mod tests {
     fn a_clock_that_jumps_backwards_does_not_lock_every_client_out() {
         let clock = JumpingClock::default();
         clock.set(Duration::from_hours(10));
-        let limiter = Limiter::with_clock(clock.clone());
+        let limiter = Limiter::with_clock(clock.clone(), PER_CLIENT);
 
         for _ in 0..BURST_SIZE {
-            assert!(matches!(limiter.decide(CLIENT), Decision::Admitted { .. }));
+            assert!(matches!(limiter.decide(&CLIENT), Decision::Admitted { .. }));
         }
-        assert!(matches!(limiter.decide(CLIENT), Decision::Refused { .. }));
+        assert!(matches!(limiter.decide(&CLIENT), Decision::Refused { .. }));
 
         // The night the counter lost: "now" is suddenly ten hours before every bucket.
         clock.set(Duration::ZERO);
 
         assert!(
-            matches!(limiter.decide(CLIENT), Decision::Admitted { .. }),
+            matches!(limiter.decide(&CLIENT), Decision::Admitted { .. }),
             "a refusal for the length of the jump is the clock's fault, not the client's"
         );
     }
 
     #[test]
     fn an_honest_refusal_is_left_alone() {
-        let limiter = Limiter::with_clock(JumpingClock::default());
+        let limiter = Limiter::with_clock(JumpingClock::default(), PER_CLIENT);
 
         for _ in 0..BURST_SIZE {
-            limiter.decide(CLIENT);
+            limiter.decide(&CLIENT);
         }
 
-        let Decision::Refused { wait } = limiter.decide(CLIENT) else {
+        let Decision::Refused { wait } = limiter.decide(&CLIENT) else {
             panic!("the burst is spent");
         };
         assert!(
             wait <= Duration::from_secs(1) / REQUESTS_PER_SECOND,
             "one refill period at most, found {wait:?}"
         );
+    }
+
+    // A limiter keyed by anything else, such as the search's per person, gives each key a
+    // bucket of its own at its own rate.
+    #[test]
+    fn each_key_spends_its_own_budget() {
+        let rate = Rate {
+            per_second: 1,
+            burst: 2,
+        };
+        let limiter = Limiter::with_clock(JumpingClock::default(), rate);
+
+        for _ in 0..rate.burst {
+            assert!(matches!(limiter.decide(&"ada"), Decision::Admitted { .. }));
+        }
+        assert!(matches!(limiter.decide(&"ada"), Decision::Refused { .. }));
+        assert!(
+            matches!(limiter.decide(&"grace"), Decision::Admitted { .. }),
+            "another key is untouched by the first one's spending"
+        );
+    }
+
+    #[test]
+    fn waits_round_up_to_whole_seconds() {
+        assert_eq!(whole_seconds(Duration::ZERO), 0);
+        assert_eq!(whole_seconds(Duration::from_millis(1)), 1);
+        assert_eq!(whole_seconds(Duration::from_secs(2)), 2);
+        assert_eq!(whole_seconds(Duration::from_millis(2001)), 3);
     }
 
     #[test]

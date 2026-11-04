@@ -98,6 +98,22 @@ router itself refusing every workspace route without a session. Plain `cargo tes
 - Every top-level table has `created_by UUID NOT NULL REFERENCES users`. Join and child tables inherit their parent's.
   See `docs/auth.md`.
 
+## Searching titles
+
+The global search (`GET /api/v1/search`, `docs/api.md`) finds action items, projects, coding sessions, and initiatives
+by their titles through `pg_trgm`, created by the migration that adds its indexes:
+
+- `action_items_title_search` and `initiatives_name_search`, where `deleted_at` is NULL;
+- `projects_name_search`, over every project;
+- `coding_sessions_title_search`, where `studio_item_id` is NULL.
+
+Each is a GIN index with `gin_trgm_ops`, partial on exactly the rows its list shows, so the search's query, which
+repeats that condition, can use it. Every typed word is matched as `title ~* '\mword'`, which a trigram index
+answers, and results rank by `similarity`. Full text was the other candidate, but its parser keeps `WAY-123` as `way`
+and `-123`, and a host or a path such as `src/main.rs` as one token, so the keys, hosts, and paths these short titles
+hold would not be found by their parts. A word under three characters has too few trigrams for the index, and is
+matched by scanning instead, which tables of this size answer at once.
+
 ## Tables
 
 ### `llms`

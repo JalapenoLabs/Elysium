@@ -145,6 +145,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/learning-categories`         | `201` `{ category }`; admins                        |
 | PATCH  | `/api/v1/learning-categories/{key}`   | `200` `{ category }`; admins                        |
 | DELETE | `/api/v1/learning-categories/{key}`   | `204`; admins; `?moveTo=` names where its learnings go |
+| GET    | `/api/v1/search?q=&limit=`            | `200` `{ results: SearchHit[] }`: items, projects, sessions, and initiatives by title |
 | GET    | `/api/v1/runs`                        | `200` `{ runs: Run[], hasMore }`, newest first, 50 at a time; `?before=` a run id |
 | GET    | `/api/v1/runs/{id}`                   | `200` `{ run, steps: Step[], history: RunHistoryEntry[] }` |
 | GET    | `/api/v1/runs/{id}/steps/{stepId}/log` | `200` `{ log }`, every attempt's                   |
@@ -690,6 +691,27 @@ one of `agentMessage`, `agentThinking`, `toolStarted`, `toolCompleted`, `turnSta
 `events` answers `{ events, truncated, summaries }`. A `TurnSummary` has `sessionId`, `turnId`, `summary` (one line,
 at most 400 characters), and `createdAt`; see `docs/coding.md`, Turn summaries. Behavior, policy, and history limits are in `docs/coding.md`.
 
+### `/api/v1/search`
+
+The global search's records (`docs/frontend.md`, Global search). `GET` takes `q` (up to 200 characters) and
+`limit` (1 to 50, default 5), and answers the closest `limit` action items, projects, coding sessions, and
+initiatives whose titles match, each kind in its own order. A `SearchHit` is `{ kind, id, title }` with `kind` one
+of `actionItem`, `project`, `codingSession` (its `id` the session's number), or `initiative`; items and initiatives
+add their `state`. Nothing more is returned: a result is a row, and its page loads the rest.
+
+- **Matching.** Every word typed must begin a word of the title, case ignored; a word is a run of letters and digits,
+  so `way 123` finds `WAY-123`, and a query of only punctuation finds nothing. Accents must match as typed.
+- **Ranking.** A title that begins with the typed words comes first, then the closest by pg_trgm's `similarity`,
+  then alphabetically. The web app ranks every source's results again with one score.
+- **Visibility.** Each kind is searched among exactly what its list route shows: items and initiatives not deleted,
+  every project, and the Coding area's sessions (Studio's are left out). Those lists answer everyone with access to
+  the workspace, guests included, so search does too. The knowledge base joins as a kind for admins and members alone
+  once a search reads it (`docs/knowledge.md`, Who sees what).
+- **Budget.** Each person may search 20 times at once, refilling 5 a second, on top of the limit per client address;
+  past it, `429` with the code `search_rate_limited`. Both are constants (`PER_PERSON` in `src/search/mod.rs`).
+
+The pieces every kind's query shares are in `src/search/`; each model's `search` owns its own query.
+
 ### `/api/v1/coding-sessions/{id}/desktop`
 
 A WebSocket upgrade carrying the running turn's desktop as VNC (RFB) bytes in binary messages, view-only. It requires
@@ -762,7 +784,8 @@ requests drain, the watchers are awaited, then the Postgres pool closes and the 
 Connection strings and the key are held as `SecretString`, so they never appear in debug output.
 
 Rate limits are deliberately not configurable. The limit is 10 requests per second per client IP, with a burst
-of 30. Both are constants in `src/middleware/rate_limit.rs`.
+of 30. Both are constants in `src/middleware/rate_limit.rs`. The search has a budget per person besides
+(`/api/v1/search`, Budget).
 
 ## Code layout
 

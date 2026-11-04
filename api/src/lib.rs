@@ -46,6 +46,7 @@ mod passwords;
 mod realtime;
 mod routes;
 mod runner;
+mod search;
 mod server;
 mod services;
 mod sessions;

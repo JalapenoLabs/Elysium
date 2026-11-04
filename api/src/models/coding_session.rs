@@ -15,6 +15,7 @@ use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use uuid::Uuid;
 
 use crate::database::schema::coding_sessions;
+use crate::search::{self, SearchTerms};
 
 /// A stored session.
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable, Insertable)]
@@ -65,6 +66,37 @@ pub async fn list_coding(connection: &mut AsyncPgConnection) -> QueryResult<Vec<
         .filter(coding_sessions::studio_item_id.is_null())
         .order(coding_sessions::created_at.desc())
         .select(CodingSession::as_select())
+        .load(connection)
+        .await
+}
+
+/// The `limit` Coding sessions whose titles match `terms` most closely, as number and title.
+/// Only the sessions the Coding area lists are searched, leaving Studio's out, since a Studio
+/// item is reached as its item. See `crate::search` for how titles match and rank.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn search(
+    connection: &mut AsyncPgConnection,
+    terms: &SearchTerms,
+    limit: i64,
+) -> QueryResult<Vec<(i64, String)>> {
+    let mut query = coding_sessions::table
+        .filter(coding_sessions::studio_item_id.is_null())
+        .into_boxed();
+    for pattern in terms.word_patterns() {
+        query = query.filter(search::matches(coding_sessions::title, pattern));
+    }
+
+    query
+        .order((
+            search::matches(coding_sessions::title, terms.title_start_pattern()).desc(),
+            search::similarity(coding_sessions::title, terms.text().to_owned()).desc(),
+            coding_sessions::title.asc(),
+            coding_sessions::id.desc(),
+        ))
+        .limit(limit)
+        .select((coding_sessions::id, coding_sessions::title))
         .load(connection)
         .await
 }
