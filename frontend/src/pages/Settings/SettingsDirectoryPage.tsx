@@ -11,6 +11,7 @@ import { useAppSelector } from '../../store/hooks'
 import {
   LuAppWindow,
   LuBot,
+  LuDatabaseBackup,
   LuHardDrive,
   LuKeyRound,
   LuMail,
@@ -118,6 +119,12 @@ export function SettingsDirectoryPage() {
           title={t('items.updates.title')}
           description={t('items.updates.description')}
           href={UrlTree.settingsUpdates}
+        />}
+        {isAdmin && <SettingsDirectoryItem
+          icon={LuDatabaseBackup}
+          title={t('items.backups.title')}
+          description={t('items.backups.description')}
+          href={UrlTree.settingsBackups}
         />}
       </div>
     </section>

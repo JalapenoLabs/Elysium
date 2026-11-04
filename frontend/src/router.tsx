@@ -57,6 +57,7 @@ import { AddStorageLocationPage } from './pages/Settings/Storage/AddStorageLocat
 import { EditStorageLocationPage } from './pages/Settings/Storage/EditStorageLocationPage'
 import { ManageStoragePage } from './pages/Settings/Storage/ManageStoragePage'
 import { UpdatesPage } from './pages/Settings/Updates/UpdatesPage'
+import { BackupsPage } from './pages/Settings/Backups/BackupsPage'
 import { PasswordsPage } from './pages/Settings/Passwords/PasswordsPage'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
 
@@ -192,6 +193,10 @@ const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsUpdates,
       element: <UpdatesPage />,
+    },
+    {
+      path: UrlTree.settingsBackups,
+      element: <BackupsPage />,
     },
     {
       path: UrlTree.settingsPasswords,

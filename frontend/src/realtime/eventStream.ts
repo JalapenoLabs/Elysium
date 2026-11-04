@@ -37,6 +37,7 @@ import {
   passwordVaultUpdated,
 } from '../store/passwordVaultSlice'
 import { projectDeleted, projectUpserted } from '../store/projectsSlice'
+import { backupsStatusUpdated } from '../store/backupsSlice'
 import { eventStreamLost, eventStreamOpened, eventStreamStopped } from '../store/realtimeSlice'
 import { sessionEventReceived, turnSummaryReceived } from '../store/sessionEventsSlice'
 import { storageLocationDeleted, storageLocationUpserted } from '../store/storageLocationsSlice'
@@ -229,6 +230,7 @@ const handlers: Handlers = {
   },
   'studioAsset.created': (event) => store.dispatch(studioAssetCreated(event.data)),
   'studioFeedback.created': (event) => store.dispatch(studioFeedbackCreated(event.data)),
+  'backups.status': (event) => store.dispatch(backupsStatusUpdated(event.data)),
   'updates.status': (event) => store.dispatch(updatesStatusUpdated(event.data)),
   // Also updates the signed-in person's own account, through the auth slice.
   'user.upserted': (event) => store.dispatch(userUpserted(event.data)),

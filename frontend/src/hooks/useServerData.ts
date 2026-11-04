@@ -6,6 +6,7 @@ import useSWR from 'swr'
 
 // Redux
 import { actionItemCommentsLoaded } from '../store/actionItemCommentsSlice'
+import { backupsStatusUpdated } from '../store/backupsSlice'
 import { historyLoaded } from '../store/actionItemHistorySlice'
 import { actionItemLinksLoaded } from '../store/actionItemLinksSlice'
 import { initiativeLinksLoaded } from '../store/initiativeLinksSlice'
@@ -53,6 +54,7 @@ import {
   listInitiativeLinks,
   listInitiatives,
 } from '../api/routes/initiativeRoutes'
+import { getBackups } from '../api/routes/backupRoutes'
 import { listBrowserSessions } from '../api/routes/browserSessionRoutes'
 import { getChangeset, listChangesets } from '../api/routes/changesetRoutes'
 import { listConnectors } from '../api/routes/connectorRoutes'
@@ -572,6 +574,17 @@ export function useUpdatesLoader(): LoadStatus {
   const { data, error } = useSWR('v1/updates', async () => {
     const response = await getUpdates()
     dispatch(updatesStatusUpdated(response.updates))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// The database backups: where they go, when next, and recent attempts. Admins only.
+export function useBackupsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/backups', async () => {
+    const response = await getBackups()
+    dispatch(backupsStatusUpdated(response.backups))
     return response
   })
   return toLoadStatus(data !== undefined, error)

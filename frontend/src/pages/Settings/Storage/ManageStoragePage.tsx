@@ -17,7 +17,7 @@ import { SettingsPage } from '../SettingsPage'
 import { StorageLocationTable } from './StorageLocationTable'
 
 // Misc
-import { getUpstreamErrorMessage } from '../../../api/errors'
+import { getApiErrorCode, getApiErrorMessage, getUpstreamErrorMessage } from '../../../api/errors'
 import { deleteStorageLocation, testStorageLocation } from '../../../api/routes/storageRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
 import { useStorageLocationsLoader } from '../../../hooks/useServerData'
@@ -63,7 +63,11 @@ export function ManageStoragePage() {
         }
         catch (error) {
           console.debug('ManageStoragePage failed to delete a location', { error, locationId: location.id })
-          toast.danger(t('common:errors.unexpected'))
+          // The API's own words for a refusal, such as Studio items that keep files here.
+          const message = getApiErrorCode(error) === 'backup_destination'
+            ? t('delete.backupDestination')
+            : getApiErrorMessage(error)
+          toast.danger(message ?? t('common:errors.unexpected'))
           // Keeps the dialog open to try again.
           throw error
         }

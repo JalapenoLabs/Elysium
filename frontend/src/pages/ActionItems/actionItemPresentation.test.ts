@@ -29,6 +29,7 @@ describe('describeActor', () => {
     expect(describeActor('elysia')).toEqual({ key: 'actors.elysia', values: { detail: '' }})
     expect(describeActor('session:12')).toEqual({ key: 'actors.session', values: { detail: '12' }})
     expect(describeActor('watcher:jira')).toEqual({ key: 'actors.watcher', values: { detail: 'jira' }})
+    expect(describeActor('system')).toEqual({ key: 'actors.system', values: { detail: '' }})
   })
 
   it('shows an actor this build does not know as sent', () => {

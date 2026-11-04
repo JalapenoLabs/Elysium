@@ -1,0 +1,56 @@
+{
+  "title": "Backups",
+  "adminOnly": "Only admins can manage backups.",
+  "loadError": "Elysium could not load the backups. Reload the page to try again.",
+  "destination": {
+    "label": "Back up to",
+    "none": "Nowhere",
+    "addLocation": "Add a storage location",
+    "saved": "Backups go to {{name}}.",
+    "turnedOff": "Backups are off.",
+    "failed": "Elysium could not reach that location."
+  },
+  "overview": {
+    "lastStored": "Last backup",
+    "nothingStored": "None yet",
+    "storedAt": "{{storedAt}}, {{size}}",
+    "next": "Next backup",
+    "running": "Backing up now",
+    "kept": "Kept for",
+    "keptDays_one": "{{count}} day",
+    "keptDays_other": "{{count}} days",
+    "off": "Off until a location is chosen"
+  },
+  "actions": {
+    "backUpNow": "Back up now",
+    "blocked": {
+      "noDestination": "Choose where to back up to first.",
+      "running": "A backup is running."
+    }
+  },
+  "toasts": {
+    "started": "Backing up the databases.",
+    "failed": "Elysium could not start a backup."
+  },
+  "statuses": {
+    "running": "Running",
+    "succeeded": "Stored",
+    "failed": "Failed"
+  },
+  "triggers": {
+    "schedule": "Nightly",
+    "admin": "Back up now",
+    "deployment": "Before a deploy"
+  },
+  "history": {
+    "heading": "History",
+    "label": "Backup history",
+    "empty": "No backups yet.",
+    "started": "Started",
+    "trigger": "Started by",
+    "status": "Status",
+    "location": "Location",
+    "size": "Size",
+    "error": "Why it failed"
+  }
+}

@@ -35,6 +35,7 @@
     "elysia": "Elysia",
     "session": "Session {{detail}}",
     "watcher": "The {{detail}} watcher",
+    "system": "Elysium",
     "unknown": "{{detail}}"
   },
   "owner": {

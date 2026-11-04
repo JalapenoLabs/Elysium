@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ActionItem, ActionItemComment, ActionItemLink, HistoryEntry } from '../api/routes/actionItemRoutes'
+import type { BackupsStatus } from '../api/routes/backupRoutes'
 import type { BrowserSession } from '../api/routes/browserSessionRoutes'
 import type { Changeset } from '../api/routes/changesetRoutes'
 import type { Initiative, InitiativeLink } from '../api/routes/initiativeRoutes'
@@ -108,6 +109,8 @@ export type ServerEvent =
   | { type: 'studioAsset.created', data: StudioAsset }
   // A prompt with a drawing was sent.
   | { type: 'studioFeedback.created', data: StudioFeedback }
+  // A database backup began or ended, or an admin chose where backups go.
+  | { type: 'backups.status', data: BackupsStatus }
   // Auto-update's state changed: a check, an update beginning or ending, or what it waits for.
   | { type: 'updates.status', data: UpdatesStatus }
   // Someone signed up, was approved, changed role, or was disabled or enabled.

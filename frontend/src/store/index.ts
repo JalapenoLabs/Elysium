@@ -9,6 +9,7 @@ import { actionItemHistorySlice } from './actionItemHistorySlice'
 import { actionItemLinksSlice } from './actionItemLinksSlice'
 import { actionItemsSlice } from './actionItemsSlice'
 import { authSlice } from './authSlice'
+import { backupsSlice } from './backupsSlice'
 import { browserSessionsSlice } from './browserSessionsSlice'
 import { changesetsSlice } from './changesetsSlice'
 import { codingSessionsSlice } from './codingSessionsSlice'
@@ -55,6 +56,7 @@ export function createAppStore() {
       [actionItemLinksSlice.name]: actionItemLinksSlice.reducer,
       [actionItemsSlice.name]: actionItemsSlice.reducer,
       [authSlice.name]: authSlice.reducer,
+      [backupsSlice.name]: backupsSlice.reducer,
       [browserSessionsSlice.name]: browserSessionsSlice.reducer,
       [changesetsSlice.name]: changesetsSlice.reducer,
       [codingSessionsSlice.name]: codingSessionsSlice.reducer,

@@ -17,7 +17,7 @@ export type DeploymentUpdateStatus = 'applying' | 'succeeded' | 'rolled-back'
 
 // Mirrors `Activity` in api/src/activity.rs.
 export type Activity = {
-  kind: 'agentTurn'
+  kind: 'agentTurn' | 'databaseBackup'
   label: string
   startedAt: string
 }

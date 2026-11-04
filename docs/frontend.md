@@ -190,6 +190,10 @@ offers them in autofill. See `docs/auth.md`.
   warning when no updater is connected, Check now, Update now for a release that rolled back, and the update history.
   The status flows through SWR, then `updatesSlice`, then the `updates.status` event. The directory entry is hidden
   from others.
+- **Backups** (`/settings/backups`). Admins only. The storage location the databases are backed up to (saved with the
+  page's Save; Nowhere turns backups off), the last backup stored, the next one or that backups are off, how long
+  they are kept, Back up now in the header, and every attempt. The status flows through SWR, then `backupsSlice`, then
+  the `backups.status` event. The directory entry is hidden from others. See `docs/infrastructure.md`, Backups.
 - **Password field.** `PasswordInput` is the one password field. It shows a zxcvbn strength meter
   (`@zxcvbn-ts/core`, with dictionaries loaded only where the field is) and a checklist: 12 or more characters, an
   uppercase letter, and a symbol. Forms stay disabled until every rule passes and the score is at least 3.
