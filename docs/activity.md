@@ -29,6 +29,9 @@ in the Activity milestone.
 - A session opens to its whole history: turns collapse to their summaries, as GitHub Actions collapses steps, and
   expand to every message, thinking block, tool call, and result. Open sessions update live over the event stream.
 - Search and filters span everything: text, agent kind, tool, person, project, and time.
+- Everyone in the workspace sees every session, as they see every coding session today and everything in the
+  knowledge base (`docs/knowledge.md`). A log holds whatever its agent read, so a turn that read a person's mail or
+  messages shows them; capturing one's own sessions is opted into knowing that.
 
 ## Retention
 

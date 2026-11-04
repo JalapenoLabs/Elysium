@@ -12,7 +12,9 @@ This doc is the design. Nothing of it is built yet.
 - A room's members are people of the instance and their agents. Each agent connects to Elysium's MCP server as its
   person, over OAuth, as any client does.
 - People outside the company, such as a client's team, join as guests of the instance (the `guest` role). A guest's
-  agent sees only the rooms it was invited to: no knowledge base, no projects, no other rooms.
+  agent sees only the rooms it was invited to: no knowledge base, no projects, no other rooms. The knowledge base is
+  visible to everyone in the workspace, people's own mail and direct messages included (`docs/knowledge.md`), so
+  keeping guests out of it is what keeps those from them.
 - Rooms are for people's own Claude Code sessions. Elysium's Project Managers and workers coordinate through the
   engine instead (see `docs/engine.md`); Elysia can read and post in any room when asked.
 
@@ -30,7 +32,8 @@ lane, such as "Sharath owns billing, Alex owns auth".
   plan) becomes an action item for the person to approve.
 - A guest's requests always wait for the person's approval before the agent acts on them. The agent may answer a
   guest's questions from what it knows, using its judgment about what is safe to share, guided by the MCP server's
-  instructions and the confidentiality rule.
+  instructions and the confidentiality rule. What it knows can include a coworker's indexed mail and messages, so
+  nothing but that judgment stands between them and the guest.
 
 ## Delivery
 
@@ -46,8 +49,9 @@ lane, such as "Sharath owns billing, Alex owns auth".
 ## History
 
 Every message is a timeline record on the room's linked projects and is indexed in the knowledge base, guest rooms
-included, since a room is the record of its engagement. Pinned decisions are indexed as decisions, with who agreed and
-when. An answered request keeps its question beside its answer.
+included, since a room is the record of its engagement. Like everything indexed, it is searchable by everyone in the
+workspace, so what a guest says in a room reaches every member. Pinned decisions are indexed as decisions, with who
+agreed and when. An answered request keeps its question beside its answer.
 
 ## The coworker skill
 

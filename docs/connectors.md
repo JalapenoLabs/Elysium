@@ -365,10 +365,11 @@ own methods, not Slack's published API, so their shapes are read defensively and
 
 - Each item becomes a timeline record. An item its connector already recorded is skipped, by the connector and the
   provider's own id, so reading the same mailbox again records nothing twice.
-- Each new item that wants attention (an unread message) raises an inbox action item owned by the person, in the
-  same transaction as its record, which points at it (`action_item_id`). The item is recorded as the watcher of
-  that service, `watcher:outlook`: like the link watcher, it records what already happened in a provider, and the
-  person consented when they connected the mailbox.
+- Each new item that wants attention (an unread message) raises an inbox action item for the user, in the same
+  transaction as its record, which points at it (`action_item_id`). Action items are one list for the whole workspace
+  (`docs/action-items.md`), so the item, with the message's subject, sender, and body, is seen by everyone signed in.
+  The item is recorded as the watcher of that service, `watcher:outlook`: like the link watcher, it records what
+  already happened in a provider, and the person consented when they connected the mailbox.
 - The connector's first signed-in read records what the mailbox already holds without raising anything, so
   connecting a mailbox does not fill the inbox with its backlog. Its cursor remembers that (`{"baselined": true}`).
 - A read that fails keeps the cursor and records the reason in `last_error`.
@@ -476,7 +477,9 @@ record by id.
 `timeline_records` holds everything ingested: its kind, the connector it came from, the provider's id, when it
 happened, who it came from, a title, a plain-text body, a link, optionally a span inside a recording (`media`, for a
 meeting segment), and free `metadata`. A record belongs to whoever it was ingested for, and only they list it: a
-person's mail is theirs even when it is about a shared project.
+person's mail is theirs even when it is about a shared project. That ownership is of the feed, its attributions, and
+its recordings, not of the text: the knowledge base, still to be built, indexes every record for everyone in the
+workspace (`docs/knowledge.md`, Who sees what).
 
 `timeline_record_projects` attributes records to projects, each with a confidence and who attributed it. A person's
 attribution has a confidence of 1 and replaces whatever was guessed for that project; Elysia's carry her

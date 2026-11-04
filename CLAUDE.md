@@ -225,7 +225,9 @@ Everything else follows these rules:
   its newest message the first time it is read, so no history is pulled in.
 - Everything ingested is a timeline record (`timeline_records`), unique per account and provider id, attributed to
   projects with a confidence (`timeline_record_projects`). A record is its owner's alone, even about a shared
-  project.
+  project: only they list it, attribute it, and play its media. Its text is not: the knowledge base, still to be
+  built, indexes every record for everyone in the workspace, a person's own mail and direct messages included, with
+  no per-owner filter in any query, and guests never reach it. See `docs/knowledge.md`, Who sees what.
 - Ingest runs every minute. A new unread message raises an inbox item in the same transaction as its record,
   recorded as `watcher:<service>`: connecting a mailbox is the consent, as linking a container is for the link
   watcher. The first read baselines the mailbox without raising anything.

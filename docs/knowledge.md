@@ -16,9 +16,57 @@ This doc is the design. Little of it is built; the roadmap is the issues in the 
 
 Repository code is not indexed: agents with a checkout search it directly.
 
-Everything indexed is visible to everyone in the workspace, the person's own mail and direct messages included. An
-instance belongs to one company, whose people are all trusted with its knowledge. Confidentiality means nothing leaves
-the company, and no client's information flows into work for another.
+## Who sees what
+
+Everything indexed is visible to everyone in the workspace, a person's own mail, direct messages, and personal chats
+included. An instance belongs to one company, whose people are all trusted with its knowledge, and much of what a
+company decides is said in mail and chat; a knowledge base without them would miss it. Confidentiality means nothing
+leaves the company, and no client's information flows into work for another.
+
+There is no per-owner or per-connector setting. Connecting a mailbox or a chat is what puts its content in the
+knowledge base, so every admin and member, and every agent acting for one (Elysia, coding agents, and MCP clients
+signed in as a person), can search and read a coworker's indexed mailbox and direct messages, and `knowledge_ask` can
+answer from them. Once records are indexed, a mail or chat connector says so where it is added.
+
+Guests are outside the company and outside "everyone". A guest and their agent reach no knowledge base
+(`docs/rooms.md`), so the rule reaches a guest in two ways only: what is posted in a room they are in is indexed for
+every member, and a member's agent may repeat what it found when it answers a guest in a room, guided by the MCP
+server's instructions and the confidentiality rule rather than by a filter.
+
+### The index is shared; records stay their owner's
+
+Two things carry the same text under different rules:
+
+- **The timeline** (`docs/connectors.md`) is each person's feed of what their connectors read. A record belongs to
+  whoever it was ingested for: only they list it (`GET /api/v1/timeline`), open it, attribute it to projects, and play
+  its recording or clip. Their connectors, with their sign-ins, cursors, checks, and runs, are theirs alone too. This
+  ownership decides whose feed a record is on and who controls the reading; it is not a boundary on who may read the
+  text.
+- **The knowledge index** is the company's: passages made from those records' text, served to every member.
+
+A citation therefore opens in the knowledge base (`knowledge_get`, the Knowledge page), which answers any member for
+anything indexed, never through the owner's timeline route, which answers anyone else not found. The index holds
+text: a meeting's recording and clips stay with its record and play for its owner alone. Removing a connector stops
+its reading; what it recorded stays on its owner's timeline and in the index, since a passage lives as long as its
+record.
+
+Action items are one list for the whole workspace (`docs/action-items.md`): an inbox item raised by a
+person's mail carries the message's subject, sender, and body, and everyone signed in sees it. Making `owner`
+reference users and Next each person's own is on that doc's roadmap; under this rule it decides whose list an item is
+on, not who may read it.
+
+### In every query
+
+The rule is applied in the query itself, by leaving the owner out of it: search, `knowledge_get`, `knowledge_ask`,
+summaries, and citations carry no per-owner predicate on knowledge-base content. Each passage keeps whose record it
+came from (`created_by`), for the `person` filter, for citing who said it, and for removing it with its record. The
+`person` filter is a narrowing the caller asks for, never access control.
+
+Access is checked once, on the caller's role: admins, members, and agents acting for them. The knowledge routes and
+tools refuse a guest themselves from the first build, rather than waiting on guest rooms, because until roles are
+built out a guest has a member's access (`docs/auth.md`).
+
+No index, search, or knowledge tool exists in the API yet; each one is built to this rule.
 
 ## Search
 
@@ -47,7 +95,8 @@ the company, and no client's information flows into work for another.
   clients that want an answer rather than evidence. It spends the instance's Claude usage, so it is rate limited per
   person.
 - The MCP server sends its instructions to every client that connects: when to search, how to cite, what makes a
-  learning worth saving, and the confidentiality rule. Admins edit the text in Settings, versioned, so a change
+  learning worth saving, and the confidentiality rule, including that results may quote a coworker's mail and
+  messages and are not for repeating outside the company. Admins edit the text in Settings, versioned, so a change
   reaches every connected agent on its next session. A copyable CLAUDE.md block is offered for teams that want it.
 
 ## Onyx
