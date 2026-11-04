@@ -21,6 +21,7 @@ import { ConnectorLogo } from './ConnectorLogo'
 
 // Misc
 import { useConnectorsLoader } from '../../../hooks/useServerData'
+import { LEAVE_WITHOUT_ASKING } from '../../../layout/page/pageSave'
 import {
   UrlTree,
   getGithubCredentialEditUrl,
@@ -44,7 +45,8 @@ export function ConnectorPage() {
   const navigate = useNavigate()
   const act = useConnectorActions({
     onRunStarted: setRunId,
-    onDeleted: () => void navigate(UrlTree.settingsConnectors),
+    // Its unsaved content went with it, so leaving asks nothing.
+    onDeleted: () => void navigate(UrlTree.settingsConnectors, { state: LEAVE_WITHOUT_ASKING }),
   })
   const parents = [{ label: t('page.title'), href: UrlTree.settingsConnectors }]
 
