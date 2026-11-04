@@ -62,7 +62,8 @@ Job names are the check names. Require exactly these in the `main` ruleset:
 | `Frontend test`      | `frontend.yml`           | `yarn test`, the Vitest suite, and the connector page scripts (`node --test api/src/connectors/*.test.mjs`) |
 | `Frontend build`     | `frontend.yml`           | `yarn build`, the production bundle                             |
 | `Frontend image`     | `frontend.yml`           | `frontend/Dockerfile` builds and the dev server answers         |
-| `Compose config`     | `compose.yml`            | the stacks parse and interpolate, the development override merges |
+| `Compose config`     | `compose.yml`            | the stacks parse and interpolate, the development override merges, and no stack bind-mounts configuration |
+| `Configuration images` | `compose.yml`          | nginx's, Kratos's, Hydra's, and the updater's images build, and nginx's configuration passes `nginx -t` in both routings |
 | `Workspace image`    | `workspace.yml`          | `workspace/Dockerfile` builds, and `claude`, `gh`, `git`, Node, and Blender run as `agent` in it |
 
 Names are prefixed with their lane because a required check is matched by name alone, and two workflows each
@@ -161,6 +162,17 @@ for it to serve `/`. The production build is checked by `Frontend build` and shi
 a required variable is unset and the checkout has no environment file, so the step sets placeholders for exactly the
 required variables. Nothing is started. The images compose builds are built by the image checks instead of
 `docker compose build`, whose fixed image names would race between concurrent runs on one daemon.
+
+The same job runs `.github/scripts/check-compose.py` over all three stacks (production, production from a checkout,
+and development), the rules that let a plain `docker compose up` recreate exactly what changed: no service
+bind-mounts configuration from the checkout, each image has one building service and every other that runs it never
+pulls it, every build turns provenance off, and every configuration image is built with `pull_policy: build`. It
+needs only Docker and the Python standard library.
+
+`Configuration images` builds the images compose builds from `nginx/`, `kratos/`, `hydra/`, and `updater/` (see
+`docs/infrastructure.md`, Configuration images) with `docker build` under tags unique to the run, for the same reason.
+Each nginx stage then runs `nginx -t`, with every upstream name it proxies to pointed at loopback, since nginx resolves
+them when it reads its configuration.
 
 ## Publishing
 

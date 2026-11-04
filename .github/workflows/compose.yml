@@ -1,8 +1,9 @@
 # Copyright © 2026 Jalapeno Labs
 
-# The compose files. The images they build are checked by the API, frontend, and
-# OAuth broker workflows; this one proves the files themselves still parse and
-# interpolate. See docs/ci.md.
+# The compose files. The application images they build are checked by the API,
+# frontend, and OAuth broker workflows; this one proves the files themselves still
+# parse and interpolate, and that the configuration images (Kratos, Hydra, nginx, the
+# updater) build. See docs/ci.md.
 name: Compose
 
 # Deliberately unfiltered by path. Every job here is a required check, GitHub
@@ -62,8 +63,63 @@ jobs:
           ELYSIUM_ENCRYPTION_KEY: ci-placeholder
         run: docker compose --file compose.yml --file compose.dev.yml config --quiet
 
+      # A deploy recreates a service only when its definition or image changes, so no stack
+      # may bind-mount configuration, and each image needs one builder (#153). The script
+      # sets its own placeholders, like the steps above.
+      - name: Check every stack builds its configuration into images
+        run: python3 .github/scripts/check-compose.py
+
       - name: Validate the OAuth broker stack
         env:
           BROKER_PUBLIC_URL: http://127.0.0.1
           BROKER_SEALING_KEY: ci-placeholder
         run: docker compose --file oauth-broker/compose.yml config --quiet
+
+  configuration-images:
+    name: Configuration images
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [ self-hosted, linux, rocky9, docker ]
+
+    env:
+      # Unique per run, because runners in the pool can share one Docker daemon.
+      TAG: ci-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      # The images compose.yml builds from kratos/, hydra/, and updater/, built the way it
+      # builds them, so a file their Dockerfiles copy cannot go missing unnoticed.
+      - name: Build the Kratos, Hydra, and updater images
+        run: |
+          set -euo pipefail
+          for directory in kratos hydra updater; do
+            docker build --provenance=false --tag "elysium-${directory}:${TAG}" "${directory}"
+          done
+
+      # Both routings, with every upstream name resolvable, since nginx resolves them
+      # when it reads its configuration.
+      - name: Build the nginx images and test their configuration
+        run: |
+          set -euo pipefail
+          for target in production development; do
+            docker build --provenance=false --target "${target}" --tag "elysium-nginx:${TAG}-${target}" nginx
+            docker run --rm \
+              --env TRUSTED_PROXY_ADDRESSES=127.0.0.1/32 \
+              --add-host api:127.0.0.1 --add-host kratos:127.0.0.1 \
+              --add-host hydra:127.0.0.1 --add-host frontend:127.0.0.1 \
+              "elysium-nginx:${TAG}-${target}" nginx -t
+          done
+
+      - name: Remove the CI tags
+        if: always()
+        run: |
+          docker rmi --force \
+            "elysium-kratos:${TAG}" \
+            "elysium-hydra:${TAG}" \
+            "elysium-updater:${TAG}" \
+            "elysium-nginx:${TAG}-production" \
+            "elysium-nginx:${TAG}-development" \
+            > /dev/null 2>&1 || true
