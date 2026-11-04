@@ -57,10 +57,10 @@ pub struct MeetingResponse {
     organizer: String,
     participants: Value,
     url: Option<String>,
-    /// `pending`, `recorded`, `segmented`, `done`, or `failed`.
-    state: String,
-    attempts: i32,
-    /// Why the last attempt failed, or `null` when it succeeded.
+    /// Where its processing stands: `pending`, `recorded`, `segmented`, or `done`, or `failed`
+    /// or `skipped` as its newest run says (`workflow::processing`).
+    state: &'static str,
+    /// Why its newest run failed, while it has.
     last_error: Option<String>,
     has_recording: bool,
     /// How many segments Elysia found, or `null` before she has read it.
@@ -103,12 +103,22 @@ impl From<&MeetingCorrection> for CorrectionSummary {
 }
 
 impl MeetingResponse {
+    /// `meeting` as answered, with its correction and its newest run, which segments when
+    /// `run_segments`.
     fn new(
         meeting: Meeting,
         correction: Option<&MeetingCorrection>,
         run: Option<&WorkflowRun>,
+        run_segments: bool,
     ) -> Self {
+        let processing =
+            workflow::processing(meeting.state(), run.map(|run| run.state), run_segments);
+        let last_error = run
+            .filter(|_| processing == workflow::Processing::Failed)
+            .and_then(|run| run.error.clone());
         Self {
+            state: processing.as_str(),
+            last_error,
             segment_count: meeting
                 .segments
                 .as_ref()
@@ -128,9 +138,6 @@ impl MeetingResponse {
             organizer: meeting.organizer,
             participants: meeting.participants,
             url: meeting.url,
-            state: meeting.state,
-            attempts: meeting.attempts,
-            last_error: meeting.last_error,
             created_at: meeting.created_at,
             updated_at: meeting.updated_at,
         }
@@ -164,12 +171,15 @@ pub async fn responses(
     .into_iter()
     .map(|run| (run.source_id.clone(), run))
     .collect();
+    let newest: Vec<&WorkflowRun> = runs.values().collect();
+    let segmenting = workflow::segmenting_runs(connection, &newest).await?;
     Ok(meetings
         .into_iter()
         .map(|meeting| {
             let correction = corrections.get(&meeting.id);
             let run = runs.get(&meeting.id.to_string());
-            MeetingResponse::new(meeting, correction, run)
+            let run_segments = run.is_some_and(|run| segmenting.contains(&run.id));
+            MeetingResponse::new(meeting, correction, run, run_segments)
         })
         .collect())
 }

@@ -2,8 +2,9 @@
 
 //! `GET /api/v1/timeline`: the signed-in person's records, newest first.
 //!
-//! `projectId` keeps the records attributed to one project, and `actionItemId` the record that
-//! raised one action item, which its page answers from. `before` pages back: pass the
+//! `projectId` keeps the records attributed to one project, `actionItemId` the record that
+//! raised one action item, which its page answers from, and `meetingId` one meeting's segments,
+//! which the meeting's page lists as its topics. `before` pages back: pass the
 //! `occurredAt` of the last record of the previous page. `total` counts every record the
 //! filters match across all pages, so a project's Timeline tab can name its size.
 
@@ -31,6 +32,7 @@ const MAX_LIMIT: i64 = 200;
 pub struct Filters {
     project_id: Option<Uuid>,
     action_item_id: Option<Uuid>,
+    meeting_id: Option<Uuid>,
     before: Option<DateTime<Utc>>,
     limit: Option<i64>,
 }
@@ -57,6 +59,7 @@ pub async fn handle(
         owner: current.id(),
         project_id: filters.project_id,
         action_item_id: filters.action_item_id,
+        meeting_id: filters.meeting_id,
         before: filters.before,
         limit,
     };

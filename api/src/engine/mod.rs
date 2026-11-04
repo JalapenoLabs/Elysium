@@ -63,6 +63,7 @@ use crate::knowledge::backfill::Backfill;
 use crate::knowledge::embedder::Embedder;
 use crate::meetings::correct::{CorrectTranscript, CorrectTranscriptDeps};
 use crate::meetings::fetch::{FetchMeeting, FetchMeetingDeps};
+use crate::meetings::segment::{SegmentMeeting, SegmentMeetingDeps};
 use crate::meetings::sources::Sources;
 use crate::meetings::transcribe::{TranscribeMeeting, TranscribeMeetingDeps};
 use crate::meetings::{Meetings, MeetingsDeps};
@@ -198,6 +199,15 @@ pub async fn run() -> Result<()> {
         events: events.clone(),
         runner: runner.clone(),
     }));
+    steps.register(SegmentMeeting::new(SegmentMeetingDeps {
+        database: database.clone(),
+        events: events.clone(),
+        activity: connector_activity.clone(),
+        cipher: Arc::clone(&cipher),
+        storage: foundation.storage.clone(),
+        runner: runner.clone(),
+        workspace: meeting_workspace,
+    }));
     steps.register(ReviewCompanyDoc::new(ReviewCompanyDocDeps {
         database: database.clone(),
         events: events.clone(),
@@ -261,16 +271,13 @@ pub async fn run() -> Result<()> {
         activity: connector_activity.clone(),
     });
     loops.push(("youtrack.reader", youtrack.start(shutdown.clone())));
-    // Meetings: listed, each fetched and transcribed by its run of the meeting workflow, then
-    // segmented by text turns on the runner and cut into clips in its workspace.
+    // Meetings: listed here, and each fetched, transcribed, corrected, segmented, and published
+    // by its run of the meeting workflow, whose steps are registered above.
     let meetings = Meetings::new(MeetingsDeps {
         database: database.clone(),
         events: events.clone(),
         activity: connector_activity.clone(),
         cipher: Arc::clone(&cipher),
-        storage: foundation.storage.clone(),
-        runner: runner.clone(),
-        workspace: meeting_workspace,
         sources: meeting_sources,
     });
     loops.push(("meetings", meetings.start(shutdown.clone())));

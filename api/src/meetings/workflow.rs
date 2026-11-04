@@ -1,37 +1,46 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! The meeting workflow, and where a meeting's run meets the meetings loop and a person's retry.
+//! The meeting workflow, and where a meeting's run meets the meetings loop and a person.
 //!
-//! A meeting is carried in two halves while the engine's meeting steps are built out:
+//! Every step of a meeting is a step of its run of the `meeting` workflow ([`workflow`]):
+//! [`FetchMeeting`] fetches it (`pending` to `recorded`), [`TranscribeMeeting`] transcribes its
+//! recording with the local Whisper, [`CorrectTranscript`] corrects its transcript and may hold
+//! the run for its person's approval, and [`SegmentMeeting`] cuts it into topics and publishes
+//! them to the timeline (`segmented`, then `done`).
 //!
-//! - **Its run** of the `meeting` workflow ([`workflow`]), one per meeting, fetches it
-//!   ([`FetchMeeting`]), which moves it from `pending` to `recorded`, transcribes its recording
-//!   with the local Whisper ([`TranscribeMeeting`]), and corrects its transcript
-//!   ([`CorrectTranscript`]), which may hold the run for its person's approval. The loop starts
-//!   the run for each `pending` meeting on its processing pass ([`run_for`]), started by the
-//!   system user, and a run whose fetch fails fails the meeting with its reason, so the
-//!   Meetings page and its connector say why.
-//! - **The loop** (`crate::meetings`) segments a `recorded` meeting with one of Elysia's text
-//!   turns and publishes its segments, once its run is through, from the corrected copy the run
-//!   handed on ([`corrected_copy`]), or the source's transcript when it handed on none. A run
-//!   that failed or is held keeps the meeting waiting for a person.
+//! # Where its state comes from
 //!
-//! Segmenting is on the roadmap as a step after the correction, receiving the corrected copy as
-//! its input and replacing the loop's half. See `docs/meetings.md`, Processing.
+//! A meeting keeps only how far its processing got. Whether it failed, and why, is its newest
+//! run's, read as the meeting is answered ([`processing`]), so a step retried or skipped from the
+//! Runs page moves the meeting at once, and nothing copies the run's state onto the meeting to
+//! drift from it. A run that went through without publishing anything, because a person skipped
+//! a step it needed, leaves the meeting skipped.
+//!
+//! # Which runs the loop starts
+//!
+//! The meetings loop (`crate::meetings`) starts a meeting's runs, started by the system user
+//! ([`run_to_start`]): from the fetch for a meeting that never had one, and from segmenting for a
+//! fetched meeting whose newest run ended before segmenting was one of its steps. A meeting with
+//! any other run is that run's, live or not: a failed run waits for a person, and one a person
+//! moved past leaves the meeting where they left it.
+
+use std::collections::HashSet;
 
 use chrono::Utc;
-use diesel_async::{AsyncConnection, AsyncPgConnection};
-use tracing::{Level, event};
+use diesel_async::AsyncPgConnection;
 use uuid::Uuid;
 
-use super::correct::{self, CorrectTranscript, CorrectedMeeting};
-use super::fetch::{FetchMeeting, MeetingToFetch};
+use super::correct::{CorrectTranscript, CorrectedMeeting};
+use super::fetch::{self, FetchMeeting, MeetingToFetch};
+use super::segment::{SegmentMeeting, TranscriptToSegment};
 use super::source::TranscriptLine;
 use super::transcribe::TranscribeMeeting;
 use crate::models::meeting::{self, Meeting, MeetingState};
+use crate::models::meeting_correction;
+use crate::models::meeting_transcription;
 use crate::models::step_job::{self, StepActionError, StepJobState};
 use crate::models::user::SYSTEM_USER_ID;
-use crate::models::workflow_run::{self, Actor, NewRun, Settled};
+use crate::models::workflow_run::{self, Actor, NewRun, WorkflowRun, WorkflowRunState};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::workflows::{self, Start, Step, Workflow};
 
@@ -44,39 +53,12 @@ pub fn workflow() -> Workflow<MeetingToFetch> {
         .first::<FetchMeeting>()
         .then::<TranscribeMeeting>()
         .then::<CorrectTranscript>()
+        .then::<SegmentMeeting>()
         .build()
 }
 
-/// The corrected copy meeting `meeting_id`'s newest run handed on past its correction, when it
-/// corrected the meeting: what the loop segments. `None` for a run that has not passed its
-/// correction, skipped it, or ran before the workflow corrected meetings, which leaves the
-/// source's transcript to segment.
-///
-/// # Errors
-/// Propagates any database error, and a stored output or copy that does not read as its shape.
-pub async fn corrected_copy(
-    connection: &mut AsyncPgConnection,
-    meeting_id: Uuid,
-) -> anyhow::Result<Option<Vec<TranscriptLine>>> {
-    let source_id = meeting_id.to_string();
-    let newest =
-        workflow_run::newest(connection, workflow().name(), SOURCE_KIND, &source_id).await?;
-    let Some(run) = newest else {
-        return Ok(None);
-    };
-    let steps = workflow_run::steps_of(connection, run.id).await?;
-    let handed_on = steps
-        .into_iter()
-        .find(|step| step.step == CorrectTranscript::NAME && step.state == StepJobState::Succeeded)
-        .and_then(|step| step.output);
-    let Some(output) = handed_on else {
-        return Ok(None);
-    };
-    let corrected: CorrectedMeeting = serde_json::from_value(output)?;
-    correct::corrected_lines(connection, &corrected).await
-}
-
-/// A run of the meeting workflow on meeting `meeting_id`, which Elysium starts itself.
+/// A run of the meeting workflow on meeting `meeting_id`, from its fetch, which Elysium starts
+/// itself.
 pub fn run_for(meeting_id: Uuid) -> NewRun {
     workflow().new_run(Start {
         source_kind: SOURCE_KIND.to_owned(),
@@ -86,79 +68,168 @@ pub fn run_for(meeting_id: Uuid) -> NewRun {
     })
 }
 
-/// Tries failed meeting `id` of `owner` again from the step it failed at. One whose fetch failed
-/// also has its run's failed step retried, as `owner`: its run is still live, so without that the
-/// loop would find the same failed run and fail the meeting again. Announces both.
+/// A run of the meeting workflow on fetched meeting `fetched`, entering it at segmenting with
+/// what the meeting holds: its transcript, its recording, its Whisper transcript, and its
+/// corrected copy with whether it was approved, as the steps before segmenting would hand them on.
+///
+/// # Errors
+/// Propagates any database error, and a stored transcript that does not read as its shape.
+pub async fn run_from_segmenting(
+    connection: &mut AsyncPgConnection,
+    fetched: &Meeting,
+) -> anyhow::Result<NewRun> {
+    let transcript_hash = if let Some(hash) = &fetched.transcript_hash {
+        hash.clone()
+    } else {
+        // A meeting fetched before transcripts were hashed: its transcript is what was stored.
+        let lines: Vec<TranscriptLine> = serde_json::from_value(fetched.transcript.clone())?;
+        fetch::transcript_hash(&lines)
+    };
+    let whisper = meeting_transcription::find(connection, fetched.id).await?;
+    let correction = meeting_correction::find(connection, fetched.id).await?;
+    let input = CorrectedMeeting {
+        meeting_id: fetched.id,
+        transcript_hash: Some(transcript_hash),
+        recording: fetched.stored_recording(),
+        whisper_transcript_hash: whisper.map(|stored| stored.transcript_hash),
+        approved: correction
+            .as_ref()
+            .is_some_and(|correction| correction.approved_at.is_some()),
+        corrected_transcript_hash: correction.map(|correction| correction.transcript_hash),
+    };
+    Ok(workflow().new_run_at::<SegmentMeeting>(Start {
+        source_kind: SOURCE_KIND.to_owned(),
+        source_id: fetched.id.to_string(),
+        input: TranscriptToSegment::Meeting(input),
+        created_by: SYSTEM_USER_ID,
+    }))
+}
+
+/// Which run the meetings loop starts for a meeting not yet done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunToStart {
+    /// It never had a run: one from its fetch.
+    FromFetch,
+    /// It was fetched, and its newest run ended before segmenting was one of its steps: one
+    /// that enters at segmenting.
+    FromSegmenting,
+}
+
+/// The run the loop starts for unfinished meeting `state`, whose newest run is `newest`, which
+/// names a segmenting step when `newest_segments`. `None` when its run carries it, or carried
+/// it as far as a person let it.
+pub fn run_to_start(
+    state: MeetingState,
+    newest: Option<WorkflowRunState>,
+    newest_segments: bool,
+) -> Option<RunToStart> {
+    let fetched = matches!(state, MeetingState::Recorded | MeetingState::Segmented);
+    match newest {
+        None if state == MeetingState::Pending => Some(RunToStart::FromFetch),
+        // A meeting fetched before it had a run of its own, or whose newest run succeeded
+        // before segmenting was one of its steps.
+        None | Some(WorkflowRunState::Succeeded) if fetched && !newest_segments => {
+            Some(RunToStart::FromSegmenting)
+        }
+        // Done, or carried by its run as far as a person let it.
+        _ => None,
+    }
+}
+
+/// Where a meeting's processing stands, as its person sees it: how far it got, or its run's
+/// failure, or that a person skipped past it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Processing {
+    Pending,
+    Recorded,
+    Segmented,
+    Done,
+    /// Its newest run failed; the run says why.
+    Failed,
+    /// Its newest run went through without publishing it: a person skipped a step it needed.
+    Skipped,
+}
+
+impl Processing {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Recorded => "recorded",
+            Self::Segmented => "segmented",
+            Self::Done => "done",
+            Self::Failed => "failed",
+            Self::Skipped => "skipped",
+        }
+    }
+}
+
+/// Where a meeting whose processing got to `state` stands, its newest run being `newest`, which
+/// names a segmenting step when `newest_segments`.
+pub fn processing(
+    state: MeetingState,
+    newest: Option<WorkflowRunState>,
+    newest_segments: bool,
+) -> Processing {
+    match (newest, state) {
+        (Some(WorkflowRunState::Failed), _) => Processing::Failed,
+        (_, MeetingState::Done) => Processing::Done,
+        (Some(WorkflowRunState::Succeeded), _) if newest_segments => Processing::Skipped,
+        (_, MeetingState::Pending) => Processing::Pending,
+        (_, MeetingState::Recorded) => Processing::Recorded,
+        (_, MeetingState::Segmented) => Processing::Segmented,
+    }
+}
+
+/// The runs among `runs` that segment, so [`processing`] and [`run_to_start`] can tell a run a
+/// person skipped through from one that ended before segmenting was a step.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn segmenting_runs(
+    connection: &mut AsyncPgConnection,
+    runs: &[&WorkflowRun],
+) -> diesel::QueryResult<HashSet<Uuid>> {
+    let ids: Vec<Uuid> = runs.iter().map(|run| run.id).collect();
+    workflow_run::naming_step(connection, &ids, SegmentMeeting::NAME).await
+}
+
+/// Tries meeting `id` of `owner` again: its newest run's failed step is queued again with a fresh
+/// set of attempts, as `owner`, and the run goes on from it. Announces both.
 ///
 /// # Errors
 /// [`StepActionError::Database`] with `NotFound` when the meeting does not exist, belongs to
-/// someone else, or has not failed; any other database error.
+/// someone else, or its newest run has not failed; any other database error.
 pub async fn retry(
     connection: &mut AsyncPgConnection,
     events: &EventBus,
     id: Uuid,
     owner: Uuid,
 ) -> Result<Meeting, StepActionError> {
-    let (retried, settled) = connection
-        .transaction(async move |connection| {
-            let retried = meeting::retry(connection, id, owner).await?;
-            let settled = if retried.state() == MeetingState::Pending {
-                retry_failed_fetch(connection, id, owner).await?
-            } else {
-                None
-            };
-            Ok::<_, StepActionError>((retried, settled))
-        })
-        .await?;
+    let retried = meeting::find_owned(connection, id, owner).await?;
+    let source_id = id.to_string();
+    let newest = workflow_run::newest(connection, workflow().name(), SOURCE_KIND, &source_id)
+        .await?
+        .filter(|run| run.state == WorkflowRunState::Failed)
+        .ok_or(diesel::result::Error::NotFound)?;
+    let steps = workflow_run::steps_of(connection, newest.id).await?;
+    let failed = steps
+        .iter()
+        .find(|step| step.state == StepJobState::Failed)
+        .ok_or(diesel::result::Error::NotFound)?;
+    let actor = Actor {
+        user_id: owner,
+        at: Utc::now(),
+    };
+    let settled = step_job::retry(connection, newest.id, failed.id, actor).await?;
 
-    if let Some(settled) = settled {
-        workflows::announce(events, &settled);
-        events.signal(&Signal::Workflows);
-    }
+    workflows::announce(events, &settled);
+    events.signal(&Signal::Workflows);
     events.publish(&ServerEvent::MeetingChanged {
         id: retried.id,
         state: retried.state.clone(),
         created_by: retried.created_by,
     });
     Ok(retried)
-}
-
-/// Queues meeting `id`'s failed fetch again, when its live run failed.
-async fn retry_failed_fetch(
-    connection: &mut AsyncPgConnection,
-    id: Uuid,
-    owner: Uuid,
-) -> Result<Option<Settled>, StepActionError> {
-    let source_id = id.to_string();
-    let live =
-        workflow_run::find_live(connection, workflow().name(), SOURCE_KIND, &source_id).await?;
-    let Some(run) = live else {
-        event!(
-            name: "meetings.retry.no_run",
-            Level::DEBUG,
-            meeting.id = %id,
-            "a retried meeting has no live run; the next processing pass starts one",
-        );
-        return Ok(None);
-    };
-    let steps = workflow_run::steps_of(connection, run.id).await?;
-    let Some(failed) = steps.iter().find(|step| step.state == StepJobState::Failed) else {
-        event!(
-            name: "meetings.retry.run_not_failed",
-            Level::DEBUG,
-            meeting.id = %id,
-            workflow_run.id = %run.id,
-            "a retried meeting's run has no failed step, so it goes on as it is",
-        );
-        return Ok(None);
-    };
-    let actor = Actor {
-        user_id: owner,
-        at: Utc::now(),
-    };
-    Ok(Some(
-        step_job::retry(connection, run.id, failed.id, actor).await?,
-    ))
 }
 
 #[cfg(test)]
@@ -168,8 +239,8 @@ mod tests {
     use super::*;
     use crate::models::meeting::NewMeeting;
     use crate::models::step_job::StepOutcome;
-    use crate::models::workflow_run::WorkflowRunState;
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
+    use crate::workflows::Done;
 
     #[test]
     fn the_engine_registers_every_step_the_meeting_workflow_names() {
@@ -187,7 +258,8 @@ mod tests {
             crate::meetings::sources::Sources::new(reqwest::Client::new()),
         ));
         steps.register(TranscribeMeeting::for_test(unconnected.clone(), cipher));
-        steps.register(CorrectTranscript::for_test(unconnected));
+        steps.register(CorrectTranscript::for_test(unconnected.clone()));
+        steps.register(SegmentMeeting::for_test(unconnected));
         // Panics, as the engine would at startup, if the two drift apart.
         steps.assert_runs(&workflow().outline());
     }
@@ -204,53 +276,211 @@ mod tests {
                 "fetch_meeting".to_owned(),
                 "transcribe_meeting".to_owned(),
                 "correct_transcript".to_owned(),
+                "segment_meeting".to_owned(),
             ]
         );
         assert_eq!(
             (run.source_kind.as_str(), run.source_id),
             (SOURCE_KIND, meeting_id.to_string())
         );
-        assert_eq!(run.input, serde_json::json!({ "meetingId": meeting_id }));
+        assert_eq!(run.input, json!({ "meetingId": meeting_id }));
         assert_eq!(run.created_by, SYSTEM_USER_ID);
     }
 
+    #[test]
+    fn the_loop_starts_a_run_only_for_a_meeting_no_run_carries() {
+        use MeetingState::{Done, Pending, Recorded, Segmented};
+        use WorkflowRunState::{Failed, Held, Queued, Running, Succeeded};
+
+        assert_eq!(
+            run_to_start(Pending, None, false),
+            Some(RunToStart::FromFetch)
+        );
+        // Fetched before it had a run of its own, or before segmenting was a step of its run.
+        assert_eq!(
+            run_to_start(Recorded, None, false),
+            Some(RunToStart::FromSegmenting)
+        );
+        assert_eq!(
+            run_to_start(Segmented, Some(Succeeded), false),
+            Some(RunToStart::FromSegmenting)
+        );
+        // A run under way, waiting, or failed carries it; a person moves it on from there.
+        for state in [Queued, Running, Held, Failed] {
+            assert_eq!(run_to_start(Pending, Some(state), true), None);
+            assert_eq!(run_to_start(Recorded, Some(state), true), None);
+        }
+        // A run a person skipped through leaves the meeting where they left it: skipping the
+        // fetch skips the meeting, rather than starting another run that fetches it.
+        assert_eq!(run_to_start(Pending, Some(Succeeded), true), None);
+        assert_eq!(run_to_start(Recorded, Some(Succeeded), true), None);
+        assert_eq!(run_to_start(Done, None, false), None);
+    }
+
+    #[test]
+    fn a_meetings_processing_reads_its_newest_runs_failure_and_skips() {
+        use MeetingState::{Done, Pending, Recorded, Segmented};
+        use WorkflowRunState::{Failed, Held, Running, Succeeded};
+
+        assert_eq!(processing(Recorded, Some(Failed), true), Processing::Failed);
+        assert_eq!(processing(Pending, Some(Failed), true), Processing::Failed);
+        // Retried from the Runs page, it reads as the run going again, at once.
+        assert_eq!(
+            processing(Pending, Some(Running), true),
+            Processing::Pending
+        );
+        assert_eq!(processing(Recorded, Some(Held), true), Processing::Recorded);
+        assert_eq!(processing(Done, Some(Succeeded), true), Processing::Done);
+        assert_eq!(
+            processing(Pending, Some(Succeeded), true),
+            Processing::Skipped
+        );
+        assert_eq!(
+            processing(Recorded, Some(Succeeded), true),
+            Processing::Skipped
+        );
+        // A run from before segmenting was a step leaves it for the run that segments it.
+        assert_eq!(
+            processing(Segmented, Some(Succeeded), false),
+            Processing::Segmented
+        );
+        assert_eq!(processing(Done, None, false), Processing::Done);
+    }
+
+    /// Claims the run's next step, which must be `Running`, and runs one attempt of `step` on
+    /// the input its row holds, as the engine's workers do, recording how it ended.
+    async fn run_next<Running: Step>(
+        connection: &mut AsyncPgConnection,
+        step: &Running,
+        database: &crate::database::Pool,
+    ) -> Done<Running::Output> {
+        let at = Utc::now();
+        let claims = step_job::claim(connection, at, 1)
+            .await
+            .expect("claims")
+            .claims;
+        let claim = claims.first().expect("a step is due");
+        assert_eq!(claim.job.step, Running::NAME);
+        let input = serde_json::from_value(claim.job.input.clone().expect("an input"))
+            .expect("the step reads its input");
+        let context = crate::workflows::StepContext::for_test::<Running>(database.clone());
+        let done = step.run(input, context).await.expect("an attempt");
+        let outcome = match &done {
+            Done::Succeeded { output, summary } => StepOutcome::Succeeded {
+                output: serde_json::to_value(output).expect("serializes"),
+                summary: summary.clone(),
+            },
+            Done::Held { output, summary } => StepOutcome::Held {
+                output: serde_json::to_value(output).expect("serializes"),
+                summary: summary.clone(),
+            },
+            Done::Skipped { reason } => StepOutcome::Skipped {
+                reason: reason.clone(),
+            },
+        };
+        step_job::finish(connection, claim, outcome, at)
+            .await
+            .expect("records")
+            .expect("the claim holds");
+        done
+    }
+
+    /// #77: a person skipping a meeting's fetch on the Runs page skipped the step but not the
+    /// meeting, and its next pass started another run that fetched it.
     #[tokio::test]
     #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-    async fn retrying_a_meeting_whose_fetch_failed_retries_its_run_rather_than_failing_again() {
-        let (_url, mut connection) = migrated_database().await;
+    async fn issue_77_skipping_the_fetch_skips_the_meeting() {
+        let (url, mut connection) = migrated_database().await;
+        let database = crate::connections::connect_postgres(&url, 4)
+            .await
+            .expect("a pool");
         let events = EventBus::in_process();
-        let pending = meeting::insert_new(
-            &mut connection,
-            NewMeeting {
-                id: Uuid::now_v7(),
-                connector_id: None,
-                source_kind: "fireflies".to_owned(),
-                external_id: "01HX".to_owned(),
-                title: "Weekly sync".to_owned(),
-                started_at: Utc::now(),
-                duration_ms: None,
-                organizer: String::new(),
-                participants: json!([]),
-                url: None,
-                transcript: json!([]),
-                created_by: TEST_PERSON_ID,
-            },
-        )
-        .await
-        .expect("insert")
-        .expect("new");
-
-        // The loop starts the meeting's run, and its fetch fails for good.
+        let pending = meeting::insert_new(&mut connection, new_meeting())
+            .await
+            .expect("insert")
+            .expect("new");
         let started = workflows::start(&mut connection, &events, run_for(pending.id))
             .await
             .expect("the run starts");
+        let run_id = started.settled.run.id;
+        let fetch = workflow_run::steps_of(&mut connection, run_id)
+            .await
+            .expect("steps")
+            .remove(0);
+        let actor = Actor {
+            user_id: TEST_PERSON_ID,
+            at: Utc::now(),
+        };
+        step_job::skip(&mut connection, run_id, fetch.id, actor)
+            .await
+            .expect("skipped");
+
+        // Every step after it receives the fetch's own input, and skips the meeting too.
+        let cipher = std::sync::Arc::new(crate::test_support::cipher());
+        let transcribe = TranscribeMeeting::for_test(database.clone(), cipher);
+        let transcribed = run_next(&mut connection, &transcribe, &database).await;
+        assert!(matches!(transcribed, Done::Skipped { .. }));
+        let correct = CorrectTranscript::for_test(database.clone());
+        let corrected = run_next(&mut connection, &correct, &database).await;
+        assert!(matches!(corrected, Done::Skipped { .. }));
+        let segment = SegmentMeeting::for_test(database.clone());
+        let segmented = run_next(&mut connection, &segment, &database).await;
+        assert_eq!(
+            segmented,
+            Done::Skipped {
+                reason: "Not fetched, so nothing to segment".to_owned(),
+            }
+        );
+
+        let run = workflow_run::find(&mut connection, run_id)
+            .await
+            .expect("the run");
+        assert_eq!(run.state, WorkflowRunState::Succeeded);
+        let segments = segmenting_runs(&mut connection, &[&run])
+            .await
+            .expect("reads")
+            .contains(&run.id);
+        let stored = meeting::find(&mut connection, pending.id)
+            .await
+            .expect("found");
+        assert_eq!(
+            processing(stored.state(), Some(run.state), segments),
+            Processing::Skipped,
+            "the meeting reads as skipped"
+        );
+        assert_eq!(
+            run_to_start(stored.state(), Some(run.state), segments),
+            None,
+            "and no pass starts another run that fetches it"
+        );
+    }
+
+    fn new_meeting() -> NewMeeting {
+        NewMeeting {
+            id: Uuid::now_v7(),
+            connector_id: None,
+            source_kind: "fireflies".to_owned(),
+            external_id: Uuid::now_v7().to_string(),
+            title: "Weekly sync".to_owned(),
+            started_at: Utc::now(),
+            duration_ms: None,
+            organizer: String::new(),
+            participants: json!([]),
+            url: None,
+            transcript: json!([]),
+            created_by: TEST_PERSON_ID,
+        }
+    }
+
+    /// Fails the run's next step for good, as a source refusing the key would.
+    async fn fail_next(connection: &mut AsyncPgConnection) {
         let at = Utc::now();
-        let claims = step_job::claim(&mut connection, at, 1)
+        let claims = step_job::claim(connection, at, 1)
             .await
             .expect("claims")
             .claims;
         step_job::finish(
-            &mut connection,
+            connection,
             &claims[0],
             StepOutcome::Failed {
                 reason: "Fireflies refused the key".to_owned(),
@@ -261,29 +491,76 @@ mod tests {
         .await
         .expect("records")
         .expect("the claim holds");
+    }
 
-        // Its next pass is answered with the same failed run, and fails the meeting with it.
-        let followed = workflows::start(&mut connection, &events, run_for(pending.id))
+    /// #77, too: retrying a meeting's failed step from the Runs page left the Meetings page
+    /// showing the failure, since the meeting kept a copy of it. Retrying from either page now
+    /// moves the meeting at once.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn issue_77_retrying_from_either_page_moves_the_meeting_at_once() {
+        let (_url, mut connection) = migrated_database().await;
+        let events = EventBus::in_process();
+        let pending = meeting::insert_new(&mut connection, new_meeting())
             .await
-            .expect("answers");
-        assert!(!followed.created);
-        assert_eq!(followed.settled.run.id, started.settled.run.id);
-        assert_eq!(followed.settled.run.state, WorkflowRunState::Failed);
-        let reason = followed.settled.run.error.expect("a failed run says why");
-        meeting::record_fetch_failure(&mut connection, pending.id, &reason)
-            .await
-            .expect("records")
-            .expect("a pending meeting fails");
+            .expect("insert")
+            .expect("new");
 
-        // Retrying the meeting queues its run's fetch again, as the person who asked.
-        let retried = retry(&mut connection, &events, pending.id, TEST_PERSON_ID)
+        // The loop starts the meeting's run, and its fetch fails for good.
+        let started = workflows::start(&mut connection, &events, run_for(pending.id))
+            .await
+            .expect("the run starts");
+        let run_id = started.settled.run.id;
+        fail_next(&mut connection).await;
+        let failed = workflow_run::find(&mut connection, run_id)
+            .await
+            .expect("the run");
+        assert_eq!(
+            processing(pending.state(), Some(failed.state), true),
+            Processing::Failed
+        );
+
+        // Retried from the Runs page: the meeting reads as its run going again.
+        let fetch = workflow_run::steps_of(&mut connection, run_id)
+            .await
+            .expect("steps")
+            .remove(0);
+        let actor = Actor {
+            user_id: TEST_PERSON_ID,
+            at: Utc::now(),
+        };
+        step_job::retry(&mut connection, run_id, fetch.id, actor)
             .await
             .expect("retried");
-        assert_eq!(retried.state(), MeetingState::Pending);
+        let going = workflow_run::find(&mut connection, run_id)
+            .await
+            .expect("the run");
+        assert_eq!(
+            processing(pending.state(), Some(going.state), true),
+            Processing::Pending
+        );
+
+        // It fails again, and is retried from the Meetings page this time.
+        fail_next(&mut connection).await;
+
+        // Someone else cannot retry it.
+        assert!(matches!(
+            retry(&mut connection, &events, pending.id, Uuid::now_v7()).await,
+            Err(StepActionError::Database(diesel::result::Error::NotFound))
+        ));
+        // Its person can, and its run's fetch is queued again as them.
+        retry(&mut connection, &events, pending.id, TEST_PERSON_ID)
+            .await
+            .expect("retried");
         let run = workflow_run::find(&mut connection, started.settled.run.id)
             .await
             .expect("the run");
         assert_ne!(run.state, WorkflowRunState::Failed);
+        assert_ne!(
+            processing(pending.state(), Some(run.state), true),
+            Processing::Failed,
+            "the meeting reads as its run going again, with nothing copied onto it"
+        );
         let steps = workflow_run::steps_of(&mut connection, run.id)
             .await
             .expect("steps");
@@ -300,11 +577,18 @@ mod tests {
             ("retried", TEST_PERSON_ID)
         );
 
-        // So the next pass follows the run going again, and leaves the meeting waiting on it.
-        let next_pass = workflows::start(&mut connection, &events, run_for(pending.id))
+        // With nothing failed, there is nothing to retry.
+        assert!(matches!(
+            retry(&mut connection, &events, pending.id, TEST_PERSON_ID).await,
+            Err(StepActionError::Database(diesel::result::Error::NotFound))
+        ));
+        // And the run it has carries it: the loop starts no other.
+        let segments = segmenting_runs(&mut connection, &[&run])
             .await
-            .expect("answers");
-        assert_eq!(next_pass.settled.run.id, run.id);
-        assert_ne!(next_pass.settled.run.state, WorkflowRunState::Failed);
+            .expect("reads");
+        assert_eq!(
+            run_to_start(pending.state(), Some(run.state), segments.contains(&run.id)),
+            None
+        );
     }
 }

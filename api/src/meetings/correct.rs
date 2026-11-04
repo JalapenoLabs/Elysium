@@ -40,6 +40,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::correction::{self, Background, Base, Edit};
+use super::segment::TranscriptToSegment;
 use super::source::TranscriptLine;
 use super::transcribe::TranscribedMeeting;
 use crate::action_items::{Actor, Transition, WorkError};
@@ -78,8 +79,9 @@ const SPEAKERS_MAX: i32 = 200;
 /// The longest title of an inbox item, as items allow.
 const ITEM_TITLE_MAX_CHARACTERS: usize = 500;
 
-/// What [`CorrectTranscript`] gives: everything the transcription gave, and which corrected
-/// copy the meeting has.
+/// A meeting past its correction: everything the transcription gave, and which corrected copy
+/// the meeting has. [`CorrectTranscript`] gives it as segmenting's input
+/// ([`TranscriptToSegment::Meeting`]), whose JSON is this struct's own.
 ///
 /// A [`TranscribedMeeting`] reads as one with no copy, which is what the step after receives
 /// when this one is skipped, by a person or because nothing was said. Read the copy it names
@@ -88,8 +90,10 @@ const ITEM_TITLE_MAX_CHARACTERS: usize = 500;
 #[serde(rename_all = "camelCase")]
 pub struct CorrectedMeeting {
     pub meeting_id: Uuid,
-    /// The SHA-256 of the source's stored transcript, as hex.
-    pub transcript_hash: String,
+    /// The SHA-256 of the source's stored transcript, as hex; `None` when the meeting was not
+    /// fetched.
+    #[serde(default)]
+    pub transcript_hash: Option<String>,
     pub recording: Option<StoredRecording>,
     /// The SHA-256 of the Whisper transcript stored for the meeting; `None` when it was not
     /// transcribed.
@@ -238,6 +242,7 @@ impl CorrectTranscript {
         &self,
         heard: &Heard,
         input: &TranscribedMeeting,
+        source_transcript_hash: &str,
         context: &StepContext,
     ) -> Result<MeetingCorrection, StepFailure> {
         let participants: Vec<String> =
@@ -313,7 +318,7 @@ impl CorrectTranscript {
             transcript: serde_json::to_value(&corrected).map_err(StepFailure::permanent)?,
             transcript_hash: hash.clone(),
             based_on: heard.base.based_on.as_str().to_owned(),
-            source_transcript_hash: input.transcript_hash.clone(),
+            source_transcript_hash: source_transcript_hash.to_owned(),
             whisper_transcript_hash: input.whisper_transcript_hash.clone(),
             changed_lines: i32::try_from(edits.len()).unwrap_or(i32::MAX),
             fixes: serde_json::to_value(correction::distinct_fixes(&edits))
@@ -452,13 +457,19 @@ impl Step for CorrectTranscript {
     /// It reads the transcripts and corrects them in agent turns.
     const AGENT_KIND: Option<AgentKind> = Some(AgentKind::Correction);
     type Input = TranscribedMeeting;
-    type Output = CorrectedMeeting;
+    type Output = TranscriptToSegment;
 
     async fn run(
         &self,
         input: TranscribedMeeting,
         context: StepContext,
-    ) -> Result<Done<CorrectedMeeting>, StepFailure> {
+    ) -> Result<Done<TranscriptToSegment>, StepFailure> {
+        let Some(source_transcript_hash) = input.transcript_hash.clone() else {
+            context.log.line("The meeting's fetch was skipped");
+            return Ok(Done::Skipped {
+                reason: "Not fetched, so nothing to correct".to_owned(),
+            });
+        };
         let stored = {
             let mut connection = self.connection().await?;
             meeting_correction::find(&mut connection, input.meeting_id)
@@ -478,19 +489,23 @@ impl Step for CorrectTranscript {
                     reason: "Nothing was said, so nothing to correct".to_owned(),
                 });
             };
-            let stored = self.correct(&heard, &input, &context).await?;
+            let stored = self
+                .correct(&heard, &input, &source_transcript_hash, &context)
+                .await?;
             self.announce(&heard.meeting);
             stored
         };
 
         let summary = summary_of(&correction);
-        let output = |approved: bool| CorrectedMeeting {
-            meeting_id: input.meeting_id,
-            transcript_hash: input.transcript_hash.clone(),
-            recording: input.recording.clone(),
-            whisper_transcript_hash: input.whisper_transcript_hash.clone(),
-            corrected_transcript_hash: Some(correction.transcript_hash.clone()),
-            approved,
+        let output = |approved: bool| {
+            TranscriptToSegment::Meeting(CorrectedMeeting {
+                meeting_id: input.meeting_id,
+                transcript_hash: input.transcript_hash.clone(),
+                recording: input.recording.clone(),
+                whisper_transcript_hash: input.whisper_transcript_hash.clone(),
+                corrected_transcript_hash: Some(correction.transcript_hash.clone()),
+                approved,
+            })
         };
         match self.decide(input.meeting_id).await? {
             Decision::GoOn { approved } => {
@@ -800,15 +815,18 @@ async fn resume_held_correction(
     let Some(held) = held else {
         return Ok(None);
     };
-    let mut output: CorrectedMeeting = held
+    let held_output = held
         .output
         .clone()
-        .and_then(|output| serde_json::from_value(output).ok())
-        .ok_or(ApproveError::Run(StepActionError::Refused(
+        .and_then(|output| serde_json::from_value::<TranscriptToSegment>(output).ok());
+    let Some(TranscriptToSegment::Meeting(mut output)) = held_output else {
+        return Err(ApproveError::Run(StepActionError::Refused(
             "The held correction's output is not in its shape.",
-        )))?;
+        )));
+    };
     output.approved = true;
-    let output: Value = serde_json::to_value(output).expect("the output is plain fields");
+    let output: Value = serde_json::to_value(TranscriptToSegment::Meeting(output))
+        .expect("the output is plain fields");
     let actor = workflow_run::Actor {
         user_id: owner,
         at: now,
@@ -860,13 +878,16 @@ mod tests {
         // A skipped correction hands the next step what the transcription gave.
         let transcribed = TranscribedMeeting {
             meeting_id: Uuid::now_v7(),
-            transcript_hash: "a".repeat(64),
+            transcript_hash: Some("a".repeat(64)),
             recording: None,
             whisper_transcript_hash: Some("b".repeat(64)),
         };
-        let read: CorrectedMeeting =
+        let read: TranscriptToSegment =
             serde_json::from_value(serde_json::to_value(&transcribed).expect("serializes"))
                 .expect("reads");
+        let TranscriptToSegment::Meeting(read) = read else {
+            panic!("a transcribed meeting reads as a meeting to segment, not {read:?}");
+        };
         assert_eq!(
             read.whisper_transcript_hash,
             transcribed.whisper_transcript_hash
@@ -906,7 +927,7 @@ mod tests {
         .expect("the run starts");
         let fetched = RecordedMeeting {
             meeting_id: stored.id,
-            transcript_hash: "a".repeat(64),
+            transcript_hash: Some("a".repeat(64)),
             recording: None,
         };
         let through = [
@@ -955,13 +976,17 @@ mod tests {
         let step = CorrectTranscript::for_test(database.clone());
         let input = TranscribedMeeting {
             meeting_id: stored.id,
-            transcript_hash: "a".repeat(64),
+            transcript_hash: Some("a".repeat(64)),
             recording: None,
             whisper_transcript_hash: None,
         };
         let context = StepContext::for_test::<CorrectTranscript>(database.clone());
         let done = step.run(input.clone(), context).await.expect("decides");
-        let Done::Held { output, summary } = done else {
+        let Done::Held {
+            output: TranscriptToSegment::Meeting(output),
+            summary,
+        } = done
+        else {
             panic!("a held meeting holds its run, not {done:?}");
         };
         assert_eq!(summary, "Corrected 1 of 1 line; waiting for approval");
@@ -1036,15 +1061,30 @@ mod tests {
         let run = workflow_run::find(&mut connection, settled.run.id)
             .await
             .expect("the run");
-        assert_eq!(run.state, WorkflowRunState::Succeeded);
+        assert_eq!(run.state, WorkflowRunState::Running, "the run goes on");
         let steps = workflow_run::steps_of(&mut connection, run.id)
             .await
             .expect("steps");
-        let correction_step = steps.last().expect("the correction");
+        let correction_step = steps
+            .iter()
+            .find(|step| step.step == CorrectTranscript::NAME)
+            .expect("the correction");
         assert_eq!(correction_step.state, StepJobState::Succeeded);
-        let handed_on: CorrectedMeeting =
+        let segmenting = steps.last().expect("segmenting");
+        assert_eq!(
+            (segmenting.step.as_str(), segmenting.state),
+            ("segment_meeting", StepJobState::Queued)
+        );
+        assert_eq!(
+            segmenting.input, correction_step.output,
+            "segmenting takes what the correction handed on"
+        );
+        let handed_on: TranscriptToSegment =
             serde_json::from_value(correction_step.output.clone().expect("an output"))
                 .expect("reads");
+        let TranscriptToSegment::Meeting(handed_on) = handed_on else {
+            panic!("a correction hands on a meeting, not {handed_on:?}");
+        };
         assert!(handed_on.approved, "the run goes on told it was approved");
         let item = action_item::find(&mut connection, first_item)
             .await
@@ -1056,8 +1096,8 @@ mod tests {
             .expect("stored");
         assert_eq!(approved.approved_by, Some(TEST_PERSON_ID));
 
-        // And the loop segments the copy the run handed on.
-        let copy = super::super::workflow::corrected_copy(&mut connection, stored.id)
+        // And segmenting reads the copy the run handed on.
+        let copy = corrected_lines(&mut connection, &handed_on)
             .await
             .expect("reads");
         assert_eq!(copy, Some(corrected));
@@ -1094,7 +1134,7 @@ mod tests {
         let step = CorrectTranscript::for_test(database.clone());
         let input = TranscribedMeeting {
             meeting_id: stored.id,
-            transcript_hash: "a".repeat(64),
+            transcript_hash: Some("a".repeat(64)),
             recording: None,
             whisper_transcript_hash: None,
         };
@@ -1105,7 +1145,11 @@ mod tests {
             )
             .await
             .expect("decides");
-        let Done::Succeeded { output, summary } = done else {
+        let Done::Succeeded {
+            output: TranscriptToSegment::Meeting(output),
+            summary,
+        } = done
+        else {
             panic!("nobody waits, so the run goes on, not {done:?}");
         };
         assert!(!output.approved);
@@ -1122,14 +1166,14 @@ mod tests {
             .expect("new");
         let nothing = TranscribedMeeting {
             meeting_id: silent.id,
-            transcript_hash: "a".repeat(64),
+            transcript_hash: Some("a".repeat(64)),
             recording: None,
             whisper_transcript_hash: None,
         };
         let skipped = step
             .run(
                 nothing,
-                StepContext::for_test::<CorrectTranscript>(database),
+                StepContext::for_test::<CorrectTranscript>(database.clone()),
             )
             .await
             .expect("skips");
@@ -1137,6 +1181,27 @@ mod tests {
             skipped,
             Done::Skipped {
                 reason: "Nothing was said, so nothing to correct".to_owned(),
+            }
+        );
+
+        // A meeting a person skipped the fetch of reaches correction never fetched, and skips.
+        let unfetched = TranscribedMeeting {
+            meeting_id: silent.id,
+            transcript_hash: None,
+            recording: None,
+            whisper_transcript_hash: None,
+        };
+        let not_fetched = step
+            .run(
+                unfetched,
+                StepContext::for_test::<CorrectTranscript>(database),
+            )
+            .await
+            .expect("skips");
+        assert_eq!(
+            not_fetched,
+            Done::Skipped {
+                reason: "Not fetched, so nothing to correct".to_owned(),
             }
         );
     }

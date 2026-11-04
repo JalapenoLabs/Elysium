@@ -11,13 +11,14 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::upsert::excluded;
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
 
 use crate::database::schema::{timeline_record_projects, timeline_records};
 use crate::knowledge::records;
+use crate::meetings::SEGMENT_SOURCE_KIND;
+use crate::meetings::segmentation::MAX_SEGMENTS;
 use crate::models::knowledge_document::{self, KnowledgeSource};
 
 #[derive(Debug, Clone, Queryable, Selectable, Identifiable)]
@@ -332,6 +333,8 @@ pub struct TimelineQuery {
     pub project_id: Option<Uuid>,
     /// Only the record that raised this action item.
     pub action_item_id: Option<Uuid>,
+    /// Only this meeting's segments.
+    pub meeting_id: Option<Uuid>,
     /// Only records that happened before this, for the next page.
     pub before: Option<DateTime<Utc>>,
     pub limit: i64,
@@ -356,7 +359,52 @@ fn matching(query: &TimelineQuery) -> timeline_records::BoxedQuery<'static, Pg> 
     if let Some(action_item_id) = query.action_item_id {
         statement = statement.filter(timeline_records::action_item_id.eq(action_item_id));
     }
+    if let Some(meeting_id) = query.meeting_id {
+        statement = statement
+            .filter(timeline_records::source_kind.eq(SEGMENT_SOURCE_KIND))
+            .filter(
+                timeline_records::metadata
+                    .retrieve_as_text("meetingId")
+                    .eq(meeting_id.to_string()),
+            );
+    }
     statement
+}
+
+/// The records among `ids` that exist, in no particular order.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn find_many(
+    connection: &mut AsyncPgConnection,
+    ids: &[Uuid],
+) -> QueryResult<Vec<TimelineRecord>> {
+    timeline_records::table
+        .filter(timeline_records::id.eq_any(ids))
+        .select(TimelineRecord::as_select())
+        .load(connection)
+        .await
+}
+
+/// Meeting `meeting_id`'s segments on `owner`'s timeline, each with its attributions, in no
+/// particular order; each names its place in the meeting in `metadata.segmentIndex`.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn of_meeting(
+    connection: &mut AsyncPgConnection,
+    owner: Uuid,
+    meeting_id: Uuid,
+) -> QueryResult<Vec<(TimelineRecord, Vec<Attribution>)>> {
+    let query = TimelineQuery {
+        owner,
+        project_id: None,
+        action_item_id: None,
+        meeting_id: Some(meeting_id),
+        before: None,
+        limit: i64::try_from(MAX_SEGMENTS).expect("a meeting's segments are few"),
+    };
+    list(connection, query).await
 }
 
 /// How many records `query` matches across every page, ignoring `before` and `limit`.
@@ -388,13 +436,8 @@ pub async fn list(
     let records: Vec<TimelineRecord> = statement.load(connection).await?;
 
     let ids: Vec<Uuid> = records.iter().map(|record| record.id).collect();
-    let attributions: Vec<Attribution> = timeline_record_projects::table
-        .filter(timeline_record_projects::timeline_record_id.eq_any(&ids))
-        .select(Attribution::as_select())
-        .load(connection)
-        .await?;
     let mut by_record: HashMap<Uuid, Vec<Attribution>> = HashMap::new();
-    for attribution in attributions {
+    for attribution in attributions_of(connection, &ids).await? {
         by_record
             .entry(attribution.timeline_record_id)
             .or_default()
@@ -408,6 +451,21 @@ pub async fn list(
             (record, attributions)
         })
         .collect())
+}
+
+/// Every attribution of the records `ids`, in no particular order.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn attributions_of(
+    connection: &mut AsyncPgConnection,
+    ids: &[Uuid],
+) -> QueryResult<Vec<Attribution>> {
+    timeline_record_projects::table
+        .filter(timeline_record_projects::timeline_record_id.eq_any(ids))
+        .select(Attribution::as_select())
+        .load(connection)
+        .await
 }
 
 /// The record `id` with its attributions, when `owner` owns it.
@@ -433,65 +491,13 @@ pub async fn find_owned(
     Ok((record, attributions))
 }
 
-/// Removes a record's attribution to a project; nothing to remove is not an error.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn unattribute(
-    connection: &mut AsyncPgConnection,
-    record_id: Uuid,
-    project_id: Uuid,
-) -> QueryResult<()> {
-    diesel::delete(
-        timeline_record_projects::table
-            .filter(timeline_record_projects::timeline_record_id.eq(record_id))
-            .filter(timeline_record_projects::project_id.eq(project_id)),
-    )
-    .execute(connection)
-    .await?;
-    Ok(())
-}
-
-/// Attributes a record to a project, or changes how sure an existing attribution is.
-///
-/// # Errors
-/// Propagates any database error, including a foreign key violation for an unknown record or
-/// project.
-pub async fn attribute(
-    connection: &mut AsyncPgConnection,
-    record_id: Uuid,
-    project_id: Uuid,
-    confidence: f32,
-    attributed_by: &str,
-) -> QueryResult<Attribution> {
-    diesel::insert_into(timeline_record_projects::table)
-        .values((
-            timeline_record_projects::timeline_record_id.eq(record_id),
-            timeline_record_projects::project_id.eq(project_id),
-            timeline_record_projects::confidence.eq(confidence),
-            timeline_record_projects::attributed_by.eq(attributed_by),
-        ))
-        .on_conflict((
-            timeline_record_projects::timeline_record_id,
-            timeline_record_projects::project_id,
-        ))
-        .do_update()
-        .set((
-            timeline_record_projects::confidence.eq(excluded(timeline_record_projects::confidence)),
-            timeline_record_projects::attributed_by
-                .eq(excluded(timeline_record_projects::attributed_by)),
-        ))
-        .returning(Attribution::as_returning())
-        .get_result(connection)
-        .await
-}
-
 #[cfg(test)]
 mod tests {
     use chrono::TimeDelta;
     use serde_json::json;
 
     use super::*;
+    use crate::models::attribution;
     use crate::models::project::{self, NewProject};
     use crate::test_support::{TEST_PERSON_ID, migrated_database};
 
@@ -603,9 +609,15 @@ mod tests {
                 .await
                 .expect("stored")
                 .expect("new");
-            attribute(&mut connection, record.id, launch.id, 1.0, "elysia")
-                .await
-                .expect("attributed");
+            attribution::attribute(
+                &mut connection,
+                record.id,
+                launch.id,
+                1.0,
+                attribution::Attributor::Elysia,
+            )
+            .await
+            .expect("attributed");
         }
         // About nothing in particular, so only the whole timeline counts it.
         insert_new(&mut connection, record_at(30))
@@ -617,6 +629,7 @@ mod tests {
             owner: TEST_PERSON_ID,
             project_id: Some(launch.id),
             action_item_id: None,
+            meeting_id: None,
             before: None,
             limit: 2,
         };

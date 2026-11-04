@@ -24,6 +24,7 @@ use crate::embeddings::fake::FakeEmbeddings;
 use crate::knowledge::embedder::Embedder;
 use crate::knowledge::search::{KnowledgeSearch, PER_PERSON};
 use crate::middleware::rate_limit::Decision;
+use crate::models::attribution::{self, Attributor};
 use crate::models::learning::{self, Author, LearningContent};
 use crate::models::project::{self, NewProject};
 use crate::models::timeline_record::{self, NewTimelineRecord};
@@ -329,9 +330,15 @@ async fn each_filter_narrows_and_none_hides_a_coworkers_record() {
         "The budget for the offsite is approved.",
     )
     .await;
-    timeline_record::attribute(&mut connection, in_project, roadmap, 0.9, "elysia")
-        .await
-        .expect("attributed");
+    attribution::attribute(
+        &mut connection,
+        in_project,
+        roadmap,
+        0.9,
+        Attributor::Elysia,
+    )
+    .await
+    .expect("attributed");
     record(
         &mut connection,
         jamie,
@@ -458,7 +465,7 @@ async fn a_document_opens_whole_for_any_member_whoever_recorded_it() {
         "First paragraph.\n\nSecond paragraph.",
     )
     .await;
-    timeline_record::attribute(&mut connection, record_id, roadmap, 0.8, "elysia")
+    attribution::attribute(&mut connection, record_id, roadmap, 0.8, Attributor::Elysia)
         .await
         .expect("attributed");
     let document_id = document_of_record(&mut connection, record_id).await;

@@ -62,12 +62,17 @@ pub struct MeetingToFetch {
 
 /// What [`FetchMeeting`] gives: the meeting, which transcript it was fetched with, and where its
 /// recording is kept, for the steps that transcribe and correct it.
+///
+/// A [`MeetingToFetch`] reads as one that was never fetched, which is what the step after
+/// receives when a person skips the fetch: every step after it then skips the meeting too, so
+/// skipping the fetch skips the meeting.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordedMeeting {
     pub meeting_id: Uuid,
-    /// The SHA-256 of the stored transcript, as hex.
-    pub transcript_hash: String,
+    /// The SHA-256 of the stored transcript, as hex; `None` when the meeting was not fetched.
+    #[serde(default)]
+    pub transcript_hash: Option<String>,
     /// `None` when the source keeps no recording, or its connector names nowhere to keep it.
     pub recording: Option<StoredRecording>,
 }
@@ -215,7 +220,7 @@ impl FetchMeeting {
         Ok(Done::Succeeded {
             output: RecordedMeeting {
                 meeting_id,
-                transcript_hash: fetched_hash,
+                transcript_hash: Some(fetched_hash),
                 recording,
             },
             summary: Some(summary),
@@ -416,7 +421,7 @@ fn already_fetched(
     Ok(Done::Succeeded {
         output: RecordedMeeting {
             meeting_id: current.id,
-            transcript_hash: stored_hash,
+            transcript_hash: Some(stored_hash),
             recording: current.stored_recording(),
         },
         summary: Some(summary.to_owned()),
@@ -640,7 +645,10 @@ mod tests {
             },
         ];
         assert_eq!(first.meeting_id, pending.id);
-        assert_eq!(first.transcript_hash, transcript_hash(&expected_lines));
+        assert_eq!(
+            first.transcript_hash,
+            Some(transcript_hash(&expected_lines))
+        );
         assert_eq!(first.recording, None, "the source keeps no recording");
         assert_eq!(
             first_summary.as_deref(),
@@ -657,7 +665,7 @@ mod tests {
         );
         assert_eq!(
             recorded.transcript_hash.as_deref(),
-            Some(first.transcript_hash.as_str())
+            first.transcript_hash.as_deref()
         );
 
         // The same meeting again: the same answer, and the meeting untouched.

@@ -401,6 +401,25 @@ pub async fn steps_of(
         .await
 }
 
+/// The runs among `run_ids` with a step named `step`: which of them a step joined a workflow
+/// before they started.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn naming_step(
+    connection: &mut AsyncPgConnection,
+    run_ids: &[Uuid],
+    step: &str,
+) -> QueryResult<std::collections::HashSet<Uuid>> {
+    let named: Vec<Uuid> = step_jobs::table
+        .filter(step_jobs::run_id.eq_any(run_ids))
+        .filter(step_jobs::step.eq(step))
+        .select(step_jobs::run_id)
+        .load(connection)
+        .await?;
+    Ok(named.into_iter().collect())
+}
+
 /// Run `run_id`'s history, oldest first.
 ///
 /// # Errors

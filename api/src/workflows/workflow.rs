@@ -191,10 +191,6 @@ impl<Input: Serialize> Workflow<Input> {
     /// # Panics
     /// Panics when the workflow has no step `Entry`, or the input cannot be JSON, which only a
     /// programming error can cause.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "intake (#81) enters a workflow at segmenting")
-    )]
     pub fn new_run_at<Entry: Step>(&self, start: Start<Entry::Input>) -> NewRun {
         let entry_type = TypeId::of::<Entry>();
         let position = self

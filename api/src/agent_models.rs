@@ -9,8 +9,7 @@
 //!   ([`crate::workflows::Step::AGENT_KIND`]), named by its step name, such as
 //!   `correct_transcript`;
 //! - **an agent outside the step framework** ([`Agent`]): Elysia, coding sessions, Studio
-//!   sessions, turn summaries, and meeting segmentation, which keeps the name of the step it is
-//!   becoming (`segment_meeting`) so its setting carries over when it moves.
+//!   sessions, and turn summaries.
 //!
 //! Every agent belongs to one [`AgentKind`]: the workers, the Project Managers, correction,
 //! segmenting, triage, Elysia, and the summaries. A kind is what an admin tunes once for all of
@@ -121,7 +120,7 @@ pub enum AgentKind {
     ProjectManager,
     /// Correcting a meeting's transcripts against the company doc and other meetings.
     Correction,
-    /// Cutting a meeting's transcript into segments attributed to projects.
+    /// Cutting a meeting's transcript or a conversation into topics attributed to projects.
     Segmenting,
     /// Deciding what a message or conversation asks for and who it is for.
     Triage,
@@ -209,19 +208,15 @@ pub enum Agent {
     /// The one or two sentence summary of each finished session turn
     /// (`crate::sessions::summary`).
     TurnSummary,
-    /// Cutting a meeting's transcript into segments attributed to projects, which runs in the
-    /// meetings loop until it becomes the meeting workflow's step of the same name.
-    SegmentMeeting,
 }
 
 impl Agent {
     /// Every agent, in the order the settings page lists them.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 4] = [
         Self::Elysia,
         Self::CodingSession,
         Self::StudioSession,
         Self::TurnSummary,
-        Self::SegmentMeeting,
     ];
 
     /// The agent's name in code, which its setting is filed under.
@@ -231,7 +226,6 @@ impl Agent {
             Self::CodingSession => "coding_session",
             Self::StudioSession => "studio_session",
             Self::TurnSummary => "turn_summary",
-            Self::SegmentMeeting => "segment_meeting",
         }
     }
 
@@ -241,7 +235,6 @@ impl Agent {
             Self::Elysia => AgentKind::Elysia,
             Self::CodingSession | Self::StudioSession => AgentKind::Worker,
             Self::TurnSummary => AgentKind::Summaries,
-            Self::SegmentMeeting => AgentKind::Segmenting,
         }
     }
 }
@@ -783,8 +776,10 @@ mod tests {
             assert!(find(step).is_step);
             assert_eq!(find(step).kind, None, "{step} has nothing to set");
         }
-        // Correction is its own kind; the company doc's review is Elysia's work, done in her name.
+        // Correction and segmenting are kinds of their own; the company doc's review is Elysia's
+        // work, done in her name.
         assert_eq!(find("correct_transcript").kind, Some(AgentKind::Correction));
+        assert_eq!(find("segment_meeting").kind, Some(AgentKind::Segmenting));
         assert_eq!(find("review_company_doc").kind, Some(AgentKind::Elysia));
         for agent in Agent::ALL {
             let entry = find(agent.name());
@@ -798,7 +793,6 @@ mod tests {
         assert_eq!(Agent::CodingSession.kind(), AgentKind::Worker);
         assert_eq!(Agent::StudioSession.kind(), AgentKind::Worker);
         assert_eq!(Agent::TurnSummary.kind(), AgentKind::Summaries);
-        assert_eq!(Agent::SegmentMeeting.kind(), AgentKind::Segmenting);
         assert_eq!(Agent::Elysia.kind(), AgentKind::Elysia);
     }
 

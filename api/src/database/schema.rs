@@ -1073,8 +1073,6 @@ diesel::table! {
         recording_content_type -> Nullable<Text>,
         segments -> Nullable<Jsonb>,
         state -> Text,
-        attempts -> Int4,
-        last_error -> Nullable<Text>,
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
@@ -1316,6 +1314,20 @@ diesel::table! {
         storage_location_id -> Uuid,
         size_bytes -> Int8,
         created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    timeline_record_events (id) {
+        id -> Uuid,
+        timeline_record_id -> Uuid,
+        project_id -> Uuid,
+        kind -> Text,
+        created_by -> Uuid,
+        data -> Jsonb,
         created_at -> Timestamptz,
     }
 }
@@ -1593,6 +1605,9 @@ diesel::joinable!(studio_items -> storage_locations (storage_location_id));
 diesel::joinable!(studio_items -> users (created_by));
 diesel::joinable!(studio_storage_reservations -> storage_locations (storage_location_id));
 diesel::joinable!(studio_storage_reservations -> users (created_by));
+diesel::joinable!(timeline_record_events -> projects (project_id));
+diesel::joinable!(timeline_record_events -> timeline_records (timeline_record_id));
+diesel::joinable!(timeline_record_events -> users (created_by));
 diesel::joinable!(timeline_record_projects -> projects (project_id));
 diesel::joinable!(timeline_record_projects -> timeline_records (timeline_record_id));
 diesel::joinable!(timeline_records -> action_items (action_item_id));
@@ -1677,6 +1692,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     studio_feedback,
     studio_items,
     studio_storage_reservations,
+    timeline_record_events,
     timeline_record_projects,
     timeline_records,
     token_accounts,

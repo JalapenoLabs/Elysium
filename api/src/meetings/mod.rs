@@ -10,25 +10,17 @@
 //! - Every [`POLL_INTERVAL`] it lists each active meeting connector's new meetings
 //!   ([`source::MeetingSource::list`]) and stores each one it has not seen as a `pending`
 //!   meeting. The connector's cursor remembers the newest start time it saw.
-//! - Every [`PROCESS_INTERVAL`] it carries each unfinished meeting as far as it goes:
-//!   1. `pending`: start the meeting's run of the meeting workflow ([`workflow`]), whose
-//!      [`fetch::FetchMeeting`] step stores the transcript and uploads the recording to the
-//!      connector's storage location on the engine's step queue. A run that failed fails the
-//!      meeting with its reason.
-//!   2. `recorded`: Elysia reads the transcript in a text turn and cuts it into topic
-//!      segments, each attributed to projects ([`segmentation`]).
-//!   3. `segmented`: `ffmpeg` cuts each segment's clip in the workspace ([`media`]), the
-//!      clips are uploaded, and each segment becomes a timeline record, with its transcript
-//!      excerpt and summary, attributed to its projects, in one transaction.
+//! - Every [`PROCESS_INTERVAL`] it starts the runs of the meeting workflow ([`workflow`]) that
+//!   unfinished meetings need: one from the fetch for a meeting that never had one, and one from
+//!   segmenting for a meeting fetched before segmenting was a step of its run
+//!   ([`workflow::run_to_start`]). Every step of a meeting is a step of its run: fetching
+//!   ([`fetch`]), transcribing ([`transcribe`]), correcting ([`correct`]), and segmenting and
+//!   publishing ([`segment`]), each on the engine's step queue with its own attempts, so the
+//!   loop follows nothing itself.
 //!
 //! A meeting connector is one of any kind that provides meetings
 //! (`kinds::providing(Provides::Meetings)`), and each is read through its kind's source
 //! ([`sources::Sources::for_kind`]), so nothing here names a source.
-//!
-//! A segmenting or publishing step that fails is recorded on the meeting and tried again on the
-//! next pass, until it has failed `models::meeting::MAX_ATTEMPTS` times; the person can retry it
-//! from there. Every step is safe to repeat: storage paths are fixed per meeting, and records
-//! are written only once every clip is up.
 //!
 //! # What is published
 //!
@@ -36,33 +28,35 @@
 //! every client of the event stream hears it. Each segment's record publishes
 //! `timelineRecord.created`, which is where Elysia's intake hears of it.
 
+pub mod conversation;
 pub mod correct;
 pub mod correction;
 pub mod fetch;
 pub mod fireflies;
 pub mod media;
+pub mod segment;
 pub mod segmentation;
 pub mod source;
 pub mod sources;
 pub mod transcribe;
 pub mod workflow;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, anyhow};
+use anyhow::Context;
 use chrono::{DateTime, Utc};
-use diesel_async::{AsyncConnection, AsyncPgConnection};
+use diesel_async::AsyncPgConnection;
 use serde_json::{Value, json};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use self::segmentation::{MeetingContext, ProjectChoice, Segment};
-use self::source::{ListedMeeting, MeetingSource, SourceError, TranscriptLine};
+use self::source::{ListedMeeting, MeetingSource, SourceError};
 use self::sources::{Source, Sources};
-use crate::agent_models::{self, Agent};
+use self::workflow::RunToStart;
 use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Provides};
 use crate::connectors::{ConnectorKind, SignInState};
@@ -70,18 +64,11 @@ use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::models::connector::{self, Connector, PollOutcome};
 use crate::models::connector_run::ConnectorRun;
-use crate::models::meeting::{self, Meeting, MeetingState, NewMeeting};
-use crate::models::project;
+use crate::models::meeting::{self, Meeting, NewMeeting};
 use crate::models::storage_location::{self, StorageLocation};
-use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
 use crate::models::token_account;
-use crate::models::workflow_run::{self, WorkflowRunState};
+use crate::models::workflow_run::{self, WorkflowRun};
 use crate::realtime::{EventBus, ServerEvent};
-use crate::runner::workspace::WorkspaceContainer;
-use crate::runner::{
-    ConversationId, Runner, RunnerEvent, TurnMode, TurnRequest, TurnStatus, WorkspacePath,
-};
-use crate::storage::Storage;
 use crate::workflows;
 
 /// How often each connector's new meetings are listed. A meeting is useful on the timeline
@@ -93,24 +80,15 @@ pub const POLL_INTERVAL: Duration = Duration::from_mins(10);
 /// and the cursor carries the rest to the next listing.
 const LISTING_SIZE: u32 = 50;
 
-/// How often unfinished meetings are carried forward.
+/// How often unfinished meetings get the runs they need.
 pub const PROCESS_INTERVAL: Duration = Duration::from_mins(1);
 
 /// How far back an account's first listing reaches, so a newly connected account brings its
 /// recent meetings with it, but not its whole history.
 const FIRST_LISTING_DAYS: i64 = 14;
 
-/// Where segmentation turns run. They use no tools, so the directory only needs to exist.
-const SEGMENTATION_DIRECTORY: &str = ".elysium/segmentation";
-
 /// What a segment's timeline record is.
 pub const SEGMENT_SOURCE_KIND: &str = "meeting";
-
-/// Who attributes a segment to its projects, in the actor form history uses.
-const ATTRIBUTED_BY: &str = "elysia";
-
-/// The longest `actor` a record takes: the segment's speakers.
-const ACTOR_MAX_CHARACTERS: usize = 512;
 
 /// The content field every meeting source declares, a toggle: "Wait for my approval before
 /// acting on meetings", off until its person turns it on. See `correct`, Waiting for approval.
@@ -137,9 +115,6 @@ struct Inner {
     events: EventBus,
     activity: Activity,
     cipher: Arc<Cipher>,
-    storage: Storage,
-    runner: Runner,
-    workspace: WorkspaceContainer,
     sources: Sources,
 }
 
@@ -160,9 +135,6 @@ pub struct MeetingsDeps {
     pub events: EventBus,
     pub activity: Activity,
     pub cipher: Arc<Cipher>,
-    pub storage: Storage,
-    pub runner: Runner,
-    pub workspace: WorkspaceContainer,
     pub sources: Sources,
 }
 
@@ -174,15 +146,12 @@ impl Meetings {
                 events: deps.events,
                 activity: deps.activity,
                 cipher: deps.cipher,
-                storage: deps.storage,
-                runner: deps.runner,
-                workspace: deps.workspace,
                 sources: deps.sources,
             }),
         }
     }
 
-    /// Lists one connector's new meetings now and carries every unfinished meeting forward,
+    /// Lists one connector's new meetings now and starts the runs unfinished meetings need,
     /// for a sync someone asked for.
     pub async fn sync(&self, connector: &Connector) {
         if let Err(error) = self.poll_account(connector).await {
@@ -365,437 +334,99 @@ impl Meetings {
         Ok((newest, stored_count))
     }
 
-    /// Carries every unfinished meeting as far as it goes.
+    /// Starts the run each unfinished meeting needs (`workflow::run_to_start`). One meeting
+    /// whose run cannot be started is logged and left for the next pass; the rest go on.
     async fn process(&self) {
-        let unfinished = match self.connection().await {
-            Ok(mut connection) => meeting::list_unfinished(&mut connection)
-                .await
-                .map_err(anyhow::Error::from),
-            Err(error) => Err(error),
-        };
-        let unfinished = match unfinished {
-            Ok(unfinished) => unfinished,
+        let needed = match self.runs_needed().await {
+            Ok(needed) => needed,
             Err(error) => {
                 event!(
                     name: "meetings.process.failed",
                     Level::WARN,
                     error.message = %format!("{error:#}"),
-                    "cannot list the meetings to process",
+                    "cannot read which meetings need a run",
                 );
                 return;
             }
         };
-        for unfinished_meeting in unfinished {
-            if unfinished_meeting.state() == MeetingState::Recorded {
-                match self.waits_on_run(&unfinished_meeting).await {
-                    Ok(true) => continue,
-                    Ok(false) => {}
-                    Err(error) => {
-                        event!(
-                            name: "meetings.run.unread",
-                            Level::WARN,
-                            meeting.id = %unfinished_meeting.id,
-                            error.message = %format!("{error:#}"),
-                            "cannot read a meeting's run; the next pass tries again",
-                        );
-                        continue;
-                    }
-                }
-            }
-            if unfinished_meeting.state() != MeetingState::Pending {
-                self.carry(unfinished_meeting).await;
-                continue;
-            }
-            if let Err(error) = self.follow_fetch(&unfinished_meeting).await {
+        for (unfinished, start) in needed {
+            let meeting_id = unfinished.id;
+            if let Err(error) = self.start_run(unfinished, start).await {
                 event!(
-                    name: "meetings.fetch.unfollowed",
+                    name: "meetings.run.unstarted",
                     Level::WARN,
-                    meeting.id = %unfinished_meeting.id,
+                    meeting.id = %meeting_id,
                     error.message = %format!("{error:#}"),
-                    "cannot start or follow a meeting's run; the next pass tries again",
+                    "cannot start a meeting's run; the next pass tries again",
                 );
             }
         }
     }
 
-    /// Starts `pending`'s run of the meeting workflow, which fetches it, or follows the run it
-    /// has: starting a run answers the live one when there is one. A run that failed fails the
-    /// meeting with its reason, as a failed run of its connector, so the Meetings page and the
-    /// connector say why; retrying the meeting retries the run (`workflow::retry`).
-    async fn follow_fetch(&self, pending: &Meeting) -> anyhow::Result<()> {
+    /// Every unfinished meeting that needs a run, with the run it needs, read in one query each
+    /// for the meetings, their newest runs, and which of those segment.
+    async fn runs_needed(&self) -> anyhow::Result<Vec<(Meeting, RunToStart)>> {
         let mut connection = self.connection().await?;
-        let started = workflows::start(
-            &mut connection,
-            &self.inner.events,
-            workflow::run_for(pending.id),
-        )
-        .await?;
-        let run = started.settled.run;
-        if started.created {
-            event!(
-                name: "meetings.fetch.started",
-                Level::INFO,
-                meeting.id = %pending.id,
-                workflow_run.id = %run.id,
-                "a meeting's run started; it fetches the meeting",
-            );
-            return Ok(());
+        let unfinished = meeting::list_unfinished(&mut connection).await?;
+        if unfinished.is_empty() {
+            return Ok(Vec::new());
         }
-        if run.state != WorkflowRunState::Failed {
-            return Ok(());
-        }
-
-        let reason = run
-            .error
-            .unwrap_or_else(|| "Its run of the meeting workflow failed".to_owned());
-        let failed = meeting::record_fetch_failure(&mut connection, pending.id, &reason).await?;
-        drop(connection);
-        let Some(failed) = failed else {
-            event!(
-                name: "meetings.fetch.moved_on",
-                Level::DEBUG,
-                meeting.id = %pending.id,
-                "a meeting's run failed, but the meeting moved on meanwhile; it is left as it is",
-            );
-            return Ok(());
-        };
-        self.publish(failed.clone());
-        if let Some(connector_id) = failed.connector_id {
-            let started_at = run.started_at.unwrap_or(run.created_at);
-            self.inner
-                .activity
-                .record(ConnectorRun::failed(connector_id, started_at, &reason))
-                .await;
-        }
-        Ok(())
-    }
-
-    /// Whether fetched meeting `recorded` waits on its run before the loop segments it: the run
-    /// transcribes and corrects it, and segmenting reads what the correction hands on, so the
-    /// loop takes the meeting only once its run is through. A run that failed or is held for
-    /// approval keeps the meeting waiting, until a person moves the run on from its page or
-    /// approves the corrected transcript. A meeting with no live run (its run succeeded, or it
-    /// has none) is the loop's.
-    async fn waits_on_run(&self, recorded: &Meeting) -> anyhow::Result<bool> {
-        let mut connection = self.connection().await?;
-        let live = workflow_run::find_live(
+        let source_ids: Vec<String> = unfinished
+            .iter()
+            .map(|unfinished_meeting| unfinished_meeting.id.to_string())
+            .collect();
+        let newest: HashMap<String, WorkflowRun> = workflow_run::newest_each(
             &mut connection,
             workflow::workflow().name(),
             workflow::SOURCE_KIND,
-            &recorded.id.to_string(),
+            &source_ids,
         )
-        .await?;
-        Ok(live.is_some())
-    }
+        .await?
+        .into_iter()
+        .map(|run| (run.source_id.clone(), run))
+        .collect();
+        let runs: Vec<&WorkflowRun> = newest.values().collect();
+        let segmenting = workflow::segmenting_runs(&mut connection, &runs).await?;
 
-    /// The transcript the loop segments `current` from: the corrected copy its run handed on,
-    /// or the source's transcript when the run did not correct it.
-    async fn transcript_to_segment(
-        &self,
-        current: &Meeting,
-    ) -> anyhow::Result<Vec<TranscriptLine>> {
-        let corrected = {
-            let mut connection = self.connection().await?;
-            workflow::corrected_copy(&mut connection, current.id).await?
-        };
-        match corrected {
-            Some(lines) => Ok(lines),
-            None => transcript_of(current),
-        }
-    }
-
-    /// Runs a fetched meeting's steps one after another until it is done, or one fails. Its
-    /// connector shows as syncing meanwhile, and a meeting that ends done or failed is a run of
-    /// it.
-    async fn carry(&self, mut current: Meeting) {
-        let started = Utc::now();
-        let _syncing = match current.connector_id {
-            Some(connector_id) => self.inner.activity.begin(connector_id).await,
-            None => None,
-        };
-        loop {
-            let id = current.id;
-            let step = match current.state() {
-                MeetingState::Recorded => self.segment(&current).await,
-                MeetingState::Segmented => self.publish_segments(&current).await,
-                // A pending meeting is fetched by its run (`follow_fetch`).
-                MeetingState::Pending | MeetingState::Done | MeetingState::Failed => return,
-            };
-            match step {
-                Ok(advanced) => {
-                    self.publish(advanced.clone());
-                    if advanced.state() == MeetingState::Done
-                        && let Some(connector_id) = advanced.connector_id
-                    {
-                        let segments = advanced
-                            .segments
-                            .as_ref()
-                            .and_then(Value::as_array)
-                            .map_or(0, Vec::len);
-                        self.inner
-                            .activity
-                            .record(ConnectorRun::succeeded(connector_id, started, segments))
-                            .await;
-                    }
-                    current = advanced;
-                }
-                Err(error) => {
-                    let message = format!("{error:#}");
-                    event!(
-                        name: "meetings.step.failed",
-                        Level::WARN,
-                        meeting.id = %id,
-                        meeting.state = current.state().as_str(),
-                        error.message = %message,
-                        "a meeting's processing step failed; the next pass tries again",
-                    );
-                    if let Some(connector_id) = current.connector_id {
-                        self.inner
-                            .activity
-                            .record(ConnectorRun::failed(connector_id, started, &message))
-                            .await;
-                    }
-                    match self.record_failure(&current, &message).await {
-                        Ok(failed) => self.publish(failed),
-                        Err(error) => event!(
-                            name: "meetings.failure.unrecorded",
-                            Level::ERROR,
-                            meeting.id = %id,
-                            error.message = %format!("{error:#}"),
-                            "cannot record a meeting's failed step",
-                        ),
-                    }
-                    return;
-                }
-            }
-        }
-    }
-
-    async fn record_failure(&self, current: &Meeting, message: &str) -> anyhow::Result<Meeting> {
-        let mut connection = self.connection().await?;
-        Ok(meeting::record_failure(&mut connection, current, message).await?)
-    }
-
-    /// `recorded` to `segmented`: Elysia's topic segments.
-    async fn segment(&self, current: &Meeting) -> anyhow::Result<Meeting> {
-        let transcript = self.transcript_to_segment(current).await?;
-        let segments = if transcript.is_empty() {
-            Vec::new()
-        } else {
-            let projects = {
-                let mut connection = self.connection().await?;
-                project::list(&mut connection).await?
-            };
-            let choices: Vec<ProjectChoice> = projects
-                .into_iter()
-                .map(|project| ProjectChoice {
-                    id: project.id,
-                    name: project.name,
-                    description: project.description,
-                })
-                .collect();
-            self.ask_for_segments(current, &transcript, &choices)
-                .await?
-        };
-
-        let mut connection = self.connection().await?;
-        Ok(meeting::record_segments(
-            &mut connection,
-            current.id,
-            serde_json::to_value(&segments)?,
-        )
-        .await?)
-    }
-
-    /// One segmentation turn, and its answer checked.
-    async fn ask_for_segments(
-        &self,
-        current: &Meeting,
-        transcript: &[TranscriptLine],
-        choices: &[ProjectChoice],
-    ) -> anyhow::Result<Vec<Segment>> {
-        let duration_ms = duration_of(current, transcript);
-        let participants: Vec<String> =
-            serde_json::from_value(current.participants.clone()).unwrap_or_default();
-        let prompt = segmentation::prompt(
-            MeetingContext {
-                title: &current.title,
-                duration_ms,
-                participants: &participants,
-            },
-            transcript,
-            choices,
-        );
-        // Read as each segmentation starts, so an admin's change applies from the next one.
-        let model = {
-            let mut connection = self.connection().await?;
-            // A meeting may concern any number of projects, so no project's override applies.
-            agent_models::for_agent(&mut connection, Agent::SegmentMeeting, None)
-                .await?
-                .choice
-        };
-        let request = TurnRequest {
-            conversation: ConversationId::new(Uuid::now_v7()),
-            label: format!("meeting:{}", current.id),
-            prompt,
-            working_directory: WorkspacePath::new(SEGMENTATION_DIRECTORY)
-                .expect("the segmentation directory is a plain relative path"),
-            resume: None,
-            mcp_servers: Vec::new(),
-            allowed_tools: None,
-            system_prompt_append: None,
-            environment: Vec::new(),
-            model: Some(model.model),
-            effort: Some(model.effort),
-            mode: TurnMode::Text {
-                system_prompt: segmentation::SYSTEM_PROMPT.to_owned(),
-            },
-        };
-        let mut ticket = self
-            .inner
-            .runner
-            .submit(request)
-            .map_err(|_shutting_down| anyhow!("Elysium is shutting down"))?;
-        let outcome = loop {
-            match ticket.events.recv().await {
-                Some(RunnerEvent::Finished(outcome)) => break outcome,
-                Some(_) => {}
-                None => return Err(anyhow!("the segmentation turn ended without an outcome")),
-            }
-        };
-        if outcome.status != TurnStatus::Completed {
-            return Err(anyhow!(
-                "the segmentation turn ended {:?}: {}",
-                outcome.status,
-                outcome.error.unwrap_or_default()
-            ));
-        }
-        let answer = outcome.result.unwrap_or_default();
-        Ok(segmentation::parse_answer(&answer, duration_ms, choices)?)
-    }
-
-    /// `segmented` to `done`: clips cut and uploaded, and each segment a timeline record.
-    async fn publish_segments(&self, current: &Meeting) -> anyhow::Result<Meeting> {
-        let transcript = self.transcript_to_segment(current).await?;
-        let segments: Vec<Segment> =
-            serde_json::from_value(current.segments.clone().unwrap_or_else(|| json!([])))
-                .context("the meeting's segments are not in the stored shape")?;
-
-        let clips = self.cut_clips(current, &segments).await?;
-        let records: Vec<NewTimelineRecord> = segments
-            .iter()
-            .enumerate()
-            .map(|(index, segment)| {
-                segment_record(
-                    current,
-                    &transcript,
-                    index,
-                    segment,
-                    clips.get(index).cloned().flatten(),
-                )
-            })
-            .collect();
-
-        let mut connection = self.connection().await?;
-        let meeting_id = current.id;
-        let (done, stored) = connection
-            .transaction(async move |connection| {
-                let mut stored: Vec<TimelineRecord> = Vec::new();
-                for (record, segment) in records.into_iter().zip(&segments) {
-                    let Some(record) = timeline_record::insert_new(connection, record).await?
-                    else {
-                        continue;
-                    };
-                    attribute(connection, &record, segment).await?;
-                    stored.push(record);
-                }
-                let done = meeting::record_done(connection, meeting_id).await?;
-                Ok::<_, diesel::result::Error>((done, stored))
-            })
-            .await?;
-        drop(connection);
-
-        for record in stored {
-            self.inner
-                .events
-                .publish(&ServerEvent::TimelineRecordCreated {
-                    id: record.id,
-                    source_kind: record.source_kind,
-                    created_by: record.created_by,
-                    action_item_id: None,
-                });
-        }
-        if let Err(error) = media::clean_up(&self.inner.workspace, current.id).await {
-            event!(
-                name: "meetings.cleanup.failed",
-                Level::WARN,
-                meeting.id = %current.id,
-                error.message = %error,
-                "a finished meeting's workspace directory could not be removed",
+        let mut needed = Vec::new();
+        for unfinished_meeting in unfinished {
+            let run = newest.get(&unfinished_meeting.id.to_string());
+            let start = workflow::run_to_start(
+                unfinished_meeting.state(),
+                run.map(|run| run.state),
+                run.is_some_and(|run| segmenting.contains(&run.id)),
             );
+            if let Some(start) = start {
+                needed.push((unfinished_meeting, start));
+            }
         }
-        Ok(done)
+        Ok(needed)
     }
 
-    /// Cuts and uploads each segment's clip, answering where each landed, or nothing at all
-    /// for a meeting without a recording.
-    async fn cut_clips(
-        &self,
-        current: &Meeting,
-        segments: &[Segment],
-    ) -> anyhow::Result<Vec<Option<Clip>>> {
-        let (Some(storage_location_id), Some(recording_path)) = (
-            current.storage_location_id,
-            current.recording_path.as_deref(),
-        ) else {
-            return Ok(Vec::new());
+    /// Starts `unfinished`'s run as `start` says, and announces the meeting so its pages follow
+    /// the new run.
+    async fn start_run(&self, unfinished: Meeting, start: RunToStart) -> anyhow::Result<()> {
+        let mut connection = self.connection().await?;
+        let new_run = match start {
+            RunToStart::FromFetch => workflow::run_for(unfinished.id),
+            RunToStart::FromSegmenting => {
+                workflow::run_from_segmenting(&mut connection, &unfinished).await?
+            }
         };
-        let content_type = current
-            .recording_content_type
-            .clone()
-            .unwrap_or_else(|| "application/octet-stream".to_owned());
-        let (location, access_key) = {
-            let mut connection = self.connection().await?;
-            location(&mut connection, &self.inner.cipher, storage_location_id).await?
-        };
-        let kept = media::Kept {
-            storage: &self.inner.storage,
-            location: &location,
-            access_key: &access_key,
-        };
-        let recording_name =
-            media::ensure_local(kept, &self.inner.workspace, current.id, recording_path).await?;
-        let extension = media::extension_of(recording_path);
-
-        let mut clips = Vec::with_capacity(segments.len());
-        for (index, segment) in segments.iter().enumerate() {
-            let clip_name = format!("segment-{index}.{extension}");
-            media::cut(
-                &self.inner.workspace,
-                current.id,
-                &recording_name,
-                segment.start_ms,
-                segment.end_ms,
-                &clip_name,
-            )
-            .await?;
-            let path = media::clip_path(current.id, index, extension);
-            media::upload(
-                kept,
-                &self.inner.workspace,
-                current.id,
-                &clip_name,
-                &path,
-                &content_type,
-            )
-            .await?;
-            clips.push(Some(Clip {
-                storage_location_id,
-                path,
-                content_type: content_type.clone(),
-            }));
+        let started = workflows::start(&mut connection, &self.inner.events, new_run).await?;
+        drop(connection);
+        if started.created {
+            event!(
+                name: "meetings.run.started",
+                Level::INFO,
+                meeting.id = %unfinished.id,
+                workflow_run.id = %started.settled.run.id,
+                meeting.state = unfinished.state().as_str(),
+                "a meeting's run started from where its processing got",
+            );
+            self.publish(unfinished);
         }
-        Ok(clips)
+        Ok(())
     }
 
     fn publish(&self, changed: Meeting) {
@@ -844,33 +475,6 @@ async fn location(
     Ok((location, access_key))
 }
 
-/// Where a segment's clip is kept.
-#[derive(Debug, Clone)]
-struct Clip {
-    storage_location_id: Uuid,
-    path: String,
-    content_type: String,
-}
-
-/// Elysia's attributions for a segment's record.
-async fn attribute(
-    connection: &mut AsyncPgConnection,
-    record: &TimelineRecord,
-    segment: &Segment,
-) -> diesel::QueryResult<()> {
-    for project in &segment.projects {
-        timeline_record::attribute(
-            connection,
-            record.id,
-            project.project_id,
-            project.confidence,
-            ATTRIBUTED_BY,
-        )
-        .await?;
-    }
-    Ok(())
-}
-
 /// Where an account's next listing starts: its cursor's newest start time, or
 /// [`FIRST_LISTING_DAYS`] before it was connected.
 fn listing_since(account: &Connector) -> DateTime<Utc> {
@@ -913,65 +517,9 @@ fn new_meeting(account: &Connector, kind: ConnectorKind, listed: &ListedMeeting)
     }
 }
 
-fn transcript_of(current: &Meeting) -> anyhow::Result<Vec<TranscriptLine>> {
-    serde_json::from_value(current.transcript.clone())
-        .context("the meeting's transcript is not in the stored shape")
-}
-
-/// How long the meeting ran: what the source said, or where its transcript ends.
-fn duration_of(current: &Meeting, transcript: &[TranscriptLine]) -> i64 {
-    let spoken = transcript.iter().map(|line| line.end_ms).max().unwrap_or(0);
-    current.duration_ms.unwrap_or(0).max(spoken)
-}
-
-/// A segment as a timeline record: its title, its transcript excerpt, its speakers, and the
-/// span of the recording it covers, with its clip when there is one.
-fn segment_record(
-    current: &Meeting,
-    transcript: &[TranscriptLine],
-    index: usize,
-    segment: &Segment,
-    clip: Option<Clip>,
-) -> NewTimelineRecord {
-    let speakers = segmentation::speakers(transcript, segment).join(", ");
-    let clip = clip.map(|clip| {
-        json!({
-            "storageLocationId": clip.storage_location_id,
-            "path": clip.path,
-            "contentType": clip.content_type,
-        })
-    });
-    NewTimelineRecord {
-        id: Uuid::now_v7(),
-        source_kind: SEGMENT_SOURCE_KIND.to_owned(),
-        connector_id: current.connector_id,
-        external_id: Some(format!("{}#{index}", current.external_id)),
-        occurred_at: current.started_at + chrono::Duration::milliseconds(segment.start_ms),
-        actor: speakers.chars().take(ACTOR_MAX_CHARACTERS).collect(),
-        title: segment.title.clone(),
-        body: segmentation::excerpt(transcript, segment),
-        url: current.url.clone(),
-        media: Some(json!({
-            "meetingId": current.id,
-            "startMs": segment.start_ms,
-            "endMs": segment.end_ms,
-            "clip": clip,
-        })),
-        metadata: json!({
-            "meetingId": current.id,
-            "meetingTitle": current.title,
-            "meetingSource": current.source_kind,
-            "segmentIndex": index,
-            "summary": segment.summary,
-        }),
-        created_by: current.created_by,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::meetings::segmentation::SegmentProject;
 
     fn account(cursor: Value) -> Connector {
         Connector {
@@ -992,34 +540,6 @@ mod tests {
             github_credential_id: None,
             content: json!({}),
             syncing_since: None,
-        }
-    }
-
-    fn meeting() -> Meeting {
-        Meeting {
-            id: Uuid::now_v7(),
-            connector_id: Some(Uuid::now_v7()),
-            source_kind: "fireflies".to_owned(),
-            external_id: "01HX".to_owned(),
-            title: "Weekly sync".to_owned(),
-            started_at: "2026-10-21T15:00:00Z".parse().expect("a time"),
-            duration_ms: Some(1_800_000),
-            organizer: "ada@example.com".to_owned(),
-            participants: json!(["ada@example.com"]),
-            url: Some("https://app.fireflies.ai/view/01HX".to_owned()),
-            transcript: json!([]),
-            storage_location_id: None,
-            recording_path: None,
-            recording_content_type: None,
-            segments: None,
-            state: "segmented".to_owned(),
-            attempts: 0,
-            last_error: None,
-            created_by: Uuid::now_v7(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-            transcript_hash: None,
-            hold_for_approval: false,
         }
     }
 
@@ -1049,96 +569,5 @@ mod tests {
             json!({ "since": "2026-10-21T09:30:00+00:00" })
         );
         assert_eq!(next_cursor(&json!({}), None), json!({}));
-    }
-
-    #[test]
-    fn a_segment_becomes_a_record_at_its_time_with_its_excerpt_and_clip() {
-        let current = meeting();
-        let transcript = vec![
-            TranscriptLine {
-                start_ms: 61_000,
-                end_ms: 64_000,
-                speaker: "Ada".to_owned(),
-                text: "Launch is Friday.".to_owned(),
-            },
-            TranscriptLine {
-                start_ms: 400_000,
-                end_ms: 401_000,
-                speaker: "Grace".to_owned(),
-                text: "Later topic.".to_owned(),
-            },
-        ];
-        let project_id = Uuid::now_v7();
-        let segment = Segment {
-            start_ms: 60_000,
-            end_ms: 300_000,
-            title: "Launch".to_owned(),
-            summary: "Launch moves to Friday.".to_owned(),
-            projects: vec![SegmentProject {
-                project_id,
-                confidence: 0.9,
-            }],
-        };
-        let location = Uuid::now_v7();
-        let record = segment_record(
-            &current,
-            &transcript,
-            2,
-            &segment,
-            Some(Clip {
-                storage_location_id: location,
-                path: "meetings/x/segments/2.mp4".to_owned(),
-                content_type: "video/mp4".to_owned(),
-            }),
-        );
-
-        assert_eq!(record.source_kind, "meeting");
-        assert_eq!(record.external_id.as_deref(), Some("01HX#2"));
-        assert_eq!(record.occurred_at.to_rfc3339(), "2026-10-21T15:01:00+00:00");
-        assert_eq!(record.actor, "Ada");
-        assert_eq!(record.body, "[1:01] Ada: Launch is Friday.\n");
-        assert_eq!(record.created_by, current.created_by);
-        let media = record.media.expect("a span");
-        assert_eq!(media["startMs"], 60_000);
-        assert_eq!(media["clip"]["path"], "meetings/x/segments/2.mp4");
-        assert_eq!(media["clip"]["storageLocationId"], json!(location));
-        assert_eq!(record.metadata["summary"], "Launch moves to Friday.");
-    }
-
-    #[test]
-    fn a_segment_without_a_recording_still_names_its_span() {
-        let record = segment_record(
-            &meeting(),
-            &[],
-            0,
-            &Segment {
-                start_ms: 0,
-                end_ms: 60_000,
-                title: "Intros".to_owned(),
-                summary: String::new(),
-                projects: Vec::new(),
-            },
-            None,
-        );
-        let media = record.media.expect("a span");
-        assert_eq!(media["endMs"], 60_000);
-        assert!(media["clip"].is_null());
-    }
-
-    #[test]
-    fn a_meeting_runs_as_long_as_its_source_says_or_its_transcript_does() {
-        let mut current = meeting();
-        let line = TranscriptLine {
-            start_ms: 0,
-            end_ms: 2_000_000,
-            speaker: String::new(),
-            text: "x".to_owned(),
-        };
-        assert_eq!(
-            duration_of(&current, std::slice::from_ref(&line)),
-            2_000_000
-        );
-        current.duration_ms = None;
-        assert_eq!(duration_of(&current, &[]), 0);
     }
 }

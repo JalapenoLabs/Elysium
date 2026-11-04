@@ -12,7 +12,7 @@
 //!
 //! A meeting whose source keeps no recording, or whose recording has no audio stream, skips
 //! the step, saying which: there is nothing to transcribe, and the run goes on with the
-//! source's transcript alone.
+//! source's transcript alone. So does a meeting a person skipped the fetch of.
 //!
 //! # Doing it once
 //!
@@ -50,8 +50,10 @@ use crate::workflows::{Done, Step, StepContext, StepFailure, StepLog};
 #[serde(rename_all = "camelCase")]
 pub struct TranscribedMeeting {
     pub meeting_id: Uuid,
-    /// The SHA-256 of the source's stored transcript, as hex.
-    pub transcript_hash: String,
+    /// The SHA-256 of the source's stored transcript, as hex; `None` when the meeting was not
+    /// fetched.
+    #[serde(default)]
+    pub transcript_hash: Option<String>,
     pub recording: Option<StoredRecording>,
     /// The SHA-256 of the Whisper transcript stored for the meeting, as hex; `None` when it was
     /// not transcribed.
@@ -112,6 +114,12 @@ impl TranscribeMeeting {
         step_job_id: Uuid,
         log: &StepLog,
     ) -> Result<Done<TranscribedMeeting>, StepFailure> {
+        if recorded.transcript_hash.is_none() {
+            log.line("The meeting's fetch was skipped");
+            return Ok(Done::Skipped {
+                reason: "Not fetched, so nothing to transcribe".to_owned(),
+            });
+        }
         let Some(recording) = recorded.recording.clone() else {
             log.line("The meeting has no recording kept");
             return Ok(Done::Skipped {
@@ -341,9 +349,30 @@ mod tests {
     fn recorded(meeting_id: Uuid, recording: Option<StoredRecording>) -> RecordedMeeting {
         RecordedMeeting {
             meeting_id,
-            transcript_hash: "a".repeat(64),
+            transcript_hash: Some("a".repeat(64)),
             recording,
         }
+    }
+
+    #[tokio::test]
+    async fn a_meeting_whose_fetch_was_skipped_skips_its_transcription_too() {
+        // What a skipped fetch hands on: the fetch's own input.
+        let skipped_fetch = serde_json::json!({ "meetingId": Uuid::now_v7() });
+        let input: RecordedMeeting = serde_json::from_value(skipped_fetch).expect("reads");
+        assert_eq!(input.transcript_hash, None);
+
+        let step = TranscribeMeeting::for_test(
+            unconnected_pool(),
+            Arc::new(crate::test_support::cipher()),
+        );
+        let context = StepContext::for_test::<TranscribeMeeting>(unconnected_pool());
+        let done = step.run(input, context).await.expect("skips");
+        assert_eq!(
+            done,
+            Done::Skipped {
+                reason: "Not fetched, so nothing to transcribe".to_owned(),
+            }
+        );
     }
 
     #[tokio::test]
@@ -466,7 +495,7 @@ mod tests {
             Done::Succeeded {
                 output: TranscribedMeeting {
                     meeting_id: stored.id,
-                    transcript_hash: "a".repeat(64),
+                    transcript_hash: Some("a".repeat(64)),
                     recording: Some(recording),
                     whisper_transcript_hash: Some(hash),
                 },

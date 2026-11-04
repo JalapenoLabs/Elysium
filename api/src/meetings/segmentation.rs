@@ -1,21 +1,31 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Cutting a meeting's transcript into topic segments, each attributed to the projects it is
-//! about. Pure: the prompt Elysia reads, and the checks her answer has to pass.
+//! Cutting a meeting's transcript or a conversation's messages into topic segments, each
+//! attributed to the projects it is about. Pure: the prompts Elysia reads, the checks her
+//! answers have to pass, and where a segment's clip is cut.
 //!
 //! Segmentation is one text turn on the runner (`crate::runner::TurnMode::Text`): no tools,
 //! no settings, only the transcript and the workspace's projects in the prompt and a JSON
-//! answer back. Nothing the answer says is taken on trust: [`parse_answer`] keeps only
-//! segments that lie inside the meeting, in order and without overlapping, and only
-//! attributions to projects that were offered, so a model's mistake can drop a segment but
-//! never invent a project or a time.
+//! answer back. A meeting is answered in seconds of its recording ([`parse_answer`]), and a
+//! conversation by the numbers of its messages ([`parse_conversation_answer`]), since a chat's
+//! topics are runs of messages rather than stretches of time. Nothing either answer says is
+//! taken on trust: only segments that lie inside the meeting or the conversation, in order and
+//! without overlapping, are kept, and only attributions to projects that were offered, so a
+//! model's mistake can drop a segment but never invent a project, a time, or a message.
 //!
 //! # Size
 //!
 //! The runner passes the prompt as one argument to `claude`, and Linux allows one argument
 //! 128 KiB. [`transcript_text`] therefore merges each speaker's consecutive lines and, past
 //! [`TRANSCRIPT_BUDGET_BYTES`], shortens every line evenly, so a long meeting still reaches
-//! the model whole, only in less detail.
+//! the model whole, only in less detail. A conversation's messages are shortened the same way.
+//!
+//! # Clips
+//!
+//! A segment's times come from the transcript, whose lines a source times to the second or
+//! so. When Whisper heard the recording, its word timings are exact to the audio, so a clip is
+//! cut at the words nearest the segment's ends ([`clip_span`]) and starts and stops between
+//! words rather than inside one.
 
 use std::fmt::Write as _;
 
@@ -23,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::source::TranscriptLine;
+use crate::whisper::WhisperWord;
 
 /// The most bytes of transcript one prompt carries, leaving room under the 128 KiB argument
 /// limit for the instructions and the projects.
@@ -50,6 +61,12 @@ const SUMMARY_CHARACTERS: usize = 1_000;
 /// The least confidence an attribution needs to be kept. Below it the model is guessing.
 const MIN_CONFIDENCE: f32 = 0.3;
 
+/// How far a clip's end may move to meet a word Whisper heard. A source's line times and
+/// Whisper's word times agree to a second or two; a word farther away than this belongs to
+/// speech on the other side of a silence Whisper skipped, so the transcript's time is kept.
+const SNAP_TOLERANCE_MS: i64 = 3_000;
+
+/// The meeting's segmentation turn's instructions: segments in seconds of the recording.
 pub const SYSTEM_PROMPT: &str = "\
 You divide a meeting's transcript into its topics, the way a person skimming the recording \
 would want it chaptered, and say which of the listed projects each topic is about. \
@@ -59,6 +76,18 @@ Answer with one JSON object and nothing else: \
 Segments are in order, do not overlap, and together cover the meeting; a topic usually runs \
 for minutes, not seconds. The title is a short phrase. The summary is two to four plain \
 sentences of what was said and decided, with any action items and who owns them. \
+Name only projects from the list, by their id, with a confidence from 0 to 1, and leave \
+projects empty for small talk or anything no project is about.";
+
+/// A conversation's segmentation turn's instructions: segments as runs of numbered messages.
+pub const CONVERSATION_SYSTEM_PROMPT: &str = "\
+You divide a conversation's messages into its topics, and say which of the listed projects \
+each topic is about. Answer with one JSON object and nothing else: \
+{\"segments\": [{\"firstMessage\": number, \"lastMessage\": number, \"title\": string, \
+\"summary\": string, \"projects\": [{\"projectId\": string, \"confidence\": number}]}]}. \
+Messages are numbered from 1. Segments are in order and do not overlap; a conversation about \
+one thing is one segment. The title is a short phrase. The summary is one to three plain \
+sentences of what was asked, said, and decided, with any action items and who owns them. \
 Name only projects from the list, by their id, with a confidence from 0 to 1, and leave \
 projects empty for small talk or anything no project is about.";
 
@@ -88,6 +117,17 @@ pub struct SegmentProject {
     pub confidence: f32,
 }
 
+/// One topic of a conversation: a run of its messages, by their place in the conversation from
+/// 0, first and last included.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversationSegment {
+    pub first: usize,
+    pub last: usize,
+    pub title: String,
+    pub summary: String,
+    pub projects: Vec<SegmentProject>,
+}
+
 /// The meeting as the prompt describes it.
 #[derive(Debug, Clone, Copy)]
 pub struct MeetingContext<'meeting> {
@@ -96,7 +136,7 @@ pub struct MeetingContext<'meeting> {
     pub participants: &'meeting [String],
 }
 
-/// The segmentation turn's prompt.
+/// The meeting's segmentation turn's prompt.
 pub fn prompt(
     meeting: MeetingContext<'_>,
     transcript: &[TranscriptLine],
@@ -113,7 +153,42 @@ pub fn prompt(
     if !meeting.participants.is_empty() {
         let _ = writeln!(prompt, "Participants: {}", meeting.participants.join(", "));
     }
+    push_projects(&mut prompt, projects);
+    prompt.push_str("\nTranscript, each line starting at [minutes:seconds]:\n");
+    prompt.push_str(&transcript_text(transcript, TRANSCRIPT_BUDGET_BYTES));
+    prompt
+}
 
+/// A conversation's segmentation turn's prompt: `title` is what the conversation is called
+/// where it was had, and `messages` are its messages in order, each timed from the first.
+pub fn conversation_prompt(
+    title: &str,
+    messages: &[TranscriptLine],
+    projects: &[ProjectChoice],
+) -> String {
+    let mut participants: Vec<&str> = Vec::new();
+    for message in messages {
+        let named = !message.speaker.is_empty();
+        if named && !participants.contains(&message.speaker.as_str()) {
+            participants.push(&message.speaker);
+        }
+    }
+    let mut prompt = String::new();
+    let _ = writeln!(prompt, "Conversation: {title}");
+    let _ = writeln!(prompt, "Messages: {}", messages.len());
+    if !participants.is_empty() {
+        let _ = writeln!(prompt, "Participants: {}", participants.join(", "));
+    }
+    push_projects(&mut prompt, projects);
+    prompt
+        .push_str("\nMessages, each numbered and starting at [minutes:seconds] after the first:\n");
+    prompt.push_str(&messages_text(messages, TRANSCRIPT_BUDGET_BYTES));
+    prompt
+}
+
+/// The projects a segment may be attributed to, each as its id, name, and the start of its
+/// description, within [`PROJECTS_BUDGET_BYTES`].
+fn push_projects(prompt: &mut String, projects: &[ProjectChoice]) {
     prompt.push_str("\nProjects:\n");
     let mut projects_bytes = 0;
     for project in projects {
@@ -132,10 +207,43 @@ pub fn prompt(
     if projects.is_empty() {
         prompt.push_str("(none)\n");
     }
+}
 
-    prompt.push_str("\nTranscript, each line starting at [minutes:seconds]:\n");
-    prompt.push_str(&transcript_text(transcript, TRANSCRIPT_BUDGET_BYTES));
-    prompt
+/// A conversation's messages as `[n] [m:ss] Speaker: text` lines, numbered from 1 and never
+/// merged, since an answer names them by number. Past `budget` bytes every message is shortened
+/// evenly; a conversation too long for even that keeps its start and says where it was cut, and
+/// its answer may still only name the messages shown.
+pub fn messages_text(messages: &[TranscriptLine], budget: usize) -> String {
+    let prefixes: Vec<String> = messages
+        .iter()
+        .zip(1..)
+        .map(|(message, number)| {
+            let speaker = if message.speaker.is_empty() {
+                "Someone"
+            } else {
+                message.speaker.as_str()
+            };
+            format!("[{number}] [{}] {speaker}: ", clock(message.start_ms))
+        })
+        .collect();
+    let render = |limit: Option<usize>| {
+        let mut rendered = String::new();
+        for (message, prefix) in messages.iter().zip(&prefixes) {
+            rendered.push_str(prefix);
+            let text = message
+                .text
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            match limit {
+                Some(limit) => rendered.push_str(&truncated(&text, limit)),
+                None => rendered.push_str(&text),
+            }
+            rendered.push('\n');
+        }
+        rendered
+    };
+    fit_to_budget(render, &prefixes, budget)
 }
 
 /// The transcript as `[mm:ss] Speaker: text` lines, one per run of a speaker's consecutive
@@ -176,19 +284,29 @@ pub fn transcript_text(transcript: &[TranscriptLine], budget: usize) -> String {
         }
         rendered
     };
+    fit_to_budget(render, &prefixes, budget)
+}
 
+/// Lines rendered by `render` within `budget` bytes: whole when they fit, otherwise each line's
+/// text cut to the same share of what its `prefixes` leave (`render(Some(share))`), and when even
+/// that is too long, the start kept and a note saying where the rest was cut.
+fn fit_to_budget(
+    render: impl Fn(Option<usize>) -> String,
+    prefixes: &[String],
+    budget: usize,
+) -> String {
     let whole = render(None);
-    if whole.len() <= budget || turns.is_empty() {
+    if whole.len() <= budget || prefixes.is_empty() {
         return whole;
     }
-    // Every turn's text gets the same share of what the prefixes leave, never less than a
+    // Every line's text gets the same share of what the prefixes leave, never less than a
     // short line. Each line also carries a newline and, once cut, a three byte ellipsis.
     let overhead: usize = prefixes.iter().map(|prefix| prefix.len() + 4).sum();
-    let share = (budget.saturating_sub(overhead) / turns.len()).max(MIN_LINE_CHARACTERS);
+    let share = (budget.saturating_sub(overhead) / prefixes.len()).max(MIN_LINE_CHARACTERS);
     let mut shortened = render(Some(share));
     if shortened.len() > budget {
-        // Too many turns for even a short line each: keep the meeting's start in full detail
-        // and say that the rest was cut, rather than exceed the argument limit.
+        // Too many lines for even a short one each: keep the start in full detail and say that
+        // the rest was cut, rather than exceed the argument limit.
         let cut = shortened
             .char_indices()
             .take_while(|(index, _)| *index < budget)
@@ -238,7 +356,77 @@ struct AnswerProject {
     confidence: f32,
 }
 
-/// The segments in the model's answer that hold up: inside the meeting, in order, apart,
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationAnswer {
+    segments: Vec<ConversationAnswerSegment>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationAnswerSegment {
+    first_message: i64,
+    last_message: i64,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    summary: String,
+    #[serde(default)]
+    projects: Vec<AnswerProject>,
+}
+
+/// The segments in a conversation's answer that hold up: runs of its messages, in order and
+/// apart, attributed only to projects in `offered`. A run starting before the last one ended
+/// starts after it, and one reaching past the last message ends there.
+///
+/// # Errors
+/// [`AnswerError`] when the answer holds no JSON object, is not the asked-for shape, or
+/// leaves no segment standing.
+pub fn parse_conversation_answer(
+    answer: &str,
+    messages: &[TranscriptLine],
+    offered: &[ProjectChoice],
+) -> Result<Vec<ConversationSegment>, AnswerError> {
+    let json = json_object(answer).ok_or(AnswerError::NoJson)?;
+    let parsed: ConversationAnswer =
+        serde_json::from_str(json).map_err(|error| AnswerError::Shape(error.to_string()))?;
+
+    let mut segments: Vec<ConversationSegment> = Vec::new();
+    // The first message the next segment may start at, from 0.
+    let mut next_free = 0;
+    for candidate in parsed.segments {
+        if segments.len() == MAX_SEGMENTS || next_free >= messages.len() {
+            break;
+        }
+        // Numbered from 1 in the answer; anything below that names no message.
+        let (Ok(first), Ok(last)) = (
+            usize::try_from(candidate.first_message - 1),
+            usize::try_from(candidate.last_message - 1),
+        ) else {
+            continue;
+        };
+        let first = first.max(next_free);
+        let last = last.min(messages.len() - 1);
+        if last < first {
+            continue;
+        }
+        segments.push(ConversationSegment {
+            first,
+            last,
+            title: title_or(&candidate.title, messages[first].start_ms),
+            summary: one_line(&candidate.summary, SUMMARY_CHARACTERS),
+            projects: kept_projects(candidate.projects, offered),
+        });
+        next_free = last + 1;
+    }
+
+    if segments.is_empty() {
+        return Err(AnswerError::Empty);
+    }
+    Ok(segments)
+}
+
+/// The segments in a meeting's answer that hold up: inside the meeting, in order, apart,
 /// long enough, and attributed only to projects in `offered`.
 ///
 /// # Errors
@@ -275,38 +463,12 @@ pub fn parse_answer(
         if end_ms - start_ms < MIN_SEGMENT_MS {
             continue;
         }
-
-        let mut projects: Vec<SegmentProject> = Vec::new();
-        for project in candidate.projects {
-            let Ok(project_id) = Uuid::parse_str(project.project_id.trim()) else {
-                continue;
-            };
-            let known = offered.iter().any(|choice| choice.id == project_id);
-            let repeated = projects.iter().any(|kept| kept.project_id == project_id);
-            if !known || repeated || !project.confidence.is_finite() {
-                continue;
-            }
-            let confidence = project.confidence.clamp(0.0, 1.0);
-            if confidence < MIN_CONFIDENCE {
-                continue;
-            }
-            projects.push(SegmentProject {
-                project_id,
-                confidence,
-            });
-        }
-
-        let title = one_line(&candidate.title, TITLE_CHARACTERS);
         segments.push(Segment {
             start_ms,
             end_ms,
-            title: if title.is_empty() {
-                format!("From {}", clock(start_ms))
-            } else {
-                title
-            },
+            title: title_or(&candidate.title, start_ms),
             summary: one_line(&candidate.summary, SUMMARY_CHARACTERS),
-            projects,
+            projects: kept_projects(candidate.projects, offered),
         });
         previous_end = end_ms;
     }
@@ -315,6 +477,71 @@ pub fn parse_answer(
         return Err(AnswerError::Empty);
     }
     Ok(segments)
+}
+
+/// The attributions in `answered` that hold up: to projects in `offered`, each once, with a
+/// confidence clamped to 0 to 1 and no less than [`MIN_CONFIDENCE`].
+fn kept_projects(answered: Vec<AnswerProject>, offered: &[ProjectChoice]) -> Vec<SegmentProject> {
+    let mut projects: Vec<SegmentProject> = Vec::new();
+    for project in answered {
+        let Ok(project_id) = Uuid::parse_str(project.project_id.trim()) else {
+            continue;
+        };
+        let known = offered.iter().any(|choice| choice.id == project_id);
+        let repeated = projects.iter().any(|kept| kept.project_id == project_id);
+        if !known || repeated || !project.confidence.is_finite() {
+            continue;
+        }
+        let confidence = project.confidence.clamp(0.0, 1.0);
+        if confidence < MIN_CONFIDENCE {
+            continue;
+        }
+        projects.push(SegmentProject {
+            project_id,
+            confidence,
+        });
+    }
+    projects
+}
+
+/// `answered` as a title, or where the segment starts when the answer gave none.
+fn title_or(answered: &str, start_ms: i64) -> String {
+    let title = one_line(answered, TITLE_CHARACTERS);
+    if title.is_empty() {
+        return format!("From {}", clock(start_ms));
+    }
+    title
+}
+
+/// Where a segment's clip is cut, from `start_ms` to `end_ms` of the recording: at the start of
+/// the word Whisper heard nearest the segment's start and the end of the word nearest its end,
+/// each within [`SNAP_TOLERANCE_MS`]. `words` are every word of the Whisper transcript in
+/// order; with none, or none near an end, that end stays where the transcript put it. A span the
+/// words would turn around is kept as the transcript gave it.
+pub fn clip_span(start_ms: i64, end_ms: i64, words: &[WhisperWord]) -> (i64, i64) {
+    let starts = nearest(words, start_ms, |word| word.start_ms);
+    let ends = nearest(words, end_ms, |word| word.end_ms);
+    let clip_start = starts.unwrap_or(start_ms);
+    let clip_end = ends.unwrap_or(end_ms);
+    if clip_end <= clip_start {
+        return (start_ms, end_ms);
+    }
+    (clip_start, clip_end)
+}
+
+/// The time `at` of the word in `words` (in order) nearest `target`, when one is within
+/// [`SNAP_TOLERANCE_MS`].
+fn nearest(words: &[WhisperWord], target: i64, at: impl Fn(&WhisperWord) -> i64) -> Option<i64> {
+    // Words are in order, so their starts and their ends both are: the nearest is on one side
+    // or the other of where `target` would go.
+    let after = words.partition_point(|word| at(word) < target);
+    let candidates = [after.checked_sub(1), Some(after)];
+    candidates
+        .into_iter()
+        .flatten()
+        .filter_map(|index| words.get(index).map(&at))
+        .filter(|time| (time - target).abs() <= SNAP_TOLERANCE_MS)
+        .min_by_key(|time| (time - target).abs())
 }
 
 /// The transcript lines that fall inside `segment`, as its excerpt.
@@ -558,6 +785,117 @@ mod tests {
         };
         assert_eq!(excerpt(&transcript, &segment), "[0:30] Grace: Launch.\n");
         assert_eq!(speakers(&transcript, &segment), vec!["Grace".to_owned()]);
+    }
+
+    fn word(start_ms: i64, end_ms: i64) -> WhisperWord {
+        WhisperWord {
+            start_ms,
+            end_ms,
+            text: " word".to_owned(),
+            probability: 0.9,
+        }
+    }
+
+    #[test]
+    fn a_clip_is_cut_at_the_words_nearest_its_ends() {
+        let words = [
+            word(58_200, 58_900),
+            word(60_400, 60_800),
+            word(299_100, 299_700),
+            word(301_900, 302_300),
+        ];
+        // The transcript's 60 s starts nearest the word at 60.4 s; its 300 s ends nearest the
+        // word ending at 299.7 s, not the one after the pause.
+        assert_eq!(clip_span(60_000, 300_000, &words), (60_400, 299_700));
+    }
+
+    #[test]
+    fn a_clip_keeps_the_transcripts_times_where_whisper_heard_nothing_near() {
+        assert_eq!(clip_span(60_000, 300_000, &[]), (60_000, 300_000));
+        // Silence Whisper skipped around the start: the nearest word is ten seconds off.
+        let words = [word(70_000, 70_500), word(299_000, 299_800)];
+        assert_eq!(clip_span(60_000, 300_000, &words), (60_000, 299_800));
+        // A span inside a pause: the nearest start is after the nearest end, which would turn it
+        // around, so it stays as the transcript gave it.
+        let around = [word(3_000, 3_100), word(3_400, 3_500)];
+        assert_eq!(clip_span(3_250, 3_260, &around), (3_250, 3_260));
+    }
+
+    #[test]
+    fn a_conversations_messages_are_numbered_and_never_merged() {
+        let launch = project("Launch");
+        let messages = [
+            line(0, "Ada", "Can we ship\nFriday?"),
+            line(40, "Ada", "Or Monday."),
+            line(95, "Grace", "Friday works."),
+        ];
+        let prompt = conversation_prompt(
+            "#launch in Mooreslab",
+            &messages,
+            std::slice::from_ref(&launch),
+        );
+
+        assert!(prompt.contains("Conversation: #launch in Mooreslab"));
+        assert!(prompt.contains("Messages: 3"));
+        assert!(prompt.contains("Participants: Ada, Grace"));
+        assert!(prompt.contains(&format!("- {}: Launch", launch.id)));
+        assert!(prompt.contains("[1] [0:00] Ada: Can we ship Friday?\n"));
+        assert!(prompt.contains("[2] [0:40] Ada: Or Monday.\n"));
+        assert!(prompt.contains("[3] [1:35] Grace: Friday works.\n"));
+    }
+
+    #[test]
+    fn a_conversations_answer_keeps_only_runs_of_its_messages() {
+        let launch = project("Launch");
+        let messages = [
+            line(0, "Ada", "Hi."),
+            line(5, "Ada", "Can we ship Friday?"),
+            line(9, "Grace", "Yes."),
+            line(30, "Grace", "Lunch?"),
+        ];
+        let answer = format!(
+            "{{\"segments\": [\
+              {{\"firstMessage\": 0, \"lastMessage\": 0, \"title\": \"Nothing\"}}, \
+              {{\"firstMessage\": 1, \"lastMessage\": 3, \"title\": \"Launch\", \
+                \"summary\": \"Ships Friday.\", \
+                \"projects\": [{{\"projectId\": \"{launch}\", \"confidence\": 0.8}}]}}, \
+              {{\"firstMessage\": 2, \"lastMessage\": 9, \"title\": \"\", \"summary\": \"\"}}, \
+              {{\"firstMessage\": 4, \"lastMessage\": 4, \"title\": \"Late\"}}\
+            ]}}",
+            launch = launch.id,
+        );
+        let segments = parse_conversation_answer(&answer, &messages, std::slice::from_ref(&launch))
+            .expect("segments");
+
+        assert_eq!(
+            segments,
+            vec![
+                // Message 0 names nothing, so that run is dropped.
+                ConversationSegment {
+                    first: 0,
+                    last: 2,
+                    title: "Launch".to_owned(),
+                    summary: "Ships Friday.".to_owned(),
+                    projects: vec![SegmentProject {
+                        project_id: launch.id,
+                        confidence: 0.8,
+                    }],
+                },
+                // It overlapped the first, so it starts after it, and ends with the last message;
+                // the run after it has no message left to start at.
+                ConversationSegment {
+                    first: 3,
+                    last: 3,
+                    title: "From 0:30".to_owned(),
+                    summary: String::new(),
+                    projects: Vec::new(),
+                },
+            ]
+        );
+        assert_eq!(
+            parse_conversation_answer("{\"segments\": []}", &messages, &[]),
+            Err(AnswerError::Empty)
+        );
     }
 
     #[test]

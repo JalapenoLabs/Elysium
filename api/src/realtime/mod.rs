@@ -185,6 +185,11 @@ pub enum ServerEvent {
         /// The inbox item it raised, when it raised one.
         action_item_id: Option<Uuid>,
     },
+    /// What a record is attributed to changed: a person confirmed, added, removed, or undid an
+    /// attribution, or segmenting read its conversation again. Its id and owner alone; its
+    /// owner's pages load it by id.
+    #[serde(rename = "timelineRecord.changed")]
+    TimelineRecordChanged { id: Uuid, created_by: Uuid },
     /// A draft was written, changed, discarded, or a send of it began, succeeded, or failed.
     /// Its id and writer alone, since its text is the writer's; their pages load it by id.
     #[serde(rename = "draft.changed")]
@@ -194,7 +199,7 @@ pub enum ServerEvent {
     #[serde(rename = "meeting.changed")]
     MeetingChanged {
         id: Uuid,
-        /// `pending`, `recorded`, `segmented`, `done`, or `failed`.
+        /// How far its processing got: `pending`, `recorded`, `segmented`, or `done`.
         state: String,
         created_by: Uuid,
     },

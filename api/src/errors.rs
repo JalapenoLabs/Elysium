@@ -103,6 +103,21 @@ impl From<crate::action_items::WorkError> for ApiError {
     }
 }
 
+impl From<crate::models::attribution::UndoError> for ApiError {
+    fn from(error: crate::models::attribution::UndoError) -> Self {
+        use crate::models::attribution::UndoError;
+
+        match error {
+            UndoError::NotFound => Self::NotFound,
+            UndoError::ChangedSince => Self::CodedConflict {
+                code: "attribution_changed",
+                message: "this attribution changed since, so undoing it would overwrite that",
+            },
+            UndoError::Database(database) => database.into(),
+        }
+    }
+}
+
 impl From<crate::models::learning::LearningError> for ApiError {
     fn from(error: crate::models::learning::LearningError) -> Self {
         use crate::models::learning::LearningError;

@@ -5,11 +5,12 @@
 //!
 //! A meeting belongs to whoever owns the account it was read from, like every timeline
 //! record. It moves through `pending` (listed), `recorded` (fetched by its run of the meeting
-//! workflow), `segmented`, and `done`, and is `failed` once its run fails, or a step of the
-//! processing loop has failed [`MAX_ATTEMPTS`] times.
+//! workflow), `segmented`, and `done`, each written by a step of that run. How far it got is
+//! all it keeps: whether it failed, and why, is its run's (`crate::meetings::workflow`).
 //!
 //! What a fetch stores, the source's transcript and the recording, is written once
-//! ([`record_fetched`]): a later fetch of the same meeting writes nothing.
+//! ([`record_fetched`]): a later fetch of the same meeting writes nothing. Its segments are
+//! written once too ([`record_segments`]).
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -19,11 +20,6 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::database::schema::meetings;
-
-/// How many times one step may fail before the meeting is given up on. A failure is most
-/// often a provider or a model that did not answer, which a later pass gets past; three
-/// in a row is something a person has to look at.
-pub const MAX_ATTEMPTS: i32 = 3;
 
 /// How far a meeting's processing got. Stored as `meetings.state`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,18 +33,10 @@ pub enum MeetingState {
     Segmented,
     /// Its segments are on the timeline.
     Done,
-    /// A step failed [`MAX_ATTEMPTS`] times.
-    Failed,
 }
 
 impl MeetingState {
-    const ALL: [Self; 5] = [
-        Self::Pending,
-        Self::Recorded,
-        Self::Segmented,
-        Self::Done,
-        Self::Failed,
-    ];
+    const ALL: [Self; 4] = [Self::Pending, Self::Recorded, Self::Segmented, Self::Done];
 
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -56,7 +44,6 @@ impl MeetingState {
             Self::Recorded => "recorded",
             Self::Segmented => "segmented",
             Self::Done => "done",
-            Self::Failed => "failed",
         }
     }
 
@@ -89,8 +76,6 @@ pub struct Meeting {
     pub segments: Option<Value>,
     /// See [`MeetingState`].
     pub state: String,
-    pub attempts: i32,
-    pub last_error: Option<String>,
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -103,9 +88,13 @@ pub struct Meeting {
 }
 
 impl Meeting {
-    /// The meeting's state. A value the constraint does not allow reads as failed.
+    /// The meeting's state.
+    ///
+    /// # Panics
+    /// Panics on a state `meetings_state_check` does not allow, which only a migration that
+    /// drifted from [`MeetingState`] can cause.
     pub fn state(&self) -> MeetingState {
-        MeetingState::parse(&self.state).unwrap_or(MeetingState::Failed)
+        MeetingState::parse(&self.state).expect("meetings_state_check allows only MeetingState")
     }
 
     /// Where its recording is stored, if it is.
@@ -172,15 +161,14 @@ pub async fn known_external_ids(
         .await
 }
 
-/// Every meeting still to be processed, oldest first.
+/// Every meeting whose segments are not on the timeline yet, oldest first. The condition is
+/// `meetings_unfinished`'s own, so the partial index answers it.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn list_unfinished(connection: &mut AsyncPgConnection) -> QueryResult<Vec<Meeting>> {
     meetings::table
-        .filter(
-            meetings::state.ne_all([MeetingState::Done.as_str(), MeetingState::Failed.as_str()]),
-        )
+        .filter(meetings::state.ne(MeetingState::Done.as_str()))
         .select(Meeting::as_select())
         .order(meetings::created_at.asc())
         .load(connection)
@@ -305,8 +293,6 @@ pub async fn record_fetched(
             meetings::recording_path.eq(recording_path),
             meetings::recording_content_type.eq(recording_content_type),
             meetings::state.eq(MeetingState::Recorded.as_str()),
-            meetings::attempts.eq(0),
-            meetings::last_error.eq(None::<String>),
         ))
         .returning(Meeting::as_returning())
         .get_result(connection)
@@ -323,30 +309,9 @@ pub struct StoredRecording {
     pub content_type: Option<String>,
 }
 
-/// Marks a meeting still waiting to be fetched as `failed`, with `error`, because its run of the
-/// meeting workflow failed. Answers `None`, writing nothing, for a meeting that is no longer
-/// waiting to be fetched.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn record_fetch_failure(
-    connection: &mut AsyncPgConnection,
-    id: Uuid,
-    error: &str,
-) -> QueryResult<Option<Meeting>> {
-    diesel::update(meetings::table.find(id))
-        .filter(meetings::state.eq(MeetingState::Pending.as_str()))
-        .set((
-            meetings::state.eq(MeetingState::Failed.as_str()),
-            meetings::last_error.eq(Some(error)),
-        ))
-        .returning(Meeting::as_returning())
-        .get_result(connection)
-        .await
-        .optional()
-}
-
-/// Records the segments Elysia found and moves the meeting to `segmented`.
+/// Stores the segments Elysia found for fetched meeting `id` and moves it to `segmented`.
+/// Answers `None`, writing nothing, when it has segments already: the first answer stored is the
+/// one its clips and records are made from, so an attempt that runs again never asks twice.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -354,93 +319,26 @@ pub async fn record_segments(
     connection: &mut AsyncPgConnection,
     id: Uuid,
     segments: Value,
-) -> QueryResult<Meeting> {
+) -> QueryResult<Option<Meeting>> {
     diesel::update(meetings::table.find(id))
+        .filter(meetings::segments.is_null())
         .set((
             meetings::segments.eq(Some(segments)),
             meetings::state.eq(MeetingState::Segmented.as_str()),
-            meetings::attempts.eq(0),
-            meetings::last_error.eq(None::<String>),
         ))
         .returning(Meeting::as_returning())
         .get_result(connection)
         .await
+        .optional()
 }
 
-/// Moves the meeting to `done`: its segments are on the timeline.
+/// Moves meeting `id` to `done`: its segments are on the timeline.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn record_done(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Meeting> {
     diesel::update(meetings::table.find(id))
-        .set((
-            meetings::state.eq(MeetingState::Done.as_str()),
-            meetings::attempts.eq(0),
-            meetings::last_error.eq(None::<String>),
-        ))
-        .returning(Meeting::as_returning())
-        .get_result(connection)
-        .await
-}
-
-/// Records that the meeting's current step failed with `error`, and gives the meeting up
-/// once that has happened [`MAX_ATTEMPTS`] times.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn record_failure(
-    connection: &mut AsyncPgConnection,
-    meeting: &Meeting,
-    error: &str,
-) -> QueryResult<Meeting> {
-    let attempts = meeting.attempts.saturating_add(1);
-    let state = if attempts >= MAX_ATTEMPTS {
-        MeetingState::Failed
-    } else {
-        meeting.state()
-    };
-    diesel::update(meetings::table.find(meeting.id))
-        .set((
-            meetings::attempts.eq(attempts),
-            meetings::last_error.eq(Some(error)),
-            meetings::state.eq(state.as_str()),
-        ))
-        .returning(Meeting::as_returning())
-        .get_result(connection)
-        .await
-}
-
-/// Gives a failed meeting another try from the step it failed at: a meeting with segments
-/// resumes trimming, one that was fetched resumes segmenting, and any other waits to be fetched
-/// again. A meeting whose run of the meeting workflow failed also needs that run's failed step
-/// retried, which `crate::meetings::workflow::retry` does alongside this.
-///
-/// # Errors
-/// [`diesel::result::Error::NotFound`] when it does not exist, belongs to someone else, or
-/// has not failed.
-pub async fn retry(
-    connection: &mut AsyncPgConnection,
-    id: Uuid,
-    owner: Uuid,
-) -> QueryResult<Meeting> {
-    let meeting = find_owned(connection, id, owner).await?;
-    if meeting.state() != MeetingState::Failed {
-        return Err(diesel::result::Error::NotFound);
-    }
-    // A meeting fetched before transcripts were hashed shows it by its recording alone.
-    let resume_at = if meeting.segments.is_some() {
-        MeetingState::Segmented
-    } else if meeting.transcript_hash.is_some() || meeting.recording_path.is_some() {
-        MeetingState::Recorded
-    } else {
-        MeetingState::Pending
-    };
-    diesel::update(meetings::table.find(id))
-        .set((
-            meetings::state.eq(resume_at.as_str()),
-            meetings::attempts.eq(0),
-            meetings::last_error.eq(None::<String>),
-        ))
+        .set(meetings::state.eq(MeetingState::Done.as_str()))
         .returning(Meeting::as_returning())
         .get_result(connection)
         .await
@@ -566,27 +464,7 @@ mod tests {
             vec!["01HX".to_owned()]
         );
 
-        // Three failures give it up; a retry starts it over.
-        let mut failing = stored;
-        for _ in 0..MAX_ATTEMPTS {
-            failing = record_failure(&mut connection, &failing, "Fireflies did not answer")
-                .await
-                .expect("a failure");
-        }
-        assert_eq!(failing.state(), MeetingState::Failed);
-        assert!(
-            list_unfinished(&mut connection)
-                .await
-                .expect("list")
-                .is_empty()
-        );
-        let retried = retry(&mut connection, failing.id, TEST_PERSON_ID)
-            .await
-            .expect("retried");
-        assert_eq!(retried.state(), MeetingState::Pending);
-        assert_eq!((retried.attempts, retried.last_error), (0, None));
-
-        let recorded = record_fetched(&mut connection, retried.id, fetched(Some(location.id)))
+        let recorded = record_fetched(&mut connection, stored.id, fetched(Some(location.id)))
             .await
             .expect("recorded")
             .expect("the first fetch is stored");
@@ -598,10 +476,25 @@ mod tests {
             "the hash is stored with the transcript"
         );
 
-        let segmented = record_segments(&mut connection, recorded.id, json!([]))
+        let first_answer = json!([{ "startMs": 0, "endMs": 60_000 }]);
+        let segmented = record_segments(&mut connection, recorded.id, first_answer.clone())
             .await
-            .expect("segmented");
+            .expect("segmented")
+            .expect("the first answer is stored");
         assert_eq!(segmented.state(), MeetingState::Segmented);
+        // An attempt that runs again keeps the first answer its clips are cut from.
+        let second = record_segments(&mut connection, recorded.id, json!([]))
+            .await
+            .expect("a second write runs");
+        assert!(second.is_none(), "segments are written once");
+        assert_eq!(
+            find(&mut connection, recorded.id)
+                .await
+                .expect("found")
+                .segments,
+            Some(first_answer)
+        );
+
         let done = record_done(&mut connection, segmented.id)
             .await
             .expect("done");
@@ -611,12 +504,6 @@ mod tests {
                 .await
                 .expect("list")
                 .is_empty()
-        );
-        assert!(
-            retry(&mut connection, done.id, TEST_PERSON_ID)
-                .await
-                .is_err(),
-            "only a failed meeting is retried"
         );
     }
 
@@ -654,45 +541,6 @@ mod tests {
         let unchanged = find(&mut connection, pending.id).await.expect("found");
         assert_eq!(unchanged.updated_at, first.updated_at);
         assert_eq!(unchanged.storage_location_id, None);
-
-        // Only a meeting still waiting to be fetched takes its run's failure.
-        assert!(
-            record_fetch_failure(&mut connection, pending.id, "Fireflies refused")
-                .await
-                .expect("runs")
-                .is_none()
-        );
-        let waiting = insert_new(&mut connection, new_meeting(account.id, "01HY"))
-            .await
-            .expect("insert")
-            .expect("new");
-        let failed = record_fetch_failure(&mut connection, waiting.id, "Fireflies refused")
-            .await
-            .expect("runs")
-            .expect("a waiting meeting fails");
-        assert_eq!(failed.state(), MeetingState::Failed);
-        assert_eq!(failed.last_error.as_deref(), Some("Fireflies refused"));
-        let retried = retry(&mut connection, failed.id, TEST_PERSON_ID)
-            .await
-            .expect("retried");
-        assert_eq!(
-            retried.state(),
-            MeetingState::Pending,
-            "a meeting never fetched waits to be fetched again"
-        );
-
-        // A fetched meeting that failed later resumes after its fetch, even with no recording.
-        let mut failed_later = first;
-        for _ in 0..MAX_ATTEMPTS {
-            failed_later = record_failure(&mut connection, &failed_later, "no answer")
-                .await
-                .expect("a failure");
-        }
-        assert_eq!(failed_later.state(), MeetingState::Failed);
-        let resumed = retry(&mut connection, failed_later.id, TEST_PERSON_ID)
-            .await
-            .expect("retried");
-        assert_eq!(resumed.state(), MeetingState::Recorded);
     }
 
     #[tokio::test]
