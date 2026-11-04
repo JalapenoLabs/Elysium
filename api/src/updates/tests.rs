@@ -79,7 +79,7 @@ async fn updates_running(running: &'static str) -> (Updates, Activities) {
     let activity = Activities::new();
     let updates = Updates::new(UpdatesDeps {
         database,
-        events: EventBus::new(),
+        events: EventBus::in_process(),
         activity: activity.clone(),
         http: reqwest::Client::new(),
         version: Arc::new(VersionInfo {

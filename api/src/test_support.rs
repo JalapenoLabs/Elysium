@@ -135,7 +135,7 @@ pub async fn app_state_with_storage(
     use crate::config::{Config, MailConfig};
     use crate::github::Github;
     use crate::jira::Jira;
-    use crate::realtime::EventBus;
+    use crate::realtime::{EVENTS_CHANNEL, EventBus};
     use crate::version::VersionInfo;
 
     let redis_url = SecretString::from(
@@ -173,7 +173,12 @@ pub async fn app_state_with_storage(
         .expect("TEST_REDIS_URL accepts connections");
     let cipher = Arc::new(cipher());
     let http = reqwest::Client::new();
-    let events = EventBus::new();
+    // Through Redis, as in production, on a channel of this test's own: pub/sub channels span
+    // the whole server, and every test shares it.
+    let channel = format!("{EVENTS_CHANNEL}:test:{}", Uuid::now_v7().simple());
+    let events = EventBus::connect_on(&redis_url, &channel)
+        .await
+        .expect("TEST_REDIS_URL accepts a subscription");
     let shutdown = tokio_util::sync::CancellationToken::new();
     let github = Github::new(http.clone());
     let jira = Jira::new(http.clone());

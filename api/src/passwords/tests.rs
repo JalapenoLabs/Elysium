@@ -195,7 +195,7 @@ async fn passwords(directory: &Path) -> (Passwords, Arc<FakeServe>) {
     let passwords = Passwords::new(PasswordsDeps {
         database,
         cipher: Arc::new(crate::test_support::cipher()),
-        events: EventBus::new(),
+        events: EventBus::in_process(),
         binary: write_fake_cli(directory),
         directory: directory.join("state"),
         serve_port: port,

@@ -3,26 +3,41 @@
 //! The event bus behind `GET /api/v1/events`, the one stream that keeps every open
 //! frontend current.
 //!
-//! Anything that changes state a client displays publishes a [`ServerEvent`] here:
-//! route handlers after a write, and the sessions service as agent turns report. Each
-//! connected client holds a [`broadcast`] receiver and gets every event as one SSE
-//! `message` whose data is `{"type": ..., "data": ...}`.
+//! Anything that changes state a client displays publishes a [`ServerEvent`] here: route
+//! handlers after a write, and every background loop as it works. Each connected client
+//! holds a [`broadcast`] receiver and gets every event as one SSE `message` whose data is
+//! `{"type": ..., "data": ...}`.
+//!
+//! # One channel for every process
+//!
+//! Events travel through one Redis pub/sub channel, [`EVENTS_CHANNEL`], so any process built
+//! from this crate reaches every browser: the API's own writes, and a process that serves no
+//! HTTP (the engine, `docs/engine.md`), arrive the same way. Each process holds one
+//! subscription and relays what it receives into its own [`broadcast`] channel, which its
+//! event streams and in-process listeners (Elysia's intake) read. [`EventBus::publish`] sends
+//! to Redis alone, never straight to local listeners, so a process hears its own events in
+//! the one order Redis gives everyone. The Redis half lives in [`redis_link`].
 //!
 //! # Delivery
 //!
-//! Delivery is at most once and in-process. Nothing is replayed: a client that
-//! connects, reconnects, or falls behind receives [`ServerEvent::Hello`] or
-//! [`ServerEvent::Resync`] and refetches what it shows. That keeps the server free of
-//! per-client state, and it is also why the API runs as a single replica today: an
-//! event published on one process never reaches clients connected to another. Redis
-//! pub/sub is the path to more replicas.
+//! Delivery is at most once. Nothing is replayed: a client that connects, reconnects, or
+//! falls behind receives [`ServerEvent::Hello`] or [`ServerEvent::Resync`] and refetches what
+//! it shows, which keeps the server free of per-client state. Every way an event can be lost
+//! on its way through Redis ends in a `resync` for whoever may have missed it: a lost
+//! subscription announces one locally once it is restored, and a publish that fails or
+//! overflows its queue is followed by one on the channel.
+
+mod redis_link;
 
 use std::sync::Arc;
 
+use anyhow::Result;
+use secrecy::SecretString;
 use serde::Serialize;
 use tokio::sync::broadcast;
-use tracing::{Level, event};
 use uuid::Uuid;
+
+use self::redis_link::RedisLink;
 
 use crate::backups::BackupsStatus;
 use crate::mail::hosting::MailServerStatus;
@@ -51,9 +66,14 @@ use crate::routes::v1::workspace_settings::WorkspaceSettingsResponse;
 use crate::sessions::views::{SessionEvent, TurnSummaryView};
 use crate::updates::UpdatesStatus;
 
-/// How many serialized events a slow client may fall behind before it is told to
-/// resync. Session event bursts (streamed agent output) are the largest source; this
-/// absorbs several seconds of a busy session for a client on a slow link.
+/// The Redis pub/sub channel every process publishes to and subscribes on. Pub/sub channels
+/// span the whole Redis server rather than one database, so the name alone keeps the events
+/// apart from anything else on it.
+pub const EVENTS_CHANNEL: &str = "elysium:events";
+
+/// How many serialized events a slow listener may fall behind before it is told to resync.
+/// Session event bursts (streamed agent output) are the largest source; this absorbs several
+/// seconds of a busy session for a client on a slow link.
 const BUS_CAPACITY: usize = 4096;
 
 /// Everything a client can be told. Serialized as `{"type": <rename>, "data": <payload>}`.
@@ -250,87 +270,119 @@ impl ServerEvent {
     }
 }
 
-/// Publishing half of the bus. Cheap to clone; clones share one channel.
+/// The bus: publishes to every process, and relays what every process publishes.
+///
+/// Cheap to clone; clones share one Redis link and one local channel.
 #[derive(Debug, Clone)]
 pub struct EventBus {
-    sender: broadcast::Sender<Arc<str>>,
+    /// This process's fan-out of everything on the channel, as Redis delivered it.
+    local: broadcast::Sender<Arc<str>>,
+    transport: Transport,
+}
+
+/// How a published event reaches the local channel.
+#[derive(Debug, Clone)]
+enum Transport {
+    /// Through Redis, for every process subscribed to the channel.
+    Redis(RedisLink),
+    /// Straight into the local channel, for unit tests that have no Redis.
+    #[cfg(test)]
+    InProcess,
 }
 
 impl EventBus {
-    pub fn new() -> Self {
-        let (sender, _receiver) = broadcast::channel(BUS_CAPACITY);
-        Self { sender }
+    /// Connects to Redis, subscribes to [`EVENTS_CHANNEL`], and starts relaying.
+    ///
+    /// Returns once Redis has confirmed the subscription, so an event stream answered after
+    /// this misses nothing published after it. Call [`EventBus::close`] last on the way out,
+    /// to flush what is still queued.
+    ///
+    /// # Errors
+    /// Fails when the URL is malformed, or Redis stays unreachable through the startup
+    /// retries of `crate::connections`.
+    pub async fn connect(redis_url: &SecretString) -> Result<Self> {
+        Self::connect_to(redis_url, EVENTS_CHANNEL).await
     }
 
-    /// Sends an event to every connected client. Serialized once, here, rather than
-    /// once per client.
-    pub fn publish(&self, server_event: &ServerEvent) {
-        // An error only means nobody is connected, which is a normal state.
-        if self.sender.send(server_event.to_json()).is_err() {
-            event!(name: "realtime.publish.unobserved", Level::TRACE, "no clients connected");
+    /// [`EventBus::connect`] on a channel of the test's own, since every test shares one
+    /// Redis and pub/sub channels span the whole server.
+    #[cfg(test)]
+    pub async fn connect_on(redis_url: &SecretString, channel: &str) -> Result<Self> {
+        Self::connect_to(redis_url, channel).await
+    }
+
+    async fn connect_to(redis_url: &SecretString, channel: &str) -> Result<Self> {
+        let (local, _receiver) = broadcast::channel(BUS_CAPACITY);
+        let link = RedisLink::start(redis_url, channel, local.clone()).await?;
+        Ok(Self {
+            local,
+            transport: Transport::Redis(link),
+        })
+    }
+
+    /// A bus that never leaves the process, for unit tests without Redis: what is published is
+    /// delivered at once.
+    #[cfg(test)]
+    pub fn in_process() -> Self {
+        let (local, _receiver) = broadcast::channel(BUS_CAPACITY);
+        Self {
+            local,
+            transport: Transport::InProcess,
         }
     }
 
+    /// Sends an event to every listener of every process. Serialized once, here, rather than
+    /// once per client.
+    ///
+    /// Never waits: the event is queued for Redis, in order. One that cannot be queued is
+    /// logged, and a `resync` goes out in its place once the queue drains.
+    pub fn publish(&self, server_event: &ServerEvent) {
+        let payload = server_event.to_json();
+        match &self.transport {
+            Transport::Redis(link) => link.send(payload),
+            #[cfg(test)]
+            Transport::InProcess => {
+                // An error only means nobody is listening, which is a normal state.
+                if self.local.send(payload).is_err() {
+                    tracing::event!(
+                        name: "realtime.publish.unobserved",
+                        tracing::Level::TRACE,
+                        "nobody is listening",
+                    );
+                }
+            }
+        }
+    }
+
+    /// Every event any process publishes from now on, as long as this process holds its
+    /// subscription. When it loses it, listeners receive `resync` once it is restored.
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<str>> {
-        self.sender.subscribe()
+        self.local.subscribe()
+    }
+
+    /// Whether this process holds its Redis subscription right now. While it does not, nothing
+    /// published anywhere reaches its listeners, so a new event stream must not open: its
+    /// `hello` would promise events it cannot deliver.
+    pub fn is_subscribed(&self) -> bool {
+        match &self.transport {
+            Transport::Redis(link) => link.is_subscribed(),
+            #[cfg(test)]
+            Transport::InProcess => true,
+        }
+    }
+
+    /// Flushes what is still queued for Redis, then stops relaying.
+    ///
+    /// The last step of shutdown, once every loop that publishes has stopped: an event
+    /// published after it is logged and dropped. Every clone closes with it.
+    pub async fn close(&self) {
+        match &self.transport {
+            Transport::Redis(link) => link.close().await,
+            #[cfg(test)]
+            Transport::InProcess => {}
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::{Value, json};
-
-    use super::*;
-
-    #[test]
-    fn events_serialize_as_a_type_and_data_envelope() {
-        let id = Uuid::nil();
-        let deleted: Value =
-            serde_json::from_str(&ServerEvent::ProjectDeleted { id }.to_json()).expect("json");
-        assert_eq!(
-            deleted,
-            json!({ "type": "project.deleted", "data": { "id": id } })
-        );
-
-        let session_deleted: Value =
-            serde_json::from_str(&ServerEvent::SessionDeleted { id: 12 }.to_json()).expect("json");
-        assert_eq!(
-            session_deleted,
-            json!({ "type": "session.deleted", "data": { "id": 12 } })
-        );
-
-        let action_item_id = Uuid::now_v7();
-        let comment_deleted: Value = serde_json::from_str(
-            &ServerEvent::ActionItemCommentDeleted { id, action_item_id }.to_json(),
-        )
-        .expect("json");
-        assert_eq!(
-            comment_deleted,
-            json!({
-                "type": "actionItemComment.deleted",
-                "data": { "id": id, "actionItemId": action_item_id },
-            })
-        );
-
-        let hello: Value = serde_json::from_str(&ServerEvent::Hello.to_json()).expect("json");
-        assert_eq!(hello, json!({ "type": "hello" }));
-    }
-
-    #[tokio::test]
-    async fn every_subscriber_receives_each_published_event() {
-        let bus = EventBus::new();
-        let mut first = bus.subscribe();
-        let mut second = bus.subscribe();
-
-        bus.publish(&ServerEvent::Resync);
-
-        assert_eq!(
-            &*first.recv().await.expect("delivered"),
-            r#"{"type":"resync"}"#
-        );
-        assert_eq!(
-            &*second.recv().await.expect("delivered"),
-            r#"{"type":"resync"}"#
-        );
-    }
-}
+mod tests;

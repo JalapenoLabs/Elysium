@@ -605,7 +605,7 @@ mod tests {
         let database = crate::connections::connect_postgres(&url, 4)
             .await
             .expect("pool");
-        let events = EventBus::new();
+        let events = EventBus::in_process();
         let (youtrack, shared) = fake_youtrack_site(FakeSite {
             issues: vec![sample_issue("2-1", "JL-1", 1_000_000)],
             ..FakeSite::default()

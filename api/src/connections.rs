@@ -92,8 +92,9 @@ pub async fn connect_redis(redis_url: &SecretString) -> Result<ConnectionManager
     Ok(connection)
 }
 
-/// Runs `connect` until it succeeds or [`CONNECT_ATTEMPTS`] is exhausted.
-async fn with_retry<Connection, Error, Attempt, Pending>(
+/// Runs `connect` until it succeeds or [`CONNECT_ATTEMPTS`] is exhausted. The event bus opens
+/// its Redis subscription through it too (`crate::realtime`).
+pub(crate) async fn with_retry<Connection, Error, Attempt, Pending>(
     target: &'static str,
     connect: Attempt,
 ) -> Result<Connection>

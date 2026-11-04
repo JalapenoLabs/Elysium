@@ -246,7 +246,7 @@ pub(crate) mod tests {
         ClaudeAccounts::new(ClaudeAccountsDeps {
             database,
             cipher: Arc::clone(cipher),
-            events: EventBus::new(),
+            events: EventBus::in_process(),
             anthropic: fake.client(),
             workspace: WorkspaceContainer::new(docker, "elysium-workspace:test".to_owned()),
             turn_signal: TurnSignal::default(),

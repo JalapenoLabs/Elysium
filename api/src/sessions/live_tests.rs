@@ -21,6 +21,7 @@ use crate::models::session_event;
 use crate::realtime::EventBus;
 use crate::runner::workspace::WorkspaceContainer;
 use crate::runner::{Runner, RunnerEvent, TurnStatus};
+use crate::server::build_passwords;
 use crate::test_support::{TEST_PERSON_ID, cipher, migrated_database};
 use crate::tools::grants::Grants;
 
@@ -50,12 +51,12 @@ async fn a_session_clones_runs_a_turn_and_records_every_event() {
         crate::claude_accounts::TurnSignal::default(),
         &CancellationToken::new(),
     );
-    let passwords =
-        crate::server::build_passwords(database.clone(), Arc::clone(&cipher), EventBus::new());
+    let events = EventBus::in_process();
+    let passwords = build_passwords(database.clone(), Arc::clone(&cipher), events.clone());
     let sessions = Sessions::new(SessionsDeps {
         database: database.clone(),
         cipher,
-        events: EventBus::new(),
+        events,
         runner,
         workspace,
         grants: Grants::new(),

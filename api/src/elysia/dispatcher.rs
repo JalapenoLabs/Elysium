@@ -601,7 +601,7 @@ mod tests {
             .await
             .expect("Postgres accepts connections");
         let runner = TurnRunner::Scripted(Arc::new(Mutex::new(VecDeque::from(outcomes))));
-        let events = EventBus::new();
+        let events = EventBus::in_process();
         let context = DispatchContext {
             passwords: crate::server::build_passwords(
                 database.clone(),

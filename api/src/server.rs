@@ -3,11 +3,12 @@
 //! The HTTP server: startup, middleware stack, and graceful shutdown.
 //!
 //! Startup order: configuration, encryption key, schema check, store connections
-//! (with retry), the agent runner, the link watcher, Elysia's intake, the update checker,
-//! router, listener. Shutdown order is the reverse: a signal cancels the shutdown token, which
-//! ends every event stream, agent turn, the link watcher, and the update checker; the server stops
-//! accepting and drains in-flight requests; the watchers are awaited; then the Postgres
-//! pool closes and the Redis connection drops.
+//! (with retry), the event bus's Redis subscription, the agent runner, the link watcher,
+//! Elysia's intake, the update checker, router, listener. Shutdown order is the reverse: a
+//! signal cancels the shutdown token, which ends every event stream, agent turn, the link
+//! watcher, and the update checker; the server stops accepting and drains in-flight requests;
+//! the watchers are awaited; the event bus flushes what they published last; then the
+//! Postgres pool closes and the Redis connection drops.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -153,7 +154,9 @@ pub async fn serve() -> Result<()> {
     let links = Links::new(database.clone(), Arc::clone(&cipher), &jira, &github);
 
     let shutdown = CancellationToken::new();
-    let events = EventBus::new();
+    // Subscribed before anything can publish or any stream can open, so nothing published from
+    // here on is missed by this process's listeners.
+    let events = EventBus::connect(&config.redis_url).await?;
     // Where every loop that reads a connector reports its syncs.
     let connector_activity = Activity::new(database.clone(), events.clone());
     let watch = WatchContext {
@@ -318,7 +321,7 @@ pub async fn serve() -> Result<()> {
         redis: redis.clone(),
         cipher,
         version,
-        events,
+        events: events.clone(),
         elysia,
         github,
         issue_reports: crate::issue_reports::IssueReports::default(),
@@ -444,6 +447,9 @@ pub async fn serve() -> Result<()> {
             "the update checker did not stop cleanly",
         );
     }
+    // Last of all, once nothing is left to publish: what the loops announced on their way out
+    // still reaches every other process's clients.
+    events.close().await;
 
     // serve() returning means every in-flight request has finished and the router,
     // with its copies of the handles, is gone. Closing the pool drops its idle

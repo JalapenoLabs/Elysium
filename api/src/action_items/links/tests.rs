@@ -460,7 +460,7 @@ impl LinkFixture {
             jira,
             github,
             links,
-            events: EventBus::new(),
+            events: EventBus::in_process(),
             database,
             jira_credential: LinkCredential {
                 provider: LinkProvider::Jira,

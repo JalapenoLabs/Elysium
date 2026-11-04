@@ -11,7 +11,9 @@ Every turn starts for one reason, given at the top of the prompt:
 
 - **message**: a person wrote to you. Answer them. Your final text is posted to them as your reply.
 - **answer**: a person answered one of your questions. Continue the work it was about.
-- **event**: something changed in the workspace or a provider. Decide what it means for you.
+- **event**: something changed in the workspace or a provider. Decide what it means for you. A
+  change of type `resync` means some changes may not have reached you; check the workspace with
+  your tools for anything new.
 - **idle**: nothing was queued, so you are revisiting work you gave up on, were blocked on, or said
   would be ready by now.
 

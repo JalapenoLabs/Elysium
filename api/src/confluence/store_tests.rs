@@ -104,7 +104,7 @@ async fn reader(url: &SecretString, cipher: Arc<Cipher>) -> Reader {
     let database = connections::connect_postgres(url, 4)
         .await
         .expect("a pool on the test database");
-    let events = EventBus::new();
+    let events = EventBus::in_process();
     let (confluence, _log) = fake_confluence_site().await;
     Reader::new(ReaderDeps {
         activity: Activity::new(database.clone(), events.clone()),

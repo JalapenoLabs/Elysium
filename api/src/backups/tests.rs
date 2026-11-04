@@ -54,7 +54,7 @@ async fn fixture(failing: Option<&str>) -> Fixture {
         database,
         cipher,
         storage,
-        events: EventBus::new(),
+        events: EventBus::in_process(),
         activity: activity.clone(),
         dumper: Dumper::Fake {
             failing: failing.map(str::to_owned),

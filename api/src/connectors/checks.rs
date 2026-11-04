@@ -439,7 +439,7 @@ mod tests {
 
     #[test]
     fn a_run_answers_only_the_person_who_started_it() {
-        let runs = CheckRuns::new(EventBus::new());
+        let runs = CheckRuns::new(EventBus::in_process());
         let owner = Uuid::now_v7();
         let run = runs.start(ConnectorKind::Jira, None, owner, &SPECS);
 
@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn updates_land_on_their_check() {
-        let runs = CheckRuns::new(EventBus::new());
+        let runs = CheckRuns::new(EventBus::in_process());
         let owner = Uuid::now_v7();
         let run = runs.start(ConnectorKind::Jira, None, owner, &SPECS);
         runs.update(run.id, "list_projects", &Outcome::counted(6));

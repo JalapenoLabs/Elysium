@@ -9,7 +9,8 @@
 //! an `event` turn is still queued, a new batch joins it instead of queueing another.
 //!
 //! What she ignores: her own changes (actor `elysia`), what coding agents do (they report
-//! through their own sessions), and anything a person did that is not new work or a note.
+//! through their own sessions), and anything a person did that is not new work or a note. A
+//! `resync`, meaning changes may have been lost on the way, always reaches her.
 
 use std::time::Duration;
 
@@ -43,6 +44,11 @@ const PERSON_KINDS: [&str; 2] = ["created", "commented"];
 pub fn classify(message: &str) -> Option<Value> {
     let change: Value = serde_json::from_str(message).ok()?;
     let kind = change.get("type")?.as_str()?;
+    // Changes may have been lost on their way here, such as while the bus was resubscribing to
+    // Redis (`crate::realtime`). She is told so, rather than left to assume nothing happened.
+    if kind == "resync" {
+        return Some(change);
+    }
     let data = change.get("data")?;
 
     let relevant = match kind {
@@ -198,7 +204,7 @@ mod tests {
             database: crate::connections::connect_postgres(&url, 2)
                 .await
                 .expect("Postgres accepts connections"),
-            events: EventBus::new(),
+            events: EventBus::in_process(),
             elysia: Elysia::new(
                 crate::elysia::runner::TurnRunner::Scripted(std::sync::Arc::default()),
                 crate::tools::grants::Grants::new(),
@@ -244,6 +250,12 @@ mod tests {
 
         let record = bus("timelineRecord.created", &json!({ "id": "x" }));
         assert!(classify(&record).is_some());
+    }
+
+    #[test]
+    fn a_resync_reaches_her_so_lost_changes_are_never_silent() {
+        let resync = ServerEvent::Resync.to_json();
+        assert_eq!(classify(&resync), Some(json!({ "type": "resync" })));
     }
 
     #[test]
