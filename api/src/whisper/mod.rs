@@ -191,20 +191,24 @@ impl Whisper {
         self.threads
     }
 
-    /// Transcribes `recording`, streamed in as it arrives, in a container named for `key`: a
-    /// step's job id, so an attempt that follows one cut short removes what it left running.
-    /// Every line the container reports goes to `progress`; none of them quotes what was said.
-    /// Waits while another transcription runs.
+    /// Transcribes the recording `open` answers, streamed in as it arrives, in a container named
+    /// for `key`: a step's job id, so an attempt that follows one cut short removes what it left
+    /// running. Every line the container reports goes to `progress`; none of them quotes what
+    /// was said.
+    ///
+    /// Waits while another transcription runs, and only then opens the recording, so a download
+    /// never sits idle behind another meeting's hour of audio.
     ///
     /// # Errors
     /// [`WhisperError`]; [`WhisperError::is_retryable`] says whether another attempt may pass.
-    pub async fn transcribe<Recording, Failure>(
+    pub async fn transcribe<Open, Recording, Failure>(
         &self,
         key: Uuid,
-        recording: Recording,
+        open: Open,
         progress: impl Fn(&str),
     ) -> Result<Transcribed, WhisperError>
     where
+        Open: Future<Output = Result<Recording, Failure>>,
         Recording: Stream<Item = Result<Bytes, Failure>> + Unpin,
         Failure: Display,
     {
@@ -219,6 +223,9 @@ impl Whisper {
             }
         };
         self.ensure_image(&progress).await?;
+        let recording = open
+            .await
+            .map_err(|error| WhisperError::Recording(format!("{error:#}")))?;
 
         let name = container::name(key);
         self.remove(&name).await?;

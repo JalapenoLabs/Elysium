@@ -228,7 +228,7 @@ async fn a_recording_is_transcribed_in_a_container_with_no_network() {
     let key = Uuid::now_v7();
     let heard = Mutex::new(Vec::new());
     let transcribed = whisper
-        .transcribe(key, stream::iter(chunks), |line| {
+        .transcribe(key, async { Ok(stream::iter(chunks)) }, |line| {
             heard.lock().expect("lock").push(line.to_owned());
         })
         .await
@@ -271,7 +271,11 @@ async fn a_recording_is_transcribed_in_a_container_with_no_network() {
     let silent = whisper
         .transcribe(
             Uuid::now_v7(),
-            stream::iter([Ok::<_, std::io::Error>(Bytes::from(picture))]),
+            async {
+                Ok(stream::iter([Ok::<_, std::io::Error>(Bytes::from(
+                    picture,
+                ))]))
+            },
             |_line| {},
         )
         .await
@@ -281,9 +285,11 @@ async fn a_recording_is_transcribed_in_a_container_with_no_network() {
     let garbage = whisper
         .transcribe(
             Uuid::now_v7(),
-            stream::iter([Ok::<_, std::io::Error>(Bytes::from_static(
-                b"no recording at all",
-            ))]),
+            async {
+                Ok(stream::iter([Ok::<_, std::io::Error>(Bytes::from_static(
+                    b"no recording at all",
+                ))]))
+            },
             |_line| {},
         )
         .await;

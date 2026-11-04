@@ -146,18 +146,19 @@ impl TranscribeMeeting {
             .await
             .map_err(StepFailure::retryable)?
         };
-        log.line(&format!("Reading the recording from {}", recording.path));
-        let download = self
-            .inner
-            .storage
-            .download(&location, &access_key, &recording.path)
-            .await
-            .map_err(StepFailure::retryable)?;
-
+        let open = async {
+            log.line(&format!("Reading the recording from {}", recording.path));
+            let download = self
+                .inner
+                .storage
+                .download(&location, &access_key, &recording.path)
+                .await?;
+            Ok(download.body)
+        };
         let heard = self
             .inner
             .whisper
-            .transcribe(step_job_id, download.body, |line| log.line(line))
+            .transcribe(step_job_id, open, |line| log.line(line))
             .await
             .map_err(|error| {
                 let reason = format!("{error}");

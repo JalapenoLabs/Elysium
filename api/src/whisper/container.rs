@@ -25,7 +25,7 @@ const MANAGED_LABEL: (&str, &str) = ("dev.elysium.managed", "whisper");
 /// wants the same cores, they get four times the share a transcription does.
 const CPU_SHARES: i64 = 256;
 
-/// Whisper large-v3 and its working memory peaked at 5.1 GB on 4 threads (`docs/meetings.md`,
+/// Whisper large-v3 and its working memory peaked at 5.0 GiB on 4 threads (`docs/meetings.md`,
 /// Transcription), whatever the recording's length, and the audio it decodes to adds about
 /// 230 MB per hour: a full day's recording fits. Beyond this the container is stopped, rather
 /// than pushing the host into swap.
