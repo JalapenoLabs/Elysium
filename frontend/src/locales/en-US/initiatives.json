@@ -105,14 +105,12 @@
       "descriptionTooLong": "Keep the description to 20,000 characters."
     }
   },
-  "delete": {
-    "title": "Delete “{{name}}”?",
-    "body": "Its items stay, and stay members, but stop listing it until it is restored. You can restore it from Initiatives, under Deleted initiatives."
-  },
   "toasts": {
     "created": "Created “{{name}}”.",
     "saved": "Saved “{{name}}”.",
     "deleted": "Deleted “{{name}}”.",
-    "restored": "Restored “{{name}}”."
+    "restored": "Restored “{{name}}”.",
+    "itemTakenOut": "Took “{{title}}” out of this initiative.",
+    "itemPutBack": "Put “{{title}}” back in this initiative."
   }
 }

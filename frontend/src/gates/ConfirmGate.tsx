@@ -35,7 +35,8 @@ export type ConfirmOptions = {
   tone?: 'danger' | 'accent'
   // For an action that can't be undone, such as a permanent delete. It is `danger`, says in
   // bold that it can't be undone, and holds Confirm for a few seconds, counting them down in
-  // its label. A delete that can be undone (a soft delete) leaves this off.
+  // its label. A delete that can be undone (a soft delete) never confirms: it happens at once,
+  // with Undo in its toast.
   isIrreversible?: boolean
   switches?: ConfirmSwitch[]
   // False when the action is blocked, such as deleting something still in use: the

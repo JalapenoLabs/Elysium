@@ -8,7 +8,6 @@ import type { SnoozePreset } from './actionItemDates'
 // Core
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 
 // User interface
 import {
@@ -32,7 +31,6 @@ import {
 import { getLocalTimeZone } from '@internationalized/date'
 
 // Misc
-import { LEAVE_WITHOUT_ASKING } from '../../layout/page/pageSave'
 import { getNewCodingSessionUrl, UrlTree } from '../../urls'
 import { getSnoozePresetInstants, SNOOZE_PRESETS } from './actionItemDates'
 import { isSnoozed, snoozePresetLabelKeys, transitionLabelKeys, transitionsByState } from './actionItemPresentation'
@@ -63,7 +61,6 @@ type Options = {
 // a coding session, and deleting, are its Actions menu.
 export function useActionItemPageActions(options: Options) {
   const { t } = useTranslation([ 'actionItems', 'common' ])
-  const navigate = useNavigate()
   const actions = useActionItemActions()
   // The write in flight, so its button or the menu's trigger shows it working.
   const [ pendingId, setPendingId ] = useState<string | null>(null)
@@ -151,9 +148,9 @@ export function useActionItemPageActions(options: Options) {
       label: t('common:actions.delete'),
       icon: LuTrash2,
       isDanger: true,
-      // Leave first, so this page never renders the item as missing. Deleting it drops its
-      // unsaved edits too, so leaving asks nothing.
-      onAction: () => actions.remove(item, () => navigate(UrlTree.actionItemsAll, { state: LEAVE_WITHOUT_ASKING })),
+      isPending: pendingId === 'delete',
+      // At once, with Undo: the page leaves for the list, and Undo comes back to it.
+      onAction: () => void run('delete', () => actions.remove(item, UrlTree.actionItemsAll)),
     },
   )
 

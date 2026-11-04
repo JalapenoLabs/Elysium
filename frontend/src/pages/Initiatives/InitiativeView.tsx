@@ -3,9 +3,9 @@
 import type { Initiative } from '../../api/routes/initiativeRoutes'
 
 // Core
+import { useState } from 'react'
 import { useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 
 // Redux
 import { useAppSelector } from '../../store/hooks'
@@ -25,7 +25,6 @@ import { RestoreInitiativeButton } from './RestoreInitiativeButton'
 
 // Misc
 import { useInitiativeHistoryLoader } from '../../hooks/useServerData'
-import { LEAVE_WITHOUT_ASKING } from '../../layout/page/pageSave'
 import { UrlTree } from '../../urls'
 import {
   INITIATIVE_DESCRIPTION_MAX_CHARACTERS,
@@ -47,7 +46,6 @@ type Props = {
 // actions do. A deleted initiative is shown read-only, with Restore.
 export function InitiativeView(props: Props) {
   const { t } = useTranslation([ 'initiatives', 'actionItems', 'common' ])
-  const navigate = useNavigate()
   const initiative = props.initiative
   const actions = useInitiativeActions()
   const editor = useInitiativeEditor(initiative)
@@ -55,6 +53,18 @@ export function InitiativeView(props: Props) {
   const historyStatus = useInitiativeHistoryLoader(initiative.id)
   const history = useAppSelector((state) => selectInitiativeHistory(state, initiative.id))
   const isDeleted = Boolean(initiative.deletedAt)
+  const [ isDeleting, setIsDeleting ] = useState(false)
+
+  // At once, with Undo: the page leaves for the list, and Undo comes back to it.
+  async function remove() {
+    setIsDeleting(true)
+    try {
+      await actions.remove(initiative, UrlTree.initiatives)
+    }
+    finally {
+      setIsDeleting(false)
+    }
+  }
 
   return <Page
     title={isDeleted
@@ -84,11 +94,8 @@ export function InitiativeView(props: Props) {
         label: t('common:actions.delete'),
         icon: LuTrash2,
         isDanger: true,
-        // Deleting it drops its unsaved edits too, so leaving asks nothing.
-        onAction: () => actions.remove(
-          initiative,
-          () => navigate(UrlTree.initiatives, { state: LEAVE_WITHOUT_ASKING }),
-        ),
+        isPending: isDeleting,
+        onAction: () => void remove(),
       }]}
   >
     {isDeleted && <Alert status='warning' className='relaxed'>

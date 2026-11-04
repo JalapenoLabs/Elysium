@@ -3,10 +3,11 @@
 import type { ConnectorReplies } from '../api/routes/connectorRoutes'
 import type { MailAccount } from '../api/routes/mailRoutes'
 import type { TimelineRecord } from '../api/routes/timelineRoutes'
+import type { ToastOptions } from '../toast/toast'
 
 // Core
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'react-redux'
 import { MemoryRouter } from 'react-router'
 
@@ -35,6 +36,14 @@ vi.mock('../api/routes/draftRoutes', async (importOriginal) => ({
   ...await importOriginal<typeof import('../api/routes/draftRoutes')>(),
   ...routes,
 }))
+
+// Watched for a discard's Undo.
+const toasts = vi.hoisted(() => ({
+  success: vi.fn(),
+  danger: vi.fn(),
+}))
+
+vi.mock('../toast/toast', () => ({ toast: toasts }))
 
 vi.mock('../hooks/useServerData', () => ({
   useRecordDraftsLoader: () => 'loaded',
@@ -85,6 +94,9 @@ describe('ReplyComposer', () => {
   beforeEach(() => {
     for (const route of Object.values(routes)) {
       route.mockReset()
+    }
+    for (const shown of Object.values(toasts)) {
+      shown.mockReset()
     }
     window.sessionStorage.clear()
   })
@@ -156,6 +168,48 @@ describe('ReplyComposer', () => {
     expect(routes.updateDraft).toHaveBeenCalledWith('draft-1', 'Friday at noon.')
     expect(routes.createReplyDraft).not.toHaveBeenCalled()
     await waitFor(() => expect(replyBox()).toHaveProperty('value', ''))
+  })
+
+  it('discards a draft at once, and Undo puts its text back where it was going', async () => {
+    routes.deleteDraft.mockResolvedValue(undefined)
+    const store = renderComposer(RECORD, SLACK)
+    store.dispatch(draftUpserted(makeDraft({
+      id: 'draft-1',
+      replyToRecordId: 'record-1',
+      place: 'conversation',
+      body: 'Friday works.',
+      state: 'failed',
+      lastError: 'Slack did not post the message: not_in_channel',
+    })))
+    expect(await screen.findByDisplayValue('Friday works.')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Discard'))
+
+    await waitFor(() => expect(replyBox()).toHaveProperty('value', ''))
+    expect(routes.deleteDraft).toHaveBeenCalledWith('draft-1')
+    const options: ToastOptions | undefined = toasts.success.mock.lastCall?.[1]
+    expect(toasts.success).toHaveBeenLastCalledWith('Draft discarded', expect.anything())
+    expect(options?.action?.label).toBe('Undo')
+
+    act(() => options?.action?.onPress())
+
+    expect(replyBox()).toHaveProperty('value', 'Friday works.')
+    expect(window.sessionStorage.getItem(`${REPLY_DRAFT_STORAGE_PREFIX}record-1`)).toBe('Friday works.')
+
+    // Its next send writes a new draft, in the conversation the discarded one was going to.
+    routes.createReplyDraft.mockResolvedValue({
+      draft: makeDraft({ id: 'draft-2', replyToRecordId: 'record-1', place: 'conversation', body: 'Friday works.' }),
+    })
+    routes.sendDraft.mockResolvedValue({
+      draft: makeDraft({ id: 'draft-2', replyToRecordId: 'record-1', state: 'sent', sentAt: '2026-11-03T00:00:00Z' }),
+    })
+    fireEvent.click(sendButton())
+    await waitFor(() => expect(routes.createReplyDraft).toHaveBeenCalledWith({
+      recordId: 'record-1',
+      place: 'conversation',
+      mailAccountId: undefined,
+      body: 'Friday works.',
+    }))
   })
 
   it('keeps what was typed for the tab until it is sent', async () => {

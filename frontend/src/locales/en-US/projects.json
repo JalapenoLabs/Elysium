@@ -45,6 +45,7 @@
     "stillHasSessions": "{{name}} still has coding sessions",
     "coverFailed": "{{name}} was saved, but its cover image was not",
     "coverRemoved": "Cover removed",
+    "coverRestored": "Cover restored",
     "coverUploadFailed": "The cover could not be uploaded"
   },
   "toolbar": {

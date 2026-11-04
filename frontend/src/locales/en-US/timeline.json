@@ -45,6 +45,7 @@
     "sending": "Sending",
     "discard": "Discard",
     "sent": "Sent",
+    "discarded": "Draft discarded",
     "failed": "Not sent: {{reason}}",
     "loadError": "Your drafts for this message could not be loaded.",
     "noMailbox": "Replying by mail needs a mailbox of your own.",

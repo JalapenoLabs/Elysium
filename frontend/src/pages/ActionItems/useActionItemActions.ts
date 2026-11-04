@@ -4,6 +4,7 @@ import type { ActionItem, ActionItemTransition } from '../../api/routes/actionIt
 
 // Core
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router'
 
 // Redux
 import { useAppDispatch } from '../../store/hooks'
@@ -21,9 +22,10 @@ import {
   waitOnActionItem,
 } from '../../api/routes/actionItemRoutes'
 import { ACTION_ITEM_PERSON_MAX_CHARACTERS } from '../../constants'
-import { useConfirm } from '../../hooks/useConfirm'
 import { usePrompt } from '../../hooks/usePrompt'
+import { LEAVE_WITHOUT_ASKING } from '../../layout/page/pageSave'
 import { toast } from '../../toast/toast'
+import { getActionItemViewUrl } from '../../urls'
 
 const transitionToastKeys = {
   accept: 'toasts.accepted',
@@ -39,7 +41,7 @@ const transitionToastKeys = {
 export function useActionItemActions() {
   const { t } = useTranslation([ 'actionItems', 'common' ])
   const dispatch = useAppDispatch()
-  const confirm = useConfirm()
+  const navigate = useNavigate()
   const prompt = usePrompt()
 
   function reportFailure(error: unknown, context: string, item: ActionItem) {
@@ -121,27 +123,37 @@ export function useActionItemActions() {
     })
   }
 
-  // Deleting is soft, so it confirms lightly and says how to undo it.
-  function remove(item: ActionItem, onDeleted?: () => void) {
-    confirm({
-      title: t('delete.title', { title: item.title }),
-      message: t('delete.body'),
-      tone: 'danger',
-      confirmText: t('common:actions.delete'),
-      onConfirm: async () => {
-        try {
-          await deleteActionItem(item.id)
-        }
-        catch (error) {
-          reportFailure(error, 'delete', item)
-          // Keeps the dialog open to try again.
-          throw error
-        }
-        onDeleted?.()
-        dispatch(actionItemDeleted(item.id))
-        toast.success(t('toasts.deleted', { title: item.title }))
+  // Deleting is soft, so it happens at once, with Undo in its toast. Deleted from its own page,
+  // the item is left for `leaveTo`, and Undo brings the person back to it.
+  async function remove(item: ActionItem, leaveTo?: string) {
+    try {
+      await deleteActionItem(item.id)
+    }
+    catch (error) {
+      reportFailure(error, 'delete', item)
+      return false
+    }
+
+    // Leave first, so the item's page never renders it as missing. Deleting it drops its
+    // unsaved edits too, so leaving asks nothing.
+    if (leaveTo) {
+      void navigate(leaveTo, { state: LEAVE_WITHOUT_ASKING })
+    }
+    dispatch(actionItemDeleted(item.id))
+    toast.success(t('toasts.deleted', { title: item.title }), {
+      action: {
+        label: t('common:actions.undo'),
+        onPress: () => void undoRemove(item, Boolean(leaveTo)),
       },
     })
+    return true
+  }
+
+  async function undoRemove(item: ActionItem, isReturning: boolean) {
+    const isRestored = await restore(item)
+    if (isRestored && isReturning) {
+      void navigate(getActionItemViewUrl(item.id))
+    }
   }
 
   async function restore(item: ActionItem) {

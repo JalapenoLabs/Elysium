@@ -314,10 +314,6 @@
       "notesTooLong": "Keep the notes to 20,000 characters."
     }
   },
-  "delete": {
-    "title": "Delete “{{title}}”?",
-    "body": "The item is hidden everywhere and counts toward no initiative. You can restore it from All items, under Deleted items."
-  },
   "toasts": {
     "created": "Created “{{title}}”.",
     "saved": "Saved “{{title}}”.",

@@ -97,9 +97,17 @@ export function uploadProjectCover(projectId: string, file: File) {
     .json<ProjectCoverResponse>()
 }
 
+// Removing is soft: the API keeps the image until a new cover replaces it.
 export function deleteProjectCover(projectId: string) {
   return apiClient
     .delete(`v1/projects/${projectId}/cover`)
+    .json<ProjectCoverResponse>()
+}
+
+// Shows a removed cover again. Without one, it answers the project as it is.
+export function restoreProjectCover(projectId: string) {
+  return apiClient
+    .post(`v1/projects/${projectId}/cover/restore`)
     .json<ProjectCoverResponse>()
 }
 

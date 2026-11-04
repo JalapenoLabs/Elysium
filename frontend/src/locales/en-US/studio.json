@@ -130,10 +130,10 @@
   },
   "delete": {
     "action": "Delete",
-    "title": "Delete {{title}}?",
-    "body": "“{{title}}” leaves the grid and its agent stops.",
-    "permanently": "Also permanently delete its files, conversation, and agent memory",
-    "confirm": "Delete"
+    "permanentlyAction": "Delete permanently",
+    "permanentlyTitle": "Permanently delete {{title}}?",
+    "permanentlyBody": "“{{title}}” is deleted with its files, conversation, and agent memory.",
+    "permanentlyConfirm": "Delete permanently"
   },
   "toasts": {
     "created": "Started {{title}}.",

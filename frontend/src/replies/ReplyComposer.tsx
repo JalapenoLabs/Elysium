@@ -121,22 +121,37 @@ export function ReplyComposer(props: Props) {
     }
   }
 
+  // Discarding happens at once, with Undo in its toast. Undo puts the text back for the tab, as
+  // typing it would, where the discarded draft was going, and the next Send writes a new draft
+  // from it. A failed send's reason stays discarded.
   async function discard() {
-    if (!draft) {
-      setTyped(null)
-      forgetReply(record.id)
-      return
+    const discarded = draft
+    const discardedText = text
+    if (discarded) {
+      try {
+        await deleteDraft(discarded.id)
+        dispatch(draftRemoved(discarded.id))
+      }
+      catch (error) {
+        console.debug('ReplyComposer failed to discard a draft', { error, draftId: discarded.id })
+        toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
+        return
+      }
     }
-    try {
-      await deleteDraft(draft.id)
-      dispatch(draftRemoved(draft.id))
-      setTyped(null)
-      forgetReply(record.id)
-    }
-    catch (error) {
-      console.debug('ReplyComposer failed to discard a draft', { error, draftId: draft.id })
-      toast.danger(getApiErrorMessage(error) ?? t('common:errors.unexpected'))
-    }
+    setTyped(null)
+    forgetReply(record.id)
+    toast.success(t('reply.discarded'), {
+      action: {
+        label: t('common:actions.undo'),
+        onPress: () => {
+          type(discardedText)
+          if (discarded) {
+            setPlace(discarded.place)
+            setChosenMailboxId(discarded.mailAccountId)
+          }
+        },
+      },
+    })
   }
 
   if (isMail && !draft && !mailboxes.length) {

@@ -412,10 +412,28 @@ closes either, except while its callback runs. No dialog's button says Close: a 
 Done or Got it, and one that abandons something says Cancel.
 
 Every permanent delete confirms with `isIrreversible`, as does anything else that can't be taken back: resetting a
-browser's profile, turning off lookup codes, removing a passkey or an authenticator, rejecting a sign-up. A delete
-that can be undone does not: deleting an action item, an initiative, or a Studio item (unless its switch makes it
-permanent) is soft, and asks without the countdown until it moves to an Undo toast, as learnings already have.
-Changes that are not deletes (unlinking, disabling an account, undoing a changeset) confirm with `tone: 'danger'`.
+browser's profile, turning off lookup codes, removing a passkey or an authenticator, rejecting a sign-up, deleting a
+Studio item permanently. Changes that are not deletes (unlinking, disabling an account, undoing a changeset) confirm
+with `tone: 'danger'`.
+
+A removal that can be undone never asks (`~/.claude/docs/ux.md`, Delete confirmations): it happens at once, and its
+success toast carries Undo.
+
+| What                                     | Undo                                                                   |
+|------------------------------------------|------------------------------------------------------------------------|
+| Deleting an action item or an initiative | Its restore route, which records the restore in its history           |
+| Deleting a Studio item or a learning     | Its restore route                                                      |
+| Taking an item out of an initiative      | Joining it again, which its history records                            |
+| Removing a project's cover               | The cover's restore route; the API keeps the cover until one replaces it |
+| Discarding a reply draft                 | Its text back for the tab, where it was going; Send writes a new draft |
+
+- **From the record's own page.** Deleting an item, an initiative, or a Studio item from its page leaves for its list
+  (with `LEAVE_WITHOUT_ASKING`, see Saving), and Undo restores it and comes back to its page, wherever the person is
+  by then. A learning stays on its page, shown deleted with Restore.
+- **After the toast.** Undo lasts as long as its toast, at least 6 seconds. A deleted record is restored after that
+  from its list's Deleted filter, or from its own page's Restore.
+- **Where it lives.** Each area's delete owns its Undo: `useActionItemActions`, `useInitiativeActions`,
+  `useStudioItemActions`, `LeaveInitiativeButton`, `useProjectActions`, and `ReplyComposer`.
 
 `src/gates/ReportIssueGate.tsx` holds the one report dialog, inside `AppShell` so its links navigate in the app. Any
 surface that shows an error offers Report with `ReportIssueButton` or `useReportIssue()(subject)`; see
@@ -648,7 +666,7 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   target date, and projects in `InitiativeDetailsPanel`. All of them are kept by the page's Save. `BurnupChart` draws total and resolved as steps from the API's burnup, with a legend,
   direct end labels, a crosshair and tooltip that snap to the nearest change (by pointer or arrow keys), and the same
   numbers in a table beneath; its geometry is `burnup.ts`. `InitiativeMembers` lists the items with a button to take
-  one out, adds existing items from a search, and links to a new item started in the initiative.
+  one out (at once, with Undo), adds existing items from a search, and links to a new item started in the initiative.
   `InitiativeContainers` lists the epics, saved filters, milestones, and labels it follows from the `initiativeLinks`
   slice, each with when the watcher last read it or why it could not, and whether it held more than the watcher reads.
   Follow opens `NewInitiativeContainerPage`, whose `AddContainerForm` picks one through `ContainerTargetPicker`: a
@@ -798,9 +816,8 @@ rendering of the cover follows. The controls show on hover or focus, and stay wh
 the banner, holds the description and who created the project. The name and description are `InlineEditableText`.
 Save sends the changed fields first, then uploads the cover; a cover that fails stays picked, so the next Save
 uploads it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Remove cover,
-and Delete, which
-confirms through `useConfirm` and only explains while sessions remain. Below, `CodingSessionsTable` lists the
-project's coding sessions; a row or title opens the session on the Coding page.
+at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions remain. Below,
+`CodingSessionsTable` lists the project's coding sessions; a row or title opens the session on the Coding page.
 
 `src/components/InlineEditableText.tsx` shows a field of the page's form as text that becomes its own editor when
 clicked, in the same typography. Every keystroke changes the form. Enter finishes a single line, Ctrl or Cmd with

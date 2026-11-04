@@ -4,6 +4,7 @@ import type { Project } from '../../api/routes/projectRoutes'
 import type { PageAction } from '../../layout/page/pageActions'
 
 // Core
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 
@@ -18,7 +19,7 @@ import { LuImageOff, LuTrash2 } from 'react-icons/lu'
 import { HTTPError } from 'ky'
 
 // Misc
-import { deleteProject, deleteProjectCover } from '../../api/routes/projectRoutes'
+import { deleteProject, deleteProjectCover, restoreProjectCover } from '../../api/routes/projectRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
 import { LEAVE_WITHOUT_ASKING } from '../../layout/page/pageSave'
 import { UrlTree } from '../../urls'
@@ -37,6 +38,7 @@ export function useProjectActions(options: Options): PageAction[] {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const confirm = useConfirm()
+  const [ isRemovingCover, setIsRemovingCover ] = useState(false)
 
   function confirmDelete() {
     const name = options.project.name
@@ -76,14 +78,38 @@ export function useProjectActions(options: Options): PageAction[] {
     })
   }
 
+  // The API keeps a removed cover until a new one replaces it, so removing happens at once,
+  // with Undo in its toast.
   async function removeCover() {
+    const projectId = options.project.id
+    setIsRemovingCover(true)
     try {
-      const response = await deleteProjectCover(options.project.id)
+      const response = await deleteProjectCover(projectId)
       dispatch(projectUpserted(response.project))
-      toast.success(t('toasts.coverRemoved'))
+      toast.success(t('toasts.coverRemoved'), {
+        action: {
+          label: t('common:actions.undo'),
+          onPress: () => void restoreCover(projectId),
+        },
+      })
     }
     catch (error) {
-      console.debug('useProjectActions failed to remove the cover', { error, projectId: options.project.id })
+      console.debug('useProjectActions failed to remove the cover', { error, projectId })
+      toast.danger(t('common:errors.unexpected'))
+    }
+    finally {
+      setIsRemovingCover(false)
+    }
+  }
+
+  async function restoreCover(projectId: string) {
+    try {
+      const response = await restoreProjectCover(projectId)
+      dispatch(projectUpserted(response.project))
+      toast.success(t('toasts.coverRestored'))
+    }
+    catch (error) {
+      console.debug('useProjectActions failed to restore the cover', { error, projectId })
       toast.danger(t('common:errors.unexpected'))
     }
   }
@@ -94,6 +120,7 @@ export function useProjectActions(options: Options): PageAction[] {
       label: t('page.removeCover'),
       icon: LuImageOff,
       isDisabled: !options.project.coverUpdatedAt,
+      isPending: isRemovingCover,
       onAction: () => void removeCover(),
     },
     {

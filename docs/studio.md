@@ -141,14 +141,15 @@ before it draws. The clean capture is only kept, never sent, and may be 12 MiB. 
 
 ## Deleting
 
-One Delete action opens a confirmation with an unchecked box: "Also permanently delete its files, conversation, and
-agent memory".
+An item has two deletes, Delete and Delete permanently.
 
-- Unchecked is a soft delete. The item leaves the grid and appears under the Deleted filter, where it can be restored.
-  Its turns stop at once; its session's directory and everything Elysium keeps stay, so a restored item carries on.
-- Checked deletes permanently: every file under `studio/<itemId>/` in the storage location first, then the item, its
-  assets, feedback, and sessions with their events and directories. When the provider refuses a file, the item stays
-  and the response names the failure, so no rows vanish while their files linger in a bucket.
+- Delete is soft, so it happens at once, with Undo in its toast. The item leaves the grid and appears under the
+  Deleted filter, where it can be restored. Its turns stop at once; its session's directory and everything Elysium
+  keeps stay, so a restored item carries on.
+- Delete permanently confirms first, saying it can't be undone, and counts down. It removes every file under
+  `studio/<itemId>/` in the storage location first, then the item, its assets, feedback, and sessions with their
+  events and directories. When the provider refuses a file, the item stays and the response names the failure, so no
+  rows vanish while their files linger in a bucket. A deleted item has only this one.
 
 A storage location cannot be deleted while items keep files in it, as a project cannot while sessions belong to it.
 
@@ -224,10 +225,9 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
 - **Rename** (`useStudioItemActions`, the Actions menu of the item's header, `StudioItemHeader`). It asks for the
   new title in a dialog saved by its own button, since the page is a workspace with no Save of its own. A deleted
   item has no Rename.
-- **Delete** (the same menu). It confirms
-  through `useConfirm` with one switch, off when it opens, that makes the delete permanent; turned on, the dialog
-  says it can't be undone and counts down. A soft delete rereads the item to show it deleted; a permanent one returns
-  to the grid.
+- **Delete and Delete permanently** (the same menu). Delete returns to the grid at once, and its toast's Undo restores the item and comes
+  back to it. Delete permanently confirms through `useConfirm` with `isIrreversible`, then returns to the grid. See
+  `docs/frontend.md`, Confirm and prompt gates.
 
 ### 3D viewer
 
