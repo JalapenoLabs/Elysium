@@ -5,7 +5,6 @@ import type { ProjectSort, ProjectView } from './projectListing'
 // Core
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 
 // Redux
 import { shallowEqual } from 'react-redux'
@@ -14,8 +13,9 @@ import { useAppSelector } from '../../store/hooks'
 import { selectAllProjects } from '../../store/projectsSlice'
 
 // User interface
-import { Button, Spinner } from '@heroui/react'
+import { buttonVariants, Link, Spinner } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
+import { Page } from '../../layout/page/Page'
 import { ProjectsToolbar } from './ProjectsToolbar'
 import { ProjectTable } from './ProjectTable'
 import { ProjectTiles } from './ProjectTiles'
@@ -39,9 +39,9 @@ function readStoredView(): ProjectView {
   }
 }
 
+// `/projects`: every project, as a table or tiles, searched and sorted in one toolbar.
 export function ProjectsPage() {
   const { t } = useTranslation('projects')
-  const navigate = useNavigate()
   const projects = useAppSelector(selectAllProjects)
   const status = useProjectsLoader()
   useCodingSessionsLoader()
@@ -66,25 +66,13 @@ export function ProjectsPage() {
     }
   }
 
-  return <div className='container'>
-    <div className='level relaxed items-start'>
-      <div>
-        <h1 className='text-3xl font-bold'>{
-          t('title')
-        }</h1>
-        <p className='mt-1 max-w-2xl text-sm opacity-70'>{
-          t('description')
-        }</p>
-      </div>
-      <Button
-        size='sm'
-        className='shrink-0'
-        onPress={() => navigate(UrlTree.projectsNew)}
-      >
-        <LuPlus className='size-4' aria-hidden />
-        <span>{t('add')}</span>
-      </Button>
-    </div>
+  return <Page
+    title={t('title')}
+    primaryAction={<Link href={UrlTree.projectsNew} className={buttonVariants({ variant: 'primary' })}>
+      <LuPlus className='size-4' aria-hidden />
+      <span>{t('add')}</span>
+    </Link>}
+  >
 
     {status === 'loading' && <div className='grid place-items-center py-16'>
       <Spinner />
@@ -127,6 +115,5 @@ export function ProjectsPage() {
         sessionCounts={sessionCounts}
       />}
     </>}
-
-  </div>
+  </Page>
 }

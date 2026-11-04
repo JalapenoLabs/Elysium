@@ -22,16 +22,20 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { createProject, uploadProjectCover } from '../../api/routes/projectRoutes'
+import { usePageSave } from '../../layout/page/pageSave'
 import { createProjectFormSchema } from './projectFormSchema'
 import { toast } from '../../toast/toast'
+
+const PROJECT_FORM_ID = 'project-form'
 
 type Props = {
   onSaved: (project: Project) => void
   onCancel: () => void
 }
 
-// Name, description, and cover for a new project. An existing project is edited in place
-// on its own page.
+// Name, description, and cover for a new project, created from the header's Save or the
+// Create button below the form: two places, one action. An existing project is edited in
+// place on its own page.
 export function ProjectForm(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
   const dispatch = useAppDispatch()
@@ -88,6 +92,13 @@ export function ProjectForm(props: Props) {
     }
   })
 
+  usePageSave({
+    formId: PROJECT_FORM_ID,
+    isDirty: form.formState.isDirty,
+    isPending: form.formState.isSubmitting,
+    label: t('form.create'),
+  })
+
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
   const [ name, description ] = useWatch({
@@ -95,7 +106,7 @@ export function ProjectForm(props: Props) {
     name: [ 'name', 'description' ],
   })
 
-  return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
+  return <Form id={PROJECT_FORM_ID} onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
     {/* The cover sits beside the other fields, at about the width it has on a tile. */}
     <div className='grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]'>
       <div className='flex flex-col gap-4'>

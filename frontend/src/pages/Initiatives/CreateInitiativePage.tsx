@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 
 // User interface
-import { Breadcrumbs } from '@heroui/react'
+import { Page } from '../../layout/page/Page'
 import { InitiativeForm } from './InitiativeForm'
 
 // Misc
@@ -19,15 +19,13 @@ export function CreateInitiativePage() {
   const [ searchParams ] = useSearchParams()
   const projectId = searchParams.get(NEW_ITEM_PROJECT_PARAM)
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.actionItems}>{t('actionItems:title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item href={UrlTree.initiatives}>{t('title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{t('form.createTitle')}</Breadcrumbs.Item>
-    </Breadcrumbs>
-    <h1 className='relaxed text-3xl font-bold'>{
-      t('form.createTitle')
-    }</h1>
+  return <Page
+    title={t('form.createTitle')}
+    parents={[
+      { label: t('actionItems:title'), href: UrlTree.actionItems },
+      { label: t('title'), href: UrlTree.initiatives },
+    ]}
+  >
     <InitiativeForm
       initialProjectIds={projectId
         ? [ projectId ]
@@ -36,5 +34,5 @@ export function CreateInitiativePage() {
       // Back to wherever the form was opened from.
       onCancel={() => navigate(-1)}
     />
-  </div>
+  </Page>
 }

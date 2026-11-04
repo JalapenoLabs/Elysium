@@ -46,8 +46,9 @@
 }
 
 /* A page titlebar's right side (`PageHeader`). On phones it stacks under the title, every
-   control full width with its text centered; from `sm` it is one row beside the title. Its
-   buttons may sit inside a wrapper (a tooltip's trigger), so the rule reaches one level in.
+   control full width with its text centered; from `sm` it is one row beside the title. A
+   button may sit inside wrappers (a tooltip's trigger), which are blocks and already span the
+   width, so the rule reaches buttons at any depth; an icon-only button keeps its size.
    Unlayered, like HeroUI's own `.button`, so it is not outranked by it. */
 .page-actions {
   display: flex;
@@ -57,7 +58,7 @@
 }
 
 .page-actions > *,
-.page-actions > * > .button {
+.page-actions .button:not(.button--icon-only) {
   width: 100%;
   justify-content: center;
 }
@@ -70,9 +71,18 @@
   }
 
   .page-actions > *,
-  .page-actions > * > .button {
+  .page-actions .button:not(.button--icon-only) {
     width: auto;
   }
+}
+
+/* The breadcrumbs' last crumb, the page's own title, shortens with an ellipsis rather than
+   running off a phone's edge. HeroUI keeps every crumb at its full width, and gives the
+   crumb's link no class of its own to set. */
+.page-breadcrumbs .breadcrumbs__item:last-child,
+.page-breadcrumbs .breadcrumbs__item:last-child .breadcrumbs__link {
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 /* A SmartTable header holding `.numeric-column-header` sits over the right edge of its

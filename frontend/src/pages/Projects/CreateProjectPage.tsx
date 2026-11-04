@@ -5,7 +5,8 @@ import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Breadcrumbs, Card } from '@heroui/react'
+import { Card } from '@heroui/react'
+import { Page } from '../../layout/page/Page'
 import { ProjectForm } from './ProjectForm'
 
 // Misc
@@ -16,23 +17,15 @@ export function CreateProjectPage() {
   const { t } = useTranslation('projects')
   const navigate = useNavigate()
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.projects}>{t('title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{t('form.createTitle')}</Breadcrumbs.Item>
-    </Breadcrumbs>
-    <h1 className='text-3xl font-bold'>{
-      t('form.createTitle')
-    }</h1>
-    <p className='relaxed mt-1 max-w-2xl text-sm opacity-70'>{
-      t('form.createDescription')
-    }</p>
-
+  return <Page
+    title={t('form.createTitle')}
+    parents={[{ label: t('title'), href: UrlTree.projects }]}
+  >
     <Card className='max-w-4xl p-6'>
       <ProjectForm
         onSaved={() => navigate(UrlTree.projects)}
         onCancel={() => navigate(UrlTree.projects)}
       />
     </Card>
-  </div>
+  </Page>
 }

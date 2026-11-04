@@ -7,6 +7,7 @@ import type {
   ActionItemState,
   ActionItemTransition,
 } from '../../api/routes/actionItemRoutes'
+import type { SnoozePreset } from './actionItemDates'
 
 type ChipColor = 'accent' | 'success' | 'warning' | 'danger' | 'default'
 
@@ -44,6 +45,12 @@ export const transitionLabelKeys = {
   dismiss: 'transitions.dismiss',
   reopen: 'transitions.reopen',
 } as const satisfies Record<ActionItemTransition, ParseKeys<'actionItems'>>
+
+export const snoozePresetLabelKeys = {
+  laterToday: 'snooze.laterToday',
+  tomorrow: 'snooze.tomorrow',
+  nextWeek: 'snooze.nextWeek',
+} as const satisfies Record<SnoozePreset, ParseKeys<'actionItems'>>
 
 // What each state allows, mirroring `Transition` in api/src/action_items/mod.rs, so a page
 // offers only what the API would accept.

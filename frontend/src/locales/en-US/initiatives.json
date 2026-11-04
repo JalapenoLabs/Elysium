@@ -85,6 +85,7 @@
     "notFound": "This initiative does not exist.",
     "backToList": "Back to initiatives",
     "renameLabel": "Name",
+    "descriptionHeading": "Description",
     "describeLabel": "Description",
     "addDescription": "Add a description",
     "deletedTitle": "This initiative is deleted",

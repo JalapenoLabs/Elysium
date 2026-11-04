@@ -1,6 +1,5 @@
 {
   "title": "Projects",
-  "description": "Projects group coding sessions. Every session belongs to one project.",
   "add": "New project",
   "table": {
     "label": "Projects",
@@ -14,7 +13,6 @@
   },
   "form": {
     "createTitle": "New project",
-    "createDescription": "Projects group coding sessions. A cover image makes the project easy to spot among the tiles.",
     "create": "Create project",
     "editTitle": "Edit {{name}}",
     "name": "Name",
@@ -74,11 +72,11 @@
     "coverAlt": "Cover image for {{name}}"
   },
   "page": {
-    "actions": "Actions",
     "notFound": "This project does not exist, or was deleted.",
     "backToProjects": "Back to projects",
     "sessionsHeading": "Coding sessions",
     "sessionsEmpty": "No coding sessions in this project yet. Start one from Coding.",
+    "aboutHeading": "About",
     "renameLabel": "Click to rename",
     "describeLabel": "Click to edit the description",
     "addDescription": "Add a description",

@@ -23,21 +23,22 @@ import {
   LuVariable,
   LuVideo,
 } from 'react-icons/lu'
+import { Page } from '../../layout/page/Page'
 import { SettingsDirectoryItem } from './SettingsDirectoryItem'
 import { UsersDirectoryItem } from './UsersDirectoryItem'
 
 // Misc
 import { UrlTree } from '../../urls'
 
-// The directory behind the topbar's settings gear, modeled on Stripe's: grouped
-// sections, each a responsive grid of entries.
+// The directory behind the topbar's settings gear, modeled on Stripe's: the Settings title,
+// then grouped sections, each a responsive grid of entries.
 export function SettingsDirectoryPage() {
   const { t } = useTranslation('settings')
   const isAdmin = useAppSelector(selectIsAdmin)
   const isCompanyMember = useAppSelector(selectIsCompanyMember)
 
-  return <div className='container'>
-    <section className='relaxed pt-2'>
+  return <Page title={t('title')}>
+    <section className='relaxed'>
       <h2 className='relaxed text-base font-semibold'>{
         t('sections.personal')
       }</h2>
@@ -143,5 +144,5 @@ export function SettingsDirectoryPage() {
         />}
       </div>
     </section>
-  </div>
+  </Page>
 }

@@ -27,7 +27,10 @@ import { createInitiative } from '../../api/routes/initiativeRoutes'
 import { useProjectsLoader } from '../../hooks/useServerData'
 import { toEndOfDayInstant } from '../ActionItems/actionItemDates'
 import { createInitiativeFormSchema } from './initiativeFormSchema'
+import { usePageSave } from '../../layout/page/pageSave'
 import { toast } from '../../toast/toast'
+
+const INITIATIVE_FORM_ID = 'initiative-form'
 
 type Props = {
   // Projects the initiative starts in, such as the project page it was created from.
@@ -36,8 +39,9 @@ type Props = {
   onCancel: () => void
 }
 
-// Starts an initiative. It starts active and empty; items join it from their own pages or
-// from the initiative's.
+// Starts an initiative, from the header's Save or the button below the form: two places,
+// one action. It starts active and empty; items join it from their own pages or from the
+// initiative's.
 export function InitiativeForm(props: Props) {
   const { t } = useTranslation([ 'initiatives', 'actionItems', 'common' ])
   const dispatch = useAppDispatch()
@@ -76,13 +80,25 @@ export function InitiativeForm(props: Props) {
     }
   })
 
+  usePageSave({
+    formId: INITIATIVE_FORM_ID,
+    isDirty: form.formState.isDirty,
+    isPending: form.formState.isSubmitting,
+    label: t('form.submit'),
+  })
+
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
   const values = useWatch({ control: form.control })
   // Watched on its own: the whole-form watch types a class instance as a partial copy.
   const targetDate = useWatch({ control: form.control, name: 'targetDate' })
 
-  return <Form onSubmit={onSubmit} validationBehavior='aria' className='grid max-w-3xl grid-cols-1 gap-4'>
+  return <Form
+    id={INITIATIVE_FORM_ID}
+    onSubmit={onSubmit}
+    validationBehavior='aria'
+    className='grid max-w-3xl grid-cols-1 gap-4'
+  >
     <TextField
       autoFocus
       isRequired

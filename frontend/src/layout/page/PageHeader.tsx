@@ -77,19 +77,24 @@ export function PageHeader(props: PageHeaderProps) {
           <span>{t('page.back', { page: parent.label })}</span>
         </Tooltip.Content>
       </Tooltip>
-      <Breadcrumbs className='min-w-0'>
+      <Breadcrumbs className='page-breadcrumbs min-w-0'>
         {props.parents?.map((crumb) => <Breadcrumbs.Item key={crumb.href} href={crumb.href}>{
           crumb.label
         }</Breadcrumbs.Item>)}
-        <Breadcrumbs.Item>{props.title}</Breadcrumbs.Item>
+        <Breadcrumbs.Item>
+          <span className='truncate'>{props.title}</span>
+        </Breadcrumbs.Item>
       </Breadcrumbs>
     </nav>}
 
     <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4'>
-      <div className='flex min-w-0 items-center gap-3'>
+      {/* Wraps, so a chip after a long title moves below it rather than squeezing it. */}
+      <div className='flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2'>
         {props.icon}
         {props.rename
-          ? <div className='min-w-0'>
+          // Takes the free width: the editor's negative margin leaves its natural width a
+          // few pixels short of its text, which would wrap a title that fits.
+          ? <h1 className='min-w-0 flex-1'>
             <InlineEditableText
               value={props.title}
               label={props.rename.label}
@@ -98,7 +103,7 @@ export function PageHeader(props: PageHeaderProps) {
               className='text-3xl font-bold'
               onSave={props.rename.onSave}
             />
-          </div>
+          </h1>
           : <h1 className='min-w-0 text-3xl font-bold break-words'>{
             props.title
           }</h1>}

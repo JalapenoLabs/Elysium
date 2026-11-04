@@ -12,8 +12,9 @@ import { actionItemUpserted } from '../../store/actionItemsSlice'
 import { actionItemLinkUpserted } from '../../store/actionItemLinksSlice'
 
 // User interface
-import { Breadcrumbs, Button, useOverlayState } from '@heroui/react'
+import { useOverlayState } from '@heroui/react'
 import { LuLink } from 'react-icons/lu'
+import { Page } from '../../layout/page/Page'
 import { ActionItemForm } from './ActionItemForm'
 import { LinkTargetModal } from './LinkTargetModal'
 
@@ -63,20 +64,11 @@ export function CreateActionItemPage() {
     }
   }
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.actionItems}>{t('title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{t('form.createTitle')}</Breadcrumbs.Item>
-    </Breadcrumbs>
-    <div className='level relaxed'>
-      <h1 className='text-3xl font-bold'>{
-        t('form.createTitle')
-      }</h1>
-      <Button variant='secondary' onPress={fromLinkState.open}>
-        <LuLink className='size-4' aria-hidden />
-        <span>{t('form.fromLink')}</span>
-      </Button>
-    </div>
+  return <Page
+    title={t('form.createTitle')}
+    parents={[{ label: t('title'), href: UrlTree.actionItems }]}
+    actions={[{ id: 'fromLink', label: t('form.fromLink'), icon: LuLink, onAction: fromLinkState.open }]}
+  >
     <ActionItemForm
       initialProjectIds={projectIds}
       initialInitiativeIds={initiativeIds}
@@ -91,5 +83,5 @@ export function CreateActionItemPage() {
       submitLabel={t('links.picker.createSubmit')}
       onSubmit={createFromLink}
     />
-  </div>
+  </Page>
 }

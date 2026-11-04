@@ -4,7 +4,7 @@ import type { ParseKeys } from 'i18next'
 
 // Core
 import { useTranslation } from 'react-i18next'
-import { Outlet, useLocation, useNavigate } from 'react-router'
+import { Outlet, useLocation } from 'react-router'
 
 // Redux
 import { useAppSelector } from '../../store/hooks'
@@ -12,8 +12,9 @@ import { selectInboxActionItems } from '../../store/actionItemsSlice'
 import { selectPendingChangesets } from '../../store/changesetsSlice'
 
 // User interface
-import { Button, Chip, Tabs } from '@heroui/react'
+import { buttonVariants, Chip, Link, Tabs } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
+import { Page } from '../../layout/page/Page'
 
 // Misc
 import { useActionItemsLoader, useChangesetsLoader } from '../../hooks/useServerData'
@@ -44,7 +45,6 @@ const sectionLabelKeys = {
 // create pages, stand on their own with breadcrumbs back here.
 export function ActionItemsLayout() {
   const { t } = useTranslation([ 'actionItems', 'initiatives' ])
-  const navigate = useNavigate()
   const location = useLocation()
   useActionItemsLoader()
   useChangesetsLoader()
@@ -58,25 +58,20 @@ export function ActionItemsLayout() {
   const selectedSection = SECTIONS.find((section) => sectionUrls[section] === location.pathname) ?? 'next'
   const isInitiatives = selectedSection === 'initiatives'
 
-  return <div className='container'>
-    <div className='level compact items-center'>
-      <h1 className='text-3xl font-bold'>{
-        t('title')
-      }</h1>
-      <Button
-        size='sm'
-        variant='outline'
-        className='shrink-0'
-        onPress={() => navigate(isInitiatives
-          ? UrlTree.initiativesNew
-          : UrlTree.actionItemsNew)}
-      >
-        <LuPlus className='size-4' aria-hidden />
-        <span>{isInitiatives
-          ? t('initiatives:newInitiative')
-          : t('newItem')}</span>
-      </Button>
-    </div>
+  return <Page
+    title={t('title')}
+    primaryAction={<Link
+      href={isInitiatives
+        ? UrlTree.initiativesNew
+        : UrlTree.actionItemsNew}
+      className={buttonVariants({ variant: 'outline' })}
+    >
+      <LuPlus className='size-4' aria-hidden />
+      <span>{isInitiatives
+        ? t('initiatives:newInitiative')
+        : t('newItem')}</span>
+    </Link>}
+  >
 
     <Tabs className='relaxed' variant='secondary' selectedKey={selectedSection}>
       <Tabs.ListContainer>
@@ -93,5 +88,5 @@ export function ActionItemsLayout() {
     </Tabs>
 
     <Outlet />
-  </div>
+  </Page>
 }

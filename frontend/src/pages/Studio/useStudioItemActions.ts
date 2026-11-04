@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Key } from '@heroui/react'
 import type { StudioItem } from '../../api/routes/studioRoutes'
+import type { PageAction } from '../../layout/page/pageActions'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -13,31 +13,26 @@ import { useAppDispatch } from '../../store/hooks'
 import { studioItemDeleted } from '../../store/studioItemsSlice'
 
 // User interface
-import { Button, Dropdown, Label, Tooltip } from '@heroui/react'
-import { LuEllipsis } from 'react-icons/lu'
+import { LuTrash2 } from 'react-icons/lu'
 
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
 import { deleteStudioItem } from '../../api/routes/studioRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
-import { UrlTree } from '../../urls'
 import { toast } from '../../toast/toast'
+import { UrlTree } from '../../urls'
 
 // The delete dialog's one switch, which makes the delete permanent.
 const PERMANENT_SWITCH_ID = 'permanently'
 
-type Props = {
-  item: StudioItem
-}
-
-// The item's menu. Its one action, Delete, confirms first and is soft unless its switch for a
-// permanent delete is turned on, which makes the dialog count down as any permanent delete does.
-export function StudioItemActions(props: Props) {
+// The item page's actions. Its one action, Delete, confirms first and is soft unless its
+// switch for a permanent delete is turned on, which makes the dialog count down as any
+// permanent delete does.
+export function useStudioItemActions(item: StudioItem): PageAction[] {
   const { t } = useTranslation([ 'studio', 'common' ])
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const confirm = useConfirm()
-  const item = props.item
 
   function confirmDelete() {
     confirm({
@@ -59,7 +54,7 @@ export function StudioItemActions(props: Props) {
           // A provider that refused a file keeps the item, and the answer names the failure.
           const message = getApiErrorMessage(error)
           if (!message) {
-            console.debug('StudioItemActions failed to delete an item', { error, itemId: item.id })
+            console.debug('useStudioItemActions failed to delete an item', { error, itemId: item.id })
           }
           toast.danger(t('toasts.deleteFailed'), {
             description: message ?? t('common:errors.unexpected'),
@@ -83,30 +78,11 @@ export function StudioItemActions(props: Props) {
     })
   }
 
-  const actions: Record<string, () => void> = {
-    delete: confirmDelete,
-  }
-
-  return <Dropdown>
-    <Tooltip delay={300}>
-      <Button
-        isIconOnly
-        size='sm'
-        variant='ghost'
-        aria-label={t('item.actions')}
-      >
-        <LuEllipsis className='size-4' aria-hidden />
-      </Button>
-      <Tooltip.Content>
-        <span>{t('item.actions')}</span>
-      </Tooltip.Content>
-    </Tooltip>
-    <Dropdown.Popover placement='bottom end'>
-      <Dropdown.Menu onAction={(key: Key) => actions[String(key)]?.()}>
-        <Dropdown.Item id='delete' textValue={t('delete.action')} variant='danger'>
-          <Label>{t('delete.action')}</Label>
-        </Dropdown.Item>
-      </Dropdown.Menu>
-    </Dropdown.Popover>
-  </Dropdown>
+  return [{
+    id: 'delete',
+    label: t('delete.action'),
+    icon: LuTrash2,
+    isDanger: true,
+    onAction: confirmDelete,
+  }]
 }

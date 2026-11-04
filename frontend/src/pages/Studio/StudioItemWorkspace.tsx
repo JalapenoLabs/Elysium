@@ -14,7 +14,6 @@ import { useAppSelector } from '../../store/hooks'
 import { Alert } from '@heroui/react'
 import { RestoreStudioItemButton } from './RestoreStudioItemButton'
 import { StudioConversation } from './StudioConversation'
-import { StudioItemActions } from './StudioItemActions'
 import { StudioItemHeader } from './StudioItemHeader'
 import { StudioSplit } from './StudioSplit'
 import { StudioStage } from './StudioStage'
@@ -43,7 +42,6 @@ export function StudioItemWorkspace(props: Props) {
       isReadOnly={isDeleted}
       layoutMode={layout.mode}
       onLayoutModeChange={changeMode}
-      actions={<StudioItemActions item={item} />}
     />
 
     {isDeleted && <Alert status='warning' className='shrink-0 rounded-none'>

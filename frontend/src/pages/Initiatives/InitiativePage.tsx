@@ -10,9 +10,10 @@ import { selectInitiativeHistory } from '../../store/actionItemHistorySlice'
 import { initiativeUpserted, selectInitiativeById } from '../../store/initiativesSlice'
 
 // User interface
-import { Alert, Breadcrumbs, Button, Chip, Link, Spinner } from '@heroui/react'
+import { Alert, Chip, Link, Spinner } from '@heroui/react'
 import { LuTrash2 } from 'react-icons/lu'
 import { InlineEditableText } from '../../components/InlineEditableText'
+import { Page } from '../../layout/page/Page'
 import { HistoryTimeline } from '../ActionItems/HistoryTimeline'
 import { InitiativeContainers } from './InitiativeContainers'
 import { InitiativeDetailsPanel } from './InitiativeDetailsPanel'
@@ -33,10 +34,11 @@ import {
 import { useInitiativeActions } from './useInitiativeActions'
 import { toast } from '../../toast/toast'
 
-// `/action-items/initiatives/:initiativeId`: one initiative, edited in place. Progress leads,
-// as resolved and total with the burnup beneath; its items, the Jira and GitHub containers it
-// follows, and its history, follow. A
-// deleted initiative is shown read-only, with Restore.
+// `/action-items/initiatives/:initiativeId`: one initiative, edited in place. Its name is the
+// page's title, renamed where it is shown, with its state beside it. Its description, then its
+// progress as resolved and total with the burnup beneath, its items, the Jira and GitHub
+// containers it follows, and its history, follow. A deleted initiative is shown read-only,
+// with Restore.
 export function InitiativePage() {
   const { t } = useTranslation([ 'initiatives', 'actionItems', 'common' ])
   const dispatch = useAppDispatch()
@@ -80,13 +82,32 @@ export function InitiativePage() {
     }
   }
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.actionItems}>{t('actionItems:title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item href={UrlTree.initiatives}>{t('title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{initiative.name}</Breadcrumbs.Item>
-    </Breadcrumbs>
-
+  return <Page
+    title={initiative.name}
+    rename={isDeleted
+      ? undefined
+      : {
+        label: t('page.renameLabel'),
+        maxLength: INITIATIVE_NAME_MAX_CHARACTERS,
+        onSave: (name) => saveText({ name }),
+      }}
+    badges={<Chip variant='soft' color={initiativeStateChipColors[initiative.state]}>{
+      t(initiativeStateLabelKeys[initiative.state])
+    }</Chip>}
+    parents={[
+      { label: t('actionItems:title'), href: UrlTree.actionItems },
+      { label: t('title'), href: UrlTree.initiatives },
+    ]}
+    actions={isDeleted
+      ? undefined
+      : [{
+        id: 'delete',
+        label: t('common:actions.delete'),
+        icon: LuTrash2,
+        isDanger: true,
+        onAction: () => actions.remove(initiative, () => navigate(UrlTree.initiatives)),
+      }]}
+  >
     {isDeleted && <Alert status='warning' className='relaxed'>
       <Alert.Indicator />
       <Alert.Content>
@@ -96,19 +117,10 @@ export function InitiativePage() {
       <RestoreInitiativeButton initiative={initiative} />
     </Alert>}
 
-    <div className='level relaxed items-start gap-4'>
-      <div className='min-w-0 flex-1'>
-        {isDeleted
-          ? <h1 className='text-3xl font-bold'>{initiative.name}</h1>
-          : <InlineEditableText
-            value={initiative.name}
-            label={t('page.renameLabel')}
-            isRequired
-            maxLength={INITIATIVE_NAME_MAX_CHARACTERS}
-            className='text-3xl font-bold'
-            onSave={(name) => saveText({ name })}
-          />}
-        <div className='mt-1 max-w-3xl'>
+    <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]'>
+      <div>
+        <section className='relaxed'>
+          <h2 className='compact text-lg font-semibold'>{t('page.descriptionHeading')}</h2>
           {isDeleted
             ? <p className='text-sm whitespace-pre-line opacity-80'>{initiative.description}</p>
             : <InlineEditableText
@@ -120,25 +132,7 @@ export function InitiativePage() {
               className='text-sm whitespace-pre-line opacity-80'
               onSave={(description) => saveText({ description })}
             />}
-        </div>
-      </div>
-      <div className='flex shrink-0 items-center gap-2'>
-        <Chip variant='soft' color={initiativeStateChipColors[initiative.state]}>{
-          t(initiativeStateLabelKeys[initiative.state])
-        }</Chip>
-        {!isDeleted && <Button
-          size='sm'
-          variant='ghost'
-          onPress={() => actions.remove(initiative, () => navigate(UrlTree.initiatives))}
-        >
-          <LuTrash2 className='size-4' aria-hidden />
-          <span>{t('common:actions.delete')}</span>
-        </Button>}
-      </div>
-    </div>
-
-    <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]'>
-      <div>
+        </section>
         <section className='relaxed'>
           <h2 className='compact text-lg font-semibold'>{t('progress.heading')}</h2>
           <InitiativeProgressSection initiative={initiative} />
@@ -157,5 +151,5 @@ export function InitiativePage() {
         <InitiativeDetailsPanel initiative={initiative} />
       </aside>
     </div>
-  </div>
+  </Page>
 }

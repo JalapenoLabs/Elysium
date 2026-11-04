@@ -30,7 +30,10 @@ import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerDa
 import { toEndOfDayInstant } from './actionItemDates'
 import { createActionItemFormSchema } from './actionItemFormSchema'
 import { priorityLabelKeys } from './actionItemPresentation'
+import { usePageSave } from '../../layout/page/pageSave'
 import { toast } from '../../toast/toast'
+
+const ACTION_ITEM_FORM_ID = 'action-item-form'
 
 type Props = {
   // Projects and initiatives the item starts in, such as the page it was created from.
@@ -40,8 +43,9 @@ type Props = {
   onCancel: () => void
 }
 
-// Adds an item by hand. It starts open, since creating it accepts it. Everything past the
-// title can wait; the item's page edits it all later.
+// Adds an item by hand, from the header's Save or the button below the form: two places,
+// one action. It starts open, since creating it accepts it. Everything past the title can
+// wait; the item's page edits it all later.
 export function ActionItemForm(props: Props) {
   const { t } = useTranslation([ 'actionItems', 'common' ])
   const dispatch = useAppDispatch()
@@ -88,13 +92,25 @@ export function ActionItemForm(props: Props) {
     }
   })
 
+  usePageSave({
+    formId: ACTION_ITEM_FORM_ID,
+    isDirty: form.formState.isDirty,
+    isPending: form.formState.isSubmitting,
+    label: t('form.submit'),
+  })
+
   const errors = form.formState.errors
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
   const values = useWatch({ control: form.control })
   // Watched on its own: the whole-form watch types a class instance as a partial copy.
   const dueDate = useWatch({ control: form.control, name: 'dueDate' })
 
-  return <Form onSubmit={onSubmit} validationBehavior='aria' className='grid max-w-3xl grid-cols-1 gap-4'>
+  return <Form
+    id={ACTION_ITEM_FORM_ID}
+    onSubmit={onSubmit}
+    validationBehavior='aria'
+    className='grid max-w-3xl grid-cols-1 gap-4'
+  >
     <TextField
       autoFocus
       isRequired

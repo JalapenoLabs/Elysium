@@ -17,6 +17,7 @@ import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { Button, useOverlayState } from '@heroui/react'
 import { DockviewReact } from 'dockview-react'
 import { LuLayoutPanelLeft, LuPlus, LuRotateCcw } from 'react-icons/lu'
+import { PageHeader } from '../../layout/page/PageHeader'
 import { ConversationPanel } from './ConversationPanel'
 import { CreateSessionModal } from './CreateSessionModal'
 import { RenameSessionModal } from './RenameSessionModal'
@@ -152,6 +153,14 @@ export function CodingPage() {
     event.api.onDidLayoutChange(() => saveLayout(event.api))
   }
 
+  function showSessions() {
+    if (!dockviewApiRef.current) {
+      console.debug('CodingPage cannot show the sessions panel before Dockview is ready')
+      return
+    }
+    showSessionsPanel(dockviewApiRef.current, t('panels.sessions'))
+  }
+
   function resetLayout() {
     const api = dockviewApiRef.current
     if (!api) {
@@ -165,43 +174,28 @@ export function CodingPage() {
 
   return <CodingActionsContext.Provider value={actions}>
     <div className='flex h-full flex-col'>
-      <div className='level shrink-0 gap-2 border-b border-separator px-4 py-2 md:px-6'>
-        <h1 className='text-lg font-semibold'>{
-          t('title')
-        }</h1>
-        <div className='level-right gap-2'>
-          {/* Below sm the two layout buttons keep only their icons, so New session fits. */}
-          <Button
-            size='sm'
-            variant='ghost'
-            aria-label={t('panels.sessions')}
-            onPress={() => {
-              if (dockviewApiRef.current) {
-                showSessionsPanel(dockviewApiRef.current, t('panels.sessions'))
-              }
-            }}
-          >
-            <LuLayoutPanelLeft className='size-4' aria-hidden />
-            <span className='hidden sm:inline'>{t('panels.sessions')}</span>
-          </Button>
-          <Button
-            size='sm'
-            variant='ghost'
-            aria-label={t('layout.reset')}
-            onPress={resetLayout}
-          >
-            <LuRotateCcw className='size-4' aria-hidden />
-            <span className='hidden sm:inline'>{t('layout.reset')}</span>
-          </Button>
-          <Button
-            size='sm'
-            onPress={() => actions.createSession()}
-          >
-            <LuPlus className='size-4' aria-hidden />
-            <span>{t('newSession')}</span>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        className='shrink-0 border-b border-separator px-4 py-3 md:px-6'
+        title={t('title')}
+        primaryAction={<Button onPress={() => actions.createSession()}>
+          <LuPlus className='size-4' aria-hidden />
+          <span>{t('newSession')}</span>
+        </Button>}
+        actions={[
+          {
+            id: 'showSessions',
+            label: t('panels.sessions'),
+            icon: LuLayoutPanelLeft,
+            onAction: showSessions,
+          },
+          {
+            id: 'resetLayout',
+            label: t('layout.reset'),
+            icon: LuRotateCcw,
+            onAction: resetLayout,
+          },
+        ]}
+      />
 
       <div className='min-h-0 flex-1'>
         <DockviewReact

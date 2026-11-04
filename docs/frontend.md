@@ -107,7 +107,10 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
 - **Phones.** Below `sm` the right side stacks under the title and every control in it spans the full width,
   centered (`.page-actions` in `src/index.css`).
 - **Save.** A form inside the page registers the page's Save with `usePageSave` (`pageSave.ts`); see Settings pages
-  for how it works. Every edit and `/new` page carries it in the header.
+  for how it works. Every edit and `/new` page carries it in the header. A `/new` page also keeps its Create button
+  below the form, labelled the same, submitting the same form: two places, one action, as the new project, item, and
+  initiative pages do. Moving the item, initiative, and project pages, which save each field as it changes, onto the
+  header Save is on the roadmap.
 - **Workspace pages.** A page that manages its own scrolling (the Coding page, a Studio item) renders `PageHeader`
   alone in its top bar, with the same props, and passes `className` for its spacing.
 
@@ -514,9 +517,11 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   states (the inbox and open by default), project (or no project), initiative, waiting, snoozed, and a Deleted items
   switch that lists deleted items instead, each with Restore. Filters live in the address (`actionItemFilters.ts`),
   with only what differs from the defaults written, so a filtered list survives opening an item and coming back.
-- **Item page** (`ActionItemPage`) edits the title and notes in place with `InlineEditableText`. `ActionItemActionBar`
-  offers the state changes the state allows (`transitionsByState` mirrors the API's table), Snooze, Wait on someone,
-  Start a coding session, and a menu to stop waiting or delete. `ActionItemSessions` lists the coding sessions started
+- **Item page** (`ActionItemPage`, which loads the item for `ActionItemView`) edits the title (the page's title) and
+  notes in place with `InlineEditableText`. `useActionItemPageActions` gives its header the first state change the
+  state allows as the primary action (`transitionsByState` mirrors the API's table), and an Actions menu with the
+  other state changes, Snooze (a submenu of the presets, Pick a day, and End snooze), Wait on someone, Stop waiting,
+  Start a coding session, and Delete. `ActionItemSessions` lists the coding sessions started
   from the item, from the `codingSessions` slice, below its comments. `ActionItemDetailsPanel` saves priority, due date,
   projects, and initiatives as they change; projects and initiatives go through their per-id routes, one request per
   one joined or left (`membershipChanges.ts`). A deleted item is read-only under a banner with Restore.
@@ -535,7 +540,8 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   typing (`GithubIssueList`). Every list is a `ChoiceList`, which shows loading, the provider's refusal, emptiness, and
   a cut short answer. `LinkTargetModal` wraps the picker for Link on the item page and for From Jira or GitHub on New
   item, which creates the item from the pick with the page's preset project and initiative.
-- **Snooze** (`SnoozeMenu`) offers later today (three hours), tomorrow morning, next Monday morning, or a day picked
+- **Snooze** (`SnoozeMenu` in Next, and the item page's Snooze submenu, both opening `SnoozeDateModal` for a day)
+  offers later today (three hours), tomorrow morning, next Monday morning, or a day picked
   from a calendar; a day snooze wakes at 09:00 in the viewer's zone (`SNOOZE_WAKE_HOUR`). **Due and target dates** are
   picked as days and stored as the last millisecond of that day in the viewer's zone, so an item due today is overdue
   tomorrow (`actionItemDates.ts`).
@@ -547,7 +553,8 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
 - **Initiatives** (`InitiativesPage`, `InitiativeTable`) list name, state, progress, target date, and projects, active
   ones by default, with a Deleted initiatives switch like items'. Progress is always resolved and total together
   (`InitiativeProgressSummary`), with a bar beside the counts, never a percentage.
-- **Initiative page** (`InitiativePage`) edits name and description in place and state, target date, and projects in
+- **Initiative page** (`InitiativePage`) edits the name (the page's title, with its state chip beside it) and the
+  description in place, and Delete is its Actions menu. It edits state, target date, and projects in
   `InitiativeDetailsPanel`. `BurnupChart` draws total and resolved as steps from the API's burnup, with a legend,
   direct end labels, a crosshair and tooltip that snap to the nearest change (by pointer or arrow keys), and the same
   numbers in a table beneath; its geometry is `burnup.ts`. `InitiativeMembers` lists the items with a button to take
@@ -559,7 +566,9 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   which kinds each provider has.
 - **Changesets** (`ChangesetsPage`, `ChangesetListItem`) lists the changesets waiting for review, then the reviewed
   ones, each with its summary, proposer, when it was proposed, its decisions so far, and its state.
-- **Changeset review** (`ChangesetPage`, `ChangesetOperationCard`) shows each operation as a sentence and, for an edit,
+- **Changeset review** (`ChangesetPage`, `ChangesetOperationCard`) has Apply as its header's primary action while
+  the changeset waits, Approve all and Reject all, or Undo once applied, as its actions, and who proposed and decided
+  it with the tally under the header. It shows each operation as a sentence and, for an edit,
   each field from what it holds to what it would hold (after applying, from what the operation replaced), with its
   reason, quote, and source, and which earlier change it acts on. While the changeset is pending, each change has
   Approve and Reject, the page has Approve all and Reject all, and a change says which others rejecting it also
@@ -686,11 +695,12 @@ through the same state as the toolbar. The chosen view is remembered per browser
 (uikit's row highlight, which never shows as highlighted) or a tile, itself a link, goes to `/projects/:projectId`.
 The cover thumbnail opts out of the row click with `data-no-row-highlight`, so previewing it does not navigate.
 
-`ProjectPage` edits the project in place. `ProjectBanner` runs the cover across the page below the name and
-description: double-clicking it, or its Change cover button, picks an image and uploads it at once; without a cover
+`ProjectPage` loads the project for `ProjectDetails`, which edits it in place. The name is the page's title.
+`ProjectBanner` runs the cover across the page below the header: double-clicking it, or its Change cover button, picks an image and uploads it at once; without a cover
 it is a single Add a cover image button. Beside Change cover, a Fit and Fill switch saves the project's `coverFit`,
-which every rendering of the cover follows. Both controls show on hover or focus. The name and description are `InlineEditableText`, saved as soon as they are changed. The
-Actions menu on the right (`ProjectActions`) holds what cannot be done in place: Remove cover, and Delete, which
+which every rendering of the cover follows. Both controls show on hover or focus. About, below the banner, holds the description and who created the project. The name and description are
+`InlineEditableText`, saved as soon as they are changed. The header's Actions menu (`useProjectActions`) holds what
+cannot be done in place: Remove cover, and Delete, which
 confirms through `useConfirm` and only explains while sessions remain. Below, `CodingSessionsTable` lists the
 project's coding sessions; a row or title opens the session on the Coding page.
 

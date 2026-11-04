@@ -1,5 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { PageAction } from '../../layout/page/pageActions'
 import type { DescribeContext } from './changesetPresentation'
 
 // Core
@@ -16,8 +17,9 @@ import { selectInitiativeNamesById } from '../../store/initiativesSlice'
 import { selectProjectNamesById } from '../../store/projectsSlice'
 
 // User interface
-import { Alert, Breadcrumbs, Button, Chip, Link, Spinner, Tooltip } from '@heroui/react'
+import { Alert, Button, Chip, Link, Spinner, Tooltip } from '@heroui/react'
 import { LuCheckCheck, LuUndo2, LuX } from 'react-icons/lu'
+import { Page } from '../../layout/page/Page'
 import { ChangesetOperationCard } from './ChangesetOperationCard'
 
 // Misc
@@ -89,93 +91,89 @@ export function ChangesetPage() {
     }
   }
 
-  return <div className='container'>
-    <Breadcrumbs className='compact'>
-      <Breadcrumbs.Item href={UrlTree.actionItems}>{t('actionItems:title')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item href={UrlTree.changesets}>{t('review.breadcrumb')}</Breadcrumbs.Item>
-      <Breadcrumbs.Item>{changeset.summary}</Breadcrumbs.Item>
-    </Breadcrumbs>
+  const reviewActions: PageAction[] = []
+  if (isPending) {
+    reviewActions.push(
+      {
+        id: 'approveAll',
+        label: t('review.approveAll'),
+        icon: LuCheckCheck,
+        isDisabled: isWriting,
+        isPending: pendingWrite === 'approved',
+        onAction: () => void write('approved', () => actions.decide(changeset, 'approved')),
+      },
+      {
+        id: 'rejectAll',
+        label: t('review.rejectAll'),
+        icon: LuX,
+        isDisabled: isWriting,
+        isPending: pendingWrite === 'rejected',
+        onAction: () => void write('rejected', () => actions.decide(changeset, 'rejected')),
+      },
+    )
+  }
+  if (changeset.state === 'applied') {
+    // It confirms first, saying what undo cannot take back.
+    reviewActions.push({
+      id: 'undo',
+      label: t('review.undo'),
+      icon: LuUndo2,
+      onAction: () => actions.undo(changeset),
+    })
+  }
 
-    <div className='level relaxed items-start gap-4'>
-      <div className='min-w-0 flex-1'>
-        <h1 className='text-3xl font-bold'>{changeset.summary}</h1>
-        <p className='mt-1 text-sm opacity-70'>{
-          t('proposedBy', {
-            proposer: t(proposer.key, { ...proposer.values, ns: 'actionItems' }),
-            date: context.formatInstant(changeset.createdAt),
-          })
-        }</p>
-        {changeset.decidedBy && changeset.decidedAt && <p className='text-sm opacity-70'>{
-          t('review.decidedBy', {
-            name: userNames[changeset.decidedBy] ?? t('common:table.someone'),
-            date: context.formatInstant(changeset.decidedAt),
-          })
-        }</p>}
-        {changeset.undoneAt && <p className='text-sm opacity-70'>{
-          t('review.undoneAt', { date: context.formatInstant(changeset.undoneAt) })
-        }</p>}
-      </div>
-      <Chip variant='soft' color={changesetStateChipColors[changeset.state]}>{
-        t(changesetStateLabelKeys[changeset.state])
-      }</Chip>
+  return <Page
+    title={changeset.summary}
+    badges={<Chip variant='soft' color={changesetStateChipColors[changeset.state]}>{
+      t(changesetStateLabelKeys[changeset.state])
+    }</Chip>}
+    parents={[
+      { label: t('actionItems:title'), href: UrlTree.actionItems },
+      { label: t('review.breadcrumb'), href: UrlTree.changesets },
+    ]}
+    primaryAction={isPending && <Tooltip delay={300} isDisabled={tally.canApply}>
+      <Tooltip.Trigger>
+        <div>
+          <Button
+            isDisabled={!tally.canApply || isWriting}
+            isPending={pendingWrite === 'apply'}
+            onPress={() => write('apply', () => actions.apply(changeset))}
+          >
+            <span>{t('review.apply')}</span>
+          </Button>
+        </div>
+      </Tooltip.Trigger>
+      <Tooltip.Content>
+        <span>{t('review.applyBlocked')}</span>
+      </Tooltip.Content>
+    </Tooltip>}
+    actions={reviewActions}
+  >
+    <div className='relaxed text-sm opacity-70'>
+      <p>{
+        t('proposedBy', {
+          proposer: t(proposer.key, { ...proposer.values, ns: 'actionItems' }),
+          date: context.formatInstant(changeset.createdAt),
+        })
+      }</p>
+      {changeset.decidedBy && changeset.decidedAt && <p>{
+        t('review.decidedBy', {
+          name: userNames[changeset.decidedBy] ?? t('common:table.someone'),
+          date: context.formatInstant(changeset.decidedAt),
+        })
+      }</p>}
+      {changeset.undoneAt && <p>{
+        t('review.undoneAt', { date: context.formatInstant(changeset.undoneAt) })
+      }</p>}
+      {isPending && <p>{t('review.tally', tally)}</p>}
     </div>
 
-    {isPending && <div className='relaxed'>
-      <Alert status='accent' className='compact'>
-        <Alert.Indicator />
-        <Alert.Content>
-          <Alert.Description>{t('review.pendingBody')}</Alert.Description>
-        </Alert.Content>
-      </Alert>
-      <div className='flex flex-wrap items-center gap-2'>
-        <Button
-          size='sm'
-          variant='outline'
-          isDisabled={isWriting}
-          isPending={pendingWrite === 'approved'}
-          onPress={() => write('approved', () => actions.decide(changeset, 'approved'))}
-        >
-          <LuCheckCheck className='size-4' aria-hidden />
-          <span>{t('review.approveAll')}</span>
-        </Button>
-        <Button
-          size='sm'
-          variant='outline'
-          isDisabled={isWriting}
-          isPending={pendingWrite === 'rejected'}
-          onPress={() => write('rejected', () => actions.decide(changeset, 'rejected'))}
-        >
-          <LuX className='size-4' aria-hidden />
-          <span>{t('review.rejectAll')}</span>
-        </Button>
-        <span className='ml-auto text-sm opacity-70'>{t('review.tally', tally)}</span>
-        <Tooltip delay={300} isDisabled={tally.canApply}>
-          <Tooltip.Trigger>
-            <div>
-              <Button
-                size='sm'
-                isDisabled={!tally.canApply || isWriting}
-                isPending={pendingWrite === 'apply'}
-                onPress={() => write('apply', () => actions.apply(changeset))}
-              >
-                <span>{t('review.apply')}</span>
-              </Button>
-            </div>
-          </Tooltip.Trigger>
-          <Tooltip.Content>
-            <span>{t('review.applyBlocked')}</span>
-          </Tooltip.Content>
-        </Tooltip>
-      </div>
-    </div>}
-
-    {changeset.state === 'applied' && <div className='relaxed flex flex-wrap items-center gap-3'>
-      <Button size='sm' variant='outline' onPress={() => actions.undo(changeset)}>
-        <LuUndo2 className='size-4' aria-hidden />
-        <span>{t('review.undo')}</span>
-      </Button>
-      <p className='text-sm opacity-70'>{t('review.undoLimits')}</p>
-    </div>}
+    {isPending && <Alert status='accent' className='relaxed'>
+      <Alert.Indicator />
+      <Alert.Content>
+        <Alert.Description>{t('review.pendingBody')}</Alert.Description>
+      </Alert.Content>
+    </Alert>}
 
     <div className='relaxed'>{
       changeset.operations.map((operation) => <ChangesetOperationCard
@@ -191,5 +189,5 @@ export function ChangesetPage() {
         )}
       />)
     }</div>
-  </div>
+  </Page>
 }

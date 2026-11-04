@@ -14,6 +14,7 @@ import { selectDeletedStudioItems, selectLiveStudioItems } from '../../store/stu
 // User interface
 import { Button, Spinner, useOverlayState } from '@heroui/react'
 import { LuPlus } from 'react-icons/lu'
+import { Page } from '../../layout/page/Page'
 import { EmptyNotice } from '../../components/EmptyNotice'
 import { CreateStudioItemModal } from './CreateStudioItemModal'
 import { StudioFiltersBar } from './StudioFiltersBar'
@@ -65,26 +66,16 @@ export function StudioPage() {
     return t('grid.empty')
   }
 
-  return <div className='container'>
-    <div className='level relaxed items-start'>
-      <div>
-        <h1 className='text-3xl font-bold'>{
-          t('title')
-        }</h1>
-        <p className='mt-1 max-w-2xl text-sm opacity-70'>{
-          t('description')
-        }</p>
-      </div>
-      {!hasNoStorage && <Button
-        size='sm'
-        className='shrink-0'
-        isDisabled={locationsStatus !== 'loaded'}
-        onPress={createState.open}
-      >
-        <LuPlus className='size-4' aria-hidden />
-        <span>{t('add')}</span>
-      </Button>}
-    </div>
+  return <Page
+    title={t('title')}
+    primaryAction={!hasNoStorage && <Button
+      isDisabled={locationsStatus !== 'loaded'}
+      onPress={createState.open}
+    >
+      <LuPlus className='size-4' aria-hidden />
+      <span>{t('add')}</span>
+    </Button>}
+  >
 
     {hasNoStorage && <StudioNoStorage />}
 
@@ -120,5 +111,5 @@ export function StudioPage() {
     </>}
 
     {createState.isOpen && <CreateStudioItemModal state={createState} />}
-  </div>
+  </Page>
 }

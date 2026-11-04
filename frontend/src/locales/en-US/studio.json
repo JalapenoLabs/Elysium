@@ -1,6 +1,5 @@
 {
   "title": "Studio",
-  "description": "Agents make single assets here: a 3D model, a render, or an image, shaped by your feedback.",
   "add": "New item",
   "untitled": "Untitled item",
   "grid": {
@@ -55,8 +54,7 @@
     "renameLabel": "Item title",
     "deletedTitle": "This item is deleted",
     "deletedBody": "It stays read-only until it is restored. Its files and conversation are kept.",
-    "pullError": "The latest file could not be kept: {{reason}}",
-    "actions": "Item actions"
+    "pullError": "The latest file could not be kept: {{reason}}"
   },
   "layout": {
     "label": "Show",
