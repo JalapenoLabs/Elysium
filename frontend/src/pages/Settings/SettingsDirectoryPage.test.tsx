@@ -88,6 +88,7 @@ describe('SettingsDirectoryPage', () => {
         tiles: [
           [ 'Users1 waiting', '/settings/users' ],
           [ 'Manage LLMs', '/settings/llms' ],
+          [ 'Models', '/settings/models' ],
           [ 'Email', '/settings/email' ],
           [ 'Connectors', '/settings/connectors' ],
           [ 'Storage', '/settings/storage' ],

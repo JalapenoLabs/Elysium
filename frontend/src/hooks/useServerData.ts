@@ -30,6 +30,7 @@ import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { mailDomainsLoaded } from '../store/mailDomainsSlice'
 import { mailServerUpdated } from '../store/mailServerSlice'
 import { meetingsLoaded } from '../store/meetingsSlice'
+import { modelSettingsLoaded } from '../store/modelSettingsSlice'
 import { projectsLoaded } from '../store/projectsSlice'
 import { runLoaded, runsPageLoaded, stepLogLoaded } from '../store/runsSlice'
 import { sessionHistoryLoaded, sessionTimelineOpened, sessionTimelineReleased } from '../store/sessionEventsSlice'
@@ -75,6 +76,7 @@ import { getLearning, listLearnings } from '../api/routes/learningRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
 import { listMeetings } from '../api/routes/meetingRoutes'
+import { listModelSettings, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getPasswordVault } from '../api/routes/passwordVaultRoutes'
 import { listProjects } from '../api/routes/projectRoutes'
 import { getRun, getStepLog, listRuns } from '../api/routes/runRoutes'
@@ -210,6 +212,20 @@ export function useCompanyDocLoader(isEnabled: boolean): LoadStatus {
   const { data, error } = useSWR(key, async () => {
     const response = await getCompanyDoc()
     dispatch(companyDocLoaded(response))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// What every step and agent runs on, which only admins may read.
+export function useModelSettingsLoader(isEnabled: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isEnabled
+    ? MODEL_SETTINGS_KEY
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await listModelSettings()
+    dispatch(modelSettingsLoaded(response))
     return response
   })
   return toLoadStatus(data !== undefined, error)

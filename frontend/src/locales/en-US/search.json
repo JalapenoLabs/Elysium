@@ -54,6 +54,7 @@
     "learningCategories": "knowledge base tags",
     "users": "people members team accounts approvals sign ups admins roles",
     "llms": "claude openai codex api keys tokens models credentials",
+    "models": "opus sonnet haiku fable claude effort thinking agents steps elysia summaries",
     "email": "mail mailboxes domains gmail outlook stalwart smtp imap",
     "connectors": "integrations accounts github jira confluence slack teams youtrack outlook gmail browsers",
     "storage": "buckets s3 bunny google cloud files uploads",

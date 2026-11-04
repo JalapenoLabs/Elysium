@@ -61,6 +61,9 @@ export type ServerEvent =
   // The company doc changed, or a change to it was proposed or decided. Nothing more, for the
   // same reason; members load it again.
   | { type: 'companyDoc.changed' }
+  // An admin chose what a step or agent runs on, or put it back on its default. Its name alone;
+  // admins load the list again.
+  | { type: 'modelSetting.changed', data: { agent: string } }
   // A check in a run moved on, or (`checkId` null, `state` finished) the run ended.
   | {
     type: 'connectorCheckRun.updated'

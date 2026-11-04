@@ -1,0 +1,47 @@
+{
+  "title": "Models",
+  "help": "Each workflow step and agent runs on its model at its effort, through your Claude credentials in priority order. A change applies from its next turn. Steps that only fetch, transcribe, or index run no model.",
+  "adminOnly": "Only admins choose the models agents run on.",
+  "invalidModel": "Use a model id or alias, such as claude-opus-5-5 or opus[1m]",
+  "invalidModelFor": "Fix the model for {{name}} first",
+  "table": {
+    "label": "Models by step and agent",
+    "name": "Step or agent",
+    "kind": "Kind",
+    "model": "Model",
+    "effort": "Effort",
+    "setting": "Setting",
+    "modelFor": "Model for {{name}}",
+    "effortFor": "Effort for {{name}}",
+    "runsNoModel": "Runs no model",
+    "default": "Default",
+    "chosen": "Chosen",
+    "loadError": "Model settings could not be loaded."
+  },
+  "kinds": {
+    "step": "Workflow step",
+    "agent": "Agent"
+  },
+  "efforts": {
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "xhigh": "Extra high",
+    "max": "Max"
+  },
+  "agents": {
+    "elysia": "Elysia",
+    "coding_session": "Coding sessions",
+    "studio_session": "Studio sessions",
+    "turn_summary": "Turn summaries",
+    "segment_meeting": "Meeting segmentation"
+  },
+  "actions": {
+    "useDefault": "Use default"
+  },
+  "toasts": {
+    "saved": "Model settings saved",
+    "saveFailed": "The model for {{name}} could not be saved",
+    "reset": "{{name}} is back on its default"
+  }
+}

@@ -11,6 +11,7 @@ import { useAppSelector } from '../../store/hooks'
 import {
   LuBookOpen,
   LuBot,
+  LuBrainCircuit,
   LuCable,
   LuDatabaseBackup,
   LuHardDrive,
@@ -100,6 +101,11 @@ export function SettingsDirectoryPage() {
           title={t('items.llms.title')}
           href={UrlTree.settingsLlms}
         />
+        {isAdmin && <SettingsDirectoryItem
+          icon={LuBrainCircuit}
+          title={t('items.models.title')}
+          href={UrlTree.settingsModels}
+        />}
         <SettingsDirectoryItem
           icon={LuMail}
           title={t('items.email.title')}

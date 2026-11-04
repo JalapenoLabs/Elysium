@@ -35,6 +35,9 @@
     "llms": {
       "title": "Manage LLMs"
     },
+    "models": {
+      "title": "Models"
+    },
     "email": {
       "title": "Email"
     },

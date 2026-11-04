@@ -72,6 +72,7 @@ export const UrlTree = {
   settingsLlmNew: '/settings/llms/new/:provider',
   settingsLlmsEdit: '/settings/llms/:llmId/edit',
   settingsLlmsAgentConfiguration: '/settings/llms/agent-configuration',
+  settingsModels: '/settings/models',
   settingsEnvironment: '/settings/environment',
   settingsEnvironmentNew: '/settings/environment/new',
   settingsEnvironmentEdit: '/settings/environment/:variableId/edit',

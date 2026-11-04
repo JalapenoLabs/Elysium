@@ -277,6 +277,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/llms/add-<provider>` | redirect               | To `/settings/llms/new/<provider>`                       |
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
 | `/settings/llms/agent-configuration` | `AgentConfigurationPage` | The repository agents' Claude Code configuration comes from; admins |
+| `/settings/models`            | `ModelSettingsPage`      | The model and effort each step and agent runs on; admins |
 | `/settings/email`             | `ManageEmailPage`        | Mailboxes and domains as tabs in `?tab=`                 |
 | `/settings/email/server/new`  | `NewMailServerPage`      | Create the mail server, or try again after it failed     |
 | `/settings/email/domains/new` | `NewMailDomainPage`      | Add a domain to the mail server                          |
@@ -711,6 +712,24 @@ the server's domains. The Connect buttons are plain anchors to the API's OAuth s
 the URL. The address links to the mailbox's edit page, and a row's actions test the connection, send a test message,
 and disconnect, or delete a self-hosted mailbox; the disconnect confirmation says whether mail is deleted (self-hosted) or only forgotten (OAuth). The edit page
 (`EditMailboxPage`, `MailboxForm`) holds the sender name and whether the mailbox is active, kept by its Save.
+
+### Models
+
+`src/pages/Settings/Models/` is where admins choose the model and effort each workflow step and agent runs on
+(`docs/engine.md`, Models), in the settings frame; anyone else is told it is for admins, and the directory hides the
+entry.
+
+- **The list** (`ModelSettingsPage`, `ModelSettingsTable`) is uikit's `SmartTable`, unsorted, since the order is the
+  workflows' own: each step and agent by its words over its name in code (a step's words are the Runs pages',
+  `useRunNames`), its kind, its model and effort, and whether it runs on its default or a choice. A step that runs no
+  model says so in place of fields.
+- **Fields.** Model and effort are the page's fields, kept by its Save, which sends one `PUT` per row that changed,
+  keeping a refused one picked, as Users keeps roles. The model is `ModelField`, a combo box suggesting the current
+  Claude models by product name that also takes any id or alias typed, such as `opus[1m]`; `isModelName` mirrors the
+  API's rule, so one that could read as a flag shows its error and blocks Save. Use default, a row action on a row
+  with a choice, acts at once.
+- **Data.** SWR, then `modelSettingsSlice`, then `modelSetting.changed`, which carries an agent's name alone and makes
+  admins load the list again. `modelSettingsPresentation.ts` holds the rules and labels, tested beside it.
 
 ### Learnings
 
@@ -1152,6 +1171,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `mailAccounts`   | Connected mailboxes, sorted by address                                  |
 | `mailDomains`    | The mail server's domains, sorted by name                               |
 | `mailServer`     | The mail server's state, replaced whole by every update                 |
+| `modelSettings`  | What each step and agent runs on, and the models and efforts offered; admins |
 | `notifications` | Toasts kept for the notification menu, newest first, and which are read |
 | `projects`       | Projects, sorted by name                                                |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
@@ -1182,7 +1202,7 @@ Server collections use entity adapters. Redux is the source of truth components 
    `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useJiraCredentialsLoader`,
    `useEnvironmentVariablesLoader`, `useLearningsLoader`, `useDeletedLearningsLoader`, `useLearningLoader`,
    `useCompanyDocLoader`,
-   `useCodingSessionsLoader`,
+   `useCodingSessionsLoader`, `useModelSettingsLoader`,
    `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,
    `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,
    `useInitiativeLoader`, `useInitiativeHistoryLoader`, `useActionItemLinksLoader`, `useInitiativeLinksLoader`,
@@ -1383,7 +1403,7 @@ first render.
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
   `email`, `storage`, `github`, `jira`, `environment`, `learnings`, `companyDoc`, `projects`, `coding`,
-  `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`, `runs`, `search`.
+  `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`, `runs`, `search`, `models`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.

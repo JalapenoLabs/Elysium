@@ -83,6 +83,7 @@ import { NewLearningCategoryPage } from './pages/Settings/LearningCategories/New
 import { LearningPage } from './pages/Settings/Learnings/LearningPage'
 import { LearningsPage } from './pages/Settings/Learnings/LearningsPage'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
+import { ModelSettingsPage } from './pages/Settings/Models/ModelSettingsPage'
 import { NewLearningPage } from './pages/Settings/Learnings/NewLearningPage'
 
 // Misc
@@ -337,6 +338,10 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsLlmsAgentConfiguration,
       element: <AgentConfigurationPage />,
+    },
+    {
+      path: UrlTree.settingsModels,
+      element: <ModelSettingsPage />,
     },
     {
       path: UrlTree.settingsEnvironment,

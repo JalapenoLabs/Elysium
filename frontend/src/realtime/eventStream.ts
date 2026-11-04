@@ -7,7 +7,7 @@ import { mutate } from 'swr'
 
 // Redux
 import { store } from '../store'
-import { selectIsCompanyMember } from '../store/authSlice'
+import { selectIsAdmin, selectIsCompanyMember } from '../store/authSlice'
 import { actionItemCommentDeleted, actionItemCommentUpserted } from '../store/actionItemCommentsSlice'
 import { historyAppended } from '../store/actionItemHistorySlice'
 import { actionItemLinkDeleted, actionItemLinkUpserted } from '../store/actionItemLinksSlice'
@@ -62,6 +62,7 @@ import { getDraft } from '../api/routes/draftRoutes'
 import { getVersion } from '../api/routes/healthRoutes'
 import { COMPANY_DOC_HISTORY_KEY, COMPANY_DOC_KEY } from '../api/routes/companyDocRoutes'
 import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
+import { MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { getRun, getStepLog } from '../api/routes/runRoutes'
@@ -205,6 +206,13 @@ const handlers: Handlers = {
     }
     void mutate(COMPANY_DOC_KEY)
     void mutate(COMPANY_DOC_HISTORY_KEY)
+  },
+  // The list is short and admins alone read it, so it is loaded again whole, by them.
+  'modelSetting.changed': () => {
+    if (!selectIsAdmin(store.getState())) {
+      return
+    }
+    void mutate(MODEL_SETTINGS_KEY)
   },
   'connector.deleted': (event) => {
     store.dispatch(connectorDeleted(event.data.id))

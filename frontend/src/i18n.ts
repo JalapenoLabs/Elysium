@@ -26,6 +26,7 @@ import learningCategories from './locales/en-US/learningCategories.json'
 import learnings from './locales/en-US/learnings.json'
 import llms from './locales/en-US/llms.json'
 import meetings from './locales/en-US/meetings.json'
+import models from './locales/en-US/models.json'
 import navigation from './locales/en-US/navigation.json'
 import oauth from './locales/en-US/oauth.json'
 import passwords from './locales/en-US/passwords.json'
@@ -66,6 +67,7 @@ export const resources = {
     learnings,
     llms,
     meetings,
+    models,
     navigation,
     oauth,
     passwords,
