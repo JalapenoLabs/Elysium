@@ -199,6 +199,11 @@ clock reads the CPU's time stamp counter, which does not survive a suspend: afte
 hours ahead of "now" and every client was refused until the API restarted. `tower_governor` fixes that clock in
 its types, so the middleware drives governor directly.
 
+The clock is the limiter's own (`LimiterClock`), so tests time a limiter by one they hold still and move by hand
+(`HeldClock`). A test that counts a budget out through the router never races the refill, which on a busy runner
+can keep up with the requests and leave the refusal it expects never coming. `test_support::hold_budgets_still`
+holds the per-person budgets of a test's `AppState`.
+
 A refusal asking for longer than an empty bucket takes to refill is one no working clock produces. The limiter
 logs `rate_limit.clock.moved`, starts every bucket afresh, and admits the request rather than locking every
 client out.

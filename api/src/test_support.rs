@@ -188,6 +188,25 @@ pub async fn app_state_with_storage(
     state
 }
 
+/// Holds time still for `state`'s budgets per person, the global search's and the knowledge
+/// search's, so a test can count one out to the last request.
+///
+/// On a busy runner each request through the router can take long enough that a real bucket
+/// refills about as fast as the test spends it, and the refusal it counts on never comes.
+/// Every budget starts afresh.
+pub fn hold_budgets_still(state: &mut crate::state::AppState) {
+    use std::sync::Arc;
+
+    use crate::middleware::rate_limit::{HeldClock, Limiter, LimiterClock};
+
+    let clock = LimiterClock::Held(HeldClock::new());
+    state.search_limiter = Arc::new(Limiter::with_clock(
+        clock.clone(),
+        crate::search::PER_PERSON,
+    ));
+    state.knowledge = state.knowledge.clone().with_budget_clock(clock);
+}
+
 /// Signs [`TEST_PERSON_ID`] in for a router test, and returns the `Cookie` header to send.
 ///
 /// The auth layer asks Redis before Kratos, so caching a session as Kratos would answer it is

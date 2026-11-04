@@ -321,6 +321,16 @@ impl KnowledgeSearch {
         }
     }
 
+    /// This search with every person's budget started afresh and timed by `clock`, so a test
+    /// can hold time still while it counts a budget out.
+    #[cfg(test)]
+    pub fn with_budget_clock(self, clock: crate::middleware::rate_limit::LimiterClock) -> Self {
+        Self {
+            budget: Arc::new(Limiter::with_clock(clock, PER_PERSON)),
+            ..self
+        }
+    }
+
     /// Spends one of `person`'s searches, or answers how long until they have one again.
     /// Every caller asks before it searches, so a person's budget is one however they search.
     pub fn admit(&self, person: Uuid) -> Decision {

@@ -14,9 +14,10 @@
 //!
 //! # The clock
 //!
-//! Buckets are timed with [`MonotonicClock`], which is `std::time::Instant` and on
-//! Linux `CLOCK_MONOTONIC`. That clock pauses while the host is suspended, so a bucket
-//! is exactly as full after a night asleep as it was before. governor's default quanta
+//! Buckets are timed by a [`LimiterClock`], which outside tests is always
+//! [`LimiterClock::Monotonic`]: `std::time::Instant`, and on Linux `CLOCK_MONOTONIC`.
+//! That clock pauses while the host is suspended, so a bucket is exactly as full after a
+//! night asleep as it was before. governor's default quanta
 //! clock reads the CPU's time stamp counter instead, which does not hold across a
 //! suspend: on waking, every stored bucket sat hours ahead of "now", and every client,
 //! including ones that had never called, was refused with a `Retry-After` the length
@@ -26,12 +27,20 @@
 //! A refusal asking for longer than an empty bucket takes to refill is one no working
 //! clock can produce, so the limiter treats it as a clock that moved underneath it:
 //! it logs, starts every bucket afresh, and admits the request.
+//!
+//! Tests time a limiter by a [`HeldClock`] instead, which stands still until the test
+//! moves it. A test counting a budget out through the router takes long enough per
+//! request on a busy runner that a real bucket refills about as fast as the test spends
+//! it, so the refusal it waits for may never come. With time held, exactly the burst is
+//! admitted, and refilling happens only when the test says time has passed.
 
 use std::hash::Hash;
 use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroU32;
+#[cfg(test)]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use axum::extract::{ConnectInfo, Request, State};
@@ -39,7 +48,7 @@ use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::Response;
 use governor::Quota;
-use governor::clock::{Clock, MonotonicClock};
+use governor::clock::Clock;
 use governor::middleware::StateInformationMiddleware;
 use governor::state::keyed::DefaultKeyedStateStore;
 use tokio::task::JoinHandle;
@@ -57,7 +66,7 @@ const REQUESTS_PER_SECOND: u32 = 10;
 pub(crate) const BURST_SIZE: u32 = 30;
 
 /// Every client IP's budget across `/api`.
-const PER_CLIENT: Rate = Rate {
+pub(crate) const PER_CLIENT: Rate = Rate {
     per_second: REQUESTS_PER_SECOND,
     burst: BURST_SIZE,
 };
@@ -72,8 +81,76 @@ static RATE_LIMIT_LIMIT: HeaderName = HeaderName::from_static("x-ratelimit-limit
 static RATE_LIMIT_REMAINING: HeaderName = HeaderName::from_static("x-ratelimit-remaining");
 static RATE_LIMIT_AFTER: HeaderName = HeaderName::from_static("x-ratelimit-after");
 
-type Buckets<Key, C> =
-    governor::RateLimiter<Key, DefaultKeyedStateStore<Key>, C, StateInformationMiddleware>;
+type Buckets<Key> = governor::RateLimiter<
+    Key,
+    DefaultKeyedStateStore<Key>,
+    LimiterClock,
+    StateInformationMiddleware,
+>;
+
+/// What a limiter's buckets are timed by.
+///
+/// One enum rather than a type parameter, so the limiters `AppState` holds keep one type
+/// whichever clock a test gives them.
+#[derive(Debug, Clone)]
+pub enum LimiterClock {
+    /// The host's monotonic clock, `std::time::Instant`. Every limiter outside tests.
+    Monotonic,
+    /// A clock that stands still until a test moves it.
+    #[cfg(test)]
+    Held(HeldClock),
+}
+
+impl Clock for LimiterClock {
+    type Instant = Instant;
+
+    fn now(&self) -> Instant {
+        match self {
+            Self::Monotonic => Instant::now(),
+            #[cfg(test)]
+            Self::Held(clock) => clock.now(),
+        }
+    }
+}
+
+/// Time a test holds still, moved only by [`HeldClock::set`]. Clones share one time.
+#[cfg(test)]
+#[derive(Debug, Clone)]
+pub struct HeldClock {
+    /// What the clock reads when set to zero.
+    origin: Instant,
+    /// How far past `origin` the clock reads, in nanoseconds.
+    elapsed: Arc<AtomicU64>,
+}
+
+#[cfg(test)]
+impl HeldClock {
+    /// A clock held at the moment it is made.
+    pub fn new() -> Self {
+        Self {
+            origin: Instant::now(),
+            elapsed: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Moves the clock to `elapsed` past where it started, in either direction, as a CPU's
+    /// time stamp counter can move across a suspend.
+    pub fn set(&self, elapsed: Duration) {
+        let nanos = u64::try_from(elapsed.as_nanos()).expect("a test's instants fit in u64");
+        self.elapsed.store(nanos, Ordering::SeqCst);
+    }
+
+    fn now(&self) -> Instant {
+        self.origin + Duration::from_nanos(self.elapsed.load(Ordering::SeqCst))
+    }
+}
+
+#[cfg(test)]
+impl Default for HeldClock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// A bucket's budget: how many requests may be spent at once, and how fast they come back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,13 +169,13 @@ pub enum Decision {
 }
 
 /// Every key's bucket, and the clock they are measured against.
-pub struct Limiter<Key: Clone + Eq + Hash, C: Clock + Clone = MonotonicClock> {
-    clock: C,
+pub struct Limiter<Key: Clone + Eq + Hash> {
+    clock: LimiterClock,
     quota: Quota,
     /// How long an empty bucket takes to refill. No honest refusal waits longer.
     longest_honest_wait: Duration,
     /// Behind a lock only so a clock that moved can be answered by starting over.
-    buckets: RwLock<Arc<Buckets<Key, C>>>,
+    buckets: RwLock<Arc<Buckets<Key>>>,
 }
 
 impl<Key: Clone + Eq + Hash> Limiter<Key> {
@@ -107,12 +184,14 @@ impl<Key: Clone + Eq + Hash> Limiter<Key> {
     /// # Panics
     /// Panics when either half of `rate` is zero, which only a constant written wrong can be.
     pub fn new(rate: Rate) -> Self {
-        Self::with_clock(MonotonicClock, rate)
+        Self::with_clock(LimiterClock::Monotonic, rate)
     }
-}
 
-impl<Key: Clone + Eq + Hash, C: Clock + Clone> Limiter<Key, C> {
-    fn with_clock(clock: C, rate: Rate) -> Self {
+    /// A limiter giving every key `rate`, timed by `clock`.
+    ///
+    /// # Panics
+    /// Panics when either half of `rate` is zero, which only a constant written wrong can be.
+    pub fn with_clock(clock: LimiterClock, rate: Rate) -> Self {
         let refill_period = Duration::from_secs(1) / rate.per_second;
         let burst = NonZeroU32::new(rate.burst).expect("a rate's burst is a non-zero constant");
         let quota = Quota::with_period(refill_period)
@@ -169,10 +248,7 @@ impl<Key: Clone + Eq + Hash, C: Clock + Clone> Limiter<Key, C> {
     }
 }
 
-fn fresh_buckets<Key: Clone + Eq + Hash, C: Clock + Clone>(
-    quota: Quota,
-    clock: &C,
-) -> Buckets<Key, C> {
+fn fresh_buckets<Key: Clone + Eq + Hash>(quota: Quota, clock: &LimiterClock) -> Buckets<Key> {
     governor::RateLimiter::new(quota, DefaultKeyedStateStore::default(), clock.clone())
 }
 
@@ -291,35 +367,12 @@ fn json_response(status: StatusCode, message: &str) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
     use axum::Router;
     use axum::http::Request as HttpRequest;
     use axum::routing::get;
-    use governor::nanos::Nanos;
     use tower::ServiceExt;
 
     use super::*;
-
-    /// A clock a test can move in either direction, the way a CPU time stamp counter
-    /// moves across a suspend.
-    #[derive(Clone, Default)]
-    struct JumpingClock(Arc<AtomicU64>);
-
-    impl JumpingClock {
-        fn set(&self, at: Duration) {
-            let nanos = u64::try_from(at.as_nanos()).expect("test instants fit in u64");
-            self.0.store(nanos, Ordering::SeqCst);
-        }
-    }
-
-    impl Clock for JumpingClock {
-        type Instant = Nanos;
-
-        fn now(&self) -> Nanos {
-            Nanos::from(self.0.load(Ordering::SeqCst))
-        }
-    }
 
     const CLIENT: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 7));
 
@@ -328,9 +381,9 @@ mod tests {
     // Retry-After of about ten hours until the API restarted.
     #[test]
     fn a_clock_that_jumps_backwards_does_not_lock_every_client_out() {
-        let clock = JumpingClock::default();
+        let clock = HeldClock::new();
         clock.set(Duration::from_hours(10));
-        let limiter = Limiter::with_clock(clock.clone(), PER_CLIENT);
+        let limiter = Limiter::with_clock(LimiterClock::Held(clock.clone()), PER_CLIENT);
 
         for _ in 0..BURST_SIZE {
             assert!(matches!(limiter.decide(&CLIENT), Decision::Admitted { .. }));
@@ -348,7 +401,7 @@ mod tests {
 
     #[test]
     fn an_honest_refusal_is_left_alone() {
-        let limiter = Limiter::with_clock(JumpingClock::default(), PER_CLIENT);
+        let limiter = Limiter::with_clock(LimiterClock::Held(HeldClock::new()), PER_CLIENT);
 
         for _ in 0..BURST_SIZE {
             limiter.decide(&CLIENT);
@@ -371,7 +424,7 @@ mod tests {
             per_second: 1,
             burst: 2,
         };
-        let limiter = Limiter::with_clock(JumpingClock::default(), rate);
+        let limiter = Limiter::with_clock(LimiterClock::Held(HeldClock::new()), rate);
 
         for _ in 0..rate.burst {
             assert!(matches!(limiter.decide(&"ada"), Decision::Admitted { .. }));
@@ -438,24 +491,28 @@ mod tests {
     // then failed with 429s for ten seconds per request.
     #[tokio::test]
     async fn the_bucket_refills_at_the_documented_rate() {
-        let limiter = build();
-        let app = Router::new().route("/", get(|| async { "ok" })).layer(
-            axum::middleware::from_fn_with_state(Arc::clone(&limiter.limiter), enforce),
-        );
+        // Time held still, so the bucket refills only when the test says time has passed,
+        // however long each request takes on the runner.
+        let clock = HeldClock::new();
+        let limiter = Arc::new(Limiter::with_clock(
+            LimiterClock::Held(clock.clone()),
+            PER_CLIENT,
+        ));
+        let app = Router::new()
+            .route("/", get(|| async { "ok" }))
+            .layer(axum::middleware::from_fn_with_state(limiter, enforce));
 
         for _ in 0..BURST_SIZE {
             assert_eq!(status(&app).await, StatusCode::OK);
         }
         assert_eq!(status(&app).await, StatusCode::TOO_MANY_REQUESTS);
 
-        // Three refill periods (plus slack) buy three requests, and no more.
+        // Three and a half refill periods buy three requests, and no more.
         let refill_period = Duration::from_secs(1) / REQUESTS_PER_SECOND;
-        tokio::time::sleep(refill_period * 3 + refill_period / 2).await;
+        clock.set(refill_period * 3 + refill_period / 2);
         for _ in 0..3 {
             assert_eq!(status(&app).await, StatusCode::OK);
         }
         assert_eq!(status(&app).await, StatusCode::TOO_MANY_REQUESTS);
-
-        limiter.sweeper.abort();
     }
 }

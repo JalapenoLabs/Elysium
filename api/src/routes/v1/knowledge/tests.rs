@@ -30,7 +30,9 @@ use crate::models::project::{self, NewProject};
 use crate::models::timeline_record::{self, NewTimelineRecord};
 use crate::routes;
 use crate::state::AppState;
-use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database, signed_in_cookie};
+use crate::test_support::{
+    TEST_PERSON_ID, app_state, hold_budgets_still, migrated_database, signed_in_cookie,
+};
 
 /// The router's answer to `GET path`, as the test person.
 pub(crate) async fn get(state: &AppState, path: &str) -> (StatusCode, Value) {
@@ -792,9 +794,10 @@ async fn queries_are_checked_before_anything_is_searched_or_listed() {
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn a_person_is_held_to_their_budget() {
     let (url, _connection) = migrated_database().await;
-    let state = app_state(&url).await;
+    let mut state = app_state(&url).await;
+    // Time held still, so the bucket cannot refill before the route asks it.
+    hold_budgets_still(&mut state);
 
-    // Spent at once, so the bucket has no time to refill before the route spends it too.
     for _ in 0..PER_PERSON.burst {
         assert!(matches!(
             state.knowledge.admit(TEST_PERSON_ID),

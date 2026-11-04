@@ -22,8 +22,8 @@ use crate::models::project::{self, NewProject};
 use crate::routes;
 use crate::search::PER_PERSON;
 use crate::test_support::{
-    TEST_PERSON, TEST_PERSON_ID, app_state, cipher, migrated_database, signed_in_cookie,
-    studio_item,
+    TEST_PERSON, TEST_PERSON_ID, app_state, cipher, hold_budgets_still, migrated_database,
+    signed_in_cookie, studio_item,
 };
 
 /// The router's answer to `GET path`, as the test person.
@@ -297,23 +297,20 @@ async fn a_guest_finds_what_the_lists_show_a_guest() {
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn holds_a_person_to_their_search_budget() {
     let (url, _connection) = migrated_database().await;
-    let state = app_state(&url).await;
+    let mut state = app_state(&url).await;
+    // Time held still, so the bucket cannot refill while the requests spend it.
+    hold_budgets_still(&mut state);
 
-    // The bucket refills while the loop runs, so a request or two past the burst may still be
-    // admitted; what matters is the whole burst is, and the refusal that follows.
-    let mut admitted = 0;
-    let mut refusal = None;
-    for _ in 0..PER_PERSON.burst * 2 {
+    for spent in 0..PER_PERSON.burst {
         let (status, body) = get(&state, "/api/v1/search?q=anything").await;
-        if status == StatusCode::TOO_MANY_REQUESTS {
-            refusal = Some(body);
-            break;
-        }
-        assert_eq!(status, StatusCode::OK, "{body}");
-        admitted += 1;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "search {spent} of the burst: {body}"
+        );
     }
+    let (status, refusal) = get(&state, "/api/v1/search?q=anything").await;
 
-    assert!(admitted >= PER_PERSON.burst, "admitted {admitted}");
-    let refusal = refusal.expect("a person past their burst is refused");
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "{refusal}");
     assert_eq!(refusal["code"], "search_rate_limited");
 }

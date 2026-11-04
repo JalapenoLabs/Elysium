@@ -23,7 +23,9 @@ use crate::routes::v1::knowledge::tests::{
     at, coworker, document_of_record, get, meeting_topic, record, set_role,
 };
 use crate::state::AppState;
-use crate::test_support::{TEST_PERSON_ID, app_state, mcp_bearer, migrated_database};
+use crate::test_support::{
+    TEST_PERSON_ID, app_state, hold_budgets_still, mcp_bearer, migrated_database,
+};
 
 #[test]
 fn the_tools_are_listed_under_the_names_the_knowledge_base_gives_them() {
@@ -242,11 +244,12 @@ async fn a_guests_client_is_refused_every_knowledge_tool() {
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn a_clients_searches_spend_the_persons_one_budget() {
     let (url, _connection) = migrated_database().await;
-    let state = app_state(&url).await;
+    let mut state = app_state(&url).await;
+    // Time held still, so the bucket cannot refill while the tool and the route spend it.
+    hold_budgets_still(&mut state);
     let bearer = mcp_bearer(&state, &[SCOPE_READ]).await;
 
-    // All but one spent at once, so the bucket has no time to refill before the tool spends
-    // the last.
+    // All but one spent here, so the tool spends the last.
     for _ in 1..PER_PERSON.burst {
         assert!(matches!(
             state.knowledge.admit(TEST_PERSON_ID),

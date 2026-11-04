@@ -26,7 +26,7 @@ use crate::routes::v1::knowledge::tests::{
 };
 use crate::runner::{McpServer, WorkspacePath};
 use crate::state::AppState;
-use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database};
+use crate::test_support::{TEST_PERSON_ID, app_state, hold_budgets_still, migrated_database};
 use crate::tools::grants::Grant;
 use crate::tools::{ElysiaScope, SessionScope};
 
@@ -344,10 +344,11 @@ async fn a_session_a_guest_started_is_refused_every_knowledge_tool() {
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn a_sessions_searches_spend_its_starters_budget() {
     let (url, mut connection) = migrated_database().await;
-    let state = app_state(&url).await;
+    let mut state = app_state(&url).await;
+    // Time held still, so the bucket cannot refill before the tool asks it.
+    hold_budgets_still(&mut state);
     let (_grant, bearer) = session_turn(&state, &mut connection, TEST_PERSON_ID).await;
 
-    // Spent at once, so the bucket has no time to refill before the tool asks.
     for _ in 0..PER_PERSON.burst {
         assert!(matches!(
             state.knowledge.admit(TEST_PERSON_ID),
@@ -364,7 +365,9 @@ async fn a_sessions_searches_spend_its_starters_budget() {
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn elysias_turns_read_the_knowledge_base_as_herself() {
     let (url, mut connection) = migrated_database().await;
-    let state = app_state(&url).await;
+    let mut state = app_state(&url).await;
+    // Time held still, so the person's budget stays spent while Elysia searches.
+    hold_budgets_still(&mut state);
     let (_grant, bearer) = grant(
         &state,
         &CallScope::Elysia(ElysiaScope {

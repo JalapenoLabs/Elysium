@@ -305,7 +305,7 @@ mod tests {
     use tower::ServiceExt;
 
     use super::*;
-    use crate::middleware::rate_limit::BURST_SIZE;
+    use crate::middleware::rate_limit::{BURST_SIZE, HeldClock, Limiter, LimiterClock, PER_CLIENT};
 
     async fn status_of(app: &Router, path: &str) -> StatusCode {
         let request = Request::get(path)
@@ -327,13 +327,12 @@ mod tests {
         let directory = tempfile::tempdir().expect("a temporary directory");
         std::fs::write(directory.path().join("index.html"), "<!doctype html>").expect("index.html");
         let api = Router::new().nest("/api", Router::new().route("/ok", get(|| async { "ok" })));
-        let rate_limiter = middleware::rate_limit::build();
-        let app = assemble_routes(
-            api,
-            Arc::clone(&rate_limiter.limiter),
-            Some(directory.path()),
-        )
-        .expect("a valid build");
+        // Time held still, so the budget cannot refill while the requests spend it.
+        let rate_limit = Arc::new(Limiter::with_clock(
+            LimiterClock::Held(HeldClock::new()),
+            PER_CLIENT,
+        ));
+        let app = assemble_routes(api, rate_limit, Some(directory.path())).expect("a valid build");
 
         for _ in 0..=BURST_SIZE {
             assert_eq!(status_of(&app, "/projects").await, StatusCode::OK);
@@ -346,6 +345,5 @@ mod tests {
             status_of(&app, "/api/ok").await,
             StatusCode::TOO_MANY_REQUESTS
         );
-        rate_limiter.sweeper.abort();
     }
 }
