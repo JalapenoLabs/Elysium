@@ -764,6 +764,10 @@ failing closed, and the record of every merge (`api/src/worker_pool/merging/`, `
   allows, every ruleset's allowed methods allow, and a required linear history does not rule out. The merge names the
   head commit the look read, so a push since makes GitHub refuse it rather than merge what was not read. GitHub
   enforces the branch's protection on the call itself, and nothing asks it to bypass any.
+- **Settling.** GitHub works out whether a pull request merges cleanly in the background after a push, so a read
+  that finds it unknown reads it once more three seconds later before holding it.
+- **A failed batch.** The look before a batch finishes merges only when its worker reported it succeeded; a worker
+  that says the batch cannot be done leaves its pull requests for a person, and only what already merged is recorded.
 - **What it says.** A pull request held keeps every reason (`held_because`), as one sentence the worker's next turn
   reads in its brief and the batch's page shows, so the worker fixes them all at once.
 - **Merged work on the timeline.** A merge, Elysium's or a person's on GitHub, is recorded, put on the project's

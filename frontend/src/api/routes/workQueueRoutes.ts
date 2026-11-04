@@ -138,6 +138,7 @@ export type BatchPullRequest = {
   heldBecause: string | null
   lookedAt: string | null
   timelineRecordId: string | null
+  createdBy: string
   createdAt: string
 }
 

@@ -85,7 +85,11 @@ impl Fixture {
 
     async fn look(&self) {
         self.merging
-            .look(&self.batch, Some(&SecretString::from(fake::TOKEN)))
+            .look(
+                &self.batch,
+                Some(&SecretString::from(fake::TOKEN)),
+                Intent::Merge,
+            )
             .await;
     }
 
@@ -269,7 +273,10 @@ async fn what_cannot_be_read_or_is_not_ready_is_held_saying_why() {
         Some("No check ran on its latest commit; 1 review thread is not resolved.")
     );
 
-    fixture.merging.look(&fixture.batch, None).await;
+    fixture
+        .merging
+        .look(&fixture.batch, None, Intent::Merge)
+        .await;
     let held = fixture.reread(recorded.id).await;
     assert!(
         held.held_because
@@ -278,12 +285,27 @@ async fn what_cannot_be_read_or_is_not_ready_is_held_saying_why() {
         "{held:?}"
     );
 
-    // Ready, but its branch merges through a merge queue, which Elysium never bypasses.
+    // Ready, but its worker said the batch cannot be done, so nothing it leaves is merged.
     fixture
         .github
         .change_pull_request_node(REPOSITORY, 7, |node| {
             *node = fake::ready_pull_request_node(REPOSITORY, 7, "Fix the login page");
         });
+    fixture
+        .merging
+        .look(
+            &fixture.batch,
+            Some(&SecretString::from(fake::TOKEN)),
+            Intent::RecordOnly,
+        )
+        .await;
+    assert_eq!(
+        fixture.reread(recorded.id).await.held_because.as_deref(),
+        Some("Its batch ended without succeeding, so Elysium leaves it for a person to merge.")
+    );
+    assert!(fixture.merges().is_empty());
+
+    // Ready, but its branch merges through a merge queue, which Elysium never bypasses.
     fixture.github.put_branch_rules(
         REPOSITORY,
         json!([{ "type": "merge_queue", "parameters": { "merge_method": "SQUASH" } }]),

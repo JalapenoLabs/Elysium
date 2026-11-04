@@ -44,7 +44,7 @@ use uuid::Uuid;
 use self::decide::Verdict;
 use crate::database::Pool;
 use crate::github::issues::IssueRef;
-use crate::github::pulls::PullRequestStatus;
+use crate::github::pulls::{Mergeability, PullRequestStatus};
 use crate::github::{Github, Repository};
 use crate::models::timeline_record::TimelineRecord;
 use crate::models::work_batch::WorkBatch;
@@ -58,6 +58,26 @@ use crate::worker_pool::actions::announce;
 
 /// What a look at a pull request a person merges says of it.
 const PERSON_MERGES: &str = "A person merges pull requests in this repository.";
+
+/// What a look at a ready pull request says of it when its batch ended without succeeding.
+const BATCH_FAILED: &str =
+    "Its batch ended without succeeding, so Elysium leaves it for a person to merge.";
+
+/// How long a look waits to read a pull request again when GitHub has not worked out whether
+/// it merges cleanly. GitHub works that out in the background after a push, and the first read
+/// after one often says it does not know yet; a read a few seconds later usually does, which
+/// saves the pull request a whole wait.
+const MERGEABILITY_SETTLE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// What a look may do with a ready pull request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Intent {
+    /// Merge it: the batch is still under way, or its worker reported it succeeded.
+    Merge,
+    /// Only record what happened on GitHub: the worker reported its batch cannot be done, so
+    /// nothing it leaves behind is merged on its word.
+    RecordOnly,
+}
 
 /// Who merges the pull requests a worker opens in the repository at `url`: what the project
 /// declares for it, or a person for a repository it does not declare.
@@ -99,11 +119,11 @@ impl Merging {
     }
 
     /// Looks at every open pull request `batch` recorded, through the project's `token`, merging
-    /// what Elysium may and recording what merged. Never fails: a pull request that cannot be
-    /// read is held saying why, and what goes wrong otherwise is logged and looked at again next
-    /// time.
-    pub async fn look(&self, batch: &WorkBatch, token: Option<&SecretString>) {
-        if let Err(error) = self.look_at_batch(batch, token).await {
+    /// what Elysium may as `intent` allows and recording what merged. Never fails: a pull request
+    /// that cannot be read is held saying why, and what goes wrong otherwise is logged and looked
+    /// at again next time.
+    pub async fn look(&self, batch: &WorkBatch, token: Option<&SecretString>, intent: Intent) {
+        if let Err(error) = self.look_at_batch(batch, token, intent).await {
             event!(
                 name: "worker_pool.merging.look_failure",
                 Level::WARN,
@@ -118,6 +138,7 @@ impl Merging {
         &self,
         batch: &WorkBatch,
         token: Option<&SecretString>,
+        intent: Intent,
     ) -> anyhow::Result<()> {
         let (open, setup) = {
             let mut connection = self.database.get().await?;
@@ -137,7 +158,7 @@ impl Merging {
         for recorded in &open {
             let policy = policy_for(&setup, &recorded.github_url());
             let outcome = match token {
-                Some(token) => self.look_at(recorded, policy, token).await,
+                Some(token) => self.look_at(recorded, policy, token, intent).await,
                 None => Outcome::Held(
                     "The project's workers have no GitHub token, so Elysium cannot read it."
                         .to_owned(),
@@ -157,11 +178,22 @@ impl Merging {
         recorded: &BatchPullRequest,
         policy: MergePolicy,
         token: &SecretString,
+        intent: Intent,
     ) -> Outcome {
         let Some(reference) = reference_of(recorded) else {
             return Outcome::Held("Elysium cannot read its repository's name.".to_owned());
         };
-        let pull_request = match self.github.pull_request(token, &reference).await {
+        let mut read = self.github.pull_request(token, &reference).await;
+        let unsettled = matches!(
+            &read,
+            Ok(Some(pull_request)) if pull_request.status == PullRequestStatus::Open
+                && pull_request.mergeable == Mergeability::Unknown
+        );
+        if policy == MergePolicy::Auto && unsettled {
+            tokio::time::sleep(MERGEABILITY_SETTLE).await;
+            read = self.github.pull_request(token, &reference).await;
+        }
+        let pull_request = match read {
             Ok(Some(pull_request)) => pull_request,
             Ok(None) => {
                 return Outcome::Held(
@@ -203,6 +235,9 @@ impl Merging {
             Verdict::Closed => Outcome::Closed,
             Verdict::PersonMerges => Outcome::Held(PERSON_MERGES.to_owned()),
             Verdict::Hold(holds) => Outcome::Held(decide::describe(&holds)),
+            Verdict::Merge(_method) if intent == Intent::RecordOnly => {
+                Outcome::Held(BATCH_FAILED.to_owned())
+            }
             Verdict::Merge(method) => {
                 let merged = self
                     .github

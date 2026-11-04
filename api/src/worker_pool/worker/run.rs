@@ -54,7 +54,7 @@ use crate::sessions::queue::{BLENDER_COMMAND, BLENDER_SERVER, turn_environment};
 use crate::sessions::scrub::Scrubber;
 use crate::tools::{self, CallScope, ToolServer, WorkerScope};
 use crate::worker_pool::actions::announce;
-use crate::worker_pool::merging;
+use crate::worker_pool::merging::{self, Intent};
 
 /// Turns in a row that may end without a report, fail, or go quiet before the batch fails: a
 /// worker that cannot report three times running will not on the fourth.
@@ -503,10 +503,16 @@ impl Worker {
             None => Ok(None),
             Some(Report::Finished { succeeded, result }) => {
                 // The last look, while the batch still runs: a pull request ready to merge
-                // merges, and one a person merged meanwhile is recorded.
+                // merges, unless the worker said the batch cannot be done, and one a person
+                // merged meanwhile is recorded.
+                let intent = if succeeded {
+                    Intent::Merge
+                } else {
+                    Intent::RecordOnly
+                };
                 self.deps
                     .merging
-                    .look(&context.slot.batch, context.github_token.as_ref())
+                    .look(&context.slot.batch, context.github_token.as_ref(), intent)
                     .await;
                 Ok(Some(Next::Ended(
                     self.finish(context, succeeded, &result).await?,
@@ -565,7 +571,7 @@ impl Worker {
                 // Before the turn that follows, so it reads where its pull requests stand.
                 self.deps
                     .merging
-                    .look(&batch, context.github_token.as_ref())
+                    .look(&batch, context.github_token.as_ref(), Intent::Merge)
                     .await;
                 let answers = {
                     let mut connection = self.deps.database.get().await?;

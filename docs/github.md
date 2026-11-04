@@ -231,9 +231,10 @@ Merging), through the project's token, the one its workers get. The calls are in
 - **The merge** names the head commit the read saw, so GitHub answers `409` rather than merge a later push. It enforces
   the branch's protection on the call itself (`405` for a pull request its rules keep from merging), and Elysium asks
   it to bypass nothing. Any answer but `200` with `merged: true` leaves the pull request open with GitHub's message.
-- **Permissions.** Reading needs Pull requests read and Commit statuses read on a fine-grained token (Checks read too
-  for check runs), or `repo` on a classic one; merging needs Contents and Pull requests write, or `repo`. A token
-  without them leaves the pull request open saying what GitHub answered.
+- **Permissions.** Per GitHub's documentation, not yet observed with a fine-grained token: reading needs Pull requests
+  read and Commit statuses read on a fine-grained token (Checks read too for check runs), or `repo` on a classic one;
+  merging needs Contents and Pull requests write, or `repo`. A token without them leaves the pull request open saying
+  what GitHub answered, so a missing permission is never silent.
 
 ## Problem reports
 

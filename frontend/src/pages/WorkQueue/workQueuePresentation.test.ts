@@ -193,6 +193,7 @@ function pullRequest(overrides: Partial<BatchPullRequest> = {}): BatchPullReques
     heldBecause: null,
     lookedAt: null,
     timelineRecordId: null,
+    createdBy: '00000000-0000-0000-0000-000000000003',
     createdAt: '2026-11-04T10:00:00Z',
     ...overrides,
   }
