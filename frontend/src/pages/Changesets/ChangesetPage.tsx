@@ -4,7 +4,6 @@ import type { PageAction } from '../../layout/page/pageActions'
 import type { DescribeContext } from './changesetPresentation'
 
 // Core
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import { shallowEqual } from 'react-redux'
@@ -30,6 +29,7 @@ import {
   useInitiativesLoader,
   useProjectsLoader,
 } from '../../hooks/useServerData'
+import { usePendingAction } from '../../hooks/usePendingAction'
 import { useUserNames } from '../../hooks/useUserNames'
 import { UrlTree } from '../../urls'
 import { describeActor } from '../ActionItems/actionItemPresentation'
@@ -54,7 +54,8 @@ export function ChangesetPage() {
   const userNames = useUserNames()
   // The write in flight: 'apply', 'approved' or 'rejected' for all, or `<operation id>:<decision>`.
   // Every write button waits while one runs, so a second press cannot race the first.
-  const [ pendingWrite, setPendingWrite ] = useState<string | null>(null)
+  const writing = usePendingAction<string>()
+  const pendingWrite = writing.pendingKey
 
   if (!changeset) {
     return <div className='container'>{
@@ -79,17 +80,7 @@ export function ChangesetPage() {
   const proposer = describeActor(changeset.proposer)
   const tally = tallyDecisions(changeset)
   const isPending = changeset.state === 'pending'
-  const isWriting = pendingWrite !== null
-
-  async function write(key: string, run: () => Promise<boolean>) {
-    setPendingWrite(key)
-    try {
-      await run()
-    }
-    finally {
-      setPendingWrite(null)
-    }
-  }
+  const write = writing.run
 
   const reviewActions: PageAction[] = []
   if (isPending) {
@@ -98,7 +89,7 @@ export function ChangesetPage() {
         id: 'approveAll',
         label: t('review.approveAll'),
         icon: LuCheckCheck,
-        isDisabled: isWriting,
+        isDisabled: writing.isOtherPending('approved'),
         isPending: pendingWrite === 'approved',
         onAction: () => void write('approved', () => actions.decide(changeset, 'approved')),
       },
@@ -106,7 +97,7 @@ export function ChangesetPage() {
         id: 'rejectAll',
         label: t('review.rejectAll'),
         icon: LuX,
-        isDisabled: isWriting,
+        isDisabled: writing.isOtherPending('rejected'),
         isPending: pendingWrite === 'rejected',
         onAction: () => void write('rejected', () => actions.decide(changeset, 'rejected')),
       },
@@ -135,7 +126,7 @@ export function ChangesetPage() {
       <Tooltip.Trigger>
         <div>
           <Button
-            isDisabled={!tally.canApply || isWriting}
+            isDisabled={!tally.canApply || writing.isOtherPending('apply')}
             isPending={pendingWrite === 'apply'}
             onPress={() => write('apply', () => actions.apply(changeset))}
           >
@@ -181,7 +172,7 @@ export function ChangesetPage() {
         operation={operation}
         context={context}
         isDeciding={isPending}
-        isWriting={isWriting}
+        isOtherWriting={writing.isOtherPending}
         pendingWrite={pendingWrite}
         onDecide={(decision) => write(
           `${operation.id}:${decision}`,

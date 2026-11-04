@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import useSWR from 'swr'
 
@@ -24,6 +24,8 @@ export function PendingPage() {
     refreshInterval: PENDING_APPROVAL_POLL_MS,
   })
   const status = me?.user.status
+  // Signing out ends in a full page load, so the button stays pending until the page goes.
+  const [ isSigningOut, setIsSigningOut ] = useState(false)
 
   useEffect(() => {
     if (status === 'active') {
@@ -56,7 +58,14 @@ export function PendingPage() {
       t('pending.description', { name: me.user.name })
     }</p>
     <p className='relaxed text-xs opacity-60'>{t('pending.automatic')}</p>
-    <Button variant='outline' onPress={() => void signOut()}>
+    <Button
+      variant='outline'
+      isPending={isSigningOut}
+      onPress={() => {
+        setIsSigningOut(true)
+        void signOut()
+      }}
+    >
       <span>{t('pending.signOut')}</span>
     </Button>
   </div>

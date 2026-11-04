@@ -28,7 +28,9 @@ type Props = {
   // Whether the changeset still takes decisions: it is pending.
   isDeciding: boolean
   // Whether any write of the page is running, which holds the decision buttons.
-  isWriting: boolean
+  // Whether a write other than the one named runs, so the running one shows pending while
+  // the rest wait.
+  isOtherWriting: (key: string) => boolean
   // The page's write in flight; `<operation id>:<decision>` for a decision on one change.
   pendingWrite: string | null
   onDecide: (decision: ChangesetDecision) => void
@@ -80,7 +82,7 @@ export function ChangesetOperationCard(props: Props) {
               variant={operation.decision === 'approved'
                 ? 'primary'
                 : 'outline'}
-              isDisabled={props.isWriting}
+              isDisabled={props.isOtherWriting(`${operation.id}:approved`)}
               isPending={props.pendingWrite === `${operation.id}:approved`}
               onPress={() => props.onDecide('approved')}
             >
@@ -92,7 +94,7 @@ export function ChangesetOperationCard(props: Props) {
               variant={operation.decision === 'rejected'
                 ? 'danger'
                 : 'outline'}
-              isDisabled={props.isWriting}
+              isDisabled={props.isOtherWriting(`${operation.id}:rejected`)}
               isPending={props.pendingWrite === `${operation.id}:rejected`}
               onPress={() => props.onDecide('rejected')}
             >

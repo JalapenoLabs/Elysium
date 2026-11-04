@@ -20,6 +20,8 @@ export type ConnectorAction = 'runChecks' | 'sync' | 'toggle' | 'delete'
 
 type Props = {
   connector: Connector
+  // One of the menu's actions is running, which its trigger shows.
+  isWorking: boolean
   onAction: (connector: Connector, action: ConnectorAction) => void
 }
 
@@ -70,7 +72,7 @@ export function ConnectorRow(props: Props) {
         </div>
         <Dropdown>
           <Tooltip delay={300}>
-            <Button isIconOnly size='sm' variant='ghost' aria-label={menuLabel}>
+            <Button isIconOnly size='sm' variant='ghost' aria-label={menuLabel} isPending={props.isWorking}>
               <LuSettings className='size-4' aria-hidden />
             </Button>
             <Tooltip.Content>

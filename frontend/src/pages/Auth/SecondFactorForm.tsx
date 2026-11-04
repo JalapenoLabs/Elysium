@@ -37,6 +37,8 @@ export function SecondFactorForm(props: Props) {
   const [ code, setCode ] = useState('')
   const [ lookupCode, setLookupCode ] = useState('')
   const [ isSubmitting, setIsSubmitting ] = useState(false)
+  // Signing out ends in a full page load, so the button stays pending until the page goes.
+  const [ isSigningOut, setIsSigningOut ] = useState(false)
   const lookupCodeRef = useInitialFocus()
   const messages = collectMessages(props.flow)
 
@@ -111,7 +113,15 @@ export function SecondFactorForm(props: Props) {
             : t('login.secondFactor.useAuthenticator')
         }</span>
       </Button>}
-      <Button size='sm' variant='ghost' onPress={() => void signOut()}>
+      <Button
+        size='sm'
+        variant='ghost'
+        isPending={isSigningOut}
+        onPress={() => {
+          setIsSigningOut(true)
+          void signOut()
+        }}
+      >
         <span>{t('login.secondFactor.signOut')}</span>
       </Button>
     </div>

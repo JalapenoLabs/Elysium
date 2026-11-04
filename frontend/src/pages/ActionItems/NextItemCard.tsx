@@ -26,6 +26,7 @@ import { ShortcutHint } from './ShortcutHint'
 import { SnoozeMenu } from './SnoozeMenu'
 
 // Misc
+import { usePendingAction } from '../../hooks/usePendingAction'
 import { getActionItemViewUrl, getNewCodingSessionUrl } from '../../urls'
 import { useActionItemActions } from './useActionItemActions'
 import { useQuickActionHotkey } from './useQuickActionHotkey'
@@ -60,26 +61,14 @@ export function NextItemCard(props: Props) {
   const actions = useActionItemActions()
   const composerRef = useRef<HTMLTextAreaElement>(null)
   const [ isSnoozeOpen, setIsSnoozeOpen ] = useState(false)
-  const [ isActing, setIsActing ] = useState(false)
-  const item = props.item
-
   // Resolving or dismissing takes the item out of Next, which swaps this card for the next
   // one. Presses while one is in flight are ignored.
-  async function act(action: () => Promise<boolean>) {
-    if (isActing) {
-      return
-    }
-    setIsActing(true)
-    try {
-      await action()
-    }
-    finally {
-      setIsActing(false)
-    }
-  }
+  const pending = usePendingAction<'resolve' | 'dismiss'>()
+  const isActing = pending.isAnyPending
+  const item = props.item
 
-  const resolve = () => void act(() => actions.transition(item, 'resolve'))
-  const dismiss = () => void act(() => actions.transition(item, 'dismiss'))
+  const resolve = () => void pending.run('resolve', () => actions.transition(item, 'resolve'))
+  const dismiss = () => void pending.run('dismiss', () => actions.transition(item, 'dismiss'))
   const waitOn = () => actions.waitOn(item)
   const focusComposer = () => composerRef.current?.focus()
   const open = () => navigate(getActionItemViewUrl(item.id))
@@ -112,12 +101,21 @@ export function NextItemCard(props: Props) {
         <ActionItemMemberships item={item} />
       </Card.Content>
       <Card.Footer className='flex flex-wrap gap-2'>
-        <Button onPress={resolve} isDisabled={isActing}>
+        <Button
+          onPress={resolve}
+          isDisabled={pending.isOtherPending('resolve')}
+          isPending={pending.pendingKey === 'resolve'}
+        >
           <LuCircleCheck className='size-4' aria-hidden />
           <span>{t('transitions.resolve')}</span>
           <ShortcutHint shortcut={SHORTCUTS.resolve} />
         </Button>
-        <Button variant='outline' onPress={dismiss} isDisabled={isActing}>
+        <Button
+          variant='outline'
+          onPress={dismiss}
+          isDisabled={pending.isOtherPending('dismiss')}
+          isPending={pending.pendingKey === 'dismiss'}
+        >
           <LuCircleX className='size-4' aria-hidden />
           <span>{t('transitions.dismiss')}</span>
           <ShortcutHint shortcut={SHORTCUTS.dismiss} />

@@ -43,7 +43,7 @@ export function ConnectorPage() {
   const [ runId, setRunId ] = useState<string | null>(null)
   const run = useAppSelector((state) => selectCheckRun(state, runId))
   const navigate = useNavigate()
-  const act = useConnectorActions({
+  const { act, isRunning } = useConnectorActions({
     onRunStarted: setRunId,
     // Its unsaved content went with it, so leaving asks nothing.
     onDeleted: () => void navigate(UrlTree.settingsConnectors, { state: LEAVE_WITHOUT_ASKING }),
@@ -80,6 +80,7 @@ export function ConnectorPage() {
         id: 'runChecks',
         label: t('actions.runChecks'),
         icon: LuListChecks,
+        isPending: isRunning(connector, 'runChecks'),
         onAction: () => act(connector, 'runChecks'),
       },
       {
@@ -87,6 +88,7 @@ export function ConnectorPage() {
         label: t('actions.sync'),
         icon: LuRefreshCw,
         isDisabled: !connector.isActive,
+        isPending: isRunning(connector, 'sync'),
         onAction: () => act(connector, 'sync'),
       },
       {
@@ -97,6 +99,7 @@ export function ConnectorPage() {
         icon: connector.isActive
           ? LuPause
           : LuPlay,
+        isPending: isRunning(connector, 'toggle'),
         onAction: () => act(connector, 'toggle'),
       },
       {

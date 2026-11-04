@@ -3,7 +3,6 @@
 import type { ElysiaQuestion } from '../api/routes/elysiaRoutes'
 
 // Core
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
@@ -13,6 +12,7 @@ import { Button, Description, Form, Label, TextArea, TextField } from '@heroui/r
 import { answerElysiaQuestion, dismissElysiaQuestion } from '../api/routes/elysiaRoutes'
 import { submitOnEnter } from '../components/submitOnEnter'
 import { useTextDraft } from '../drafts/useTextDraft'
+import { usePendingAction } from '../hooks/usePendingAction'
 import { toast } from '../toast/toast'
 
 // An answer's length, as the API bounds it.
@@ -30,19 +30,15 @@ export function ElysiaQuestionCard(props: Props) {
   // An answer in the person's own words is kept for the tab until it is sent.
   const answerDraft = useTextDraft(`elysia-answer.${props.question.id}`)
   const draft = answerDraft.text ?? ''
-  const [ isSending, setIsSending ] = useState(false)
+  // `option:<answer>` for a suggested answer, `draft` for one typed, or `dismiss`.
+  const pending = usePendingAction<`option:${string}` | 'draft' | 'dismiss'>()
 
   async function answer(text: string) {
     const body = text.trim()
-    if (!body || isSending) {
-      console.debug('ElysiaQuestionCard ignored an answer', {
-        isEmpty: !body,
-        isSending,
-        questionId: props.question.id,
-      })
+    if (!body) {
+      console.debug('ElysiaQuestionCard ignored an empty answer', { questionId: props.question.id })
       return
     }
-    setIsSending(true)
     try {
       await answerElysiaQuestion(props.question.id, body)
       answerDraft.forget()
@@ -51,13 +47,9 @@ export function ElysiaQuestionCard(props: Props) {
       console.debug('ElysiaQuestionCard failed to answer', { error, questionId: props.question.id })
       toast.danger(t('questions.failed'))
     }
-    finally {
-      setIsSending(false)
-    }
   }
 
   async function dismiss() {
-    setIsSending(true)
     try {
       await dismissElysiaQuestion(props.question.id)
       answerDraft.forget()
@@ -65,9 +57,6 @@ export function ElysiaQuestionCard(props: Props) {
     catch (error) {
       console.debug('ElysiaQuestionCard failed to dismiss', { error, questionId: props.question.id })
       toast.danger(t('questions.failed'))
-    }
-    finally {
-      setIsSending(false)
     }
   }
 
@@ -78,8 +67,9 @@ export function ElysiaQuestionCard(props: Props) {
         key={option}
         size='sm'
         variant='secondary'
-        isDisabled={isSending}
-        onPress={() => void answer(option)}
+        isDisabled={pending.isOtherPending(`option:${option}`)}
+        isPending={pending.pendingKey === `option:${option}`}
+        onPress={() => void pending.run(`option:${option}`, () => answer(option))}
       >
         <span>{option}</span>
       </Button>)
@@ -90,7 +80,7 @@ export function ElysiaQuestionCard(props: Props) {
       onKeyDownCapture={submitOnEnter}
       onSubmit={(event) => {
         event.preventDefault()
-        void answer(draft)
+        void pending.run('draft', () => answer(draft))
       }}
     >
       <TextField
@@ -108,10 +98,21 @@ export function ElysiaQuestionCard(props: Props) {
         <Description className='text-xs'>{t('composer.hint')}</Description>
       </TextField>
       <div className='mt-2 level-right gap-2'>
-        <Button size='sm' variant='ghost' isDisabled={isSending} onPress={() => void dismiss()}>
+        <Button
+          size='sm'
+          variant='ghost'
+          isDisabled={pending.isOtherPending('dismiss')}
+          isPending={pending.pendingKey === 'dismiss'}
+          onPress={() => void pending.run('dismiss', dismiss)}
+        >
           <span>{t('questions.dismiss')}</span>
         </Button>
-        <Button type='submit' size='sm' isDisabled={!draft.trim()} isPending={isSending}>
+        <Button
+          type='submit'
+          size='sm'
+          isDisabled={!draft.trim() || pending.isOtherPending('draft')}
+          isPending={pending.pendingKey === 'draft'}
+        >
           <span>{t('questions.answer')}</span>
         </Button>
       </div>

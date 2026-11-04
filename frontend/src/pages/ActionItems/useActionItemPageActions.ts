@@ -5,7 +5,6 @@ import type { ActionItem, ActionItemTransition } from '../../api/routes/actionIt
 import type { PageAction } from '../../layout/page/pageActions'
 
 // Core
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
@@ -27,6 +26,7 @@ import {
 import { getLocalTimeZone } from '@internationalized/date'
 
 // Misc
+import { usePendingAction } from '../../hooks/usePendingAction'
 import { getNewCodingSessionUrl, UrlTree } from '../../urls'
 import { getSnoozePresetInstants, SNOOZE_PRESETS } from './actionItemDates'
 import {
@@ -59,19 +59,12 @@ export function useActionItemPageActions(options: Options) {
   const { t } = useTranslation([ 'actionItems', 'common' ])
   const actions = useActionItemActions()
   // The write in flight, so its button or the menu's trigger shows it working.
-  const [ pendingId, setPendingId ] = useState<string | null>(null)
+  const pending = usePendingAction<string>()
+  const pendingId = pending.pendingKey
   const item = options.item
   const isClosed = item.state === 'resolved' || item.state === 'dismissed'
 
-  async function run(id: string, write: () => Promise<boolean>) {
-    setPendingId(id)
-    try {
-      await write()
-    }
-    finally {
-      setPendingId(null)
-    }
-  }
+  const run = pending.run
 
   const [ leadTransition, ...otherTransitions ] = transitionsByState[item.state]
   // Always one that acts, so the lead can be drawn as a plain button.

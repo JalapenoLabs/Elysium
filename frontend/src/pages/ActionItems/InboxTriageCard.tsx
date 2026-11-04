@@ -3,7 +3,6 @@
 import type { ActionItem, ActionItemTransition } from '../../api/routes/actionItemRoutes'
 
 // Core
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 
@@ -16,6 +15,7 @@ import { ShortcutHint } from './ShortcutHint'
 
 // Misc
 import { formatDateTime } from '../../format/dates'
+import { usePendingAction } from '../../hooks/usePendingAction'
 import { getActionItemViewUrl } from '../../urls'
 import { useActionItemActions } from './useActionItemActions'
 import { useQuickActionHotkey } from './useQuickActionHotkey'
@@ -36,21 +36,15 @@ export function InboxTriageCard(props: Props) {
   const { t } = useTranslation('actionItems')
   const navigate = useNavigate()
   const actions = useActionItemActions()
-  const [ isActing, setIsActing ] = useState(false)
+  // Either decision takes the item out of the inbox; presses while one is in flight are ignored.
+  const pending = usePendingAction<ActionItemTransition>()
+  const isActing = pending.isAnyPending
   const item = props.item
 
-  async function decide(transition: ActionItemTransition) {
-    if (isActing) {
-      return
-    }
-    setIsActing(true)
-    try {
-      await actions.transition(item, transition)
-    }
-    finally {
-      setIsActing(false)
-    }
-  }
+  const decide = (transition: ActionItemTransition) => pending.run(
+    transition,
+    () => actions.transition(item, transition),
+  )
 
   useQuickActionHotkey(SHORTCUTS.accept, () => void decide('accept'), !isActing)
   useQuickActionHotkey(SHORTCUTS.dismiss, () => void decide('dismiss'), !isActing)
@@ -73,12 +67,21 @@ export function InboxTriageCard(props: Props) {
       <ActionItemMemberships item={item} />
     </Card.Content>
     <Card.Footer className='flex flex-wrap gap-2'>
-      <Button onPress={() => void decide('accept')} isDisabled={isActing}>
+      <Button
+        onPress={() => void decide('accept')}
+        isDisabled={pending.isOtherPending('accept')}
+        isPending={pending.pendingKey === 'accept'}
+      >
         <LuCheck className='size-4' aria-hidden />
         <span>{t('transitions.accept')}</span>
         <ShortcutHint shortcut={SHORTCUTS.accept} />
       </Button>
-      <Button variant='outline' onPress={() => void decide('dismiss')} isDisabled={isActing}>
+      <Button
+        variant='outline'
+        onPress={() => void decide('dismiss')}
+        isDisabled={pending.isOtherPending('dismiss')}
+        isPending={pending.pendingKey === 'dismiss'}
+      >
         <LuCircleX className='size-4' aria-hidden />
         <span>{t('transitions.dismiss')}</span>
         <ShortcutHint shortcut={SHORTCUTS.dismiss} />

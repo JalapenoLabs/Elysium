@@ -39,7 +39,7 @@ export function ConnectorsPage() {
   const status = useConnectorsLoader()
   const connectors = useAppSelector(selectAllConnectors)
   const activity = useSWR('v1/connectors/activity', listConnectorActivity)
-  const act = useConnectorActions()
+  const { act, isRunning } = useConnectorActions()
   const [ search, setSearch ] = useState('')
   const searchRef = useFindHotkey()
   const [ statusFilter, setStatusFilter ] = useState<ConnectorStatus | 'all'>('all')
@@ -87,6 +87,7 @@ export function ConnectorsPage() {
                   <Button
                     size='sm'
                     variant='ghost'
+                    isPending={isRunning(connector, 'sync')}
                     onPress={() => act(connector, 'sync')}
                   >
                     <span>{t('activity.retry')}</span>
@@ -149,6 +150,11 @@ export function ConnectorsPage() {
     {status === 'loaded' && Boolean(connectors.length) && !shown.length && <p className='opacity-70'>{
       t('page.noMatches')
     }</p>}
-    {shown.map((connector) => <ConnectorRow key={connector.id} connector={connector} onAction={act} />)}
+    {shown.map((connector) => <ConnectorRow
+      key={connector.id}
+      connector={connector}
+      isWorking={isRunning(connector)}
+      onAction={act}
+    />)}
   </SettingsPage>
 }

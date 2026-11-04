@@ -3,7 +3,6 @@
 import type { Session } from '@ory/client-fetch'
 
 // Core
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
@@ -13,6 +12,7 @@ import { LuLogOut, LuMonitorSmartphone } from 'react-icons/lu'
 // Misc
 import { formatDateTime } from '../../../format/dates'
 import { endOtherSessions, endSession } from '../../../api/routes/authRoutes'
+import { usePendingAction } from '../../../hooks/usePendingAction'
 import { useSignedInSessions } from './useSignedInSessions'
 import { toast } from '../../../toast/toast'
 
@@ -20,11 +20,11 @@ import { toast } from '../../../toast/toast'
 // goes through the API, which ends its session and refuses it from its next request on.
 export function SessionsSection() {
   const { t } = useTranslation([ 'auth', 'common' ])
-  const [ isEnding, setIsEnding ] = useState(false)
+  // `others`, or the id of the one session being ended.
+  const pending = usePendingAction<string>()
   const signedIn = useSignedInSessions()
 
   async function endOthers() {
-    setIsEnding(true)
     try {
       await endOtherSessions()
       toast.success(t('security.sessions.othersEnded'))
@@ -34,7 +34,6 @@ export function SessionsSection() {
       console.debug('SessionsSection could not end the other sessions', { failure })
       toast.danger(t('common:errors.unexpected'))
     }
-    setIsEnding(false)
   }
 
   async function end(session: Session) {
@@ -53,9 +52,9 @@ export function SessionsSection() {
     <div className='compact flex justify-end'>
       <Button
         variant='outline'
-        isDisabled={!signedIn.others?.length}
-        isPending={isEnding}
-        onPress={endOthers}
+        isDisabled={!signedIn.others?.length || pending.isOtherPending('others')}
+        isPending={pending.pendingKey === 'others'}
+        onPress={() => void pending.run('others', endOthers)}
       >
         <LuLogOut className='size-4' aria-hidden />
         <span>{t('security.sessions.endOthers')}</span>
@@ -86,7 +85,13 @@ export function SessionsSection() {
           </div>
           {isCurrent
             ? <Chip size='sm' variant='soft' color='accent'>{t('security.sessions.thisDevice')}</Chip>
-            : <Button size='sm' variant='ghost' onPress={() => end(session)}>
+            : <Button
+              size='sm'
+              variant='ghost'
+              isDisabled={pending.isOtherPending(session.id)}
+              isPending={pending.pendingKey === session.id}
+              onPress={() => void pending.run(session.id, () => end(session))}
+            >
               <span>{t('security.sessions.end')}</span>
             </Button>}
         </li>

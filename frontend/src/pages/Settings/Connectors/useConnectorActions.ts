@@ -5,6 +5,7 @@ import type { AccountKind, Connector } from '../../../api/routes/connectorRoutes
 import type { ConnectorAction } from './ConnectorRow'
 
 // Core
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
@@ -39,11 +40,18 @@ type Options = {
   onDeleted?: () => void
 }
 
-// What the hub's gear menu does, shared by the list and a connector's page.
+// The actions that run on their own; Delete asks first, and its dialog shows it working.
+type RunningAction = Exclude<ConnectorAction, 'delete'>
+
+// What the hub's gear menu does, shared by the list and a connector's page. Each action that
+// is running is tracked by connector, so its button or menu trigger can show it working
+// (`~/.claude/docs/ux.md`, Buttons). Connectors are independent, so one connector's action
+// never waits for another's; pressing the same one again while it runs does nothing.
 export function useConnectorActions(options: Options = {}) {
   const { t } = useTranslation([ 'connectors', 'common' ])
   const dispatch = useAppDispatch()
   const confirm = useConfirm()
+  const [ runningKeys, setRunningKeys ] = useState<ReadonlySet<string>>(() => new Set())
 
   async function attempt(action: () => Promise<void>, context: Record<string, unknown>) {
     try {
@@ -55,22 +63,41 @@ export function useConnectorActions(options: Options = {}) {
     }
   }
 
-  return function act(connector: Connector, action: ConnectorAction) {
+  async function track(connector: Connector, action: RunningAction, work: () => Promise<void>) {
+    const key = `${connector.id}:${action}`
+    if (runningKeys.has(key)) {
+      console.debug('A connector action is already running', { action, connectorId: connector.id })
+      return
+    }
+    setRunningKeys((current) => new Set(current).add(key))
+    try {
+      await attempt(work, { action, connectorId: connector.id })
+    }
+    finally {
+      setRunningKeys((current) => {
+        const next = new Set(current)
+        next.delete(key)
+        return next
+      })
+    }
+  }
+
+  function act(connector: Connector, action: ConnectorAction) {
     const handlers = {
-      runChecks: () => attempt(async () => {
+      runChecks: () => track(connector, 'runChecks', async () => {
         const response = await runConnectorChecks(connector.id)
         dispatch(checkRunLoaded(response.run))
         options.onRunStarted?.(response.run.id)
-      }, { action, connectorId: connector.id }),
-      sync: () => attempt(async () => {
+      }),
+      sync: () => track(connector, 'sync', async () => {
         await syncConnector(connector.id)
         toast.success(t('actions.syncing'))
-      }, { action, connectorId: connector.id }),
-      toggle: () => attempt(async () => {
+      }),
+      toggle: () => track(connector, 'toggle', async () => {
         const response = await updateConnector(connector.id, { isActive: !connector.isActive })
         dispatch(connectorUpserted(response.connector))
         toast.success(t('actions.saved'))
-      }, { action, connectorId: connector.id }),
+      }),
       delete: () => {
         // Named as its row names it: the kind, and the account it reads as when it shows one.
         const kindName = t(`kinds.${connector.kind}.name`)
@@ -96,4 +123,19 @@ export function useConnectorActions(options: Options = {}) {
     } as const satisfies Record<ConnectorAction, () => unknown>
     void handlers[action]()
   }
+
+  // Whether this action runs for the connector, or with no action named, whether any does.
+  function isRunning(connector: Connector, action?: RunningAction) {
+    if (action) {
+      return runningKeys.has(`${connector.id}:${action}`)
+    }
+    for (const key of runningKeys) {
+      if (key.startsWith(`${connector.id}:`)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  return { act, isRunning } as const
 }

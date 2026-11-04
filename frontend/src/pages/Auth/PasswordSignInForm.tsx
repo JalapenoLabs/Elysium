@@ -35,7 +35,9 @@ export function PasswordSignInForm(props: Props) {
   const { t } = useTranslation('auth')
   const [ email, setEmail ] = useState(() => inputValue(props.flow, 'identifier'))
   const [ password, setPassword ] = useState('')
-  const [ isSubmitting, setIsSubmitting ] = useState(false)
+  // The way of signing in that is under way, so only its own button shows it.
+  const [ submitting, setSubmitting ] = useState<'password' | 'passkey' | null>(null)
+  const isSubmitting = submitting !== null
   const [ passkeyError, setPasskeyError ] = useState<string | null>(null)
   // Confirming a sign-in fixes the email, so the password is what is typed first.
   const emailRef = useInitialFocus(!props.isRefresh)
@@ -73,14 +75,14 @@ export function PasswordSignInForm(props: Props) {
 
   async function signInWithPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setIsSubmitting(true)
+    setSubmitting('password')
     await onSubmit({ method: 'password', identifier: email.trim(), password })
-    setIsSubmitting(false)
+    setSubmitting(null)
   }
 
   async function signInWithPasskey() {
     setPasskeyError(null)
-    setIsSubmitting(true)
+    setSubmitting('passkey')
     try {
       const credential = await startAuthentication({ optionsJSON: readPasskeyRequestOptions(challenge) })
       await onSubmit({ method: 'passkey', passkey_login: JSON.stringify(credential) })
@@ -90,7 +92,7 @@ export function PasswordSignInForm(props: Props) {
       console.debug('PasswordSignInForm passkey sign-in did not finish', { error })
       setPasskeyError(t('login.passkeyFailed'))
     }
-    setIsSubmitting(false)
+    setSubmitting(null)
   }
 
   const canSubmit = email.trim().length > 0 && password.length > 0 && !isSubmitting
@@ -129,7 +131,7 @@ export function PasswordSignInForm(props: Props) {
         fullWidth
         type='submit'
         isDisabled={!canSubmit}
-        isPending={isSubmitting}
+        isPending={submitting === 'password'}
       >
         <span>{
           props.isRefresh
@@ -149,6 +151,7 @@ export function PasswordSignInForm(props: Props) {
         fullWidth
         variant='outline'
         isDisabled={isSubmitting}
+        isPending={submitting === 'passkey'}
         onPress={signInWithPasskey}
       >
         <LuFingerprint className='size-4' aria-hidden />

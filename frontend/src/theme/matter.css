@@ -186,6 +186,43 @@
   }
 }
 
+/* A button that is working (`isPending`) shows a spinning ring in place of its contents,
+   keeping its size (`~/.claude/docs/ux.md`, Buttons). HeroUI 3.2 only marks it with
+   `data-pending` and stops presses, leaving showing it to the app, so without this every
+   pending button would look idle. The ring takes the button's own text color. React Aria
+   also marks a pending button `aria-disabled`, which HeroUI fades as disabled; a button at
+   work keeps its full color instead, so it reads as busy rather than unavailable. */
+.button[data-pending='true'] {
+  opacity: 1;
+
+  > * {
+    opacity: 0;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 9999px;
+    animation: button-pending-spin 600ms linear infinite;
+
+    @variant motion-reduce {
+      animation-duration: 1800ms;
+    }
+  }
+}
+
+@keyframes button-pending-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .input,
 .textarea,
 .select__trigger,
