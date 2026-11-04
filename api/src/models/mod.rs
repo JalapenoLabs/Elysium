@@ -17,6 +17,7 @@ pub mod connector_check;
 pub mod connector_run;
 pub mod database_backup;
 pub mod deployment_update;
+pub mod draft;
 pub mod elysia;
 pub mod environment_variable;
 pub mod github_credential;

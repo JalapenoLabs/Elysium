@@ -3,10 +3,11 @@
 //! Every connector kind, defined once. See `docs/connectors.md`.
 //!
 //! Each kind is one module that declares its [`Definition`] (whose it is, what it provides, the
-//! account it signs in with, what it reads, and its ordered checks) and fills the hub's verbs
-//! for it: running its checks, creating it with its sign-in, listing the options its content
-//! picks from, changing that content, syncing it now, and removing it with its sign-in. This
-//! module is the one place that matches on the kind, so routes and the web app never do.
+//! account it signs in with, what it reads, its ordered checks, and how what it reads is
+//! answered) and fills the hub's verbs for it: running its checks, creating it with its
+//! sign-in, listing the options its content picks from, changing that content, syncing it now,
+//! removing it with its sign-in, and, for a kind that sends, where a reply goes and sending it.
+//! This module is the one place that matches on the kind, so routes and the web app never do.
 //!
 //! # A connector owns its sign-in
 //!
@@ -42,11 +43,13 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use super::checks::{self, CheckRun, CheckSpec, Checks, Outcome};
-use super::{AccountKind, ConnectorKind, Scope};
+use super::{AccountKind, ConnectorError, ConnectorKind, Outgoing, Scope, Sent};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
 use crate::models::connector::Connector;
 use crate::models::connector_check::{self, CheckResult};
+use crate::models::draft::ReplyPlace;
+use crate::models::timeline_record::TimelineRecord;
 use crate::state::AppState;
 
 /// What the hub knows about a kind. Served as is; the web app names every id from its
@@ -66,6 +69,23 @@ pub struct Definition {
     pub content: &'static [ContentField],
     /// Its checks, in the order they run.
     pub checks: &'static [CheckSpec],
+    /// How what it reads is answered, as its person.
+    pub replies: Replies,
+}
+
+/// How a kind's records are answered as their person, which the web app's reply box follows.
+/// Every send is a draft its person sends (`crate::drafts`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "through", rename_all = "snake_case")]
+pub enum Replies {
+    /// Its records are not answered from Elysium.
+    Never,
+    /// Through the connector itself, signed in as its person, in any of `places`. The kind
+    /// fills [`reply_target`] and [`send`].
+    Connector { places: &'static [ReplyPlace] },
+    /// By mail, from a mailbox of the person's own (`crate::mail`), whatever the connector reads
+    /// through.
+    Mailbox,
 }
 
 /// A kind of thing a connector reads, so a loop that reads one kind of thing, or a list that
@@ -399,6 +419,77 @@ pub async fn sign_in(state: &AppState, connector: &Connector) -> Result<Connecto
     browser::sign_in(state, kind, connector).await
 }
 
+/// Where a reply to `record`, which a connector of `kind` read, goes `place` in its
+/// conversation, in the kind's own terms. A draft keeps it (`drafts.target`) and [`send`] reads
+/// it back.
+///
+/// # Errors
+/// [`ApiError::BadRequest`] for a kind that does not send through its connector, a place it
+/// does not reply in, or a record that does not say where its message was said.
+pub fn reply_target(
+    kind: ConnectorKind,
+    record: &TimelineRecord,
+    place: ReplyPlace,
+) -> Result<Value, ApiError> {
+    let Replies::Connector { places } = definition(kind).replies else {
+        return Err(ApiError::BadRequest(format!(
+            "{} does not send through its connector",
+            kind.as_str()
+        )));
+    };
+    if !places.contains(&place) {
+        return Err(ApiError::BadRequest(format!(
+            "{} does not reply in that place",
+            kind.as_str()
+        )));
+    }
+    match kind {
+        ConnectorKind::Slack => slack::reply_target(record, place),
+        ConnectorKind::Teams => teams::reply_target(record, place),
+        ConnectorKind::Jira
+        | ConnectorKind::Confluence
+        | ConnectorKind::Github
+        | ConnectorKind::Outlook
+        | ConnectorKind::Gmail
+        | ConnectorKind::Fireflies
+        | ConnectorKind::Youtrack => Err(ApiError::Internal(anyhow::anyhow!(
+            "{} declares that it sends, and has no reply target",
+            kind.as_str()
+        ))),
+    }
+}
+
+/// Sends `outgoing` through `connector`, signed in as its person, to the target
+/// [`reply_target`] wrote. This is the one way anything is posted through a connector; a draft
+/// its person sends reaches it through `crate::drafts::send`.
+///
+/// # Errors
+/// [`ConnectorError::Refused`] naming why it was not sent, in words its person can act on, and
+/// [`ConnectorError`] when the browser or the page fails.
+pub async fn send(
+    state: &AppState,
+    connector: &Connector,
+    outgoing: Outgoing<'_>,
+) -> Result<Sent, ConnectorError> {
+    let kind = ConnectorKind::parse(&connector.kind).ok_or_else(|| {
+        ConnectorError::Unexpected(format!("a connector of unknown kind {:?}", connector.kind))
+    })?;
+    match kind {
+        ConnectorKind::Slack => slack::send(state, connector, outgoing).await,
+        ConnectorKind::Teams => teams::send(state, connector, outgoing).await,
+        ConnectorKind::Jira
+        | ConnectorKind::Confluence
+        | ConnectorKind::Github
+        | ConnectorKind::Outlook
+        | ConnectorKind::Gmail
+        | ConnectorKind::Fireflies
+        | ConnectorKind::Youtrack => Err(ConnectorError::Refused(format!(
+            "{} does not send through its connector",
+            kind.as_str()
+        ))),
+    }
+}
+
 /// What each of `kind`'s selection fields can pick from through `account`:
 /// `{ <field>: { options: [{ id, label, detail }], truncated } }`.
 ///
@@ -592,6 +683,77 @@ mod tests {
             );
         }
         assert_eq!(providing(Provides::Meetings), [ConnectorKind::Fireflies]);
+    }
+
+    /// Every kind that sends through its connector, in the hub's order.
+    fn sending() -> Vec<ConnectorKind> {
+        DEFINITIONS
+            .into_iter()
+            .filter(|definition| matches!(definition.replies, Replies::Connector { .. }))
+            .map(|definition| definition.kind)
+            .collect()
+    }
+
+    #[test]
+    fn slack_and_teams_send_through_their_connector_and_mail_through_a_mailbox() {
+        assert_eq!(sending(), [ConnectorKind::Teams, ConnectorKind::Slack]);
+        for definition in DEFINITIONS {
+            let expected = match definition.kind {
+                ConnectorKind::Teams | ConnectorKind::Slack => Replies::Connector {
+                    places: &[ReplyPlace::Thread, ReplyPlace::Conversation],
+                },
+                ConnectorKind::Outlook | ConnectorKind::Gmail => Replies::Mailbox,
+                ConnectorKind::Jira
+                | ConnectorKind::Confluence
+                | ConnectorKind::Github
+                | ConnectorKind::Fireflies
+                | ConnectorKind::Youtrack => Replies::Never,
+            };
+            assert_eq!(definition.replies, expected, "{}", definition.kind.as_str());
+        }
+    }
+
+    /// A record of `kind` that says where its message was said, in every kind's terms at once.
+    fn answerable_record(kind: ConnectorKind) -> TimelineRecord {
+        TimelineRecord {
+            id: Uuid::now_v7(),
+            source_kind: kind.as_str().to_owned(),
+            connector_id: None,
+            external_id: None,
+            occurred_at: chrono::Utc::now(),
+            actor: "Ada <ada@example.com>".to_owned(),
+            title: "Launch".to_owned(),
+            body: "Ship it?".to_owned(),
+            url: None,
+            media: None,
+            metadata: serde_json::json!({
+                "team": "T1",
+                "conversation": "C1",
+                "ts": "1730000000.000100",
+                "conversationId": "19:launch@thread.tacv2",
+                "messageId": "1730000000000",
+                "isChat": false,
+            }),
+            action_item_id: None,
+            created_by: Uuid::now_v7(),
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn every_kind_that_sends_writes_a_reply_target_and_no_other_kind_does() {
+        for kind in ConnectorKind::ALL {
+            let record = answerable_record(kind);
+            for place in [ReplyPlace::Thread, ReplyPlace::Conversation] {
+                let target = reply_target(kind, &record, place);
+                assert_eq!(
+                    target.is_ok(),
+                    sending().contains(&kind),
+                    "{} in {place:?}: {target:?}",
+                    kind.as_str()
+                );
+            }
+        }
     }
 
     #[test]

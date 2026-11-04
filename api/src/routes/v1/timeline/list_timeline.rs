@@ -2,7 +2,8 @@
 
 //! `GET /api/v1/timeline`: the signed-in person's records, newest first.
 //!
-//! `projectId` keeps the records attributed to one project. `before` pages back: pass the
+//! `projectId` keeps the records attributed to one project, and `actionItemId` the record that
+//! raised one action item, which its page answers from. `before` pages back: pass the
 //! `occurredAt` of the last record of the previous page.
 
 use anyhow::Context;
@@ -28,6 +29,7 @@ const MAX_LIMIT: i64 = 200;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Filters {
     project_id: Option<Uuid>,
+    action_item_id: Option<Uuid>,
     before: Option<DateTime<Utc>>,
     limit: Option<i64>,
 }
@@ -55,6 +57,7 @@ pub async fn handle(
         TimelineQuery {
             owner: current.id(),
             project_id: filters.project_id,
+            action_item_id: filters.action_item_id,
             before: filters.before,
             limit,
         },

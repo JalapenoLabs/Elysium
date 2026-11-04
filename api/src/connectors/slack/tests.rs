@@ -439,6 +439,16 @@ fn a_record_is_named_linked_and_written_in_plain_text() {
         read.occurred_at.map(|at| at.to_rfc3339()),
         Some("2024-10-27T03:33:24.000500+00:00".to_owned())
     );
+    // Where it was said, which a reply to it needs.
+    assert_eq!(
+        read.metadata,
+        json!({
+            "team": "T1",
+            "conversation": "C1",
+            "ts": "1730000004.000500",
+            "threadTs": "1730000001.000000",
+        })
+    );
 
     let direct = message(
         "D1",

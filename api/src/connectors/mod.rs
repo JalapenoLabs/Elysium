@@ -258,13 +258,40 @@ pub struct ReadInput<'connector> {
     pub content: &'connector serde_json::Value,
 }
 
-/// A connector could not read its account.
+/// A connector could not read its account, or could not send through it.
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectorError {
     #[error(transparent)]
     Devtools(#[from] crate::browser::devtools::DevtoolsError),
     #[error("the page answered something the connector does not understand: {0}")]
     Unexpected(String),
+    /// The service, or the page, would not do what was asked; the message says why, in words
+    /// its person can act on, such as signing in again.
+    #[error("{0}")]
+    Refused(String),
+}
+
+/// A message a connector sends as its person.
+#[derive(Debug, Clone, Copy)]
+pub struct Outgoing<'draft> {
+    /// Where it goes, in the kind's own terms, as `kinds::reply_target` wrote it.
+    pub target: &'draft serde_json::Value,
+    /// What it says, as the person wrote it: plain text.
+    pub body: &'draft str,
+    /// The person's name, for a service that shows one beside the message, such as Teams.
+    pub sender_name: &'draft str,
+}
+
+/// The message a send posted, named the way the kind's reader names what it reads, so reading
+/// it back later records nothing twice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sent {
+    /// The provider's own id for it, as [`Read::external_id`] would hold it.
+    pub external_id: String,
+    pub occurred_at: DateTime<Utc>,
+    pub url: Option<String>,
+    /// Where it was said, as a record the kind reads keeps it.
+    pub metadata: serde_json::Value,
 }
 
 /// A service Elysium reads through a browser its person signed in to.

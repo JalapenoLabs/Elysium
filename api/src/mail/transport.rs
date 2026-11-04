@@ -119,6 +119,20 @@ pub async fn check(mailbox: &Mailbox) -> Result<(), MailError> {
     Ok(())
 }
 
+/// A plain-text message to send: who it goes to, what it is about, and, for a reply, the
+/// message it answers, so the recipient's mail client files it in that conversation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Envelope {
+    /// Each recipient as an address, optionally with a name (`Ada <ada@example.com>`).
+    pub to: Vec<String>,
+    pub subject: String,
+    pub body: String,
+    /// The `Message-ID` of the message it answers.
+    pub in_reply_to: Option<String>,
+    /// The conversation's `Message-ID`s, oldest first, ending with the one it answers.
+    pub references: Vec<String>,
+}
+
 /// Sends a plain-text message from `mailbox` to `recipient`.
 ///
 /// # Errors
@@ -130,24 +144,72 @@ pub async fn send_text(
     subject: &str,
     body: String,
 ) -> Result<(), MailError> {
+    let envelope = Envelope {
+        to: vec![recipient.to_owned()],
+        subject: subject.to_owned(),
+        body,
+        in_reply_to: None,
+        references: Vec::new(),
+    };
+    send(mailbox, &envelope).await?;
+    Ok(())
+}
+
+/// Sends `envelope` from `mailbox`, and answers the `Message-ID` it was sent with.
+///
+/// The id is generated here, on the mailbox's own domain, rather than left to the server, so
+/// the sent message can be recorded under the same id its recipients see.
+///
+/// # Errors
+/// Returns [`MailError`] when an address does not parse, there is no recipient, or the server
+/// refuses the message.
+pub async fn send(mailbox: &Mailbox, envelope: &Envelope) -> Result<String, MailError> {
+    let message_id = message_id_for(&mailbox.address);
+    let message = message_of(mailbox, envelope, &message_id)?;
+    smtp_transport(mailbox)?
+        .send(message)
+        .await
+        .map_err(MailError::smtp)?;
+    Ok(message_id)
+}
+
+/// A new `Message-ID` on `address`'s domain: `<uuid@domain>`.
+fn message_id_for(address: &str) -> String {
+    let domain = address
+        .rsplit_once('@')
+        .map_or("elysium.invalid", |(_local, domain)| domain);
+    format!("<{}@{domain}>", uuid::Uuid::now_v7())
+}
+
+/// `envelope` as the message `mailbox` sends, carrying `message_id`.
+fn message_of(
+    mailbox: &Mailbox,
+    envelope: &Envelope,
+    message_id: &str,
+) -> Result<Message, MailError> {
     let display_name = Some(mailbox.display_name.clone()).filter(|name| !name.is_empty());
     let from = Address::new(
         display_name,
         mailbox.address.parse().map_err(MailError::smtp)?,
     );
-    let message = Message::builder()
+    if envelope.to.is_empty() {
+        return Err(MailError::smtp("the message has no recipient"));
+    }
+    let mut builder = Message::builder()
         .from(from)
-        .to(recipient.parse().map_err(MailError::smtp)?)
-        .subject(subject)
-        .header(ContentType::TEXT_PLAIN)
-        .body(body)
-        .map_err(MailError::smtp)?;
-
-    smtp_transport(mailbox)?
-        .send(message)
-        .await
-        .map_err(MailError::smtp)?;
-    Ok(())
+        .subject(envelope.subject.as_str())
+        .message_id(Some(message_id.to_owned()))
+        .header(ContentType::TEXT_PLAIN);
+    for recipient in &envelope.to {
+        builder = builder.to(recipient.parse().map_err(MailError::smtp)?);
+    }
+    if let Some(in_reply_to) = &envelope.in_reply_to {
+        builder = builder.in_reply_to(in_reply_to.clone());
+    }
+    if !envelope.references.is_empty() {
+        builder = builder.references(envelope.references.join(" "));
+    }
+    builder.body(envelope.body.clone()).map_err(MailError::smtp)
 }
 
 async fn check_imap(mailbox: &Mailbox) -> Result<(), MailError> {
@@ -335,6 +397,76 @@ impl ServerCertVerifier for AcceptSelfSigned {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mailbox() -> Mailbox {
+        let endpoint = Endpoint {
+            host: "localhost".to_owned(),
+            port: 465,
+            security: Security::ImplicitTls,
+            verify_certificate: true,
+        };
+        Mailbox {
+            address: "alex@example.com".to_owned(),
+            display_name: "Alex Navarro".to_owned(),
+            imap: endpoint.clone(),
+            smtp: endpoint,
+            auth: Auth::Password(SecretString::from("unused")),
+        }
+    }
+
+    #[test]
+    fn a_message_id_is_on_the_mailboxs_own_domain() {
+        let id = message_id_for("alex@example.com");
+        assert!(id.starts_with('<') && id.ends_with("@example.com>"), "{id}");
+        assert_ne!(id, message_id_for("alex@example.com"));
+    }
+
+    #[test]
+    fn a_reply_carries_the_conversation_it_answers() {
+        let envelope = Envelope {
+            to: vec!["Ada <ada@example.org>".to_owned()],
+            subject: "Re: Launch".to_owned(),
+            body: "Friday works.".to_owned(),
+            in_reply_to: Some("<b@example.org>".to_owned()),
+            references: vec!["<a@example.org>".to_owned(), "<b@example.org>".to_owned()],
+        };
+        let message = message_of(&mailbox(), &envelope, "<sent@example.com>").expect("builds");
+        let formatted = String::from_utf8(message.formatted()).expect("text");
+        assert!(
+            formatted.contains("From: \"Alex Navarro\" <alex@example.com>"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("To: Ada <ada@example.org>"),
+            "{formatted}"
+        );
+        assert!(formatted.contains("Subject: Re: Launch"), "{formatted}");
+        assert!(
+            formatted.contains("Message-ID: <sent@example.com>"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("In-Reply-To: <b@example.org>"),
+            "{formatted}"
+        );
+        assert!(
+            formatted.contains("References: <a@example.org> <b@example.org>"),
+            "{formatted}"
+        );
+        assert!(formatted.ends_with("Friday works."), "{formatted}");
+    }
+
+    #[test]
+    fn a_message_without_a_recipient_is_refused() {
+        let envelope = Envelope {
+            to: Vec::new(),
+            subject: "Re: Launch".to_owned(),
+            body: "Friday works.".to_owned(),
+            in_reply_to: None,
+            references: Vec::new(),
+        };
+        message_of(&mailbox(), &envelope, "<sent@example.com>").expect_err("nobody to send to");
+    }
 
     #[test]
     fn xoauth2_sends_the_bearer_once_then_acknowledges_the_refusal() {

@@ -10,7 +10,7 @@
 use serde_json::Value;
 
 use super::browser::{browser_of, starts_with_its_browser};
-use super::{AccountDefinition, Definition, Provides, Source};
+use super::{AccountDefinition, Definition, Provides, Replies, Source};
 use crate::auth::CurrentUser;
 use crate::browser::{BrowserState, Browsers};
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
@@ -54,6 +54,7 @@ pub const OUTLOOK: Definition = Definition {
     start_url: Some("https://outlook.office.com/mail/"),
     content: &[],
     checks: CHECKS,
+    replies: Replies::Mailbox,
 };
 
 pub const GMAIL: Definition = Definition {
@@ -64,6 +65,7 @@ pub const GMAIL: Definition = Definition {
     start_url: Some("https://mail.google.com/mail/"),
     content: &[],
     checks: CHECKS,
+    replies: Replies::Mailbox,
 };
 
 pub const ACCOUNT: AccountDefinition = AccountDefinition {

@@ -202,7 +202,10 @@ fn validate_domain(value: &str) -> Result<(), ValidationError> {
 /// [`ApiError::Unavailable`] when no broker is configured for an OAuth account,
 /// [`ApiError::BadGateway`] when the broker refuses, and [`ApiError::Internal`] when
 /// the stored credential does not decrypt.
-async fn open_mailbox(state: &AppState, account: &MailAccount) -> Result<Mailbox, ApiError> {
+pub(crate) async fn open_mailbox(
+    state: &AppState,
+    account: &MailAccount,
+) -> Result<Mailbox, ApiError> {
     let (imap, smtp) = mail::endpoints(account.kind);
     let credential = account
         .credential(&state.cipher)

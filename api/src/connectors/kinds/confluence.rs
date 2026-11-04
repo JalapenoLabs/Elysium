@@ -17,8 +17,8 @@ use validator::Validate;
 
 use super::jira::{SignedSite, new_site, stored_site};
 use super::{
-    AccountChoice, ContentField, ContentFieldType, Definition, Provides, Source, parse_content,
-    parse_new_account,
+    AccountChoice, ContentField, ContentFieldType, Definition, Provides, Replies, Source,
+    parse_content, parse_new_account,
 };
 use crate::auth::CurrentUser;
 use crate::confluence::{
@@ -74,6 +74,7 @@ pub const DEFINITION: Definition = Definition {
             depends_on: &["list_spaces"],
         },
     ],
+    replies: Replies::Never,
 };
 
 /// A new Confluence connector's Atlassian account, as the client sends it: the fields Jira's

@@ -11,7 +11,8 @@ use secrecy::SecretString;
 use serde_json::Value;
 
 use super::{
-    AccountChoice, AccountDefinition, AccountField, AccountFieldType, Definition, Provides, Source,
+    AccountChoice, AccountDefinition, AccountField, AccountFieldType, Definition, Provides,
+    Replies, Source,
 };
 use crate::auth::CurrentUser;
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
@@ -60,6 +61,7 @@ pub const DEFINITION: Definition = Definition {
             depends_on: &["list_repositories"],
         },
     ],
+    replies: Replies::Never,
 };
 
 pub const ACCOUNT: AccountDefinition = AccountDefinition {

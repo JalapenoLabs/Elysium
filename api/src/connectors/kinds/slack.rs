@@ -11,15 +11,19 @@
 use serde_json::{Value, json};
 
 use super::browser::{browser_of, owned_browser, starts_with_its_browser};
-use super::{AccountChoice, ContentField, ContentFieldType, Definition, Provides, Source};
+use super::{AccountChoice, ContentField, ContentFieldType, Definition, Provides, Replies, Source};
 use crate::auth::CurrentUser;
 use crate::browser::{BrowserState, Browsers};
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
 use crate::connectors::slack::{self, Content, Counts, START_URL, Slack, Tab, Team, count_teams};
-use crate::connectors::{AccountKind, ConnectorKind, Scope, SignInState};
+use crate::connectors::{
+    AccountKind, ConnectorError, ConnectorKind, Outgoing, Scope, Sent, SignInState,
+};
 use crate::errors::ApiError;
 use crate::models::browser_session::BrowserSession;
 use crate::models::connector::{self, Connector};
+use crate::models::draft::ReplyPlace;
+use crate::models::timeline_record::TimelineRecord;
 use crate::routes::v1::jira_credentials::Selection;
 use crate::state::AppState;
 
@@ -58,6 +62,9 @@ pub const DEFINITION: Definition = Definition {
         required: true,
     }],
     checks: CHECKS,
+    replies: Replies::Connector {
+        places: &[ReplyPlace::Thread, ReplyPlace::Conversation],
+    },
 };
 
 /// What a client sent as Slack's content, checked for shape: `"*"`, or ids that look like a
@@ -315,6 +322,36 @@ pub async fn update_content(
     .await?;
     state.connectors.activity.changed(stored.id);
     Ok(updated)
+}
+
+/// Where a reply to `record` goes, `place` in its conversation. See
+/// `crate::connectors::slack::send`.
+///
+/// # Errors
+/// [`ApiError::BadRequest`] for a record that does not say where its message was said.
+pub fn reply_target(record: &TimelineRecord, place: ReplyPlace) -> Result<Value, ApiError> {
+    let target = slack::send::reply_target(record, place).map_err(ApiError::BadRequest)?;
+    serde_json::to_value(target).map_err(|error| ApiError::Internal(error.into()))
+}
+
+/// Posts `outgoing` as the person `connector`'s browser is signed in to Slack as.
+///
+/// # Errors
+/// [`ConnectorError::Refused`] naming why it was not posted, including a connector still
+/// waiting for its browser, and [`ConnectorError`] when the browser or the page fails.
+pub async fn send(
+    state: &AppState,
+    connector: &Connector,
+    outgoing: Outgoing<'_>,
+) -> Result<Sent, ConnectorError> {
+    let target: slack::send::Target = serde_json::from_value(outgoing.target.clone())
+        .map_err(|error| ConnectorError::Unexpected(format!("a Slack draft's target: {error}")))?;
+    let browser = browser_of(state, connector)
+        .await
+        .map_err(|error| ConnectorError::Refused(error.to_string()))?;
+    Slack::new(state.connectors.ingest.devtools().clone())
+        .post(&browser, &target, outgoing.body)
+        .await
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ use serde_json::{Map, Value, json};
 
 use super::{
     AccountChoice, AccountDefinition, AccountField, AccountFieldType, ContentField,
-    ContentFieldType, Definition, Provides, Source, parse_content, parse_new_account,
+    ContentFieldType, Definition, Provides, Replies, Source, parse_content, parse_new_account,
 };
 use crate::auth::CurrentUser;
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
@@ -85,6 +85,7 @@ pub const DEFINITION: Definition = Definition {
             depends_on: &["allowlist_reachable"],
         },
     ],
+    replies: Replies::Never,
 };
 
 pub const ACCOUNT: AccountDefinition = AccountDefinition {

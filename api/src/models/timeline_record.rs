@@ -86,6 +86,42 @@ pub async fn insert_new(
         .optional()
 }
 
+/// The record `connector_id` keeps under `external_id`, if it has one.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn find_by_external_id(
+    connection: &mut AsyncPgConnection,
+    connector_id: Uuid,
+    external_id: &str,
+) -> QueryResult<Option<TimelineRecord>> {
+    timeline_records::table
+        .filter(timeline_records::connector_id.eq(connector_id))
+        .filter(timeline_records::external_id.eq(external_id))
+        .select(TimelineRecord::as_select())
+        .first(connection)
+        .await
+        .optional()
+}
+
+/// The record `id`, when `owner` owns it, without its attributions.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn find_owned_record(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    owner: Uuid,
+) -> QueryResult<Option<TimelineRecord>> {
+    timeline_records::table
+        .filter(timeline_records::id.eq(id))
+        .filter(timeline_records::created_by.eq(owner))
+        .select(TimelineRecord::as_select())
+        .first(connection)
+        .await
+        .optional()
+}
+
 /// Whether any record of `connector_id`'s whose external id starts with `prefix` raised an
 /// action item: for a kind that records each version of a thing, whether that thing already
 /// raised one, so editing it again does not raise another.
@@ -137,6 +173,8 @@ pub struct TimelineQuery {
     pub owner: Uuid,
     /// Only records attributed to this project.
     pub project_id: Option<Uuid>,
+    /// Only the record that raised this action item.
+    pub action_item_id: Option<Uuid>,
     /// Only records that happened before this, for the next page.
     pub before: Option<DateTime<Utc>>,
     pub limit: i64,
@@ -167,6 +205,9 @@ pub async fn list(
                     .select(timeline_record_projects::timeline_record_id),
             ),
         );
+    }
+    if let Some(action_item_id) = query.action_item_id {
+        statement = statement.filter(timeline_records::action_item_id.eq(action_item_id));
     }
     if let Some(before) = query.before {
         statement = statement.filter(timeline_records::occurred_at.lt(before));

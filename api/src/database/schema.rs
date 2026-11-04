@@ -46,6 +46,10 @@ pub mod sql_types {
     pub struct DeploymentUpdateStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "draft_state"))]
+    pub struct DraftState;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "elysia_question_status"))]
     pub struct ElysiaQuestionStatus;
 
@@ -104,6 +108,10 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "project_cover_fit"))]
     pub struct ProjectCoverFit;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "reply_place"))]
+    pub struct ReplyPlace;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "s3_service"))]
@@ -427,6 +435,30 @@ diesel::table! {
         started_at -> Timestamptz,
         finished_at -> Nullable<Timestamptz>,
         created_by -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ReplyPlace;
+    use super::sql_types::DraftState;
+
+    drafts (id) {
+        id -> Uuid,
+        reply_to_record_id -> Nullable<Uuid>,
+        connector_id -> Nullable<Uuid>,
+        mail_account_id -> Nullable<Uuid>,
+        target -> Jsonb,
+        place -> Nullable<ReplyPlace>,
+        body -> Text,
+        state -> DraftState,
+        last_error -> Nullable<Text>,
+        attempted_at -> Nullable<Timestamptz>,
+        sent_at -> Nullable<Timestamptz>,
+        sent_record_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -1101,6 +1133,9 @@ diesel::joinable!(connectors -> users (created_by));
 diesel::joinable!(database_backups -> storage_locations (storage_location_id));
 diesel::joinable!(database_backups -> users (created_by));
 diesel::joinable!(deployment_updates -> users (created_by));
+diesel::joinable!(drafts -> connectors (connector_id));
+diesel::joinable!(drafts -> mail_accounts (mail_account_id));
+diesel::joinable!(drafts -> users (created_by));
 diesel::joinable!(elysia_messages -> users (created_by));
 diesel::joinable!(elysia_questions -> action_items (action_item_id));
 diesel::joinable!(elysia_state -> users (updated_by));
@@ -1178,6 +1213,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     connectors,
     database_backups,
     deployment_updates,
+    drafts,
     elysia_messages,
     elysia_questions,
     elysia_state,

@@ -142,6 +142,10 @@ pub enum ServerEvent {
         /// The inbox item it raised, when it raised one.
         action_item_id: Option<Uuid>,
     },
+    /// A draft was written, changed, discarded, or a send of it began, succeeded, or failed.
+    /// Its id and writer alone, since its text is the writer's; their pages load it by id.
+    #[serde(rename = "draft.changed")]
+    DraftChanged { id: Uuid, created_by: Uuid },
     /// A meeting was read, or its processing moved on. Never its title or transcript, for
     /// the same reason as a record's content; its owner's pages load it by id.
     #[serde(rename = "meeting.changed")]

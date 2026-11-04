@@ -8,8 +8,9 @@
 //! The page script (`slack.js`) runs in the browser's tab on `app.slack.com` and calls Slack's
 //! own web API with the session the web client keeps, which is how the web client itself loads
 //! everything. It answers each workspace the tab is signed in to and what each call said; the
-//! session token never leaves the page. Only read methods can be called, so nothing is posted
-//! and nothing is marked read.
+//! session token never leaves the page. Only read methods can be called, so reading posts
+//! nothing and marks nothing read. Posting as the person is [`send`]'s, through a script of its
+//! own that can call `chat.postMessage` alone.
 //!
 //! A read is up to three evaluations:
 //!
@@ -715,6 +716,16 @@ fn read_of(message: &Message, team: &Team, state: &State) -> Read {
     let wants_attention = !own
         && (message.kind != ConversationKind::Channel || mentioned || message.thread_ts.is_some());
 
+    // Where the message was said, which is what a reply to it needs (`send::reply_target`).
+    let mut metadata = json!({
+        "team": team.id,
+        "conversation": message.conversation,
+        "ts": message.ts,
+    });
+    if let Some(thread) = &message.thread_ts {
+        metadata["threadTs"] = json!(thread);
+    }
+
     Read {
         external_id: format!("{}/{}/{}", team.id, message.conversation, message.ts),
         occurred_at: ts_time(&message.ts),
@@ -724,26 +735,32 @@ fn read_of(message: &Message, team: &Team, state: &State) -> Read {
             &plain_text(&message.text, &team.id, state),
             BODY_MAX_CHARACTERS,
         ),
-        url: permalink(team, message),
+        url: permalink(
+            &team.url,
+            &message.conversation,
+            &message.ts,
+            message.thread_ts.as_deref(),
+        ),
         wants_attention,
-        metadata: serde_json::Value::Object(serde_json::Map::new()),
+        metadata,
     }
 }
 
-/// The message's address in Slack, as its "Copy link" gives it.
-fn permalink(team: &Team, message: &Message) -> Option<String> {
-    let base = Url::parse(&team.url).ok()?;
+/// A message's address in Slack, as its "Copy link" gives it, on its workspace's own host.
+fn permalink(
+    team_url: &str,
+    conversation: &str,
+    ts: &str,
+    thread_ts: Option<&str>,
+) -> Option<String> {
+    let base = Url::parse(team_url).ok()?;
     let mut url = base
-        .join(&format!(
-            "archives/{}/p{}",
-            message.conversation,
-            message.ts.replace('.', "")
-        ))
+        .join(&format!("archives/{conversation}/p{}", ts.replace('.', "")))
         .ok()?;
-    if let Some(thread) = &message.thread_ts {
+    if let Some(thread) = thread_ts {
         url.query_pairs_mut()
             .append_pair("thread_ts", thread)
-            .append_pair("cid", &message.conversation);
+            .append_pair("cid", conversation);
     }
     Some(url.into())
 }
@@ -869,6 +886,8 @@ fn ts_after(candidate: &str, read: &str) -> bool {
 fn truncate(text: &str, max_characters: usize) -> String {
     text.trim().chars().take(max_characters).collect()
 }
+
+pub mod send;
 
 #[cfg(test)]
 mod tests;

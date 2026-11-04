@@ -354,6 +354,16 @@ pub fn parse_page(value: &Value, selection: &Selection) -> Result<TeamsReading, 
         let wants_attention =
             unread && from_someone_else && (conversation.is_chat || mentions_me || in_my_thread);
 
+        // Where the message was said, which is what a reply to it needs (`send::reply_target`).
+        let mut metadata = json!({
+            "conversationId": message.conversation_id,
+            "messageId": message.id,
+            "isChat": conversation.is_chat,
+        });
+        if let Some(parent) = &message.parent_id {
+            metadata["parentId"] = json!(parent);
+        }
+
         items.push(Read {
             external_id: format!("{}/{}", message.conversation_id, message.id),
             occurred_at: Some(created_at),
@@ -362,7 +372,7 @@ pub fn parse_page(value: &Value, selection: &Selection) -> Result<TeamsReading, 
             body: truncate(&message.text, TEXT_MAX_CHARACTERS),
             url: message_link(&message.conversation_id, &message.id),
             wants_attention,
-            metadata: serde_json::Value::Object(serde_json::Map::new()),
+            metadata,
         });
     }
 
@@ -460,6 +470,8 @@ fn truncate(text: &str, max_characters: usize) -> String {
     text.trim().chars().take(max_characters).collect()
 }
 
+pub mod send;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,6 +490,23 @@ mod tests {
             .iter()
             .find(|item| item.external_id.ends_with(&format!("/{message_id}")))
             .unwrap_or_else(|| panic!("message {message_id} is read"))
+    }
+
+    #[test]
+    fn a_record_keeps_where_its_message_was_said_for_a_reply() {
+        let reading = fixture_reading(&Selection::All);
+        let reply = item(&reading, "1730000420000");
+        assert_eq!(
+            reply.metadata,
+            json!({
+                "conversationId": "19:channel1@thread.tacv2",
+                "messageId": "1730000420000",
+                "parentId": "1730000410000",
+                "isChat": false,
+            })
+        );
+        let chat = item(&reading, "1730000200000");
+        assert_eq!(chat.metadata["isChat"], json!(true));
     }
 
     #[test]
