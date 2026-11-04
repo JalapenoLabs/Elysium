@@ -13,6 +13,10 @@
 //! into the `done` status chosen for the project (`crate::models::jira_done_transition`),
 //! or into its only `done` status when it has one. Until a project with several is given a
 //! choice, the move waits, and says so.
+//!
+//! Filing an issue opens it in an allowed project, as a `Task` when the project has one and
+//! otherwise its first standard kind of issue ([`issue_type_to_file`]), then reads it back
+//! through `allowed_issue`, which proves Jira put it where it was asked to.
 
 use std::sync::Arc;
 
@@ -23,13 +27,16 @@ use futures_util::future::BoxFuture;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::{Children, LinkError, Provider, Remote, RemoteContainer, WriteOutcome};
+use super::{
+    Children, Destination, IssueToFile, LinkError, Provider, Remote, RemoteContainer, WriteOutcome,
+};
 use crate::crypto::Cipher;
 use crate::database::Pool;
-use crate::jira::{Issue, Jira, JiraError, Status};
+use crate::jira::{Issue, IssueType, Jira, JiraError, NewIssue, Status, is_project_key};
 use crate::models::action_item::Owner;
 use crate::models::action_item_link::{ActionItemLink, LinkKind, LinkState};
 use crate::models::initiative_link::{ContainerKind, InitiativeLink};
+use crate::models::jira_credential::Allowlist;
 use crate::models::jira_done_transition;
 use crate::routes::v1::jira_credentials::allowlist::{bounded_jql, ensure_allowed};
 use crate::routes::v1::jira_credentials::{OpenCredential, allowed_issue, open_with};
@@ -277,6 +284,99 @@ impl JiraProvider {
         Ok(())
     }
 
+    /// The allowed projects, as the allowlist names them, or every project Jira lists for a
+    /// credential allowed everything.
+    async fn destinations(&self, credential_id: Uuid) -> Result<Vec<Destination>, LinkError> {
+        let stored = self.open(credential_id).await?;
+        let mut destinations: Vec<Destination> = match &stored.allowed.projects {
+            Allowlist::Only(projects) => projects
+                .iter()
+                .map(|project| Destination {
+                    reference: project.key.clone(),
+                    name: project.name.clone(),
+                })
+                .collect(),
+            Allowlist::All => self
+                .jira
+                .list_projects(&stored.site())
+                .await?
+                .items
+                .into_iter()
+                .map(|project| Destination {
+                    reference: project.key,
+                    name: project.name,
+                })
+                .collect(),
+        };
+        destinations.sort_by(|first, second| first.name.cmp(&second.name));
+        Ok(destinations)
+    }
+
+    async fn destination(
+        &self,
+        credential_id: Uuid,
+        reference: &str,
+    ) -> Result<Destination, LinkError> {
+        let stored = self.open(credential_id).await?;
+        let project_key = allowed_project_key(&stored, reference)?;
+        let details = self
+            .jira
+            .project(&stored.site(), &project_key)
+            .await
+            .map_err(|error| missing_project(error, &project_key))?;
+        // The project Jira answers with is checked too, as every Jira read is.
+        ensure_allowed(
+            &stored.allowed.projects,
+            &stored.credential.name,
+            &details.project.key,
+        )?;
+        Ok(Destination {
+            reference: details.project.key,
+            name: details.project.name,
+        })
+    }
+
+    async fn file(&self, issue: IssueToFile<'_>) -> Result<Remote, LinkError> {
+        let stored = self.open(issue.credential_id).await?;
+        let project_key = allowed_project_key(&stored, issue.destination)?;
+        if let Some(since) = issue.tried_since {
+            let minutes = (Utc::now() - since).num_minutes().max(0) + CURSOR_OVERLAP_MINUTES;
+            let conditions = format!(
+                "project = \"{project_key}\" AND reporter = currentUser() AND created >= -{minutes}m"
+            );
+            let recent = self.search(&stored, &conditions, 1).await?;
+            let earlier = recent
+                .items
+                .into_iter()
+                .find(|found| found.title.trim() == issue.title.trim());
+            if let Some(earlier) = earlier {
+                return Ok(earlier);
+            }
+        }
+
+        let details = self
+            .jira
+            .project(&stored.site(), &project_key)
+            .await
+            .map_err(|error| missing_project(error, &project_key))?;
+        let issue_type = issue_type_to_file(&details.issue_types).ok_or_else(|| {
+            LinkError::Invalid(format!(
+                "project {project_key} has no standard kind of issue, such as Task, to open"
+            ))
+        })?;
+        let new_issue = NewIssue {
+            project_key: project_key.clone(),
+            issue_type: issue_type.name.clone(),
+            summary: issue.title.to_owned(),
+            description: Some(issue.body.to_owned()).filter(|body| !body.trim().is_empty()),
+            ..NewIssue::default()
+        };
+        let key = self.jira.create_issue(&stored.site(), &new_issue).await?;
+        // Read back for its fields, which also proves Jira put it where it was asked to.
+        let created = allowed_issue(&self.jira, &stored, &key).await?;
+        Ok(remote(&stored, created))
+    }
+
     /// The `done` status a project's done transition leads into, or why there is none yet.
     ///
     /// The user's choice wins. Without one, a project with exactly one `done` status uses
@@ -403,6 +503,47 @@ pub async fn done_statuses(
         .collect())
 }
 
+/// The kind of issue a filing opens: `Task` when the project has it, otherwise its first
+/// standard kind, never a subtask, which needs a parent, nor an epic, which is a container.
+pub fn issue_type_to_file(issue_types: &[IssueType]) -> Option<&IssueType> {
+    let standard = |issue_type: &&IssueType| {
+        !issue_type.subtask
+            && issue_type.hierarchy_level.is_none_or(|level| level == 0)
+            && !issue_type.name.eq_ignore_ascii_case("Epic")
+    };
+    issue_types
+        .iter()
+        .filter(standard)
+        .find(|issue_type| issue_type.name.eq_ignore_ascii_case("Task"))
+        .or_else(|| issue_types.iter().find(standard))
+}
+
+/// `reference` as a project key, refused unless it is one and the credential may touch it.
+fn allowed_project_key(stored: &OpenCredential, reference: &str) -> Result<String, LinkError> {
+    let project_key = reference.trim().to_ascii_uppercase();
+    if !is_project_key(&project_key) {
+        return Err(LinkError::Invalid(format!(
+            "{reference} is not a Jira project key, such as ELY"
+        )));
+    }
+    ensure_allowed(
+        &stored.allowed.projects,
+        &stored.credential.name,
+        &project_key,
+    )?;
+    Ok(project_key)
+}
+
+/// A project Jira does not have as the person should read it.
+fn missing_project(error: JiraError, project_key: &str) -> LinkError {
+    match error {
+        JiraError::NotFound => LinkError::NotFound(format!(
+            "Jira has no project {project_key}, or the credential cannot see it"
+        )),
+        other => other.into(),
+    }
+}
+
 fn is_done(status: Option<&Status>) -> bool {
     status.is_some_and(|status| status.category == DONE_CATEGORY)
 }
@@ -491,5 +632,26 @@ impl Provider for JiraProvider {
         body: &'call str,
     ) -> BoxFuture<'call, Result<(), LinkError>> {
         Self::comment(self, link, body).boxed()
+    }
+    fn destinations(
+        &self,
+        credential_id: Uuid,
+    ) -> BoxFuture<'_, Result<Vec<Destination>, LinkError>> {
+        Self::destinations(self, credential_id).boxed()
+    }
+
+    fn destination<'call>(
+        &'call self,
+        credential_id: Uuid,
+        reference: &'call str,
+    ) -> BoxFuture<'call, Result<Destination, LinkError>> {
+        Self::destination(self, credential_id, reference).boxed()
+    }
+
+    fn file<'call>(
+        &'call self,
+        issue: IssueToFile<'call>,
+    ) -> BoxFuture<'call, Result<Remote, LinkError>> {
+        Self::file(self, issue).boxed()
     }
 }

@@ -8,6 +8,7 @@
 
 mod add_link;
 mod add_project;
+mod cancel_issue_filing;
 mod cancel_link_write;
 mod change_action_items;
 mod create_action_item;
@@ -34,7 +35,7 @@ mod update_action_item;
 mod update_comment;
 mod wait_on;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Context;
 use axum::Router;
@@ -58,11 +59,12 @@ use crate::models::action_item::{
 };
 use crate::models::action_item_comment::Comment;
 use crate::models::action_item_event::{HistoryEntry, Recorded};
+use crate::models::action_item_issue_filing::{self, IssueFiling};
 use crate::models::action_item_link::{
     self, ActionItemLink, LinkCredential, LinkKind, LinkProvider, LinkState,
 };
 use crate::models::action_item_link_write::{self, LinkWrite, LinkWriteKind};
-use crate::models::{initiative, promise};
+use crate::models::{initiative, promise, token_account};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::initiatives::initiative_responses;
 use crate::state::AppState;
@@ -123,7 +125,8 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{id}/links/{link_id}/writes/{write_id}",
             delete(cancel_link_write::handle),
-        );
+        )
+        .route("/{id}/issue-filing", delete(cancel_issue_filing::handle));
 
     for (path, transition) in TRANSITION_ROUTES {
         router = router.route(
@@ -163,11 +166,48 @@ pub struct ActionItemResponse {
     /// Who created it.
     created_by: Uuid,
     updated_at: DateTime<Utc>,
+    /// The issue Elysium owes the item and has not filed yet, while it owes one.
+    issue_filing: Option<IssueFilingResponse>,
+}
+
+/// An issue an item is owed, as clients see it: where it files, and how filing it has gone.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueFilingResponse {
+    id: Uuid,
+    provider: LinkProvider,
+    /// A Jira project key, a GitHub `owner/name`, or a YouTrack project's short name.
+    destination: String,
+    /// How many times it was tried. Zero means it has not been tried yet.
+    attempts: i32,
+    /// The provider's last answer, or why it waits.
+    last_error: Option<String>,
+    last_attempt_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+}
+
+impl From<IssueFiling> for IssueFilingResponse {
+    fn from(filing: IssueFiling) -> Self {
+        Self {
+            id: filing.id,
+            provider: filing.provider,
+            destination: filing.destination,
+            attempts: filing.attempts,
+            last_error: filing.last_error,
+            last_attempt_at: filing.last_attempt_at,
+            created_at: filing.created_at,
+        }
+    }
 }
 
 impl ActionItemResponse {
-    pub fn new(item: ActionItem, memberships: &Memberships) -> Self {
+    pub fn new(
+        item: ActionItem,
+        memberships: &Memberships,
+        issue_filing: Option<IssueFiling>,
+    ) -> Self {
         Self {
+            issue_filing: issue_filing.map(IssueFilingResponse::from),
             owner: item.owner(),
             project_ids: memberships.project_ids(item.id),
             initiative_ids: memberships.initiative_ids(item.id),
@@ -250,7 +290,7 @@ pub struct LinkTarget {
     pub provider: LinkProvider,
     pub credential_id: Uuid,
     pub kind: LinkKind,
-    /// `ELY-12`, or `owner/name#12`.
+    /// `ELY-12`, `owner/name#12`, or `JL-12`.
     #[validate(length(min = 1, max = 300), custom(function = "validate_not_blank"))]
     pub reference: String,
 }
@@ -261,6 +301,24 @@ impl LinkTarget {
             provider: self.provider,
             id: self.credential_id,
         }
+    }
+
+    /// Refuses a target `person` may not link through. Jira credentials and GitHub tokens are
+    /// the workspace's, but a YouTrack account is a person's own, as every route over token
+    /// accounts holds, so only its owner links through it.
+    ///
+    /// # Errors
+    /// [`ApiError::NotFound`] for a YouTrack account that is not `person`'s, and any database
+    /// error.
+    pub async fn ensure_reachable_by(
+        &self,
+        connection: &mut AsyncPgConnection,
+        person: Uuid,
+    ) -> Result<(), ApiError> {
+        if self.provider == LinkProvider::Youtrack {
+            token_account::find_owned(connection, self.credential_id, person).await?;
+        }
+        Ok(())
     }
 }
 
@@ -393,9 +451,18 @@ pub async fn item_responses(
 ) -> Result<Vec<ActionItemResponse>, ApiError> {
     let ids: Vec<Uuid> = items.iter().map(|item| item.id).collect();
     let memberships = action_item::memberships(connection, &ids).await?;
+    let mut filings: HashMap<Uuid, IssueFiling> =
+        action_item_issue_filing::for_items(connection, &ids)
+            .await?
+            .into_iter()
+            .map(|filing| (filing.action_item_id, filing))
+            .collect();
     Ok(items
         .into_iter()
-        .map(|item| ActionItemResponse::new(item, &memberships))
+        .map(|item| {
+            let filing = filings.remove(&item.id);
+            ActionItemResponse::new(item, &memberships, filing)
+        })
         .collect())
 }
 

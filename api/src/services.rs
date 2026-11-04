@@ -17,7 +17,7 @@ use redis::aio::ConnectionManager;
 use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 
-use crate::action_items::links::Links;
+use crate::action_items::links::{Clients, Links};
 use crate::auth::kratos::Kratos;
 use crate::auth::{Auth, hook_key};
 use crate::backups::dump::{Dumper, POSTGRES_CONTAINER};
@@ -45,6 +45,7 @@ use crate::runner::workspace::WorkspaceContainer;
 use crate::storage::Storage;
 use crate::version::VersionInfo;
 use crate::whisper::Whisper;
+use crate::youtrack::Youtrack;
 use crate::{connections, shutdown};
 
 /// How long one Docker call may take. Pulling the mail server's image is one call, and
@@ -157,8 +158,11 @@ impl Foundation {
         let links = Links::new(
             database.clone(),
             Arc::clone(&cipher),
-            &jira,
-            &github,
+            Clients {
+                jira: &jira,
+                github: &github,
+                youtrack: &Youtrack::new(http.clone()),
+            },
             events.clone(),
         );
         Self {

@@ -3,9 +3,12 @@
 //! [`Youtrack`] end to end, against a local fake of YouTrack Cloud's REST API.
 //!
 //! The fake answers the way YouTrack does: a bearer permanent token, `401` with an
-//! `error_description` for the wrong one, `$skip`/`$top` paging, millisecond timestamps, and
-//! the assignee inside `customFields`. Its issues and comments can be changed between calls, so
-//! the reader's tests can play out what happens on a site over time. It records every request.
+//! `error_description` for the wrong one, `$skip`/`$top` paging, millisecond timestamps, the
+//! assignee and the state inside `customFields`, and a project's state field with its resolved
+//! values in the project's settings. It opens issues, takes comments, and moves an issue's state
+//! the way YouTrack does, and its issues and comments can be changed between calls, so the
+//! reader's and the links' tests can play out what happens on a site over time. It records every
+//! request.
 //!
 //! No live YouTrack account is used here, so these prove Elysium's half of the contract against
 //! the shapes JetBrains documents and the ones measured on jalapenolabs.youtrack.cloud.
@@ -17,7 +20,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use serde_json::{Value, json};
 
 use super::*;
 
@@ -31,26 +33,61 @@ pub(crate) const SITE_URL: &str = "https://acme.youtrack.cloud";
 /// The token's user.
 pub(crate) const ME: &str = "alex";
 
+/// The state field every fake project has, named as the default template names it, and its
+/// values: three to do, then three resolved, `Fixed` among them.
+pub(crate) const STATE_FIELD: &str = "State";
+const STATES: [(&str, bool); 6] = [
+    ("Submitted", false),
+    ("Open", false),
+    ("In Progress", false),
+    ("Duplicate", true),
+    ("Fixed", true),
+    ("Won't fix", true),
+];
+
 /// One issue the fake holds.
 #[derive(Debug, Clone)]
 pub(crate) struct FakeIssue {
-    pub(crate) id: &'static str,
-    pub(crate) key: &'static str,
-    pub(crate) project: &'static str,
-    pub(crate) summary: &'static str,
+    pub(crate) id: String,
+    pub(crate) key: String,
+    pub(crate) project: String,
+    pub(crate) summary: String,
+    pub(crate) description: String,
     pub(crate) created: i64,
     pub(crate) updated: i64,
-    pub(crate) reporter: &'static str,
-    pub(crate) assignee: Option<&'static str>,
+    pub(crate) reporter: String,
+    pub(crate) assignee: Option<String>,
+    /// A value of [`STATE_FIELD`]; the issue is resolved while it is a resolved one.
+    pub(crate) state: String,
+}
+
+impl FakeIssue {
+    fn is_resolved(&self) -> bool {
+        STATES
+            .iter()
+            .any(|(name, is_resolved)| *is_resolved && *name == self.state)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct FakeComment {
-    pub(crate) issue_id: &'static str,
-    pub(crate) id: &'static str,
-    pub(crate) text: &'static str,
+    pub(crate) issue_id: String,
+    pub(crate) id: String,
+    pub(crate) text: String,
     pub(crate) created: i64,
-    pub(crate) author: &'static str,
+    pub(crate) author: String,
+}
+
+impl FakeComment {
+    pub(crate) fn new(issue_id: &str, id: &str, text: &str, created: i64, author: &str) -> Self {
+        Self {
+            issue_id: issue_id.to_owned(),
+            id: id.to_owned(),
+            text: text.to_owned(),
+            created,
+            author: author.to_owned(),
+        }
+    }
 }
 
 /// What the fake holds and what it was asked, shared with the test that started it.
@@ -58,24 +95,30 @@ pub(crate) struct FakeComment {
 pub(crate) struct FakeSite {
     pub(crate) issues: Vec<FakeIssue>,
     pub(crate) comments: Vec<FakeComment>,
-    /// Every request's path and query, in order.
+    /// Every request's method, path, and query, in order.
     pub(crate) requests: Vec<String>,
+    /// The body of every write, in order, with its path.
+    pub(crate) writes: Vec<(String, Value)>,
+    /// When set, a search naming issues by id is refused, as a site may refuse a query.
+    pub(crate) refuses_id_searches: bool,
 }
 
 pub(crate) type Shared = Arc<Mutex<FakeSite>>;
 
-/// An issue `bea` reported and assigned to [`ME`], created and last updated at `updated`, in
-/// the project its key names. The fake's projects are `JL`, `WAY`, and an archived `OLD`.
-pub(crate) fn sample_issue(id: &'static str, key: &'static str, updated: i64) -> FakeIssue {
+/// An issue `bea` reported and assigned to [`ME`], open, created and last updated at `updated`,
+/// in the project its key names. The fake's projects are `JL`, `WAY`, and an archived `OLD`.
+pub(crate) fn sample_issue(id: &str, key: &str, updated: i64) -> FakeIssue {
     FakeIssue {
-        id,
-        key,
-        project: key.split('-').next().unwrap_or("JL"),
-        summary: "Ship the connector hub",
+        id: id.to_owned(),
+        key: key.to_owned(),
+        project: key.split('-').next().unwrap_or("JL").to_owned(),
+        summary: "Ship the connector hub".to_owned(),
+        description: "Every service in one list.".to_owned(),
         created: updated,
         updated,
-        reporter: "bea",
-        assignee: Some(ME),
+        reporter: "bea".to_owned(),
+        assignee: Some(ME.to_owned()),
+        state: "Open".to_owned(),
     }
 }
 
@@ -86,10 +129,26 @@ fn project_id(short_name: &str) -> &'static str {
     }
 }
 
+fn project_short_name(id: &str) -> Option<&'static str> {
+    match id {
+        "0-1" => Some("JL"),
+        "0-2" => Some("WAY"),
+        _ => None,
+    }
+}
+
 fn youtrack_error(status: axum::http::StatusCode, description: &str) -> Response {
     (
         status,
         axum::Json(json!({ "error": "Unauthorized", "error_description": description })),
+    )
+        .into_response()
+}
+
+fn not_found() -> Response {
+    (
+        axum::http::StatusCode::NOT_FOUND,
+        axum::Json(json!({ "error": "Not Found", "error_description": "Entity not found" })),
     )
         .into_response()
 }
@@ -105,16 +164,42 @@ fn user(login: &str) -> Value {
     json!({ "login": login, "fullName": format!("{login} (full name)") })
 }
 
-fn record(shared: &Shared, path: &str, query: &[(String, String)]) {
+fn record(shared: &Shared, method: &str, path: &str, query: &[(String, String)]) {
     let rendered: Vec<String> = query
         .iter()
         .map(|(name, value)| format!("{name}={value}"))
         .collect();
-    shared
-        .lock()
-        .expect("lock")
-        .requests
-        .push(format!("{path}?{}", rendered.join("&")));
+    let line = format!("{method} {path}?{}", rendered.join("&"));
+    shared.lock().expect("lock").requests.push(line);
+}
+
+/// An issue as YouTrack answers one.
+fn issue_json(issue: &FakeIssue) -> Value {
+    let resolved = issue.is_resolved().then_some(issue.updated);
+    json!({
+        "id": issue.id,
+        "idReadable": issue.key,
+        "summary": issue.summary,
+        "description": issue.description,
+        "created": issue.created,
+        "updated": issue.updated,
+        "resolved": resolved,
+        "reporter": user(&issue.reporter),
+        "project": { "id": project_id(&issue.project), "shortName": issue.project },
+        "customFields": [
+            { "$type": "SingleEnumIssueCustomField", "name": "Priority", "value": { "name": "Major" } },
+            {
+                "$type": "StateIssueCustomField",
+                "name": STATE_FIELD,
+                "value": { "name": issue.state },
+            },
+            {
+                "$type": "SingleUserIssueCustomField",
+                "name": "Assignee",
+                "value": issue.assignee.as_deref().map(user),
+            },
+        ],
+    })
 }
 
 async fn me(
@@ -122,7 +207,7 @@ async fn me(
     headers: HeaderMap,
     Query(query): Query<Vec<(String, String)>>,
 ) -> Response {
-    record(&shared, "/api/users/me", &query);
+    record(&shared, "GET", "/api/users/me", &query);
     if !authorized(&headers) {
         return youtrack_error(axum::http::StatusCode::UNAUTHORIZED, "Invalid token");
     }
@@ -134,7 +219,7 @@ async fn projects(
     headers: HeaderMap,
     Query(query): Query<Vec<(String, String)>>,
 ) -> Response {
-    record(&shared, "/api/admin/projects", &query);
+    record(&shared, "GET", "/api/admin/projects", &query);
     if !authorized(&headers) {
         return youtrack_error(axum::http::StatusCode::UNAUTHORIZED, "Invalid token");
     }
@@ -146,12 +231,44 @@ async fn projects(
     .into_response()
 }
 
+/// A project's custom fields: a priority and the state field, with an archived value left in
+/// to prove it is skipped.
+async fn project_fields(
+    State(shared): State<Shared>,
+    headers: HeaderMap,
+    Path(project): Path<String>,
+    Query(query): Query<Vec<(String, String)>>,
+) -> Response {
+    record(
+        &shared,
+        "GET",
+        &format!("/api/admin/projects/{project}/customFields"),
+        &query,
+    );
+    if !authorized(&headers) {
+        return youtrack_error(axum::http::StatusCode::UNAUTHORIZED, "Invalid token");
+    }
+    if project_short_name(&project).is_none() {
+        return not_found();
+    }
+    let mut values: Vec<Value> = STATES
+        .iter()
+        .map(|(name, is_resolved)| json!({ "name": name, "isResolved": is_resolved }))
+        .collect();
+    values.push(json!({ "name": "Done", "isResolved": true, "archived": true }));
+    axum::Json(json!([
+        { "$type": "EnumProjectCustomField", "field": { "name": "Priority" }, "bundle": { "values": [] } },
+        { "$type": "StateProjectCustomField", "field": { "name": STATE_FIELD }, "bundle": { "values": values } },
+    ]))
+    .into_response()
+}
+
 async fn issues(
     State(shared): State<Shared>,
     headers: HeaderMap,
     Query(query): Query<Vec<(String, String)>>,
 ) -> Response {
-    record(&shared, "/api/issues", &query);
+    record(&shared, "GET", "/api/issues", &query);
     if !authorized(&headers) {
         return youtrack_error(axum::http::StatusCode::UNAUTHORIZED, "Invalid token");
     }
@@ -165,42 +282,129 @@ async fn issues(
     let text = parameter("query");
     let skip: usize = parameter("$skip").parse().unwrap_or(0);
     let top: usize = parameter("$top").parse().unwrap_or(42);
-    // `project: JL, WAY sort by: updated desc` names the projects asked for, if any.
-    let named: Option<Vec<String>> = text
-        .strip_prefix("project: ")
-        .and_then(|rest| rest.split(" sort by:").next())
-        .map(|list| list.split(", ").map(str::to_owned).collect());
+    let listed = |prefix: &str| -> Option<Vec<String>> {
+        text.strip_prefix(prefix)
+            .and_then(|rest| rest.split(" sort by:").next())
+            .map(|list| list.split(", ").map(str::to_owned).collect())
+    };
+    // `project: JL, WAY sort by: updated desc` names the projects asked for, and
+    // `issue id: JL-1, JL-2 sort by: updated desc` the issues.
+    let projects = listed("project: ");
+    let keys = listed("issue id: ");
+    if keys.is_some() && shared.lock().expect("lock").refuses_id_searches {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            axum::Json(json!({ "error": "bad_request", "error_description": "Cannot parse" })),
+        )
+            .into_response();
+    }
 
     let mut held = shared.lock().expect("lock").issues.clone();
     held.sort_by_key(|issue| std::cmp::Reverse(issue.updated));
     let answered: Vec<Value> = held
-        .into_iter()
+        .iter()
         .filter(|issue| {
-            named
+            projects
                 .as_ref()
-                .is_none_or(|names| names.iter().any(|name| name == issue.project))
+                .is_none_or(|names| names.contains(&issue.project))
         })
+        .filter(|issue| keys.as_ref().is_none_or(|keys| keys.contains(&issue.key)))
         .skip(skip)
         .take(top)
-        .map(|issue| {
-            json!({
-                "id": issue.id,
-                "idReadable": issue.key,
-                "summary": issue.summary,
-                "description": "Every service in one list.",
-                "created": issue.created,
-                "updated": issue.updated,
-                "resolved": null,
-                "reporter": user(issue.reporter),
-                "project": { "id": project_id(issue.project), "shortName": issue.project },
-                "customFields": [
-                    { "name": "Priority", "value": { "name": "Normal" } },
-                    { "name": "Assignee", "value": issue.assignee.map(user) },
-                ],
-            })
-        })
+        .map(issue_json)
         .collect();
     axum::Json(Value::Array(answered)).into_response()
+}
+
+/// One issue, by its database id or its key.
+async fn issue(
+    State(shared): State<Shared>,
+    headers: HeaderMap,
+    Path(reference): Path<String>,
+    Query(query): Query<Vec<(String, String)>>,
+) -> Response {
+    record(&shared, "GET", &format!("/api/issues/{reference}"), &query);
+    if !authorized(&headers) {
+        return youtrack_error(axum::http::StatusCode::UNAUTHORIZED, "Invalid token");
+    }
+    let site = shared.lock().expect("lock");
+    match site
+        .issues
+        .iter()
+        .find(|issue| issue.id == reference || issue.key == reference)
+    {
+        Some(found) => axum::Json(issue_json(found)).into_response(),
+        None => not_found(),
+    }
+}
+
+/// Opens an issue as [`ME`], numbered after the project's last.
+async fn create_issue(
+    State(shared): State<Shared>,
+    headers: HeaderMap,
+    Query(query): Query<Vec<(String, String)>>,
+    axum::Json(body): axum::Json<Value>,
+) -> Response {
+    record(&shared, "POST", "/api/issues", &query);
+    if !authorized(&headers) {
+        return youtrack_error(axum::http::StatusCode::UNAUTHORIZED, "Invalid token");
+    }
+    let mut site = shared.lock().expect("lock");
+    site.writes.push(("/api/issues".to_owned(), body.clone()));
+    let Some(project) = body["project"]["id"].as_str().and_then(project_short_name) else {
+        return not_found();
+    };
+    let number = site
+        .issues
+        .iter()
+        .filter(|issue| issue.project == project)
+        .count()
+        + 1;
+    let created = FakeIssue {
+        id: format!("2-{}", 100 + site.issues.len()),
+        key: format!("{project}-{number}"),
+        project: project.to_owned(),
+        summary: body["summary"].as_str().unwrap_or_default().to_owned(),
+        description: body["description"].as_str().unwrap_or_default().to_owned(),
+        created: 9_000_000,
+        updated: 9_000_000,
+        reporter: ME.to_owned(),
+        assignee: None,
+        state: "Submitted".to_owned(),
+    };
+    let answer = issue_json(&created);
+    site.issues.push(created);
+    axum::Json(answer).into_response()
+}
+
+/// Moves an issue's state, the one field Elysium writes.
+async fn update_issue(
+    State(shared): State<Shared>,
+    headers: HeaderMap,
+    Path(reference): Path<String>,
+    Query(query): Query<Vec<(String, String)>>,
+    axum::Json(body): axum::Json<Value>,
+) -> Response {
+    record(&shared, "POST", &format!("/api/issues/{reference}"), &query);
+    if !authorized(&headers) {
+        return youtrack_error(axum::http::StatusCode::UNAUTHORIZED, "Invalid token");
+    }
+    let mut site = shared.lock().expect("lock");
+    site.writes
+        .push((format!("/api/issues/{reference}"), body.clone()));
+    let field = &body["customFields"][0];
+    let Some(state) = field["value"]["name"].as_str() else {
+        return youtrack_error(axum::http::StatusCode::BAD_REQUEST, "No value");
+    };
+    if field["name"] != json!(STATE_FIELD) || !STATES.iter().any(|(name, _)| *name == state) {
+        return youtrack_error(axum::http::StatusCode::BAD_REQUEST, "Unknown state");
+    }
+    let Some(found) = site.issues.iter_mut().find(|issue| issue.id == reference) else {
+        return not_found();
+    };
+    state.clone_into(&mut found.state);
+    found.updated += 1;
+    axum::Json(json!({ "id": reference })).into_response()
 }
 
 async fn comments(
@@ -209,7 +413,12 @@ async fn comments(
     Path(issue_id): Path<String>,
     Query(query): Query<Vec<(String, String)>>,
 ) -> Response {
-    record(&shared, &format!("/api/issues/{issue_id}/comments"), &query);
+    record(
+        &shared,
+        "GET",
+        &format!("/api/issues/{issue_id}/comments"),
+        &query,
+    );
     if !authorized(&headers) {
         return youtrack_error(axum::http::StatusCode::UNAUTHORIZED, "Invalid token");
     }
@@ -223,11 +432,40 @@ async fn comments(
                 "text": comment.text,
                 "created": comment.created,
                 "deleted": false,
-                "author": user(comment.author),
+                "author": user(&comment.author),
             })
         })
         .collect();
     axum::Json(Value::Array(answered)).into_response()
+}
+
+async fn add_comment(
+    State(shared): State<Shared>,
+    headers: HeaderMap,
+    Path(issue_id): Path<String>,
+    Query(query): Query<Vec<(String, String)>>,
+    axum::Json(body): axum::Json<Value>,
+) -> Response {
+    record(
+        &shared,
+        "POST",
+        &format!("/api/issues/{issue_id}/comments"),
+        &query,
+    );
+    if !authorized(&headers) {
+        return youtrack_error(axum::http::StatusCode::UNAUTHORIZED, "Invalid token");
+    }
+    let mut site = shared.lock().expect("lock");
+    site.writes
+        .push((format!("/api/issues/{issue_id}/comments"), body.clone()));
+    if !site.issues.iter().any(|issue| issue.id == issue_id) {
+        return not_found();
+    }
+    let id = format!("4-{}", 100 + site.comments.len());
+    let text = body["text"].as_str().unwrap_or_default();
+    site.comments
+        .push(FakeComment::new(&issue_id, &id, text, 9_000_000, ME));
+    axum::Json(json!({ "id": id })).into_response()
 }
 
 /// Starts the fake on a free local port, and a [`Youtrack`] pointed at it.
@@ -236,8 +474,16 @@ pub(crate) async fn fake_youtrack_site(site: FakeSite) -> (Youtrack, Shared) {
     let router = Router::new()
         .route("/api/users/me", get(me))
         .route("/api/admin/projects", get(projects))
-        .route("/api/issues", get(issues))
-        .route("/api/issues/{issue_id}/comments", get(comments))
+        .route(
+            "/api/admin/projects/{project_id}/customFields",
+            get(project_fields),
+        )
+        .route("/api/issues", get(issues).post(create_issue))
+        .route("/api/issues/{issue_id}", get(issue).post(update_issue))
+        .route(
+            "/api/issues/{issue_id}/comments",
+            get(comments).post(add_comment),
+        )
         .with_state(Arc::clone(&shared));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -366,13 +612,13 @@ async fn a_search_reads_the_assignee_from_its_custom_field() {
 #[tokio::test]
 async fn comments_come_with_their_authors() {
     let site_data = FakeSite {
-        comments: vec![FakeComment {
-            issue_id: "2-1",
-            id: "4-7",
-            text: "Looks good to me",
-            created: 5_000,
-            author: "bea",
-        }],
+        comments: vec![FakeComment::new(
+            "2-1",
+            "4-7",
+            "Looks good to me",
+            5_000,
+            "bea",
+        )],
         ..FakeSite::default()
     };
     let (youtrack, _shared) = fake_youtrack_site(site_data).await;

@@ -12,6 +12,10 @@
 //! The agent speaks Elysium's terms, never a provider's, so it links a pull request by its
 //! URL (`link-pull-request`), read through the session's GitHub token when proposed, and
 //! stored as the changeset's `link` operation.
+//!
+//! A Project Manager makes its changes with `manager_make_changes` instead
+//! (`crate::tools::work::manager_changes`), which names the record each change came from and
+//! may apply them at once; it shares this module's staging and schema.
 
 use chrono::{DateTime, Utc};
 use diesel_async::AsyncPgConnection;
@@ -104,6 +108,12 @@ fn parse_change(change: Value) -> Result<Draft, String> {
                 .to_owned(),
         );
     }
+    if matches!(operation, Operation::FileIssue(_)) {
+        return Err(
+            "issues are filed by the project's Project Manager, in the project's tracker"
+                .to_owned(),
+        );
+    }
     if operation
         .project_ids_mut()
         .is_some_and(|project_ids| !project_ids.is_empty())
@@ -123,6 +133,13 @@ pub(super) async fn run(
 ) -> Result<Value, ToolError> {
     const OPERATION: &str = "work.propose_changes";
 
+    if matches!(scope, CallScope::ProjectManager(_)) {
+        return Err(ToolError::Invalid(
+            "a Project Manager makes its changes with manager_make_changes, which records each \
+             with the segment or message it came from"
+                .to_owned(),
+        ));
+    }
     let arguments: ProposeArguments = parse_arguments(arguments)?;
     if arguments.operations.len() > OPERATIONS_MAX {
         return Err(ToolError::Invalid(format!(
@@ -161,8 +178,7 @@ pub(super) async fn run(
         // Only a session has a GitHub token to read a pull request with.
         let WorkAgent::Session(session_id) = work_scope.agent else {
             return Err(ToolError::Invalid(
-                "a Project Manager links no pull requests; propose a link to an issue instead"
-                    .to_owned(),
+                "only a coding session links the pull requests it opened".to_owned(),
             ));
         };
         Some(
@@ -194,6 +210,7 @@ pub(super) async fn run(
             reason: drafted.reason,
             quote: drafted.quote,
             source: drafted.source,
+            cause_record_id: None,
         });
     }
 
@@ -327,6 +344,9 @@ pub(in crate::tools) enum Proposing {
     Session,
     /// Elysia: she names the projects what she creates joins, and links no pull requests.
     Elysia,
+    /// A project's Project Manager: it files items' issues in its project's tracker, names the
+    /// record each change came from, and links no pull requests.
+    ProjectManager,
 }
 
 /// The work tool's schema, for a coding session.
@@ -337,6 +357,10 @@ pub(super) fn schema() -> Value {
 /// The tool's arguments as a JSON Schema: a summary and the operations, each a change with
 /// its reason and, where there is one, the quote and source it came from.
 pub(in crate::tools) fn schema_for(proposing: Proposing) -> Value {
+    let mut required = vec!["change", "reason"];
+    if proposing == Proposing::ProjectManager {
+        required.push("causeRecordId");
+    }
     json!({
         "type": "object",
         "properties": {
@@ -359,8 +383,16 @@ pub(in crate::tools) fn schema_for(proposing: Proposing) -> Value {
                             500,
                             "Where those words are, such as a file and line.",
                         ),
+                        "causeRecordId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "description": "Project Managers only, and required for them: the \
+                                record on the project's timeline this change came from, such as \
+                                a meeting's segment or a message, from manager_timeline. The \
+                                write is recorded on the timeline with it.",
+                        },
                     },
-                    "required": ["change", "reason"],
+                    "required": required,
                     "additionalProperties": false,
                 },
             },
@@ -438,6 +470,13 @@ fn change_schemas(proposing: Proposing) -> Vec<Value> {
         ),
         change_schema("create-initiative", create_initiative, &["name"]),
     ];
+    if proposing == Proposing::ProjectManager {
+        schemas.push(change_schema(
+            "file-issue",
+            json!({ "item": target_schema("item") }),
+            &["item"],
+        ));
+    }
     if proposing == Proposing::Session {
         schemas.push(change_schema(
             "link-pull-request",

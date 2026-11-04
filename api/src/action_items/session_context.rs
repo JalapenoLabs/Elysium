@@ -268,6 +268,7 @@ mod tests {
             cover_fit: ProjectCoverFit::Fit,
             github_access: GithubAccess::Default,
             github_credential_id: None,
+            manager_writes_directly: false,
         }
     }
 

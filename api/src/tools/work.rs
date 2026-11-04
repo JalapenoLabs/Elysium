@@ -41,7 +41,9 @@ use crate::models::action_item::{
 };
 use crate::models::action_item_comment::{self, Comment};
 use crate::models::action_item_event::{self, HistoryEntry, Recorded};
-use crate::models::action_item_link::{self, LinkCredential, LinkKind, LinkProvider, NewLink};
+use crate::models::action_item_link::{
+    self, Claim, LinkCredential, LinkKind, LinkProvider, NewLink,
+};
 use crate::models::coding_session;
 use crate::models::initiative::{self, Initiative, InitiativeFilter, InitiativeState};
 use crate::models::{project, user};
@@ -67,7 +69,9 @@ pub const SERVER: ToolServer = ToolServer {
         updated, resolved, dismissed, or moved between initiatives, or an initiative \
         created, propose it with work_propose_changes, giving each change its reason: the \
         user reviews the proposal and applies what they approve. Propose only what the \
-        work in this session shows, and tell the user in your reply what you proposed.",
+        work in this session shows, and tell the user in your reply what you proposed. A \
+        Project Manager reads its project's work here and changes it with manager_make_changes \
+        instead.",
     ),
     tools: &TOOLS,
 };
@@ -625,7 +629,7 @@ async fn run_link_pull_request(
         &mut connection,
         item_id,
         new_link,
-        false,
+        Claim::Secondary,
         Actor::Session(session.session_id),
         now,
     )
@@ -923,10 +927,11 @@ async fn comment_on_item(
 ) -> Result<Recorded<Comment>, Failure> {
     if scope.agent == WorkAgent::ProjectManager {
         // A comment is posted to the item's linked issue, which reaches people outside
-        // Elysium; a Project Manager proposes it for the person to approve instead.
+        // Elysium; a Project Manager's goes through manager_make_changes, which records it with
+        // its cause and waits for a person's approval unless the project lets it write.
         return Err(ToolError::Invalid(
-            "a Project Manager's comments are proposed, not written: propose one with \
-             work_propose_changes as a comment operation"
+            "a Project Manager comments with manager_make_changes, as a comment operation that \
+             names the record it came from"
                 .to_owned(),
         )
         .into());
@@ -1039,6 +1044,7 @@ fn history_view(entry: &HistoryEntry, names: &HashMap<Uuid, String>) -> Value {
     })
 }
 
+pub(in crate::tools) mod manager_changes;
 pub(in crate::tools) mod propose;
 
 #[cfg(test)]

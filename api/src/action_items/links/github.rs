@@ -14,14 +14,16 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use anyhow::Context;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use futures_util::FutureExt as _;
 use futures_util::future::BoxFuture;
 use secrecy::SecretString;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::{Children, LinkError, Provider, Remote, RemoteContainer, WriteOutcome};
+use super::{
+    Children, Destination, IssueToFile, LinkError, Provider, Remote, RemoteContainer, WriteOutcome,
+};
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::github::issues::{Issue, IssueQuery, IssueRef, PullRequest};
@@ -361,6 +363,79 @@ impl GithubProvider {
         Ok(())
     }
 
+    /// The repositories the token lists that are not archived, since an archived one takes no
+    /// issues.
+    async fn destinations(&self, credential_id: Uuid) -> Result<Vec<Destination>, LinkError> {
+        let opened = self.open(credential_id).await?;
+        let listing = self.github.list_repositories(&opened.token).await?;
+        let mut destinations: Vec<Destination> = listing
+            .repositories
+            .into_iter()
+            .filter(|repository| !repository.is_archived)
+            .map(|repository| Destination {
+                reference: repository.full_name.clone(),
+                name: repository.full_name,
+            })
+            .collect();
+        destinations.sort_by(|first, second| first.name.cmp(&second.name));
+        Ok(destinations)
+    }
+
+    async fn destination(
+        &self,
+        credential_id: Uuid,
+        reference: &str,
+    ) -> Result<Destination, LinkError> {
+        let repository = parse_repository(reference)?;
+        let opened = self.open(credential_id).await?;
+        let access = self
+            .github
+            .repository_access(&opened.token, &repository)
+            .await?
+            .ok_or_else(|| {
+                LinkError::NotFound(format!(
+                    "{reference} does not exist or the token cannot see it"
+                ))
+            })?;
+        Ok(Destination {
+            reference: access.full_name.clone(),
+            name: access.full_name,
+        })
+    }
+
+    async fn file(&self, issue: IssueToFile<'_>) -> Result<Remote, LinkError> {
+        let repository = parse_repository(issue.destination)?;
+        let opened = self.open(issue.credential_id).await?;
+        if let Some(since) = issue.tried_since {
+            let query = IssueQuery {
+                since: Some(since - TimeDelta::minutes(CURSOR_OVERLAP_MINUTES)),
+                creator: Some(&opened.login),
+                ..IssueQuery::default()
+            };
+            let recent = self
+                .github
+                .list_issues(&opened.token, &repository, &query, 1)
+                .await?;
+            let earlier = recent.items.into_iter().find(|found| {
+                found.pull_request.is_none() && found.title.trim() == issue.title.trim()
+            });
+            if let Some(earlier) = earlier {
+                return Ok(remote(&opened, earlier));
+            }
+        }
+
+        let created = self
+            .github
+            .create_issue(&opened.token, &repository, issue.title, issue.body)
+            .await?;
+        let issue_ref = IssueRef {
+            repository,
+            number: created.number,
+        };
+        let read = self.issue(&opened, &issue_ref).await?;
+        Ok(remote(&opened, read))
+    }
+
     async fn issue(&self, opened: &OpenToken, issue_ref: &IssueRef) -> Result<Issue, LinkError> {
         let issue = self
             .github
@@ -400,6 +475,15 @@ fn parse_issue(reference: &str) -> Result<IssueRef, LinkError> {
     IssueRef::parse(reference).ok_or_else(|| {
         LinkError::Invalid(format!(
             "{reference} is not a GitHub reference; one reads owner/name#12"
+        ))
+    })
+}
+
+/// `owner/name`, checked before it reaches a URL.
+fn parse_repository(reference: &str) -> Result<Repository, LinkError> {
+    Repository::from_url(&format!("https://github.com/{}", reference.trim())).ok_or_else(|| {
+        LinkError::Invalid(format!(
+            "{reference} is not a GitHub repository; one reads owner/name"
         ))
     })
 }
@@ -519,6 +603,27 @@ impl Provider for GithubProvider {
         body: &'call str,
     ) -> BoxFuture<'call, Result<(), LinkError>> {
         Self::comment(self, link, body).boxed()
+    }
+    fn destinations(
+        &self,
+        credential_id: Uuid,
+    ) -> BoxFuture<'_, Result<Vec<Destination>, LinkError>> {
+        Self::destinations(self, credential_id).boxed()
+    }
+
+    fn destination<'call>(
+        &'call self,
+        credential_id: Uuid,
+        reference: &'call str,
+    ) -> BoxFuture<'call, Result<Destination, LinkError>> {
+        Self::destination(self, credential_id, reference).boxed()
+    }
+
+    fn file<'call>(
+        &'call self,
+        issue: IssueToFile<'call>,
+    ) -> BoxFuture<'call, Result<Remote, LinkError>> {
+        Self::file(self, issue).boxed()
     }
 }
 

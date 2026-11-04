@@ -48,9 +48,9 @@ pub fn router() -> Router<AppState> {
 #[serde(rename_all = "camelCase")]
 pub struct ChangesetResponse {
     id: Uuid,
-    /// `elysia` or `session:<number>`.
+    /// `elysia`, `session:<number>`, or `project_manager:<project id>`.
     proposer: String,
-    /// The project a coding session proposed it in.
+    /// The project a coding session or a Project Manager proposed it in.
     project_id: Option<Uuid>,
     summary: String,
     state: ChangesetState,
@@ -61,7 +61,8 @@ pub struct ChangesetResponse {
     created_at: DateTime<Utc>,
     /// The machine that proposed it.
     created_by: Uuid,
-    /// The person who applied or rejected it.
+    /// Who applied or rejected it: a person, or the Project Managers' machine for changes a
+    /// project lets its Project Manager apply as it makes them.
     decided_by: Option<Uuid>,
     updated_at: DateTime<Utc>,
 }
@@ -78,6 +79,8 @@ pub struct OperationResponse {
     reason: String,
     quote: Option<String>,
     source: Option<String>,
+    /// The timeline record that caused it, such as a meeting's segment or a message.
+    cause_record_id: Option<Uuid>,
     /// The positions of the earlier operations whose records this one acts on.
     depends_on: Vec<u32>,
     decision: ChangesetDecision,
@@ -109,6 +112,7 @@ impl From<Staged> for ChangesetResponse {
                     reason: row.reason,
                     quote: row.quote,
                     source: row.source,
+                    cause_record_id: row.cause_record_id,
                     depends_on,
                     decision: row.decision,
                     outcome: row.outcome,
@@ -145,7 +149,7 @@ pub fn publish_changeset(events: &EventBus, staged: Staged) -> ChangesetResponse
 ///
 /// # Errors
 /// Propagates any database error.
-async fn publish_touched(
+pub(crate) async fn publish_touched(
     events: &EventBus,
     connection: &mut AsyncPgConnection,
     touched: Touched,

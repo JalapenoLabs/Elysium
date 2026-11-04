@@ -89,9 +89,10 @@ pub enum ChangesetOutcome {
 #[diesel(table_name = changesets_table, check_for_backend(diesel::pg::Pg))]
 pub struct Changeset {
     pub id: Uuid,
-    /// A [`changesets::Proposer`] in its stored form: `elysia` or `session:<number>`.
+    /// A [`changesets::Proposer`] in its stored form: `elysia`, `session:<number>`, or
+    /// `project_manager:<project id>`.
     pub proposer: String,
-    /// The project a coding session proposed it in.
+    /// The project a coding session or a Project Manager proposed it in.
     pub project_id: Option<Uuid>,
     pub summary: String,
     pub state: ChangesetState,
@@ -102,7 +103,8 @@ pub struct Changeset {
     pub updated_at: DateTime<Utc>,
     /// The machine that proposed it: Elysia, or the coding agent.
     pub created_by: Uuid,
-    /// The person who applied or rejected it.
+    /// Who applied or rejected it: a person, or the proposer's own machine for a Project
+    /// Manager's changes its project lets apply as they are made.
     pub decided_by: Option<Uuid>,
 }
 
@@ -119,6 +121,8 @@ pub struct ChangesetOperation {
     pub reason: String,
     pub quote: Option<String>,
     pub source: Option<String>,
+    /// The timeline record that caused it; see `ProposedOperation::cause_record_id`.
+    pub cause_record_id: Option<Uuid>,
     pub decision: ChangesetDecision,
     pub outcome: ChangesetOutcome,
     /// Why it failed or was skipped.
@@ -214,6 +218,7 @@ struct OperationRow {
     reason: String,
     quote: Option<String>,
     source: Option<String>,
+    cause_record_id: Option<Uuid>,
 }
 
 /// Stores a proposal as a pending changeset, once it passes [`changesets::validate`] and
@@ -254,6 +259,7 @@ pub async fn propose(
             reason: proposed.reason,
             quote: proposed.quote,
             source: proposed.source,
+            cause_record_id: proposed.cause_record_id,
         })
         .collect::<Vec<_>>();
 
@@ -409,6 +415,56 @@ pub async fn list(
             changeset,
         })
         .collect())
+}
+
+/// An item an earlier changeset made, or proposes to make, from the same record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EarlierCreate {
+    pub changeset_id: Uuid,
+    pub state: ChangesetState,
+    /// The item it created, once it applied.
+    pub item_id: Option<Uuid>,
+}
+
+/// The item a changeset of `proposer`'s already creates from `cause_record_id` titled `title`,
+/// ignoring case and surrounding space, while that changeset is pending or applied and the
+/// operation not rejected, failed, or undone. A turn retried after it was cut short proposes
+/// what it proposed before; this is how the second one is told so, rather than making the
+/// item twice.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn earlier_create(
+    connection: &mut AsyncPgConnection,
+    proposer: changesets::Proposer,
+    cause_record_id: Uuid,
+    title: &str,
+) -> QueryResult<Option<EarlierCreate>> {
+    let candidates: Vec<(ChangesetOperation, ChangesetState)> = changeset_operations::table
+        .inner_join(changesets_table::table)
+        .filter(changesets_table::proposer.eq(proposer.actor().to_string()))
+        .filter(changesets_table::state.eq_any([ChangesetState::Pending, ChangesetState::Applied]))
+        .filter(changeset_operations::cause_record_id.eq(cause_record_id))
+        .filter(changeset_operations::decision.ne(ChangesetDecision::Rejected))
+        .filter(
+            changeset_operations::outcome
+                .eq_any([ChangesetOutcome::Pending, ChangesetOutcome::Applied]),
+        )
+        .order(changeset_operations::id.desc())
+        .select((ChangesetOperation::as_select(), changesets_table::state))
+        .load(connection)
+        .await?;
+    let wanted = title.trim().to_lowercase();
+    Ok(candidates.into_iter().find_map(|(row, state)| {
+        let Operation::CreateItem(create) = row.parsed() else {
+            return None;
+        };
+        (create.title.trim().to_lowercase() == wanted).then(|| EarlierCreate {
+            changeset_id: row.changeset_id,
+            state,
+            item_id: serde_json::from_value(row.result["itemId"].clone()).ok(),
+        })
+    }))
 }
 
 /// Records the user's `decision` on the operations `operation_ids` names, or on every one

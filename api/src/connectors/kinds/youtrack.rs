@@ -540,13 +540,7 @@ mod tests {
     async fn a_site_with_issues_and_comments_passes_every_check() {
         let site = FakeSite {
             issues: vec![sample_issue("2-1", "JL-1", 1_000)],
-            comments: vec![FakeComment {
-                issue_id: "2-1",
-                id: "4-1",
-                text: "First",
-                created: 1_000,
-                author: "bea",
-            }],
+            comments: vec![FakeComment::new("2-1", "4-1", "First", 1_000, "bea")],
             ..FakeSite::default()
         };
         let mut checks = checks(TOKEN, Selection::Only(vec!["JL".to_owned()]), site).await;

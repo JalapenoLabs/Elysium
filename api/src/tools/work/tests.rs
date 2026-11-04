@@ -799,11 +799,11 @@ async fn a_pull_request_links_only_to_the_sessions_own_item_through_its_token() 
     assert_eq!(refusal(refused), ToolError::ItemUnavailable(item.id));
 }
 
-/// A comment reaches the item's linked issue, outside Elysium, so a Project Manager proposes it
-/// rather than writing it.
+/// A comment reaches the item's linked issue, outside Elysium, so a Project Manager makes it
+/// through `manager_make_changes`, which records it with its cause, rather than writing it here.
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-async fn a_project_manager_proposes_comments_rather_than_writing_them() {
+async fn a_project_manager_comments_through_its_own_changes_rather_than_here() {
     let (_url, mut connection) = migrated_database().await;
     let Fixture { scope, .. } = fixture(&mut connection).await;
     let manager = WorkScope {
@@ -830,7 +830,7 @@ async fn a_project_manager_proposes_comments_rather_than_writing_them() {
     .await
     .expect_err("proposed instead");
     assert!(
-        matches!(refusal(refused), ToolError::Invalid(message) if message.contains("work_propose_changes"))
+        matches!(refusal(refused), ToolError::Invalid(message) if message.contains("manager_make_changes"))
     );
     assert!(
         action_item_comment::list(&mut connection, item.id)

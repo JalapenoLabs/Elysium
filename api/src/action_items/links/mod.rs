@@ -12,7 +12,8 @@
 //! terms: a [`LinkState`] rather than a Jira status category or GitHub's state and reason,
 //! and an [`Owner`] rather than an account, where the credential's own account is the user.
 //! Every call goes through the credential's own client, so Jira's allowlist bounds every
-//! Jira call and GitHub's fixed host every GitHub call.
+//! Jira call, GitHub's fixed host every GitHub call, and a YouTrack account's own site every
+//! YouTrack call.
 //!
 //! What a provider's change does to an item is decided in [`rules`], without a database or
 //! a provider, so each case in the design is a plain test.
@@ -20,6 +21,7 @@
 pub mod github;
 pub mod jira;
 pub mod rules;
+pub mod youtrack;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -42,9 +44,11 @@ use crate::models::action_item_link::{
 };
 use crate::models::initiative_link::{ContainerKind, InitiativeLink};
 use crate::realtime::{EventBus, Signal};
+use crate::youtrack::Youtrack;
 
 use self::github::GithubProvider;
 use self::jira::JiraProvider;
+use self::youtrack::YoutrackProvider;
 
 /// A linkable thing as its provider reports it now, in Elysium's terms.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -104,10 +108,11 @@ impl Remote {
     }
 }
 
-/// Jira's default priority names, and the ones common schemes add, as an item's priority.
-/// A name not listed starts the item at `normal`.
-const PRIORITY_BY_PROVIDER_NAME: [(&str, ActionItemPriority); 10] = [
+/// Jira's and YouTrack's default priority names, and the ones common schemes add, as an item's
+/// priority. A name not listed, such as YouTrack's `Normal`, starts the item at `normal`.
+const PRIORITY_BY_PROVIDER_NAME: [(&str, ActionItemPriority); 11] = [
     ("Highest", ActionItemPriority::Urgent),
+    ("Show-stopper", ActionItemPriority::Urgent),
     ("Blocker", ActionItemPriority::Urgent),
     ("Critical", ActionItemPriority::Urgent),
     ("High", ActionItemPriority::High),
@@ -136,6 +141,33 @@ pub struct Children {
     /// The container held more than were read, so a child missing from `items` may still be
     /// in it.
     pub truncated: bool,
+}
+
+/// Where a provider files issues, as it names the place: a Jira project, a GitHub repository,
+/// or a YouTrack project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Destination {
+    /// What a filing names it by: `ELY`, `owner/name`, or `JL`.
+    pub reference: String,
+    /// What a person reads, such as the project's name.
+    pub name: String,
+}
+
+/// An issue to open on a provider, for an item that asked for one.
+#[derive(Debug, Clone, Copy)]
+pub struct IssueToFile<'filing> {
+    pub credential_id: Uuid,
+    /// Where it opens; see [`Destination::reference`].
+    pub destination: &'filing str,
+    pub title: &'filing str,
+    /// Plain text; empty for an issue with no description.
+    pub body: &'filing str,
+    /// When the first attempt at this filing began, if one already did. That attempt may have
+    /// opened the issue before its answer was lost, so the provider looks for one the
+    /// credential's account opened there since, with exactly this title, before it opens
+    /// another.
+    pub tried_since: Option<DateTime<Utc>>,
 }
 
 /// How a write went.
@@ -271,6 +303,36 @@ pub trait Provider: Send + Sync {
         link: &'call ActionItemLink,
         body: &'call str,
     ) -> BoxFuture<'call, Result<(), LinkError>>;
+
+    /// Every place the credential can file issues, for a person to pick from, by name.
+    fn destinations(
+        &self,
+        credential_id: Uuid,
+    ) -> BoxFuture<'_, Result<Vec<Destination>, LinkError>>;
+
+    /// The place `reference` names for filing issues, read through the credential, refused
+    /// when the credential cannot file there.
+    fn destination<'call>(
+        &'call self,
+        credential_id: Uuid,
+        reference: &'call str,
+    ) -> BoxFuture<'call, Result<Destination, LinkError>>;
+
+    /// Opens `issue` as the credential's account, and answers it as a link reads it. A filing
+    /// tried before answers the issue its earlier attempt opened, when it finds one, so a
+    /// retried filing never opens two.
+    fn file<'call>(
+        &'call self,
+        issue: IssueToFile<'call>,
+    ) -> BoxFuture<'call, Result<Remote, LinkError>>;
+}
+
+/// The provider clients links call through.
+#[derive(Debug, Clone, Copy)]
+pub struct Clients<'clients> {
+    pub jira: &'clients Jira,
+    pub github: &'clients Github,
+    pub youtrack: &'clients Youtrack,
 }
 
 /// Every provider, and the bus that wakes the watcher. Cheap to clone; clones share the
@@ -279,6 +341,7 @@ pub trait Provider: Send + Sync {
 pub struct Links {
     jira: Arc<JiraProvider>,
     github: Arc<GithubProvider>,
+    youtrack: Arc<YoutrackProvider>,
     events: EventBus,
 }
 
@@ -293,22 +356,30 @@ impl std::fmt::Debug for Links {
 }
 
 impl Links {
-    /// Links through `jira` and `github`, which share their HTTP clients with the callers'.
+    /// Links through each provider's client, which share their HTTP clients with the callers'.
     /// The watcher is woken over `events`, wherever it runs.
     pub fn new(
         database: Pool,
         cipher: Arc<Cipher>,
-        jira: &Jira,
-        github: &Github,
+        clients: Clients<'_>,
         events: EventBus,
     ) -> Self {
         Self {
             jira: Arc::new(JiraProvider::new(
-                jira.clone(),
+                clients.jira.clone(),
                 database.clone(),
                 Arc::clone(&cipher),
             )),
-            github: Arc::new(GithubProvider::new(github.clone(), database, cipher)),
+            github: Arc::new(GithubProvider::new(
+                clients.github.clone(),
+                database.clone(),
+                Arc::clone(&cipher),
+            )),
+            youtrack: Arc::new(YoutrackProvider::new(
+                clients.youtrack.clone(),
+                database,
+                cipher,
+            )),
             events,
         }
     }
@@ -318,6 +389,7 @@ impl Links {
         match provider {
             LinkProvider::Jira => self.jira.as_ref(),
             LinkProvider::Github => self.github.as_ref(),
+            LinkProvider::Youtrack => self.youtrack.as_ref(),
         }
     }
 

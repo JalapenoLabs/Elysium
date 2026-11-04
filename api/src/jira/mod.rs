@@ -131,6 +131,24 @@ pub struct Project {
     pub name: String,
 }
 
+/// A project with the kinds of issue it may hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectDetails {
+    pub project: Project,
+    pub issue_types: Vec<IssueType>,
+}
+
+/// One kind of issue a project holds, such as `Task` or `Bug`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssueType {
+    pub name: String,
+    /// Whether it is a subtask, which needs a parent.
+    pub subtask: bool,
+    /// Where it sits in the project's hierarchy: `0` for a standard issue, `1` for an epic,
+    /// `-1` for a subtask. Jira leaves it out on older projects.
+    pub hierarchy_level: Option<i32>,
+}
+
 /// One board a token can reach.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -370,6 +388,17 @@ pub fn normalize_site_url(value: &str) -> Result<String, &'static str> {
     Ok(format!("https://{host}"))
 }
 
+/// Whether `key` is a project key: a letter, then letters, digits, and underscores, as Jira
+/// spells them. A key that passes holds nothing to encode and cannot reach another resource in
+/// a path.
+pub fn is_project_key(key: &str) -> bool {
+    (2..=255).contains(&key.len())
+        && key.starts_with(|first: char| first.is_ascii_alphabetic())
+        && key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
 /// The project an issue key names, or `None` when it is not an issue key at all.
 ///
 /// An issue key is a project key, a hyphen, and a number, such as `ELY-12`. A project key
@@ -382,14 +411,9 @@ pub fn normalize_site_url(value: &str) -> Result<String, &'static str> {
 pub fn project_of_issue_key(issue_key: &str) -> Option<&str> {
     let (project_key, number) = issue_key.rsplit_once('-')?;
 
-    let is_project_key = (2..=255).contains(&project_key.len())
-        && project_key.starts_with(|first: char| first.is_ascii_alphabetic())
-        && project_key
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '_');
     let is_number =
         (1..=19).contains(&number.len()) && number.chars().all(|digit| digit.is_ascii_digit());
-    if !is_project_key || !is_number {
+    if !is_project_key(project_key) || !is_number {
         return None;
     }
 
@@ -514,6 +538,43 @@ impl Jira {
         let reply = self.send(self.request(Method::GET, site, &path)).await?;
         let body: FilterBody = reply.read("a filter")?;
         Ok(body.into_filter(site.url))
+    }
+
+    /// One project and the kinds of issue it holds.
+    ///
+    /// # Errors
+    /// Returns [`JiraError::Invalid`] for a key that is not a project key, before any call,
+    /// since it becomes part of the path; [`JiraError::NotFound`] for a project the token cannot
+    /// see; and otherwise as [`Jira::list_projects`].
+    pub async fn project(
+        &self,
+        site: &Site<'_>,
+        project_key: &str,
+    ) -> Result<ProjectDetails, JiraError> {
+        if !is_project_key(project_key) {
+            return Err(JiraError::Invalid(format!(
+                "{project_key} is not a project key, such as ELY"
+            )));
+        }
+        let path = format!("/rest/api/3/project/{project_key}");
+        let reply = self.send(self.request(Method::GET, site, &path)).await?;
+        let body: ProjectDetailsBody = reply.read("a project")?;
+        Ok(ProjectDetails {
+            project: Project {
+                id: body.id,
+                key: body.key,
+                name: body.name.unwrap_or_default(),
+            },
+            issue_types: body
+                .issue_types
+                .into_iter()
+                .map(|issue_type| IssueType {
+                    name: issue_type.name,
+                    subtask: issue_type.subtask,
+                    hierarchy_level: issue_type.hierarchy_level,
+                })
+                .collect(),
+        })
     }
 
     /// Every status a project's issues can be in, once each, across its issue types.
@@ -894,6 +955,26 @@ struct ProjectBody {
     id: String,
     key: String,
     name: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectDetailsBody {
+    id: String,
+    key: String,
+    name: Option<String>,
+    #[serde(default)]
+    issue_types: Vec<IssueTypeBody>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueTypeBody {
+    name: String,
+    #[serde(default)]
+    subtask: bool,
+    #[serde(default)]
+    hierarchy_level: Option<i32>,
 }
 
 #[derive(Deserialize)]

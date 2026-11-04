@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::database::schema::{
     action_item_links, action_items, initiative_links, initiatives, link_watch_cursors,
 };
-use crate::models::action_item_link::{LinkCredential, LinkProvider};
+use crate::models::action_item_link::{CredentialColumns, LinkCredential, LinkProvider};
 
 /// The longest error a cursor keeps, matching its column.
 const ERROR_MAX_CHARACTERS: usize = 2000;
@@ -24,6 +24,7 @@ pub struct LinkWatchCursor {
     pub id: Uuid,
     pub jira_credential_id: Option<Uuid>,
     pub github_credential_id: Option<Uuid>,
+    pub token_account_id: Option<Uuid>,
     pub watched_through: DateTime<Utc>,
     /// Why the latest pass over the credential failed; `None` when it succeeded.
     pub last_error: Option<String>,
@@ -36,6 +37,7 @@ struct CursorRow {
     id: Uuid,
     jira_credential_id: Option<Uuid>,
     github_credential_id: Option<Uuid>,
+    token_account_id: Option<Uuid>,
     watched_through: DateTime<Utc>,
 }
 
@@ -47,19 +49,20 @@ struct CursorRow {
 pub async fn credentials_to_watch(
     connection: &mut AsyncPgConnection,
 ) -> QueryResult<Vec<LinkCredential>> {
-    type CredentialColumns = (LinkProvider, Option<Uuid>, Option<Uuid>);
-    let from_items: Vec<CredentialColumns> = action_item_links::table
+    type Columns = (LinkProvider, Option<Uuid>, Option<Uuid>, Option<Uuid>);
+    let from_items: Vec<Columns> = action_item_links::table
         .inner_join(action_items::table)
         .filter(action_items::deleted_at.is_null())
         .select((
             action_item_links::provider,
             action_item_links::jira_credential_id,
             action_item_links::github_credential_id,
+            action_item_links::token_account_id,
         ))
         .distinct()
         .load(connection)
         .await?;
-    let from_containers: Vec<CredentialColumns> = initiative_links::table
+    let from_containers: Vec<(LinkProvider, Option<Uuid>, Option<Uuid>)> = initiative_links::table
         .inner_join(initiatives::table)
         .filter(initiatives::deleted_at.is_null())
         .select((
@@ -70,13 +73,21 @@ pub async fn credentials_to_watch(
         .distinct()
         .load(connection)
         .await?;
+    // Containers never go through a token account, so theirs is always empty.
+    let from_containers = from_containers
+        .into_iter()
+        .map(|(provider, jira, github)| (provider, jira, github, None));
 
     let mut credentials: Vec<LinkCredential> = Vec::new();
-    for (provider, jira_credential_id, github_credential_id) in
+    for (provider, jira_credential_id, github_credential_id, token_account_id) in
         from_items.into_iter().chain(from_containers)
     {
-        let credential =
-            LinkCredential::from_columns(provider, jira_credential_id, github_credential_id);
+        let columns = CredentialColumns {
+            jira_credential_id,
+            github_credential_id,
+            token_account_id,
+        };
+        let credential = LinkCredential::from_columns(provider, columns);
         if !credentials.contains(&credential) {
             credentials.push(credential);
         }
@@ -99,6 +110,9 @@ pub async fn find(
         }
         LinkProvider::Github => {
             query.filter(link_watch_cursors::github_credential_id.eq(credential.id))
+        }
+        LinkProvider::Youtrack => {
+            query.filter(link_watch_cursors::token_account_id.eq(credential.id))
         }
     };
     query
@@ -129,12 +143,13 @@ pub async fn advance(
         return Ok(());
     }
 
-    let (jira_credential_id, github_credential_id) = credential.columns();
+    let columns = credential.columns();
     diesel::insert_into(link_watch_cursors::table)
         .values(CursorRow {
             id: Uuid::now_v7(),
-            jira_credential_id,
-            github_credential_id,
+            jira_credential_id: columns.jira_credential_id,
+            github_credential_id: columns.github_credential_id,
+            token_account_id: columns.token_account_id,
             watched_through,
         })
         .execute(connection)

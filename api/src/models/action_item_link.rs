@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! Links from action items to the external things they stand for: a Jira issue, a GitHub
-//! issue, or a GitHub pull request.
+//! issue or pull request, or a YouTrack issue.
 //!
 //! A link is a pointer, not a copy. It records what the thing is (`external_id`), how a
 //! person and a call name it (`external_key`, `url`), and what the provider last reported
@@ -38,6 +38,8 @@ use crate::models::action_item_event::{
 pub enum LinkProvider {
     Jira,
     Github,
+    /// A YouTrack Cloud site, reached through a person's YouTrack token account.
+    Youtrack,
 }
 
 impl LinkProvider {
@@ -46,6 +48,16 @@ impl LinkProvider {
         match self {
             Self::Jira => "jira",
             Self::Github => "github",
+            Self::Youtrack => "youtrack",
+        }
+    }
+
+    /// The provider's own name for itself, for text Elysium writes, such as a timeline record.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Jira => "Jira",
+            Self::Github => "GitHub",
+            Self::Youtrack => "YouTrack",
         }
     }
 }
@@ -71,7 +83,8 @@ pub enum LinkKind {
 pub enum LinkState {
     /// Still to do, or a pull request still under review.
     Open,
-    /// A Jira issue in a `done` status category, or a GitHub issue closed as completed.
+    /// A Jira issue in a `done` status category, a GitHub issue closed as completed, or a
+    /// YouTrack issue in a resolved state.
     Done,
     /// A GitHub issue closed as not planned.
     NotPlanned,
@@ -81,35 +94,61 @@ pub enum LinkState {
     ClosedUnmerged,
 }
 
-/// The credential a link reaches its provider through.
+/// The credential a link reaches its provider through: a Jira credential, a GitHub token, or a
+/// YouTrack token account.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LinkCredential {
     pub provider: LinkProvider,
     pub id: Uuid,
 }
 
+/// The credential columns a row keeps, one per provider. Exactly the provider's is set, which
+/// each table's `_credential` check holds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "each field is named for the column it fills"
+)]
+pub struct CredentialColumns {
+    pub jira_credential_id: Option<Uuid>,
+    pub github_credential_id: Option<Uuid>,
+    pub token_account_id: Option<Uuid>,
+}
+
 impl LinkCredential {
-    /// The `jira_credential_id` and `github_credential_id` columns for this credential.
-    pub const fn columns(self) -> (Option<Uuid>, Option<Uuid>) {
+    /// The columns that store this credential.
+    pub const fn columns(self) -> CredentialColumns {
+        let none = CredentialColumns {
+            jira_credential_id: None,
+            github_credential_id: None,
+            token_account_id: None,
+        };
         match self.provider {
-            LinkProvider::Jira => (Some(self.id), None),
-            LinkProvider::Github => (None, Some(self.id)),
+            LinkProvider::Jira => CredentialColumns {
+                jira_credential_id: Some(self.id),
+                ..none
+            },
+            LinkProvider::Github => CredentialColumns {
+                github_credential_id: Some(self.id),
+                ..none
+            },
+            LinkProvider::Youtrack => CredentialColumns {
+                token_account_id: Some(self.id),
+                ..none
+            },
         }
     }
 
-    /// The credential the two columns name.
+    /// The credential the columns name.
     ///
     /// # Panics
     /// Panics when the provider's column is empty, which the tables' `_credential` checks
     /// rule out.
-    pub fn from_columns(
-        provider: LinkProvider,
-        jira_credential_id: Option<Uuid>,
-        github_credential_id: Option<Uuid>,
-    ) -> Self {
+    pub fn from_columns(provider: LinkProvider, columns: CredentialColumns) -> Self {
         let id = match provider {
-            LinkProvider::Jira => jira_credential_id,
-            LinkProvider::Github => github_credential_id,
+            LinkProvider::Jira => columns.jira_credential_id,
+            LinkProvider::Github => columns.github_credential_id,
+            LinkProvider::Youtrack => columns.token_account_id,
         };
         Self {
             provider,
@@ -128,9 +167,11 @@ pub struct ActionItemLink {
     pub kind: LinkKind,
     pub jira_credential_id: Option<Uuid>,
     pub github_credential_id: Option<Uuid>,
-    /// What the thing is, for good: Jira's issue id, or GitHub's `owner/name#number`.
+    pub token_account_id: Option<Uuid>,
+    /// What the thing is, for good: Jira's issue id, GitHub's `owner/name#number`, or
+    /// YouTrack's database id, such as `2-41`.
     pub external_id: String,
-    /// What a person reads and a call names: `ELY-12`, or `owner/name#12`.
+    /// What a person reads and a call names: `ELY-12`, `owner/name#12`, or `JL-12`.
     pub external_key: String,
     pub url: String,
     /// The title as last read.
@@ -148,8 +189,11 @@ impl ActionItemLink {
     pub fn credential(&self) -> LinkCredential {
         LinkCredential::from_columns(
             self.provider,
-            self.jira_credential_id,
-            self.github_credential_id,
+            CredentialColumns {
+                jira_credential_id: self.jira_credential_id,
+                github_credential_id: self.github_credential_id,
+                token_account_id: self.token_account_id,
+            },
         )
     }
 
@@ -220,6 +264,7 @@ struct LinkRow {
     kind: LinkKind,
     jira_credential_id: Option<Uuid>,
     github_credential_id: Option<Uuid>,
+    token_account_id: Option<Uuid>,
     external_id: String,
     external_key: String,
     url: String,
@@ -340,6 +385,9 @@ pub async fn find_by_external(
         LinkProvider::Github => {
             query.filter(action_item_links::github_credential_id.eq(credential.id))
         }
+        LinkProvider::Youtrack => {
+            query.filter(action_item_links::token_account_id.eq(credential.id))
+        }
     };
     query
         .select(ActionItemLink::as_select())
@@ -365,6 +413,9 @@ pub async fn watched(
         LinkProvider::Github => {
             query.filter(action_item_links::github_credential_id.eq(credential.id))
         }
+        LinkProvider::Youtrack => {
+            query.filter(action_item_links::token_account_id.eq(credential.id))
+        }
     };
     query
         .order(action_item_links::id)
@@ -387,6 +438,9 @@ pub async fn oldest_created_at(
         LinkProvider::Jira => query.filter(action_item_links::jira_credential_id.eq(credential.id)),
         LinkProvider::Github => {
             query.filter(action_item_links::github_credential_id.eq(credential.id))
+        }
+        LinkProvider::Youtrack => {
+            query.filter(action_item_links::token_account_id.eq(credential.id))
         }
     };
     query
@@ -428,13 +482,23 @@ pub async fn record_state(
         .await
 }
 
+/// Whether a link added to an item may become its primary, and what that does to its owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Claim {
+    /// Never the primary: an agent's link, so linking the pull request it opened never moves
+    /// whose list the item is on.
+    Secondary,
+    /// The primary of an item that has none, whose owner then follows the thing's assignee: the
+    /// user's first link does.
+    Primary,
+    /// The primary of an item that has none, keeping the item's owner: an issue filed for the
+    /// item, which nobody is assigned yet. Its owner follows the issue's assignee from the first
+    /// change the watcher reads.
+    PrimaryKeepingOwner,
+}
+
 /// Links a live item to an external thing. Linking the same thing to the same item again
-/// changes nothing.
-///
-/// With `claims_primary`, the link becomes the primary of an item that has none, and the
-/// item's owner then follows the thing's assignee: the user's first link does. An agent's
-/// link never claims it, so linking the pull request it opened never moves whose list the
-/// item is on.
+/// changes nothing. `claim` says whether it may become the item's primary; see [`Claim`].
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown item, [`WorkError::Conflict`]
@@ -444,7 +508,7 @@ pub async fn add(
     connection: &mut AsyncPgConnection,
     action_item_id: Uuid,
     new_link: NewLink,
-    claims_primary: bool,
+    claim: Claim,
     actor: Actor,
     now: DateTime<Utc>,
 ) -> Result<Linked, WorkError> {
@@ -480,7 +544,7 @@ pub async fn add(
             ))
             .get_result::<bool>(connection)
             .await?;
-            let is_primary = claims_primary && !has_primary;
+            let is_primary = claim != Claim::Secondary && !has_primary;
             let link = insert(connection, action_item_id, new_link, is_primary, now).await?;
 
             let mut history = vec![
@@ -495,7 +559,7 @@ pub async fn add(
                 .await?,
             ];
             let mut item = item;
-            if link.is_primary {
+            if link.is_primary && claim == Claim::Primary {
                 let followed = follow_owner(connection, &link, actor, now).await?;
                 item = followed.record;
                 history.extend(followed.history);
@@ -572,7 +636,7 @@ async fn insert(
     is_primary: bool,
     now: DateTime<Utc>,
 ) -> QueryResult<ActionItemLink> {
-    let (jira_credential_id, github_credential_id) = new_link.credential.columns();
+    let columns = new_link.credential.columns();
     let observation = ObservationChangeset::from(&new_link.observation);
     diesel::insert_into(action_item_links::table)
         .values(LinkRow {
@@ -580,8 +644,9 @@ async fn insert(
             action_item_id,
             provider: new_link.credential.provider,
             kind: new_link.kind,
-            jira_credential_id,
-            github_credential_id,
+            jira_credential_id: columns.jira_credential_id,
+            github_credential_id: columns.github_credential_id,
+            token_account_id: columns.token_account_id,
             external_id: new_link.external_id,
             external_key: observation.external_key,
             url: observation.url,
@@ -898,7 +963,7 @@ mod tests {
             &mut connection,
             id,
             new_link(credential, 15, Owner::Nobody),
-            false,
+            Claim::Secondary,
             Actor::Session(4),
             Utc::now(),
         )
@@ -914,7 +979,7 @@ mod tests {
             &mut connection,
             id,
             new_link(credential, 12, sam()),
-            true,
+            Claim::Primary,
             TEST_PERSON,
             Utc::now(),
         )
@@ -938,7 +1003,7 @@ mod tests {
             &mut connection,
             id,
             new_link(credential, 12, sam()),
-            true,
+            Claim::Primary,
             TEST_PERSON,
             Utc::now(),
         )
@@ -954,7 +1019,7 @@ mod tests {
             &mut connection,
             other,
             new_link(credential, 12, sam()),
-            true,
+            Claim::Primary,
             TEST_PERSON,
             Utc::now(),
         )
@@ -975,7 +1040,7 @@ mod tests {
             &mut connection,
             id,
             new_link(credential, 1, sam()),
-            true,
+            Claim::Primary,
             TEST_PERSON,
             Utc::now(),
         )
@@ -987,7 +1052,7 @@ mod tests {
             &mut connection,
             id,
             new_link(credential, 2, Owner::User),
-            true,
+            Claim::Primary,
             TEST_PERSON,
             Utc::now(),
         )

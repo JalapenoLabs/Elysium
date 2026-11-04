@@ -12,8 +12,10 @@
 //! Claude Code's own compaction as it grows, on the model its kind resolves to for the project.
 //!
 //! What it decides lands on its project's timeline ([`timeline`]): each turn that did its work,
-//! and each batch it submits ([`batches`]). Anything outward it wants done (an item, a comment,
-//! a status change) it proposes as a changeset through `elysium_work`, for a person to approve.
+//! each batch it submits ([`batches`]), and each change it makes. Its changes to action items and
+//! their trackers (an item, a comment, a status change, an item's own issue) are changesets
+//! (`crate::tools::work::manager_changes`), which wait for a person's approval unless its project
+//! lets it write directly, and its issues file in the project's tracker ([`trackers`]).
 //!
 //! - [`queue`]: when each project's next turn is due.
 //! - [`dispatcher`]: starts the turns that are due and records how they end.
@@ -21,6 +23,7 @@
 //! - [`runner`]: the seam to the host runner, and each turn's log.
 //! - [`batches`]: submitting and withdrawing work batches.
 //! - [`timeline`]: what it puts on its project's timeline.
+//! - [`trackers`]: where its project's issues file, and through which credential.
 //! - [`status`]: what its project's page shows at a glance.
 
 pub mod batches;
@@ -33,6 +36,7 @@ pub mod status;
 #[cfg(test)]
 mod tests;
 pub mod timeline;
+pub mod trackers;
 
 use std::collections::HashMap;
 
@@ -46,11 +50,13 @@ use self::dispatcher::DispatchContext;
 use self::runner::ManagerRunner;
 use self::status::{Status, StatusInputs};
 use crate::database::Pool;
+use crate::models::action_item_link::LinkProvider;
 use crate::models::draft;
 use crate::models::project_manager::{self, ProjectManager, Turn, TurnStatus, Wake};
 use crate::models::promise::{self, Promise};
 use crate::models::timeline_record::{self, TimelineRecord};
 use crate::models::work_batch::{self, WorkBatch};
+use crate::models::{github_credential, jira_credential, project, token_account};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::tools::grants::Grants;
 
@@ -117,6 +123,25 @@ pub struct Snapshot {
     /// Its latest promises, newest first, each with the message it was made in while that is
     /// still there, and its follow-up's draft once drafted.
     pub promises: Vec<(Promise, Option<TimelineRecord>, Option<Uuid>)>,
+    /// How its changes reach the work.
+    pub writes: WritesSnapshot,
+}
+
+/// How a Project Manager's changes reach the work, as its tab shows it.
+#[derive(Debug, Clone)]
+pub struct WritesSnapshot {
+    /// Whether its changes apply as it makes them, rather than waiting for a person.
+    pub direct: bool,
+    /// Where its issues file, or why there is nowhere.
+    pub tracker: Result<TrackerSnapshot, &'static str>,
+}
+
+/// A project's tracker, with the name of the credential that files there.
+#[derive(Debug, Clone)]
+pub struct TrackerSnapshot {
+    pub tracker: trackers::Tracker,
+    /// The Jira credential's, GitHub token's, or YouTrack account's name.
+    pub credential_name: String,
 }
 
 /// Reads `project_id`'s Project Manager and derives its status.
@@ -169,6 +194,17 @@ pub async fn snapshot(
         now: Utc::now(),
     });
 
+    let direct = project::find(connection, project_id)
+        .await?
+        .manager_writes_directly;
+    let tracker = match trackers::resolve(connection, project_id).await? {
+        Ok(tracker) => Ok(TrackerSnapshot {
+            credential_name: credential_name(connection, &tracker).await?,
+            tracker,
+        }),
+        Err(reason) => Err(reason),
+    };
+
     let mut by_turn: HashMap<Uuid, Vec<Wake>> = HashMap::new();
     for wake in project_manager::wakes_of(connection, &turn_ids).await? {
         if let Some(turn_id) = wake.turn_id {
@@ -190,5 +226,19 @@ pub async fn snapshot(
         turns,
         batches,
         promises,
+        writes: WritesSnapshot { direct, tracker },
+    })
+}
+
+/// The name of the credential `tracker` files through, as its settings page names it.
+async fn credential_name(
+    connection: &mut AsyncPgConnection,
+    tracker: &trackers::Tracker,
+) -> diesel::QueryResult<String> {
+    let id = tracker.credential_id;
+    Ok(match tracker.place.provider {
+        LinkProvider::Jira => jira_credential::find(connection, id).await?.name,
+        LinkProvider::Github => github_credential::find(connection, id).await?.name,
+        LinkProvider::Youtrack => token_account::find(connection, id).await?.name,
     })
 }

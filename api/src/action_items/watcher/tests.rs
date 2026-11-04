@@ -4,6 +4,7 @@
 //! faked with state, and whole passes run the way the running watcher runs them. Each test
 //! is one rule of `docs/action-items.md`, "An action item is a commitment, not a copy".
 
+use axum::http::Method;
 use chrono::TimeDelta;
 
 use super::*;
@@ -11,8 +12,9 @@ use crate::action_items::links::tests::{
     DONE, FakeJiraIssue, JIRA_ACCOUNT_ID, LinkFixture, REPOSITORY,
 };
 use crate::github::fake::{FakeIssue, LOGIN};
-use crate::models::action_item::{ActionItemChanges, Owner};
+use crate::models::action_item::{ActionItemChanges, ActionItemPriority, Owner};
 use crate::models::action_item_event::list_for_item;
+use crate::models::action_item_link::Claim;
 use crate::models::initiative::NewInitiative;
 use crate::models::initiative_link::{ContainerKind, NewContainer};
 use crate::models::project::{self, NewProject};
@@ -81,7 +83,11 @@ async fn link_github(
         &mut fixture.connection,
         item_id,
         new_link,
-        actor == TEST_PERSON,
+        if actor == TEST_PERSON {
+            Claim::Primary
+        } else {
+            Claim::Secondary
+        },
         actor,
         Utc::now(),
     )
@@ -826,13 +832,7 @@ async fn the_cursor_survives_a_restart() {
 
     // A watcher started afresh, as after a restart, reads from the stored cursor.
     let restarted = WatchContext {
-        links: Links::new(
-            fixture.database.clone(),
-            std::sync::Arc::new(crate::test_support::cipher()),
-            &fixture.jira.jira,
-            &fixture.github.github,
-            fixture.events.clone(),
-        ),
+        links: fixture.links.clone(),
         ..fixture.context()
     };
     pass(&restarted).await;
@@ -926,5 +926,337 @@ async fn a_jira_issue_done_in_jira_resolves_its_item_and_a_resolve_moves_it() {
         fixture.jira.issue("ELY-13").status_id,
         DONE,
         "the project's only done transition"
+    );
+}
+
+/// An item created from YouTrack issue `key` by the user, with that link as its primary.
+async fn item_from_youtrack(fixture: &mut LinkFixture, key: &str) -> Uuid {
+    let remote = fixture
+        .youtrack_provider()
+        .find(fixture.youtrack_account.id, LinkKind::Issue, key)
+        .await
+        .expect("found");
+    let new_item = NewActionItem {
+        title: remote.title.clone(),
+        notes: String::new(),
+        state: ActionItemState::Open,
+        priority: remote.starting_priority(),
+        due_at: None,
+        owner: remote.owner.clone(),
+        project_ids: Vec::new(),
+        initiative_ids: Vec::new(),
+    };
+    let new_link = NewLink {
+        credential: fixture.youtrack_account,
+        kind: LinkKind::Issue,
+        external_id: remote.external_id.clone(),
+        observation: remote.observation(),
+    };
+    action_item_link::create_linked_item(
+        &mut fixture.connection,
+        new_item,
+        new_link,
+        TEST_PERSON,
+        Utc::now(),
+    )
+    .await
+    .expect("created")
+    .item
+    .record
+    .id
+}
+
+/// Someone marks YouTrack issue `key` a duplicate, which YouTrack counts as resolved. Kept out
+/// of the async test, so the fake's lock is never held across an await.
+fn marked_duplicate_in_youtrack(fixture: &LinkFixture, key: &str) {
+    let mut site = fixture.youtrack.lock().expect("lock");
+    let issue = site
+        .issues
+        .iter_mut()
+        .find(|issue| issue.key == key)
+        .expect("the issue");
+    "Duplicate".clone_into(&mut issue.state);
+    issue.updated = Utc::now().timestamp_millis();
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_youtrack_issue_duplicate_there_resolves_its_item_and_a_resolve_fixes_it() {
+    use crate::youtrack::tests::sample_issue;
+
+    let mut fixture = LinkFixture::start().await;
+    fixture.put_youtrack_issue(sample_issue("2-1", "JL-1", 1_000));
+    fixture.put_youtrack_issue(sample_issue("2-2", "JL-2", 1_000));
+    let duplicate_there = item_from_youtrack(&mut fixture, "JL-1").await;
+    let fixed_here = item_from_youtrack(&mut fixture, "JL-2").await;
+    let context = fixture.context();
+
+    marked_duplicate_in_youtrack(&fixture, "JL-1");
+    move_item(&mut fixture, fixed_here, Transition::Resolve).await;
+    pass(&context).await;
+
+    assert_eq!(
+        item(&mut fixture, duplicate_there).await.state,
+        ActionItemState::Resolved,
+        "a resolved state of any name is done"
+    );
+    assert!(
+        history(&mut fixture, duplicate_there)
+            .await
+            .contains(&"state_changed by watcher:youtrack".to_owned())
+    );
+    assert_eq!(
+        fixture.youtrack_issue("2-2").state,
+        "Fixed",
+        "the default workflow's done state, never Duplicate"
+    );
+    assert!(
+        owed(&mut fixture, fixed_here).await.is_empty(),
+        "the close landed"
+    );
+
+    // A second pass finds JL-2 already where the close put it, and writes nothing again.
+    let writes_before = fixture.youtrack.lock().expect("lock").writes.len();
+    pass(&context).await;
+    assert_eq!(
+        fixture.youtrack.lock().expect("lock").writes.len(),
+        writes_before
+    );
+}
+
+/// An open item titled `title`, with an issue owed in `destination` through `credential`, as a
+/// Project Manager's applied `file-issue` owes one.
+async fn item_owed_an_issue(
+    fixture: &mut LinkFixture,
+    title: &str,
+    credential: LinkCredential,
+    destination: &str,
+) -> (Uuid, IssueFiling) {
+    use crate::action_items::changesets::Proposer;
+    use crate::models::action_item_issue_filing::NewFiling;
+
+    let new_item = NewActionItem {
+        title: title.to_owned(),
+        notes: "Ada asked for it in the pricing meeting.".to_owned(),
+        state: ActionItemState::Open,
+        priority: ActionItemPriority::Normal,
+        due_at: None,
+        owner: Owner::User,
+        project_ids: Vec::new(),
+        initiative_ids: Vec::new(),
+    };
+    let item = action_item::create(&mut fixture.connection, new_item, TEST_PERSON, Utc::now())
+        .await
+        .expect("created")
+        .record;
+    let filing = action_item_issue_filing::owe(
+        &mut fixture.connection,
+        NewFiling {
+            action_item_id: item.id,
+            credential,
+            destination: destination.to_owned(),
+            filed_by: Proposer::ProjectManager(Uuid::now_v7()),
+            changeset_operation_id: None,
+            timeline_record_id: None,
+        },
+        Utc::now(),
+    )
+    .await
+    .expect("owed");
+    (item.id, filing)
+}
+
+/// How many issues the fakes were asked to open: Jira's, GitHub's, and YouTrack's.
+fn issues_opened(fixture: &LinkFixture) -> (usize, usize, usize) {
+    let jira = fixture
+        .jira
+        .writes()
+        .iter()
+        .filter(|(method, path, _body)| *method == Method::POST && path == "/rest/api/3/issue")
+        .count();
+    let github = fixture
+        .github
+        .writes()
+        .iter()
+        .filter(|request| request.method == Method::POST && request.path.ends_with("/issues"))
+        .count();
+    let youtrack = fixture
+        .youtrack
+        .lock()
+        .expect("lock")
+        .writes
+        .iter()
+        .filter(|(path, _body)| path == "/api/issues")
+        .count();
+    (jira, github, youtrack)
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn an_owed_issue_opens_once_in_each_tracker_and_becomes_its_items_primary_link() {
+    let mut fixture = LinkFixture::start().await;
+    let (jira_creds, github_creds, youtrack_account) = (
+        fixture.jira_credential,
+        fixture.github_credential,
+        fixture.youtrack_account,
+    );
+    let (in_jira, _) = item_owed_an_issue(&mut fixture, "Annual pricing", jira_creds, "ely").await;
+    let (in_github, _) =
+        item_owed_an_issue(&mut fixture, "Annual pricing", github_creds, REPOSITORY).await;
+    let (in_youtrack, _) =
+        item_owed_an_issue(&mut fixture, "Annual pricing", youtrack_account, "JL").await;
+
+    pass(&fixture.context()).await;
+
+    assert_eq!(issues_opened(&fixture), (1, 1, 1));
+    for (item_id, provider, key) in [
+        (in_jira, LinkProvider::Jira, "ELY-1"),
+        (in_github, LinkProvider::Github, "JalapenoLabs/Elysium#1"),
+        (in_youtrack, LinkProvider::Youtrack, "JL-1"),
+    ] {
+        let links = action_item_link::list_for_item(&mut fixture.connection, item_id)
+            .await
+            .expect("links");
+        assert_eq!(links.len(), 1, "{provider:?}");
+        assert!(links[0].is_primary, "the item's own issue is its primary");
+        assert_eq!(
+            item(&mut fixture, item_id).await.owner(),
+            Owner::User,
+            "a new issue is nobody's yet, so the item stays the user's"
+        );
+        assert_eq!(
+            (links[0].provider, links[0].external_key.as_str()),
+            (provider, key)
+        );
+        assert!(
+            action_item_issue_filing::for_item(&mut fixture.connection, item_id)
+                .await
+                .expect("read")
+                .is_none(),
+            "a filing that landed is forgotten"
+        );
+        assert!(
+            history(&mut fixture, item_id)
+                .await
+                .iter()
+                .any(|entry| entry.starts_with("link_added by project_manager:"))
+        );
+    }
+    assert_eq!(fixture.jira.issue("ELY-1").summary, "Annual pricing");
+    assert_eq!(
+        fixture.github.issue(REPOSITORY, 1).body,
+        "Ada asked for it in the pricing meeting."
+    );
+
+    pass(&fixture.context()).await;
+    assert_eq!(
+        issues_opened(&fixture),
+        (1, 1, 1),
+        "nothing is opened twice"
+    );
+}
+
+/// The crash between a provider opening an issue and Elysium recording it: the next attempt
+/// finds the issue its cut-short attempt opened, by its account and title, and links it rather
+/// than opening a second. This is what keeps a retried filing, and so a retried Project Manager
+/// turn, from leaving two issues behind.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_filing_tried_before_links_the_issue_its_earlier_attempt_opened() {
+    use crate::action_items::links::tests::FakeJiraIssue as JiraIssue;
+    use crate::youtrack::tests::FakeIssue as YoutrackIssue;
+
+    let mut fixture = LinkFixture::start().await;
+    let (jira_creds, github_creds, youtrack_account) = (
+        fixture.jira_credential,
+        fixture.github_credential,
+        fixture.youtrack_account,
+    );
+    let mut owed = Vec::new();
+    for (credential, destination) in [
+        (jira_creds, "ELY"),
+        (github_creds, REPOSITORY),
+        (youtrack_account, "JL"),
+    ] {
+        let (item_id, filing) =
+            item_owed_an_issue(&mut fixture, "Annual pricing", credential, destination).await;
+        // The earlier attempt began and was cut short after the provider took it.
+        action_item_issue_filing::begin_attempt(&mut fixture.connection, &filing, Utc::now())
+            .await
+            .expect("begun");
+        owed.push(item_id);
+    }
+    fixture.jira.put_issue(JiraIssue {
+        summary: "Annual pricing".to_owned(),
+        ..JiraIssue::new("10077", "ELY-77")
+    });
+    fixture.github.put_issue(
+        REPOSITORY,
+        77,
+        FakeIssue {
+            updated_at: Utc::now(),
+            ..FakeIssue::open("Annual pricing")
+        },
+    );
+    fixture.put_youtrack_issue(YoutrackIssue {
+        summary: "Annual pricing".to_owned(),
+        reporter: crate::youtrack::tests::ME.to_owned(),
+        created: Utc::now().timestamp_millis(),
+        updated: Utc::now().timestamp_millis(),
+        ..crate::youtrack::tests::sample_issue("2-77", "JL-77", 0)
+    });
+
+    pass(&fixture.context()).await;
+
+    assert_eq!(
+        issues_opened(&fixture),
+        (0, 0, 0),
+        "no second issue anywhere"
+    );
+    let keys = ["ELY-77", "JalapenoLabs/Elysium#77", "JL-77"];
+    for (item_id, key) in owed.into_iter().zip(keys) {
+        let links = action_item_link::list_for_item(&mut fixture.connection, item_id)
+            .await
+            .expect("links");
+        assert_eq!(links.len(), 1);
+        assert_eq!(
+            links[0].external_key, key,
+            "the issue the first attempt opened"
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn an_issue_owed_to_an_item_finished_first_is_dropped_and_a_refused_one_says_why() {
+    let mut fixture = LinkFixture::start().await;
+    let jira_creds = fixture.jira_credential;
+    let (finished, _) = item_owed_an_issue(&mut fixture, "Done already", jira_creds, "ELY").await;
+    move_item(&mut fixture, finished, Transition::Resolve).await;
+    let (refused, _) =
+        item_owed_an_issue(&mut fixture, "Somewhere else", jira_creds, "SECRET").await;
+
+    pass(&fixture.context()).await;
+
+    assert_eq!(issues_opened(&fixture).0, 0);
+    assert!(
+        action_item_issue_filing::for_item(&mut fixture.connection, finished)
+            .await
+            .expect("read")
+            .is_none(),
+        "a resolved item needs no issue"
+    );
+    let waiting = action_item_issue_filing::for_item(&mut fixture.connection, refused)
+        .await
+        .expect("read")
+        .expect("still owed");
+    assert_eq!(waiting.attempts, 1);
+    assert!(
+        waiting
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error.contains("SECRET")),
+        "the allowlist's refusal, for the item page: {:?}",
+        waiting.last_error
     );
 }

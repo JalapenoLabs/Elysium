@@ -10,8 +10,16 @@
 //! apply. A fault inside Elysium rolls the whole changeset back instead.
 //!
 //! Elysium's own data is written here. The provider writes that follow from it, such as
-//! closing a resolved item's issues or posting a comment to its primary link, are owed in
-//! the same transaction, like the user's own writes, and the watcher lands them afterwards.
+//! closing a resolved item's issues, posting a comment to its primary link, or filing an item's
+//! own issue, are owed in the same transaction, like the user's own writes, and the watcher
+//! lands them afterwards.
+//!
+//! A changeset a person applies is reviewed: an item it creates starts `open`, since approving
+//! it accepts it. A Project Manager's changeset that its project lets apply as it is made
+//! (`crate::tools::work::propose`) is applied by the proposer's own machine, unreviewed, so an
+//! item it creates starts in the inbox for the person to accept. Every operation a Project
+//! Manager's changeset applies is recorded on its project's timeline with the record that caused
+//! it (`crate::project_managers::timeline::record_write`), in the operation's own savepoint.
 
 use std::collections::HashMap;
 
@@ -26,14 +34,17 @@ use super::{
     Touched, Written, conclude, lock, operations_of, settle,
 };
 use crate::action_items::changesets::{
-    self, AddComment, AddLink, CreateInitiative, CreateItem, LinkReads, Membership, Operation,
-    Proposer, Target, UpdateItem,
+    self, AddComment, AddLink, CreateInitiative, CreateItem, FileIssue, LinkReads, Membership,
+    Operation, Proposer, Target, UpdateItem,
 };
 use crate::action_items::{Actor, Transition, WorkError};
 use crate::models::action_item::{self, ActionItemChanges, ActionItemState, NewActionItem, Owner};
 use crate::models::action_item_event::{self, HistoryEntry};
+use crate::models::action_item_issue_filing::{self, NewFiling};
+use crate::models::action_item_link::Claim;
 use crate::models::initiative::{self, NewInitiative};
 use crate::models::{action_item_comment, action_item_link, action_item_link_write};
+use crate::project_managers::timeline::{self, Write};
 
 /// Why one operation did not apply.
 #[derive(Debug)]
@@ -75,6 +86,8 @@ struct Done {
     result: Value,
     /// The item or initiative it created, which later operations may name.
     created: Option<Uuid>,
+    /// The filing it owed, which the timeline record of the write is pointed at.
+    filing: Option<Uuid>,
     touched: Touched,
 }
 
@@ -94,12 +107,16 @@ impl Done {
 /// One changeset being applied: what its operations share, and what they have done so far.
 struct Run {
     changeset_id: Uuid,
+    proposer: Proposer,
     /// The proposer, whom applied changes record as their actor.
     actor: Actor,
+    /// Whether a person applied it, approving each operation, rather than the proposer's own
+    /// machine applying a Project Manager's changes as they were made.
+    reviewed: bool,
     /// Whether a link the changeset adds may become its item's primary: Elysia's may, as
     /// the user's first link does. A coding agent's never does, so linking the pull request
     /// it opened never moves whose list an item is on.
-    claims_primary: bool,
+    claim: Claim,
     now: DateTime<Utc>,
     reads: LinkReads,
     /// The records applied operations created, by position.
@@ -147,13 +164,15 @@ impl Run {
 
         let run = &*self;
         let operation = row.parsed();
-        let operation_id = row.id;
         let attempt = connection
             .transaction(async move |connection| {
-                let mut done = apply_one(connection, run, operation_id, operation).await?;
+                let mut done = apply_one(connection, run, row.id, operation.clone()).await?;
                 let history = std::mem::take(&mut done.touched.history);
                 done.touched.history =
                     action_item_event::attribute(connection, history, run.changeset_id).await?;
+                if let Proposer::ProjectManager(project_id) = run.proposer {
+                    record_write(connection, run, project_id, row, &operation, &done).await?;
+                }
                 Ok::<_, Failure>(done)
             })
             .await;
@@ -190,7 +209,8 @@ impl Settled {
 }
 
 /// Applies the approved operations of a pending changeset whose operations are all decided,
-/// for the person `decided_by`. Each operation still acts as the proposer.
+/// for `decided_by`: a person, or the proposer's own machine applying its changes unreviewed.
+/// Each operation still acts as the proposer.
 /// `reads` holds what each approved link operation's target read as
 /// ([`changesets::read_link_targets`]). A changeset with none approved is `rejected`.
 ///
@@ -236,8 +256,14 @@ pub async fn apply(
             let dependencies = changesets::dependencies(&parsed);
             let mut run = Run {
                 changeset_id: id,
+                proposer,
                 actor: proposer.actor(),
-                claims_primary: proposer == Proposer::Elysia,
+                reviewed: decided_by != proposer.actor().user_id(),
+                claim: if proposer == Proposer::Elysia {
+                    Claim::Primary
+                } else {
+                    Claim::Secondary
+                },
                 now,
                 reads,
                 created: HashMap::new(),
@@ -297,10 +323,12 @@ async fn apply_one(
             change_membership(connection, run, membership, false).await
         }
         Operation::CreateInitiative(create) => create_initiative(connection, run, create).await,
+        Operation::FileIssue(file) => file_issue(connection, run, operation_id, file).await,
     }
 }
 
-/// Creates an item, open and the user's, since the user approving it accepts it.
+/// Creates an item, the user's: open when a person approved it, which accepts it, and in the
+/// inbox when it applied unreviewed, for the person to accept.
 async fn create_item(
     connection: &mut AsyncPgConnection,
     run: &Run,
@@ -313,10 +341,15 @@ async fn create_item(
             .map(|target| run.resolve(target))
             .collect(),
     );
+    let state = if run.reviewed {
+        ActionItemState::Open
+    } else {
+        ActionItemState::Inbox
+    };
     let new_item = NewActionItem {
         title: create.title,
         notes: create.notes,
-        state: ActionItemState::Open,
+        state,
         priority: create.priority,
         due_at: create.due_at,
         owner: Owner::User,
@@ -418,15 +451,8 @@ async fn add_link(
         )
     })?;
     let new_link = read.map_err(Failure::Refused)?;
-    let linked = action_item_link::add(
-        connection,
-        id,
-        new_link,
-        run.claims_primary,
-        run.actor,
-        run.now,
-    )
-    .await?;
+    let linked =
+        action_item_link::add(connection, id, new_link, run.claim, run.actor, run.now).await?;
     let link_id = linked.links.first().map(|linked| linked.id);
     // Linking something already linked to the item changes nothing, and so leaves nothing
     // for an undo to remove.
@@ -500,6 +526,128 @@ async fn create_initiative(
     done.touched.initiative_ids.insert(id);
     done.touched.history = created.history;
     Ok(done)
+}
+
+/// Owes the item's own issue in the tracker the operation names, for the watcher to open and link
+/// as its primary. Only an item still to do, with no primary link, gets one: an item already
+/// following an issue has its comments and status there.
+async fn file_issue(
+    connection: &mut AsyncPgConnection,
+    run: &Run,
+    operation_id: Uuid,
+    file: FileIssue,
+) -> Result<Done, Failure> {
+    let id = run.resolve(file.item);
+    let item = action_item::lock_live(connection, id).await?;
+    if !matches!(item.state, ActionItemState::Inbox | ActionItemState::Open) {
+        return Err(Failure::Refused(
+            "the item is already resolved or dismissed, so it needs no issue".to_owned(),
+        ));
+    }
+    let links = action_item_link::list_for_item(connection, id).await?;
+    if links.iter().any(|link| link.is_primary) {
+        return Err(Failure::Refused(
+            "the item already follows a linked issue, where its comments and status go".to_owned(),
+        ));
+    }
+    let filing = action_item_issue_filing::owe(
+        connection,
+        NewFiling {
+            action_item_id: id,
+            credential: file.tracker.credential(),
+            destination: file.tracker.destination,
+            filed_by: run.proposer,
+            changeset_operation_id: Some(operation_id),
+            timeline_record_id: None,
+        },
+        run.now,
+    )
+    .await?;
+    let mut done = Done::on_item(
+        json!({ "itemId": id, "filingId": filing.id }),
+        id,
+        Vec::new(),
+    );
+    done.filing = Some(filing.id);
+    done.touched.link_item_ids.insert(id);
+    Ok(done)
+}
+
+/// Records one applied operation of a Project Manager's changeset on its project's timeline,
+/// with the record that caused it, and points the filing it owed, if any, at that record.
+async fn record_write(
+    connection: &mut AsyncPgConnection,
+    run: &Run,
+    project_id: Uuid,
+    row: &ChangesetOperation,
+    operation: &Operation,
+    done: &Done,
+) -> Result<(), Failure> {
+    let item_id: Option<Uuid> = serde_json::from_value(done.result["itemId"].clone()).ok();
+    let title = describe(connection, operation, item_id).await?;
+    let record = timeline::record_write(
+        connection,
+        Write {
+            project_id,
+            changeset_id: run.changeset_id,
+            operation_id: row.id,
+            kind: row.operation["kind"].as_str().unwrap_or_default(),
+            title,
+            reason: &row.reason,
+            quote: row.quote.as_deref(),
+            cause_record_id: row.cause_record_id,
+            item_id,
+            reviewed: run.reviewed,
+            applied_at: run.now,
+        },
+    )
+    .await?;
+    if let Some(filing_id) = done.filing {
+        action_item_issue_filing::set_timeline_record(connection, filing_id, record.id).await?;
+    }
+    Ok(())
+}
+
+/// What an applied operation did, in a line for its timeline record: `Resolved: Fix the login
+/// page`, or `Filed in Jira ELY: Fix the login page`.
+async fn describe(
+    connection: &mut AsyncPgConnection,
+    operation: &Operation,
+    item_id: Option<Uuid>,
+) -> Result<String, Failure> {
+    let item_title = match item_id {
+        Some(id) => action_item::find(connection, id).await?.title,
+        None => String::new(),
+    };
+    let initiative_name = async |connection: &mut AsyncPgConnection, target: Target| {
+        let Target::Existing(existing) = target else {
+            return Ok::<_, Failure>(String::new());
+        };
+        Ok(initiative::find(connection, existing.id).await?.name)
+    };
+    let line = match operation {
+        Operation::CreateItem(_) => format!("Created an item: {item_title}"),
+        Operation::UpdateItem(_) => format!("Updated: {item_title}"),
+        Operation::ResolveItem(_) => format!("Resolved: {item_title}"),
+        Operation::DismissItem(_) => format!("Dismissed: {item_title}"),
+        Operation::Comment(_) => format!("Commented on: {item_title}"),
+        Operation::Link(link) => format!("Linked {}: {item_title}", link.target.reference),
+        Operation::AddToInitiative(membership) => {
+            let name = initiative_name(connection, membership.initiative).await?;
+            format!("Added to {name}: {item_title}")
+        }
+        Operation::RemoveFromInitiative(membership) => {
+            let name = initiative_name(connection, membership.initiative).await?;
+            format!("Taken out of {name}: {item_title}")
+        }
+        Operation::CreateInitiative(create) => format!("Created an initiative: {}", create.name),
+        Operation::FileIssue(file) => format!(
+            "Filed in {} {}: {item_title}",
+            file.tracker.provider.name(),
+            file.tracker.destination
+        ),
+    };
+    Ok(line.trim_end_matches([':', ' ']).to_owned())
 }
 
 /// Sorts ids and drops repeats, as the model's creates expect.

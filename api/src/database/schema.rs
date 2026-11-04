@@ -216,6 +216,29 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::LinkProvider;
+
+    action_item_issue_filings (id) {
+        id -> Uuid,
+        action_item_id -> Uuid,
+        provider -> LinkProvider,
+        jira_credential_id -> Nullable<Uuid>,
+        github_credential_id -> Nullable<Uuid>,
+        token_account_id -> Nullable<Uuid>,
+        destination -> Text,
+        filed_by -> Text,
+        changeset_operation_id -> Nullable<Uuid>,
+        timeline_record_id -> Nullable<Uuid>,
+        attempts -> Int4,
+        first_attempt_at -> Nullable<Timestamptz>,
+        last_error -> Nullable<Text>,
+        last_attempt_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::LinkWriteKind;
 
     action_item_link_writes (id) {
@@ -254,6 +277,7 @@ diesel::table! {
         observed_owner_name -> Nullable<Text>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        token_account_id -> Nullable<Uuid>,
     }
 }
 
@@ -377,6 +401,7 @@ diesel::table! {
         error -> Nullable<Text>,
         result -> Jsonb,
         undo -> Nullable<Jsonb>,
+        cause_record_id -> Nullable<Uuid>,
     }
 }
 
@@ -1039,6 +1064,7 @@ diesel::table! {
         watched_through -> Timestamptz,
         last_error -> Nullable<Text>,
         updated_at -> Timestamptz,
+        token_account_id -> Nullable<Uuid>,
     }
 }
 
@@ -1217,6 +1243,22 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::LinkProvider;
+
+    project_issue_trackers (project_id) {
+        project_id -> Uuid,
+        provider -> LinkProvider,
+        jira_credential_id -> Nullable<Uuid>,
+        token_account_id -> Nullable<Uuid>,
+        destination -> Text,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::ProjectManagerTurnStatus;
 
     project_manager_turns (id) {
@@ -1283,6 +1325,7 @@ diesel::table! {
         github_credential_id -> Nullable<Uuid>,
         created_by -> Uuid,
         cover_removed_at -> Nullable<Timestamptz>,
+        manager_writes_directly -> Bool,
     }
 }
 
@@ -1711,11 +1754,18 @@ diesel::joinable!(action_item_comments -> action_items (action_item_id));
 diesel::joinable!(action_item_events -> action_items (action_item_id));
 diesel::joinable!(action_item_events -> changesets (changeset_id));
 diesel::joinable!(action_item_events -> initiatives (initiative_id));
+diesel::joinable!(action_item_issue_filings -> action_items (action_item_id));
+diesel::joinable!(action_item_issue_filings -> changeset_operations (changeset_operation_id));
+diesel::joinable!(action_item_issue_filings -> github_credentials (github_credential_id));
+diesel::joinable!(action_item_issue_filings -> jira_credentials (jira_credential_id));
+diesel::joinable!(action_item_issue_filings -> timeline_records (timeline_record_id));
+diesel::joinable!(action_item_issue_filings -> token_accounts (token_account_id));
 diesel::joinable!(action_item_link_writes -> action_item_comments (comment_id));
 diesel::joinable!(action_item_link_writes -> action_item_links (link_id));
 diesel::joinable!(action_item_links -> action_items (action_item_id));
 diesel::joinable!(action_item_links -> github_credentials (github_credential_id));
 diesel::joinable!(action_item_links -> jira_credentials (jira_credential_id));
+diesel::joinable!(action_item_links -> token_accounts (token_account_id));
 diesel::joinable!(action_item_projects -> action_items (action_item_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
 diesel::joinable!(action_items -> users (created_by));
@@ -1725,6 +1775,7 @@ diesel::joinable!(authenticator_nicknames -> users (user_id));
 diesel::joinable!(authenticator_replacements -> users (user_id));
 diesel::joinable!(browser_sessions -> users (created_by));
 diesel::joinable!(changeset_operations -> changesets (changeset_id));
+diesel::joinable!(changeset_operations -> timeline_records (cause_record_id));
 diesel::joinable!(changesets -> projects (project_id));
 diesel::joinable!(claude_accounts -> llms (llm_id));
 diesel::joinable!(coding_sessions -> action_items (action_item_id));
@@ -1798,6 +1849,7 @@ diesel::joinable!(learnings -> learning_categories (category));
 diesel::joinable!(learnings -> users (created_by));
 diesel::joinable!(link_watch_cursors -> github_credentials (github_credential_id));
 diesel::joinable!(link_watch_cursors -> jira_credentials (jira_credential_id));
+diesel::joinable!(link_watch_cursors -> token_accounts (token_account_id));
 diesel::joinable!(llms -> users (created_by));
 diesel::joinable!(mail_accounts -> mail_domains (mail_domain_id));
 diesel::joinable!(mail_accounts -> users (created_by));
@@ -1813,6 +1865,10 @@ diesel::joinable!(meetings -> users (created_by));
 diesel::joinable!(model_settings -> users (created_by));
 diesel::joinable!(password_vault -> users (created_by));
 diesel::joinable!(process_activities -> users (created_by));
+diesel::joinable!(project_issue_trackers -> jira_credentials (jira_credential_id));
+diesel::joinable!(project_issue_trackers -> projects (project_id));
+diesel::joinable!(project_issue_trackers -> token_accounts (token_account_id));
+diesel::joinable!(project_issue_trackers -> users (created_by));
 diesel::joinable!(project_manager_turns -> project_managers (project_id));
 diesel::joinable!(project_manager_turns -> timeline_records (timeline_record_id));
 diesel::joinable!(project_manager_turns -> users (created_by));
@@ -1874,6 +1930,7 @@ diesel::joinable!(workspace_settings -> users (updated_by));
 diesel::allow_tables_to_appear_in_same_query!(
     action_item_comments,
     action_item_events,
+    action_item_issue_filings,
     action_item_link_writes,
     action_item_links,
     action_item_projects,
@@ -1934,6 +1991,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     model_settings,
     password_vault,
     process_activities,
+    project_issue_trackers,
     project_manager_turns,
     project_manager_wakes,
     project_managers,

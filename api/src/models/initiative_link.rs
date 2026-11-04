@@ -20,7 +20,7 @@ use crate::action_items::{Actor, WorkError};
 use crate::database::schema::{initiative_links, initiatives};
 use crate::models::action_item::{self, ActionItem};
 use crate::models::action_item_event::{self, Change, HistoryEntry, HistoryKind, Subject};
-use crate::models::action_item_link::{LinkCredential, LinkProvider};
+use crate::models::action_item_link::{CredentialColumns, LinkCredential, LinkProvider};
 use crate::models::initiative;
 
 /// What an initiative links to.
@@ -73,10 +73,14 @@ pub struct InitiativeLink {
 
 impl InitiativeLink {
     pub fn credential(&self) -> LinkCredential {
+        // Initiatives contain no YouTrack issues, so a container has no token account column.
         LinkCredential::from_columns(
             self.provider,
-            self.jira_credential_id,
-            self.github_credential_id,
+            CredentialColumns {
+                jira_credential_id: self.jira_credential_id,
+                github_credential_id: self.github_credential_id,
+                token_account_id: None,
+            },
         )
     }
 
@@ -160,6 +164,8 @@ pub async fn watched(
         LinkProvider::Github => {
             query.filter(initiative_links::github_credential_id.eq(credential.id))
         }
+        // No container goes through a YouTrack account.
+        LinkProvider::Youtrack => return Ok(Vec::new()),
     };
     query
         .order(initiative_links::id)
@@ -184,15 +190,15 @@ pub async fn add(
     connection
         .transaction(async move |connection| {
             initiative::lock_live(connection, initiative_id).await?;
-            let (jira_credential_id, github_credential_id) = container.credential.columns();
+            let columns = container.credential.columns();
             let inserted: Option<InitiativeLink> = diesel::insert_into(initiative_links::table)
                 .values(ContainerRow {
                     id: Uuid::now_v7(),
                     initiative_id,
                     provider: container.credential.provider,
                     kind: container.kind,
-                    jira_credential_id,
-                    github_credential_id,
+                    jira_credential_id: columns.jira_credential_id,
+                    github_credential_id: columns.github_credential_id,
                     external_id: container.external_id.clone(),
                     external_key: container.external_key,
                     url: container.url,

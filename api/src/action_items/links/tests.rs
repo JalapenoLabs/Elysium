@@ -4,9 +4,9 @@
 //! a real Postgres: what a link reads, what a write sends, and that every Jira call stays
 //! inside the credential's allowlist.
 //!
-//! [`LinkFixture`] is shared with the watcher's tests: a migrated database, a Jira and a
-//! GitHub credential, and a fake of each provider that a test changes the way someone
-//! working in Jira or GitHub would.
+//! [`LinkFixture`] is shared with the watcher's tests: a migrated database, a Jira credential, a
+//! GitHub token, and a YouTrack account, and a fake of each provider that a test changes the way
+//! someone working in Jira, GitHub, or YouTrack would.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -31,7 +31,9 @@ use crate::models::action_item_link::LinkCredential;
 use crate::models::github_credential::{self, GithubTokenKind, NewGithubCredential};
 use crate::models::jira_credential::{self, Allowed, AllowedProject, Allowlist, NewJiraCredential};
 use crate::models::jira_done_transition;
+use crate::models::token_account::{self, NewTokenAccount};
 use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, cipher, migrated_database};
+use crate::youtrack::tests as fake_youtrack;
 
 /// The Jira account the credential's token belongs to. An issue assigned to it is the
 /// user's.
@@ -364,6 +366,49 @@ async fn answer_jira(
             axum::Json(json!([{ "name": "Task", "statuses": statuses }])).into_response()
         }
 
+        // Every fake project holds tasks, bugs, epics, and subtasks.
+        (Method::GET, ["rest", "api", "3", "project", project]) => axum::Json(json!({
+            "id": "10002",
+            "key": project,
+            "name": format!("Project {project}"),
+            "issueTypes": [
+                { "name": "Epic", "subtask": false, "hierarchyLevel": 1 },
+                { "name": "Subtask", "subtask": true, "hierarchyLevel": -1 },
+                { "name": "Bug", "subtask": false, "hierarchyLevel": 0 },
+                { "name": "Task", "subtask": false, "hierarchyLevel": 0 },
+            ],
+        }))
+        .into_response(),
+
+        // Opens a to-do issue numbered after the project's last.
+        (Method::POST, ["rest", "api", "3", "issue"]) => {
+            let project = request["fields"]["project"]["key"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            let number = state
+                .issues
+                .iter()
+                .filter(|issue| issue.project == project)
+                .count()
+                + 1;
+            let id = (20_000 + state.issues.len()).to_string();
+            let key = format!("{project}-{number}");
+            let issue = FakeJiraIssue {
+                summary: request["fields"]["summary"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+                ..FakeJiraIssue::new(&id, &key)
+            };
+            state.issues.push(issue);
+            (
+                StatusCode::CREATED,
+                axum::Json(json!({ "id": id, "key": key })),
+            )
+                .into_response()
+        }
+
         (Method::GET, ["rest", "api", "3", "filter", id]) => {
             let found = state.filters.get(*id).map(|(name, _keys)| name.clone());
             found.map_or_else(not_found, |name| {
@@ -377,15 +422,35 @@ async fn answer_jira(
 
 /// A migrated database with a Jira credential allowed `ELY` and `OPS`, a GitHub token, and a
 /// fake of each provider behind them.
+/// The person's YouTrack account on the fake site.
+async fn youtrack_account(connection: &mut AsyncPgConnection, cipher: &Cipher) -> Uuid {
+    let mut new_account = NewTokenAccount::new(
+        cipher,
+        "youtrack",
+        "YouTrack",
+        &SecretString::from(fake_youtrack::TOKEN),
+        fake_youtrack::ME,
+        TEST_PERSON_ID,
+    );
+    new_account.site_url = Some(fake_youtrack::SITE_URL.to_owned());
+    token_account::create(connection, new_account)
+        .await
+        .expect("a YouTrack account")
+        .id
+}
+
 pub(crate) struct LinkFixture {
     pub(crate) connection: AsyncPgConnection,
     pub(crate) jira: FakeJira,
     pub(crate) github: FakeGithub,
+    /// What the fake YouTrack site holds and was asked.
+    pub(crate) youtrack: fake_youtrack::Shared,
     pub(crate) links: Links,
     pub(crate) events: EventBus,
     pub(crate) database: Pool,
     pub(crate) jira_credential: LinkCredential,
     pub(crate) github_credential: LinkCredential,
+    pub(crate) youtrack_account: LinkCredential,
 }
 
 impl LinkFixture {
@@ -450,15 +515,21 @@ impl LinkFixture {
         )
         .await
         .expect("a GitHub credential");
+        let youtrack_account = youtrack_account(&mut connection, &cipher).await;
 
         let jira = FakeJira::start().await;
         let github = FakeGithub::start().await;
+        let (youtrack_client, youtrack) =
+            fake_youtrack::fake_youtrack_site(fake_youtrack::FakeSite::default()).await;
         let events = EventBus::in_process();
         let links = Links::new(
             database.clone(),
             cipher,
-            &jira.jira,
-            &github.github,
+            Clients {
+                jira: &jira.jira,
+                github: &github.github,
+                youtrack: &youtrack_client,
+            },
             events.clone(),
         );
         Self {
@@ -476,6 +547,11 @@ impl LinkFixture {
                 provider: LinkProvider::Github,
                 id: github_credential.id,
             },
+            youtrack_account: LinkCredential {
+                provider: LinkProvider::Youtrack,
+                id: youtrack_account,
+            },
+            youtrack,
         }
     }
 
@@ -497,6 +573,27 @@ impl LinkFixture {
 
     pub(crate) fn github_provider(&self) -> &dyn Provider {
         self.links.provider(LinkProvider::Github)
+    }
+
+    pub(crate) fn youtrack_provider(&self) -> &dyn Provider {
+        self.links.provider(LinkProvider::Youtrack)
+    }
+
+    /// Puts an issue on the fake YouTrack site, as someone filing it there would.
+    pub(crate) fn put_youtrack_issue(&self, issue: fake_youtrack::FakeIssue) {
+        self.youtrack.lock().expect("lock").issues.push(issue);
+    }
+
+    /// The YouTrack issue with database id `id` as the fake holds it now.
+    pub(crate) fn youtrack_issue(&self, id: &str) -> fake_youtrack::FakeIssue {
+        self.youtrack
+            .lock()
+            .expect("lock")
+            .issues
+            .iter()
+            .find(|issue| issue.id == id)
+            .cloned()
+            .expect("the fake holds the issue")
     }
 }
 
@@ -946,4 +1043,120 @@ async fn a_pull_request_whose_merge_cannot_be_read_holds_back_only_itself() {
         ["JalapenoLabs/Elysium#1"],
         "the pull request is left as it was, and the issue is read"
     );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_youtrack_issue_reads_in_the_items_terms_and_takes_comments() {
+    use crate::youtrack::tests::{FakeIssue, sample_issue};
+
+    let mut fixture = LinkFixture::start().await;
+    fixture.put_youtrack_issue(sample_issue("2-1", "JL-1", 1_000));
+    fixture.put_youtrack_issue(FakeIssue {
+        assignee: Some("bea".to_owned()),
+        ..sample_issue("2-2", "JL-2", 2_000)
+    });
+    let account = fixture.youtrack_account;
+
+    let mine = fixture
+        .youtrack_provider()
+        .find(account.id, LinkKind::Issue, "JL-1")
+        .await
+        .expect("found");
+    assert_eq!(
+        mine.external_id, "2-1",
+        "an issue is its database id, which survives a move"
+    );
+    assert_eq!(mine.url, "https://acme.youtrack.cloud/issue/JL-1");
+    assert_eq!(mine.state, LinkState::Open);
+    assert_eq!(mine.status, "Open");
+    assert_eq!(mine.owner, Owner::User, "assigned to the token's own user");
+    assert_eq!(mine.starting_priority(), ActionItemPriority::High, "Major");
+
+    let theirs = fixture
+        .youtrack_provider()
+        .find(account.id, LinkKind::Issue, "JL-2")
+        .await
+        .expect("found");
+    assert_eq!(
+        theirs.owner,
+        Owner::Other {
+            name: "bea (full name)".to_owned()
+        }
+    );
+
+    for refused in ["JL-1/comments", "../users/me", "2-1"] {
+        assert!(
+            matches!(
+                fixture
+                    .youtrack_provider()
+                    .find(account.id, LinkKind::Issue, refused)
+                    .await,
+                Err(LinkError::Invalid(_))
+            ),
+            "{refused} is not an issue key"
+        );
+    }
+    assert!(matches!(
+        fixture
+            .youtrack_provider()
+            .find(account.id, LinkKind::PullRequest, "JL-1")
+            .await,
+        Err(LinkError::Invalid(_))
+    ));
+
+    let link = linked(&mut fixture, account, &mine, LinkKind::Issue).await;
+    fixture
+        .youtrack_provider()
+        .comment(&link, "Done in the last release.")
+        .await
+        .expect("posted");
+    let comments = fixture.youtrack.lock().expect("lock").comments.clone();
+    assert_eq!(comments.len(), 1);
+    assert_eq!(
+        (comments[0].issue_id.as_str(), comments[0].text.as_str()),
+        ("2-1", "Done in the last release.")
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn youtrack_changes_fall_back_to_one_issue_at_a_time_when_a_search_is_refused() {
+    use crate::youtrack::tests::sample_issue;
+
+    let mut fixture = LinkFixture::start().await;
+    let long_ago = (Utc::now() - TimeDelta::days(2)).timestamp_millis();
+    fixture.put_youtrack_issue(sample_issue("2-1", "JL-1", long_ago));
+    fixture.put_youtrack_issue(sample_issue("2-2", "JL-2", Utc::now().timestamp_millis()));
+    let account = fixture.youtrack_account;
+    let mut links = Vec::new();
+    for key in ["JL-1", "JL-2"] {
+        let remote = fixture
+            .youtrack_provider()
+            .find(account.id, LinkKind::Issue, key)
+            .await
+            .expect("found");
+        links.push(linked(&mut fixture, account, &remote, LinkKind::Issue).await);
+    }
+    let since = Some(Utc::now() - TimeDelta::hours(1));
+
+    let searched = fixture
+        .youtrack_provider()
+        .changes(account.id, &links, since)
+        .await
+        .expect("read");
+    let keys: Vec<&str> = searched.iter().map(|remote| remote.key.as_str()).collect();
+    assert_eq!(keys, ["JL-2"], "only what was updated since the cursor");
+
+    fixture.youtrack.lock().expect("lock").refuses_id_searches = true;
+    let read_alone = fixture
+        .youtrack_provider()
+        .changes(account.id, &links, since)
+        .await
+        .expect("read one at a time");
+    let keys: Vec<&str> = read_alone
+        .iter()
+        .map(|remote| remote.key.as_str())
+        .collect();
+    assert_eq!(keys, ["JL-2"]);
 }

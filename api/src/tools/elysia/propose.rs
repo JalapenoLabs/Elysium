@@ -51,6 +51,13 @@ fn parse_change(change: Value) -> Result<Operation, String> {
             "links to provider issues and pull requests are the person's to add".to_owned(),
         );
     }
+    if matches!(operation, Operation::FileIssue(_)) {
+        return Err(
+            "issues are filed by a project's Project Manager, in that project's tracker; ask it \
+             with elysia_message_project_manager"
+                .to_owned(),
+        );
+    }
     Ok(operation)
 }
 
@@ -77,6 +84,7 @@ pub(super) async fn run(
             reason: proposed.reason,
             quote: proposed.quote,
             source: proposed.source,
+            cause_record_id: None,
         });
     }
 
@@ -137,6 +145,13 @@ mod tests {
             },
         });
         parse_change(link).expect_err("a provider link is refused");
+        let file_issue = json!({
+            "kind": "file-issue",
+            "item": { "id": Uuid::nil() },
+            "tracker": { "provider": "jira", "credentialId": Uuid::nil(), "destination": "ELY" },
+        });
+        let refused = parse_change(file_issue).expect_err("filing is the Project Manager's");
+        assert!(refused.contains("Project Manager"), "{refused}");
     }
 
     #[test]
@@ -161,6 +176,7 @@ mod tests {
                 reason: "Alex asked for it in standup.".to_owned(),
                 quote: None,
                 source: None,
+                cause_record_id: None,
             }],
         )
         .await
@@ -185,6 +201,7 @@ mod tests {
                 reason: "Done.".to_owned(),
                 quote: None,
                 source: None,
+                cause_record_id: None,
             }],
         )
         .await;

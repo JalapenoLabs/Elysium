@@ -62,6 +62,17 @@ pub async fn handle(
         reference: body.reference,
     };
 
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    target
+        .ensure_reachable_by(&mut connection, current.id())
+        .await?;
+    // Reading a provider can take seconds; no connection is held while it does.
+    drop(connection);
+
     let remote = state
         .links
         .provider(target.provider)

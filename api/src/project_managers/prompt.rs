@@ -3,11 +3,12 @@
 //! What a Project Manager is told at the start of a turn.
 //!
 //! Its standing instructions live in `instructions.md` beside this file, versioned with the code,
-//! and are appended to Claude Code's system prompt on every turn. The prompt names its project and
-//! carries everything that woke it: the messages, the records newly on its timeline, the
-//! batches that finished, and the promises found on its project or whose work finished. Every
-//! turn also carries each promise still owed a follow-up, woken for or not, so a turn that failed
-//! never strands one. It is a plain function of its inputs, so it is tested without a runner.
+//! and are appended to Claude Code's system prompt on every turn. The prompt names its project,
+//! says how its changes reach the work and where its issues file ([`Writes`]), and carries
+//! everything that woke it: the messages, the records newly on its timeline, the batches that
+//! finished, and the promises found on its project or whose work finished. Every turn also carries
+//! each promise still owed a follow-up, woken for or not, so a turn that failed never strands one.
+//! It is a plain function of its inputs, so it is tested without a runner.
 //!
 //! The runner passes the prompt as one argument, and Linux allows one argument 128 KiB, so a
 //! record is quoted in part ([`EXCERPT_MAX_CHARACTERS`]) and the whole prompt stays under
@@ -120,10 +121,21 @@ pub enum PromptWork {
     },
 }
 
+/// How a turn's changes reach the work, and where the issues it files go.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Writes {
+    /// Whether its changes apply as it makes them, rather than waiting for a person to approve.
+    pub direct: bool,
+    /// Where its issues file, such as `Jira project ELY, which this project names`, or why it
+    /// cannot file any.
+    pub tracker: Result<String, String>,
+}
+
 /// Everything one turn is told.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TurnContext {
     pub project: ProjectBrief,
+    pub writes: Writes,
     pub messages: Vec<PromptMessage>,
     pub records: Vec<PromptRecord>,
     pub batches: Vec<PromptBatch>,
@@ -137,22 +149,9 @@ pub struct TurnContext {
 /// The prompt for one turn.
 pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
     let mut prompt = String::new();
-    let project = &context.project;
     let _ = writeln!(prompt, "It is {} (UTC).", now.to_rfc3339());
-    let _ = writeln!(
-        prompt,
-        "You are the Project Manager of the project \"{}\" (project {}).",
-        project.name, project.id
-    );
-    let description: String = project
-        .description
-        .trim()
-        .chars()
-        .take(DESCRIPTION_MAX_CHARACTERS)
-        .collect();
-    if !description.is_empty() {
-        let _ = writeln!(prompt, "Its description: {description}");
-    }
+    render_project(&mut prompt, &context.project);
+    render_writes(&mut prompt, &context.writes);
     prompt.push_str("\nSince your last turn:\n");
 
     if !context.messages.is_empty() {
@@ -241,6 +240,47 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
          Summary: line.\n",
     );
     fit(prompt)
+}
+
+/// Which project it manages, and what the project is.
+fn render_project(prompt: &mut String, project: &ProjectBrief) {
+    let _ = writeln!(
+        prompt,
+        "You are the Project Manager of the project \"{}\" (project {}).",
+        project.name, project.id
+    );
+    let description: String = project
+        .description
+        .trim()
+        .chars()
+        .take(DESCRIPTION_MAX_CHARACTERS)
+        .collect();
+    if !description.is_empty() {
+        let _ = writeln!(prompt, "Its description: {description}");
+    }
+}
+
+/// Whether its changes apply at once, and where its issues file.
+fn render_writes(prompt: &mut String, writes: &Writes) {
+    if writes.direct {
+        prompt.push_str(
+            "The changes you make with manager_make_changes apply as you make them: this \
+             project lets you write to its action items and trackers yourself.\n",
+        );
+    } else {
+        prompt.push_str(
+            "The changes you make with manager_make_changes wait for a person to approve them: \
+             this project has you propose them.\n",
+        );
+    }
+    match &writes.tracker {
+        Ok(tracker) => {
+            let _ = writeln!(prompt, "Issues you file go to {tracker}.");
+        }
+        Err(reason) => {
+            let _ = writeln!(prompt, "You cannot file issues: {reason}.");
+        }
+    }
 }
 
 fn render_record(prompt: &mut String, record: &PromptRecord) {
@@ -389,6 +429,10 @@ mod tests {
                 name: "Launch".to_owned(),
                 description: "The spring launch.".to_owned(),
             },
+            writes: Writes {
+                direct: false,
+                tracker: Ok("Jira project ELY, where this project's issues already are".to_owned()),
+            },
             messages: Vec::new(),
             records: Vec::new(),
             batches: Vec::new(),
@@ -413,6 +457,19 @@ mod tests {
     }
 
     #[test]
+    fn it_says_when_its_changes_apply_at_once_and_why_it_cannot_file() {
+        let mut direct = context();
+        direct.writes = Writes {
+            direct: true,
+            tracker: Err("this project names no tracker".to_owned()),
+        };
+
+        let prompt = render(&direct, now());
+        assert!(prompt.contains("apply as you make them"));
+        assert!(prompt.contains("You cannot file issues: this project names no tracker."));
+    }
+
+    #[test]
     fn it_names_its_project_and_everything_that_woke_it() {
         let mut woken = context();
         woken.messages.push(PromptMessage {
@@ -432,6 +489,10 @@ mod tests {
 
         let prompt = render(&woken, now());
         assert!(prompt.contains("Project Manager of the project \"Launch\""));
+        assert!(prompt.contains("wait for a person to approve them"));
+        assert!(prompt.contains(
+            "Issues you file go to Jira project ELY, where this project's issues already are."
+        ));
         assert!(prompt.contains("Its description: The spring launch."));
         assert!(prompt.contains("From Alex, a person"));
         assert!(prompt.contains("Ship the pricing change this week."));

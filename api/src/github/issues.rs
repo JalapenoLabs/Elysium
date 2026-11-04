@@ -163,6 +163,8 @@ pub struct IssueQuery<'a> {
     pub milestone: Option<u64>,
     /// Only issues carrying this label.
     pub label: Option<&'a str>,
+    /// Only issues this login opened.
+    pub creator: Option<&'a str>,
 }
 
 impl IssueQuery<'_> {
@@ -181,6 +183,9 @@ impl IssueQuery<'_> {
         }
         if let Some(label) = self.label {
             parameters.append_pair("labels", label);
+        }
+        if let Some(creator) = self.creator {
+            parameters.append_pair("creator", creator);
         }
         parameters.finish()
     }

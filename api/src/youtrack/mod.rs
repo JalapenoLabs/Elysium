@@ -12,7 +12,8 @@
 //!
 //! This module is the only place that calls YouTrack. What a connector reads, its chosen
 //! projects, is applied above it, in `crate::connectors::kinds::youtrack` and the reader in
-//! [`reader`].
+//! [`reader`]. Its writes (opening an issue, commenting, moving an issue's state) serve action
+//! item links, through `crate::action_items::links::youtrack`.
 
 pub mod reader;
 #[cfg(test)]
@@ -22,9 +23,10 @@ use std::time::Duration;
 
 use chrono::{DateTime, TimeZone, Utc};
 use reqwest::header::ACCEPT;
-use reqwest::{RequestBuilder, StatusCode};
+use reqwest::{Method, RequestBuilder, StatusCode};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
+use serde_json::{Value, json};
 use url::Url;
 
 /// The suffix every YouTrack Cloud site's host ends in.
@@ -41,15 +43,29 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const PROJECT_LIMIT: u32 = 500;
 
 /// The fields every issue is read with. The endpoint's defaults are only an id, so each field
-/// Elysium reads is named.
+/// Elysium reads is named. A custom field's `$type` says what it holds, which is how the state
+/// field is told from the rest whatever a project calls it.
 const ISSUE_FIELDS: &str = "id,idReadable,summary,description,created,updated,resolved,\
-    reporter(login,fullName),project(id,shortName),customFields(name,value(login,fullName,name))";
+    reporter(login,fullName),project(id,shortName),\
+    customFields($type,name,value(login,fullName,name))";
+
+/// The fields a project's custom fields are read with: enough to find its state field and the
+/// values it may take.
+const PROJECT_FIELD_FIELDS: &str = "$type,field(name),bundle(values(name,isResolved,archived))";
+
+/// The `$type` YouTrack gives a project's state field, and an issue's value of it. A project
+/// names its state field as it likes (`State`, or `Stage`), so the type is what is matched.
+const STATE_PROJECT_FIELD: &str = "StateProjectCustomField";
+const STATE_ISSUE_FIELD: &str = "StateIssueCustomField";
 
 /// The fields every comment is read with.
 const COMMENT_FIELDS: &str = "id,text,created,deleted,author(login,fullName)";
 
 /// The custom field YouTrack keeps an issue's assignee in, in every default project template.
 const ASSIGNEE_FIELD: &str = "Assignee";
+
+/// The custom field YouTrack keeps an issue's priority in, in every default project template.
+const PRIORITY_FIELD: &str = "Priority";
 
 /// A site to call, signed in as its account.
 #[derive(Debug, Clone, Copy)]
@@ -97,6 +113,29 @@ pub struct Issue {
     pub reporter: Option<User>,
     pub assignee: Option<User>,
     pub project_id: String,
+    /// The project's short name, such as `JL`.
+    pub project_short_name: String,
+    /// The value of the issue's state field, such as `In Progress`, when it has one.
+    pub state: Option<String>,
+    /// The value of its `Priority` field, such as `Major`, when it has one.
+    pub priority: Option<String>,
+}
+
+/// A project's state field: what it is called, and the values it may take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateField {
+    /// The field's name in the project, such as `State`.
+    pub name: String,
+    /// Its values in the project's order, archived ones left out.
+    pub values: Vec<StateValue>,
+}
+
+/// One value a state field may take.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateValue {
+    pub name: String,
+    /// Whether an issue in this state counts as resolved, as YouTrack decides it.
+    pub is_resolved: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -314,6 +353,157 @@ impl Youtrack {
             .collect())
     }
 
+    /// One issue, named by its database id (`2-41`) or the key a person reads (`JL-12`).
+    ///
+    /// # Errors
+    /// [`YoutrackError::NotFound`] for an issue that does not exist or the token may not read,
+    /// and for a reference that is neither; otherwise as [`Youtrack::whoami`].
+    pub async fn issue(&self, site: &Site<'_>, reference: &str) -> Result<Issue, YoutrackError> {
+        if !is_database_id(reference) && !is_issue_key(reference) {
+            return Err(YoutrackError::NotFound);
+        }
+        let body: IssueBody = self
+            .get(
+                site,
+                &format!("/api/issues/{reference}"),
+                &[("fields", ISSUE_FIELDS)],
+            )
+            .await?;
+        Ok(body.into_issue())
+    }
+
+    /// Opens an issue in the project with database id `project_id`, as the token's user.
+    ///
+    /// # Errors
+    /// [`YoutrackError::NotFound`] for a project the token cannot reach, and
+    /// [`YoutrackError::Refused`] when YouTrack refuses the issue, such as for a user who may
+    /// not create issues there; otherwise as [`Youtrack::whoami`].
+    pub async fn create_issue(
+        &self,
+        site: &Site<'_>,
+        project_id: &str,
+        summary: &str,
+        description: &str,
+    ) -> Result<Issue, YoutrackError> {
+        if !is_database_id(project_id) {
+            return Err(YoutrackError::NotFound);
+        }
+        let request = json!({
+            "project": { "id": project_id },
+            "summary": summary,
+            "description": description,
+        });
+        let body: IssueBody = self
+            .send(
+                Method::POST,
+                site,
+                "/api/issues",
+                &[("fields", ISSUE_FIELDS)],
+                Some(&request),
+            )
+            .await?;
+        Ok(body.into_issue())
+    }
+
+    /// Writes a comment on the issue with database id `issue_id`, as the token's user.
+    ///
+    /// # Errors
+    /// As [`Youtrack::comments`].
+    pub async fn add_comment(
+        &self,
+        site: &Site<'_>,
+        issue_id: &str,
+        text: &str,
+    ) -> Result<(), YoutrackError> {
+        if !is_database_id(issue_id) {
+            return Err(YoutrackError::NotFound);
+        }
+        let request = json!({ "text": text });
+        let _created: Value = self
+            .send(
+                Method::POST,
+                site,
+                &format!("/api/issues/{issue_id}/comments"),
+                &[("fields", "id")],
+                Some(&request),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// The state field of the project with database id `project_id`, or `None` when the
+    /// project has none.
+    ///
+    /// # Errors
+    /// As [`Youtrack::create_issue`].
+    pub async fn state_field(
+        &self,
+        site: &Site<'_>,
+        project_id: &str,
+    ) -> Result<Option<StateField>, YoutrackError> {
+        if !is_database_id(project_id) {
+            return Err(YoutrackError::NotFound);
+        }
+        let fields: Vec<ProjectFieldBody> = self
+            .get(
+                site,
+                &format!("/api/admin/projects/{project_id}/customFields"),
+                &[("fields", PROJECT_FIELD_FIELDS)],
+            )
+            .await?;
+        Ok(fields
+            .into_iter()
+            .find(|field| field.kind == STATE_PROJECT_FIELD)
+            .map(|field| StateField {
+                name: field.field.name,
+                values: field
+                    .bundle
+                    .map(|bundle| bundle.values)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|value| !value.archived)
+                    .map(|value| StateValue {
+                        name: value.name,
+                        is_resolved: value.is_resolved,
+                    })
+                    .collect(),
+            }))
+    }
+
+    /// Moves the issue with database id `issue_id` to `value` of its state field `field`.
+    ///
+    /// # Errors
+    /// [`YoutrackError::Refused`] when YouTrack refuses the move, such as a workflow that
+    /// forbids it; otherwise as [`Youtrack::comments`].
+    pub async fn set_state(
+        &self,
+        site: &Site<'_>,
+        issue_id: &str,
+        field: &str,
+        value: &str,
+    ) -> Result<(), YoutrackError> {
+        if !is_database_id(issue_id) {
+            return Err(YoutrackError::NotFound);
+        }
+        let request = json!({
+            "customFields": [{
+                "name": field,
+                "$type": STATE_ISSUE_FIELD,
+                "value": { "name": value },
+            }],
+        });
+        let _updated: Value = self
+            .send(
+                Method::POST,
+                site,
+                &format!("/api/issues/{issue_id}"),
+                &[("fields", "id")],
+                Some(&request),
+            )
+            .await?;
+        Ok(())
+    }
+
     /// One authenticated GET against the account's site, read in full as `Shape`.
     async fn get<Shape: serde::de::DeserializeOwned>(
         &self,
@@ -321,14 +511,26 @@ impl Youtrack {
         path: &str,
         query: &[(&str, &str)],
     ) -> Result<Shape, YoutrackError> {
-        let response = self
-            .request(site, path)
-            .query(query)
-            .send()
-            .await
-            .map_err(|error| {
-                YoutrackError::Refused(format!("YouTrack: {}", error.without_url()))
-            })?;
+        self.send(Method::GET, site, path, query, None).await
+    }
+
+    /// One authenticated call against the account's site, with an optional JSON body, read in
+    /// full as `Shape`.
+    async fn send<Shape: serde::de::DeserializeOwned>(
+        &self,
+        method: Method,
+        site: &Site<'_>,
+        path: &str,
+        query: &[(&str, &str)],
+        body: Option<&Value>,
+    ) -> Result<Shape, YoutrackError> {
+        let mut request = self.request(method, site, path).query(query);
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        let response = request.send().await.map_err(|error| {
+            YoutrackError::Refused(format!("YouTrack: {}", error.without_url()))
+        })?;
         let status = response.status();
         let body = response.text().await.map_err(|error| {
             YoutrackError::Refused(format!("YouTrack: {}", error.without_url()))
@@ -343,14 +545,14 @@ impl Youtrack {
         })
     }
 
-    fn request(&self, site: &Site<'_>, path: &str) -> RequestBuilder {
+    fn request(&self, method: Method, site: &Site<'_>, path: &str) -> RequestBuilder {
         #[cfg(not(test))]
         let origin = site.url;
         #[cfg(test)]
         let origin = self.test_origin.as_deref().unwrap_or(site.url);
 
         self.http
-            .get(format!("{origin}{path}"))
+            .request(method, format!("{origin}{path}"))
             .bearer_auth(site.token.expose_secret())
             .header(ACCEPT, "application/json")
             .timeout(REQUEST_TIMEOUT)
@@ -389,6 +591,20 @@ fn is_database_id(id: &str) -> bool {
             && (1..=19).contains(&entity_id.len())
             && type_id.chars().all(|digit| digit.is_ascii_digit())
             && entity_id.chars().all(|digit| digit.is_ascii_digit())
+    })
+}
+
+/// Whether `key` is an issue key a person reads, such as `JL-12`: a project's short name, a
+/// hyphen, and a number. A key that passes holds nothing to encode in a path.
+pub fn is_issue_key(key: &str) -> bool {
+    key.rsplit_once('-').is_some_and(|(project, number)| {
+        (1..=50).contains(&project.len())
+            && project.starts_with(|first: char| first.is_ascii_alphabetic())
+            && project
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '_')
+            && (1..=19).contains(&number.len())
+            && number.chars().all(|digit| digit.is_ascii_digit())
     })
 }
 
@@ -434,8 +650,11 @@ struct ProjectBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ProjectReference {
     id: String,
+    #[serde(default)]
+    short_name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -460,14 +679,24 @@ struct IssueBody {
 
 impl IssueBody {
     fn into_issue(self) -> Issue {
-        let assignee = self
-            .custom_fields
-            .into_iter()
-            .find(|field| field.name == ASSIGNEE_FIELD)
-            .and_then(|field| field.value)
-            .and_then(|value| serde_json::from_value::<UserBody>(value).ok())
-            .filter(|user| !user.login.is_empty())
-            .map(UserBody::into_user);
+        let mut assignee = None;
+        let mut state = None;
+        let mut priority = None;
+        for field in self.custom_fields {
+            let Some(value) = field.value else {
+                continue;
+            };
+            if field.name == ASSIGNEE_FIELD {
+                assignee = serde_json::from_value::<UserBody>(value)
+                    .ok()
+                    .filter(|user| !user.login.is_empty())
+                    .map(UserBody::into_user);
+            } else if field.kind == STATE_ISSUE_FIELD {
+                state = value_name(&value);
+            } else if field.name == PRIORITY_FIELD {
+                priority = value_name(&value);
+            }
+        }
         Issue {
             id: self.id,
             key: self.id_readable,
@@ -479,17 +708,63 @@ impl IssueBody {
             reporter: self.reporter.map(UserBody::into_user),
             assignee,
             project_id: self.project.id,
+            project_short_name: self.project.short_name,
+            state,
+            priority,
         }
     }
 }
 
+/// The name an enum or state value carries, such as `{ "name": "Fixed" }`.
+fn value_name(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+}
+
 /// A custom field as YouTrack sends it. Its value's shape depends on the field's type (a user,
-/// an enum value, a list), so it is read as JSON and only the assignee's is interpreted.
+/// an enum value, a list), so it is read as JSON and only the assignee, the state, and the
+/// priority are interpreted.
 #[derive(Debug, Deserialize)]
 struct CustomFieldBody {
     name: String,
+    #[serde(rename = "$type", default)]
+    kind: String,
     #[serde(default)]
     value: Option<serde_json::Value>,
+}
+
+/// One of a project's custom fields, as its settings list them.
+#[derive(Debug, Deserialize)]
+struct ProjectFieldBody {
+    #[serde(rename = "$type", default)]
+    kind: String,
+    field: FieldNameBody,
+    #[serde(default)]
+    bundle: Option<BundleBody>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FieldNameBody {
+    name: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BundleBody {
+    #[serde(default)]
+    values: Vec<BundleValueBody>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BundleValueBody {
+    name: String,
+    #[serde(default)]
+    is_resolved: bool,
+    #[serde(default)]
+    archived: bool,
 }
 
 #[derive(Debug, Deserialize)]

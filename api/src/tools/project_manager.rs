@@ -5,10 +5,13 @@
 //! It reads its project's timeline, every owner's records on it, and its batches, and it submits
 //! and withdraws batches for the worker pool. It also keeps its project's promises: it lists them,
 //! ties each to the work that keeps it, and drafts a follow-up once that work is done, through
-//! `crate::project_managers::promises`. Every call is scoped to the turn's project and checked
-//! against the database as it is now. What it submits names the turn as its provenance and lands
-//! on the project's timeline, through `crate::project_managers::batches`, the one place batches
-//! are stored. See `docs/engine.md`, Project Managers and Follow-ups.
+//! `crate::project_managers::promises`. And it changes its project's action items and files their
+//! issues in the project's tracker (`manager_make_changes`, in
+//! `crate::tools::work::manager_changes`, beside the other work tools whose staging it shares).
+//! Every call is scoped to the turn's project and checked against the database as it is now. What
+//! it submits names the turn as its provenance and lands on the project's timeline, through
+//! `crate::project_managers::batches`, the one place batches are stored. See `docs/engine.md`,
+//! Project Managers and Follow-ups.
 
 use std::collections::HashMap;
 
@@ -27,6 +30,7 @@ use crate::models::timeline_record::{self, Attribution, TimelineRecord};
 use crate::models::work_batch::{self, BatchState, WorkBatch};
 use crate::project_managers::batches::{self, BatchError, Submission};
 use crate::project_managers::promises::{self, PromiseError};
+use crate::tools::work::manager_changes;
 
 pub const SERVER: ToolServer = ToolServer {
     name: "elysium_project_manager",
@@ -42,12 +46,16 @@ pub const SERVER: ToolServer = ToolServer {
         on yet. manager_promises lists what the person promised to tell people once the \
         project's work is done; manager_tie_promise ties a promise to the batch or action item \
         that keeps it, and manager_draft_follow_up drafts its follow-up, in the person's voice, \
-        once that work is done. A follow-up is never sent until the person sends it.",
+        once that work is done. A follow-up is never sent until the person sends it. \
+        manager_make_changes changes the project's action items (create, update, resolve, \
+        dismiss, comment, move between initiatives) and files an item's own issue in the \
+        project's tracker, each change naming the record it came from; the turn's prompt says \
+        whether your changes apply at once or wait for a person.",
     ),
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 8] = [
+const TOOLS: [Tool; 9] = [
     Tool {
         name: "manager_timeline",
         description: "Lists the records on this project's timeline, newest first: each one's \
@@ -116,6 +124,20 @@ const TOOLS: [Tool; 8] = [
             is sent until they do. Answers the promise and its item.",
         input_schema: draft_follow_up_schema,
         run: |context, scope, arguments| run_draft_follow_up(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "manager_make_changes",
+        description: "Changes this project's action items and initiatives, and files an \
+            item's own issue in the project's tracker (file-issue), as one changeset: \
+            creating, updating, resolving, dismissing, or commenting on items, moving them into \
+            or out of initiatives, and creating initiatives. A comment is posted to the item's \
+            linked issue, and resolving moves its issues to done. Every change names the \
+            timeline record it came from (causeRecordId). A change can act on what an earlier \
+            one creates by naming {\"operation\": n}. When this project lets you write, it \
+            applies at once and answers how each change ended; otherwise it waits for a \
+            person's approval and answers the staged changeset.",
+        input_schema: manager_changes::schema,
+        run: |context, scope, arguments| manager_changes::run(context, scope, arguments).boxed(),
     },
 ];
 

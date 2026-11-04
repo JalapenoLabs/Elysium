@@ -30,7 +30,7 @@ use uuid::Uuid;
 use crate::action_items::Actor;
 use crate::action_items::links::{LinkError, Links};
 use crate::models::action_item::ActionItemPriority;
-use crate::models::action_item_link::NewLink;
+use crate::models::action_item_link::{LinkCredential, LinkProvider, NewLink};
 use crate::models::changeset::{ChangesetDecision, ChangesetOperation};
 use crate::routes::v1::action_items::LinkTarget;
 
@@ -52,7 +52,8 @@ const NAME_MAX_CHARACTERS: usize = 200;
 const DESCRIPTION_MAX_CHARACTERS: usize = 20_000;
 const COMMENT_MAX_CHARACTERS: usize = 20_000;
 
-/// The longest reference a link names, as the link route accepts.
+/// The longest reference a link names, as the link route accepts, and the longest place an
+/// issue is filed in, matching its column.
 const REFERENCE_MAX_CHARACTERS: usize = 300;
 
 /// Who proposed a changeset. The user never proposes: the user acts directly.
@@ -147,6 +148,7 @@ pub enum Operation {
     AddToInitiative(Membership),
     RemoveFromInitiative(Membership),
     CreateInitiative(CreateInitiative),
+    FileIssue(FileIssue),
 }
 
 /// Creates an item.
@@ -214,6 +216,35 @@ pub struct AddLink {
     pub target: LinkTarget,
 }
 
+/// Files an item's own issue in a tracker. The watcher opens it with the item's title and notes
+/// and links it as the item's primary (`crate::models::action_item_issue_filing`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FileIssue {
+    pub item: Target,
+    /// Where it opens, decided when it is proposed, so the review shows where it goes.
+    pub tracker: TrackerTarget,
+}
+
+/// A place issues open, and the credential that files there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrackerTarget {
+    pub provider: LinkProvider,
+    pub credential_id: Uuid,
+    /// A Jira project key, a GitHub `owner/name`, or a YouTrack project's short name.
+    pub destination: String,
+}
+
+impl TrackerTarget {
+    pub const fn credential(&self) -> LinkCredential {
+        LinkCredential {
+            provider: self.provider,
+            id: self.credential_id,
+        }
+    }
+}
+
 /// Puts an item into an initiative, or takes it out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -252,7 +283,8 @@ impl Operation {
             | Self::ResolveItem(FinishItem { item })
             | Self::DismissItem(FinishItem { item })
             | Self::Comment(AddComment { item, .. })
-            | Self::Link(AddLink { item, .. }) => vec![(*item, Subject::Item)],
+            | Self::Link(AddLink { item, .. })
+            | Self::FileIssue(FileIssue { item, .. }) => vec![(*item, Subject::Item)],
             Self::AddToInitiative(membership) | Self::RemoveFromInitiative(membership) => vec![
                 (membership.item, Subject::Item),
                 (membership.initiative, Subject::Initiative),
@@ -289,6 +321,11 @@ impl Operation {
             Self::Link(link) => text_refusal(
                 "target.reference",
                 &link.target.reference,
+                REFERENCE_MAX_CHARACTERS,
+            ),
+            Self::FileIssue(file) => text_refusal(
+                "tracker.destination",
+                &file.tracker.destination,
                 REFERENCE_MAX_CHARACTERS,
             ),
             Self::CreateInitiative(create) => {
@@ -351,6 +388,9 @@ pub struct ProposedOperation {
     pub quote: Option<String>,
     /// Where those words are, such as the meeting and a time in it, or a URL.
     pub source: Option<String>,
+    /// The timeline record that caused it, such as a meeting's segment or a message. Every
+    /// Project Manager's operation names one, and the write it makes is recorded with it.
+    pub cause_record_id: Option<Uuid>,
 }
 
 /// A changeset as its proposer sends it.
@@ -570,7 +610,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::models::action_item_link::{LinkKind, LinkProvider};
+    use crate::models::action_item_link::LinkKind;
 
     fn existing() -> Target {
         Target::Existing(Existing { id: Uuid::nil() })
@@ -620,6 +660,7 @@ mod tests {
                     reason: "Sam asked for it".to_owned(),
                     quote: None,
                     source: None,
+                    cause_record_id: None,
                 })
                 .collect(),
         }
@@ -652,6 +693,11 @@ mod tests {
                 "initiative": { "operation": 6 },
             },
             { "kind": "create-initiative", "name": "Launch" },
+            {
+                "kind": "file-issue",
+                "item": { "operation": 1 },
+                "tracker": { "provider": "youtrack", "credentialId": Uuid::nil(), "destination": "JL" },
+            },
         ]);
         let operations: Vec<Operation> = serde_json::from_value(sent).expect("parses");
 

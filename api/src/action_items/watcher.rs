@@ -5,9 +5,10 @@
 //! Every [`WATCH_INTERVAL`], and at once whenever a write asks for it
 //! ([`Links::wake_watcher`]), one pass:
 //!
-//! 1. Lands every owed provider write: closes for resolved items' issues, and comments for
-//!    primary links. A write that fails or waits keeps the provider's answer and is tried
-//!    again next pass, until it lands or the user cancels it.
+//! 1. Lands every owed provider write: closes for resolved items' issues, comments for
+//!    primary links, and issues filed for items that asked for one. A write that fails or
+//!    waits keeps the provider's answer and is tried again next pass, until it lands or the
+//!    user cancels it.
 //! 2. For each credential a live link or container goes through, asks the provider for what
 //!    changed since the credential's cursor, and applies each change to its item through
 //!    [`rules`]. Each container's children are read whole and joined to, or taken out of,
@@ -38,12 +39,13 @@ use tracing::{Level, event};
 use uuid::Uuid;
 
 use crate::action_items::links::rules::{self, Reaction};
-use crate::action_items::links::{LinkError, Links, Remote, WriteOutcome};
+use crate::action_items::links::{IssueToFile, LinkError, Links, Remote, WriteOutcome};
 use crate::action_items::{Actor, Transition, WorkError};
 use crate::connectors::activity::Activity;
 use crate::database::Pool;
 use crate::models::action_item::{self, ActionItem, ActionItemState, NewActionItem};
 use crate::models::action_item_event::{HistoryKind, Recorded};
+use crate::models::action_item_issue_filing::{self, Filed, IssueFiling};
 use crate::models::action_item_link::{
     self, ActionItemLink, LinkCredential, LinkKind, LinkProvider, LinkState, NewLink, Observation,
 };
@@ -53,7 +55,7 @@ use crate::models::connector_run::ConnectorRun;
 use crate::models::initiative_link::{self, InitiativeLink};
 use crate::models::{action_item_comment, initiative, link_watch_cursor};
 use crate::realtime::{EventBus, ServerEvent, Signal};
-use crate::routes::v1::action_items::{publish_item_links, publish_item_write};
+use crate::routes::v1::action_items::{item_responses, publish_item_links, publish_item_write};
 use crate::routes::v1::initiatives::InitiativeLinkResponse;
 
 /// How often the watcher reads every credential. A change in Jira or GitHub reaches Elysium
@@ -70,6 +72,11 @@ const WRITES_PER_PASS: i64 = 100;
 /// The longest title an item created for a container's child starts with, matching the
 /// items table.
 const ITEM_TITLE_MAX_CHARACTERS: usize = 500;
+
+/// The longest title a filed issue opens with: Jira's summary limit of 255 characters, the
+/// strictest of the providers', so an item's issue reads the same in every tracker. The title
+/// is cut before the first attempt, so a retry looks for exactly what the first one sent.
+const ISSUE_TITLE_MAX_CHARACTERS: usize = 255;
 
 /// What the watcher works with. Cheap to clone; clones share every connection.
 #[derive(Clone)]
@@ -223,6 +230,17 @@ async fn report(
     let account = match credential.provider {
         LinkProvider::Jira => AccountRef::Atlassian(credential.id),
         LinkProvider::Github => AccountRef::Github(credential.id),
+        // A YouTrack account's connector is its reader, whose runs are what it ingested; the
+        // watcher's reads of linked issues are not that connector's to report.
+        LinkProvider::Youtrack => {
+            event!(
+                name: "links.watcher.report.skipped",
+                Level::DEBUG,
+                credential.id = %credential.id,
+                "a YouTrack account's link reads are not reported as its connector's runs",
+            );
+            return;
+        }
     };
     let found = async {
         let mut connection = connect(&context.database).await?;
@@ -642,6 +660,135 @@ pub async fn land_writes(context: &WatchContext) -> anyhow::Result<()> {
                 "the outcome of an owed write could not be recorded; it is tried again",
             );
         }
+    }
+
+    let filings = {
+        let mut connection = connect(&context.database).await?;
+        action_item_issue_filing::owed(&mut connection, WRITES_PER_PASS).await?
+    };
+    for filing in filings {
+        if let Err(error) = file_issue(context, &filing).await {
+            event!(
+                name: "links.watcher.filing.unrecorded",
+                Level::ERROR,
+                filing.id = %filing.id,
+                error.message = %error,
+                "the outcome of an owed filing could not be recorded; it is tried again",
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Tries one owed filing: opens the item's issue, or finds the one an earlier attempt opened,
+/// and links it to the item, or records why it could not.
+async fn file_issue(context: &WatchContext, filing: &IssueFiling) -> anyhow::Result<()> {
+    let mut connection = connect(&context.database).await?;
+    if !action_item_issue_filing::still_wanted(&mut connection, filing).await? {
+        event!(
+            name: "links.watcher.filing.dropped",
+            Level::INFO,
+            filing.id = %filing.id,
+            "an owed filing was dropped: its item was finished or deleted before it was filed",
+        );
+        action_item_issue_filing::forget(&mut connection, filing.id).await?;
+        publish_item(context, &mut connection, filing.action_item_id).await?;
+        return Ok(());
+    }
+    let item = action_item::find(&mut connection, filing.action_item_id).await?;
+    let filing =
+        match action_item_issue_filing::begin_attempt(&mut connection, filing, Utc::now()).await {
+            Ok(filing) => filing,
+            // Cancelled or undone in the moment since it was listed.
+            Err(DieselError::NotFound) => return Ok(()),
+            Err(other) => return Err(other.into()),
+        };
+    drop(connection);
+
+    let title: String = item
+        .title
+        .chars()
+        .take(ISSUE_TITLE_MAX_CHARACTERS)
+        .collect();
+    // An attempt before this one may have opened the issue; this one looks for it first.
+    let tried_since = filing.first_attempt_at.filter(|_first| filing.attempts > 1);
+    let issue = IssueToFile {
+        credential_id: filing.credential().id,
+        destination: &filing.destination,
+        title: &title,
+        body: &item.notes,
+        tried_since,
+    };
+    let outcome = context.links.provider(filing.provider).file(issue).await;
+
+    let now = Utc::now();
+    let mut connection = connect(&context.database).await?;
+    match outcome {
+        Ok(remote) => {
+            let filed = Filed {
+                external_id: remote.external_id.clone(),
+                observation: remote.observation(),
+            };
+            match action_item_issue_filing::land(&mut connection, &filing, filed, now).await {
+                Ok(linked) => {
+                    publish_item_write(&context.events, &mut connection, linked.item, &[], now)
+                        .await?;
+                }
+                Err(WorkError::Conflict(reason)) => {
+                    // The issue exists, but its item can no longer take it. Trying again would
+                    // only open another, so the filing ends here, and the issue is named for
+                    // whoever reads the log.
+                    event!(
+                        name: "links.watcher.filing.orphaned",
+                        Level::WARN,
+                        filing.id = %filing.id,
+                        url.full = %remote.url,
+                        error.message = reason,
+                        "an issue was filed for an item that can no longer be linked to it",
+                    );
+                    action_item_issue_filing::forget(&mut connection, filing.id).await?;
+                }
+                Err(WorkError::Database(DieselError::NotFound)) => {
+                    event!(
+                        name: "links.watcher.filing.withdrawn",
+                        Level::WARN,
+                        filing.id = %filing.id,
+                        url.full = %remote.url,
+                        "an issue was filed for a filing withdrawn while it was being filed",
+                    );
+                }
+                Err(other) => return Err(other.into()),
+            }
+        }
+        Err(error) => {
+            event!(
+                name: "links.watcher.filing.failed",
+                Level::INFO,
+                filing.id = %filing.id,
+                error.message = %error,
+                "an owed filing failed; it is tried again next pass",
+            );
+            let message = describe(&error);
+            action_item_issue_filing::record_failure(&mut connection, filing.id, &message).await?;
+        }
+    }
+    publish_item(context, &mut connection, filing.action_item_id).await?;
+    publish_item_links(&context.events, &mut connection, filing.action_item_id).await?;
+    Ok(())
+}
+
+/// Publishes an item as it is now, carrying the issue it is still owed, if any: a filing's tries
+/// and its provider's answer show on the item, so a failure never goes unseen.
+async fn publish_item(
+    context: &WatchContext,
+    connection: &mut AsyncPgConnection,
+    action_item_id: Uuid,
+) -> anyhow::Result<()> {
+    let item = action_item::find(connection, action_item_id).await?;
+    for response in item_responses(connection, vec![item]).await? {
+        context
+            .events
+            .publish(&ServerEvent::ActionItemUpserted(response));
     }
     Ok(())
 }

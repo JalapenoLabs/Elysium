@@ -1,24 +1,79 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `/api/v1/projects/{id}/project-manager`: a project's Project Manager, as its page shows it:
-//! what it is doing, its latest turns with what woke each, its batches, and its promises; one
-//! turn with its
-//! log; and a person writing to it. Its turns quote what was ingested, so these answer the
-//! company's members alone, as the knowledge base does. See `docs/engine.md`, Project Managers.
+//! what it is doing, its latest turns with what woke each, its batches, its promises, and how its
+//! changes reach the work; one turn with its log; a person writing to it; and the project's
+//! settings for it: whether its changes apply at once, and the tracker its issues file in. Its
+//! turns quote what was ingested, so these answer the company's members alone, as the knowledge
+//! base does. See `docs/engine.md`, Project Managers.
 
+pub mod clear_tracker;
 pub mod get_project_manager;
 pub mod get_turn;
+pub mod list_destinations;
 pub mod send_message;
+pub mod set_tracker;
+pub mod update_project_manager;
 
 use chrono::{DateTime, Utc};
+use diesel_async::AsyncPgConnection;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::errors::ApiError;
+use crate::models::action_item_link::LinkProvider;
 use crate::models::project_manager::{Turn, TurnStatus, Wake, WakeKind};
-use crate::project_managers::Snapshot;
+use crate::models::{github_credential, project, token_account};
 use crate::project_managers::status::Status;
+use crate::project_managers::trackers::{self, TrackerSource};
+use crate::project_managers::{Snapshot, WritesSnapshot};
 use crate::routes::v1::promises::PromiseResponse;
 use crate::routes::v1::work_batches::BatchResponse;
+
+/// The credential a tracker on `provider` files through for `project_id`, as `person` names it,
+/// refused when there is none they may name.
+///
+/// A Jira tracker names a Jira credential, which is the workspace's. A YouTrack tracker names a
+/// YouTrack account, which is its owner's alone, so only its owner names it. A GitHub tracker
+/// names none: it files with the token the project's sessions get, its own or the workspace
+/// default (`crate::project_managers::trackers`).
+///
+/// # Errors
+/// [`ApiError::BadRequest`] for a credential named where none is taken or missing where one is,
+/// and for a project whose sessions get no GitHub token; [`ApiError::NotFound`] for a YouTrack
+/// account that is not `person`'s; and any database error.
+pub async fn tracker_credential(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    provider: LinkProvider,
+    credential_id: Option<Uuid>,
+    person: Uuid,
+) -> Result<Uuid, ApiError> {
+    match (provider, credential_id) {
+        (LinkProvider::Github, None) => {
+            let project = project::find(connection, project_id).await?;
+            let workspace_default = github_credential::find_default(connection)
+                .await?
+                .map(|credential| credential.id);
+            project
+                .github_credential(workspace_default)
+                .ok_or_else(|| ApiError::BadRequest(trackers::NO_GITHUB_TOKEN.to_owned()))
+        }
+        (LinkProvider::Github, Some(_credential_id)) => Err(ApiError::BadRequest(
+            "a GitHub tracker files with the project's own token; leave credentialId out"
+                .to_owned(),
+        )),
+        (LinkProvider::Jira | LinkProvider::Youtrack, None) => Err(ApiError::BadRequest(
+            "credentialId names the Jira credential or YouTrack account that files there"
+                .to_owned(),
+        )),
+        (LinkProvider::Jira, Some(credential_id)) => Ok(credential_id),
+        (LinkProvider::Youtrack, Some(credential_id)) => {
+            token_account::find_owned(connection, credential_id, person).await?;
+            Ok(credential_id)
+        }
+    }
+}
 
 /// A project's Project Manager, as its page shows it.
 #[derive(Debug, Clone, Serialize)]
@@ -36,6 +91,54 @@ pub struct ProjectManagerResponse {
     batches: Vec<BatchResponse>,
     /// Its latest promises, newest first.
     promises: Vec<PromiseResponse>,
+    writes: WritesResponse,
+}
+
+/// How a Project Manager's changes reach the work.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WritesResponse {
+    /// Whether its changes apply as it makes them, rather than waiting for a person.
+    direct: bool,
+    /// Where its issues file; `null` when there is nowhere, and `trackerRefusal` says why.
+    tracker: Option<TrackerResponse>,
+    tracker_refusal: Option<&'static str>,
+}
+
+/// A project's tracker.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackerResponse {
+    source: TrackerSource,
+    provider: LinkProvider,
+    /// The Jira credential, GitHub token, or YouTrack account that files there.
+    credential_id: Uuid,
+    credential_name: String,
+    /// A Jira project key, a GitHub `owner/name`, or a YouTrack project's short name.
+    destination: String,
+}
+
+impl From<WritesSnapshot> for WritesResponse {
+    fn from(writes: WritesSnapshot) -> Self {
+        let (tracker, tracker_refusal) = match writes.tracker {
+            Ok(snapshot) => (
+                Some(TrackerResponse {
+                    source: snapshot.tracker.source,
+                    provider: snapshot.tracker.place.provider,
+                    credential_id: snapshot.tracker.credential_id,
+                    credential_name: snapshot.credential_name,
+                    destination: snapshot.tracker.place.destination,
+                }),
+                None,
+            ),
+            Err(reason) => (None, Some(reason)),
+        };
+        Self {
+            direct: writes.direct,
+            tracker,
+            tracker_refusal,
+        }
+    }
 }
 
 impl From<Snapshot> for ProjectManagerResponse {
@@ -66,6 +169,7 @@ impl From<Snapshot> for ProjectManagerResponse {
                     PromiseResponse::new(promise, record.as_ref(), draft_id)
                 })
                 .collect(),
+            writes: WritesResponse::from(snapshot.writes),
         }
     }
 }

@@ -55,7 +55,17 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/{id}/project-manager",
-            get(project_manager::get_project_manager::handle),
+            get(project_manager::get_project_manager::handle)
+                .patch(project_manager::update_project_manager::handle),
+        )
+        .route(
+            "/{id}/project-manager/tracker",
+            put(project_manager::set_tracker::handle)
+                .delete(project_manager::clear_tracker::handle),
+        )
+        .route(
+            "/{id}/project-manager/destinations",
+            get(project_manager::list_destinations::handle),
         )
         .route(
             "/{id}/project-manager/messages",

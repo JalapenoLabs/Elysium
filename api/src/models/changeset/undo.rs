@@ -15,10 +15,12 @@
 //! | add to an initiative   | Takes the item out again, if the operation put it in          |
 //! | remove from one        | Puts it back, if the operation took it out                    |
 //! | create an initiative   | Deletes it softly                                             |
+//! | file an issue          | Drops the filing, or unlinks the issue once it was filed      |
 //!
 //! Some effects have already left Elysium and cannot be reversed from here: a comment the
-//! watcher already posted to the provider stays there, and an issue the watcher already
-//! closed stays closed when its item returns. Each operation's `undo` records what was not
+//! watcher already posted to the provider stays there, an issue the watcher already closed
+//! stays closed when its item returns, and an issue the watcher already filed stays in its
+//! tracker. Each operation's `undo` records what was not
 //! reversed so the review says so. Changes the user made after the changeset are never
 //! overwritten: a field edited since keeps the user's value, and an item moved since stays
 //! where the user put it.
@@ -47,7 +49,9 @@ use crate::models::action_item::{self, ActionItemChanges, ActionItemState};
 use crate::models::action_item_event;
 use crate::models::action_item_link::{self, LinkKind, LinkState};
 use crate::models::action_item_link_write::LinkWriteKind;
-use crate::models::{action_item_comment, action_item_link_write, initiative};
+use crate::models::{
+    action_item_comment, action_item_issue_filing, action_item_link_write, initiative,
+};
 
 /// Why one operation could not be reversed.
 #[derive(Debug)]
@@ -233,7 +237,45 @@ async fn reverse(
             reverse_membership(connection, result, true, stands_for, actor, now).await
         }
         Operation::CreateInitiative(_) => delete_initiative(connection, result, actor, now).await,
+        Operation::FileIssue(_) => withdraw_filing(connection, result, actor, now).await,
     }
+}
+
+/// Withdraws an issue the changeset asked for. One not filed yet is dropped. One the watcher
+/// already filed stays in its tracker (`stillFiled`), and the item stops following it, as for a
+/// link the changeset added; one dropped because its item was finished first left nothing.
+async fn withdraw_filing(
+    connection: &mut AsyncPgConnection,
+    result: &Value,
+    actor: Actor,
+    now: DateTime<Utc>,
+) -> Result<Reversed, Failure> {
+    let filing_id = result_id(result, "filingId");
+    let item_id = result_id(result, "itemId");
+    let pending = action_item_issue_filing::for_item(connection, item_id)
+        .await?
+        .filter(|filing| filing.id == filing_id);
+    if let Some(filing) = pending {
+        action_item_issue_filing::forget(connection, filing.id).await?;
+        let mut reversed = Reversed::done();
+        reversed.touched.link_item_ids.insert(item_id);
+        return Ok(reversed);
+    }
+    if result.get("linkId").is_none() {
+        return Ok(Reversed::done());
+    }
+    let link_id = result_id(result, "linkId");
+    let filed = action_item_link::find(connection, link_id)
+        .await
+        .optional()?;
+    let mut reversed = remove_link(connection, result, actor, now).await?;
+    if let Some(link) = filed {
+        reversed.details.insert(
+            "stillFiled".to_owned(),
+            json!({ "provider": link.provider, "key": link.external_key, "url": link.url }),
+        );
+    }
+    Ok(reversed)
 }
 
 /// Deletes the item a create made, softly, so it can still be restored. One the user

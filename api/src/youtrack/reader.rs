@@ -454,6 +454,9 @@ mod tests {
             reporter: Some(person(reporter)),
             assignee: assignee.map(person),
             project_id: "0-1".to_owned(),
+            project_short_name: "JL".to_owned(),
+            state: None,
+            priority: None,
         }
     }
 
@@ -587,13 +590,13 @@ mod tests {
         let mut site = shared.lock().expect("lock");
         site.issues[0].updated = 2_000_000;
         site.issues.push(sample_issue("2-2", "JL-2", 3_000_000));
-        site.comments.push(FakeComment {
-            issue_id: "2-1",
-            id: "4-1",
-            text: "Can you take a look?",
-            created: 2_000_000,
-            author: "bea",
-        });
+        site.comments.push(FakeComment::new(
+            "2-1",
+            "4-1",
+            "Can you take a look?",
+            2_000_000,
+            "bea",
+        ));
     }
 
     #[tokio::test]

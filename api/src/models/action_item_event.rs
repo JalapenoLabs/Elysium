@@ -59,6 +59,9 @@ pub enum HistoryKind {
     /// The user cancelled a provider write that had not landed. `data` is `{ linkId, key,
     /// write }`, where `write` is `close` or `comment`.
     LinkWriteCancelled,
+    /// The user cancelled an issue owed to the item before it was filed. `data` is
+    /// `{ filingId, provider, destination }`.
+    IssueFilingCancelled,
     /// A linked pull request closed without merging, which resolves nothing. `data` is
     /// `{ linkId, key, url }`.
     PullRequestClosed,
@@ -89,6 +92,7 @@ impl HistoryKind {
             Self::LinkRemoved => "link_removed",
             Self::PrimaryLinkChanged => "primary_link_changed",
             Self::LinkWriteCancelled => "link_write_cancelled",
+            Self::IssueFilingCancelled => "issue_filing_cancelled",
             Self::PullRequestClosed => "pull_request_closed",
             Self::ContainerLinked => "container_linked",
             Self::ContainerUnlinked => "container_unlinked",

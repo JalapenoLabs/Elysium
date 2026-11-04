@@ -27,11 +27,12 @@ use uuid::Uuid;
 
 use super::prompt::{
     self, ProjectBrief, PromptBatch, PromptMessage, PromptPromise, PromptRecord, PromptWork,
-    TurnContext,
+    TurnContext, Writes,
 };
 use super::queue;
 use super::runner::{ManagerRunner, ManagerTurn, Ran, TurnLog};
 use super::timeline;
+use super::trackers::{self, TrackerSource};
 use crate::agent_models::{self, Agent};
 use crate::database::Pool;
 use crate::elysia::prompt::read_back;
@@ -368,6 +369,10 @@ async fn load_context(
     });
 
     Ok(TurnContext {
+        writes: Writes {
+            direct: project.manager_writes_directly,
+            tracker: tracker_brief(connection, turn.project_id).await?,
+        },
         project: ProjectBrief {
             id: project.id,
             name: project.name,
@@ -474,6 +479,27 @@ async fn load_promises(
         });
     }
     Ok(promises)
+}
+
+/// Where the project's issues file, as its prompt says it, or why there is nowhere.
+async fn tracker_brief(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+) -> diesel::QueryResult<Result<String, String>> {
+    let resolved = trackers::resolve(connection, project_id).await?;
+    Ok(resolved
+        .map(|tracker| {
+            let source = match tracker.source {
+                TrackerSource::Named => "which this project names",
+                TrackerSource::Precedent => "where this project's issues already are",
+            };
+            format!(
+                "{} {}, {source}",
+                tracker.place.provider.name(),
+                tracker.place.destination
+            )
+        })
+        .map_err(str::to_owned))
 }
 
 /// Records how the turn ended, and announces it.

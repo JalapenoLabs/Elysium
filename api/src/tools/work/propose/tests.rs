@@ -68,6 +68,15 @@ fn agents_link_only_pull_requests_by_url_and_never_choose_projects() {
     ));
     parse_change(json!({ "kind": "delete-item", "item": item }))
         .expect_err("an agent cannot propose deleting");
+    let file_issue = parse_change(json!({
+        "kind": "file-issue",
+        "item": item,
+        "tracker": { "provider": "jira", "credentialId": Uuid::nil(), "destination": "ELY" },
+    }));
+    assert!(
+        file_issue.is_err_and(|refusal| refusal.contains("Project Manager")),
+        "a session never names a tracker and a credential to file through"
+    );
 }
 
 async fn project_named(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
@@ -108,6 +117,7 @@ fn proposed_operation(operation: Operation) -> ProposedOperation {
         reason: "The fix is merged.".to_owned(),
         quote: None,
         source: Some("src/auth.rs:12".to_owned()),
+        cause_record_id: None,
     }
 }
 

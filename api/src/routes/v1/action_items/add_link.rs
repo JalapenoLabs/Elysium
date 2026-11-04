@@ -21,7 +21,7 @@ use validator::Validate;
 use super::{LinkTarget, link_responses, publish_item_links, publish_item_write};
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
-use crate::models::action_item_link::{self, NewLink};
+use crate::models::action_item_link::{self, Claim, NewLink};
 use crate::state::AppState;
 
 pub async fn handle(
@@ -33,6 +33,17 @@ pub async fn handle(
     let Path(id) = path?;
     let Json(target) = body?;
     target.validate()?;
+
+    let mut connection = state
+        .database
+        .get()
+        .await
+        .context("no database connection available")?;
+    target
+        .ensure_reachable_by(&mut connection, current.id())
+        .await?;
+    // Reading a provider can take seconds; no connection is held while it does.
+    drop(connection);
 
     let remote = state
         .links
@@ -52,8 +63,15 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let linked =
-        action_item_link::add(&mut connection, id, new_link, true, current.actor(), now).await?;
+    let linked = action_item_link::add(
+        &mut connection,
+        id,
+        new_link,
+        Claim::Primary,
+        current.actor(),
+        now,
+    )
+    .await?;
     let link = linked
         .links
         .into_iter()
