@@ -117,12 +117,16 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/jira/:credentialId/edit` | `EditJiraCredentialPage` | Edit a Jira site                                   |
 | `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
 | `/settings/meetings`          | `MeetingsPage`           | The person's meeting sources and recent meetings         |
+| `/settings/learnings`         | `LearningsPage`          | Learnings, the deleted ones, and for admins the feed, as tabs in `?tab=` |
+| `/settings/learnings/new`     | `NewLearningPage`        | Save a learning; a takeaway one already has revises it   |
+| `/settings/learnings/:learningId` | `LearningPage`       | One learning, corrected in place, with its history and Undo |
 | `/settings/storage`           | `ManageStoragePage`      | Storage locations Elysium saves files to                 |
 | `/settings/storage/new`       | `AddStorageLocationPage` | Add a storage location                                   |
 | `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s: Personal
-settings, Knowledge base (meetings, and the knowledge base's own settings as they are built), and Workspace settings.
+settings, Knowledge base (meetings and learnings, the latter hidden from guests, and the knowledge base's own settings
+as they are built), and Workspace settings.
 New settings pages add an entry to a section and a route under `/settings`, and render inside `SettingsPage`.
 
 ### Settings pages
@@ -367,6 +371,27 @@ OAuth start route, because the answer is a redirect to the broker; a client-side
 the URL. The row menu tests the connection, sends a test message, changes the sender name (through `usePrompt`),
 toggles active, and disconnects; the disconnect confirmation says whether mail is deleted (self-hosted) or only
 forgotten (OAuth).
+
+### Learnings
+
+`src/pages/Settings/Learnings/` is the minimal view of learnings (`docs/knowledge.md`, Learnings) until the Knowledge
+page folds it in, in the settings frame:
+
+- **The list** (`LearningsPage`, `LearningTable`) is uikit's `SmartTable`: the takeaway, opening the learning; its
+  category; who first saved it and through which agent; and when it last changed. Deleted learnings are a tab of their
+  own, and admins get a third, the feed (`LearningFeed`): every change to every learning, newest first, read on with
+  Show older. A guest is told the knowledge base is for members, as the API refuses them (`selectIsCompanyMember`).
+- **New learning** (`NewLearningPage`, `LearningForm`) saves from the header's Save and opens the learning saved,
+  saying whether it was new or revised one whose takeaway it named. What is typed is kept in session storage
+  (`newLearningDraft.ts`) until it is saved; a blank form never overwrites it.
+- **A learning's page** (`LearningPage`) corrects it with the same form, remounted whenever the learning changes so it
+  always edits what the learning says now. Delete happens at once, with Undo in its toast; a deleted learning reads
+  as it was, under a notice, with Restore. `LearningHistory` lists every change newest first, each with Undo.
+- **Data.** Learnings flow through SWR, then `learningsSlice`, then `learning.changed`, which carries an id alone, so
+  the stream loads the learning by id for the company's members and revalidates its history and the feed. The history
+  and the feed are read from SWR alone, since no other view shares them, as an initiative's burnup is.
+- `learningPresentation.ts` holds the category labels and descriptions, the history sentences, and
+  `describeHistoryEntry`; `learningFormSchema.ts` mirrors the API's bounds. Both are tested beside them.
 
 ### Action items
 
@@ -637,6 +662,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `projects`       | Projects, sorted by name                                                |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
 | `jiraCredentials` | Jira Cloud credentials, sorted by name                                 |
+| `learnings`      | Live and deleted learnings in separate halves, last changed first       |
 | `environmentVariables` | Environment variables, sorted by key                              |
 | `storageLocations` | Storage locations, sorted by name                                     |
 | `studioItems`    | Live and deleted Studio items in separate halves, newest first          |
@@ -656,7 +682,8 @@ Server collections use entity adapters. Redux is the source of truth components 
 1. **SWR loads it once.** A component that shows server data calls a loader from `src/hooks/useServerData.ts`
    (`useLlmsLoader`, `useMailAccountsLoader`, `useMailServerLoader`, `useMailDomainsLoader`, `useProjectsLoader`,
    `useStorageLocationsLoader`, `useGithubCredentialsLoader`, `useJiraCredentialsLoader`,
-   `useEnvironmentVariablesLoader`, `useCodingSessionsLoader`,
+   `useEnvironmentVariablesLoader`, `useLearningsLoader`, `useDeletedLearningsLoader`, `useLearningLoader`,
+   `useCodingSessionsLoader`,
    `useSessionHistoryLoader`, `useActionItemsLoader`, `useDeletedActionItemsLoader`, `useActionItemLoader`,
    `useActionItemCommentsLoader`, `useActionItemHistoryLoader`, `useInitiativesLoader`, `useDeletedInitiativesLoader`,
    `useInitiativeLoader`, `useInitiativeHistoryLoader`, `useActionItemLinksLoader`, `useInitiativeLinksLoader`,
@@ -781,7 +808,7 @@ first render.
 
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
-  `email`, `storage`, `github`, `jira`, `environment`, `projects`, `coding`,
+  `email`, `storage`, `github`, `jira`, `environment`, `learnings`, `projects`, `coding`,
   `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with

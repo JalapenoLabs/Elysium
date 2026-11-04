@@ -51,6 +51,9 @@ export type ServerEvent =
   // A connector changed; its id alone, since its view names whose mail it reads.
   | { type: 'connector.changed', data: { id: string } }
   | { type: 'connector.deleted', data: { id: string } }
+  // A learning changed; its id alone, since a guest hears every event and reaches no
+  // knowledge base.
+  | { type: 'learning.changed', data: { id: string } }
   // A check in a run moved on, or (`checkId` null, `state` finished) the run ended.
   | {
     type: 'connectorCheckRun.updated'

@@ -20,6 +20,7 @@ import { githubCredentialsSlice } from './githubCredentialsSlice'
 import { initiativeLinksSlice } from './initiativeLinksSlice'
 import { initiativesSlice } from './initiativesSlice'
 import { jiraCredentialsSlice } from './jiraCredentialsSlice'
+import { learningsSlice } from './learningsSlice'
 import { llmsSlice } from './llmsSlice'
 import { mailAccountsSlice } from './mailAccountsSlice'
 import { mailDomainsSlice } from './mailDomainsSlice'
@@ -68,6 +69,7 @@ export function createAppStore() {
       [initiativeLinksSlice.name]: initiativeLinksSlice.reducer,
       [initiativesSlice.name]: initiativesSlice.reducer,
       [jiraCredentialsSlice.name]: jiraCredentialsSlice.reducer,
+      [learningsSlice.name]: learningsSlice.reducer,
       [llmsSlice.name]: llmsSlice.reducer,
       [mailAccountsSlice.name]: mailAccountsSlice.reducer,
       [mailDomainsSlice.name]: mailDomainsSlice.reducer,

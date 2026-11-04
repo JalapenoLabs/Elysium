@@ -56,6 +56,9 @@ export const PROJECTS_VIEW_STORAGE_KEY = 'elysium.projects.view.v1'
 // reload never loses it. The record's id follows the prefix.
 export const REPLY_DRAFT_STORAGE_PREFIX = 'elysium.reply.v1.'
 
+// What the New learning form held, kept in session storage until it is saved.
+export const NEW_LEARNING_STORAGE_KEY = 'elysium.learnings.new.v1'
+
 // Snoozing an item to a day wakes it at this hour in the viewer's zone, and "later today"
 // snoozes it this many hours from now.
 export const SNOOZE_WAKE_HOUR = 9

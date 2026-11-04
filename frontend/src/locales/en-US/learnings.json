@@ -1,0 +1,120 @@
+{
+  "title": "Learnings",
+  "new": "New learning",
+  "membersOnly": "The knowledge base is for the company's members.",
+  "tabs": {
+    "label": "Learnings",
+    "live": "Learnings",
+    "deleted": "Deleted",
+    "feed": "Feed"
+  },
+  "categories": {
+    "decision": "Decision",
+    "convention": "Convention",
+    "procedure": "Procedure",
+    "pitfall": "Pitfall",
+    "reference": "Reference",
+    "environment": "Environment",
+    "people": "People",
+    "project": "Project",
+    "incident": "Incident"
+  },
+  "categoryDescriptions": {
+    "decision": "A choice that was made and why, so it is not argued again",
+    "convention": "How work is done here: style, naming, process, review",
+    "procedure": "Steps known to work for a task that comes back",
+    "pitfall": "Something that behaves other than expected, and the way around it",
+    "reference": "Facts about a tool, API, or service worth not looking up again",
+    "environment": "Where things are: hosts, paths, accounts, and how they connect",
+    "people": "Who owns, reviews, or decides what, and how they want work delivered",
+    "project": "A project's or a client's goals, constraints, and current state",
+    "incident": "What broke, why, and what fixed it"
+  },
+  "agent": {
+    "unnamed": "an MCP client"
+  },
+  "table": {
+    "label": "Learnings",
+    "title": "Takeaway",
+    "category": "Category",
+    "savedBy": "Saved by",
+    "savedByAgent": "through {{agent}}",
+    "updated": "Last changed",
+    "deletedAt": "Deleted",
+    "restore": "Restore",
+    "empty": "No learnings yet.",
+    "emptyDeleted": "No deleted learnings.",
+    "loadError": "Learnings could not be loaded."
+  },
+  "form": {
+    "title": "Takeaway",
+    "titleHint": "The rule itself, on one line. Saving a takeaway that exists revises that learning.",
+    "category": "Category",
+    "body": "Body",
+    "bodyHint": "The rule or decision first, then when it applies and why.",
+    "evidence": "Evidence",
+    "evidenceHint": "What shows it is true: a command and its output, a link, a quote, a meeting.",
+    "errors": {
+      "titleRequired": "Write the takeaway.",
+      "titleTooLong": "Keep the takeaway to 300 characters.",
+      "bodyRequired": "Write the body.",
+      "evidenceRequired": "Give the evidence.",
+      "textTooLong": "Keep it to 20,000 characters.",
+      "titleTaken": "Another learning has this takeaway."
+    }
+  },
+  "page": {
+    "notFound": "This learning could not be found.",
+    "backToList": "Back to learnings",
+    "loadError": "This learning could not be loaded.",
+    "actions": "Actions",
+    "delete": "Delete",
+    "restore": "Restore",
+    "deleted": "This learning was deleted {{date}}. Restore it to change it.",
+    "savedBy": "First saved by {{name}} {{date}}",
+    "savedByAgent": "First saved by {{name}} through {{agent}} {{date}}"
+  },
+  "history": {
+    "title": "History",
+    "loadError": "The history could not be loaded.",
+    "undo": "Undo",
+    "undoLabel": "Undo this change",
+    "byAgent": "{{name}} through {{agent}}",
+    "entries": {
+      "created": "{{who}} saved it",
+      "revised": "{{who}} changed the {{fields}}",
+      "deleted": "{{who}} deleted it",
+      "restored": "{{who}} restored it",
+      "unknown": "{{who}} changed it"
+    },
+    "undid": "Undoing an earlier change",
+    "fields": {
+      "title": "takeaway",
+      "body": "body",
+      "category": "category",
+      "evidence": "evidence"
+    }
+  },
+  "feed": {
+    "empty": "Nothing has been saved yet.",
+    "loadError": "The feed could not be loaded.",
+    "older": "Show older",
+    "entries": {
+      "created": "{{who}} saved a new learning",
+      "revised": "{{who}} changed the {{fields}} of a learning",
+      "deleted": "{{who}} deleted a learning",
+      "restored": "{{who}} restored a learning",
+      "unknown": "{{who}} changed a learning"
+    }
+  },
+  "toasts": {
+    "created": "Learning saved",
+    "revised": "A learning had this takeaway, so it was revised",
+    "unchanged": "That learning already says exactly this",
+    "corrected": "Learning saved",
+    "deleted": "Learning deleted",
+    "restored": "Learning restored",
+    "undone": "Change undone",
+    "undo": "Undo"
+  }
+}

@@ -7,6 +7,7 @@ import { mutate } from 'swr'
 
 // Redux
 import { store } from '../store'
+import { selectIsCompanyMember } from '../store/authSlice'
 import { actionItemCommentDeleted, actionItemCommentUpserted } from '../store/actionItemCommentsSlice'
 import { historyAppended } from '../store/actionItemHistorySlice'
 import { actionItemLinkDeleted, actionItemLinkUpserted } from '../store/actionItemLinksSlice'
@@ -26,6 +27,7 @@ import { environmentVariableDeleted, environmentVariableUpserted } from '../stor
 import { githubCredentialDeleted, githubCredentialUpserted } from '../store/githubCredentialsSlice'
 import { initiativeDeleted, initiativeUpserted } from '../store/initiativesSlice'
 import { jiraCredentialDeleted, jiraCredentialUpserted } from '../store/jiraCredentialsSlice'
+import { learningRemoved, learningUpserted } from '../store/learningsSlice'
 import { llmDeleted, llmUpserted, llmUsageUpdated } from '../store/llmsSlice'
 import { mailAccountDeleted, mailAccountUpserted } from '../store/mailAccountsSlice'
 import { mailDomainDeleted, mailDomainUpserted } from '../store/mailDomainsSlice'
@@ -55,6 +57,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
 import { getDraft } from '../api/routes/draftRoutes'
+import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { EVENT_STREAM_PATH, EVENT_STREAM_RETRY_INITIAL_MS, EVENT_STREAM_RETRY_MAX_MS } from '../constants'
 
@@ -150,6 +153,25 @@ const handlers: Handlers = {
       })
     void mutate('v1/connectors/activity')
     void mutate('v1/accounts')
+  },
+  // The event carries the id alone, so the learning is loaded by id, by the company's members
+  // only: a guest's request would be refused. Its history and the admins' feed reload too, if a
+  // page shows them.
+  'learning.changed': (event) => {
+    if (!selectIsCompanyMember(store.getState())) {
+      return
+    }
+    getLearning(event.data.id)
+      .then((response) => store.dispatch(learningUpserted(response.learning)))
+      .catch((error: unknown) => {
+        if (error instanceof HTTPError && error.response.status === 404) {
+          store.dispatch(learningRemoved(event.data.id))
+          return
+        }
+        console.debug('A changed learning could not be loaded', { error, learningId: event.data.id })
+      })
+    void mutate(learningHistoryKey(event.data.id))
+    void mutate(LEARNING_FEED_KEY)
   },
   'connector.deleted': (event) => {
     store.dispatch(connectorDeleted(event.data.id))

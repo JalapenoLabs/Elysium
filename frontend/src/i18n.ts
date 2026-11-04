@@ -20,6 +20,7 @@ import github from './locales/en-US/github.json'
 import initiatives from './locales/en-US/initiatives.json'
 import issueReports from './locales/en-US/issueReports.json'
 import jira from './locales/en-US/jira.json'
+import learnings from './locales/en-US/learnings.json'
 import llms from './locales/en-US/llms.json'
 import meetings from './locales/en-US/meetings.json'
 import navigation from './locales/en-US/navigation.json'
@@ -55,6 +56,7 @@ export const resources = {
     initiatives,
     issueReports,
     jira,
+    learnings,
     llms,
     meetings,
     navigation,

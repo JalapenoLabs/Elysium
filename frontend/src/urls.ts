@@ -42,6 +42,9 @@ export const UrlTree = {
   // The MCP page's old address, kept as a redirect so links and bookmarks to it still land.
   settingsConnectedApps: '/settings/connected-apps',
   settingsMeetings: '/settings/meetings',
+  settingsLearnings: '/settings/learnings',
+  settingsLearningNew: '/settings/learnings/new',
+  settingsLearning: '/settings/learnings/:learningId',
   settingsConnectors: '/settings/connectors',
   settingsConnectorNew: '/settings/connectors/new',
   settingsConnectorNewKind: '/settings/connectors/new/:kind',
@@ -155,6 +158,10 @@ export function getConnectorPickerUrl(provides: ConnectorProvides) {
 
 export function getEnvironmentVariableEditUrl(variableId: string) {
   return UrlTree.settingsEnvironmentEdit.replace(':variableId', variableId)
+}
+
+export function getLearningUrl(learningId: string) {
+  return UrlTree.settingsLearning.replace(':learningId', learningId)
 }
 
 export function getGithubCredentialEditUrl(credentialId: string) {

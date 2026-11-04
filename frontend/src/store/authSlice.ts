@@ -73,3 +73,10 @@ export function selectIsAdmin(state: RootState) {
   const user = state.auth.me?.user
   return user?.role === 'admin' && user.status === 'active'
 }
+
+// An active admin or member: the company's own people, who reach its knowledge base. A guest
+// is outside the company (docs/knowledge.md, Who sees what). Mirrors `is_company_member`.
+export function selectIsCompanyMember(state: RootState) {
+  const user = state.auth.me?.user
+  return (user?.role === 'admin' || user?.role === 'member') && user.status === 'active'
+}

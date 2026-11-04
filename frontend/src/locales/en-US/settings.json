@@ -22,6 +22,10 @@
       "title": "Meetings",
       "description": "Your meeting sources, and your recent meetings as they reach their projects' timelines."
     },
+    "learnings": {
+      "title": "Learnings",
+      "description": "What people and their agents learned, saved for the next agent, with every change kept."
+    },
     "users": {
       "title": "Users",
       "description": "Approve sign-ups, manage roles and accounts, and choose who may join.",

@@ -4,7 +4,7 @@
 import { useTranslation } from 'react-i18next'
 
 // Redux
-import { selectIsAdmin } from '../../store/authSlice'
+import { selectIsAdmin, selectIsCompanyMember } from '../../store/authSlice'
 import { useAppSelector } from '../../store/hooks'
 
 // User interface
@@ -13,6 +13,7 @@ import {
   LuDatabaseBackup,
   LuHardDrive,
   LuKeyRound,
+  LuLightbulb,
   LuMail,
   LuPlug,
   LuRefreshCw,
@@ -32,6 +33,7 @@ import { UrlTree } from '../../urls'
 export function SettingsDirectoryPage() {
   const { t } = useTranslation('settings')
   const isAdmin = useAppSelector(selectIsAdmin)
+  const isCompanyMember = useAppSelector(selectIsCompanyMember)
 
   return <div className='container'>
     <section className='relaxed pt-2'>
@@ -70,6 +72,12 @@ export function SettingsDirectoryPage() {
           description={t('items.meetings.description')}
           href={UrlTree.settingsMeetings}
         />
+        {isCompanyMember && <SettingsDirectoryItem
+          icon={LuLightbulb}
+          title={t('items.learnings.title')}
+          description={t('items.learnings.description')}
+          href={UrlTree.settingsLearnings}
+        />}
       </div>
     </section>
     <section className='relaxed pt-6'>

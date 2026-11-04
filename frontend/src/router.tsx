@@ -59,7 +59,10 @@ import { ManageStoragePage } from './pages/Settings/Storage/ManageStoragePage'
 import { UpdatesPage } from './pages/Settings/Updates/UpdatesPage'
 import { BackupsPage } from './pages/Settings/Backups/BackupsPage'
 import { PasswordsPage } from './pages/Settings/Passwords/PasswordsPage'
+import { LearningPage } from './pages/Settings/Learnings/LearningPage'
+import { LearningsPage } from './pages/Settings/Learnings/LearningsPage'
 import { MeetingsPage } from './pages/Settings/Meetings/MeetingsPage'
+import { NewLearningPage } from './pages/Settings/Learnings/NewLearningPage'
 
 // Misc
 import { addLlmUrlByType } from './pages/Settings/Llms/llmProviders'
@@ -214,6 +217,18 @@ const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsMeetings,
       element: <MeetingsPage />,
+    },
+    {
+      path: UrlTree.settingsLearnings,
+      element: <LearningsPage />,
+    },
+    {
+      path: UrlTree.settingsLearningNew,
+      element: <NewLearningPage />,
+    },
+    {
+      path: UrlTree.settingsLearning,
+      element: <LearningPage />,
     },
     {
       path: UrlTree.settingsLlms,

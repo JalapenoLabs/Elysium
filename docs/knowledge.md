@@ -6,8 +6,8 @@ and can ask about past meetings, decisions, conversations, and what other agents
 benefits from what anyone's agent saves.
 
 This doc is the design. Little of it is built; the roadmap is the issues in the Knowledge base milestone. Built so
-far: the index's tables in Postgres (Search, below), and learnings, saved through the routes and the MCP server and
-indexed as they are saved (Learnings, below).
+far: the index's tables in Postgres (Search, below), and learnings, saved through the routes, the MCP server, and
+Settings, Learnings, and indexed as they are saved (Learnings, below).
 
 ## What is indexed
 
@@ -181,6 +181,13 @@ Anyone in the company may save, correct, delete, restore, and undo any learning,
 guest reaches none of it (Who sees what, above). Admins see a feed of every change to every learning, newest first
 (`GET /api/v1/learnings/feed`), so they follow what people and their agents save. Every change announces
 `learning.changed` with the learning's id alone, since a guest hears every event (`docs/realtime.md`).
+
+### In the web app
+
+Settings, Learnings (`/settings/learnings`, in the Knowledge base section) lists the learnings and the deleted ones,
+and for admins the feed, each a tab. A learning's page corrects it, deletes or restores it, and lists its history,
+each change with Undo. New learning is its own page. The Knowledge page (Search, above) folds these in once it is
+built; see `docs/frontend.md`, Learnings.
 
 ## MCP
 

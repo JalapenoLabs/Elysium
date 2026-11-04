@@ -13,6 +13,7 @@ import type { Connector } from './api/routes/connectorRoutes'
 import type { Draft } from './api/routes/draftRoutes'
 import type { MailAccount } from './api/routes/mailRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
+import type { Learning, LearningHistoryEntry } from './api/routes/learningRoutes'
 import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
 import type { Project } from './api/routes/projectRoutes'
 import type { StorageLocation } from './api/routes/storageRoutes'
@@ -220,6 +221,35 @@ export function makeStudioItem(overrides: Partial<StudioItem> & Pick<StudioItem,
     createdBy: CREATED_BY,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
+    ...overrides,
+  }
+}
+
+export function makeLearning(overrides: Partial<Learning> & Pick<Learning, 'id'>): Learning {
+  return {
+    title: overrides.id,
+    body: 'Run REINDEX DATABASE.',
+    category: 'procedure',
+    evidence: 'Lookups missed rows after the image changed.',
+    agent: null,
+    createdBy: CREATED_BY,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    deletedAt: null,
+    ...overrides,
+  }
+}
+
+export function makeLearningHistoryEntry(
+  overrides: Partial<LearningHistoryEntry> & Pick<LearningHistoryEntry, 'id'>,
+): LearningHistoryEntry {
+  return {
+    learningId: 'learning',
+    kind: 'created',
+    createdBy: CREATED_BY,
+    agent: null,
+    data: {},
+    createdAt: CREATED_AT,
     ...overrides,
   }
 }

@@ -1,0 +1,139 @@
+// Copyright © 2026 Jalapeno Labs
+
+import type { Key } from '@heroui/react'
+import type { ParseKeys } from 'i18next'
+
+// Core
+import { useSearchParams } from 'react-router'
+import { useTranslation } from 'react-i18next'
+
+// Redux
+import { selectIsAdmin, selectIsCompanyMember } from '../../../store/authSlice'
+import { useAppSelector } from '../../../store/hooks'
+import { selectDeletedLearnings, selectLiveLearnings } from '../../../store/learningsSlice'
+
+// User interface
+import { buttonVariants, Chip, Link, Spinner, Tabs } from '@heroui/react'
+import { LuPlus } from 'react-icons/lu'
+import { EmptyNotice } from '../../../components/EmptyNotice'
+import { SettingsPage } from '../SettingsPage'
+import { LearningFeed } from './LearningFeed'
+import { LearningTable } from './LearningTable'
+
+// Misc
+import { useDeletedLearningsLoader, useLearningsLoader } from '../../../hooks/useServerData'
+import { UrlTree } from '../../../urls'
+
+const TABS = [ 'live', 'deleted', 'feed' ] as const
+type Tab = typeof TABS[number]
+
+const tabLabelKeys = {
+  live: 'tabs.live',
+  deleted: 'tabs.deleted',
+  feed: 'tabs.feed',
+} as const satisfies Record<Tab, ParseKeys<'learnings'>>
+
+// The open tab lives in the address, so coming back from a learning returns to it.
+const TAB_PARAM = 'tab'
+
+// `/settings/learnings`: every learning, the deleted ones, and, for admins, the feed of every
+// change, each on its own tab. A guest reaches no knowledge base, so they are told so rather than
+// shown lists the API refuses them. The Knowledge page folds these in once it is built.
+export function LearningsPage() {
+  const { t } = useTranslation([ 'learnings', 'common' ])
+  const isAdmin = useAppSelector(selectIsAdmin)
+  const isCompanyMember = useAppSelector(selectIsCompanyMember)
+  const [ params, setParams ] = useSearchParams()
+  const requestedTab = TABS.find((tab) => tab === params.get(TAB_PARAM)) ?? 'live'
+  // Someone who is not an admin keeps the tabs they can see.
+  const selectedTab = requestedTab === 'feed' && !isAdmin
+    ? 'live'
+    : requestedTab
+
+  const liveStatus = useLearningsLoader()
+  const deletedStatus = useDeletedLearningsLoader(isCompanyMember)
+  const live = useAppSelector(selectLiveLearnings)
+  const deleted = useAppSelector(selectDeletedLearnings)
+
+  function selectTab(key: Key) {
+    const tab = TABS.find((candidate) => candidate === key)
+    if (!tab) {
+      console.debug('LearningsPage ignored an unknown tab', { key })
+      return
+    }
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set(TAB_PARAM, tab)
+      return next
+    }, { replace: true })
+  }
+
+  if (!isCompanyMember) {
+    return <SettingsPage title={t('title')}>
+      <EmptyNotice>{t('membersOnly')}</EmptyNotice>
+    </SettingsPage>
+  }
+
+  // Lists show their totals beside their names, once they are known.
+  const countByTab: Record<Tab, number | null> = {
+    live: liveStatus === 'loaded'
+      ? live.length
+      : null,
+    deleted: deletedStatus === 'loaded'
+      ? deleted.length
+      : null,
+    feed: null,
+  }
+  const shownTabs = TABS.filter((tab) => tab !== 'feed' || isAdmin)
+
+  function renderList(status: typeof liveStatus, isDeletedList: boolean) {
+    if (status === 'loading') {
+      return <div className='grid place-items-center py-16'>
+        <Spinner />
+      </div>
+    }
+    if (status === 'failed') {
+      return <p className='py-10 text-center text-sm text-danger'>{t('table.loadError')}</p>
+    }
+    return <LearningTable
+      learnings={isDeletedList
+        ? deleted
+        : live}
+      isDeletedList={isDeletedList}
+    />
+  }
+
+  return <SettingsPage
+    title={t('title')}
+    actions={<Link
+      href={UrlTree.settingsLearningNew}
+      className={buttonVariants({ variant: 'outline', className: 'gap-2' })}
+    >
+      <LuPlus className='size-4' aria-hidden />
+      <span>{t('new')}</span>
+    </Link>}
+  >
+    <Tabs variant='secondary' selectedKey={selectedTab} onSelectionChange={selectTab}>
+      <Tabs.ListContainer className='relaxed'>
+        <Tabs.List aria-label={t('tabs.label')}>{
+          shownTabs.map((tab) => <Tabs.Tab key={tab} id={tab}>
+            <span>{t(tabLabelKeys[tab])}</span>
+            {countByTab[tab] !== null && <Chip size='sm' variant='soft' className='ml-2'>{
+              countByTab[tab]
+            }</Chip>}
+            <Tabs.Indicator />
+          </Tabs.Tab>)
+        }</Tabs.List>
+      </Tabs.ListContainer>
+      <Tabs.Panel id='live'>{
+        renderList(liveStatus, false)
+      }</Tabs.Panel>
+      <Tabs.Panel id='deleted'>{
+        renderList(deletedStatus, true)
+      }</Tabs.Panel>
+      {isAdmin && <Tabs.Panel id='feed'>
+        <LearningFeed />
+      </Tabs.Panel>}
+    </Tabs>
+  </SettingsPage>
+}

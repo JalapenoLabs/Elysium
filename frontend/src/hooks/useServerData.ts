@@ -22,6 +22,7 @@ import { environmentVariablesLoaded } from '../store/environmentVariablesSlice'
 import { githubCredentialsLoaded } from '../store/githubCredentialsSlice'
 import { deletedInitiativesLoaded, initiativesLoaded, initiativeUpserted } from '../store/initiativesSlice'
 import { jiraCredentialsLoaded } from '../store/jiraCredentialsSlice'
+import { deletedLearningsLoaded, learningsLoaded, learningUpserted } from '../store/learningsSlice'
 import { llmsLoaded } from '../store/llmsSlice'
 import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { mailDomainsLoaded } from '../store/mailDomainsSlice'
@@ -65,6 +66,7 @@ import { getElysia, listElysiaMessages, listElysiaTurns } from '../api/routes/el
 import { listEnvironmentVariables } from '../api/routes/environmentRoutes'
 import { listGithubCredentials } from '../api/routes/githubRoutes'
 import { listJiraCredentials } from '../api/routes/jiraRoutes'
+import { getLearning, listLearnings } from '../api/routes/learningRoutes'
 import { listLlms } from '../api/routes/llmRoutes'
 import { getMailServer, listMailAccounts, listMailDomains } from '../api/routes/mailRoutes'
 import { listMeetings } from '../api/routes/meetingRoutes'
@@ -146,6 +148,43 @@ export function useEnvironmentVariablesLoader(): LoadStatus {
   const { data, error } = useSWR('v1/environment-variables', async () => {
     const response = await listEnvironmentVariables()
     dispatch(environmentVariablesLoaded(response.variables))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Every live learning. A learning's history and the admins' feed are read from SWR alone,
+// revalidated by `learning.changed`: no other view shares them.
+export function useLearningsLoader(): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR('v1/learnings', async () => {
+    const response = await listLearnings()
+    dispatch(learningsLoaded(response.learnings))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// Deleted learnings, loaded only while a view shows them.
+export function useDeletedLearningsLoader(isEnabled: boolean): LoadStatus {
+  const dispatch = useAppDispatch()
+  const key = isEnabled
+    ? 'v1/learnings?deleted=true'
+    : null
+  const { data, error } = useSWR(key, async () => {
+    const response = await listLearnings({ deleted: true })
+    dispatch(deletedLearningsLoaded(response.learnings))
+    return response
+  })
+  return toLoadStatus(data !== undefined, error)
+}
+
+// One learning, live or deleted, for its own page.
+export function useLearningLoader(learningId: string): LoadStatus {
+  const dispatch = useAppDispatch()
+  const { data, error } = useSWR(`v1/learnings/${learningId}`, async () => {
+    const response = await getLearning(learningId)
+    dispatch(learningUpserted(response.learning))
     return response
   })
   return toLoadStatus(data !== undefined, error)
