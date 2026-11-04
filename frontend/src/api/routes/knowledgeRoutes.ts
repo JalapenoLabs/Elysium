@@ -71,6 +71,8 @@ export type KnowledgeDocument = {
   citation: KnowledgeCitation
   origin: KnowledgeOrigin
   passages: KnowledgePassage[]
+  // How many passages the document has; the page asks for all of them, so it is the same.
+  passageCount: number
   projects: { id: string, name: string }[]
   alsoRecordedBy: KnowledgeCopy[]
 }

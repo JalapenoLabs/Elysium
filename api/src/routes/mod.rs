@@ -56,6 +56,7 @@ fn agent_tools(state: &AppState) -> Router<AppState> {
         links: state.links.clone(),
         workspace: state.sessions.workspace().clone(),
         passwords: state.passwords.clone(),
+        knowledge: state.knowledge.clone(),
     };
     tools::endpoint::router(&context, &state.grants, &state.shutdown)
 }

@@ -327,8 +327,10 @@ pub struct ProjectReference {
 pub struct DocumentView {
     pub citation: Citation,
     pub origin: Origin,
-    /// Every passage, in order.
+    /// Every passage, in order, or those of the span a reader asked for.
     pub passages: Vec<Passage>,
+    /// How many passages the document has, whichever of them were answered.
+    pub passage_count: usize,
     /// The projects its timeline record is attributed to, by name; none for any other source.
     pub projects: Vec<ProjectReference>,
     /// Others whose records hold the same text, earliest first.
@@ -445,6 +447,7 @@ pub async fn get(
             },
         },
         origin,
+        passage_count: passages.len(),
         passages,
         projects,
         also_recorded_by: copies

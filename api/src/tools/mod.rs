@@ -37,6 +37,7 @@ use uuid::Uuid;
 use crate::action_items::links::Links;
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::knowledge::search::KnowledgeSearch;
 use crate::passwords::remote::RemoteVault;
 use crate::realtime::EventBus;
 use crate::runner::WorkspacePath;
@@ -57,6 +58,8 @@ pub struct ToolContext {
     pub workspace: WorkspaceContainer,
     /// The password vault, for the logins agents sign in with.
     pub passwords: RemoteVault,
+    /// The knowledge base's search, whose budgets agents' searches spend as people's do.
+    pub knowledge: KnowledgeSearch,
 }
 
 impl std::fmt::Debug for ToolContext {
@@ -204,6 +207,10 @@ pub enum ToolError {
          work_initiatives for the ones that are"
     )]
     InitiativeUnavailable(Uuid),
+    /// Elysium declined the call, saying why and when to try again: the knowledge base is for
+    /// the company's members alone, or a search budget is spent for now.
+    #[error("{0}")]
+    Refused(String),
     /// The storage provider refused or could not be reached, in its own words.
     #[error("{0}")]
     Provider(String),

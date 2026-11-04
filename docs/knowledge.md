@@ -12,8 +12,9 @@ the Knowledge page, filed under the built-in categories and the workspace's own,
 (Learnings, below); hybrid search, by words and by meaning, with its filters, and opening a document whole, on the
 Knowledge page and in the topbar's search (Hybrid search, below); the company doc, edited in Settings, Company doc,
 proposed to by its scheduled review and by agents, read by every agent, and indexed as it changes (The company doc,
-below); and the embedding model, with the
-engine's embedder giving every passage its embedding as it arrives (Embeddings, below).
+below); the embedding model, with the engine's embedder giving every passage its embedding as it arrives
+(Embeddings, below); and the tools that search, open, and list the knowledge base for MCP clients and for every
+agent's turn (MCP, below).
 
 ## What is indexed
 
@@ -75,10 +76,11 @@ Access is checked once, on the caller's role: admins, members, and agents acting
 tools refuse a guest themselves from the first build, rather than waiting on guest rooms, because until roles are
 built out a guest has a member's access (`docs/auth.md`).
 
-The learning routes and tools, and the knowledge routes (`/api/v1/knowledge`, the search and a document), are built to
-this rule: they answer admins and members, and refuse a guest with `403` and the code `members_only` (`MemberUser` in
-`api/src/auth/`). The search and a document carry no per-owner predicate; the `person` filter is a parameter of the
-search like the others.
+The learning routes and tools, and the knowledge routes and tools (`/api/v1/knowledge`: the search, a document, and
+the meetings), are built to this rule: they answer admins and members, and refuse a guest with `403` and the code
+`members_only` (`MemberUser` in `api/src/auth/`). None carries a per-owner predicate; the `person` filter is a
+parameter like the others. An agent's turn reads for whoever started its session, checked on every call, so a
+session a guest started reaches none of it; Elysia's turns read as herself (MCP, below).
 
 ## Search
 
@@ -176,10 +178,11 @@ search logs its counts and durations at debug (`knowledge.search.answered`), nev
 
 ### Budget and cost
 
-- Each person may search 20 times at once, refilling 2 a second (`PER_PERSON`), however they search: the route, and
-  the MCP tool once built, spend the same budget through `KnowledgeSearch::admit`. Past it, `429` with the code
-  `knowledge_search_rate_limited`. It is lower than the global search's titles because every search embeds its query
-  on the service the embedder shares.
+- Each person may search 20 times at once, refilling 2 a second (`PER_PERSON`), however they search: the route, their
+  MCP clients' `knowledge_search`, and their sessions' agents all spend the same budget through
+  `KnowledgeSearch::admit`, and Elysia's turns spend one of her own. Past it, `429` with the code
+  `knowledge_search_rate_limited`, which a tool answers as its message. It is lower than the global search's titles
+  because every search embeds its query on the service the embedder shares.
 - On the development host a query embeds in about 15ms when the service is idle. Over 30,000 passages, the meaning
   ranking read the HNSW index in 8ms, and a filter keeping a third of them was answered exactly, by a scan, in 11ms;
   a word matching a fifth of the passages ranked in 20ms. A word matching a large share of a much larger index ranks
@@ -585,23 +588,63 @@ and the history below with Undo. Look for updates starts a review at once. See `
 
 ## MCP
 
-- Tools return evidence: `knowledge_search` (hybrid search with source, project, person, and date filters, returning
-  ranked passages with citations, through `KnowledgeSearch::search` and its budget), `knowledge_get` (a whole
-  document or meeting transcript, or a span of it),
-  `meetings_list`, `learning_save`, `learning_delete`, `company_doc_read`, and `company_doc_propose`.
-- `company_doc_read` and `company_doc_propose` are built (`api/src/mcp/company_doc.rs`; The company doc, above).
-- `learning_save` and `learning_delete` are built (`api/src/mcp/learnings.rs`). They call the routes' own `save` and
-  `delete` with the connecting person as who saved it and the client as the agent acting for them, so a learning an
-  agent saves is validated, recorded, indexed, and announced exactly as one saved in the browser. Until the editable
-  instructions below are built, `learning_save`'s description and the server's fixed instructions say what makes a
-  learning worth saving.
+Tools return evidence, and the calling agent reasons with it. External clients reach them on the MCP server
+(`api/src/mcp/`, `docs/mcp.md`); every agent's turn reaches the reading ones and the company doc's on the
+`elysium_knowledge` server at `/api/agent-tools/elysium_knowledge` (`api/src/tools/knowledge.rs`, `docs/coding.md`),
+under the same names, descriptions, and argument schemas.
+
+| Tool                  | MCP | Turn | Does                                                                  |
+|-----------------------|-----|------|-----------------------------------------------------------------------|
+| `knowledge_search`    | Yes | Yes  | Hybrid search with its filters: citations and their best passages     |
+| `knowledge_get`       | Yes | Yes  | One document a citation names, whole or a span of its passages        |
+| `meetings_list`       | Yes | Yes  | The meetings the index holds, newest first, with their topics         |
+| `company_doc_read`    | Yes | Yes  | The company doc (The company doc, above)                              |
+| `company_doc_propose` | Yes | Yes  | A proposal to one section                                             |
+| `learning_save`       | Yes | No   | Saves or revises a learning (Learnings, above)                        |
+| `learning_delete`     | Yes | No   | Deletes a learning softly                                             |
+
+- **One function per route.** `knowledge_search`, `knowledge_get`, and `meetings_list` call the functions the
+  knowledge routes call (`search`, `open`, and `list_meetings` in `api/src/routes/v1/knowledge/`), with the same
+  argument structs, whose doc comments are the arguments' descriptions. A turn's schemas are the MCP server's, made by
+  rmcp's own generator, so the two never drift.
+- **Who reads.** Over MCP, the person who connected the client, checked with `MemberUser` on every call. In a turn,
+  whoever started the session, read from the database on every call: a company member passes, and so does one of
+  Elysium's own machines, while a guest or a person disabled since is refused with a message saying the knowledge base
+  is for the company's members alone. Elysia's turns read as herself. The company doc's tools in a turn
+  are checked the same way.
+- **Citations open in the knowledge base.** Every result is a `Citation`, `documentId` first, which `knowledge_get`
+  opens, never the owner's timeline route. The MCP server's instructions tell a client where a person opens one:
+  `https://<host>/knowledge/documents/<documentId>`, the Knowledge page's document.
+- **A span.** A long document, such as a meeting topic's excerpt, is read in parts: a search answers each passage's
+  position, `knowledge_get` takes `fromPosition` and `toPosition` (both inclusive), and `passageCount` says how many
+  there are in all. The route takes the same two as query parameters.
+- **Meetings.** A meeting is in the index as its topics, each a segment record's document (`docs/meetings.md`,
+  Segment records). `meetings_list` (`GET /api/v1/knowledge/meetings`, `api/src/models/knowledge_meeting.rs`) gathers
+  those documents back into their meetings by the `meetingId`, `meetingTitle`, and `meetingSource` every segment
+  record carries, so a meeting's transcript is read topic by topic with `knowledge_get`. It answers each meeting's
+  title, source, when its first topic began, whose source recorded it, and its topics in the order they were said,
+  filtered by `from` and `to` (when it started), `person`, and `project` (a topic attributed to it), 20 unless asked
+  for up to 50. The `meetings` row itself stays its owner's and is never read for it. Two people whose sources
+  recorded one meeting have a meeting each, segmented apart, and both are listed.
+- **Descriptions teach searching.** `knowledge_search`'s description says what is indexed, that exact keys and error
+  strings are found by their words and paraphrases by their meaning, that quotes keep a phrase, that filters only
+  narrow and `person` is whoever said it, what `searchedByMeaning: false` means, to cite by title, person, and date,
+  and that results may quote a coworker's mail and are not for repeating outside the company.
+- `learning_save` and `learning_delete` call the routes' own `save` and `delete` with the connecting person as who
+  saved it and the client as the agent acting for them, so a learning an agent saves is validated, recorded, indexed,
+  and announced exactly as one saved in the browser. Until the editable instructions below are built,
+  `learning_save`'s description and the server's fixed instructions say what makes a learning worth saving. A turn
+  cannot save learnings yet: an agent acting for a session needs recording as one, as `session:<n>` is for a
+  proposal, which is on the roadmap.
 - `knowledge_ask` runs a search-and-answer agent on Elysium's side and returns a written answer with citations, for
   clients that want an answer rather than evidence. It spends the instance's Claude usage, so it is rate limited per
   person.
 - The MCP server sends its instructions to every client that connects: when to search, how to cite, what makes a
   learning worth saving, and the confidentiality rule, including that results may quote a coworker's mail and
-  messages and are not for repeating outside the company. Admins edit the text in Settings, versioned, so a change
-  reaches every connected agent on its next session. A copyable CLAUDE.md block is offered for teams that want it.
+  messages and are not for repeating outside the company. Today they are fixed in code (`api/src/mcp/workspace.rs`,
+  and the `elysium_knowledge` server's in `api/src/tools/knowledge.rs`). The roadmap is for admins to edit the text in
+  Settings, versioned, so a change reaches every connected agent on its next session, with a copyable CLAUDE.md block
+  for teams that want it.
 
 ## Onyx
 

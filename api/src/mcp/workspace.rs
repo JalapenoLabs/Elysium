@@ -3,8 +3,8 @@
 //! The MCP server external clients reach, and what every one of its tools shares.
 //!
 //! The tools are grouped by what they act on, each group a `#[tool_router]` block in its own
-//! module ([`super::company_doc`], [`super::learnings`], [`super::projects`],
-//! [`super::sessions`]), combined in
+//! module ([`super::company_doc`], [`super::knowledge`], [`super::learnings`],
+//! [`super::projects`], [`super::sessions`]), combined in
 //! [`Workspace::new`]. A tool reaches the person calling it through [`caller`]: the
 //! [`McpCaller`] the bearer check attached to the HTTP request.
 //!
@@ -22,23 +22,41 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, tool, tool_handler, tool_router};
 use serde_json::{Value, json};
+use url::Url;
 
 use super::bearer::McpCaller;
 use crate::errors::ApiError;
 use crate::oauth::SCOPE_WRITE;
 use crate::state::AppState;
 
-/// What every client is told the server is for, when it connects.
+/// What every client is told the server is for, when it connects. [`instructions`] ends it with
+/// where a person opens a citation, which names this deployment's origin.
 const INSTRUCTIONS: &str = "Elysium is a shared workspace of projects, action items, \
 initiatives, and coding sessions, and the company's knowledge base. Every call acts as the person \
 who connected this client, with what they granted it. A coding session is an agent working on a \
 project's repositories in Elysium's workspace: start one with sessions_create, steer it with \
-sessions_send_prompt, and follow its work with sessions_events. The company doc says who the \
+sessions_send_prompt, and follow its work with sessions_events. Before asking the person something \
+the company may already know, or working out again what someone may have settled, search the \
+knowledge base with knowledge_search: what was said in mail, chat, meetings, and pages, and what \
+other agents learned. Open what a search cites with knowledge_get, and list past meetings with \
+meetings_list. Cite what you use by its title, who said it, and when. Results may quote a \
+coworker's mail and direct messages: they are the company's to use for its own work, and never \
+for repeating outside the company or in work for another client. The company doc says who the \
 company is and how its people, clients, and terms are spelled: read it with company_doc_read \
 before writing about them, and propose what you learn for certain with company_doc_propose, which \
 waits for a person's approval. When you learn something the next agent would otherwise have to \
 rediscover, save it with learning_save; everyone in the company reads what is saved there, and \
 nothing in it is for repeating outside the company.";
+
+/// [`INSTRUCTIONS`], then where a person opens a citation in this deployment's knowledge base,
+/// so a link an agent gives them opens the document it cited.
+fn instructions(public_url: &Url) -> String {
+    let origin = public_url.origin().ascii_serialization();
+    format!(
+        "{INSTRUCTIONS} A person opens any citation in Elysium at \
+         {origin}/knowledge/documents/<documentId>."
+    )
+}
 
 /// The MCP server. One is built per request: the server keeps no session state, so any
 /// request can be answered on its own.
@@ -55,6 +73,7 @@ impl Workspace {
             state,
             tool_router: Self::tool_router()
                 + Self::company_doc_router()
+                + Self::knowledge_router()
                 + Self::learnings_router()
                 + Self::projects_router()
                 + Self::sessions_router(),
@@ -103,7 +122,7 @@ impl ServerHandler for Workspace {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("Elysium", env!("CARGO_PKG_VERSION")))
-            .with_instructions(INSTRUCTIONS)
+            .with_instructions(instructions(&self.state.auth.public_url))
     }
 }
 
@@ -249,6 +268,21 @@ mod tests {
             let parsed: Value = serde_json::from_str(&text).expect("the text is the JSON");
             assert_eq!(parsed, structured);
         }
+    }
+
+    #[test]
+    fn the_instructions_say_where_a_citation_opens_and_that_it_stays_in_the_company() {
+        let public_url = Url::parse("https://elysium.example.com").expect("a static URL parses");
+        let text = instructions(&public_url);
+        assert!(
+            text.contains("https://elysium.example.com/knowledge/documents/<documentId>"),
+            "{text}"
+        );
+        assert!(text.contains("coworker's mail"), "{text}");
+        assert!(
+            text.contains("never for repeating outside the company"),
+            "{text}"
+        );
     }
 
     #[test]

@@ -35,6 +35,7 @@ pub mod jira_done_transition;
 pub mod kind_model_setting;
 pub mod knowledge_backfill;
 pub mod knowledge_document;
+pub mod knowledge_meeting;
 pub mod learning;
 pub mod learning_category;
 pub mod link_watch_cursor;

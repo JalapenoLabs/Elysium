@@ -130,6 +130,22 @@ pub async fn delete_client(
     Ok(())
 }
 
+/// Caches `introspection` as Hydra's answer about `token`, for router tests that call the MCP
+/// server without a Hydra: the bearer check asks the cache first, as it does in production.
+#[cfg(test)]
+pub async fn remember(redis: &ConnectionManager, token: &str, introspection: &Introspection) {
+    let owners = owners(introspection).expect("a test token names its person and client");
+    TOKENS
+        .put(
+            redis,
+            token,
+            introspection,
+            INTROSPECTION_CACHE_TTL,
+            &owners,
+        )
+        .await;
+}
+
 /// What an answer is filed under: the person and the client it was issued to. An inactive answer
 /// is filed under nothing, since a token never becomes active again and so needs no revoking.
 /// `None` for an active answer that does not name both, which no revocation could then find.

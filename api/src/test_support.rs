@@ -220,6 +220,29 @@ pub async fn signed_in_cookie(state: &crate::state::AppState) -> String {
     format!("{SESSION_COOKIE}={token}")
 }
 
+/// An MCP access token for [`TEST_PERSON_ID`], granting `scopes`, as the `Authorization` header
+/// value to send to `/api/mcp`.
+///
+/// The bearer check asks Redis before Hydra, so caching Hydra's answer as it would give it is all
+/// it takes, as [`signed_in_cookie`] does for a browser session. Each call is a fresh token.
+pub async fn mcp_bearer(state: &crate::state::AppState, scopes: &[&str]) -> String {
+    use crate::oauth::hydra::Introspection;
+    use crate::oauth::{mcp_resource, tokens};
+
+    let token = format!("ory_at_test_{}", Uuid::now_v7().simple());
+    let introspection = Introspection {
+        active: true,
+        sub: Some(TEST_PERSON_ID.to_string()),
+        scope: Some(scopes.join(" ")),
+        aud: vec![mcp_resource(&state.auth.public_url)],
+        client_id: Some("test-client".to_owned()),
+        exp: Some(chrono::Utc::now().timestamp() + 3600),
+        token_use: Some("access_token".to_owned()),
+    };
+    tokens::remember(&state.redis, &token, &introspection).await;
+    format!("Bearer {token}")
+}
+
 /// The boundary [`multipart_form`] separates parts with.
 const MULTIPART_BOUNDARY: &str = "elysium-test-boundary";
 

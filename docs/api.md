@@ -149,7 +149,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/learnings/{id}/history`      | `200` `{ history: LearningHistoryEntry[] }`, oldest first |
 | POST   | `/api/v1/learnings/{id}/history/{entryId}/undo` | `200` `{ learning }`                      |
 | GET    | `/api/v1/knowledge/search?q=&source=&project=&person=&from=&to=&limit=` | `200` `{ results: KnowledgeResult[], searchedByMeaning }`, best first; members |
-| GET    | `/api/v1/knowledge/documents/{id}`    | `200` `{ document: KnowledgeDocument }`, whoever's record it came from; members |
+| GET    | `/api/v1/knowledge/documents/{id}?fromPosition=&toPosition=` | `200` `{ document: KnowledgeDocument }`, whoever's record it came from; members |
+| GET    | `/api/v1/knowledge/meetings?from=&to=&person=&project=&limit=` | `200` `{ meetings: KnowledgeMeeting[] }`, newest first, whoever recorded them; members |
 | GET    | `/api/v1/learning-categories`         | `200` `{ categories: LearningCategory[] }`, built-in ones first, each kind in its order |
 | POST   | `/api/v1/learning-categories`         | `201` `{ category }`; admins                        |
 | PATCH  | `/api/v1/learning-categories/{key}`   | `200` `{ category }`; admins                        |
@@ -824,13 +825,24 @@ A `KnowledgeResult` is `{ citation, passages, alsoRecordedBy, score }`: the `Cit
 best first, the other documents holding the same text (`{ documentId, person }`, earliest first), and its fused score,
 comparable within one answer only.
 
-A `KnowledgeDocument` is `{ citation, origin, passages, projects, alsoRecordedBy }`: every passage in order, the
-projects its timeline record is attributed to (`{ id, name }`), and `origin`, what it was made from:
-`{ kind: "timelineRecord" }`, whose record stays its owner's and is not named, `{ kind: "learning", learningId }`, or
-`{ kind: "companyDoc", section }`. An id the index does not hold is `404`.
+A `KnowledgeDocument` is `{ citation, origin, passages, passageCount, projects, alsoRecordedBy }`: every passage in
+order, or those from `fromPosition` to `toPosition` (both optional and inclusive, from 0; `fromPosition` after
+`toPosition` is `422`), how many passages it has in all, the projects its timeline record is attributed to
+(`{ id, name }`), and `origin`, what it was made from: `{ kind: "timelineRecord" }`, whose record stays its owner's and
+is not named, `{ kind: "learning", learningId }`, or `{ kind: "companyDoc", section }`. An id the index does not hold
+is `404`.
 
-- **Budget.** Each person may search 20 times at once, refilling 2 a second, on top of the limit per client address;
-  past it, `429` with the code `knowledge_search_rate_limited` (`PER_PERSON` in `src/knowledge/search.rs`).
+`GET /meetings` takes `from` and `to` (moments with an offset, when a meeting started; `from` before `to`), `person`
+and `project` (ids: meetings recorded by that person's sources, or with a topic attributed to that project), and
+`limit` (1 to 50, default 20). A `KnowledgeMeeting` is `{ title, source, startedAt, person, topics }`: the meeting's
+title and the source it was read from (`fireflies`), when its first topic began, whose source recorded it, and its
+topics as `Citation`s in the order they were said, each opened with `GET /documents/{id}`. It is gathered from the
+index's meeting topics alone; the meeting itself stays its owner's (`docs/knowledge.md`, MCP).
+
+- **Budget.** Each person may search 20 times at once, refilling 2 a second, on top of the limit per client address,
+  shared with their MCP clients' and their sessions' searches; past it, `429` with the code
+  `knowledge_search_rate_limited` (`PER_PERSON` in `src/knowledge/search.rs`). Opening a document and listing meetings
+  embed nothing and spend none of it.
 
 ### `/api/v1/coding-sessions/{id}/desktop`
 

@@ -3,8 +3,8 @@
 //! The knowledge routes driven through the router (#94): an exact key found by its words while
 //! the embedding model is away, a paraphrase found by its meaning alone, each filter narrowing,
 //! the same text read by two people folded into one result, a document opened whole by any
-//! member whoever's record it is, guests refused, queries validated, and a person held to their
-//! budget.
+//! member whoever's record it is, or a span of its passages, meetings listed with their topics
+//! (#96), guests refused, queries validated, and a person held to their budget.
 //!
 //! `#[ignore]`d so `cargo test` stays hermetic; `api/scripts/verify-migrations.sh` runs them.
 
@@ -33,7 +33,7 @@ use crate::state::AppState;
 use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database, signed_in_cookie};
 
 /// The router's answer to `GET path`, as the test person.
-async fn get(state: &AppState, path: &str) -> (StatusCode, Value) {
+pub(crate) async fn get(state: &AppState, path: &str) -> (StatusCode, Value) {
     let cookie = signed_in_cookie(state).await;
     let request = Request::builder()
         .method(Method::GET)
@@ -79,7 +79,7 @@ fn titles(answer: &Value) -> Vec<String> {
 }
 
 /// A moment `hours` after a fixed one, so periods are exact.
-fn at(hours: i64) -> DateTime<Utc> {
+pub(crate) fn at(hours: i64) -> DateTime<Utc> {
     DateTime::from_timestamp(1_790_000_000, 0).expect("a fixed moment") + Duration::hours(hours)
 }
 
@@ -89,7 +89,7 @@ fn query_moment(moment: DateTime<Utc>) -> String {
 }
 
 /// Another person of the company, who owns records of their own.
-async fn coworker(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
+pub(crate) async fn coworker(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
     let id = Uuid::now_v7();
     diesel::sql_query(
         "INSERT INTO users (id, kratos_identity_id, email, name, role, status, approved_at) \
@@ -106,7 +106,7 @@ async fn coworker(connection: &mut AsyncPgConnection, name: &str) -> Uuid {
 }
 
 /// A timeline record of `kind` on `owner`'s timeline, indexed as it is stored.
-async fn record(
+pub(crate) async fn record(
     connection: &mut AsyncPgConnection,
     owner: Uuid,
     kind: &str,
@@ -135,8 +135,49 @@ async fn record(
         .id
 }
 
+/// A topic of the meeting `meeting_id` on `owner`'s timeline, stored as segmenting stores one
+/// (`docs/meetings.md`, Segment records), and so indexed as a document of source `meeting`.
+pub(crate) async fn meeting_topic(
+    connection: &mut AsyncPgConnection,
+    owner: Uuid,
+    meeting_id: Uuid,
+    meeting_title: &str,
+    index: u32,
+    occurred_at: DateTime<Utc>,
+    title: &str,
+) -> Uuid {
+    let new_record = NewTimelineRecord {
+        id: Uuid::now_v7(),
+        source_kind: "meeting".to_owned(),
+        connector_id: None,
+        external_id: Some(format!("{meeting_id}#{index}")),
+        occurred_at,
+        actor: "Ada Lovelace, Jordan Lee".to_owned(),
+        title: title.to_owned(),
+        body: format!("[0:00] Ada Lovelace: Let us talk about {title}."),
+        url: Some("https://app.fireflies.ai/view/meeting".to_owned()),
+        media: None,
+        metadata: json!({
+            "meetingId": meeting_id,
+            "meetingTitle": meeting_title,
+            "meetingSource": "fireflies",
+            "segmentIndex": index,
+            "summary": format!("What was said about {title}."),
+        }),
+        created_by: owner,
+    };
+    timeline_record::insert_new(connection, new_record)
+        .await
+        .expect("the topic is stored")
+        .expect("the topic is new")
+        .id
+}
+
 /// The id of the document the index holds for the record `record_id`.
-async fn document_of_record(connection: &mut AsyncPgConnection, record_id: Uuid) -> Uuid {
+pub(crate) async fn document_of_record(
+    connection: &mut AsyncPgConnection,
+    record_id: Uuid,
+) -> Uuid {
     #[derive(QueryableByName)]
     struct Row {
         #[diesel(sql_type = SqlUuid)]
@@ -171,7 +212,7 @@ async fn save_learning(connection: &mut AsyncPgConnection, title: &str, body: &s
     .id
 }
 
-async fn set_role(connection: &mut AsyncPgConnection, role: &str) {
+pub(crate) async fn set_role(connection: &mut AsyncPgConnection, role: &str) {
     diesel::sql_query(format!(
         "UPDATE users SET role = '{role}' WHERE id = '{TEST_PERSON_ID}'"
     ))
@@ -516,6 +557,168 @@ async fn a_document_opens_whole_for_any_member_whoever_recorded_it() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_document_opens_as_the_span_of_passages_a_reader_asks_for() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    // Each paragraph fills most of a passage, so the three are three passages.
+    let body: Vec<String> = (0..3)
+        .map(|paragraph| format!("Paragraph {paragraph}. {}", "word ".repeat(250)))
+        .collect();
+    let record_id = record(
+        &mut connection,
+        TEST_PERSON_ID,
+        "confluence",
+        at(1),
+        "Runbook",
+        &body.join("\n\n"),
+    )
+    .await;
+    let document_id = document_of_record(&mut connection, record_id).await;
+
+    let (status, opened) = get(
+        &state,
+        &format!("/api/v1/knowledge/documents/{document_id}?fromPosition=1&toPosition=1"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{opened}");
+    let document = &opened["document"];
+    let positions: Vec<i64> = document["passages"]
+        .as_array()
+        .expect("passages")
+        .iter()
+        .map(|passage| passage["position"].as_i64().expect("a position"))
+        .collect();
+    assert_eq!(positions, [1], "{document}");
+    assert_eq!(
+        document["passageCount"], 3,
+        "the count is the whole document's: {document}"
+    );
+
+    let (status, _) = get(
+        &state,
+        &format!("/api/v1/knowledge/documents/{document_id}?fromPosition=2&toPosition=1"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+/// The titles of the meetings a listing answered, in order.
+fn meeting_titles(listed: &Value) -> Vec<String> {
+    listed["meetings"]
+        .as_array()
+        .expect("meetings are a list")
+        .iter()
+        .map(|meeting| meeting["title"].as_str().expect("a title").to_owned())
+        .collect()
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn meetings_are_listed_newest_first_with_their_topics_in_order_whoever_recorded_them() {
+    let (url, mut connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let jamie = coworker(&mut connection, "Jamie").await;
+    let roadmap = project::create(
+        &mut connection,
+        &NewProject {
+            created_by: TEST_PERSON_ID,
+            name: "Roadmap".to_owned(),
+            description: String::new(),
+        },
+    )
+    .await
+    .expect("the project is created")
+    .id;
+    let standup = Uuid::now_v7();
+    let later = at(10) + Duration::minutes(15);
+    meeting_topic(
+        &mut connection,
+        TEST_PERSON_ID,
+        standup,
+        "Standup",
+        1,
+        later,
+        "Hiring",
+    )
+    .await;
+    meeting_topic(
+        &mut connection,
+        TEST_PERSON_ID,
+        standup,
+        "Standup",
+        0,
+        at(10),
+        "Release",
+    )
+    .await;
+    let planning = Uuid::now_v7();
+    let budget = meeting_topic(
+        &mut connection,
+        jamie,
+        planning,
+        "Planning",
+        0,
+        at(20),
+        "Budget",
+    )
+    .await;
+    attribution::attribute(&mut connection, budget, roadmap, 0.9, Attributor::Elysia)
+        .await
+        .expect("attributed");
+    record(
+        &mut connection,
+        TEST_PERSON_ID,
+        "slack",
+        at(30),
+        "Not a meeting",
+        "Chat.",
+    )
+    .await;
+
+    let (status, listed) = get(&state, "/api/v1/knowledge/meetings").await;
+
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    assert_eq!(meeting_titles(&listed), ["Planning", "Standup"], "{listed}");
+    let planning_listed = &listed["meetings"][0];
+    assert_eq!(
+        planning_listed["person"]["name"], "Jamie",
+        "a coworker's meeting is listed"
+    );
+    assert_eq!(planning_listed["source"], "fireflies");
+    let standup_topics: Vec<&str> = listed["meetings"][1]["topics"]
+        .as_array()
+        .expect("topics")
+        .iter()
+        .map(|topic| topic["title"].as_str().expect("a title"))
+        .collect();
+    assert_eq!(
+        standup_topics,
+        ["Release", "Hiring"],
+        "in the order they were said"
+    );
+    let topic_id = listed["meetings"][1]["topics"][0]["documentId"]
+        .as_str()
+        .expect("a topic is a citation");
+    let (status, _) = get(&state, &format!("/api/v1/knowledge/documents/{topic_id}")).await;
+    assert_eq!(status, StatusCode::OK, "a topic opens as a document");
+
+    let narrowed = [
+        (format!("person={TEST_PERSON_ID}"), vec!["Standup"]),
+        (format!("project={roadmap}"), vec!["Planning"]),
+        (format!("from={}", query_moment(at(15))), vec!["Planning"]),
+        (format!("to={}", query_moment(at(15))), vec!["Standup"]),
+        ("limit=1".to_owned(), vec!["Planning"]),
+    ];
+    for (query, expected) in narrowed {
+        let (status, listed) = get(&state, &format!("/api/v1/knowledge/meetings?{query}")).await;
+        assert_eq!(status, StatusCode::OK, "{query}: {listed}");
+        assert_eq!(meeting_titles(&listed), expected, "{query}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
 async fn a_guest_reaches_no_knowledge() {
     let (url, mut connection) = migrated_database().await;
     let state = app_state(&url).await;
@@ -534,6 +737,7 @@ async fn a_guest_reaches_no_knowledge() {
     for path in [
         "/api/v1/knowledge/search?q=launch".to_owned(),
         format!("/api/v1/knowledge/documents/{document_id}"),
+        "/api/v1/knowledge/meetings".to_owned(),
     ] {
         let (status, refused) = get(&state, &path).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
@@ -543,7 +747,7 @@ async fn a_guest_reaches_no_knowledge() {
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
-async fn queries_are_checked_before_anything_is_searched() {
+async fn queries_are_checked_before_anything_is_searched_or_listed() {
     let (url, _connection) = migrated_database().await;
     let state = app_state(&url).await;
     let long = "a".repeat(501);
@@ -569,6 +773,19 @@ async fn queries_are_checked_before_anything_is_searched() {
 
     let blank = search(&state, "q=++").await;
     assert_eq!(blank["results"], json!([]));
+
+    for query in [
+        "limit=0".to_owned(),
+        "limit=51".to_owned(),
+        format!("from={}&to={}", query_moment(at(2)), query_moment(at(1))),
+    ] {
+        let (status, body) = get(&state, &format!("/api/v1/knowledge/meetings?{query}")).await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "meetings {query}: {body}"
+        );
+    }
 }
 
 #[tokio::test]

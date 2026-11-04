@@ -114,13 +114,21 @@ Tools are named for what they act on, then what they do.
 | `sessions_rename`      | `workspace:write` | Renames a coding session                                               |
 | `sessions_send_prompt` | `workspace:write` | Sends a prompt to a session's agent as a new turn                      |
 | `sessions_events`      | `workspace:read`  | Reads a session's conversation, the latest events or those after one   |
-| `company_doc_read`     | `workspace:read`  | Reads the company doc, each section with the proposals still pending |
-| `company_doc_propose`  | `workspace:write` | Proposes a change to one section, for a person to approve       |
+| `knowledge_search`     | `workspace:read`  | Searches the knowledge base by words and meaning, answering citations  |
+| `knowledge_get`        | `workspace:read`  | Opens one document a citation names, whole or a span of its passages   |
+| `meetings_list`        | `workspace:read`  | Lists the knowledge base's meetings, each with its topics' citations   |
+| `company_doc_read`     | `workspace:read`  | Reads the company doc, each section with the proposals still pending   |
+| `company_doc_propose`  | `workspace:write` | Proposes a change to one section, for a person to approve              |
 | `learning_save`        | `workspace:write` | Saves a learning to the knowledge base; its title, if taken, revises that learning |
 | `learning_delete`      | `workspace:write` | Deletes a learning softly, out of the knowledge base until restored    |
 
-- **Knowledge base.** The learning and company doc tools answer admins and members alone, and a guest's client `403
-  members_only`, as the routes do (`docs/knowledge.md`, Who sees what). The writing ones record the client as the agent
+- **Knowledge base.** The knowledge, learning, and company doc tools answer admins and members alone, and a guest's
+  client `403 members_only`, as the routes do (`docs/knowledge.md`, Who sees what). `knowledge_search`,
+  `knowledge_get`, and `meetings_list` call the knowledge routes' own functions (`search`, `open`, and `list_meetings`
+  in `api/src/routes/v1/knowledge/`) with the connecting person, so a client finds what that person would in the
+  browser, whoever's record it is, and its searches spend the person's one search budget. Their descriptions teach
+  searching well: exact keys by their words, questions by their meaning, filters that only narrow, and citing by
+  title, person, and date. The writing ones record the client as the agent
   acting for the person: its id, and the name it registered, read from Hydra when it writes. A name Hydra cannot give
   is logged and left out. `company_doc_propose` takes edits in the form Claude Code's Edit tool takes, and changes
   nothing until a person approves (`docs/knowledge.md`, The company doc).
@@ -134,6 +142,10 @@ Tools are named for what they act on, then what they do.
   result marked as an error, carrying the HTTP status and the message the browser would get, so the model reads why: a
   `404`, a validation error naming its fields, or a failed clone. An internal error stays as generic as it is
   over HTTP.
+- **Instructions.** Every client is told, when it connects, what the server is for: to search the knowledge base
+  before asking the person or working something out again, to cite what it uses, that results may quote a
+  coworker's mail and messages and are never for repeating outside the company, and where a person opens a citation,
+  `https://<host>/knowledge/documents/<documentId>` (`instructions` in `api/src/mcp/workspace.rs`).
 - **Writes.** A grant without `workspace:write` is answered with a `403` result saying to reconnect and allow changes.
 - **Events.** A session's history runs to thousands of events. `sessions_events` answers only the ones Elysium renders
   (prompts, messages, thinking, tool calls, finished turns, incidents), 100 unless asked for up to
@@ -145,8 +157,8 @@ Tools are named for what they act on, then what they do.
 
 ### Adding a tool
 
-Tools are grouped by what they act on, one module each under `api/src/mcp/` (`company_doc.rs`, `learnings.rs`,
-`projects.rs`, `sessions.rs`), each a `#[tool_router(router = <group>_router)]` block combined in `Workspace::new`. A
+Tools are grouped by what they act on, one module each under `api/src/mcp/` (`company_doc.rs`, `knowledge.rs`,
+`learnings.rs`, `projects.rs`, `sessions.rs`), each a `#[tool_router(router = <group>_router)]` block combined in `Workspace::new`. A
 knowledge base tool checks its caller with `MemberUser::check(caller.user)` first and passes the `MemberUser` on, as
 the route's extractor does.
 

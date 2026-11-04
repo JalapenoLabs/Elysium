@@ -9,41 +9,92 @@
 //! - `person` a user's id, which keeps what came from them, as a narrowing and never a limit on
 //!   what the caller may read;
 //! - `from` and `to` moments with an offset, what was said from one and before the other.
+//!
+//! The work is [`search`], which the MCP server's `knowledge_search` and the agents' tool of the
+//! same name call too, with [`SearchKnowledgeRequest`] as their arguments: the route's query is
+//! only its form in a URL.
 
 use axum::Json;
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 use validator::{Validate, ValidationError};
 
 use crate::auth::MemberUser;
+use crate::database::Pool;
 use crate::errors::ApiError;
-use crate::knowledge::search::{self, SearchFilters, SearchRequest};
+use crate::knowledge::search::{self, KnowledgeSearch, SearchAnswer, SearchFilters, SearchRequest};
 use crate::middleware::rate_limit::{Decision, whole_seconds};
 use crate::routes::v1::action_items::comma_separated;
 use crate::state::AppState;
 
-#[derive(Debug, Deserialize, Validate)]
+/// A search of the knowledge base. Every filter narrows what is searched; none hides anything
+/// from a member, since every member may read everything indexed.
+#[derive(Debug, Deserialize, Validate, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[validate(schema(function = "validate_period"))]
-pub struct SearchQuery {
+pub struct SearchKnowledgeRequest {
+    /// What to look for, up to 500 characters: a few words, a question in a sentence, or an
+    /// exact key, name, or error message. Words are matched as a search box matches them:
+    /// "quotes" for a phrase, `or` for either, a leading `-` for without.
     #[validate(length(max = search::MAX_QUERY_CHARS))]
-    q: String,
-    #[serde(default, deserialize_with = "comma_separated")]
+    pub query: String,
+    /// Only documents of these sources, such as `slack`, `outlook`, `teams`, `confluence`,
+    /// `youtrack`, `meeting` (a meeting's topics), `learning`, or `company_doc`. Every source
+    /// when left out.
+    #[serde(default)]
     #[validate(
         length(max = search::MAX_SOURCES),
         custom(function = "validate_sources")
     )]
+    pub sources: Vec<String>,
+    /// Only what was attributed to this project, by its id. Learnings and the company doc
+    /// belong to no project, so this leaves them out.
+    pub project: Option<Uuid>,
+    /// Only what came from this person, by their user id: their mail, messages, meetings,
+    /// learnings, and company doc edits.
+    pub person: Option<Uuid>,
+    /// Only what was said at or after this moment, with an offset, such as
+    /// `2026-11-04T09:00:00Z`.
+    pub from: Option<DateTime<Utc>>,
+    /// Only what was said before this moment, with an offset.
+    pub to: Option<DateTime<Utc>>,
+    /// How many documents to answer, from 1 to 50. Defaults to 10.
+    #[validate(range(min = 1, max = search::MAX_LIMIT))]
+    pub limit: Option<usize>,
+}
+
+/// The route's query: [`SearchKnowledgeRequest`] as a URL carries it, `q` for the query and the
+/// sources comma-separated.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SearchQuery {
+    q: String,
+    #[serde(default, deserialize_with = "comma_separated")]
     source: Vec<String>,
     project: Option<Uuid>,
     person: Option<Uuid>,
     from: Option<DateTime<Utc>>,
     to: Option<DateTime<Utc>>,
-    #[validate(range(min = 1, max = search::MAX_LIMIT))]
     limit: Option<usize>,
+}
+
+impl From<SearchQuery> for SearchKnowledgeRequest {
+    fn from(query: SearchQuery) -> Self {
+        Self {
+            query: query.q,
+            sources: query.source,
+            project: query.project,
+            person: query.person,
+            from: query.from,
+            to: query.to,
+            limit: query.limit,
+        }
+    }
 }
 
 /// A source is named as `knowledge_documents.source` names it: a lowercase letter, then up to
@@ -69,8 +120,8 @@ fn validate_sources(sources: &[String]) -> Result<(), ValidationError> {
 
 /// A period that ends where it starts, or before, holds nothing, which is a mistake to say
 /// rather than answer as no results.
-fn validate_period(query: &SearchQuery) -> Result<(), ValidationError> {
-    match (query.from, query.to) {
+fn validate_period(request: &SearchKnowledgeRequest) -> Result<(), ValidationError> {
+    match (request.from, request.to) {
         (Some(from), Some(to)) if from >= to => {
             Err(ValidationError::new("period").with_message("`from` must be before `to`".into()))
         }
@@ -83,30 +134,47 @@ pub async fn handle(
     member: MemberUser,
     query: Result<Query<SearchQuery>, QueryRejection>,
 ) -> Result<Json<Value>, ApiError> {
-    // Spent before anything else, so a request refused for its query still counts.
-    if let Decision::Refused { wait } = state.knowledge.admit(member.id()) {
+    let Query(query) = query?;
+    let answer = search(&state.knowledge, &state.database, member.id(), query.into()).await?;
+    Ok(Json(json!(answer)))
+}
+
+/// Searches the knowledge base for `reader`, spending one of their searches first.
+///
+/// `reader` is whoever the search is for: a member, or Elysia for her own turns. Callers check
+/// that they may read the knowledge base before asking (`docs/knowledge.md`, Who sees what);
+/// nothing here limits what is found by whose record it is.
+///
+/// # Errors
+/// [`ApiError::TooManyRequests`] once `reader` has spent their budget, which a request refused
+/// for its arguments still spends; [`ApiError::Validation`] for arguments outside their limits;
+/// and an internal error when the database does not answer.
+pub async fn search(
+    knowledge: &KnowledgeSearch,
+    database: &Pool,
+    reader: Uuid,
+    request: SearchKnowledgeRequest,
+) -> Result<SearchAnswer, ApiError> {
+    // Spent before the arguments are checked, so a search refused for them still counts.
+    if let Decision::Refused { wait } = knowledge.admit(reader) {
         let seconds = whole_seconds(wait);
         return Err(ApiError::TooManyRequests {
             code: "knowledge_search_rate_limited",
             message: format!("Too many knowledge searches; try again in {seconds} seconds"),
         });
     }
-
-    let Query(query) = query?;
-    query.validate()?;
+    request.validate()?;
 
     let request = SearchRequest {
-        query: query.q,
+        query: request.query,
         filters: SearchFilters {
-            sources: query.source,
-            project_id: query.project,
-            person_id: query.person,
-            occurred_from: query.from,
-            occurred_before: query.to,
+            sources: request.sources,
+            project_id: request.project,
+            person_id: request.person,
+            occurred_from: request.from,
+            occurred_before: request.to,
         },
-        limit: query.limit.unwrap_or(search::DEFAULT_LIMIT),
+        limit: request.limit.unwrap_or(search::DEFAULT_LIMIT),
     };
-    let answer = state.knowledge.search(&state.database, &request).await?;
-
-    Ok(Json(json!(answer)))
+    Ok(knowledge.search(database, &request).await?)
 }

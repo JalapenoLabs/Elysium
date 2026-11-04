@@ -149,8 +149,11 @@ Everything else follows these rules:
   approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
 - A tool never reimplements a route: it calls the function the route's handler calls, so a change made over MCP is
   validated, recorded, and announced exactly as one made in the browser. Tools exist for projects (read), coding
-  sessions, saving and deleting learnings, and reading and proposing to the company doc; Studio items, action items,
-  and initiatives are on the roadmap.
+  sessions, searching, opening, and listing the meetings of the knowledge base, saving and deleting learnings, and
+  reading and proposing to the company doc; Studio items, action items, and initiatives are on the roadmap.
+- The knowledge base's reading tools are also on the `elysium_knowledge` server every turn gets, under the same names
+  and schemas. A turn reads for whoever started its session, checked on every call, and spends their search budget.
+  See `docs/knowledge.md`, MCP.
 
 ## Agents run on the host
 

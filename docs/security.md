@@ -186,7 +186,9 @@ are signed-in people, whom the `users` table bounds, so nothing sweeps them.
 
 The knowledge search (`GET /api/v1/knowledge/search`) has a budget of its own per person, lower since each search
 embeds its query on the embedding service: 20 at once, refilling 2 a second (`PER_PERSON` in
-`api/src/knowledge/search.rs`), answered `429` with the code `knowledge_search_rate_limited`.
+`api/src/knowledge/search.rs`), answered `429` with the code `knowledge_search_rate_limited`. The same budget is spent
+by the person's MCP clients and by the agents of the sessions they started (`knowledge_search`), so no way of
+searching gets around it; Elysia's turns spend one of their own.
 
 The client is the first parseable `X-Forwarded-For` address, then `X-Real-IP`, then the peer address. nginx sets
 `X-Forwarded-For` to the one client address it resolved, replacing whatever the client sent, so a client cannot pick

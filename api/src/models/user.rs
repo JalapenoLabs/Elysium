@@ -116,6 +116,12 @@ impl User {
     pub fn is_company_member(&self) -> bool {
         self.is_active() && matches!(self.role, Some(UserRole::Admin | UserRole::Member))
     }
+
+    /// True for one of Elysium's own seeded machines (the system user, Elysia, the coding
+    /// agent), which act for the workspace and never sign in.
+    pub fn is_machine(&self) -> bool {
+        matches!(self.role, Some(UserRole::Agent | UserRole::System))
+    }
 }
 
 /// The longest name `users_name_length` allows, in characters.
