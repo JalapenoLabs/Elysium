@@ -16,12 +16,11 @@ import { RunHistory } from './RunHistory'
 import { RunStepRow } from './RunStepRow'
 
 // Misc
+import { formatDateTime } from '../../format/dates'
 import { useRunLoader } from '../../hooks/useServerData'
 import { useUserNames } from '../../hooks/useUserNames'
 import { UrlTree } from '../../urls'
 import { nameFromIdentifier, runStateChipColors, runStateLabelKeys } from './runPresentation'
-
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 // `/runs/:runId`: one run as GitHub Actions shows one, its steps in order, each collapsed to a
 // line that opens to its log, then its history. A guest is sent back to the start.
@@ -76,7 +75,7 @@ function RunView(props: Props) {
         <p className='text-sm opacity-70'>{
           t('run.startedBy', {
             name: userNames[run.createdBy] ?? t('common:table.someone'),
-            date: dateTimeFormatter.format(new Date(run.createdAt)),
+            date: formatDateTime(run.createdAt),
           })
         }</p>
       </div>

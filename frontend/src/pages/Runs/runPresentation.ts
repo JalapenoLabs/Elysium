@@ -3,7 +3,7 @@
 import type { ParseKeys } from 'i18next'
 import type { RunState, StepAction, StepState } from '../../api/routes/runRoutes'
 
-// Names, colors, durations, and the actions each step's state allows, for the Runs pages.
+// Names, colors, and the actions each step's state allows, for the Runs pages.
 // Pure, and tested beside.
 
 type ChipColor = 'default' | 'accent' | 'success' | 'warning' | 'danger'
@@ -59,35 +59,4 @@ export function nameFromIdentifier(identifier: string) {
     return identifier
   }
   return words.charAt(0).toUpperCase() + words.slice(1)
-}
-
-type Duration = {
-  key: ParseKeys<'runs'>
-  values: Record<string, number>
-}
-
-// How long something took from `startedAt` until `finishedAt`, or until `now` while it runs,
-// to the second: "42s", "3m 4s", "2h 5m". `null` before it started.
-export function durationBetween(
-  startedAt: string | null,
-  finishedAt: string | null,
-  now: number,
-): Duration | null {
-  if (!startedAt) {
-    return null
-  }
-  const end = finishedAt
-    ? Date.parse(finishedAt)
-    : now
-  const totalSeconds = Math.max(0, Math.floor((end - Date.parse(startedAt)) / 1000))
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-  if (hours) {
-    return { key: 'durations.hours', values: { hours, minutes }}
-  }
-  if (minutes) {
-    return { key: 'durations.minutes', values: { minutes, seconds }}
-  }
-  return { key: 'durations.seconds', values: { seconds }}
 }

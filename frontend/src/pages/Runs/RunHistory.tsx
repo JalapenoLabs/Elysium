@@ -11,6 +11,7 @@ import { useAppSelector } from '../../store/hooks'
 import { selectUserNamesById } from '../../store/usersSlice'
 
 // Misc
+import { formatShortDateTime } from '../../format/dates'
 import { useUsersLoader } from '../../hooks/useServerData'
 import { nameFromIdentifier } from './runPresentation'
 
@@ -25,8 +26,6 @@ const kindKeys = {
   skipped: 'historyKinds.skipped',
   resumed: 'historyKinds.resumed',
 } as const satisfies Record<RunHistoryEntry['kind'], string>
-
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 // Who started the run, and every step a person retried, skipped, or resumed, oldest first.
 export function RunHistory(props: Props) {
@@ -45,7 +44,7 @@ export function RunHistory(props: Props) {
         : ''
       return <li key={entry.id} className='level-left gap-3'>
         <span className='opacity-60 tabular-nums'>{
-          dateTimeFormatter.format(new Date(entry.createdAt))
+          formatShortDateTime(entry.createdAt)
         }</span>
         <span>{t(key, { name, step })}</span>
       </li>

@@ -16,11 +16,6 @@
     "skipped": "Skipped",
     "succeeded": "Succeeded"
   },
-  "durations": {
-    "seconds": "{{seconds}}s",
-    "minutes": "{{minutes}}m {{seconds}}s",
-    "hours": "{{hours}}h {{minutes}}m"
-  },
   "list": {
     "label": "Runs",
     "loadError": "Runs could not be loaded.",

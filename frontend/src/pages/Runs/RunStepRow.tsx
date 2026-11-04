@@ -25,6 +25,7 @@ import { RunDuration } from './RunDuration'
 import { StepLog } from './StepLog'
 
 // Misc
+import { formatTime } from '../../format/dates'
 import { nameFromIdentifier, stepActionsByState, stepStateLabelKeys } from './runPresentation'
 import { useStepActions } from './useStepActions'
 
@@ -53,8 +54,6 @@ const actionLabelKeys = {
   skip: 'step.actions.skip',
   resume: 'step.actions.resume',
 } as const satisfies Record<StepAction, string>
-
-const timeFormatter = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' })
 
 // One step of a run, as GitHub Actions shows one: collapsed to its state, its name, the line
 // it wrote (or why it failed), and how long it took; opening it shows its log. A failed step
@@ -107,7 +106,7 @@ export function RunStepRow(props: Props) {
       <div className='level-right shrink-0 gap-3 text-sm opacity-80'>
         {/* Left out below sm, where the row keeps its name, duration, and actions on one line. */}
         {retriesAt && <span className='hidden sm:inline'>{
-          t('run.retryingAt', { time: timeFormatter.format(new Date(retriesAt)) })
+          t('run.retryingAt', { time: formatTime(retriesAt) })
         }</span>}
         {step.attempts > 1 && <span className='hidden sm:inline'>{
           t('run.attempts', { count: step.attempts })

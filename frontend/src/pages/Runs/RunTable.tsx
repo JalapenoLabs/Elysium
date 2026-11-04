@@ -17,6 +17,7 @@ import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { RunDuration } from './RunDuration'
 
 // Misc
+import { DateText } from '../../format/DateText'
 import { useUsersLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getRunViewUrl } from '../../urls'
@@ -45,8 +46,6 @@ const columnSizes = {
   started: 190,
   duration: 120,
 } as const satisfies Record<RunColumnKey, number>
-
-const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 // Every run loaded so far, newest first, each opening its own page.
 export function RunTable(props: Props) {
@@ -80,7 +79,7 @@ export function RunTable(props: Props) {
         t(runStateLabelKeys[run.state])
       }</Chip>,
       startedBy,
-      started: (run: WorkflowRun) => dateTimeFormatter.format(new Date(run.createdAt)),
+      started: (run: WorkflowRun) => <DateText value={run.createdAt} />,
       duration: (run: WorkflowRun) => <RunDuration
         startedAt={run.startedAt}
         finishedAt={run.finishedAt}
