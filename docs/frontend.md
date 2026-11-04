@@ -209,7 +209,9 @@ needs nothing for this beyond its `UrlTree` entry.
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s: Personal
 settings, Knowledge base (meetings; learnings, hidden from guests; learning categories, for admins alone; and the knowledge
-base's own settings as they are built), and Workspace settings.
+base's own settings as they are built), and Workspace settings. Each entry is a tile, its icon and title and nothing
+more, all of it one React Aria `Link`: borderless at rest, it shows its box on hover and on keyboard focus. Every entry
+has an icon of its own.
 New settings pages add an entry to a section and a route under `/settings`, and render inside `SettingsPage`.
 
 ### Settings pages

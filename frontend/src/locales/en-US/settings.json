@@ -7,66 +7,51 @@
   },
   "items": {
     "account": {
-      "title": "My account",
-      "description": "Your name, the email you sign in with, and how Elysium looks on this device."
+      "title": "My account"
     },
     "security": {
-      "title": "Security",
-      "description": "Your password, two-factor authentication, passkeys, lookup codes, and where you're signed in."
+      "title": "Security"
     },
     "mcp": {
-      "title": "MCP",
-      "description": "Connect Claude Code, Codex, and other MCP clients, and disconnect the ones you've allowed."
+      "title": "MCP"
     },
     "meetings": {
-      "title": "Meetings",
-      "description": "Your meeting sources, and your recent meetings as they reach their projects' timelines."
+      "title": "Meetings"
     },
     "learnings": {
-      "title": "Learnings",
-      "description": "What people and their agents learned, saved for the next agent, with every change kept."
+      "title": "Learnings"
     },
     "learningCategories": {
-      "title": "Learning categories",
-      "description": "The categories learnings are filed under: Elysium's built-in ones and your workspace's own."
+      "title": "Learning categories"
     },
     "users": {
       "title": "Users",
-      "description": "Approve sign-ups, manage roles and accounts, and choose who may join.",
       "pending_one": "{{count, compact}} waiting",
       "pending_other": "{{count, compact}} waiting"
     },
     "llms": {
-      "title": "Manage LLMs",
-      "description": "Connect language model providers, set their priority, and manage credentials."
+      "title": "Manage LLMs"
     },
     "email": {
-      "title": "Email",
-      "description": "Connect Gmail and Outlook accounts, or create mailboxes on Elysium's own mail server."
+      "title": "Email"
     },
     "connectors": {
-      "title": "Connectors",
-      "description": "Jira, GitHub, mail, and meetings: every service Elysium reads as you, its accounts, and their checks."
+      "title": "Connectors"
     },
     "storage": {
-      "title": "Storage",
-      "description": "Choose where Elysium saves files: Bunny Storage, Amazon S3, or Google Cloud Storage."
+      "title": "Storage"
     },
     "environment": {
-      "title": "Environment variables",
-      "description": "Set variables every coding session's agent receives, such as registry tokens or build settings."
+      "title": "Environment variables"
     },
     "updates": {
-      "title": "Updates",
-      "description": "See which release is running, follow auto-update, and check for a new release."
+      "title": "Updates"
     },
     "backups": {
-      "title": "Backups",
-      "description": "Choose where the databases are backed up every night, and see every backup."
+      "title": "Backups"
     },
     "passwords": {
-      "title": "Passwords",
-      "description": "Connect the Bitwarden or Vaultwarden account agents sign in to things with."
+      "title": "Passwords"
     }
   },
   "account": {

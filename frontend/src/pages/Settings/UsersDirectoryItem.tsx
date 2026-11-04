@@ -25,7 +25,6 @@ export function UsersDirectoryItem() {
   return <SettingsDirectoryItem
     icon={LuUsers}
     title={t('items.users.title')}
-    description={t('items.users.description')}
     href={UrlTree.settingsUsers}
     badge={pendingCount > 0 && <Chip size='sm' variant='soft' color='warning'>{
       t('items.users.pending', { count: pendingCount })
