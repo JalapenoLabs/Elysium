@@ -63,7 +63,8 @@ Code here keeps to it:
     `motion-reduce:transition-none`, which HeroUI's variant applies under `prefers-reduced-motion` and under
     `data-reduce-motion`. All of it is classes, never injected styles.
 - `Topbar` spans the content column. It has a search field and, on the right, the Elysia button, the live updates
-  dot, the settings gear, and the account menu (`UserMenu`), its avatar named in a tooltip: the person's name in
+  dot, the settings gear, the notification bell (`NotificationBell`, see Toasts), and the account menu (`UserMenu`),
+  its avatar named in a tooltip: the person's name in
   small bold and their email in smaller italic, a divider, My account and Security as links, then Sign out below a
   divider, which asks in a dialog first; each item has an icon. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
   green while the event stream is connected and amber while it reconnects.
@@ -876,7 +877,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `mailAccounts`   | Connected mailboxes, sorted by address                                  |
 | `mailDomains`    | The mail server's domains, sorted by name                               |
 | `mailServer`     | The mail server's state, replaced whole by every update                 |
-| `notifications` | Toasts kept for the notification menu this session, newest first        |
+| `notifications` | Toasts kept for the notification menu, newest first, and which are read |
 | `projects`       | Projects, sorted by name                                                |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |
 | `jiraCredentials` | Jira Cloud credentials, sorted by name                                 |
@@ -975,8 +976,15 @@ Every toast goes through `toast` in `src/toast/toast.tsx`, never HeroUI's: ESLin
   just filed. Descriptions are strings, so a toast stays serializable for the notification menu.
 - **Work in progress.** `toast.loading(message)` shows a spinner until `toast.close` is called with its id.
 - **Kept for the notification menu.** Every toast but a success and a loading one is recorded in
-  `notificationsSlice` (title, description, link, variant, and when), for the session only. A success confirms what
-  the person just did, so it is left out; `keepInNotifications` overrides either way.
+  `notificationsSlice` (title, description, link, variant, when, and whether it was read), newest first, at most 100.
+  A success confirms what the person just did, so it is left out; `keepInNotifications` overrides either way. They are
+  kept in memory for the page's life alone, like every other slice: a reload starts empty, and signing out, a full
+  page load, leaves nothing for whoever signs in next.
+- **The notification menu.** The topbar's bell carries a badge counting what is unread, and opens
+  `NotificationDrawer` from the right: every kept toast, newest first, each with its status icon and an edge in its
+  status color, its description and link, when it was shown, and a button to clear it; then Clear all and Close at
+  the bottom. Whatever the open drawer shows is read, so opening it clears the badge, and anything arriving while it
+  is open never counts.
 - **Slow changes.** The API client's `fetch` (`src/api/slowRequestNotice.ts`) shows "Your request is taking longer
   than usual... Hang tight." while any change (every method but `GET` and `HEAD`) has run for 5 seconds, under the
   10 second request timeout, and closes it when the last one returns. Reads are left out, since many run unasked.

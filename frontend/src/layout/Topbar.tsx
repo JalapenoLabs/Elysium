@@ -11,6 +11,7 @@ import { LuSettings } from 'react-icons/lu'
 import { ElysiaToggle } from '../elysia/ElysiaToggle'
 import { LiveUpdatesIndicator } from './LiveUpdatesIndicator'
 import { MobileNavigation } from './MobileNavigation'
+import { NotificationBell } from './NotificationBell'
 import { UserMenu } from './UserMenu'
 
 // Misc
@@ -88,6 +89,7 @@ export function Topbar() {
           }</span>
         </Tooltip.Content>
       </Tooltip>
+      <NotificationBell />
       <UserMenu />
     </div>
   </header>
