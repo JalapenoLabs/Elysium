@@ -27,10 +27,8 @@ import { createInitiative } from '../../api/routes/initiativeRoutes'
 import { useProjectsLoader } from '../../hooks/useServerData'
 import { toEndOfDayInstant } from '../ActionItems/actionItemDates'
 import { createInitiativeFormSchema } from './initiativeFormSchema'
-import { usePageSave } from '../../layout/page/pageSave'
+import { saveForm, usePageSave } from '../../layout/page/pageSave'
 import { toast } from '../../toast/toast'
-
-const INITIATIVE_FORM_ID = 'initiative-form'
 
 type Props = {
   // Projects the initiative starts in, such as the project page it was created from.
@@ -59,7 +57,7 @@ export function InitiativeForm(props: Props) {
     },
   })
 
-  const onSubmit = form.handleSubmit(async (values) => {
+  const save = saveForm(form, async (values) => {
     try {
       const response = await createInitiative({
         name: values.name,
@@ -72,18 +70,19 @@ export function InitiativeForm(props: Props) {
       dispatch(initiativeUpserted(response.initiative))
       toast.success(t('toasts.created', { name: response.initiative.name }))
       props.onSaved(response.initiative.id)
+      return true
     }
     catch (error) {
       const message = getApiErrorMessage(error)
       console.debug('InitiativeForm failed to create the initiative', { error })
       toast.danger(t('common:errors.unexpected'), { description: message ?? undefined })
+      return false
     }
   })
 
-  usePageSave({
-    formId: INITIATIVE_FORM_ID,
+  const onSubmit = usePageSave({
+    save,
     isDirty: form.formState.isDirty,
-    isPending: form.formState.isSubmitting,
     label: t('form.submit'),
   })
 
@@ -94,7 +93,6 @@ export function InitiativeForm(props: Props) {
   const targetDate = useWatch({ control: form.control, name: 'targetDate' })
 
   return <Form
-    id={INITIATIVE_FORM_ID}
     onSubmit={onSubmit}
     validationBehavior='aria'
     className='grid max-w-3xl grid-cols-1 gap-4'

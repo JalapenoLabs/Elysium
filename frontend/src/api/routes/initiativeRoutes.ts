@@ -85,7 +85,7 @@ export function createInitiative(body: CreateInitiativeRequest) {
 
 // Omitted fields are left unchanged; `targetAt: null` removes the target. The state moves in
 // any direction.
-type UpdateInitiativeRequest = {
+export type UpdateInitiativeRequest = {
   name?: string
   description?: string
   targetAt?: string | null

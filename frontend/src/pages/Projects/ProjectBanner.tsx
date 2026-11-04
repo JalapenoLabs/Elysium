@@ -4,23 +4,16 @@ import type { Selection } from '@heroui/react'
 import type { Project, ProjectCoverFit } from '../../api/routes/projectRoutes'
 
 // Core
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-// Redux
-import { useAppDispatch } from '../../store/hooks'
-import { projectUpserted } from '../../store/projectsSlice'
-
 // User interface
-import { Button, Spinner, ToggleButton, ToggleButtonGroup, Tooltip } from '@heroui/react'
-import { LuExpand, LuImagePlus, LuShrink } from 'react-icons/lu'
+import { Button, ToggleButton, ToggleButtonGroup, Tooltip } from '@heroui/react'
+import { LuExpand, LuImagePlus, LuShrink, LuUndo2 } from 'react-icons/lu'
 import { ProjectCover } from './ProjectCover'
 
-// Utility
-import { HTTPError } from 'ky'
-
 // Misc
-import { getProjectCoverUrl, updateProject, uploadProjectCover } from '../../api/routes/projectRoutes'
+import { getProjectCoverUrl, PROJECT_COVER_FITS } from '../../api/routes/projectRoutes'
 import { PROJECT_COVER_ACCEPTED_TYPES } from '../../constants'
 import { getCoverFileErrorKey } from './projectCover'
 import { toast } from '../../toast/toast'
@@ -30,56 +23,64 @@ const ADD_COVER_CLASS_NAME = [
   'transition hover:opacity-100 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none',
 ].join(' ')
 
-// The cover's controls stay out of the way until the banner is hovered or holds focus.
+// The cover's controls stay out of the way until the banner is hovered or holds focus, unless
+// a new cover is waiting to be saved, which they offer to undo.
 const COVER_CONTROLS_CLASS_NAME = [
-  'absolute top-3 right-3 flex items-center gap-2 opacity-0 transition-opacity',
+  'absolute top-3 right-3 flex items-center gap-2 transition-opacity',
   'group-focus-within:opacity-100 group-hover:opacity-100',
 ].join(' ')
 
-const COVER_FITS = [ 'fit', 'fill' ] as const satisfies readonly ProjectCoverFit[]
-
 type Props = {
   project: Project
+  // How the cover sits in its frame, as the page's form holds it.
+  fit: ProjectCoverFit
+  onFitChange: (fit: ProjectCoverFit) => void
+  // A new cover picked to replace the current one, uploaded by the page's Save.
+  coverFile: File | null
+  onCoverFileChange: (file: File | null) => void
 }
 
-// The cover across the project page. Double-clicking it, or its Change cover button, picks
-// a new image and uploads it at once; the Fit and Fill switch beside that button changes
-// how every rendering of the cover sits in its frame. Without a cover, the whole strip is
-// one button that adds one.
+// The cover across the project page, a field of the page kept by its Save. Double-clicking it,
+// or its Change cover button, picks a new image, shown here until it is saved; the Fit and Fill
+// switch beside that button changes how every rendering of the cover sits in its frame. Without
+// a cover, the whole strip is one button that picks one.
 export function ProjectBanner(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
-  const dispatch = useAppDispatch()
   const inputRef = useRef<HTMLInputElement>(null)
-  const [ isUploading, setIsUploading ] = useState(false)
-  const coverUrl = getProjectCoverUrl(props.project)
+  const [ previewUrl, setPreviewUrl ] = useState<string | null>(null)
+  const coverUrl = previewUrl ?? getProjectCoverUrl(props.project)
+
+  // An object URL holds the file in memory until it is revoked.
+  useEffect(() => {
+    const url = props.coverFile
+      ? URL.createObjectURL(props.coverFile)
+      : null
+    setPreviewUrl(url)
+    return () => {
+      if (url) {
+        URL.revokeObjectURL(url)
+      }
+    }
+  }, [ props.coverFile ])
 
   function chooseFile() {
-    if (isUploading) {
-      return
-    }
     inputRef.current?.click()
   }
 
-  async function changeFit(keys: Selection) {
+  function changeFit(keys: Selection) {
     // The group disallows an empty selection, so one fit is always selected.
     const [ selected ] = keys === 'all'
       ? []
       : [ ...keys ]
-    const fit = COVER_FITS.find((candidate) => candidate === selected)
-    if (!fit || fit === props.project.coverFit) {
+    const fit = PROJECT_COVER_FITS.find((candidate) => candidate === selected)
+    if (!fit) {
+      console.debug('ProjectBanner ignored an unknown cover fit', { selected })
       return
     }
-    try {
-      const response = await updateProject(props.project.id, { coverFit: fit })
-      dispatch(projectUpserted(response.project))
-    }
-    catch (error) {
-      console.debug('ProjectBanner failed to change the cover fit', { error, projectId: props.project.id })
-      toast.danger(t('common:errors.unexpected'))
-    }
+    props.onFitChange(fit)
   }
 
-  async function upload(file: File | undefined) {
+  function pick(file: File | undefined) {
     if (!file) {
       console.debug('ProjectBanner: the file picker closed without a file')
       return
@@ -89,24 +90,7 @@ export function ProjectBanner(props: Props) {
       toast.danger(t('toasts.coverUploadFailed'), { description: t(errorKey) })
       return
     }
-
-    setIsUploading(true)
-    try {
-      const response = await uploadProjectCover(props.project.id, file)
-      dispatch(projectUpserted(response.project))
-      toast.success(t('toasts.coverUpdated'))
-    }
-    catch (error) {
-      // The API explains a refusal, such as a file that is not really an image.
-      const description = error instanceof HTTPError && error.response.status === 400
-        ? t('form.errors.coverUnsupported')
-        : t('common:errors.unexpected')
-      console.debug('ProjectBanner failed to upload the cover', { error, projectId: props.project.id })
-      toast.danger(t('toasts.coverUploadFailed'), { description })
-    }
-    finally {
-      setIsUploading(false)
-    }
+    props.onCoverFileChange(file)
   }
 
   const fileInput = <input
@@ -115,20 +99,11 @@ export function ProjectBanner(props: Props) {
     accept={PROJECT_COVER_ACCEPTED_TYPES.join(',')}
     className='hidden'
     onChange={(event) => {
-      void upload(event.currentTarget.files?.[0])
+      pick(event.currentTarget.files?.[0])
       // Clearing lets the same file be chosen again.
       event.currentTarget.value = ''
     }}
   />
-
-  const uploadingOverlay = isUploading && <div
-    className='absolute inset-0 grid place-items-center rounded-2xl bg-surface/70'
-  >
-    <span className='flex items-center gap-2 text-sm'>
-      <Spinner size='sm' />
-      <span>{t('page.uploadingCover')}</span>
-    </span>
-  </div>
 
   if (!coverUrl) {
     return <div className='relaxed relative'>
@@ -136,7 +111,6 @@ export function ProjectBanner(props: Props) {
       <button
         type='button'
         className={ADD_COVER_CLASS_NAME}
-        disabled={isUploading}
         onClick={chooseFile}
       >
         <span className='flex items-center gap-2'>
@@ -144,9 +118,12 @@ export function ProjectBanner(props: Props) {
           <span>{t('page.addCover')}</span>
         </span>
       </button>
-      {uploadingOverlay}
     </div>
   }
+
+  const controlsVisibility = props.coverFile
+    ? 'opacity-100'
+    : 'opacity-0'
 
   return <div className='group relaxed relative'>
     {fileInput}
@@ -157,7 +134,7 @@ export function ProjectBanner(props: Props) {
       >
         <ProjectCover
           src={coverUrl}
-          fit={props.project.coverFit}
+          fit={props.fit}
           name={props.project.name}
           className='h-48 w-full rounded-2xl sm:h-64'
         />
@@ -166,14 +143,22 @@ export function ProjectBanner(props: Props) {
         <span>{t('page.coverHint')}</span>
       </Tooltip.Content>
     </Tooltip>
-    <div className={COVER_CONTROLS_CLASS_NAME}>
+    <div className={`${COVER_CONTROLS_CLASS_NAME} ${controlsVisibility}`}>
+      {props.coverFile && <Button
+        size='sm'
+        variant='secondary'
+        onPress={() => props.onCoverFileChange(null)}
+      >
+        <LuUndo2 className='size-4' aria-hidden />
+        <span>{t('page.keepCover')}</span>
+      </Button>}
       <ToggleButtonGroup
         size='sm'
         aria-label={t('page.coverFit')}
         selectionMode='single'
         disallowEmptySelection
-        selectedKeys={[ props.project.coverFit ]}
-        onSelectionChange={(keys) => void changeFit(keys)}
+        selectedKeys={[ props.fit ]}
+        onSelectionChange={changeFit}
       >
         <ToggleButton id='fit'>
           <LuShrink className='size-4' aria-hidden />
@@ -188,13 +173,11 @@ export function ProjectBanner(props: Props) {
       <Button
         size='sm'
         variant='secondary'
-        isDisabled={isUploading}
         onPress={chooseFile}
       >
         <LuImagePlus className='size-4' aria-hidden />
         <span>{t('page.changeCover')}</span>
       </Button>
     </div>
-    {uploadingOverlay}
   </div>
 }

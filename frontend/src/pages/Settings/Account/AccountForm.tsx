@@ -1,7 +1,6 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { SettingsFlow } from '@ory/client-fetch'
-import type { FormEvent } from 'react'
 import type { SettingsSubmission } from '../../../hooks/useKratosSettingsFlow'
 
 // Core
@@ -18,8 +17,6 @@ import { fieldErrorText } from '../../Auth/kratosPresentation'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { readProfile } from './profilePresentation'
 
-const ACCOUNT_FORM_ID = 'account-form'
-
 type Props = {
   flow: SettingsFlow
   onSubmit: (body: SettingsSubmission, savedMessage: string) => Promise<boolean>
@@ -33,7 +30,6 @@ export function AccountForm(props: Props) {
   const [ firstName, setFirstName ] = useState(stored.firstName)
   const [ lastName, setLastName ] = useState(stored.lastName)
   const [ email, setEmail ] = useState(stored.email)
-  const [ isSaving, setIsSaving ] = useState(false)
   const messages = collectMessages(props.flow)
 
   const isDirty = firstName.trim() !== stored.firstName
@@ -47,17 +43,8 @@ export function AccountForm(props: Props) {
     blockedReason = t('settings:account.emailRequired')
   }
 
-  usePageSave({
-    formId: ACCOUNT_FORM_ID,
-    isDirty,
-    isPending: isSaving,
-    blockedReason,
-  })
-
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setIsSaving(true)
-    await props.onSubmit(
+  const onSubmit = usePageSave({
+    save: () => props.onSubmit(
       {
         method: 'profile',
         traits: {
@@ -66,11 +53,12 @@ export function AccountForm(props: Props) {
         },
       },
       t('settings:account.saved'),
-    )
-    setIsSaving(false)
-  }
+    ),
+    isDirty,
+    blockedReason,
+  })
 
-  return <Form id={ACCOUNT_FORM_ID} onSubmit={save} validationBehavior='aria' className='max-w-2xl'>
+  return <Form onSubmit={onSubmit} validationBehavior='aria' className='max-w-2xl'>
     <div className='compact'>
       <PersonNameFields
         autoFocus

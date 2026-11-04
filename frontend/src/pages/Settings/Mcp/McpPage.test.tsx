@@ -7,7 +7,7 @@ import type { UserRole } from '../../../api/routes/userRoutes'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { Provider } from 'react-redux'
-import { MemoryRouter } from 'react-router'
+import { createMemoryRouter, RouterProvider } from 'react-router'
 import { SWRConfig } from 'swr'
 
 // Redux
@@ -55,12 +55,12 @@ function renderAs(role: UserRole) {
     mfaEnrollmentRequired: false,
     authenticatorNickname: null,
   }))
+  // A data router, since every page guards its unsaved changes with a blocker.
+  const router = createMemoryRouter([{ path: '/', element: <McpPage /> }])
   // A fresh cache per test, so one test's lists never answer another's.
   return render(<SWRConfig value={{ provider: () => new Map() }}>
     <Provider store={store}>
-      <MemoryRouter>
-        <McpPage />
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </Provider>
   </SWRConfig>)
 }

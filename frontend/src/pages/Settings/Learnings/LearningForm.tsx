@@ -24,13 +24,11 @@ import { HTTPError } from 'ky'
 import { getApiErrorMessage } from '../../../api/errors'
 import { BUILT_IN_LEARNING_CATEGORIES, correctLearning, saveLearning } from '../../../api/routes/learningRoutes'
 import { useLearningCategories } from '../../../hooks/useLearningCategories'
-import { usePageSave } from '../../../layout/page/pageSave'
+import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createLearningFormSchema } from './learningFormSchema'
 import { LEARNING_FIELDS } from './learningPresentation'
 import { forgetNewLearningDraft, readNewLearningDraft, saveNewLearningDraft } from './newLearningDraft'
 import { toast } from '../../../toast/toast'
-
-const LEARNING_FORM_ID = 'learning-form'
 
 const saveToastKeys = {
   created: 'toasts.created',
@@ -109,7 +107,7 @@ export function LearningForm(props: Props) {
     saveNewLearningDraft(values)
   }, [ stored, values ])
 
-  const onSubmit = form.handleSubmit(async (submitted) => {
+  const save = saveForm(form, async (submitted) => {
     try {
       if (stored) {
         const response = await correctLearning(stored.id, submitted)
@@ -118,7 +116,7 @@ export function LearningForm(props: Props) {
         form.reset(submitted)
         toast.success(t('toasts.corrected'))
         props.onSaved?.(response.learning)
-        return
+        return true
       }
 
       const response = await saveLearning(submitted)
@@ -126,24 +124,25 @@ export function LearningForm(props: Props) {
       forgetNewLearningDraft()
       toast.success(t(saveToastKeys[response.outcome]))
       props.onSaved?.(response.learning)
+      return true
     }
     catch (error) {
       if (error instanceof HTTPError && error.response.status === 409) {
         form.setError('title', { message: t('form.errors.titleTaken') })
-        return
+        return false
       }
       // The form mirrors the API's rules, so a refusal here is one it did not foresee; its
       // message still names what to fix.
       const message = getApiErrorMessage(error)
       console.debug('LearningForm failed to save the learning', { error })
       toast.danger(t('common:errors.unexpected'), { description: message ?? undefined })
+      return false
     }
   })
 
-  usePageSave({
-    formId: LEARNING_FORM_ID,
+  const onSubmit = usePageSave({
+    save,
     isDirty: form.formState.isDirty,
-    isPending: form.formState.isSubmitting,
   })
 
   const errors = form.formState.errors
@@ -153,7 +152,6 @@ export function LearningForm(props: Props) {
   }))
 
   return <Form
-    id={LEARNING_FORM_ID}
     onSubmit={onSubmit}
     validationBehavior='aria'
     className='flex max-w-3xl flex-col gap-4'

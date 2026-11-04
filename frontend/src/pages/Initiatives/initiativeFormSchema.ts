@@ -7,6 +7,7 @@ import { CalendarDate } from '@internationalized/date'
 import { z } from 'zod'
 
 // Misc
+import { INITIATIVE_STATES } from '../../api/routes/initiativeRoutes'
 import { INITIATIVE_DESCRIPTION_MAX_CHARACTERS, INITIATIVE_NAME_MAX_CHARACTERS } from './initiativePresentation'
 
 // Built per render with `t` so validation messages are already translated.
@@ -28,3 +29,13 @@ export function createInitiativeFormSchema(t: TFunction<'initiatives'>) {
 
 export type InitiativeFormInput = z.input<ReturnType<typeof createInitiativeFormSchema>>
 export type InitiativeFormValues = z.output<ReturnType<typeof createInitiativeFormSchema>>
+
+// An initiative's own page also moves its state, which a new initiative starts in as active.
+export function createInitiativeEditSchema(t: TFunction<'initiatives'>) {
+  return createInitiativeFormSchema(t).extend({
+    state: z.enum(INITIATIVE_STATES),
+  })
+}
+
+export type InitiativeEditInput = z.input<ReturnType<typeof createInitiativeEditSchema>>
+export type InitiativeEditValues = z.output<ReturnType<typeof createInitiativeEditSchema>>

@@ -20,6 +20,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { deleteProject, deleteProjectCover } from '../../api/routes/projectRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
+import { LEAVE_WITHOUT_ASKING } from '../../layout/page/pageSave'
 import { UrlTree } from '../../urls'
 import { toast } from '../../toast/toast'
 
@@ -66,8 +67,9 @@ export function useProjectActions(options: Options): PageAction[] {
           throw error
         }
 
-        // Leave first, so this page never renders the project as missing.
-        navigate(UrlTree.projects)
+        // Leave first, so this page never renders the project as missing. Its unsaved edits
+        // went with it, so leaving asks nothing.
+        void navigate(UrlTree.projects, { state: LEAVE_WITHOUT_ASKING })
         dispatch(projectDeleted(options.project.id))
         toast.success(t('toasts.deleted', { name }))
       },

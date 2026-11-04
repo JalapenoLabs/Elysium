@@ -11,7 +11,8 @@ export type ProjectScope = typeof ALL_PROJECTS | string[]
 
 // Mirrors `ProjectCoverFit` in api/src/models/project.rs. `fit` shows the whole image over a
 // blurred copy of itself; `fill` covers the frame and crops what does not fit.
-export type ProjectCoverFit = 'fit' | 'fill'
+export const PROJECT_COVER_FITS = [ 'fit', 'fill' ] as const
+export type ProjectCoverFit = typeof PROJECT_COVER_FITS[number]
 
 // Mirrors `GithubAccess` in api/src/models/project.rs: how a project picks the GitHub token
 // its sessions start with.
@@ -67,7 +68,7 @@ export function createProject(body: CreateProjectRequest) {
 }
 
 // Omitted fields are left unchanged.
-type UpdateProjectRequest = {
+export type UpdateProjectRequest = {
   name?: string
   description?: string
   coverFit?: ProjectCoverFit

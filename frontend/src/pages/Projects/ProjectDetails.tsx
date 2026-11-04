@@ -3,12 +3,12 @@
 import type { Project } from '../../api/routes/projectRoutes'
 
 // Core
+import { useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 // Redux
 import { selectCodingSessionsByProjectId } from '../../store/codingSessionsSlice'
-import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { projectUpserted } from '../../store/projectsSlice'
+import { useAppSelector } from '../../store/hooks'
 
 // User interface
 import { Spinner } from '@heroui/react'
@@ -20,77 +20,68 @@ import { ProjectGithubField } from './ProjectGithubField'
 import { ProjectTimeline } from './ProjectTimeline'
 import { ProjectWork } from './ProjectWork'
 
-// Utility
-import { HTTPError } from 'ky'
-
 // Misc
-import { updateProject } from '../../api/routes/projectRoutes'
 import { useCodingSessionsLoader } from '../../hooks/useServerData'
 import { useUserNames } from '../../hooks/useUserNames'
 import { formatDate } from '../../format/dates'
 import { UrlTree } from '../../urls'
 import { DESCRIPTION_MAX_CHARACTERS, NAME_MAX_CHARACTERS } from './projectFormSchema'
 import { useProjectActions } from './useProjectActions'
-import { toast } from '../../toast/toast'
+import { useProjectEditor } from './useProjectEditor'
 
 type Props = {
   project: Project
 }
 
-// One project, edited in place. The name is the page's title and is renamed where it is
-// shown; the cover runs across the page below it, then what the project is about, and the
-// Actions menu holds what cannot be done in place: removing the cover and deleting the
-// project. Its action items and initiatives, its timeline, then its coding sessions, follow.
+// One project, edited in place and kept by the page's Save. The name is the page's title and
+// is renamed where it is shown; the cover runs across the page below it, then what the
+// project is about and its GitHub token, and the Actions menu holds what cannot be done in
+// place: removing the cover and deleting the project. Its action items and initiatives, its
+// timeline, then its coding sessions, follow.
 export function ProjectDetails(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
-  const dispatch = useAppDispatch()
   const project = props.project
+  const editor = useProjectEditor(project)
+  const form = editor.form
+  const [ name, description, coverFit, githubKey ] = useWatch({
+    control: form.control,
+    name: [ 'name', 'description', 'coverFit', 'githubKey' ],
+  })
   const sessionsStatus = useCodingSessionsLoader()
   const sessions = useAppSelector((state) => selectCodingSessionsByProjectId(state, project.id))
   const userNames = useUserNames()
   const actions = useProjectActions({ project, sessionCount: sessions.length })
 
-  // Throws on failure, so the field stays open on what was typed.
-  async function saveField(changes: { name: string } | { description: string }) {
-    try {
-      const response = await updateProject(project.id, changes)
-      dispatch(projectUpserted(response.project))
-    }
-    catch (error) {
-      if (error instanceof HTTPError && error.response.status === 409) {
-        toast.danger(t('form.errors.nameTaken'))
-      }
-      else {
-        console.debug('ProjectDetails failed to save the project', { error, projectId: project.id })
-        toast.danger(t('common:errors.unexpected'))
-      }
-      throw error
-    }
-  }
-
   return <Page
-    title={project.name}
+    title={name}
     rename={{
       label: t('page.renameLabel'),
       maxLength: NAME_MAX_CHARACTERS,
-      onSave: (name) => saveField({ name }),
+      onChange: (value) => form.setValue('name', value, { shouldDirty: true }),
     }}
+    save={{ save: editor.save, isDirty: editor.isDirty }}
     parents={[{ label: t('title'), href: UrlTree.projects }]}
     actions={actions}
   >
-    <ProjectBanner project={project} />
+    <ProjectBanner
+      project={project}
+      fit={coverFit}
+      onFitChange={(fit) => form.setValue('coverFit', fit, { shouldDirty: true })}
+      coverFile={editor.coverFile}
+      onCoverFileChange={editor.setCoverFile}
+    />
 
     <section className='relaxed'>
       <h2 className='compact text-xl font-semibold'>{t('page.aboutHeading')}</h2>
       <div className='compact max-w-3xl'>
         <InlineEditableText
-          value={project.description}
+          value={description}
           label={t('page.describeLabel')}
           placeholder={t('page.addDescription')}
           isMultiline
           maxLength={DESCRIPTION_MAX_CHARACTERS}
           className='text-sm whitespace-pre-line opacity-80'
-          onSave={(description) => saveField({ description })}
+          onChange={(value) => form.setValue('description', value, { shouldDirty: true })}
         />
       </div>
       <p className='text-xs opacity-60'>{
@@ -101,7 +92,11 @@ export function ProjectDetails(props: Props) {
       }</p>
     </section>
 
-    <ProjectGithubField project={project} />
+    <ProjectGithubField
+      project={project}
+      value={githubKey}
+      onChange={(key) => form.setValue('githubKey', key, { shouldDirty: true })}
+    />
 
     <ProjectWork projectId={project.id} />
 

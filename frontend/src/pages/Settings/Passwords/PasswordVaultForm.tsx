@@ -33,12 +33,10 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { connectPasswordVault, PASSWORD_SERVERS } from '../../../api/routes/passwordVaultRoutes'
-import { usePageSave } from '../../../layout/page/pageSave'
+import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { toast } from '../../../toast/toast'
 import { createPasswordVaultFormSchema } from './passwordVaultFormSchema'
 import { serverLabelKeys, setupStepKeys } from './passwordsPresentation'
-
-const PASSWORD_VAULT_FORM_ID = 'password-vault-form'
 
 type Props = {
   // The vault whose credentials are being changed, or null to connect one.
@@ -73,7 +71,7 @@ export function PasswordVaultForm(props: Props) {
     },
   })
 
-  const onSubmit = form.handleSubmit(async (values) => {
+  const save = saveForm(form, async (values) => {
     try {
       const response = await connectPasswordVault({
         server: values.server,
@@ -88,23 +86,24 @@ export function PasswordVaultForm(props: Props) {
       dispatch(passwordVaultLoaded({ vault: response.vault, status: response.status }))
       toast.success(t('toasts.connected', { email: response.vault.accountEmail }))
       props.onSaved()
+      return true
     }
     catch (error) {
       const message = getApiErrorMessage(error)
       // Bitwarden's refusal, or the CLI failing to reach the server, names what to fix.
       if (error instanceof HTTPError && [ 400, 502 ].includes(error.response.status) && message) {
         toast.danger(t('form.refusedTitle'), { description: message })
-        return
+        return false
       }
       console.debug('PasswordVaultForm failed to connect the vault', { error })
       toast.danger(t('common:errors.unexpected'), { description: message ?? undefined })
+      return false
     }
   })
 
-  usePageSave({
-    formId: PASSWORD_VAULT_FORM_ID,
+  const onSubmit = usePageSave({
+    save,
     isDirty: form.formState.isDirty,
-    isPending: form.formState.isSubmitting,
     label: t('actions.connect'),
   })
 
@@ -113,7 +112,7 @@ export function PasswordVaultForm(props: Props) {
   const server = values.server ?? 'bitwarden-us'
 
   return <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
-    <Form id={PASSWORD_VAULT_FORM_ID} onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
+    <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
       <h2 className='text-xl font-semibold'>{
         stored
           ? t('form.editHeading')

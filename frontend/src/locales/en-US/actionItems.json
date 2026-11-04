@@ -320,6 +320,7 @@
   },
   "toasts": {
     "created": "Created “{{title}}”.",
+    "saved": "Saved “{{title}}”.",
     "accepted": "Accepted “{{title}}”.",
     "resolved": "Resolved “{{title}}”.",
     "dismissed": "Dismissed “{{title}}”.",

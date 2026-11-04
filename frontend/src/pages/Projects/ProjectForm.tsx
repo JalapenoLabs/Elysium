@@ -22,11 +22,9 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { createProject, uploadProjectCover } from '../../api/routes/projectRoutes'
-import { usePageSave } from '../../layout/page/pageSave'
+import { saveForm, usePageSave } from '../../layout/page/pageSave'
 import { createProjectFormSchema } from './projectFormSchema'
 import { toast } from '../../toast/toast'
-
-const PROJECT_FORM_ID = 'project-form'
 
 type Props = {
   onSaved: (project: Project) => void
@@ -72,7 +70,7 @@ export function ProjectForm(props: Props) {
     }
   }
 
-  const onSubmit = form.handleSubmit(async (values) => {
+  const save = saveForm(form, async (values) => {
     try {
       const response = await createProject(values)
       dispatch(projectUpserted(response.project))
@@ -80,22 +78,24 @@ export function ProjectForm(props: Props) {
 
       toast.success(t('toasts.created', { name: values.name }))
       props.onSaved(saved)
+      return true
     }
     catch (error) {
       if (error instanceof HTTPError && error.response.status === 409) {
         form.setError('name', { message: t('form.errors.nameTaken') })
-        return
+        return false
       }
 
       console.debug('ProjectForm failed to save the project', { error })
       toast.danger(t('common:errors.unexpected'))
+      return false
     }
   })
 
-  usePageSave({
-    formId: PROJECT_FORM_ID,
-    isDirty: form.formState.isDirty,
-    isPending: form.formState.isSubmitting,
+  const onSubmit = usePageSave({
+    save,
+    // A cover picked before anything is typed is work to keep too.
+    isDirty: form.formState.isDirty || coverFile !== null,
     label: t('form.create'),
   })
 
@@ -106,7 +106,7 @@ export function ProjectForm(props: Props) {
     name: [ 'name', 'description' ],
   })
 
-  return <Form id={PROJECT_FORM_ID} onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
+  return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
     {/* The cover sits beside the other fields, at about the width it has on a tile. */}
     <div className='grid grid-cols-1 items-start gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]'>
       <div className='flex flex-col gap-4'>

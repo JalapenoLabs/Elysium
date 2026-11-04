@@ -1,6 +1,5 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { FormEvent } from 'react'
 import type { StorageLocation } from '../../../api/routes/storageRoutes'
 
 // Core
@@ -22,8 +21,6 @@ import { UrlTree } from '../../../urls'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { toast } from '../../../toast/toast'
 
-const BACKUP_DESTINATION_FORM_ID = 'backup-destination-form'
-
 // The select's id for backing up nowhere. Location ids are UUIDs, so it never collides.
 const NOWHERE = 'nowhere'
 
@@ -41,17 +38,8 @@ export function BackupDestinationForm(props: Props) {
   const dispatch = useAppDispatch()
   const saved = props.destinationId ?? NOWHERE
   const [ chosen, setChosen ] = useState(saved)
-  const [ isSaving, setIsSaving ] = useState(false)
 
-  usePageSave({
-    formId: BACKUP_DESTINATION_FORM_ID,
-    isDirty: chosen !== saved,
-    isPending: isSaving,
-  })
-
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setIsSaving(true)
+  async function save() {
     try {
       const storageLocationId = chosen === NOWHERE
         ? null
@@ -62,6 +50,7 @@ export function BackupDestinationForm(props: Props) {
       toast.success(destination
         ? t('destination.saved', { name: destination.name })
         : t('destination.turnedOff'))
+      return true
     }
     catch (error) {
       const message = getApiErrorMessage(error)
@@ -71,9 +60,14 @@ export function BackupDestinationForm(props: Props) {
       toast.danger(t('destination.failed'), {
         description: message ?? t('common:errors.unexpected'),
       })
+      return false
     }
-    setIsSaving(false)
   }
+
+  const onSubmit = usePageSave({
+    save,
+    isDirty: chosen !== saved,
+  })
 
   const options = [
     { id: NOWHERE, label: t('destination.none') },
@@ -81,9 +75,8 @@ export function BackupDestinationForm(props: Props) {
   ]
 
   return <Form
-    id={BACKUP_DESTINATION_FORM_ID}
     className='relaxed max-w-md'
-    onSubmit={save}
+    onSubmit={onSubmit}
   >
     <OptionSelect
       label={t('destination.label')}

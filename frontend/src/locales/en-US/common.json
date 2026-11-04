@@ -72,9 +72,14 @@
     "breadcrumbs": "Breadcrumbs",
     "help": "Help",
     "leave": {
-      "title": "Leave without saving?",
-      "message": "Your changes on this page will be lost.",
-      "confirm": "Leave"
+      "title": "Unsaved changes",
+      "message": "Save your changes before you go?",
+      "discard": "Discard work",
+      "saveAndContinue": "Save and continue",
+      "keepEditing": "Keep editing"
+    },
+    "save": {
+      "nothingChanged": "Nothing to save yet"
     },
     "floatingSave": {
       "label": "Save changes",

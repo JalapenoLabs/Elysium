@@ -22,7 +22,7 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { createLearningCategory, updateLearningCategory } from '../../../api/routes/learningCategoryRoutes'
-import { usePageSave } from '../../../layout/page/pageSave'
+import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createLearningCategoryFormSchema, keyFromLabel } from './learningCategoryFormSchema'
 import {
   forgetNewLearningCategoryDraft,
@@ -30,8 +30,6 @@ import {
   saveNewLearningCategoryDraft,
 } from './newLearningCategoryDraft'
 import { toast } from '../../../toast/toast'
-
-const LEARNING_CATEGORY_FORM_ID = 'learning-category-form'
 
 type Props = {
   // The workspace category being edited, or null to add one.
@@ -88,7 +86,7 @@ export function LearningCategoryForm(props: Props) {
     saveNewLearningCategoryDraft({ ...values, isKeyTyped })
   }, [ stored, values, isKeyTyped ])
 
-  const onSubmit = form.handleSubmit(async (submitted) => {
+  const save = saveForm(form, async (submitted) => {
     try {
       if (stored) {
         const response = await updateLearningCategory(stored.key, {
@@ -100,7 +98,7 @@ export function LearningCategoryForm(props: Props) {
         form.reset(submitted)
         toast.success(t('toasts.saved'))
         props.onSaved(response.category)
-        return
+        return true
       }
 
       const response = await createLearningCategory(submitted)
@@ -108,30 +106,30 @@ export function LearningCategoryForm(props: Props) {
       forgetNewLearningCategoryDraft()
       toast.success(t('toasts.created'))
       props.onSaved(response.category)
+      return true
     }
     catch (error) {
       if (!stored && error instanceof HTTPError && error.response.status === 409) {
         form.setError('key', { message: t('form.errors.keyTaken') })
-        return
+        return false
       }
       // The form mirrors the API's rules, so a refusal here is one it did not foresee; its
       // message still names what to fix.
       const message = getApiErrorMessage(error)
       console.debug('LearningCategoryForm failed to save the category', { error })
       toast.danger(t('common:errors.unexpected'), { description: message ?? undefined })
+      return false
     }
   })
 
-  usePageSave({
-    formId: LEARNING_CATEGORY_FORM_ID,
+  const onSubmit = usePageSave({
+    save,
     isDirty: form.formState.isDirty,
-    isPending: form.formState.isSubmitting,
   })
 
   const errors = form.formState.errors
 
   return <Form
-    id={LEARNING_CATEGORY_FORM_ID}
     onSubmit={onSubmit}
     validationBehavior='aria'
     className='flex max-w-3xl flex-col gap-4'

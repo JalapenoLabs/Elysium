@@ -38,7 +38,7 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { createLlm, updateLlm } from '../../../api/routes/llmRoutes'
-import { usePageSave } from '../../../layout/page/pageSave'
+import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createLlmFormSchema } from './llmFormSchema'
 import { isTokenTypedByType } from './llmPresentation'
 import { toast } from '../../../toast/toast'
@@ -46,8 +46,6 @@ import { toast } from '../../../toast/toast'
 // 365 days rather than "the same date next year", so a leap year never pushes the expiry
 // past a token that is valid for exactly that long.
 const ONE_YEAR_IN_DAYS = 365
-
-const LLM_FORM_ID = 'llm-form'
 
 type Props = {
   type: LlmType
@@ -86,7 +84,7 @@ export function LlmForm(props: Props) {
     },
   })
 
-  const onSubmit = form.handleSubmit(async (values) => {
+  const save = saveForm(form, async (values) => {
     // Midnight at the start of the chosen day in the viewer's zone, sent as a UTC instant.
     const expiresAt = values.expiresAt
       ? toZoned(values.expiresAt, getLocalTimeZone()).toAbsoluteString()
@@ -112,7 +110,7 @@ export function LlmForm(props: Props) {
         dispatch(llmUpserted(response.llm))
         toast.success(t('toasts.updated', { name: values.name }))
         props.onSaved(response.llm)
-        return
+        return true
       }
 
       if (props.llm) {
@@ -124,29 +122,30 @@ export function LlmForm(props: Props) {
         dispatch(llmUpserted(response.llm))
         toast.success(t('toasts.updated', { name: values.name }))
         props.onSaved(response.llm)
-        return
+        return true
       }
 
       const response = await createLlm({ ...payload, secretToken: values.secretToken })
       dispatch(llmUpserted(response.llm))
       toast.success(t('toasts.created', { name: values.name }))
       props.onSaved(response.llm)
+      return true
     }
     catch (error) {
       if (error instanceof HTTPError && error.response.status === 409) {
         form.setError('name', { message: t('form.errors.nameTaken') })
-        return
+        return false
       }
 
       console.debug('LlmForm failed to save the LLM', { error })
       toast.danger(t('common:errors.unexpected'))
+      return false
     }
   })
 
-  usePageSave({
-    formId: LLM_FORM_ID,
+  const onSubmit = usePageSave({
+    save,
     isDirty: form.formState.isDirty,
-    isPending: form.formState.isSubmitting,
   })
 
   const errors = form.formState.errors
@@ -156,7 +155,7 @@ export function LlmForm(props: Props) {
     name: [ 'name', 'description', 'secretToken', 'priority', 'isActive', 'expiresAt' ],
   })
 
-  return <Form id={LLM_FORM_ID} onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-5'>
+  return <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-5'>
     {/* Name */}
     <TextField
       autoFocus

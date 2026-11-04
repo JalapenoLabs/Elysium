@@ -32,11 +32,9 @@ import { HTTPError } from 'ky'
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { createEnvironmentVariable, updateEnvironmentVariable } from '../../../api/routes/environmentRoutes'
-import { usePageSave } from '../../../layout/page/pageSave'
+import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createEnvironmentFormSchema } from './environmentFormSchema'
 import { toast } from '../../../toast/toast'
-
-const ENVIRONMENT_VARIABLE_FORM_ID = 'environment-variable-form'
 
 type Props = {
   // The variable being edited, or null to add a new one.
@@ -68,7 +66,7 @@ export function EnvironmentVariableForm(props: Props) {
     },
   })
 
-  const onSubmit = form.handleSubmit(async (values) => {
+  const save = saveForm(form, async (values) => {
     try {
       if (stored) {
         // A blank field keeps a secret's stored value, and an unchanged visible value needs
@@ -93,11 +91,12 @@ export function EnvironmentVariableForm(props: Props) {
         toast.success(t('toasts.created', { key: values.key }))
       }
       props.onSaved()
+      return true
     }
     catch (error) {
       if (error instanceof HTTPError && error.response.status === 409) {
         form.setError('key', { message: t('form.errors.keyTaken') })
-        return
+        return false
       }
 
       // The form mirrors the API's rules, so a 400 here is one it did not foresee; its
@@ -105,13 +104,13 @@ export function EnvironmentVariableForm(props: Props) {
       const message = getApiErrorMessage(error)
       console.debug('EnvironmentVariableForm failed to save the variable', { error })
       toast.danger(t('common:errors.unexpected'), { description: message ?? undefined })
+      return false
     }
   })
 
-  usePageSave({
-    formId: ENVIRONMENT_VARIABLE_FORM_ID,
+  const onSubmit = usePageSave({
+    save,
     isDirty: form.formState.isDirty,
-    isPending: form.formState.isSubmitting,
   })
 
   const errors = form.formState.errors
@@ -133,7 +132,6 @@ export function EnvironmentVariableForm(props: Props) {
 
   return <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
     <Form
-      id={ENVIRONMENT_VARIABLE_FORM_ID}
       onSubmit={onSubmit}
       validationBehavior='aria'
       className='flex flex-col gap-4'

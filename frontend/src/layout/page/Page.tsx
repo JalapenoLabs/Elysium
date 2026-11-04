@@ -1,45 +1,138 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ReactNode } from 'react'
+import type { BlockerFunction } from 'react-router'
 import type { PageHeaderProps } from './PageHeader'
-import type { PageSave } from './pageSave'
+import type { PageSave, PageSaveRegistry } from './pageSave'
 
 // Core
-import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useBlocker, useNavigate } from 'react-router'
 
 // User interface
 import { FloatingSaveCard } from './FloatingSaveCard'
+import { LeavePageDialog } from './LeavePageDialog'
 import { PageHeader } from './PageHeader'
 import { PageSaveButton } from './PageSaveButton'
 
 // Misc
-import { useConfirm } from '../../hooks/useConfirm'
-import { canPressSave, PageSaveContext, submitPageForm } from './pageSave'
+import { canPressSave, leavesWithoutAsking, PageSaveContext, usePageSave } from './pageSave'
 import { isModalOpen, readPageShortcut } from './pageShortcuts'
+import { toast } from '../../toast/toast'
 
 type Props = Omit<PageHeaderProps, 'save' | 'className'> & {
-  // Where Esc goes, asking first while the form is dirty. Omit to leave Esc alone.
+  // The page's save, for a page whose own component holds its form, such as a record edited
+  // in place, whose fields sit in the header and beside other sections. A form deeper down
+  // registers with `usePageSave` instead.
+  save?: PageSave
+  // Where Esc goes. A page with a Save defaults to its last parent, since every page that
+  // edits something goes up a level on Esc; a page without one leaves Esc alone.
   escapeTo?: string
   children: ReactNode
 }
 
 // The frame of a standard page: the header (`PageHeader`), then the content. A form inside
-// gives the page its one Save with `usePageSave`, which the header shows, Ctrl+S presses,
-// and a card in the bottom right offers while the header's Save is scrolled out of view,
-// until dismissed. Saving is confirmed by the form with a toast alone, so nothing on the page
-// moves. See docs/frontend.md, Page header.
+// gives the page its one Save with `usePageSave`. The page runs it for every way of saving:
+// the header's button, the card offered while that button is scrolled out of view, Ctrl+S,
+// Enter in the form, and Save and continue when leaving. While the form is dirty, every way
+// out of the page (a link, Esc, the browser's Back) asks first, and closing the tab warns.
+// Saving is confirmed by the form with a toast alone, so nothing on the page moves. See
+// docs/frontend.md, Page header.
 export function Page(props: Props) {
   const { t } = useTranslation('common')
   const navigate = useNavigate()
-  const confirm = useConfirm()
   const [ save, setSave ] = useState<PageSave | null>(null)
+  const [ isSaving, setIsSaving ] = useState(false)
   const [ isHeaderSaveVisible, setIsHeaderSaveVisible ] = useState(true)
   const [ isCardDismissed, setIsCardDismissed ] = useState(false)
   const headerSaveRef = useRef<HTMLDivElement>(null)
+  // The blocker asks outside of rendering, so it reads the save and its progress from refs.
+  const saveRef = useRef<PageSave | null>(null)
+  const isSavingRef = useRef(false)
+  // Set while Save and continue runs, so the form's own navigation after saving, such as to
+  // the record it created, waits behind the blocker instead of taking the person elsewhere.
+  const isLeavingRef = useRef(false)
   const hasSave = Boolean(save)
-  const { escapeTo, children, ...headerProps } = props
+  const isDirty = Boolean(save?.isDirty)
+  const { escapeTo, children, save: ownSave, ...headerProps } = props
+  const leaveTo = escapeTo ?? (hasSave
+    ? props.parents?.at(-1)?.href
+    : undefined)
+
+  const register = useCallback((next: PageSave | null) => {
+    saveRef.current = next
+    setSave(next)
+  }, [])
+
+  const runSave = useCallback(async () => {
+    const current = saveRef.current
+    if (!current || !canPressSave(current, isSavingRef.current)) {
+      console.debug('Page ignored a save it cannot run', { hasSave: Boolean(current), isSaving: isSavingRef.current })
+      return false
+    }
+    isSavingRef.current = true
+    setIsSaving(true)
+    try {
+      return await current.save()
+    }
+    catch (error) {
+      // Forms report their own refusals and resolve false; one that throws has a bug.
+      console.debug('Page save threw instead of resolving', { error })
+      toast.danger(t('errors.unexpected'))
+      return false
+    }
+    finally {
+      isSavingRef.current = false
+      setIsSaving(false)
+    }
+  }, [ t ])
+
+  const registry = useMemo<PageSaveRegistry>(() => ({ register, runSave }), [ register, runSave ])
+
+  const shouldBlock = useCallback<BlockerFunction>(({ currentLocation, nextLocation }) => {
+    if (isLeavingRef.current) {
+      return true
+    }
+    // A save in flight is the form's own: it may go on to the record or list once saved.
+    if (isSavingRef.current || !saveRef.current?.isDirty || leavesWithoutAsking(nextLocation.state)) {
+      return false
+    }
+    // A search change can swap what the page edits, such as Jira's `?project=`.
+    return currentLocation.pathname !== nextLocation.pathname
+      || currentLocation.search !== nextLocation.search
+  }, [])
+  const blocker = useBlocker(shouldBlock)
+
+  async function saveAndContinue() {
+    if (blocker.state !== 'blocked') {
+      console.debug('Page was asked to save and continue with no navigation waiting')
+      return
+    }
+    // Captured now: a navigation the form makes while saving replaces what the blocker
+    // holds, and this one still goes where the person was heading.
+    const { proceed, reset } = blocker
+    isLeavingRef.current = true
+    const isSaved = await runSave()
+    isLeavingRef.current = false
+    if (isSaved) {
+      proceed()
+      return
+    }
+    reset()
+  }
+
+  // Closing or reloading the tab is outside the router, so the browser asks instead.
+  useEffect(() => {
+    if (!isDirty) {
+      return undefined
+    }
+    function warn(event: BeforeUnloadEvent) {
+      event.preventDefault()
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [ isDirty ])
 
   useEffect(() => {
     // A page without a Save has nothing to watch.
@@ -63,25 +156,15 @@ export function Page(props: Props) {
     if (shortcut === 'save') {
       // Never the browser's own Save page dialog, even with nothing to save.
       event.preventDefault()
-      if (save && canPressSave(save) && !isModalOpen()) {
-        submitPageForm(save)
+      if (save && canPressSave(save, isSaving) && !isModalOpen()) {
+        void runSave()
       }
       return
     }
-    if (shortcut !== 'leave' || !escapeTo) {
-      return
+    // With unsaved changes, the blocker asks before this goes anywhere.
+    if (shortcut === 'leave' && leaveTo) {
+      void navigate(leaveTo)
     }
-    if (!save?.isDirty) {
-      void navigate(escapeTo)
-      return
-    }
-    confirm({
-      title: t('page.leave.title'),
-      message: t('page.leave.message'),
-      tone: 'danger',
-      confirmText: t('page.leave.confirm'),
-      onConfirm: () => void navigate(escapeTo),
-    })
   })
 
   useEffect(() => {
@@ -91,18 +174,45 @@ export function Page(props: Props) {
 
   const showsFloatingCard = save !== null && !isHeaderSaveVisible && !isCardDismissed && save.isDirty
 
-  return <PageSaveContext value={setSave}>
+  return <PageSaveContext value={registry}>
+    {ownSave && <OwnPageSave save={ownSave} />}
     <div className='container'>
       <PageHeader
         {...headerProps}
-        save={save && <PageSaveButton ref={headerSaveRef} save={save} />}
+        save={save && <PageSaveButton
+          ref={headerSaveRef}
+          save={save}
+          isSaving={isSaving}
+          onPress={() => void runSave()}
+        />}
       />
       {children}
     </div>
 
     {showsFloatingCard && <FloatingSaveCard
       save={save}
+      isSaving={isSaving}
+      onSave={() => void runSave()}
       onDismiss={() => setIsCardDismissed(true)}
     />}
+
+    <LeavePageDialog
+      isOpen={blocker.state === 'blocked'}
+      isSaving={isSaving}
+      saveBlockedReason={save?.blockedReason ?? null}
+      onDiscard={() => blocker.proceed?.()}
+      onSaveAndContinue={() => void saveAndContinue()}
+      onKeepEditing={() => blocker.reset?.()}
+    />
   </PageSaveContext>
+}
+
+type OwnPageSaveProps = {
+  save: PageSave
+}
+
+// Registers a save passed to `Page` itself, from inside the page, as a form would.
+function OwnPageSave(props: OwnPageSaveProps) {
+  usePageSave(props.save)
+  return null
 }

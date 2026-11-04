@@ -109,6 +109,7 @@
   },
   "toasts": {
     "created": "Created “{{name}}”.",
+    "saved": "Saved “{{name}}”.",
     "deleted": "Deleted “{{name}}”.",
     "restored": "Restored “{{name}}”."
   }

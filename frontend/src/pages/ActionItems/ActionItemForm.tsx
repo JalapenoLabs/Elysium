@@ -30,10 +30,8 @@ import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerDa
 import { toEndOfDayInstant } from './actionItemDates'
 import { createActionItemFormSchema } from './actionItemFormSchema'
 import { priorityLabelKeys } from './actionItemPresentation'
-import { usePageSave } from '../../layout/page/pageSave'
+import { saveForm, usePageSave } from '../../layout/page/pageSave'
 import { toast } from '../../toast/toast'
-
-const ACTION_ITEM_FORM_ID = 'action-item-form'
 
 type Props = {
   // Projects and initiatives the item starts in, such as the page it was created from.
@@ -67,7 +65,7 @@ export function ActionItemForm(props: Props) {
     },
   })
 
-  const onSubmit = form.handleSubmit(async (values) => {
+  const save = saveForm(form, async (values) => {
     try {
       const response = await createActionItem({
         title: values.title,
@@ -82,6 +80,7 @@ export function ActionItemForm(props: Props) {
       dispatch(actionItemUpserted(response.item))
       toast.success(t('toasts.created', { title: response.item.title }))
       props.onSaved(response.item.id)
+      return true
     }
     catch (error) {
       // The form mirrors the API's rules, so a 400 here is one it did not foresee, such as a
@@ -89,13 +88,13 @@ export function ActionItemForm(props: Props) {
       const message = getApiErrorMessage(error)
       console.debug('ActionItemForm failed to create the item', { error })
       toast.danger(t('common:errors.unexpected'), { description: message ?? undefined })
+      return false
     }
   })
 
-  usePageSave({
-    formId: ACTION_ITEM_FORM_ID,
+  const onSubmit = usePageSave({
+    save,
     isDirty: form.formState.isDirty,
-    isPending: form.formState.isSubmitting,
     label: t('form.submit'),
   })
 
@@ -106,7 +105,6 @@ export function ActionItemForm(props: Props) {
   const dueDate = useWatch({ control: form.control, name: 'dueDate' })
 
   return <Form
-    id={ACTION_ITEM_FORM_ID}
     onSubmit={onSubmit}
     validationBehavior='aria'
     className='grid max-w-3xl grid-cols-1 gap-4'

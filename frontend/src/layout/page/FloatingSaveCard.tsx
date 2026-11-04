@@ -12,6 +12,8 @@ import { PageSaveButton } from './PageSaveButton'
 
 type Props = {
   save: PageSave
+  isSaving: boolean
+  onSave: () => void
   onDismiss: () => void
 }
 
@@ -27,7 +29,11 @@ export function FloatingSaveCard(props: Props) {
     <Card.Content className='flex-row items-center gap-4'>
       <span className='text-sm whitespace-nowrap'>{t('page.floatingSave.unsaved')}</span>
       <div className='level-right gap-1'>
-        <PageSaveButton save={props.save} />
+        <PageSaveButton
+          save={props.save}
+          isSaving={props.isSaving}
+          onPress={props.onSave}
+        />
         <Tooltip delay={300}>
           <Tooltip.Trigger>
             <Button

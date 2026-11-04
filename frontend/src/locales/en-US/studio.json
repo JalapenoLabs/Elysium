@@ -51,6 +51,8 @@
   "item": {
     "missing": "This item could not be loaded. It may have been deleted for good.",
     "back": "Back to Studio",
+    "rename": "Rename",
+    "renameTitle": "Rename item",
     "renameLabel": "Item title",
     "deletedTitle": "This item is deleted",
     "deletedBody": "It stays read-only until it is restored. Its files and conversation are kept.",
@@ -142,6 +144,7 @@
     "deleteFailed": "The item could not be deleted.",
     "restored": "Restored {{title}}.",
     "restoreFailed": "The item could not be restored.",
+    "renamed": "Renamed to {{title}}.",
     "renameFailed": "The title could not be saved."
   }
 }

@@ -1,6 +1,5 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { FormEvent } from 'react'
 import type {
   AccountDefinition,
   ConnectorKindDefinition,
@@ -28,8 +27,6 @@ import { usePageSave } from '../../../layout/page/pageSave'
 import { connectorErrorMessage, hasRequiredFailure } from './connectorPresentation'
 import { toast } from '../../../toast/toast'
 
-const NEW_CONNECTOR_FORM_ID = 'new-connector-form'
-
 type Props = {
   definition: ConnectorKindDefinition
   accountDefinition: AccountDefinition
@@ -47,7 +44,6 @@ export function NewTokenConnectorForm(props: Props) {
   const [ content, setContent ] = useState<Record<string, unknown>>({})
   const [ runId, setRunId ] = useState<string | null>(null)
   const [ isStartingChecks, setIsStartingChecks ] = useState(false)
-  const [ isSaving, setIsSaving ] = useState(false)
   const run = useAppSelector((state) => selectCheckRun(state, runId))
 
   const kind = props.definition.kind
@@ -58,10 +54,10 @@ export function NewTokenConnectorForm(props: Props) {
     ? hasRequiredFailure(props.definition.checks, run.checks)
     : false
 
-  usePageSave({
-    formId: NEW_CONNECTOR_FORM_ID,
+  // Save, Enter, and Ctrl+S create only once Save can be pressed, after a finished run.
+  const onSubmit = usePageSave({
+    save: create,
     isDirty,
-    isPending: isSaving,
     blockedReason: isFinished
       ? null
       : t('form.checkFirst'),
@@ -87,27 +83,21 @@ export function NewTokenConnectorForm(props: Props) {
   }
 
   async function create() {
-    setIsSaving(true)
     try {
       const response = await createConnector({ kind, account, content })
       dispatch(connectorUpserted(response.connector))
       toast.success(t('form.created'))
       void navigate(getConnectorUrl(response.connector.id))
+      return true
     }
     catch (error) {
       console.debug('NewTokenConnectorForm failed to create the connector', { error, kind })
       toast.danger(connectorErrorMessage(error, t))
-      setIsSaving(false)
+      return false
     }
   }
 
-  // Save, Enter, and Ctrl+S submit the form only once Save can be pressed, after a finished run.
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    void create()
-  }
-
-  return <Form id={NEW_CONNECTOR_FORM_ID} onSubmit={onSubmit} validationBehavior='aria'>
+  return <Form onSubmit={onSubmit} validationBehavior='aria'>
     <Card className='relaxed w-full p-6'>
       <h2 className='compact font-semibold'>{t('form.signIn')}</h2>
       <AccountFields

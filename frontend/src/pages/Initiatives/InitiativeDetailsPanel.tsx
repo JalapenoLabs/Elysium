@@ -1,13 +1,14 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Initiative, InitiativeState } from '../../api/routes/initiativeRoutes'
+import type { Initiative } from '../../api/routes/initiativeRoutes'
+import type { InitiativeEditForm } from './useInitiativeEditor'
 
 // Core
+import { useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 // Redux
-import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { initiativeUpserted } from '../../store/initiativesSlice'
+import { useAppSelector } from '../../store/hooks'
 import { selectAllProjects } from '../../store/projectsSlice'
 
 // User interface
@@ -17,83 +18,47 @@ import { DayPicker } from '../../components/DayPicker'
 import { MultiPicker } from '../../components/MultiPicker'
 import { OptionSelect } from '../../components/OptionSelect'
 
-// Utility
-import { getLocalTimeZone } from '@internationalized/date'
-
 // Misc
 import { formatDateTime } from '../../format/dates'
-import {
-  addInitiativeProject,
-  INITIATIVE_STATES,
-  removeInitiativeProject,
-  updateInitiative,
-} from '../../api/routes/initiativeRoutes'
+import { INITIATIVE_STATES } from '../../api/routes/initiativeRoutes'
 import { useProjectsLoader } from '../../hooks/useServerData'
-import { toEndOfDayInstant, toLocalDay } from '../ActionItems/actionItemDates'
-import { getMembershipChanges } from '../ActionItems/membershipChanges'
 import { initiativeStateLabelKeys } from './initiativePresentation'
-import { toast } from '../../toast/toast'
 
 type Props = {
   initiative: Initiative
+  // The page's form; these fields are kept by its Save.
+  form: InitiativeEditForm
 }
 
-// The side panel of an initiative's page: its state, target date, and projects, each saved
-// as soon as it changes.
+// The side panel of an initiative's page: its state, target date, and projects, and who made
+// it and when.
 export function InitiativeDetailsPanel(props: Props) {
   const { t } = useTranslation([ 'initiatives', 'actionItems', 'common' ])
-  const dispatch = useAppDispatch()
   useProjectsLoader()
   const projects = useAppSelector(selectAllProjects)
   const initiative = props.initiative
+  const form = props.form
   const isReadOnly = Boolean(initiative.deletedAt)
-  const timeZone = getLocalTimeZone()
-
-  function reportFailure(error: unknown, context: string) {
-    console.debug(`InitiativeDetailsPanel failed to ${context}`, { error, initiativeId: initiative.id })
-    toast.danger(t('common:errors.unexpected'))
-  }
-
-  async function saveFields(changes: { state: InitiativeState } | { targetAt: string | null }) {
-    try {
-      const response = await updateInitiative(initiative.id, changes)
-      dispatch(initiativeUpserted(response.initiative))
-    }
-    catch (error) {
-      reportFailure(error, 'save a field')
-    }
-  }
-
-  // One request per project joined or left; each answers the initiative as it then stands.
-  async function saveProjects(projectIds: string[]) {
-    const changes = getMembershipChanges(initiative.projectIds, projectIds)
-    try {
-      for (const projectId of changes.added) {
-        const response = await addInitiativeProject(initiative.id, projectId)
-        dispatch(initiativeUpserted(response.initiative))
-      }
-      for (const projectId of changes.removed) {
-        const response = await removeInitiativeProject(initiative.id, projectId)
-        dispatch(initiativeUpserted(response.initiative))
-      }
-    }
-    catch (error) {
-      reportFailure(error, 'change projects')
-    }
-  }
+  // Watched by name: the whole-form watch types a class instance as a partial copy.
+  const [ state, targetDate, projectIds ] = useWatch({
+    control: form.control,
+    name: [ 'state', 'targetDate', 'projectIds' ],
+  })
 
   return <Card>
     <Card.Content className='flex flex-col gap-4'>
       <OptionSelect
         label={t('fields.state')}
         isDisabled={isReadOnly}
-        options={INITIATIVE_STATES.map((state) => ({ id: state, label: t(initiativeStateLabelKeys[state]) }))}
-        value={initiative.state}
+        options={INITIATIVE_STATES.map((option) => ({ id: option, label: t(initiativeStateLabelKeys[option]) }))}
+        value={state}
         onChange={(value) => {
-          const state = INITIATIVE_STATES.find((option) => option === value)
-          if (state && state !== initiative.state) {
-            void saveFields({ state })
+          const chosen = INITIATIVE_STATES.find((option) => option === value)
+          if (!chosen) {
+            console.debug('InitiativeDetailsPanel ignored an unknown state', { value })
+            return
           }
+          form.setValue('state', chosen, { shouldDirty: true })
         }}
       />
 
@@ -102,20 +67,14 @@ export function InitiativeDetailsPanel(props: Props) {
           label={t('fields.targetDate')}
           calendarLabel={t('fields.targetDate')}
           isDisabled={isReadOnly}
-          value={initiative.targetAt
-            ? toLocalDay(initiative.targetAt, timeZone)
-            : null}
-          onChange={(date) => {
-            if (date) {
-              void saveFields({ targetAt: toEndOfDayInstant(date, timeZone) })
-            }
-          }}
+          value={targetDate}
+          onChange={(date) => form.setValue('targetDate', date, { shouldDirty: true })}
         />
-        {initiative.targetAt && !isReadOnly && <Button
+        {targetDate && !isReadOnly && <Button
           size='sm'
           variant='ghost'
           className='mt-1'
-          onPress={() => void saveFields({ targetAt: null })}
+          onPress={() => form.setValue('targetDate', null, { shouldDirty: true })}
         >
           <span>{t('fields.clearTargetDate')}</span>
         </Button>}
@@ -127,8 +86,8 @@ export function InitiativeDetailsPanel(props: Props) {
         emptyLabel={t('actionItems:fields.noProjectsFound')}
         isDisabled={isReadOnly}
         options={projects.map((project) => ({ id: project.id, label: project.name }))}
-        value={initiative.projectIds}
-        onChange={(projectIds) => void saveProjects(projectIds)}
+        value={projectIds}
+        onChange={(value) => form.setValue('projectIds', value, { shouldDirty: true })}
       />
 
       <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm'>

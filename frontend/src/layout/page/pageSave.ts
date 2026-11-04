@@ -1,57 +1,99 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { FormEvent } from 'react'
+import type { FieldValues, UseFormReturn } from 'react-hook-form'
+
 // Core
-import { createContext, useContext, useEffect } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef } from 'react'
 
 // The one save a page has, as the form that owns it describes it. `Page` draws its Save
-// button from this in the header, on the floating card, and for Ctrl+S.
+// button from this in the header and on the floating card, presses it for Ctrl+S and
+// Enter, and runs it from the leave prompt's Save and continue.
 export type PageSave = {
-  // The `id` of the `<form>` Save submits. Submitting the form, rather than calling a
-  // function, keeps one path for Save, Enter, and Ctrl+S, validation included.
-  formId: string
-  // Unsaved changes: Save is enabled, the floating card may show, and Esc asks first.
+  // Saves the form, resolving true once saved and false when not: invalid values, which the
+  // fields show, or a refusal, which the form reports itself with a toast. A function rather
+  // than a form submit, so the leave prompt can tell whether it may go on.
+  save: () => Promise<boolean>
+  // Unsaved changes: Save is enabled, the floating card may show, and leaving asks first.
   isDirty: boolean
-  isPending: boolean
   // Why Save cannot be pressed, shown in its tooltip. Save stays disabled while set.
   blockedReason?: string | null
   // Defaults to "Save". A /new page names what it does, such as "Add LLM".
   label?: string
 }
 
-type PageSaveRegistry = (save: PageSave | null) => void
+export type PageSaveRegistry = {
+  register: (save: PageSave | null) => void
+  // Runs the registered save, as pressing Save does. Resolves whether it saved.
+  runSave: () => Promise<boolean>
+}
 
 export const PageSaveContext = createContext<PageSaveRegistry | null>(null)
 
-// Gives the page around this form its Save. Call it from the component that owns the form,
-// however deep, and put `save.formId` on that form's `id`; the form keeps its own submit
-// handler. A page has one save, so one form per page calls this.
-export function usePageSave(save: PageSave) {
-  const register = useContext(PageSaveContext)
-  if (!register) {
+// Gives the page around this form its Save, and returns the form's `onSubmit`, so Enter
+// saves through the page like every other way of saving. Call it from the component that
+// owns the form, however deep. A page has one save, so one form per page calls this.
+export function usePageSave(pageSave: PageSave) {
+  const registry = useContext(PageSaveContext)
+  if (!registry) {
     throw new Error('usePageSave must be called inside a Page')
   }
 
-  const { formId, isDirty, isPending, blockedReason, label } = save
+  // The form makes a new save function every render. The page holds one that calls the
+  // latest, so registering never churns the page's state between keystrokes.
+  const saveRef = useRef(pageSave.save)
   useEffect(() => {
-    register({ formId, isDirty, isPending, blockedReason, label })
-  }, [ register, formId, isDirty, isPending, blockedReason, label ])
+    saveRef.current = pageSave.save
+  })
+
+  const { register, runSave } = registry
+  const { isDirty, blockedReason, label } = pageSave
+  useEffect(() => {
+    register({ save: () => saveRef.current(), isDirty, blockedReason, label })
+  }, [ register, isDirty, blockedReason, label ])
 
   // Only an unmount takes the Save away, so the header button never flickers between
   // changes of the form's state.
   useEffect(() => () => register(null), [ register ])
+
+  return useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void runSave()
+  }, [ runSave ])
+}
+
+// A react-hook-form form's `save` for `usePageSave`: its validation first, then `onValid`,
+// which resolves true once the values are saved. Invalid values resolve false, with the
+// fields saying why.
+export function saveForm<Input extends FieldValues, Output>(
+  form: UseFormReturn<Input, unknown, Output>,
+  onValid: (values: Output) => Promise<boolean>,
+) {
+  return async () => {
+    let isSaved = false
+    await form.handleSubmit(
+      async (values) => {
+        isSaved = await onValid(values)
+      },
+      (errors) => console.debug('saveForm kept the form: its values are invalid', { fields: Object.keys(errors) }),
+    )()
+    return isSaved
+  }
+}
+
+// Navigation state for leaving a page whose record is gone, such as straight after deleting
+// it: nothing is left to save, so the leave prompt does not ask.
+// `navigate(UrlTree.projects, { state: LEAVE_WITHOUT_ASKING })`
+export const LEAVE_WITHOUT_ASKING = { leavesWithoutAsking: true } as const
+
+export function leavesWithoutAsking(state: unknown) {
+  return typeof state === 'object'
+    && state !== null
+    && 'leavesWithoutAsking' in state
+    && state.leavesWithoutAsking === true
 }
 
 // Whether the Save button can be pressed.
-export function canPressSave(save: PageSave) {
-  return save.isDirty && !save.isPending && !save.blockedReason
-}
-
-// Presses a page's Save, as a click on it would.
-export function submitPageForm(save: PageSave) {
-  const form = document.getElementById(save.formId)
-  if (!(form instanceof HTMLFormElement)) {
-    console.debug('submitPageForm found no form to submit', { formId: save.formId })
-    return
-  }
-  form.requestSubmit()
+export function canPressSave(save: PageSave, isSaving: boolean) {
+  return save.isDirty && !isSaving && !save.blockedReason
 }

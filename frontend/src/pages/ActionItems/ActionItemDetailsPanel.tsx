@@ -1,13 +1,14 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ActionItem, ActionItemPriority } from '../../api/routes/actionItemRoutes'
+import type { ActionItem } from '../../api/routes/actionItemRoutes'
+import type { ActionItemEditForm } from './useActionItemEditor'
 
 // Core
+import { useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 // Redux
-import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { actionItemUpserted } from '../../store/actionItemsSlice'
+import { useAppSelector } from '../../store/hooks'
 import { selectLiveInitiatives } from '../../store/initiativesSlice'
 import { selectAllProjects } from '../../store/projectsSlice'
 
@@ -18,105 +19,50 @@ import { DayPicker } from '../../components/DayPicker'
 import { OptionSelect } from '../../components/OptionSelect'
 import { MultiPicker } from '../../components/MultiPicker'
 
-// Utility
-import { getLocalTimeZone } from '@internationalized/date'
-
 // Misc
 import { formatDateTime } from '../../format/dates'
-import {
-  ACTION_ITEM_PRIORITIES,
-  addActionItemProject,
-  joinInitiative,
-  leaveInitiative,
-  removeActionItemProject,
-  updateActionItem,
-} from '../../api/routes/actionItemRoutes'
+import { ACTION_ITEM_PRIORITIES } from '../../api/routes/actionItemRoutes'
 import { useInitiativesLoader, useProjectsLoader } from '../../hooks/useServerData'
-import { toEndOfDayInstant, toLocalDay } from './actionItemDates'
 import { describeOwner, priorityLabelKeys } from './actionItemPresentation'
-import { getMembershipChanges } from './membershipChanges'
-import { toast } from '../../toast/toast'
 
 type Props = {
   item: ActionItem
+  // The page's form; these fields are kept by its Save.
+  form: ActionItemEditForm
 }
 
-// The side panel of an item's page: its fields, each saved as soon as it changes. Snoozing
-// and waiting are actions at the top of the page, since they are things done to the item.
+// The side panel of an item's page: its fields, and who made it and when. Snoozing and
+// waiting are actions at the top of the page, since they are things done to the item.
 export function ActionItemDetailsPanel(props: Props) {
   const { t } = useTranslation([ 'actionItems', 'common' ])
-  const dispatch = useAppDispatch()
   useProjectsLoader()
   useInitiativesLoader()
   const projects = useAppSelector(selectAllProjects)
   const initiatives = useAppSelector(selectLiveInitiatives)
   const item = props.item
+  const form = props.form
   const isReadOnly = Boolean(item.deletedAt)
-  const timeZone = getLocalTimeZone()
   const owner = describeOwner(item)
-
-  function reportFailure(error: unknown, context: string) {
-    console.debug(`ActionItemDetailsPanel failed to ${context}`, { error, itemId: item.id })
-    toast.danger(t('common:errors.unexpected'))
-  }
-
-  async function saveFields(changes: { priority: ActionItemPriority } | { dueAt: string | null }) {
-    try {
-      const response = await updateActionItem(item.id, changes)
-      dispatch(actionItemUpserted(response.item))
-    }
-    catch (error) {
-      reportFailure(error, 'save a field')
-    }
-  }
-
-  // One request per project joined or left; each answers the item as it then stands.
-  async function saveProjects(projectIds: string[]) {
-    const changes = getMembershipChanges(item.projectIds, projectIds)
-    try {
-      for (const projectId of changes.added) {
-        const response = await addActionItemProject(item.id, projectId)
-        dispatch(actionItemUpserted(response.item))
-      }
-      for (const projectId of changes.removed) {
-        const response = await removeActionItemProject(item.id, projectId)
-        dispatch(actionItemUpserted(response.item))
-      }
-    }
-    catch (error) {
-      reportFailure(error, 'change projects')
-    }
-  }
-
-  async function saveInitiatives(initiativeIds: string[]) {
-    const changes = getMembershipChanges(item.initiativeIds, initiativeIds)
-    try {
-      for (const initiativeId of changes.added) {
-        const response = await joinInitiative(item.id, initiativeId)
-        dispatch(actionItemUpserted(response.item))
-      }
-      for (const initiativeId of changes.removed) {
-        const response = await leaveInitiative(item.id, initiativeId)
-        dispatch(actionItemUpserted(response.item))
-      }
-    }
-    catch (error) {
-      reportFailure(error, 'change initiatives')
-    }
-  }
+  // Watched by name: the whole-form watch types a class instance as a partial copy.
+  const [ priority, dueDate, projectIds, initiativeIds ] = useWatch({
+    control: form.control,
+    name: [ 'priority', 'dueDate', 'projectIds', 'initiativeIds' ],
+  })
 
   return <Card>
     <Card.Content className='flex flex-col gap-4'>
       <OptionSelect
         label={t('fields.priority')}
         isDisabled={isReadOnly}
-        options={ACTION_ITEM_PRIORITIES.map((priority) => ({ id: priority, label: t(priorityLabelKeys[priority]) }))}
-        value={item.priority}
+        options={ACTION_ITEM_PRIORITIES.map((option) => ({ id: option, label: t(priorityLabelKeys[option]) }))}
+        value={priority}
         onChange={(value) => {
-          const priority = ACTION_ITEM_PRIORITIES.find((option) => option === value)
-          if (priority && priority !== item.priority) {
-            void saveFields({ priority })
+          const chosen = ACTION_ITEM_PRIORITIES.find((option) => option === value)
+          if (!chosen) {
+            console.debug('ActionItemDetailsPanel ignored an unknown priority', { value })
+            return
           }
+          form.setValue('priority', chosen, { shouldDirty: true })
         }}
       />
 
@@ -125,20 +71,14 @@ export function ActionItemDetailsPanel(props: Props) {
           label={t('fields.dueDate')}
           calendarLabel={t('fields.dueDate')}
           isDisabled={isReadOnly}
-          value={item.dueAt
-            ? toLocalDay(item.dueAt, timeZone)
-            : null}
-          onChange={(date) => {
-            if (date) {
-              void saveFields({ dueAt: toEndOfDayInstant(date, timeZone) })
-            }
-          }}
+          value={dueDate}
+          onChange={(date) => form.setValue('dueDate', date, { shouldDirty: true })}
         />
-        {item.dueAt && !isReadOnly && <Button
+        {dueDate && !isReadOnly && <Button
           size='sm'
           variant='ghost'
           className='mt-1'
-          onPress={() => void saveFields({ dueAt: null })}
+          onPress={() => form.setValue('dueDate', null, { shouldDirty: true })}
         >
           <span>{t('fields.clearDueDate')}</span>
         </Button>}
@@ -150,8 +90,8 @@ export function ActionItemDetailsPanel(props: Props) {
         emptyLabel={t('fields.noProjectsFound')}
         isDisabled={isReadOnly}
         options={projects.map((project) => ({ id: project.id, label: project.name }))}
-        value={item.projectIds}
-        onChange={(projectIds) => void saveProjects(projectIds)}
+        value={projectIds}
+        onChange={(value) => form.setValue('projectIds', value, { shouldDirty: true })}
       />
 
       <MultiPicker
@@ -160,8 +100,8 @@ export function ActionItemDetailsPanel(props: Props) {
         emptyLabel={t('fields.noInitiativesFound')}
         isDisabled={isReadOnly}
         options={initiatives.map((initiative) => ({ id: initiative.id, label: initiative.name }))}
-        value={item.initiativeIds}
-        onChange={(initiativeIds) => void saveInitiatives(initiativeIds)}
+        value={initiativeIds}
+        onChange={(value) => form.setValue('initiativeIds', value, { shouldDirty: true })}
       />
 
       <dl className='grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm'>

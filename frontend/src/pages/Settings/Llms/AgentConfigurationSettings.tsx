@@ -1,6 +1,5 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { FormEvent } from 'react'
 import type { WorkspaceSettings } from '../../../api/routes/userRoutes'
 
 // Core
@@ -20,8 +19,6 @@ import { updateWorkspaceSettings } from '../../../api/routes/userRoutes'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { toast } from '../../../toast/toast'
 
-const AGENT_CONFIGURATION_FORM_ID = 'agent-configuration-form'
-
 type Props = {
   settings: WorkspaceSettings
 }
@@ -34,23 +31,15 @@ export function AgentConfigurationSettings(props: Props) {
   const dispatch = useAppDispatch()
   const saved = props.settings.agentConfigurationRepository ?? ''
   const [ repository, setRepository ] = useState(saved)
-  const [ isSaving, setIsSaving ] = useState(false)
   const trimmed = repository.trim()
 
-  usePageSave({
-    formId: AGENT_CONFIGURATION_FORM_ID,
-    isDirty: trimmed !== saved,
-    isPending: isSaving,
-  })
-
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setIsSaving(true)
+  async function save() {
     try {
       // Blank clears the repository, and agents keep the image's default configuration.
       const response = await updateWorkspaceSettings({ agentConfigurationRepository: trimmed || null })
       dispatch(workspaceSettingsUpdated(response.settings))
       toast.success(t('agentConfiguration.saved'))
+      return true
     }
     catch (error) {
       const message = getApiErrorMessage(error)
@@ -58,11 +47,16 @@ export function AgentConfigurationSettings(props: Props) {
         console.debug('AgentConfigurationSettings could not save the repository', { error })
       }
       toast.danger(message ?? t('common:errors.unexpected'))
+      return false
     }
-    setIsSaving(false)
   }
 
-  return <Form id={AGENT_CONFIGURATION_FORM_ID} className='compact max-w-2xl' onSubmit={save}>
+  const onSubmit = usePageSave({
+    save,
+    isDirty: trimmed !== saved,
+  })
+
+  return <Form className='compact max-w-2xl' onSubmit={onSubmit}>
     <TextField
       value={repository}
       onChange={setRepository}

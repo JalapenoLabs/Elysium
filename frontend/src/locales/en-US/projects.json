@@ -44,7 +44,6 @@
     "deleted": "{{name}} deleted",
     "stillHasSessions": "{{name}} still has coding sessions",
     "coverFailed": "{{name}} was saved, but its cover image was not",
-    "coverUpdated": "Cover updated",
     "coverRemoved": "Cover removed",
     "coverUploadFailed": "The cover could not be uploaded"
   },
@@ -85,7 +84,7 @@
     "addCover": "Add a cover image",
     "coverHint": "Double-click the cover to replace it",
     "removeCover": "Remove cover",
-    "uploadingCover": "Uploading cover…",
+    "keepCover": "Keep the current cover",
     "coverFit": "Cover fit",
     "fit": "Fit",
     "fill": "Fill"
@@ -102,8 +101,7 @@
     "hint": "The token this project's sessions start with. A session can pick another when it starts.",
     "inherit": "Workspace default ({{name}})",
     "inheritNone": "Workspace default (none set)",
-    "orphaned": "The token this project used was deleted, so its sessions use the workspace default until you pick another.",
-    "saved": "GitHub token updated"
+    "orphaned": "The token this project used was deleted, so its sessions use the workspace default until you pick another."
   },
   "work": {
     "itemsHeading": "Action items",

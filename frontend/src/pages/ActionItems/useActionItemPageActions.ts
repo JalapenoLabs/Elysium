@@ -32,6 +32,7 @@ import {
 import { getLocalTimeZone } from '@internationalized/date'
 
 // Misc
+import { LEAVE_WITHOUT_ASKING } from '../../layout/page/pageSave'
 import { getNewCodingSessionUrl, UrlTree } from '../../urls'
 import { getSnoozePresetInstants, SNOOZE_PRESETS } from './actionItemDates'
 import { isSnoozed, snoozePresetLabelKeys, transitionLabelKeys, transitionsByState } from './actionItemPresentation'
@@ -150,8 +151,9 @@ export function useActionItemPageActions(options: Options) {
       label: t('common:actions.delete'),
       icon: LuTrash2,
       isDanger: true,
-      // Leave first, so this page never renders the item as missing.
-      onAction: () => actions.remove(item, () => navigate(UrlTree.actionItemsAll)),
+      // Leave first, so this page never renders the item as missing. Deleting it drops its
+      // unsaved edits too, so leaving asks nothing.
+      onAction: () => actions.remove(item, () => navigate(UrlTree.actionItemsAll, { state: LEAVE_WITHOUT_ASKING })),
     },
   )
 

@@ -39,7 +39,6 @@ export function StudioItemWorkspace(props: Props) {
   return <div className='flex h-full flex-col'>
     <StudioItemHeader
       item={item}
-      isReadOnly={isDeleted}
       layoutMode={layout.mode}
       onLayoutModeChange={changeMode}
     />

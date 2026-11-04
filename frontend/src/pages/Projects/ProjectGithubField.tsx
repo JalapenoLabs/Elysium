@@ -1,52 +1,32 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Project, ProjectGithub } from '../../api/routes/projectRoutes'
+import type { Project } from '../../api/routes/projectRoutes'
 
 // Core
 import { useTranslation } from 'react-i18next'
 
 // Redux
 import { selectAllGithubCredentials, selectDefaultGithubCredential } from '../../store/githubCredentialsSlice'
-import { useAppDispatch, useAppSelector } from '../../store/hooks'
-import { projectUpserted } from '../../store/projectsSlice'
+import { useAppSelector } from '../../store/hooks'
 
 // User interface
 import { Alert } from '@heroui/react'
-import { GithubTokenSelect, INHERIT_GITHUB_TOKEN, NO_GITHUB_TOKEN } from '../../components/GithubTokenSelect'
+import { GithubTokenSelect } from '../../components/GithubTokenSelect'
 
 // Misc
-import { getApiErrorMessage } from '../../api/errors'
-import { updateProject } from '../../api/routes/projectRoutes'
 import { useGithubCredentialsLoader } from '../../hooks/useServerData'
-import { toast } from '../../toast/toast'
 
 type Props = {
   project: Project
+  // The picker's key (`toGithubKey`), as the page's form holds it.
+  value: string
+  onChange: (key: string) => void
 }
 
-// What the picker's two fixed choices save as. Every other key is a token id.
-const githubByKey: Record<string, ProjectGithub> = {
-  [INHERIT_GITHUB_TOKEN]: { access: 'default', credentialId: null },
-  [NO_GITHUB_TOKEN]: { access: 'none', credentialId: null },
-}
-
-// The picker's key for a project's choice. A project whose token was deleted shows as
-// following the default, which is what its sessions do.
-function selectedKey(github: ProjectGithub) {
-  if (github.access === 'none') {
-    return NO_GITHUB_TOKEN
-  }
-  if (github.access === 'specific' && github.credentialId) {
-    return github.credentialId
-  }
-  return INHERIT_GITHUB_TOKEN
-}
-
-// Which GitHub token this project's sessions start with, saved as soon as it changes. A
-// session can still choose another when it is created.
+// Which GitHub token this project's sessions start with, a field of the project page kept by
+// its Save. A session can still choose another when it is created.
 export function ProjectGithubField(props: Props) {
   const { t } = useTranslation([ 'projects', 'common' ])
-  const dispatch = useAppDispatch()
   useGithubCredentialsLoader()
   const credentials = useAppSelector(selectAllGithubCredentials)
   const workspaceDefault = useAppSelector(selectDefaultGithubCredential)
@@ -54,20 +34,6 @@ export function ProjectGithubField(props: Props) {
 
   // A deleted token leaves `specific` with no id: the project follows the default then.
   const isOrphaned = github.access === 'specific' && !github.credentialId
-
-  async function save(key: string) {
-    const next = githubByKey[key] ?? { access: 'specific', credentialId: key }
-
-    try {
-      const response = await updateProject(props.project.id, { github: next })
-      dispatch(projectUpserted(response.project))
-      toast.success(t('github.saved'))
-    }
-    catch (error) {
-      console.debug('ProjectGithubField failed to save the GitHub token', { error, projectId: props.project.id })
-      toast.danger(t('common:errors.unexpected'), { description: getApiErrorMessage(error) ?? undefined })
-    }
-  }
 
   return <section className='relaxed max-w-xl'>
     <h2 className='compact text-xl font-semibold'>{t('github.heading')}</h2>
@@ -83,9 +49,9 @@ export function ProjectGithubField(props: Props) {
       inheritLabel={workspaceDefault
         ? t('github.inherit', { name: workspaceDefault.name })
         : t('github.inheritNone')}
-      value={selectedKey(github)}
+      value={props.value}
       credentials={credentials}
-      onChange={(key) => void save(key)}
+      onChange={props.onChange}
     />
   </section>
 }

@@ -6,10 +6,9 @@ import type { KeyboardEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
 type Props = {
+  // The value as the page's form holds it. Edits change the form; the page's Save keeps them.
   value: string
-  // Receives the trimmed new value, only when it changed. Throwing keeps the editor open
-  // on the attempted value, so the caller reports the failure and the user can fix it.
-  onSave: (value: string) => Promise<void>
+  onChange: (value: string) => void
   // Describes what is being edited, for assistive technology.
   label: string
   // Shown in place of an empty value.
@@ -17,7 +16,7 @@ type Props = {
   isRequired?: boolean
   maxLength?: number
   // A text area that grows with its content, for longer text. Enter adds a line;
-  // Ctrl or Cmd with Enter saves.
+  // Ctrl or Cmd with Enter finishes.
   isMultiline?: boolean
   // Typography, shared by the text and its editor so switching does not shift the layout.
   className: string
@@ -31,14 +30,14 @@ const DISPLAY_CLASS_NAME = [
 
 const EDITOR_CLASS_NAME = '-mx-1 w-full rounded-md bg-transparent px-1 ring-2 ring-focus outline-none'
 
-// Text that becomes its own editor when clicked. The text is only as wide as it is, so the
-// hover highlight hugs it; the editor takes the full width to leave room for typing.
-// Enter (or Ctrl+Enter when multi-line) and clicking away save; Escape cancels. An empty
-// value is refused when required.
+// A field of the page's form that reads as text until clicked, then edits in place. The text
+// is only as wide as it is, so the hover highlight hugs it; the editor takes the full width to
+// leave room for typing. Every keystroke changes the form, so Save and Ctrl+S always see what
+// is typed. Enter (or Ctrl+Enter when multi-line) and clicking away finish editing; Escape
+// puts back what was there when editing began. A required value left empty is put back too.
 export function InlineEditableText(props: Props) {
   const [ isEditing, setIsEditing ] = useState(false)
-  const [ draft, setDraft ] = useState(props.value)
-  const [ isSaving, setIsSaving ] = useState(false)
+  const [ valueBeforeEditing, setValueBeforeEditing ] = useState(props.value)
   const editorRef = useRef<HTMLInputElement & HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -63,53 +62,39 @@ export function InlineEditableText(props: Props) {
     }
     editor.style.height = 'auto'
     editor.style.height = `${editor.scrollHeight}px`
-  }, [ isEditing, props.isMultiline, draft ])
+  }, [ isEditing, props.isMultiline, props.value ])
 
   function startEditing() {
-    setDraft(props.value)
+    setValueBeforeEditing(props.value)
     setIsEditing(true)
   }
 
-  async function save() {
-    // Disabling the editor while saving blurs it, which would save a second time.
-    if (isSaving) {
-      return
-    }
-    const trimmed = draft.trim()
-    if (trimmed === props.value.trim()) {
-      setIsEditing(false)
-      return
-    }
+  function finishEditing() {
+    setIsEditing(false)
+    const trimmed = props.value.trim()
     if (props.isRequired && !trimmed) {
-      console.debug('InlineEditableText refused an empty required value', { label: props.label })
-      setIsEditing(false)
+      console.debug('InlineEditableText put back an empty required value', { label: props.label })
+      props.onChange(valueBeforeEditing)
       return
     }
-
-    setIsSaving(true)
-    try {
-      await props.onSave(trimmed)
-      setIsEditing(false)
-    }
-    catch (error) {
-      console.debug('InlineEditableText kept editing: saving failed', { error, label: props.label })
-      editorRef.current?.focus()
-    }
-    finally {
-      setIsSaving(false)
+    if (trimmed !== props.value) {
+      props.onChange(trimmed)
     }
   }
 
   function onKeyDown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
+      // Marked, so the page does not also take Esc as leaving.
       event.preventDefault()
+      props.onChange(valueBeforeEditing)
       setIsEditing(false)
       return
     }
-    const savesOnEnter = !props.isMultiline || event.metaKey || event.ctrlKey
-    if (event.key === 'Enter' && savesOnEnter) {
+    const finishesOnEnter = !props.isMultiline || event.metaKey || event.ctrlKey
+    if (event.key === 'Enter' && finishesOnEnter) {
+      // Enter finishes the field rather than submitting the page's form.
       event.preventDefault()
-      void save()
+      finishEditing()
     }
   }
 
@@ -119,24 +104,23 @@ export function InlineEditableText(props: Props) {
     const sharedProps = {
       'ref': editorRef,
       'aria-label': props.label,
-      'value': draft,
+      'value': props.value,
       'maxLength': props.maxLength,
-      'disabled': isSaving,
       'placeholder': props.placeholder,
       'className': editorClassName,
       'onKeyDown': onKeyDown,
-      'onBlur': () => void save(),
+      'onBlur': finishEditing,
     }
     return props.isMultiline
       ? <textarea
         {...sharedProps}
         rows={1}
         className={`${editorClassName} resize-none overflow-hidden`}
-        onChange={(event) => setDraft(event.currentTarget.value)}
+        onChange={(event) => props.onChange(event.currentTarget.value)}
       />
       : <input
         {...sharedProps}
-        onChange={(event) => setDraft(event.currentTarget.value)}
+        onChange={(event) => props.onChange(event.currentTarget.value)}
       />
   }
 

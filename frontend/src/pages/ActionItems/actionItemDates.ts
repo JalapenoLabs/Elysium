@@ -22,6 +22,25 @@ export function toLocalDay(instant: string, timeZone: string) {
   return toCalendarDate(parseAbsolute(instant, timeZone))
 }
 
+// What to save for a day picked on a page that edits a stored instant: the new instant, null
+// to clear it, or undefined when it is the day already stored. An untouched day is never
+// sent again, so saving other fields never moves it to the end of the day in this zone.
+export function toChangedDayInstant(stored: string | null, picked: CalendarDate | null, timeZone: string) {
+  const storedDay = stored
+    ? toLocalDay(stored, timeZone)
+    : null
+  if (!picked) {
+    if (!storedDay) {
+      return undefined
+    }
+    return null
+  }
+  if (storedDay?.compare(picked) === 0) {
+    return undefined
+  }
+  return toEndOfDayInstant(picked, timeZone)
+}
+
 // A snooze to a day wakes the item that morning rather than at midnight.
 export function toSnoozeInstant(date: CalendarDate, timeZone: string) {
   return toZoned(date, timeZone)

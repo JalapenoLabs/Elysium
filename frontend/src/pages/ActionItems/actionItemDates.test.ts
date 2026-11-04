@@ -7,7 +7,13 @@ import { describe, expect, it } from 'vitest'
 import { CalendarDate } from '@internationalized/date'
 
 // Misc
-import { getSnoozePresetInstants, toEndOfDayInstant, toLocalDay, toSnoozeInstant } from './actionItemDates'
+import {
+  getSnoozePresetInstants,
+  toChangedDayInstant,
+  toEndOfDayInstant,
+  toLocalDay,
+  toSnoozeInstant,
+} from './actionItemDates'
 
 const NEW_YORK = 'America/New_York'
 
@@ -24,6 +30,24 @@ describe('toEndOfDayInstant', () => {
     const instant = toEndOfDayInstant(date, NEW_YORK)
 
     expect(toLocalDay(instant, NEW_YORK).toString()).toBe(date.toString())
+  })
+})
+
+describe('toChangedDayInstant', () => {
+  it('leaves the stored day alone, whatever time of it was stored', () => {
+    // Noon in New York, set somewhere other than a date picker.
+    const stored = '2026-09-18T16:00:00.000Z'
+
+    expect(toChangedDayInstant(stored, new CalendarDate(2026, 9, 18), NEW_YORK)).toBeUndefined()
+    expect(toChangedDayInstant(null, null, NEW_YORK)).toBeUndefined()
+  })
+
+  it('saves another day as its end, and an emptied one as null', () => {
+    const stored = '2026-09-18T16:00:00.000Z'
+
+    expect(toChangedDayInstant(stored, new CalendarDate(2026, 9, 19), NEW_YORK)).toBe('2026-09-20T03:59:59.999Z')
+    expect(toChangedDayInstant(null, new CalendarDate(2026, 9, 18), NEW_YORK)).toBe('2026-09-19T03:59:59.999Z')
+    expect(toChangedDayInstant(stored, null, NEW_YORK)).toBeNull()
   })
 })
 

@@ -151,7 +151,7 @@ export function createActionItem(body: CreateActionItemRequest) {
 
 // Omitted fields are left unchanged; `dueAt: null` removes the due date. Projects and
 // initiatives change one at a time through their own routes below.
-type UpdateActionItemRequest = {
+export type UpdateActionItemRequest = {
   title?: string
   notes?: string
   priority?: ActionItemPriority

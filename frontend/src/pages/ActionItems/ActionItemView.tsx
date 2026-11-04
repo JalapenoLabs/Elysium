@@ -3,11 +3,8 @@
 import type { ActionItem } from '../../api/routes/actionItemRoutes'
 
 // Core
+import { useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-
-// Redux
-import { useAppDispatch } from '../../store/hooks'
-import { actionItemUpserted } from '../../store/actionItemsSlice'
 
 // User interface
 import { Alert, Button, useOverlayState } from '@heroui/react'
@@ -24,28 +21,29 @@ import { RestoreActionItemButton } from './RestoreActionItemButton'
 import { SnoozeDateModal } from './SnoozeDateModal'
 
 // Misc
-import { updateActionItem } from '../../api/routes/actionItemRoutes'
 import { useNow } from '../../hooks/useNow'
 import { UrlTree } from '../../urls'
 import { NOTES_MAX_CHARACTERS, TITLE_MAX_CHARACTERS } from './actionItemFormSchema'
 import { useActionItemActions } from './useActionItemActions'
+import { useActionItemEditor } from './useActionItemEditor'
 import { useActionItemPageActions } from './useActionItemPageActions'
-import { toast } from '../../toast/toast'
 
 type Props = {
   item: ActionItem
 }
 
-// One item, edited in place. The title is the page's title, renamed where it is shown; the
-// state change its state leads with is the page's primary action, and everything else it
-// can do is its Actions menu. Its notes and fields sit side by side, and its links to Jira
-// and GitHub, the reply box of the message that raised it, its conversation, the coding
-// sessions started from it, and its history follow. A deleted item is read-only, with
+// One item, edited in place and kept by the page's Save. The title is the page's title,
+// renamed where it is shown; the state change its state leads with is the page's primary
+// action, and everything else it can do is its Actions menu. Its notes and fields sit side by
+// side, and its links to Jira and GitHub, the reply box of the message that raised it, its
+// conversation, the coding sessions started from it, and its history follow. Those act at
+// once, as actions do; only the fields wait for Save. A deleted item is read-only, with
 // Restore.
 export function ActionItemView(props: Props) {
   const { t } = useTranslation([ 'actionItems', 'common' ])
-  const dispatch = useAppDispatch()
   const item = props.item
+  const editor = useActionItemEditor(item)
+  const [ title, notes ] = useWatch({ control: editor.form.control, name: [ 'title', 'notes' ]})
   const now = useNow()
   const snoozeDateDialog = useOverlayState()
   const itemActions = useActionItemActions()
@@ -53,24 +51,20 @@ export function ActionItemView(props: Props) {
   const isDeleted = Boolean(item.deletedAt)
   const lead = pageActions.lead
 
-  // Throws on failure, so the field stays open on what was typed.
-  async function saveText(changes: { title: string } | { notes: string }) {
-    try {
-      const response = await updateActionItem(item.id, changes)
-      dispatch(actionItemUpserted(response.item))
-    }
-    catch (error) {
-      console.debug('ActionItemView failed to save the item', { error, itemId: item.id })
-      toast.danger(t('common:errors.unexpected'))
-      throw error
-    }
-  }
-
   return <Page
-    title={item.title}
+    title={isDeleted
+      ? item.title
+      : title}
     rename={isDeleted
       ? undefined
-      : { label: t('item.renameLabel'), maxLength: TITLE_MAX_CHARACTERS, onSave: (title) => saveText({ title }) }}
+      : {
+        label: t('item.renameLabel'),
+        maxLength: TITLE_MAX_CHARACTERS,
+        onChange: (value) => editor.form.setValue('title', value, { shouldDirty: true }),
+      }}
+    save={isDeleted
+      ? undefined
+      : { save: editor.save, isDirty: editor.form.formState.isDirty }}
     parents={[
       { label: t('title'), href: UrlTree.actionItems },
       { label: t('nav.all'), href: UrlTree.actionItemsAll },
@@ -103,13 +97,13 @@ export function ActionItemView(props: Props) {
           {isDeleted
             ? <p className='text-sm whitespace-pre-line opacity-80'>{item.notes}</p>
             : <InlineEditableText
-              value={item.notes}
+              value={notes}
               label={t('item.notesLabel')}
               placeholder={t('item.addNotes')}
               isMultiline
               maxLength={NOTES_MAX_CHARACTERS}
               className='text-sm whitespace-pre-line opacity-80'
-              onSave={(notes) => saveText({ notes })}
+              onChange={(value) => editor.form.setValue('notes', value, { shouldDirty: true })}
             />}
         </section>
         <ActionItemLinks item={item} />
@@ -128,7 +122,7 @@ export function ActionItemView(props: Props) {
         </section>
       </div>
       <aside className='lg:sticky lg:top-4'>
-        <ActionItemDetailsPanel item={item} />
+        <ActionItemDetailsPanel item={item} form={editor.form} />
       </aside>
     </div>
 

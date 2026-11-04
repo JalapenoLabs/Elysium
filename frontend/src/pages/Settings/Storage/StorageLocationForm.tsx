@@ -40,7 +40,7 @@ import {
   updateStorageLocation,
 } from '../../../api/routes/storageRoutes'
 import { BYTES_PER_GIGABYTE } from '../../../constants'
-import { usePageSave } from '../../../layout/page/pageSave'
+import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createStorageFormSchema, keepsAccessKey, toStorageProvider } from './storageFormSchema'
 import {
   accessKeyLabelKeys,
@@ -53,8 +53,6 @@ import { toast } from '../../../toast/toast'
 
 // A new AWS bucket's region until one is typed: AWS's default region.
 const DEFAULT_AWS_REGION = 'us-east-1'
-
-const STORAGE_LOCATION_FORM_ID = 'storage-location-form'
 
 type Props = {
   // The location being edited, or null to add a new one.
@@ -110,7 +108,7 @@ export function StorageLocationForm(props: Props) {
     },
   })
 
-  const onSubmit = form.handleSubmit(async (values) => {
+  const save = saveForm(form, async (values) => {
     const payload = {
       name: values.name,
       provider: toStorageProvider(values),
@@ -131,31 +129,33 @@ export function StorageLocationForm(props: Props) {
         dispatch(storageLocationUpserted(response.location))
         toast.success(t('toasts.updated', { name: values.name }))
         props.onSaved(response.location)
+        return true
       }
       else {
         const response = await createStorageLocation({ ...payload, accessKey: values.accessKey })
         dispatch(storageLocationUpserted(response.location))
         toast.success(t('toasts.created', { name: values.name }))
         props.onSaved(response.location)
+        return true
       }
     }
     catch (error) {
       if (error instanceof HTTPError && error.response.status === 409) {
         form.setError('name', { message: t('form.errors.nameTaken') })
-        return
+        return false
       }
 
       console.debug('StorageLocationForm failed to save the location', { error })
       toast.danger(t('common:errors.unexpected'), {
         description: getUpstreamErrorMessage(error) ?? undefined,
       })
+      return false
     }
   })
 
-  usePageSave({
-    formId: STORAGE_LOCATION_FORM_ID,
+  const onSubmit = usePageSave({
+    save,
     isDirty: form.formState.isDirty,
-    isPending: form.formState.isSubmitting,
   })
 
   const errors = form.formState.errors
@@ -195,7 +195,7 @@ export function StorageLocationForm(props: Props) {
   </TextField>
 
   return <div className='grid grid-cols-1 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]'>
-    <Form id={STORAGE_LOCATION_FORM_ID} onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
+    <Form onSubmit={onSubmit} validationBehavior='aria' className='flex flex-col gap-4'>
       {/* Name */}
       <TextField
         autoFocus

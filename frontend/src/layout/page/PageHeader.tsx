@@ -17,13 +17,14 @@ export type PageCrumb = {
   href: string
 }
 
-// Makes the title its own editor, for a page about one record that is renamed in place.
+// Makes the title its own editor, for a page about one record that is renamed in place. The
+// title is a field of the page's form: `title` is what the form holds, and the page's Save
+// keeps a new one.
 export type PageTitleRename = {
   // Describes the editor, for assistive technology, such as "Rename project".
   label: string
   maxLength: number
-  // Receives the trimmed new title. Throwing keeps the editor open on what was typed.
-  onSave: (title: string) => Promise<void>
+  onChange: (title: string) => void
 }
 
 export type PageHeaderProps = {
@@ -101,7 +102,7 @@ export function PageHeader(props: PageHeaderProps) {
               isRequired
               maxLength={props.rename.maxLength}
               className='text-3xl font-bold'
-              onSave={props.rename.onSave}
+              onChange={props.rename.onChange}
             />
           </h1>
           : <h1 className='min-w-0 text-3xl font-bold break-words'>{
