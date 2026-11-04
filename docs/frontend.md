@@ -295,7 +295,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/environment/:variableId/edit` | `EditEnvironmentVariablePage` | Edit an environment variable              |
 | `/settings/connectors`        | `ConnectorsPage`         | Every connector, its status, and activity               |
 | `/settings/connectors/new`    | `ConnectorPickerPage`    | A searchable grid of every kind, each opening its form; `?provides=` narrows it |
-| `/settings/connectors/new/:kind` | `NewConnectorPage`    | One kind's form: sign in, what it reads, live checks    |
+| `/settings/connectors/new/:kind` | `NewConnectorPage`    | One kind's form: sign in, what it reads, live checks; a personal kind's help says everyone can search what it reads |
 | `/settings/connectors/:connectorId` | `ConnectorPage`    | One connector: status, its browser to sign in on, content, and checks |
 | `/settings/github`            | redirect                 | To `/settings/connectors`                               |
 | `/settings/github/new`        | redirect                 | To `/settings/connectors/new`                           |
