@@ -1,15 +1,17 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `/api/v1/work-batches`: one work batch with its history and its worker's log, and what people
-//! do to it while it waits: run it next, change its priority, pause or resume it, and cancel it. A batch's goal
-//! quotes what was ingested, so every route answers the company's members alone, as a project's
-//! Project Manager does. See `docs/engine.md`, Workers and the pool.
+//! `/api/v1/work-batches`: one work batch with its history, its worker's log, and the pull
+//! requests its worker recorded, and what people do to it while it waits: run it next, change its
+//! priority, pause or resume it, and cancel it. A batch's goal quotes what was ingested, so every
+//! route answers the company's members alone, as a project's Project Manager does. See
+//! `docs/engine.md`, Workers and the pool.
 //!
 //! Each change goes through `crate::worker_pool::actions`, as Elysia's and a Project Manager's
 //! do, so it is recorded in the batch's history with who made it, announced, and signalled to
 //! the engine's pool.
 
 mod cancel_work_batch;
+mod get_pull_requests;
 mod get_work_batch;
 mod get_worker_log;
 #[cfg(test)]
@@ -36,6 +38,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/{id}/cancel", post(cancel_work_batch::handle))
         .route("/{id}/worker-log", get(get_worker_log::handle))
+        .route("/{id}/pull-requests", get(get_pull_requests::handle))
 }
 
 /// One work batch, whole.

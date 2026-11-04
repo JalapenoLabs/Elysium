@@ -17,11 +17,16 @@
 //! conversation, a person adding it, an undo putting it back), is news for that project's
 //! Project Manager, so the change wakes it in the same transaction
 //! (`crate::models::project_manager::wake_for_record`). A change of how sure an attribution is
-//! wakes nothing, and neither does what Elysium's own agents put on the timeline: a Project
-//! Manager's records are its own, and a session's turn summaries are work the Project Manager
-//! hears of through what it dispatched (a batch's result) or reads on its timeline when something
-//! else wakes it. A wake per turn would spend a Project Manager's turn on every prompt anyone
-//! types into a session of the project.
+//! wakes nothing, and neither does most of what Elysium's own agents put on the timeline: a
+//! Project Manager's records are its own, and a session's turn summaries are work the Project
+//! Manager hears of through what it dispatched (a batch's result) or reads on its timeline when
+//! something else wakes it. A wake per turn would spend a Project Manager's turn on every prompt
+//! anyone types into a session of the project.
+//!
+//! A worker's merged pull request is the exception: it wakes the Project Manager, since a merge
+//! is when the work reaches the project, which it acts on (resolving the items the work was for,
+//! planning what follows) before the batch may end. A merge happens once per pull request, and
+//! the batch's finish that usually follows within a minute lands in the same debounced turn.
 //!
 //! # A person's word stands
 //!
@@ -58,6 +63,10 @@ pub const PROJECT_MANAGER_ACTOR: &str = "project_manager";
 /// names it everywhere (`session:<n>`).
 pub const SESSION_ACTOR_PREFIX: &str = "session:";
 
+/// How a pool worker is named in `attributed_by`, before its batch's id, as its tools' calls are
+/// named (`worker:<batch>`).
+pub const WORKER_ACTOR_PREFIX: &str = "worker:";
+
 /// Who changes an attribution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Attributor {
@@ -69,17 +78,20 @@ pub enum Attributor {
     ProjectManager,
     /// The agent of coding session `n`, putting its turn summaries on the session's project.
     Session(i64),
+    /// The worker of batch `id`, putting its merged pull requests on the batch's project.
+    Worker(Uuid),
 }
 
 impl Attributor {
-    /// The actor `attributed_by` names: `elysia`, `user:<id>`, `project_manager`, or
-    /// `session:<n>`.
+    /// The actor `attributed_by` names: `elysia`, `user:<id>`, `project_manager`, `session:<n>`,
+    /// or `worker:<batch>`.
     fn actor(self) -> String {
         match self {
             Self::Elysia => ELYSIA_ACTOR.to_owned(),
             Self::Person(id) => format!("user:{id}"),
             Self::ProjectManager => PROJECT_MANAGER_ACTOR.to_owned(),
             Self::Session(id) => format!("{SESSION_ACTOR_PREFIX}{id}"),
+            Self::Worker(batch_id) => format!("{WORKER_ACTOR_PREFIX}{batch_id}"),
         }
     }
 
@@ -89,16 +101,16 @@ impl Attributor {
             Self::Elysia => ELYSIA_USER_ID,
             Self::Person(id) => id,
             Self::ProjectManager => PROJECT_MANAGER_USER_ID,
-            Self::Session(_) => CODING_AGENT_USER_ID,
+            Self::Session(_) | Self::Worker(_) => CODING_AGENT_USER_ID,
         }
     }
 
     /// Whether a record this puts newly on a project wakes the project's Project Manager: what
-    /// Elysia and people attribute does, what Elysium's own agents put on the timeline does not
-    /// (the module's docs).
+    /// Elysia and people attribute does, and a worker's merged pull request; the rest of what
+    /// Elysium's own agents put on the timeline does not (the module's docs).
     const fn wakes_project_manager(self) -> bool {
         match self {
-            Self::Elysia | Self::Person(_) => true,
+            Self::Elysia | Self::Person(_) | Self::Worker(_) => true,
             Self::ProjectManager | Self::Session(_) => false,
         }
     }
@@ -216,7 +228,10 @@ pub async fn attribute(
 ) -> QueryResult<Written> {
     let confidence = match by {
         Attributor::Person(_) => PERSON_CONFIDENCE,
-        Attributor::Elysia | Attributor::ProjectManager | Attributor::Session(_) => confidence,
+        Attributor::Elysia
+        | Attributor::ProjectManager
+        | Attributor::Session(_)
+        | Attributor::Worker(_) => confidence,
     };
     let after = Held {
         confidence,

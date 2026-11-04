@@ -2,30 +2,44 @@
 
 //! `elysium_worker`: a worker's own tools, for the one batch it runs.
 //!
-//! A worker reads its batch with `worker_batch`, and says how each turn ends with one of two
-//! tools: `worker_finish` once the batch is done or cannot be done, or `worker_wait` while it
-//! waits on a review, CI, or an answer, keeping its container. The API answers these calls and
-//! holds no claim on the batch's slot, so each only files a report on the batch
-//! (`crate::models::work_batch::worker`); the engine acts on it once the turn is over. Every call
+//! A worker reads its batch with `worker_batch`, records each pull request it opens with
+//! `worker_pull_request`, and says how each turn ends with one of two tools: `worker_finish` once
+//! the batch is done or cannot be done, or `worker_wait` while it waits on a review, CI, or an
+//! answer, keeping its container. The API answers these calls and holds no claim on the batch's
+//! slot, so each only files a report on the batch (`crate::models::work_batch::worker`), or
+//! records a pull request (`crate::models::work_batch::pull_request`); the engine acts on them
+//! once the turn is over, and only the engine merges (`crate::worker_pool::merging`). Every call
 //! is checked against the batch as the database holds it now. See `docs/engine.md`, Workers.
 
 use chrono::{TimeDelta, Utc};
 use futures_util::FutureExt as _;
+use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{
     CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
 };
+use crate::github::issues::IssueRef;
+use crate::github::pulls::PullRequest;
+use crate::models::work_batch::pull_request::{self, NewPullRequest, RecordError};
 use crate::models::work_batch::worker::{self, Report, WAIT_DETAIL_MAX_CHARACTERS, Wait};
-use crate::models::work_batch::{self, RESULT_MAX_CHARACTERS};
+use crate::models::work_batch::{self, BatchState, RESULT_MAX_CHARACTERS, WorkBatch};
+use crate::models::worker_setup::{self, MergePolicy, WorkerSetup};
+use crate::models::{github_credential, project};
+use crate::routes::v1::coding_sessions::github_token;
+use crate::worker_pool::actions::announce;
+use crate::worker_pool::merging;
 
 pub const SERVER: ToolServer = ToolServer {
     name: "elysium_worker",
     instructions: Instructions::Fixed(
         "Your work batch, and how you report on it. worker_batch reads the batch: its goal, \
-        the repositories it needs, the action items it works on, and any answers your Project \
-        Manager gave. End every turn with exactly one of the two reports. worker_finish says the \
+        the repositories it needs, the action items it works on, the pull requests you recorded, \
+        and any answers your Project Manager gave. worker_pull_request records a pull request you \
+        opened, right after you open it: Elysium merges it in a repository that lets it, once \
+        every check passed and no review is left open, and a person merges it everywhere else. \
+        End every turn with exactly one of the two reports. worker_finish says the \
         batch is done, or that it cannot be done and why: what you did, the pull requests you \
         opened, and anything left. worker_wait says you are waiting on a review of your pull \
         request, a CI run, or an answer to a question only a person or your Project Manager can \
@@ -35,14 +49,24 @@ pub const SERVER: ToolServer = ToolServer {
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 3] = [
+const TOOLS: [Tool; 4] = [
     Tool {
         name: "worker_batch",
         description: "Reads your work batch: its title, goal, repositories, the action items it \
-            works on, what you wait on now, and the answers your Project Manager gave since you \
-            last began to wait.",
+            works on, the pull requests you recorded and where each stands, what you wait on \
+            now, and the answers your Project Manager gave since you last began to wait.",
         input_schema: no_arguments_schema,
         run: |context, scope, arguments| run_batch(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "worker_pull_request",
+        description: "Records a pull request you opened for this batch, by its github.com URL, \
+            right after you open it. It must be yours: opened by the project's GitHub account \
+            during this batch, from a branch of the repository itself. Answers who merges it: \
+            Elysium, once every check passed, no review thread is open, and nobody asked for \
+            changes, or a person. Never merge a pull request yourself.",
+        input_schema: pull_request_schema,
+        run: |context, scope, arguments| run_pull_request(context, scope, arguments).boxed(),
     },
     Tool {
         name: "worker_wait",
@@ -99,6 +123,17 @@ fn wait_schema() -> Value {
     })
 }
 
+fn pull_request_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "url": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        },
+        "required": ["url"],
+        "additionalProperties": false,
+    })
+}
+
 fn finish_schema() -> Value {
     json!({
         "type": "object",
@@ -117,6 +152,12 @@ struct WaitArguments {
     on: Wait,
     detail: String,
     check_back_in_minutes: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PullRequestArguments {
+    url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,9 +184,25 @@ async fn run_batch(
     let answers = worker::answers_since_waiting(&mut connection, batch.id)
         .await
         .map_err(|error| internal(scope, "worker.answers", &error))?;
+    let recorded = pull_request::of_batch(&mut connection, batch.id)
+        .await
+        .map_err(|error| internal(scope, "worker.pull_requests", &error))?;
     let waiting = batch.waiting_on.map(
         |on| json!({ "on": on, "detail": batch.waiting_detail, "until": batch.waiting_until }),
     );
+    let pull_requests: Vec<Value> = recorded
+        .iter()
+        .map(|recorded| {
+            json!({
+                "pullRequest": recorded.reference(),
+                "url": recorded.url,
+                "state": recorded.state,
+                "mergedBy": recorded.merged_by,
+                "mergedByElysium": recorded.merged_by_elysium,
+                "heldBecause": recorded.held_because,
+            })
+        })
+        .collect();
     Ok(json!({
         "batch": {
             "id": batch.id,
@@ -153,9 +210,96 @@ async fn run_batch(
             "goal": batch.goal,
             "repositories": batch.repositories(),
             "actionItemIds": batch.action_items(),
+            "pullRequests": pull_requests,
             "waiting": waiting,
             "answers": answers,
         }
+    }))
+}
+
+async fn run_pull_request(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    const OPERATION: &str = "worker.pull_request";
+
+    let arguments: PullRequestArguments = parse_arguments(arguments)?;
+    let reference = IssueRef::from_pull_request_url(&arguments.url).ok_or_else(|| {
+        ToolError::Invalid(
+            "url is not a GitHub pull request; one reads https://github.com/owner/name/pull/12"
+                .to_owned(),
+        )
+    })?;
+    let Recording {
+        batch,
+        token,
+        declared,
+    } = recording(context, scope).await?;
+    let Some(token) = token else {
+        return Err(ToolError::Invalid(
+            "this project's workers have no GitHub token, so Elysium cannot read the pull \
+             request; name it in your result instead"
+                .to_owned(),
+        ));
+    };
+    let found = context
+        .github
+        .pull_request(&token, &reference)
+        .await
+        .map_err(|error| ToolError::Provider(error.to_string()))?
+        .ok_or_else(|| {
+            ToolError::NotFound(format!("the project's GitHub token cannot see {reference}"))
+        })?;
+    let number = own_number(&found, &batch, &reference)?;
+
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let recorded = pull_request::record(
+        &mut connection,
+        NewPullRequest {
+            work_batch_id: batch.id,
+            repository: &found.repository,
+            number,
+            url: &found.url,
+            title: &found.title,
+        },
+    )
+    .await
+    .map_err(|error| match error {
+        RecordError::OtherBatch(other) => ToolError::Invalid(format!(
+            "batch {other} recorded {reference}; a pull request is one batch's work"
+        )),
+        RecordError::Database(error) => internal(scope, OPERATION, &error),
+    })?;
+    announce(&context.events, &batch);
+
+    let (merged_by, next) = match merging::policy_for(&declared, &recorded.github_url()) {
+        MergePolicy::Auto => (
+            "elysium",
+            "Elysium looks at it each time a wait of yours ends, and before your batch finishes: \
+             it merges it once every check passed, no review thread is open, and nobody asked \
+             for changes, and tells you what holds it otherwise. Address every review comment, \
+             then report waiting on ci or review.",
+        ),
+        MergePolicy::Person => (
+            "person",
+            "A person merges pull requests in this repository. Address every review comment, \
+             and report waiting on review until they merge it.",
+        ),
+    };
+    Ok(json!({
+        "pullRequest": {
+            "pullRequest": recorded.reference(),
+            "url": recorded.url,
+            "title": recorded.title,
+            "state": recorded.state,
+        },
+        "mergedBy": merged_by,
+        "next": next,
     }))
 }
 
@@ -193,6 +337,96 @@ async fn run_wait(
         "next": "End your turn now. Your container and everything in it are kept; your next \
             turn resumes this session.",
     }))
+}
+
+/// What recording a pull request reads first: the caller's batch, still running, the project's
+/// GitHub token, and the project's setup, which says who merges.
+struct Recording {
+    batch: WorkBatch,
+    token: Option<SecretString>,
+    declared: WorkerSetup,
+}
+
+async fn recording(context: &ToolContext, scope: &CallScope) -> Result<Recording, ToolError> {
+    const OPERATION: &str = "worker.pull_request";
+
+    let worker = scope.worker()?;
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let batch = work_batch::find(&mut connection, worker.batch_id)
+        .await
+        .map_err(|error| internal(scope, OPERATION, &error))?;
+    if batch.state != BatchState::Running || batch.project_id != worker.project_id {
+        return Err(ToolError::Invalid(format!(
+            "batch {} is no longer running, so it records nothing; end your turn",
+            worker.batch_id
+        )));
+    }
+    let project = project::find(&mut connection, batch.project_id)
+        .await
+        .map_err(|error| internal(scope, OPERATION, &error))?;
+    let workspace_default = github_credential::find_default(&mut connection)
+        .await
+        .map_err(|error| internal(scope, OPERATION, &error))?
+        .map(|credential| credential.id);
+    let token = github_token::open_for_session(
+        &mut connection,
+        &context.cipher,
+        project.github_credential(workspace_default),
+    )
+    .await
+    .map_err(|error| internal(scope, OPERATION, &error))?;
+    let declared = worker_setup::find(&mut connection, batch.project_id)
+        .await
+        .map_err(|error| internal(scope, OPERATION, &error))?;
+    Ok(Recording {
+        batch,
+        token,
+        declared,
+    })
+}
+
+/// `found`'s number, when it is `batch`'s worker's own: opened by the project's account during
+/// the batch, from the repository itself. Only the worker's own work is recorded, so only the
+/// worker's own work is ever merged.
+fn own_number(
+    found: &PullRequest,
+    batch: &WorkBatch,
+    reference: &IssueRef,
+) -> Result<i32, ToolError> {
+    let opened_by_account = found
+        .author
+        .as_deref()
+        .is_some_and(|author| author.eq_ignore_ascii_case(&found.viewer));
+    if !opened_by_account {
+        return Err(ToolError::Invalid(format!(
+            "{reference} was opened by {}, not by the project's account {}; record only the pull \
+             requests you opened",
+            found
+                .author
+                .as_deref()
+                .unwrap_or("an account GitHub no longer has"),
+            found.viewer
+        )));
+    }
+    if found.is_cross_repository {
+        return Err(ToolError::Invalid(format!(
+            "{reference} is from a fork; open it from a branch of {} itself",
+            found.repository
+        )));
+    }
+    if found.created_at < batch.started_at.unwrap_or(batch.created_at) {
+        return Err(ToolError::Invalid(format!(
+            "{reference} was opened before this batch started, so it is not this batch's work; \
+             mention it in your result instead"
+        )));
+    }
+    i32::try_from(found.number).map_err(|_too_large| {
+        ToolError::Invalid(format!("{reference} has a number Elysium cannot hold"))
+    })
 }
 
 async fn run_finish(

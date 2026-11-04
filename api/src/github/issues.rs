@@ -495,7 +495,7 @@ impl Github {
 
     /// The API URL of a path under a repository, each segment percent-encoded, so a label
     /// name with a slash or a space stays one segment.
-    fn repository_url(&self, repository: &Repository, segments: &[&str]) -> String {
+    pub(super) fn repository_url(&self, repository: &Repository, segments: &[&str]) -> String {
         let mut url = Url::parse(&self.url("/")).expect("the API origin is a valid URL");
         url.path_segments_mut()
             .expect("the API origin is a base URL")

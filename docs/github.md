@@ -206,6 +206,35 @@ linked as the item's primary. A filing tried before first lists the issues that 
 repository since its first attempt and links the one with exactly its title, so a retry never opens two. A repository
 is named as a tracker from the token's listing, archived ones left out, and checked with GitHub before it is stored.
 
+## Merging a worker's pull requests
+
+Elysium merges a pool worker's own pull request in a repository its project set to auto-merge (`docs/engine.md`,
+Merging), through the project's token, the one its workers get. The calls are in `api/src/github/pulls.rs`:
+
+| Call                                                | Used for                                              |
+|-----------------------------------------------------|-------------------------------------------------------|
+| `POST /graphql`                                     | One pull request, read whole for a merge decision     |
+| `GET /repos/{owner}/{repo}/rules/branches/{branch}` | The rules its base branch's rulesets enforce          |
+| `PUT /repos/{owner}/{repo}/pulls/{number}/merge`    | The merge, with `merge_method` and the head `sha` read |
+
+- **One read.** Review threads, and whether each is resolved, exist only in GraphQL, so one query reads everything a
+  decision needs: the token's account (`viewer`), the repository's allowed merge methods, and the pull request's
+  state, author, fork, draft, `mergeable`, `mergeStateStatus`, `reviewDecision`, latest reviews, the first hundred
+  review threads with their count, the classic protection a non-admin sees on its base branch (`refUpdateRule`), and
+  its head commit's first hundred checks, check runs and commit statuses both. The field names were checked against a
+  live answer, and need no preview header. A pull request or repository the token cannot see answers a `NOT_FOUND`
+  error beside a null, read as "cannot see"; any other error, or an answer that does not read, is a failure, which
+  holds the pull request.
+- **Rules.** Rulesets are read from REST, which anyone who can read the repository may: required status checks by
+  name, allowed merge methods (every ruleset that names some narrows the rest), a required linear history, and a merge
+  queue. A branch with more rules than one page is refused, since a rule not read could be one that forbids the merge.
+- **The merge** names the head commit the read saw, so GitHub answers `409` rather than merge a later push. It enforces
+  the branch's protection on the call itself (`405` for a pull request its rules keep from merging), and Elysium asks
+  it to bypass nothing. Any answer but `200` with `merged: true` leaves the pull request open with GitHub's message.
+- **Permissions.** Reading needs Pull requests read and Commit statuses read on a fine-grained token (Checks read too
+  for check runs), or `repo` on a classic one; merging needs Contents and Pull requests write, or `repo`. A token
+  without them leaves the pull request open saying what GitHub answered.
+
 ## Problem reports
 
 Report, beside an error in the app, files the problem on `JalapenoLabs/Elysium` with one of the reporter's own tokens,
@@ -217,7 +246,8 @@ client reports both as `GithubError::NoAccess`, which the report turns into a re
 ## Which permissions a token needs
 
 The setup checklist beside the form describes what a coding session needs: `repo` on a classic token, and Contents,
-Pull requests, and Metadata on a fine-grained one. Add `workflow` to a classic token, or Actions to a fine-grained one,
+Pull requests, and Metadata on a fine-grained one. A project whose workers' pull requests Elysium merges needs
+Commit statuses and Checks read as well (Merging a worker's pull requests, above). Add `workflow` to a classic token, or Actions to a fine-grained one,
 for agents that read or change GitHub Actions.
 
 ## Roadmap

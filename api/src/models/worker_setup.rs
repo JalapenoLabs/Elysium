@@ -9,12 +9,17 @@
 //! directory. A batch may name a repository its project does not declare; it is cloned with no
 //! setup script.
 //!
+//! Each repository also says who merges the pull requests a worker opens in it
+//! ([`MergePolicy`]): a person, unless the project lets Elysium merge them once every check
+//! passed and no review is left open (`crate::worker_pool::merging`).
+//!
 //! The declarations are replaced whole ([`replace`]), in one transaction under the project's
 //! row lock, so two saves never interleave their lists.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::schema::{project_repositories, projects};
@@ -25,6 +30,31 @@ pub const REPOSITORIES_MAX: usize = 16;
 /// The longest setup script, matching `project_repositories.setup_script` and
 /// `projects.tools_setup_script`.
 pub const SCRIPT_MAX_CHARACTERS: usize = 20_000;
+
+/// Who merges the pull requests a worker opens in a repository.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    diesel_derive_enum::DbEnum,
+    Serialize,
+    Deserialize,
+)]
+#[ExistingTypePath = "crate::database::schema::sql_types::MergePolicy"]
+#[serde(rename_all = "snake_case")]
+pub enum MergePolicy {
+    /// A person merges them; the worker addresses their review meanwhile. The default, since
+    /// merging is the step a team most often keeps for itself.
+    #[default]
+    Person,
+    /// Elysium merges a worker's own pull request once every check passed, no review thread is
+    /// open, and nobody asked for changes, failing closed on anything it cannot read.
+    Auto,
+}
 
 /// One repository a project declares.
 #[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable)]
@@ -40,6 +70,7 @@ pub struct ProjectRepository {
     pub setup_script: Option<String>,
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
+    pub merge_policy: MergePolicy,
 }
 
 /// A project's whole worker setup.
@@ -57,6 +88,7 @@ pub struct Declaration {
     pub url: String,
     pub base_branch: Option<String>,
     pub setup_script: Option<String>,
+    pub merge_policy: MergePolicy,
 }
 
 #[derive(Debug, Insertable)]
@@ -68,6 +100,7 @@ struct NewProjectRepository<'a> {
     url: &'a str,
     base_branch: Option<&'a str>,
     setup_script: Option<&'a str>,
+    merge_policy: MergePolicy,
     created_by: Uuid,
 }
 
@@ -131,6 +164,7 @@ pub async fn replace(
                     url: &repository.url,
                     base_branch: repository.base_branch.as_deref(),
                     setup_script: repository.setup_script.as_deref(),
+                    merge_policy: repository.merge_policy,
                     created_by: by,
                 })
                 .collect();
@@ -156,6 +190,7 @@ mod tests {
             url: url.to_owned(),
             base_branch: None,
             setup_script: setup_script.map(str::to_owned),
+            merge_policy: MergePolicy::Person,
         }
     }
 

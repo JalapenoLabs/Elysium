@@ -53,8 +53,10 @@ Changes flow both ways, driven by Elysium, never by copying fields back and fort
   user already accepted it; a dismissed item stays dismissed.
 - **Elysium to provider.** Resolving an item moves every linked issue that is still open: a Jira issue takes its
   project's done transition, and a GitHub issue closes as completed. So a pull request merging resolves the item
-  and moves the issue it fixes. A pull request is never merged or closed by resolving an item. A comment written on
-  an item is posted to its primary link as the credential's account.
+  and moves the issue it fixes. A pull request is never merged or closed by resolving an item, and Elysium closes
+  none. The one pull request Elysium merges is a pool worker's own, in a repository its project set to auto-merge,
+  once every fail-closed check passes (`docs/engine.md`, Merging); that merge is GitHub's news like any other, which
+  the watcher reads. A comment written on an item is posted to its primary link as the credential's account.
 - **A pull request closed without merging** resolves nothing. The close is recorded in the item's history and shown
   on it, and the item stays `open`: the work it stands for may still be owed, so the user resolves or dismisses it.
 

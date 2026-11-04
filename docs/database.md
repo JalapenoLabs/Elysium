@@ -756,6 +756,7 @@ commit (deferred), and two repositories may swap places in one save.
 | `url`          | `TEXT`        | 1 to 2,048 characters, held to a coding session's rules by the API    |
 | `base_branch`  | `TEXT`        | Nullable, 1 to 255 characters; the remote's default when unset        |
 | `setup_script` | `TEXT`        | Nullable, 1 to 20,000 characters: bash run as the agent in its directory once cloned |
+| `merge_policy` | `merge_policy` | `person` (the default) or `auto`: who merges its workers' pull requests (`docs/engine.md`, Merging); `auto` only on github.com, held to it by the API |
 | `created_by`   | `UUID`        | References `users`: who saved the setup                               |
 | `created_at`   | `TIMESTAMPTZ` | Set on insert                                                         |
 
@@ -1558,6 +1559,34 @@ A batch's history, one row per change, shaped like `workflow_run_events`; see `d
 | `data`          | `JSONB`       | A JSON object shaped by `kind`                                         |
 | `created_by`    | `UUID`        | Who did it: a person, Elysia, the Project Managers' machine user, the system user for the pool, or the coding agent for its worker |
 | `created_at`    | `TIMESTAMPTZ` | When it was done                                                       |
+
+### `work_batch_pull_requests`
+
+The pull requests a batch's worker recorded, and where each stands; see `docs/engine.md`, Merging. A pull request is
+one batch's: `work_batch_pull_requests_once` is unique on `(lower(repository), number)`, since GitHub names
+repositories ignoring case. `work_batch_pull_requests_of_batch` on `work_batch_id` reads a batch's. Only an `open` row
+moves to `merged` (`pull_request::mark_merged`), in the transaction that puts the merge on the timeline, so a merge is
+recorded once. `work_batch_pull_requests_merged_whole` holds `merged_at` and `merged_by` set exactly while `merged`,
+no `held_because` then, and `merge_method` set exactly when Elysium merged it.
+
+| Column               | Type                        | Notes                                                    |
+|----------------------|-----------------------------|----------------------------------------------------------|
+| `id`                 | `UUID`                      | UUIDv7, primary key, so a batch's order as recorded      |
+| `work_batch_id`      | `UUID`                      | References `work_batches`, cascading                     |
+| `repository`         | `TEXT`                      | `owner/name` as GitHub spells it, 3 to 140 characters    |
+| `number`             | `INTEGER`                   | Greater than zero                                        |
+| `url`                | `TEXT`                      | Where a person reads it, 1 to 2,048 characters           |
+| `title`              | `TEXT`                      | At most 1,000 characters, as GitHub reported it when recorded |
+| `state`              | `pull_request_state`        | `open`, `merged`, or `closed` (without merging), as the last look read it |
+| `merged_at`          | `TIMESTAMPTZ`               | When it merged                                           |
+| `merged_by`          | `TEXT`                      | The login GitHub says merged it                          |
+| `merged_by_elysium`  | `BOOLEAN`                   | Whether Elysium merged it; false by default              |
+| `merge_method`       | `pull_request_merge_method` | `squash`, `merge`, or `rebase`, when Elysium merged it   |
+| `held_because`       | `TEXT`                      | 1 to 4,000 characters: why the last look left it open    |
+| `looked_at`          | `TIMESTAMPTZ`               | When the engine last looked at it                        |
+| `timeline_record_id` | `UUID`                      | References `timeline_records`, `SET NULL`: what its merge put on the timeline |
+| `created_by`         | `UUID`                      | References `users`: the coding agent                     |
+| `created_at`         | `TIMESTAMPTZ`               | When its worker recorded it                              |
 
 ### `worker_pool`
 

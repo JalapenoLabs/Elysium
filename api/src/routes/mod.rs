@@ -55,6 +55,7 @@ fn agent_tools(state: &AppState) -> Router<AppState> {
         storage: state.storage.clone(),
         events: state.events.clone(),
         links: state.links.clone(),
+        github: state.github.clone(),
         workspace: state.sessions.workspace().clone(),
         passwords: state.passwords.clone(),
         knowledge: state.knowledge.clone(),

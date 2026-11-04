@@ -114,6 +114,10 @@ pub mod sql_types {
     pub struct MailAccountKind;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "merge_policy"))]
+    pub struct MergePolicy;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "password_server"))]
     pub struct PasswordServer;
 
@@ -132,6 +136,14 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "promise_state"))]
     pub struct PromiseState;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "pull_request_merge_method"))]
+    pub struct PullRequestMergeMethod;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "pull_request_state"))]
+    pub struct PullRequestState;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "reply_place"))]
@@ -1313,6 +1325,7 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::MergePolicy;
 
     project_repositories (id) {
         id -> Uuid,
@@ -1323,6 +1336,7 @@ diesel::table! {
         setup_script -> Nullable<Text>,
         created_by -> Uuid,
         created_at -> Timestamptz,
+        merge_policy -> MergePolicy,
     }
 }
 
@@ -1680,6 +1694,31 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::PullRequestState;
+    use super::sql_types::PullRequestMergeMethod;
+
+    work_batch_pull_requests (id) {
+        id -> Uuid,
+        work_batch_id -> Uuid,
+        repository -> Text,
+        number -> Int4,
+        url -> Text,
+        title -> Text,
+        state -> PullRequestState,
+        merged_at -> Nullable<Timestamptz>,
+        merged_by -> Nullable<Text>,
+        merged_by_elysium -> Bool,
+        merge_method -> Nullable<PullRequestMergeMethod>,
+        held_because -> Nullable<Text>,
+        looked_at -> Nullable<Timestamptz>,
+        timeline_record_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::WorkBatchPriority;
     use super::sql_types::WorkBatchState;
     use super::sql_types::WorkBatchWait;
@@ -1944,6 +1983,9 @@ diesel::joinable!(token_accounts -> users (created_by));
 diesel::joinable!(turn_summaries -> coding_sessions (session_id));
 diesel::joinable!(work_batch_events -> users (created_by));
 diesel::joinable!(work_batch_events -> work_batches (work_batch_id));
+diesel::joinable!(work_batch_pull_requests -> timeline_records (timeline_record_id));
+diesel::joinable!(work_batch_pull_requests -> users (created_by));
+diesel::joinable!(work_batch_pull_requests -> work_batches (work_batch_id));
 diesel::joinable!(work_batches -> project_manager_turns (turn_id));
 diesel::joinable!(work_batches -> projects (project_id));
 diesel::joinable!(work_batches -> timeline_records (timeline_record_id));
@@ -2046,6 +2088,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     user_events,
     users,
     work_batch_events,
+    work_batch_pull_requests,
     work_batches,
     worker_pool,
     workflow_run_events,

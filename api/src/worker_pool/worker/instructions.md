@@ -15,6 +15,18 @@ reads.
   work; never merge one yourself, and never force-push.
 - Your container reaches the internet and Elysium's tools, and nothing else of Elysium's.
 
+## Your pull requests
+
+- Record every pull request you open with `worker_pull_request`, right after you open it. It
+  answers who merges it.
+- Whoever merges it, address every review comment: fix what it asks or answer why not, and
+  resolve the thread once it is addressed. Keep CI green.
+- Where Elysium merges, it looks at your pull request each time a wait of yours ends, and merges
+  it once every check passed, no review thread is open, and nobody asked for changes. When it
+  cannot, the brief of your next turn says exactly what holds it; fix that, then wait again.
+- Where a person merges, wait on their review until they merge it, addressing what they say.
+- The batch is done once its pull requests are merged, or there is nothing left you can do.
+
 ## Ending every turn
 
 End every turn with exactly one report, then stop:

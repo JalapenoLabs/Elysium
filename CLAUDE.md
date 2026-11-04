@@ -434,8 +434,9 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   none. Items belong to many projects and many initiatives. See `docs/action-items.md`.
 - An item is a commitment, not a copy. The provider stays the source of truth for a linked issue's fields; the item
   holds triage, priority, dates, membership, provenance, and history. Resolving an item moves every linked issue
-  still open automatically, and the provider closing a linked issue resolves its item. A pull request is never
-  merged or closed from Elysium.
+  still open automatically, and the provider closing a linked issue resolves its item. Resolving an item never merges
+  or closes a pull request. Elysium merges only a worker's own pull request, only in a repository its project set to
+  auto-merge, and only once every fail-closed check passes; it closes none (`docs/engine.md`, Merging).
 - Progress is resolved over total with a burnup of both, never a percentage alone. Initiatives link to containers
   (a Jira epic or search, a GitHub milestone or label) rather than issues one by one, so nothing is tracked twice.
 - Anything the user did not do directly (Elysia, Elysium's AI assistant; email triage; coding agents; Project
@@ -533,6 +534,14 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   until it reports through its `elysium_worker` tools: `worker_finish` ends the batch and removes the container;
   `worker_wait` (a review, CI, or a question its Project Manager answers) keeps it. The API files a report; only the
   engine holding the slot acts on it. See `docs/engine.md`, Workers.
+- Each declared repository says who merges its workers' pull requests (`project_repositories.merge_policy`): a person,
+  the default, or Elysium (`auto`, github.com alone). A worker records each pull request it opens
+  (`worker_pull_request`, `work_batch_pull_requests`) and never merges one. As each wait ends and before the batch
+  finishes, the engine reads them through the project's token (`api/src/worker_pool/merging/`) and merges one only
+  when the project's account opened it, from the repository itself, and GitHub says it merges cleanly, with checks
+  that all passed, every required check among them, no open review thread, no requested changes, and no merge queue,
+  naming its head commit and never bypassing the branch's rules. Anything unread or unknown holds it, saying why. A
+  merge, by Elysium or a person, is a `merged_pull_request` timeline record that wakes the Project Manager.
 - People, Elysia, and Project Managers change a waiting batch only through `worker_pool::actions` (run next, priority,
   pause, resume, cancel), each change recorded in `work_batch_events` with who made it. The work queue is `/work-queue`,
   for members.

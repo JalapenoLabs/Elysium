@@ -228,6 +228,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | PATCH  | `/api/v1/work-batches/{id}`           | `200` as `GET`; `priority` (with `scheduledFor`), `paused`, `runNext`; `409` `work_batch_moved_on`; members only |
 | POST   | `/api/v1/work-batches/{id}/cancel`    | `200` as `GET`; an optional `reason`; `409` `work_batch_moved_on`; members only |
 | GET    | `/api/v1/work-batches/{id}/worker-log` | `200` `{ log }`: its worker's log; members only    |
+| GET    | `/api/v1/work-batches/{id}/pull-requests` | `200` `{ pullRequests }`: what its worker recorded; members only |
 | GET    | `/api/v1/storage-locations`           | `200` `{ locations: StorageLocation[] }`, by name   |
 | POST   | `/api/v1/storage-locations`           | `201` `{ location }`                                |
 | GET    | `/api/v1/storage-locations/{id}`      | `200` `{ location }`                                |
@@ -467,11 +468,13 @@ the URL, so each cover version has its own. Cover changes publish `project.upser
 `GET /{id}/worker-setup` answers `{ workerSetup: { toolsSetupScript, repositories } }`: how the project readies its
 workers' containers (`docs/engine.md`, Workers). `toolsSetupScript` is bash run as root in every worker's container
 before anything is cloned, or `null`; `repositories` lists what the project declares, in order, each `{ id, url,
-baseBranch, setupScript }`, `setupScript` being bash run as the agent in the repository's directory once it is cloned.
+baseBranch, setupScript, mergePolicy }`, `setupScript` being bash run as the agent in the repository's directory once
+it is cloned and `mergePolicy` who merges its workers' pull requests, `person` or `auto` (`docs/engine.md`, Merging).
 `PUT` takes the same shape without ids and replaces the whole setup: at most 16 repositories, each held to a coding
 session's rules (`docs/coding.md`, Repositories), none listed twice and no two cloning into one directory ignoring
-case, a base branch of at most 255 characters, and scripts of at most 20,000 characters, a script of only whitespace
-being none; anything refused answers `400` naming the rule. Anyone who may edit the project reads and changes it, and
+case, a base branch of at most 255 characters, scripts of at most 20,000 characters, a script of only whitespace
+being none, and `mergePolicy` `person` unless given and `auto` only for a github.com repository; anything refused
+answers `400` naming the rule. Anyone who may edit the project reads and changes it, and
 a change publishes `projectWorkerSetup.changed`; the next worker that starts uses it.
 
 `GET /{id}/project-manager` answers the project's Project Manager (`docs/engine.md`, Project Managers): `status`
@@ -526,7 +529,10 @@ it, and its history oldest first, each entry `{ id, kind, data, createdBy, creat
 batches). A running batch whose worker waits, keeping its container, also carries `waitingOn` (`review`, `ci`, or
 `question`), `waitingDetail`, and `waitingUntil`, all `null` otherwise. `GET /work-batches/{id}/worker-log` answers `{
 log }`: what its worker said and which tools it called, one line each, scrubbed of its secrets, the newest 64 KiB,
-empty before it started. `PATCH` takes any of `priority` (`asap`, `normal`, or `scheduled` with `scheduledFor`, with
+empty before it started. `GET /work-batches/{id}/pull-requests` answers `{ pullRequests }`: the pull requests its
+worker recorded, in order, each `{ id, workBatchId, repository, number, url, title, state, mergedAt, mergedBy,
+mergedByElysium, mergeMethod, heldBecause, lookedAt, timelineRecordId, createdBy, createdAt }`, `state` being `open`,
+`merged`, or `closed` and `heldBecause` why the last look left it open (`docs/engine.md`, Merging). `PATCH` takes any of `priority` (`asap`, `normal`, or `scheduled` with `scheduledFor`, with
 its offset, in the future and within a year), `paused` (true holds back a batch no worker started on, giving back a
 slot it held; false lets a paused one wait again), and `runNext` (true runs a due, queued batch before everything
 else; false puts it back in its place), applied in that order in one transaction, each recorded as the caller; a

@@ -24,8 +24,11 @@
 //!   alike.
 //! - [`queue`] reads the pool and every batch waiting or in a slot, in order, as the work queue's
 //!   page and Elysia's tools show it.
+//! - [`merging`] merges the pull requests workers open, in the repositories that let Elysium,
+//!   and puts every merge on its project's timeline.
 
 pub mod actions;
+pub mod merging;
 pub mod order;
 pub mod queue;
 mod scheduler;

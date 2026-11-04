@@ -6,7 +6,10 @@
 //! `Bad credentials`, issues and pull requests through the issues API (a pull request is an
 //! issue carrying a `pull_request` object, without `merged_at`, so whether it merged is read
 //! from `GET /pulls/{number}`), `state_reason` on closed issues, filtering by
-//! `state`, `since`, `milestone`, and `labels`, and `404` for anything it does not hold.
+//! `state`, `since`, `milestone`, and `labels`, and `404` for anything it does not hold. For
+//! merging it answers the GraphQL read of one pull request with a node a test holds (any query
+//! text is answered with the same shape, read from its `variables`), a branch's rules, and the
+//! merge itself, refused when the head moved.
 //! Every request is recorded, so a test asserts on what left the process, and a test can
 //! change an issue the way someone on GitHub would, which moves its `updated_at`.
 //!
@@ -81,6 +84,10 @@ pub(crate) struct Received {
 }
 
 #[derive(Debug, Default)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is one way a test makes GitHub misbehave, switched on its own"
+)]
 struct FakeState {
     /// By `owner/name` and number.
     issues: BTreeMap<(String, u64), FakeIssue>,
@@ -96,6 +103,12 @@ struct FakeState {
     search_lags: bool,
     /// How many comments were written, which numbers the next one.
     comments: u64,
+    /// Pull requests as GraphQL answers them, the `pullRequest` node, by `owner/name` and number.
+    pull_request_nodes: BTreeMap<(String, u64), Value>,
+    /// What `GET /rules/branches/{branch}` answers, by `owner/name`.
+    branch_rules: BTreeMap<String, Value>,
+    /// When set, GraphQL answers with an error, as for a token GitHub limits.
+    graphql_fails: bool,
     received: Vec<Received>,
 }
 
@@ -218,6 +231,53 @@ impl FakeGithub {
         self.with_state(|state| state.refuse_writes = refuse);
     }
 
+    /// Holds `node` as GraphQL's `pullRequest` for `repository#number`.
+    pub(crate) fn put_pull_request_node(&self, repository: &str, number: u64, node: Value) {
+        self.with_state(|state| {
+            state
+                .pull_request_nodes
+                .insert((repository.to_owned(), number), node);
+        });
+    }
+
+    /// Changes a pull request's node as someone on GitHub would.
+    pub(crate) fn change_pull_request_node(
+        &self,
+        repository: &str,
+        number: u64,
+        change: impl FnOnce(&mut Value),
+    ) {
+        self.with_state(|state| {
+            let node = state
+                .pull_request_nodes
+                .get_mut(&(repository.to_owned(), number))
+                .expect("the fake holds that pull request");
+            change(node);
+        });
+    }
+
+    pub(crate) fn pull_request_node(&self, repository: &str, number: u64) -> Value {
+        self.with_state(|state| {
+            state
+                .pull_request_nodes
+                .get(&(repository.to_owned(), number))
+                .cloned()
+                .expect("the fake holds that pull request")
+        })
+    }
+
+    /// Answers `rules` for every branch of `repository`.
+    pub(crate) fn put_branch_rules(&self, repository: &str, rules: Value) {
+        self.with_state(|state| {
+            state.branch_rules.insert(repository.to_owned(), rules);
+        });
+    }
+
+    /// Makes GraphQL answer with an error, or stop.
+    pub(crate) fn fail_graphql(&self, fails: bool) {
+        self.with_state(|state| state.graphql_fails = fails);
+    }
+
     /// Everything the fake received, oldest first.
     pub(crate) fn received(&self) -> Vec<Received> {
         self.with_state(|state| state.received.clone())
@@ -230,6 +290,45 @@ impl FakeGithub {
             .filter(|request| request.method != Method::GET)
             .collect()
     }
+}
+
+/// An open pull request nothing holds, as GraphQL answers it: opened by the token's account from
+/// the repository itself, merging cleanly, with one passing check and no review.
+pub(crate) fn ready_pull_request_node(repository: &str, number: u64, title: &str) -> Value {
+    // Built in parts, since one `json!` this deep passes the macro's recursion limit.
+    let commit = json!({
+        "oid": format!("head-of-{number}"),
+        "statusCheckRollup": { "state": "SUCCESS", "contexts": {
+            "pageInfo": { "hasNextPage": false },
+            "nodes": [{
+                "__typename": "CheckRun",
+                "name": "test",
+                "status": "COMPLETED",
+                "conclusion": "SUCCESS",
+            }],
+        } },
+    });
+    json!({
+        "number": number,
+        "url": format!("https://github.com/{repository}/pull/{number}"),
+        "title": title,
+        "state": "OPEN",
+        "isDraft": false,
+        "mergedAt": null,
+        "mergedBy": null,
+        "author": { "login": LOGIN },
+        "createdAt": Utc::now(),
+        "isCrossRepository": false,
+        "headRefOid": format!("head-of-{number}"),
+        "baseRefName": "main",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN",
+        "reviewDecision": null,
+        "baseRef": { "refUpdateRule": null },
+        "latestOpinionatedReviews": { "nodes": [], "pageInfo": { "hasNextPage": false } },
+        "reviewThreads": { "totalCount": 0, "nodes": [] },
+        "commits": { "nodes": [{ "commit": commit }] },
+    })
 }
 
 fn github_error(status: StatusCode, message: &str) -> Response {
@@ -304,7 +403,8 @@ async fn answer(
     if authorization != Some(&format!("Bearer {TOKEN}")) {
         return github_error(StatusCode::UNAUTHORIZED, "Bad credentials");
     }
-    if method != Method::GET && state.refuse_writes {
+    // GraphQL reads with a POST, which no write refusal touches.
+    if method != Method::GET && path != "/graphql" && state.refuse_writes {
         return github_error(
             StatusCode::FORBIDDEN,
             "Resource not accessible by personal access token",
@@ -561,6 +661,86 @@ async fn answer(
                 .map(|labels| labels.iter().map(|name| json!({ "name": name })).collect())
                 .unwrap_or_default();
             axum::Json(labels).into_response()
+        }
+
+        // The one query Elysium sends, answered from its variables.
+        (Method::POST, ["graphql"]) => {
+            if state.graphql_fails {
+                return axum::Json(json!({
+                    "data": null,
+                    "errors": [{ "type": "FORBIDDEN", "message": "Resource not accessible" }],
+                }))
+                .into_response();
+            }
+            let request: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+            let variables = &request["variables"];
+            let repository = format!(
+                "{}/{}",
+                variables["owner"].as_str().unwrap_or_default(),
+                variables["name"].as_str().unwrap_or_default()
+            );
+            let number = variables["number"].as_u64().unwrap_or_default();
+            let Some(node) = state.pull_request_nodes.get(&(repository.clone(), number)) else {
+                return axum::Json(json!({
+                    "data": { "viewer": { "login": LOGIN }, "repository": null },
+                    "errors": [{ "type": "NOT_FOUND", "message": "Could not resolve" }],
+                }))
+                .into_response();
+            };
+            axum::Json(json!({ "data": {
+                "viewer": { "login": LOGIN },
+                "repository": {
+                    "nameWithOwner": repository,
+                    "squashMergeAllowed": true,
+                    "mergeCommitAllowed": true,
+                    "rebaseMergeAllowed": true,
+                    "pullRequest": node,
+                },
+            } }))
+            .into_response()
+        }
+
+        (Method::GET, ["repos", owner, name, "rules", "branches", _branch]) => {
+            let rules = state
+                .branch_rules
+                .get(&format!("{owner}/{name}"))
+                .cloned()
+                .unwrap_or_else(|| json!([]));
+            axum::Json(rules).into_response()
+        }
+
+        // A merge GitHub makes only of the head it was told, as `sha` asks.
+        (Method::PUT, ["repos", owner, name, "pulls", number, "merge"]) => {
+            let repository = format!("{owner}/{name}");
+            let request: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+            let Some(node) = number
+                .parse::<u64>()
+                .ok()
+                .and_then(|number| state.pull_request_nodes.get_mut(&(repository, number)))
+            else {
+                return github_error(StatusCode::NOT_FOUND, "Not Found");
+            };
+            if node["state"] != "OPEN" {
+                return github_error(
+                    StatusCode::METHOD_NOT_ALLOWED,
+                    "Pull Request is not mergeable",
+                );
+            }
+            if request["sha"] != node["headRefOid"] {
+                return github_error(
+                    StatusCode::CONFLICT,
+                    "Head branch was modified. Review and try the merge again.",
+                );
+            }
+            node["state"] = json!("MERGED");
+            node["mergedAt"] = json!(Utc::now());
+            node["mergedBy"] = json!({ "login": LOGIN });
+            axum::Json(json!({
+                "sha": "merged-commit",
+                "merged": true,
+                "message": "Pull Request successfully merged",
+            }))
+            .into_response()
         }
 
         _other => github_error(StatusCode::NOT_FOUND, "Not Found"),

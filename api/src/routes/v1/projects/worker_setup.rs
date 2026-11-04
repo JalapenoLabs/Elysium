@@ -8,8 +8,11 @@
 //! `PUT` replaces the whole setup. Each repository follows a coding session's rules (an https,
 //! http, ssh, or `git@` URL, SSH on github.com alone), names a directory of its own ignoring
 //! case, and is listed once; a project declares at most 16, as a batch clones at most 16. A
-//! script that is only whitespace is no script. The change is announced as
-//! `projectWorkerSetup.changed`, and applies to the next worker that starts.
+//! script that is only whitespace is no script. Each repository's `mergePolicy` says who merges
+//! its workers' pull requests: `person` unless asked, and `auto` only on github.com, where
+//! Elysium can read and merge them. The change is announced as `projectWorkerSetup.changed`; the
+//! scripts apply to the next worker that starts, and who merges to the next look at a pull
+//! request.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -24,8 +27,10 @@ use uuid::Uuid;
 
 use crate::auth::CurrentUser;
 use crate::errors::ApiError;
+use crate::github::Repository;
 use crate::models::worker_setup::{
-    self, Declaration, ProjectRepository, REPOSITORIES_MAX, SCRIPT_MAX_CHARACTERS, WorkerSetup,
+    self, Declaration, MergePolicy, ProjectRepository, REPOSITORIES_MAX, SCRIPT_MAX_CHARACTERS,
+    WorkerSetup,
 };
 use crate::realtime::ServerEvent;
 use crate::routes::v1::coding_sessions::{
@@ -52,6 +57,7 @@ pub struct RepositoryResponse {
     url: String,
     base_branch: Option<String>,
     setup_script: Option<String>,
+    merge_policy: MergePolicy,
 }
 
 impl From<WorkerSetup> for WorkerSetupResponse {
@@ -74,6 +80,7 @@ impl From<ProjectRepository> for RepositoryResponse {
             url: repository.url,
             base_branch: repository.base_branch,
             setup_script: repository.setup_script,
+            merge_policy: repository.merge_policy,
         }
     }
 }
@@ -96,6 +103,8 @@ pub struct RepositoryRequest {
     base_branch: Option<String>,
     #[serde(default)]
     setup_script: Option<String>,
+    #[serde(default)]
+    merge_policy: MergePolicy,
 }
 
 pub async fn get(
@@ -211,10 +220,17 @@ fn check(body: RequestBody) -> Result<(Option<String>, Vec<Declaration>), String
             repository.setup_script,
             &format!("repository {url}: setupScript"),
         )?;
+        if repository.merge_policy == MergePolicy::Auto && Repository::from_url(&url).is_none() {
+            return Err(format!(
+                "repository {url}: Elysium merges pull requests on github.com alone, so \
+                 mergePolicy auto needs a github.com repository"
+            ));
+        }
         declarations.push(Declaration {
             url,
             base_branch,
             setup_script,
+            merge_policy: repository.merge_policy,
         });
     }
     Ok((tools_setup_script, declarations))
@@ -266,6 +282,25 @@ mod tests {
         );
         assert_eq!(repositories[0].base_branch.as_deref(), Some("main"));
         assert_eq!(repositories[1].setup_script, None);
+        // Nobody asked Elysium to merge, so a person does.
+        assert_eq!(repositories[0].merge_policy, MergePolicy::Person);
+    }
+
+    #[test]
+    fn elysium_merges_only_where_it_can_read_pull_requests() {
+        let (_tools, repositories) = check(body(json!({ "repositories": [
+            { "url": "ssh://git@github.com/JalapenoLabs/Elysium.git", "mergePolicy": "auto" },
+            { "url": "https://gitlab.com/o/r.git", "mergePolicy": "person" },
+        ] })))
+        .expect("accepted");
+        assert_eq!(repositories[0].merge_policy, MergePolicy::Auto);
+        assert_eq!(repositories[1].merge_policy, MergePolicy::Person);
+
+        let elsewhere = check(body(json!({ "repositories": [
+            { "url": "https://gitlab.com/o/r.git", "mergePolicy": "auto" },
+        ] })))
+        .expect_err("refused");
+        assert!(elsewhere.contains("github.com alone"), "{elsewhere}");
     }
 
     #[test]

@@ -37,10 +37,12 @@ pub const DEBOUNCE: Duration = Duration::from_secs(30);
 /// runaway source cannot build a prompt past what a turn can read.
 pub const MAX_EVENTS_PER_TURN: usize = 50;
 
-/// The kinds of record Elysium's own agents put on the timeline, which are never news to her.
-const AGENT_SOURCE_KINDS: [&str; 2] = [
+/// The kinds of record Elysium's own agents put on the timeline, which are never news to her: a
+/// worker's merged pull request is its project's Project Manager's to act on.
+const AGENT_SOURCE_KINDS: [&str; 3] = [
     crate::project_managers::timeline::SOURCE_KIND,
     crate::sessions::timeline::SOURCE_KIND,
+    crate::worker_pool::merging::timeline::SOURCE_KIND,
 ];
 
 /// History kinds a person's own action counts for: new work, and notes about it.

@@ -41,6 +41,7 @@ use crate::action_items::links::Links;
 use crate::agent_guidance::{AgentGuidance, Audience};
 use crate::crypto::Cipher;
 use crate::database::Pool;
+use crate::github::Github;
 use crate::knowledge::search::KnowledgeSearch;
 use crate::passwords::remote::RemoteVault;
 use crate::realtime::EventBus;
@@ -60,6 +61,8 @@ pub struct ToolContext {
     pub events: EventBus,
     /// Links to Jira and GitHub, for the tool that links a session's pull request.
     pub links: Links,
+    /// GitHub, for the tool a worker records its pull requests with.
+    pub github: Github,
     /// Where a session's files are read and written.
     pub workspace: WorkspaceContainer,
     /// The password vault, for the logins agents sign in with.

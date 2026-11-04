@@ -577,7 +577,8 @@ member reads it on the project's timeline beside their own records; a guest read
 between projects or answers it. It is a Project Manager's turns and the batches it submits (kind `project_manager`,
 `docs/engine.md`, Project Managers), owned by the Project Managers' machine user, and every session's turn summaries
 (kind `turn_summary`, `docs/coding.md`, Turn summaries), owned by the coding agent's machine user, since every session
-is listed to everyone (`timeline_record::SHARED_OWNERS`).
+is listed to everyone, and every merge of a pool worker's pull request (kind `merged_pull_request`, `docs/engine.md`,
+Merging), owned by the coding agent's machine user too (`timeline_record::SHARED_OWNERS`).
 
 `timeline_record_projects` attributes records to projects, each with a confidence and who attributed it. Elysia
 attributes as segmenting reads a meeting or a conversation (`docs/meetings.md`, Segmentation), with her confidence;

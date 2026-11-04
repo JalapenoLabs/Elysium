@@ -15,6 +15,9 @@
 //!    worker's secrets before anything of them is logged. Then the report the worker filed
 //!    decides what follows: finished ends the batch and removes the container; waiting keeps the
 //!    container and waits for its time, or an answer, then starts the next turn.
+//! 5. **Its pull requests.** As each wait ends, and before the batch finishes, the engine looks at
+//!    the pull requests the worker recorded (`crate::worker_pool::merging`): it merges those
+//!    Elysium may, records what merged, and the next turn's brief says where each stands.
 //!
 //! A turn that ends without a report, fails, or goes quiet is tried again, telling the worker
 //! why, up to [`MAX_STRIKES`] turns in a row before the batch fails. A turn every credential's
@@ -30,10 +33,11 @@ use tokio::time::Instant;
 use tracing::{Level, event};
 
 use super::Worker;
-use super::brief::{self, Batch, Situation};
+use super::brief::{self, Batch, PullRequestStanding, Situation};
 use super::setup::{self, Plan, Progress};
 use crate::agent_models::{self, Agent};
 use crate::models::user::CODING_AGENT_USER_ID;
+use crate::models::work_batch::pull_request;
 use crate::models::work_batch::worker::{self as batch_worker, Report};
 use crate::models::work_batch::{self, BatchState, RESULT_MAX_CHARACTERS, Slot};
 use crate::models::{environment_variable, github_credential, project, worker_setup};
@@ -50,6 +54,7 @@ use crate::sessions::queue::{BLENDER_COMMAND, BLENDER_SERVER, turn_environment};
 use crate::sessions::scrub::Scrubber;
 use crate::tools::{self, CallScope, ToolServer, WorkerScope};
 use crate::worker_pool::actions::announce;
+use crate::worker_pool::merging;
 
 /// Turns in a row that may end without a report, fail, or go quiet before the batch fails: a
 /// worker that cannot report three times running will not on the fourth.
@@ -123,6 +128,8 @@ struct Job {
     environment: Vec<EnvironmentEntry>,
     /// The values its output is scrubbed of: its GitHub token and every secret variable.
     secrets: Vec<SecretString>,
+    /// The project's GitHub token, which its pull requests are read and merged through.
+    github_token: Option<SecretString>,
     log: TurnLog,
 }
 
@@ -316,6 +323,7 @@ impl Worker {
             },
             environment,
             secrets,
+            github_token: github,
             log: TurnLog::default(),
         };
         Ok(Some((context, plan)))
@@ -355,6 +363,7 @@ impl Worker {
     /// Runs one turn in `situation` to its end, logging it as it goes, and keeps the session it
     /// reported.
     async fn turn(&self, context: &mut Job, situation: &Situation) -> anyhow::Result<TurnOutcome> {
+        let system_prompt = self.system_prompt(context, situation).await?;
         let batch = &context.slot.batch;
         let grant = self
             .deps
@@ -384,19 +393,6 @@ impl Worker {
                 .await?
                 .choice
         };
-        let action_items = batch.action_items();
-        let system_prompt = brief::system_prompt(
-            &Batch {
-                id: batch.id,
-                title: &batch.title,
-                goal: &batch.goal,
-                project_id: batch.project_id,
-                project_name: &context.project_name,
-                repositories: &context.plan.repositories,
-                action_item_ids: &action_items,
-            },
-            situation,
-        );
         let request = TurnRequest {
             conversation: ConversationId::new(batch.id),
             label: format!("worker:{}", batch.id),
@@ -457,6 +453,45 @@ impl Worker {
         Ok(outcome)
     }
 
+    /// The system prompt a turn in `situation` appends (`super::brief`), with where each pull request
+    /// the worker recorded stands, as the last look left it. Who merges is read again every turn,
+    /// for the plan's repositories too, so a change to the project's setup reaches the next turn.
+    async fn system_prompt(
+        &self,
+        context: &mut Job,
+        situation: &Situation,
+    ) -> anyhow::Result<String> {
+        let batch = &context.slot.batch;
+        let mut connection = self.deps.database.get().await?;
+        let declared = worker_setup::find(&mut connection, batch.project_id).await?;
+        for repository in &mut context.plan.repositories {
+            repository.merge_policy = merging::policy_for(&declared, &repository.url);
+        }
+        let pull_requests: Vec<PullRequestStanding> =
+            pull_request::of_batch(&mut connection, batch.id)
+                .await?
+                .into_iter()
+                .map(|pull_request| PullRequestStanding {
+                    policy: merging::policy_for(&declared, &pull_request.github_url()),
+                    pull_request,
+                })
+                .collect();
+        let action_items = batch.action_items();
+        Ok(brief::system_prompt(
+            &Batch {
+                id: batch.id,
+                title: &batch.title,
+                goal: &batch.goal,
+                project_id: batch.project_id,
+                project_name: &context.project_name,
+                repositories: &context.plan.repositories,
+                action_item_ids: &action_items,
+                pull_requests: &pull_requests,
+            },
+            situation,
+        ))
+    }
+
     /// Acts on the report the worker filed, if any: finishes the batch, or waits. `None` when it
     /// filed none.
     async fn act_on_report(&self, context: &mut Job) -> anyhow::Result<Option<Next>> {
@@ -466,9 +501,17 @@ impl Worker {
         };
         match report {
             None => Ok(None),
-            Some(Report::Finished { succeeded, result }) => Ok(Some(Next::Ended(
-                self.finish(context, succeeded, &result).await?,
-            ))),
+            Some(Report::Finished { succeeded, result }) => {
+                // The last look, while the batch still runs: a pull request ready to merge
+                // merges, and one a person merged meanwhile is recorded.
+                self.deps
+                    .merging
+                    .look(&context.slot.batch, context.github_token.as_ref())
+                    .await;
+                Ok(Some(Next::Ended(
+                    self.finish(context, succeeded, &result).await?,
+                )))
+            }
             Some(Report::Waiting { on, detail, until }) => {
                 let waiting = {
                     let mut connection = self.deps.database.get().await?;
@@ -519,6 +562,11 @@ impl Worker {
             };
             let now = Utc::now();
             if until <= now {
+                // Before the turn that follows, so it reads where its pull requests stand.
+                self.deps
+                    .merging
+                    .look(&batch, context.github_token.as_ref())
+                    .await;
                 let answers = {
                     let mut connection = self.deps.database.get().await?;
                     let answers =

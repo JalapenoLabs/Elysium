@@ -6,15 +6,18 @@
 //! Every turn's prompt is `/goal` with [`GOAL_CONDITION`], so Claude Code keeps working across
 //! its own turns until the worker has reported on the batch with one of its tools, the one thing
 //! the worker can always make true itself. What changes from turn to turn (the batch, an answer,
-//! a wait that ended) goes in the system prompt Claude Code appends ([`system_prompt`]), which a
-//! resumed session reads afresh. [`render`] is a pure function, tested alone.
+//! a wait that ended, where its pull requests stand) goes in the system prompt Claude Code appends
+//! ([`system_prompt`]), which a resumed session reads afresh. [`render`] is a pure function,
+//! tested alone.
 
 use std::fmt::Write as _;
 
 use uuid::Uuid;
 
 use super::setup::PlannedRepository;
+use crate::models::work_batch::pull_request::{BatchPullRequest, PullRequestState};
 use crate::models::work_batch::worker::Wait;
+use crate::models::worker_setup::MergePolicy;
 
 /// The worker's standing instructions, appended to Claude Code's own system prompt.
 const INSTRUCTIONS: &str = include_str!("instructions.md");
@@ -60,6 +63,15 @@ pub struct Batch<'a> {
     pub project_name: &'a str,
     pub repositories: &'a [PlannedRepository],
     pub action_item_ids: &'a [Uuid],
+    /// The pull requests it recorded, in order.
+    pub pull_requests: &'a [PullRequestStanding],
+}
+
+/// One pull request the worker recorded, as the last look left it, with who merges it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullRequestStanding {
+    pub pull_request: BatchPullRequest,
+    pub policy: MergePolicy,
 }
 
 /// The system prompt a turn appends: the standing instructions, the batch, and `situation`.
@@ -89,13 +101,18 @@ pub fn render(batch: &Batch<'_>, situation: &Situation) -> String {
                 .base_branch
                 .as_deref()
                 .map_or_else(String::new, |branch| format!(", from {branch}"));
+            let merges = match repository.merge_policy {
+                MergePolicy::Person => "a person merges your pull requests here",
+                MergePolicy::Auto => "Elysium merges your pull requests here once they are ready",
+            };
             let _ = writeln!(
                 text,
-                "- `repos/{}`: {}{branch}",
+                "- `repos/{}`: {}{branch}; {merges}",
                 repository.directory, repository.url
             );
         }
     }
+    render_pull_requests(&mut text, batch.pull_requests);
     if !batch.action_item_ids.is_empty() {
         let ids: Vec<String> = batch.action_item_ids.iter().map(Uuid::to_string).collect();
         let _ = writeln!(
@@ -154,6 +171,44 @@ pub fn render(batch: &Batch<'_>, situation: &Situation) -> String {
     text
 }
 
+/// Where each pull request the worker recorded stands, so it knows what is left to do.
+fn render_pull_requests(text: &mut String, pull_requests: &[PullRequestStanding]) {
+    text.push_str("\n## Your pull requests\n\n");
+    if pull_requests.is_empty() {
+        text.push_str(
+            "You have recorded none yet. Record each pull request you open with \
+             worker_pull_request.\n",
+        );
+        return;
+    }
+    for standing in pull_requests {
+        let pull_request = &standing.pull_request;
+        let stands = match (pull_request.state, standing.policy) {
+            (PullRequestState::Merged, _) if pull_request.merged_by_elysium => {
+                "merged by Elysium.".to_owned()
+            }
+            (PullRequestState::Merged, _) => format!(
+                "merged by {}.",
+                pull_request.merged_by.as_deref().unwrap_or("someone")
+            ),
+            (PullRequestState::Closed, _) => "closed without merging.".to_owned(),
+            (PullRequestState::Open, MergePolicy::Person) => {
+                "open; a person merges it. Address their review until they do.".to_owned()
+            }
+            (PullRequestState::Open, MergePolicy::Auto) => match &pull_request.held_because {
+                Some(reason) => format!("open; Elysium has not merged it yet: {reason}"),
+                None => "open; Elysium looks at it when your wait ends.".to_owned(),
+            },
+        };
+        let _ = writeln!(
+            text,
+            "- {} ({}): {stands}",
+            pull_request.reference(),
+            pull_request.url
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +220,7 @@ mod tests {
             directory: "Elysium".to_owned(),
             base_branch: Some("main".to_owned()),
             setup_script: None,
+            merge_policy: MergePolicy::Auto,
         }
     }
 
@@ -177,6 +233,37 @@ mod tests {
             project_name: "Elysium",
             repositories,
             action_item_ids: &[],
+            pull_requests: &[],
+        }
+    }
+
+    fn standing(
+        number: i32,
+        state: PullRequestState,
+        policy: MergePolicy,
+        held_because: Option<&str>,
+    ) -> PullRequestStanding {
+        let merged = state == PullRequestState::Merged;
+        PullRequestStanding {
+            pull_request: BatchPullRequest {
+                id: Uuid::nil(),
+                work_batch_id: Uuid::nil(),
+                repository: "JalapenoLabs/Elysium".to_owned(),
+                number,
+                url: format!("https://github.com/JalapenoLabs/Elysium/pull/{number}"),
+                title: "Fix passkeys".to_owned(),
+                state,
+                merged_at: None,
+                merged_by: merged.then(|| "alex".to_owned()),
+                merged_by_elysium: false,
+                merge_method: None,
+                held_because: held_because.map(str::to_owned),
+                looked_at: None,
+                timeline_record_id: None,
+                created_by: Uuid::nil(),
+                created_at: chrono::Utc::now(),
+            },
+            policy,
         }
     }
 
@@ -197,12 +284,45 @@ mod tests {
         let text = system_prompt(&batch(&repositories), &Situation::Start);
         assert!(text.starts_with("# You are a worker"), "instructions first");
         assert!(text.contains("Users cannot sign in with a passkey"));
-        assert!(
-            text.contains(
-                "`repos/Elysium`: https://github.com/JalapenoLabs/Elysium.git, from main"
-            )
-        );
+        assert!(text.contains(
+            "`repos/Elysium`: https://github.com/JalapenoLabs/Elysium.git, from main; Elysium \
+             merges your pull requests here once they are ready"
+        ));
+        assert!(text.contains("You have recorded none yet"));
         assert!(text.contains("first turn"));
+    }
+
+    #[test]
+    fn each_pull_request_says_who_merges_it_and_what_holds_it() {
+        let pull_requests = [
+            standing(1, PullRequestState::Merged, MergePolicy::Person, None),
+            standing(
+                2,
+                PullRequestState::Open,
+                MergePolicy::Auto,
+                Some("1 review thread is not resolved."),
+            ),
+            standing(3, PullRequestState::Open, MergePolicy::Person, None),
+            standing(4, PullRequestState::Closed, MergePolicy::Auto, None),
+        ];
+        let text = render(
+            &Batch {
+                pull_requests: &pull_requests,
+                ..batch(&[])
+            },
+            &Situation::Start,
+        );
+        assert!(text.contains("JalapenoLabs/Elysium#1 (https://github.com/JalapenoLabs/Elysium/pull/1): merged by alex."));
+        assert!(text.contains(
+            "#2 (https://github.com/JalapenoLabs/Elysium/pull/2): open; Elysium has not merged it \
+             yet: 1 review thread is not resolved."
+        ));
+        assert!(text.contains(
+            "#3 (https://github.com/JalapenoLabs/Elysium/pull/3): open; a person merges it."
+        ));
+        assert!(text.contains(
+            "#4 (https://github.com/JalapenoLabs/Elysium/pull/4): closed without merging."
+        ));
     }
 
     #[test]

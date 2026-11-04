@@ -17,7 +17,8 @@ below), the company doc's scheduled review (The company doc, below), every proje
 submits work batches for the worker pool and writes its project's action items and their issues in Jira, YouTrack,
 and GitHub (Project Managers, below), and the pool's scheduler, which hands its slots to
 those batches in order, with the work queue people and Elysia reorder, pause, and cancel from (Workers and the pool,
-below), a worker for each slot, running its batch in a container of its own until it is done (Workers, below), and the
+below), a worker for each slot, running its batch in a container of its own until it is done (Workers, below), its
+pull requests merged by Elysium in the repositories that let it, failing closed (Merging, below), and the
 promises people make in conversations, which their projects' Project Managers keep with a follow-up the
 person sends (Follow-ups, below).
 
@@ -63,6 +64,7 @@ never work, since every loop also looks on a timer. What the engine knows that a
 | Runs a waiting batch next, reprioritizes, pauses, resumes, or cancels it; sizes the pool | `work_batches`, `workspace_settings.worker_pool_size` | Hands out the slots that are free, takes back any the pool lost |
 | Shows the work queue                      | `worker_pool`                            | Records the CPU cores it sees and any usage hold |
 | Answers a worker's report, through its tools | `work_batches.worker_report`          | Takes it as the worker's turn ends, and finishes the batch or waits |
+| Records a worker's pull request, through its tools | `work_batch_pull_requests`        | Looks at it as each wait ends and before the batch finishes: merges it where Elysium may, records a merge |
 | Answers a Project Manager's answer to a worker's question | `work_batch_events` (`answered`), `work_batches.waiting_until` | Ends the worker's wait, and starts its next turn with the answer |
 | Saves a project's worker setup            | `project_repositories`, `projects.tools_setup_script` | Readies the next worker's container with it |
 | Retries, skips, or resumes a run's step   | `step_jobs`                              | Claims each due step, runs it, records it    |
@@ -439,7 +441,9 @@ trackers (Its writes, below), and its tabs on the project's page.
     the timeline wakes nothing: its own records, and a session's turn summaries (`docs/coding.md`, Turn summaries). A
     wake per turn would spend a Project Manager's turn on every prompt anyone types into a session of the project; the
     work it dispatched reports back through the batch's result below, and it reads the rest on its timeline when
-    something else wakes it;
+    something else wakes it. A worker's merged pull request is the one exception: a merge is when the work reaches the
+    project, which the Project Manager acts on (resolving the items it was for, planning what follows) before the
+    batch may end, and it happens once per pull request (Merging, below);
   - **a batch's result**: a worker finishing its batch (`work_batch::finish`, which the pool's workers call), or its
     worker asking a question it waits on (Workers, below);
   - **a person**: the Project Manager tab's composer (`POST /api/v1/projects/{id}/project-manager/messages`);
@@ -666,14 +670,16 @@ worker's own tools.
   pool's size bounds workers. Every turn's prompt is `/goal`, holding out until the worker has reported on its batch
   with `worker_finish` or `worker_wait` as the last thing it did, a condition it can always make true itself. Its
   standing instructions (`api/src/worker_pool/worker/instructions.md`) have it work the batch through with
-  `/steamroll-issues`, open pull requests and never merge one, and end every turn with one report. The batch (its goal,
-  repositories, and action items) and why this turn starts (the first, after a wait with any answers given, after an
+  `/steamroll-issues`, open pull requests, record each one, address every review comment, never merge one itself, and
+  end every turn with one report. The batch (its goal, repositories with who merges in each, action items, and where
+  each of its pull requests stands) and why this turn starts (the first, after a wait with any answers given, after an
   interruption, after a usage limit, or after a turn that did not report) are appended to its system prompt, which a
   resumed session reads afresh (`api/src/worker_pool/worker/brief.rs`). Each turn resumes the worker's Claude Code
   session (`work_batches.worker_session_id`), on what the `batch_worker` agent resolves to for the batch's project
   (Models, below).
-- **Its tools.** `elysium_worker` (`api/src/tools/worker.rs`): `worker_batch` reads the batch and the answers given
-  since it last began to wait, `worker_finish` reports the batch done or impossible with its result, and `worker_wait`
+- **Its tools.** `elysium_worker` (`api/src/tools/worker.rs`): `worker_batch` reads the batch, its pull requests, and
+  the answers given since it last began to wait, `worker_pull_request` records a pull request it opened (Merging,
+  below), `worker_finish` reports the batch done or impossible with its result, and `worker_wait`
   reports what it waits on (`review`, `ci`, or `question`), what for, and when to look again, 5 minutes to a day (by
   default 15 minutes for CI, an hour for a review, four hours for a question). The API answers them and holds no claim
   on the slot, so each only files its report on the batch (`worker_report`), the last of a turn winning; the engine
@@ -726,13 +732,58 @@ worker's own tools.
 - The limits (strikes, tries, timeouts, the log's size, the wait bounds) are constants in
   `api/src/worker_pool/worker/` and `api/src/tools/worker.rs`.
 
+### Merging
+
+Built: who merges each repository's worker pull requests, the pull requests workers record, the look that merges them
+failing closed, and the record of every merge (`api/src/worker_pool/merging/`, `api/src/github/pulls.rs`).
+
+- **Who merges.** Each repository a project declares says who merges the pull requests its workers open
+  (`project_repositories.merge_policy`, the Workers page's "Merge when ready"): a person, the default, since merging is
+  the step a team most often keeps for itself, or Elysium (`auto`), on github.com alone. A repository the project does
+  not declare is a person's. The choice is read again at every look and every turn, so a change applies at once.
+- **Only its own.** A worker records each pull request it opens with `worker_pull_request`, which checks with GitHub,
+  through the project's token, that the project's account opened it, from a branch of the repository itself, after the
+  batch started (`work_batch_pull_requests`). A pull request is one batch's: another batch naming it is refused.
+  Nothing a worker did not record is ever merged, and the worker never merges one itself.
+- **When it looks.** The engine looks at a batch's open pull requests as each of its worker's waits ends, before the
+  turn that follows, and once more before the batch finishes, so the look follows the worker's own loop: a worker
+  waiting on CI or a review keeps its container, nothing new polls GitHub, and each pull request is read once per wait.
+- **What it reads.** One GraphQL call per pull request (its state, author, fork, draft, mergeability, GitHub's
+  `mergeStateStatus`, review decision, latest reviews, review threads, and its head commit's checks, with the base
+  branch's classic protection as a non-admin reads it), then, where Elysium may merge, the base branch's rulesets
+  (`GET /rules/branches/{branch}`, `docs/github.md`, Merging).
+- **Fail closed** (`merging::decide`, a pure function tested alone). It merges only when the project's account opened
+  it from the repository itself, it is no draft, GitHub says it merges cleanly and that nothing the branch requires is
+  missing (`CLEAN`), its head commit has checks and every one passed, every check the branch's rules require is among
+  them, no reviewer's latest review asks for changes and no required review is owed, every review thread is resolved,
+  the branch does not merge through a merge queue, and the repository and its rules leave a way to merge. Anything
+  GitHub did not answer, answered in a shape this build does not know, or answered only in part (more than a hundred
+  threads, reviews, or checks) holds it, and so does a GitHub that cannot be read or a project with no token. A pull
+  request with no checks at all is never merged: "CI is green" means CI ran.
+- **How it merges.** By the repository's own rules: the first of squash, merge commit, and rebase that the repository
+  allows, every ruleset's allowed methods allow, and a required linear history does not rule out. The merge names the
+  head commit the look read, so a push since makes GitHub refuse it rather than merge what was not read. GitHub
+  enforces the branch's protection on the call itself, and nothing asks it to bypass any.
+- **What it says.** A pull request held keeps every reason (`held_because`), as one sentence the worker's next turn
+  reads in its brief and the batch's page shows, so the worker fixes them all at once.
+- **Merged work on the timeline.** A merge, Elysium's or a person's on GitHub, is recorded, put on the project's
+  timeline as a `merged_pull_request` record (the coding agent's, attributed as certain by `worker:<batch>`, linking to
+  the pull request), and wakes the project's Project Manager, all in one transaction that moves the pull request from
+  `open` alone, so it is recorded once however often it is read. An engine that stops between GitHub merging and that
+  record finds it merged on its next look and records it then, naming whoever GitHub says merged it. Elysia's intake
+  leaves it out, as it does every agent's record.
+- **Promises.** A promise tied to the batch becomes due when the batch succeeds, which follows its merges; one tied to
+  an action item, when the item resolves, which the Project Manager the merge woke decides (Follow-ups, below).
+
 On the roadmap:
 
-- Each repository sets who merges a worker's pull requests: auto-merge once CI is green with no open review threads,
-  failing closed when review state cannot be read, or wait for a human. Waiting is the default, and until it is built a
-  worker never merges (#86).
+- Merging through a merge queue (GraphQL `enqueuePullRequest`, naming the head it read); today a branch that merges
+  through one holds the pull request for a person.
 - An egress allowlist for workers' networks: GitHub, the package registries, and the model provider alone.
-- Waking a worker that waits on a review or CI when the link watcher sees it change, rather than at its next look.
+- Waking a worker that waits on a review or CI when the link watcher sees it change, rather than at its next look,
+  which would also merge a ready pull request sooner.
+- A pull request still open when its batch ends is not looked at again, so a person merging it later puts nothing on
+  the timeline; the link watcher reading it is the likely way.
 
 ## Models
 

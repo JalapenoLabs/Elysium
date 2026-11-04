@@ -21,7 +21,7 @@ use std::collections::hash_map::Entry;
 use std::time::Duration;
 
 use crate::models::work_batch::Repository;
-use crate::models::worker_setup::WorkerSetup;
+use crate::models::worker_setup::{MergePolicy, WorkerSetup};
 use crate::routes::v1::coding_sessions::github_token;
 use crate::routes::v1::coding_sessions::{repository_directory, repository_identity};
 use crate::runner::workspace::{AGENT_USER, ScriptOutput, WorkspaceContainer};
@@ -129,6 +129,9 @@ pub struct PlannedRepository {
     pub base_branch: Option<String>,
     /// The project's setup script for it, when it declares one.
     pub setup_script: Option<String>,
+    /// Who merges the pull requests the worker opens in it: what the project declares, or a
+    /// person for a repository it does not.
+    pub merge_policy: MergePolicy,
 }
 
 /// The plan for a batch that names `repositories`, by what its project declares in `setup`. A
@@ -175,6 +178,8 @@ pub fn plan(repositories: &[Repository], setup: &WorkerSetup) -> Result<Plan, St
                 .clone()
                 .or_else(|| declaration.and_then(|declared| declared.base_branch.clone())),
             setup_script: declaration.and_then(|declared| declared.setup_script.clone()),
+            merge_policy: declaration
+                .map_or_else(MergePolicy::default, |declared| declared.merge_policy),
         });
     }
     Ok(Plan {
@@ -384,6 +389,7 @@ mod tests {
             setup_script: setup_script.map(str::to_owned),
             created_by: Uuid::nil(),
             created_at: Utc::now(),
+            merge_policy: MergePolicy::Auto,
         }
     }
 
@@ -431,6 +437,12 @@ mod tests {
         assert_eq!(
             uikit.setup_script, None,
             "undeclared, so nothing readies it"
+        );
+        assert_eq!(elysium.merge_policy, MergePolicy::Auto);
+        assert_eq!(
+            uikit.merge_policy,
+            MergePolicy::Person,
+            "undeclared, so a person merges"
         );
     }
 

@@ -13,11 +13,13 @@
 //! GitHub refuses any request without a `User-Agent`; the shared client sets Elysium's.
 //!
 //! Issues and pull requests, with the milestones and labels that group them, are in
-//! [`issues`]: what action item links read and write.
+//! [`issues`]: what action item links read and write. What a worker's pull request needs for
+//! Elysium to merge it, and the merge, are in [`pulls`].
 
 #[cfg(test)]
 pub(crate) mod fake;
 pub mod issues;
+pub mod pulls;
 
 use std::time::Duration;
 

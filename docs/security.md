@@ -44,6 +44,11 @@ between them carries nothing secret in the clear (`docs/realtime.md`, Signals).
 - A worker is given the project's GitHub token as `GH_TOKEN` and every workspace environment variable, as a session
   is, and its events, setup's output, and log are scrubbed of their secret values before anything of them is stored
   or shown. Its project's tools script runs as root in its own container, which is its boundary.
+- A worker is told never to merge; it holds the token, so that is an instruction, not a boundary. What Elysium itself
+  merges is decided by the engine alone, failing closed: only a pull request the worker recorded, which the project's
+  account opened from the repository itself during the batch, in a repository set to auto-merge, with every check
+  passed and no review left open, naming the head commit it read and never bypassing the branch's rules
+  (`docs/engine.md`, Merging).
 - The API reads and writes workspace files through `docker exec` as `agent`, confined to a session's directory by
   `realpath`, so a symlink an agent plants cannot point the API elsewhere. Neither the API nor the engine mounts the
   volume.

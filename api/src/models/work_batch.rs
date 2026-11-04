@@ -1089,6 +1089,7 @@ const fn state_words(state: BatchState) -> &'static str {
     }
 }
 
+pub mod pull_request;
 pub mod worker;
 
 #[cfg(test)]

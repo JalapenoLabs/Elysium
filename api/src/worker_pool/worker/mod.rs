@@ -46,6 +46,7 @@ use crate::models::work_batch::worker as batch_worker;
 use crate::passwords::Passwords;
 use crate::realtime::EventBus;
 use crate::tools::grants::Grants;
+use crate::worker_pool::merging::Merging;
 
 /// How long shutdown waits for workers to record how their turns ended.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(20);
@@ -65,6 +66,8 @@ pub struct WorkerDeps {
     pub activity: Activities,
     /// Tells the Claude account keeper a turn finished.
     pub turn_signal: TurnSignal,
+    /// Looks at the pull requests a worker opened, merging those Elysium may.
+    pub merging: Merging,
 }
 
 impl std::fmt::Debug for WorkerDeps {

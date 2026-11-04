@@ -85,6 +85,7 @@ use crate::sessions::{Sessions, SessionsDeps};
 use crate::tools::grants::Grants;
 use crate::updates::{Updates, UpdatesDeps};
 use crate::worker_pool;
+use crate::worker_pool::merging::Merging;
 use crate::worker_pool::worker as batch_workers;
 use crate::workflows::workers::{Workers, WorkersDeps};
 use crate::workflows::{self, Steps};
@@ -270,6 +271,7 @@ pub async fn run() -> Result<()> {
             passwords: passwords.clone(),
             activity: activity.clone(),
             turn_signal: turn_signal.clone(),
+            merging: Merging::new(foundation.github.clone(), database.clone(), events.clone()),
         },
         &shutdown,
     );
