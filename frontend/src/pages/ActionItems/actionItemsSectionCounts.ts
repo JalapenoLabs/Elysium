@@ -6,6 +6,7 @@ import type { Initiative } from '../../api/routes/initiativeRoutes'
 
 // Misc
 import { isInNext } from '../../store/nextOrder'
+import { DEFAULT_INITIATIVE_STATES } from '../Initiatives/initiativeFilters'
 import { DEFAULT_STATES } from './actionItemFilters'
 
 // The Action items area's tabs, in the order they show.
@@ -14,7 +15,7 @@ export type ActionItemsSection = typeof ACTION_ITEMS_SECTIONS[number]
 
 // How many rows each of the Action items area's tabs lists when it opens, so its badge and its
 // list always agree: Next as of `now`, the inbox, All items under its default filter (what is
-// still owed), the active initiatives, and the changesets waiting for review.
+// still owed), the initiatives under its default filter, and the changesets waiting for review.
 export function countActionItemsSections(
   items: ActionItem[],
   initiatives: Initiative[],
@@ -41,7 +42,7 @@ export function countActionItemsSections(
     }
   }
   for (const initiative of initiatives) {
-    if (initiative.state === 'active') {
+    if (DEFAULT_INITIATIVE_STATES.includes(initiative.state)) {
       counts.initiatives++
     }
   }
