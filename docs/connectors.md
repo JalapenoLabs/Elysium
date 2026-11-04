@@ -553,7 +553,8 @@ workspace (`docs/knowledge.md`, Who sees what).
 attribution has a confidence of 1 and replaces whatever was guessed for that project; Elysia's carry her
 confidence.
 
-`GET /api/v1/timeline` lists the caller's records newest first, optionally for one project and before a time; `PUT`
+`GET /api/v1/timeline` lists the caller's records newest first, optionally for one project and before a time, with
+`total`, how many records the filters match across every page (a project page's Timeline tab shows it); `PUT`
 and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribute one. See `docs/api.md`.
 
 ## Roadmap

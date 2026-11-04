@@ -4,7 +4,8 @@
 //!
 //! `projectId` keeps the records attributed to one project, and `actionItemId` the record that
 //! raised one action item, which its page answers from. `before` pages back: pass the
-//! `occurredAt` of the last record of the previous page.
+//! `occurredAt` of the last record of the previous page. `total` counts every record the
+//! filters match across all pages, so a project's Timeline tab can name its size.
 
 use anyhow::Context;
 use axum::Json;
@@ -52,21 +53,19 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let records = timeline_record::list(
-        &mut connection,
-        TimelineQuery {
-            owner: current.id(),
-            project_id: filters.project_id,
-            action_item_id: filters.action_item_id,
-            before: filters.before,
-            limit,
-        },
-    )
-    .await?;
+    let query = TimelineQuery {
+        owner: current.id(),
+        project_id: filters.project_id,
+        action_item_id: filters.action_item_id,
+        before: filters.before,
+        limit,
+    };
+    let total = timeline_record::count(&mut connection, &query).await?;
+    let records = timeline_record::list(&mut connection, query).await?;
 
     let responses: Vec<TimelineRecordResponse> = records
         .into_iter()
         .map(|(record, attributions)| TimelineRecordResponse::new(record, attributions))
         .collect();
-    Ok(Json(json!({ "records": responses })))
+    Ok(Json(json!({ "records": responses, "total": total })))
 }

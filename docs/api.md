@@ -38,7 +38,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, the caller's 100 newest |
 | GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
 | POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; resumes a failed meeting, `404` for one that has not failed |
-| GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[] }`, the caller's, newest first |
+| GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's, newest first |
 | GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`                                  |
 | GET    | `/api/v1/timeline/{id}/media`         | The record's clip, streamed from storage; `404` when it has none |
 | PUT    | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record }`; the caller attributes it to a project |

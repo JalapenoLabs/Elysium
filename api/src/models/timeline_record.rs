@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::upsert::excluded;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -180,22 +181,12 @@ pub struct TimelineQuery {
     pub limit: i64,
 }
 
-/// `owner`'s records, newest first, with each one's attributions.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn list(
-    connection: &mut AsyncPgConnection,
-    query: TimelineQuery,
-) -> QueryResult<Vec<(TimelineRecord, Vec<Attribution>)>> {
+/// `owner`'s records that `query` narrows to, on every page: its project and action item, but
+/// not its paging. A page and the total it is counted against share this one filter, so they
+/// never disagree about what the timeline holds.
+fn matching(query: &TimelineQuery) -> timeline_records::BoxedQuery<'static, Pg> {
     let mut statement = timeline_records::table
         .filter(timeline_records::created_by.eq(query.owner))
-        .select(TimelineRecord::as_select())
-        .order((
-            timeline_records::occurred_at.desc(),
-            timeline_records::id.desc(),
-        ))
-        .limit(query.limit)
         .into_boxed();
     if let Some(project_id) = query.project_id {
         statement = statement.filter(
@@ -209,6 +200,32 @@ pub async fn list(
     if let Some(action_item_id) = query.action_item_id {
         statement = statement.filter(timeline_records::action_item_id.eq(action_item_id));
     }
+    statement
+}
+
+/// How many records `query` matches across every page, ignoring `before` and `limit`.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn count(connection: &mut AsyncPgConnection, query: &TimelineQuery) -> QueryResult<i64> {
+    matching(query).count().get_result(connection).await
+}
+
+/// `owner`'s records, newest first, with each one's attributions.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn list(
+    connection: &mut AsyncPgConnection,
+    query: TimelineQuery,
+) -> QueryResult<Vec<(TimelineRecord, Vec<Attribution>)>> {
+    let mut statement = matching(&query)
+        .select(TimelineRecord::as_select())
+        .order((
+            timeline_records::occurred_at.desc(),
+            timeline_records::id.desc(),
+        ))
+        .limit(query.limit);
     if let Some(before) = query.before {
         statement = statement.filter(timeline_records::occurred_at.lt(before));
     }
@@ -311,4 +328,101 @@ pub async fn attribute(
         .returning(Attribution::as_returning())
         .get_result(connection)
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeDelta;
+    use serde_json::json;
+
+    use super::*;
+    use crate::models::project::{self, NewProject};
+    use crate::test_support::{TEST_PERSON_ID, migrated_database};
+
+    /// A record of the test person's that happened `minutes` after a fixed moment.
+    fn record_at(minutes: i64) -> NewTimelineRecord {
+        let base = DateTime::parse_from_rfc3339("2026-11-04T12:00:00Z")
+            .expect("a valid instant")
+            .with_timezone(&Utc);
+        NewTimelineRecord {
+            id: Uuid::now_v7(),
+            source_kind: "gmail".to_owned(),
+            connector_id: None,
+            external_id: None,
+            occurred_at: base + TimeDelta::minutes(minutes),
+            actor: "Sam".to_owned(),
+            title: "Launch plan".to_owned(),
+            body: String::new(),
+            url: None,
+            media: None,
+            metadata: json!({}),
+            created_by: TEST_PERSON_ID,
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn counts_every_page_a_project_timeline_holds() {
+        let (_url, mut connection) = migrated_database().await;
+        let launch = project::create(
+            &mut connection,
+            &NewProject {
+                created_by: TEST_PERSON_ID,
+                name: "Launch".to_owned(),
+                description: String::new(),
+            },
+        )
+        .await
+        .expect("project");
+
+        for minutes in [0, 10, 20] {
+            let record = insert_new(&mut connection, record_at(minutes))
+                .await
+                .expect("stored")
+                .expect("new");
+            attribute(&mut connection, record.id, launch.id, 1.0, "elysia")
+                .await
+                .expect("attributed");
+        }
+        // About nothing in particular, so only the whole timeline counts it.
+        insert_new(&mut connection, record_at(30))
+            .await
+            .expect("stored")
+            .expect("new");
+
+        let first_page = TimelineQuery {
+            owner: TEST_PERSON_ID,
+            project_id: Some(launch.id),
+            action_item_id: None,
+            before: None,
+            limit: 2,
+        };
+        let page = list(&mut connection, first_page).await.expect("listed");
+        assert_eq!(page.len(), 2, "a page holds no more than its limit");
+        assert_eq!(
+            count(&mut connection, &first_page).await.expect("counted"),
+            3
+        );
+
+        // An older page counts the same total: paging narrows the page, never the total.
+        let older_page = TimelineQuery {
+            before: Some(page[1].0.occurred_at),
+            ..first_page
+        };
+        let older = list(&mut connection, older_page).await.expect("listed");
+        assert_eq!(older.len(), 1);
+        assert_eq!(
+            count(&mut connection, &older_page).await.expect("counted"),
+            3
+        );
+
+        let everything = TimelineQuery {
+            project_id: None,
+            ..first_page
+        };
+        assert_eq!(
+            count(&mut connection, &everything).await.expect("counted"),
+            4
+        );
+    }
 }
