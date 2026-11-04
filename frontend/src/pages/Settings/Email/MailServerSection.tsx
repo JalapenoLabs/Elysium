@@ -15,6 +15,7 @@ import { selectMailServer } from '../../../store/mailServerSlice'
 // User interface
 import { Alert, Button, buttonVariants, Card, Link, Spinner, useOverlayState } from '@heroui/react'
 import { LuPlus, LuServer } from 'react-icons/lu'
+import { CopyButton } from '../../../components/CopyButton'
 import { MailDomainDnsModal } from './MailDomainDnsModal'
 import { MailDomainTable } from './MailDomainTable'
 
@@ -161,9 +162,12 @@ export function MailServerSection() {
         </Alert.Content>
       </Alert>}
       <div className='compact flex flex-wrap items-center justify-between gap-2'>
-        <p className='text-sm opacity-70'>{
-          t('server.hostname', { hostname: server.hostname ?? '' })
-        }</p>
+        <div className='level-left gap-1'>
+          <p className='text-sm opacity-70'>{
+            t('server.hostname', { hostname: server.hostname ?? '' })
+          }</p>
+          {server.hostname && <CopyButton value={server.hostname} label={t('server.copyHostname')} />}
+        </div>
         {/* A link once the server can take a domain; until then, a button that cannot be pressed. */}
         {server.state === 'ready'
           ? <Link href={UrlTree.settingsEmailDomainNew} className={buttonVariants({ size: 'sm', variant: 'outline' })}>

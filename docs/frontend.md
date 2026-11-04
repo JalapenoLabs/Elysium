@@ -442,7 +442,14 @@ See `docs/mcp.md`.
 - **Icon-only buttons** (`~/.claude/docs/ux.md`, Brevity) are HeroUI's `isIconOnly`, named by `aria-label`, and the
   trigger of a `Tooltip` that shows the same name: the button is the tooltip's first child, never inside
   `Tooltip.Trigger`, which is a tab stop of its own. Only a button that is disabled, and so fires no hover, sits in
-  a wrapper for its tooltip (`PageSaveButton`). Copying is `CopyButton`.
+  a wrapper for its tooltip (`PageSaveButton`). Copying is `CopyButton`, beside anything people paste elsewhere:
+  commands, client ids, hostnames, link keys, and a tool's input and output in a conversation.
+- **Working buttons** (`~/.claude/docs/ux.md`, Buttons). A button whose press waits on a request sets `isPending`,
+  and shows a spinning ring in place of its contents at its full color (`.button[data-pending]` in
+  `src/theme/matter.css`): HeroUI 3.2 only marks a pending button and stops presses, drawing nothing. A component
+  with several such buttons tracks which one runs with `usePendingAction` (`src/hooks/`): that one is pending, the
+  others are disabled, and a press while one runs is ignored. The connector hub tracks running actions per connector
+  (`useConnectorActions`), so one connector's sync never holds another's.
 - **Menus** (Dropdowns). Every item leads with its icon; destructive items are last, below a `Separator`, red, and
   fill red under the mouse or keyboard (`.menu-item--danger` in `src/theme/matter.css`), and each asks first or
   offers Undo. A trigger with text ends with a chevron.
@@ -625,7 +632,7 @@ form keeps every option's fields and shows the chosen one's: zone and region for
 key ID for S3. `toStorageProvider` builds the API's provider from them through a lookup per option. The secret's label
 follows the provider's own word (Password, Secret access key, Secret), and it stays optional while editing until the
 settings need a new one. Directory, projects (`ProjectScopePicker`, see `docs/storage.md`), and a limit in gigabytes
-(a `NumberField` in the viewer's locale, beside a No limit switch) are shared. Labels, secret wording, and setup steps
+(a `NumberField` in the viewer's locale led by GB, beside a No limit switch) are shared. Labels, secret wording, and setup steps
 are lookup tables in `storagePresentation.ts`. `StorageSetupChecklist` and `LlmSetupChecklist` both render
 `src/components/SetupChecklist.tsx`.
 
@@ -827,8 +834,9 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   links to the project's done status choice.
 - **Link pickers** (`LinkTargetPicker`) choose one Jira issue, GitHub issue, or pull request: `LinkCredentialSelect`
   lists every Jira site and GitHub token in one select, keyed `provider:id`. Jira is searched by `JiraIssueSearch`,
-  which builds JQL from the words or key typed (`buildIssueSearchJql` in `linkPresentation.ts`) once typing rests
-  (`useDebouncedValue`, `LINK_SEARCH_DELAY_MS`). GitHub is a kind, a repository (`GithubRepositorySelect`, sharing the
+  a search field that builds JQL from the words or key typed (`buildIssueSearchJql` in `linkPresentation.ts`) once
+  typing rests for 300ms (`useDebouncedValue`, `LINK_SEARCH_DELAY_MS`), its magnifying glass a spinner until Jira
+  answers. GitHub is a kind, a repository (`GithubRepositorySelect`, sharing the
   coding form's `['github-repositories', id]` listing), and that repository's open issues or pull requests narrowed by
   typing (`GithubIssueList`). Every list is a `ChoiceList`, which shows loading, the provider's refusal, emptiness, and
   a cut short answer. `LinkTargetModal` wraps the picker for Link on the item page and for From Jira or GitHub on New

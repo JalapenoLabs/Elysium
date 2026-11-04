@@ -9,6 +9,7 @@
     "sendsTo": "Approving sends access to: {{hosts}}",
     "checkSendsTo": "The name above is whatever the app registered with. Check this is where you expect, such as localhost for an app on your own computer.",
     "clientId": "Client ID: {{id}}",
+    "copyClientId": "Copy client ID",
     "actsAs": "It will act as you, {{name}}, and can:",
     "disconnectAnytime": "You can disconnect it anytime in Settings, Connected apps.",
     "approve": "Allow",
@@ -36,9 +37,8 @@
     "unnamed": "Unnamed app",
     "connect": {
       "title": "Connect an MCP client",
-      "copy": "Copy",
-      "copied": "Copied",
-      "copyFailed": "Couldn't copy. Select it and copy it yourself.",
+      "url": "URL",
+      "copyUrl": "Copy URL",
       "claudeCode": "Claude Code",
       "codex": "Codex"
     },
@@ -57,6 +57,7 @@
       "title": "All registered clients",
       "empty": "No clients have registered yet.",
       "registeredOn": "Registered {{date}}",
+      "copyId": "Copy client ID",
       "delete": "Delete",
       "confirmTitle": "Delete {{name}}?",
       "confirmMessage": "Everyone who connected {{name}} is disconnected at once.",

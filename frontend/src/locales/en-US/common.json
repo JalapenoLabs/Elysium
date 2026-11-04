@@ -21,7 +21,8 @@
   },
   "clipboard": {
     "copied": "Copied",
-    "failed": "Could not copy. Select the text and copy it instead."
+    "failed": "Could not copy. Select the text and copy it instead.",
+    "copyCommand": "Copy command"
   },
   "secret": {
     "show": "Show",

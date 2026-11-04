@@ -61,9 +61,9 @@
     "projects": "Projects",
     "projectsHint": "The projects that save files here. * picks every project, including ones added later.",
     "noLimit": "No limit",
-    "noLimitHint": "Elysium stores as much here as the provider allows.",
     "storageLimit": "Storage limit",
-    "storageLimitHint": "The most Elysium stores here, in gigabytes.",
+    "gigabytes": "GB",
+    "inGigabytes": "In gigabytes",
     "keyId": {
       "aws": "Access key ID",
       "google-cloud": "Access key"

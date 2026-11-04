@@ -165,6 +165,8 @@
     "toolSucceededUntimed": "{{tool}} finished",
     "toolFailed": "{{tool}} failed",
     "unnamedTool": "Tool",
+    "copyInput": "Copy input",
+    "copyOutput": "Copy output",
     "turnFinished": "Turn {{status}}",
     "turnWorking": "Working…",
     "incident": "Incident: {{message}}",

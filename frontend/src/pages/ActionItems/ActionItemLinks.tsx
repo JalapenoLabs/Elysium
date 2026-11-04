@@ -18,6 +18,7 @@ import {
 // User interface
 import { Button, Chip, Dropdown, Label, Link, Separator, Spinner, Tooltip, useOverlayState } from '@heroui/react'
 import { LuEllipsis, LuExternalLink, LuPlus, LuStar, LuUnlink } from 'react-icons/lu'
+import { CopyButton } from '../../components/CopyButton'
 import { LinkTargetModal } from './LinkTargetModal'
 import { PendingWrites } from './PendingWrites'
 
@@ -206,6 +207,7 @@ function LinkRow(props: LinkRowProps) {
           <LuExternalLink className='ml-1 inline size-3' aria-hidden />
           <span className='sr-only'>{t('links.openExternal', { provider })}</span>
         </Link>
+        <CopyButton value={link.key} label={t('links.copyKey', { key: link.key })} />
         <span className='min-w-0 truncate text-sm'>{remote?.title ?? link.title}</span>
       </div>
       <div className='flex shrink-0 items-center gap-2'>

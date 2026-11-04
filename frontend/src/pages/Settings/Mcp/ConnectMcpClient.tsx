@@ -18,14 +18,16 @@ export function ConnectMcpClient() {
 
   return <section className='relaxed rounded-xl border border-separator p-6'>
     <h2 className='compact text-lg font-semibold'>{t('mcp.connect.title')}</h2>
-    <CopyableValue label='URL' value={url} />
+    <CopyableValue label={t('mcp.connect.url')} value={url} copyLabel={t('mcp.connect.copyUrl')} />
     <CopyableValue
       label={t('mcp.connect.claudeCode')}
       value={connectCommandByClient.claudeCode(name, url)}
+      copyLabel={t('common:clipboard.copyCommand')}
     />
     <CopyableValue
       label={t('mcp.connect.codex')}
       value={connectCommandByClient.codex(name, url)}
+      copyLabel={t('common:clipboard.copyCommand')}
     />
   </section>
 }

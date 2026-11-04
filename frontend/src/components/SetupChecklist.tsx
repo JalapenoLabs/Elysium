@@ -2,12 +2,12 @@
 
 // Core
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Card, Checkbox, Link } from '@heroui/react'
 import { LuExternalLink } from 'react-icons/lu'
-
-const COMMAND_CLASS_NAME = 'mt-2 ml-7 block overflow-x-auto rounded-md bg-default px-3 py-2 text-xs'
+import { CopyButton } from './CopyButton'
 
 // One step, already translated. Commands, file paths, and URLs are never translated.
 export type SetupChecklistStep = {
@@ -29,6 +29,7 @@ type Props = {
 // into. Checking one off is only a reading aid, so the state lives here and resets when
 // the page is left.
 export function SetupChecklist(props: Props) {
+  const { t } = useTranslation('common')
   const [ completedSteps, setCompletedSteps ] = useState<ReadonlySet<string>>(new Set())
 
   function toggleStep(id: string, isCompleted: boolean) {
@@ -71,9 +72,10 @@ export function SetupChecklist(props: Props) {
                 }</span>
               </Checkbox.Content>
             </Checkbox>
-            {step.command && <code className={COMMAND_CLASS_NAME}>{
-              step.command
-            }</code>}
+            {step.command && <div className='mt-2 ml-7 level gap-1 rounded-md bg-default py-1 pr-1 pl-3'>
+              <code className='min-w-0 flex-1 overflow-x-auto text-xs'>{step.command}</code>
+              <CopyButton value={step.command} label={t('clipboard.copyCommand')} />
+            </div>}
             {step.link && <Link
               href={step.link}
               target='_blank'

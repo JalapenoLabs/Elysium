@@ -13,6 +13,7 @@
       "action": "Create mail server"
     },
     "hostname": "Answers as {{hostname}}",
+    "copyHostname": "Copy hostname",
     "creating": "Creating the mail server",
     "loadError": "The mail server could not be loaded.",
     "stepProgress": "Step {{current}} of {{total}}",

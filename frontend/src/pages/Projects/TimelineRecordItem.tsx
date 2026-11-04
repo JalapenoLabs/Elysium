@@ -12,6 +12,7 @@ import { timelineRecordUpserted } from '../../store/timelineRecordsSlice'
 
 // User interface
 import { Button, Chip, Link } from '@heroui/react'
+import { LuExternalLink } from 'react-icons/lu'
 import { SegmentClip } from './SegmentClip'
 import { RecordReply } from '../../replies/RecordReply'
 
@@ -85,9 +86,15 @@ export function TimelineRecordItem(props: Props) {
           })
         }</p>}
       </div>
-      {record.url && <Link href={record.url} target='_blank' rel='noreferrer' className='shrink-0 text-sm'>{
-        t('openSource')
-      }</Link>}
+      {record.url && <Link
+        href={record.url}
+        target='_blank'
+        rel='noreferrer'
+        className='shrink-0 gap-1 text-sm'
+      >
+        <span>{t('openSource')}</span>
+        <LuExternalLink className='size-3.5' aria-hidden />
+      </Link>}
     </div>
 
     {details.summary && <p className='mt-2 text-sm'>{details.summary}</p>}

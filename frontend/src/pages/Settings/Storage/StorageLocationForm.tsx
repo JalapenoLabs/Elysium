@@ -376,7 +376,7 @@ export function StorageLocationForm(props: Props) {
           isInvalid={!values.isUnlimited && Boolean(errors.storageLimitGigabytes)}
           minValue={0}
           step={1}
-          formatOptions={{ style: 'unit', unit: 'gigabyte', maximumFractionDigits: 3 }}
+          formatOptions={{ maximumFractionDigits: 3 }}
           value={values.storageLimitGigabytes}
           onChange={(value) => form.setValue(
             'storageLimitGigabytes',
@@ -385,16 +385,12 @@ export function StorageLocationForm(props: Props) {
           )}
         >
           <Label>{t('form.storageLimit')}</Label>
-          <NumberField.Group>
-            <NumberField.DecrementButton />
-            <NumberField.Input />
-            <NumberField.IncrementButton />
+          {/* The unit leads the value (`~/.claude/docs/ux.md`, Inputs related to units). A
+              limit is typed rather than stepped, so the group holds no stepper buttons. */}
+          <NumberField.Group className='grid-cols-[auto_1fr]'>
+            <span className='pl-3 text-sm opacity-60' aria-hidden>{t('form.gigabytes')}</span>
+            <NumberField.Input aria-description={t('form.inGigabytes')} />
           </NumberField.Group>
-          <Description>{
-            values.isUnlimited
-              ? t('form.noLimitHint')
-              : t('form.storageLimitHint')
-          }</Description>
           <FieldError>{errors.storageLimitGigabytes?.message}</FieldError>
         </NumberField>
         <Switch

@@ -14,6 +14,7 @@ import { useAppSelector } from '../../store/hooks'
 
 // User interface
 import { Button, Spinner } from '@heroui/react'
+import { CopyButton } from '../../components/CopyButton'
 import { LuCheck, LuPlug } from 'react-icons/lu'
 import { ChallengeFailureNotice } from './ChallengeFailureNotice'
 
@@ -116,7 +117,10 @@ export function OAuthConsentPage() {
     <div className='relaxed rounded-lg border border-separator px-3 py-2 text-xs'>
       <p className='font-semibold'>{t('consent.sendsTo', { hosts: sendsTo })}</p>
       <p className='mt-1 opacity-70'>{t('consent.checkSendsTo')}</p>
-      <p className='mt-1 break-all opacity-50'>{t('consent.clientId', { id: data.client.id })}</p>
+      <div className='mt-1 level-left gap-1'>
+        <p className='min-w-0 break-all opacity-60'>{t('consent.clientId', { id: data.client.id })}</p>
+        <CopyButton value={data.client.id} label={t('consent.copyClientId')} />
+      </div>
     </div>
 
     <p className='compact text-sm'>{

@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 import useSWR from 'swr'
 
 // User interface
-import { Input, Label, TextField } from '@heroui/react'
+import { Label, SearchField, Spinner } from '@heroui/react'
 import { ChoiceList } from './ChoiceList'
 
 // Misc
@@ -27,7 +27,8 @@ type Props = {
 }
 
 // Finds a Jira issue by the words in its title or by its key, through one credential. The
-// list is read as the person types, once the typing rests.
+// list is read as the person types, once the typing rests (`~/.claude/docs/ux.md`, Search
+// inputs), and the magnifying glass turns into a spinner until Jira answers.
 export function JiraIssueSearch(props: Props) {
   const { t } = useTranslation('actionItems')
   const [ text, setText ] = useState('')
@@ -39,6 +40,8 @@ export function JiraIssueSearch(props: Props) {
     ([ , credentialId, query ]) => searchJiraIssues(credentialId, query, LINK_SEARCH_RESULTS),
     { revalidateOnFocus: false, shouldRetryOnError: false, keepPreviousData: true },
   )
+  // From the keystroke, since the wait for typing to rest is part of the search.
+  const isSearching = text !== settledText || search.isValidating
 
   const choices: Choice[] = []
   for (const issue of search.data?.issues ?? []) {
@@ -52,7 +55,7 @@ export function JiraIssueSearch(props: Props) {
   }
 
   return <div className='flex flex-col gap-3'>
-    <TextField
+    <SearchField
       id='link-target-search'
       value={text}
       autoComplete='off'
@@ -63,8 +66,14 @@ export function JiraIssueSearch(props: Props) {
       }}
     >
       <Label>{t('links.picker.search')}</Label>
-      <Input placeholder={t('links.picker.searchPlaceholder')} />
-    </TextField>
+      <SearchField.Group>
+        {isSearching
+          ? <Spinner size='sm' className='ml-3' aria-label={t('links.picker.searching')} />
+          : <SearchField.SearchIcon />}
+        <SearchField.Input className='min-w-0' placeholder={t('links.picker.searchPlaceholder')} />
+        <SearchField.ClearButton />
+      </SearchField.Group>
+    </SearchField>
     <ChoiceList
       label={t('links.picker.results')}
       choices={choices}

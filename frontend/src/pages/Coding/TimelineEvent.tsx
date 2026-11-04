@@ -8,6 +8,7 @@ import type { SessionEvent, SessionEventPayload } from '../../api/routes/codingS
 import { useTranslation } from 'react-i18next'
 
 // User interface
+import { CopyButton } from '../../components/CopyButton'
 import {
   LuBrain,
   LuCircleAlert,
@@ -41,7 +42,27 @@ type Renderers = {
 }
 
 const BUBBLE_CLASS_NAME = 'max-w-[85%] rounded-2xl px-4 py-2'
-const CODE_BLOCK_CLASS_NAME = 'mt-1 max-h-60 overflow-auto rounded-md bg-surface-secondary p-2 font-mono'
+
+type CodeBlockProps = {
+  text: string
+  copyLabel: string
+  isWrapped?: boolean
+}
+
+// A tool's input or output, with a button in its corner that copies it whole.
+function CodeBlock(props: CodeBlockProps) {
+  return <div className='relative mt-1'>
+    <pre className={`max-h-60 overflow-auto rounded-md bg-surface-secondary p-2 pr-10 font-mono ${
+      props.isWrapped
+        ? 'whitespace-pre-wrap'
+        : ''
+    }`}
+    >{props.text}</pre>
+    <div className='absolute top-1 right-1'>
+      <CopyButton value={props.text} label={props.copyLabel} />
+    </div>
+  </div>
+}
 
 // One renderer per payload kind. Prompts and replies read as a chat; tool calls and
 // lifecycle events are compact lines, with details folded away.
@@ -71,9 +92,10 @@ const renderers: Renderers = {
       <LuWrench className='size-3.5' aria-hidden />
       <span>{t('conversation.toolRunning', { tool: payload.toolName })}</span>
     </summary>
-    {payload.input !== null && <pre className={CODE_BLOCK_CLASS_NAME}>{
-      JSON.stringify(payload.input, null, 2)
-    }</pre>}
+    {payload.input !== null && <CodeBlock
+      text={JSON.stringify(payload.input, null, 2)}
+      copyLabel={t('conversation.copyInput')}
+    />}
   </details>,
 
   toolCompleted: (payload, { t, toolNamesByCallId }) => {
@@ -97,9 +119,11 @@ const renderers: Renderers = {
           : <LuCircleX className='size-3.5' aria-hidden />}
         <span>{label}</span>
       </summary>
-      {payload.outputPreview && <pre className={`${CODE_BLOCK_CLASS_NAME} whitespace-pre-wrap`}>{
-        payload.outputPreview
-      }</pre>}
+      {payload.outputPreview && <CodeBlock
+        isWrapped
+        text={payload.outputPreview}
+        copyLabel={t('conversation.copyOutput')}
+      />}
     </details>
   },
 

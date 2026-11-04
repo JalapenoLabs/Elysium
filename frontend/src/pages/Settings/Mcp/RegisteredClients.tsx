@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Button, Spinner } from '@heroui/react'
 import { LuBlocks } from 'react-icons/lu'
+import { CopyButton } from '../../../components/CopyButton'
 
 // Misc
 import { formatDate } from '../../../format/dates'
@@ -80,7 +81,10 @@ export function RegisteredClients(props: Props) {
                 }),
               ].filter(Boolean).join(' · ')
             }</p>
-            <p className='truncate font-mono text-xs opacity-40'>{client.id}</p>
+            <div className='level-left gap-1'>
+              <p className='truncate font-mono text-xs opacity-60'>{client.id}</p>
+              <CopyButton value={client.id} label={t('mcp.clients.copyId')} />
+            </div>
           </div>
         </div>
         <Button size='sm' variant='ghost' onPress={() => remove(client)}>
