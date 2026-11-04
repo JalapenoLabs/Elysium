@@ -171,16 +171,14 @@ export function MeetingTable(props: Props) {
       topics: (meeting: Meeting) => meeting.segmentCount ?? Number.POSITIVE_INFINITY,
     } satisfies Record<MeetingColumnKey, (meeting: Meeting) => string | number>
 
-    // The export holds the state by name, the start as its instant, and the length and topics
-    // as numbers, the length in whole minutes.
+    // The export holds the state by name, the start as its instant, the length as the table
+    // writes it, and the topics as a number.
     const exportValue = {
       meeting: titleText,
       source: sourceText,
       state: stateText,
       started: (meeting: Meeting) => meeting.startedAt,
-      duration: (meeting: Meeting) => meeting.durationMs === null
-        ? null
-        : Math.round(meeting.durationMs / 60_000),
+      duration: durationText,
       topics: (meeting: Meeting) => meeting.segmentCount,
     } satisfies Record<MeetingColumnKey, (meeting: Meeting) => CsvValue>
 
