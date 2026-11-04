@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import type { BlockerFunction } from 'react-router'
 import type { PageHeaderProps } from './PageHeader'
 import type { PageSave, PageSaveRegistry, PageSaveState } from './pageSave'
+import type { PageTools } from './pageTools'
 
 // Core
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
@@ -55,8 +56,10 @@ export function Page(props: Props) {
   const [ isHeaderSaveVisible, setIsHeaderSaveVisible ] = useState(true)
   const [ isCardDismissed, setIsCardDismissed ] = useState(false)
   const [ isCreateFooterVisible, setIsCreateFooterVisible ] = useState(false)
-  // The titlebar's slot for the page's list table, given to everything inside the page.
+  // The titlebar's slot for the page's list table, given to everything inside the page, and
+  // how many lists claim it: the titlebar draws the slot only while one does.
   const [ toolsContainer, setToolsContainer ] = useState<HTMLDivElement | null>(null)
+  const [ toolsClaims, setToolsClaims ] = useState(0)
   const headerSaveRef = useRef<HTMLDivElement>(null)
   // The blocker asks outside of rendering, so it reads the save and its progress from refs.
   const saveRef = useRef<PageSave | null>(null)
@@ -99,6 +102,17 @@ export function Page(props: Props) {
       setIsSaving(false)
     }
   }, [ t ])
+
+  // A count rather than a flag, so a list replacing another in the same commit, such as on a
+  // change of tab, never lets the slot go in between.
+  const claimTools = useCallback(() => {
+    setToolsClaims((count) => count + 1)
+    return () => setToolsClaims((count) => count - 1)
+  }, [])
+  const tools = useMemo<PageTools>(
+    () => ({ container: toolsContainer, claim: claimTools }),
+    [ toolsContainer, claimTools ],
+  )
 
   const registry = useMemo<PageSaveRegistry>(() => ({ register, runSave }), [ register, runSave ])
   // A /new page's Create below its form stands in for the header's Save while it is in view,
@@ -213,7 +227,9 @@ export function Page(props: Props) {
       <div className='container'>
         <PageHeader
           {...headerProps}
-          toolsSlotRef={setToolsContainer}
+          toolsSlotRef={toolsClaims
+            ? setToolsContainer
+            : undefined}
           save={save && <PageSaveButton
             ref={headerSaveRef}
             save={save}
@@ -221,7 +237,7 @@ export function Page(props: Props) {
             onPress={() => void runSave()}
           />}
         />
-        <PageToolsContext value={toolsContainer}>
+        <PageToolsContext value={tools}>
           {children}
         </PageToolsContext>
       </div>

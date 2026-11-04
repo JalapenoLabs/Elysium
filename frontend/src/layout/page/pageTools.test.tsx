@@ -61,10 +61,10 @@ describe('usePageToolsContainer', () => {
     expect(screen.getByText('The list').closest('header')).toBeNull()
   })
 
-  it('leaves the slot empty for a child with no list', () => {
+  it('draws no slot for a child with no list', () => {
     renderLayout('/items/next')
 
     expect(screen.queryByRole('button', { name: 'Filters' })).toBeNull()
-    expect(screen.getByRole('banner').querySelector('.page-tools-slot')?.childElementCount).toBe(0)
+    expect(screen.getByRole('banner').querySelector('.page-tools-slot')).toBeNull()
   })
 })

@@ -60,18 +60,8 @@ export function CompanyDocPage() {
     </SettingsPage>
   }
 
-  // Until the doc is here the page has no header, as a learning's page has none while it loads,
-  // so the header renders once with its actions and Save.
-  if (!doc) {
-    return status === 'failed'
-      ? <p className='container py-10 text-center text-sm text-danger'>{t('loadError')}</p>
-      : <div className='grid place-items-center py-16'>
-        <Spinner />
-      </div>
-  }
-
   let pending = 0
-  for (const section of doc.sections) {
+  for (const section of doc?.sections ?? []) {
     pending += section.proposals.length
   }
 
@@ -89,12 +79,19 @@ export function CompanyDocPage() {
       onAction: () => void review(),
     }]}
   >
-    <div className='relaxed'>
-      <CompanyDocForm doc={doc} />
-    </div>
-    <section className='max-w-3xl'>
-      <h2 className='compact text-base font-semibold'>{t('history.title')}</h2>
-      <CompanyDocHistory />
-    </section>
+    {/* The form registers the header's Save once the doc is here to edit. */}
+    {doc && <>
+      <div className='relaxed'>
+        <CompanyDocForm doc={doc} />
+      </div>
+      <section className='max-w-3xl'>
+        <h2 className='compact text-base font-semibold'>{t('history.title')}</h2>
+        <CompanyDocHistory />
+      </section>
+    </>}
+    {!doc && status === 'failed' && <p className='py-10 text-center text-sm text-danger'>{t('loadError')}</p>}
+    {!doc && status !== 'failed' && <div className='grid place-items-center py-16'>
+      <Spinner />
+    </div>}
   </SettingsPage>
 }

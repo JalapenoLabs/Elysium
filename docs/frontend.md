@@ -120,13 +120,19 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
   keeps the top right corner unless the menu is there. There are no subtitles; a page that truly needs explaining
   puts it behind `help`, a `?` opening `HelpPopover` (`src/components/`), which a section or message whose detail
   only some people need uses too (the new browser connector's sign-in, a stream the media ports block).
-- **List controls.** Every `Page` holds a slot after `tools` for its list (`pageTools.ts`): the page's list table
+- **List controls.** A `Page` holds a slot after `tools` for its list (`pageTools.ts`): the page's list table
   renders its search, filters button, Columns, and export there through uikit's `controls`
   (`~/.claude/docs/ux.md`, Table layout). `usePageToolsContainer` hands the slot to anything inside the page, so a
-  list in a child route, such as All items under the Action items tabs, reaches the titlebar its layout draws. Only
-  the page's own list passes it on; a table that is one section of a page keeps its Columns and export above itself.
+  list in a child route, such as All items under the Action items tabs, reaches the titlebar its layout draws.
+  Calling it claims the slot, which the titlebar draws only while a list claims it, so only the page's own list
+  calls it; a table that is one section of a page keeps its Columns and export above itself.
   A list shown as tiles too searches with `ListSearchField` in `tools` instead, which looks and behaves like the
-  table's: narrow until typed into, wider after, and focused by Ctrl+F. An empty slot takes no room.
+  table's: narrow until typed into, wider after, and focused by Ctrl+F.
+- **Drawn from React state.** The titlebar's right side is rendered only while something is in it: `tools`, a list
+  that claims the slot, `primaryAction`, Save, or `actions`. Whatever a page gives it after its first render, such
+  as a Save registered once its data loads, shows at once, so a page renders its header from the start and its
+  loading state below it. Nothing hides the right side with CSS that inspects its content (`:has()`), which Firefox
+  does not re-check as buttons arrive.
 - **Actions.** `actions` is data (`PageAction` in `pageActions.ts`), so the rule lives in one place,
   `arrangePageActions`: a lone harmless action is its own outlined button, and anything more is one Actions menu on
   the far right, each item with its icon and destructive ones (`isDanger`) in red below a divider. A destructive

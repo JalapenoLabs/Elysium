@@ -56,7 +56,9 @@
    control full width with its text centered; from `sm` it is one row beside the title. A
    button may sit inside wrappers (a tooltip's trigger), which are blocks and already span the
    width, so the rule reaches buttons at any depth; an icon-only button keeps its size.
-   Unlayered, like HeroUI's own `.button`, so it is not outranked by it. */
+   Unlayered, like HeroUI's own `.button`, so it is not outranked by it. `PageHeader` renders
+   it only while it has something to hold; nothing here hides it by its content, since Firefox
+   does not re-check a `:has()` rule as buttons arrive after the first render. */
 .page-actions {
   display: flex;
   flex-direction: column;
@@ -68,12 +70,6 @@
 .page-actions .button:not(.button--icon-only) {
   width: 100%;
   justify-content: center;
-}
-
-/* Every page's titlebar holds a slot for its list's table controls (`pageTools.ts`); on a page
-   with nothing else on the right and no list, the empty slot takes no room. */
-.page-actions:has(> .page-tools-slot:only-child:empty) {
-  display: none;
 }
 
 @media (width >= 40rem) {

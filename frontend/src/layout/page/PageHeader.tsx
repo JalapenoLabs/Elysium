@@ -45,7 +45,8 @@ export type PageHeaderProps = {
   // Leads the titlebar's right side, such as a list's own search field.
   tools?: ReactNode
   // Receives the element after `tools` that the page's list table renders its search,
-  // filters, Columns, and export into (`pageTools.ts`). `Page` passes it.
+  // filters, Columns, and export into (`pageTools.ts`). `Page` passes it while a list claims
+  // the slot.
   toolsSlotRef?: RefCallback<HTMLDivElement>
   // The one action that stands on its own, such as Apply or New project.
   primaryAction?: ReactNode
@@ -61,7 +62,9 @@ export type PageHeaderProps = {
 // The standard top of a page (`~/.claude/docs/ux.md`, Standard page layout): breadcrumbs led
 // by a back button, then the titlebar, the large title on the left and its tools and actions
 // on the right, centered on one line. On phones the titlebar stacks, its buttons full width.
-// See docs/frontend.md, Page header.
+// The right side is drawn only while one of its props asks for it, so whatever a page gives
+// it after its first render (a Save registered once the data loads) shows the moment it is
+// given. See docs/frontend.md, Page header.
 export function PageHeader(props: PageHeaderProps) {
   const { t } = useTranslation('common')
   const parent = props.parents?.at(-1)
