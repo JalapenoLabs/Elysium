@@ -66,6 +66,9 @@ export type ServerEvent =
   // The company doc changed, or a change to it was proposed or decided. Nothing more, for the
   // same reason; members load it again.
   | { type: 'companyDoc.changed' }
+  // An admin saved or restored a version of the agent guidance. Nothing more; members load it
+  // again.
+  | { type: 'agentGuidance.changed' }
   // An admin chose what a step or agent runs on, or let it follow its kind again. Its name alone;
   // admins load the list again.
   | { type: 'modelSetting.changed', data: { agent: string } }

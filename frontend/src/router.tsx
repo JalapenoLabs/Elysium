@@ -81,6 +81,7 @@ import { UpdatesPage } from './pages/Settings/Updates/UpdatesPage'
 import { BackupDestinationPage } from './pages/Settings/Backups/BackupDestinationPage'
 import { BackupsPage } from './pages/Settings/Backups/BackupsPage'
 import { PasswordsPage } from './pages/Settings/Passwords/PasswordsPage'
+import { AgentGuidancePage } from './pages/Settings/AgentGuidance/AgentGuidancePage'
 import { CompanyDocPage } from './pages/Settings/CompanyDoc/CompanyDocPage'
 import { EditLearningCategoryPage } from './pages/Settings/LearningCategories/EditLearningCategoryPage'
 import { LearningCategoriesPage } from './pages/Settings/LearningCategories/LearningCategoriesPage'
@@ -355,6 +356,10 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsLearningCategoryEdit,
       element: <EditLearningCategoryPage />,
+    },
+    {
+      path: UrlTree.settingsAgentGuidance,
+      element: <AgentGuidancePage />,
     },
     {
       path: UrlTree.settingsLlms,

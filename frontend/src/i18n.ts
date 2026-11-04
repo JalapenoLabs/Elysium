@@ -7,6 +7,7 @@ import { initReactI18next } from 'react-i18next'
 // Misc
 import { formatNumber } from './format/numbers'
 import actionItems from './locales/en-US/actionItems.json'
+import agentGuidance from './locales/en-US/agentGuidance.json'
 import auth from './locales/en-US/auth.json'
 import backups from './locales/en-US/backups.json'
 import browsers from './locales/en-US/browsers.json'
@@ -49,6 +50,7 @@ export const DEFAULT_NAMESPACE = 'common'
 export const resources = {
   [DEFAULT_LOCALE]: {
     actionItems,
+    agentGuidance,
     auth,
     backups,
     browsers,

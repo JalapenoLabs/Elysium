@@ -55,6 +55,7 @@
     "knowledgeAsk": "knowledge base question answer ask cite sources",
     "learnings": "knowledge base takeaways lessons",
     "learningCategories": "knowledge base tags",
+    "agentGuidance": "knowledge base mcp instructions claude.md agents citations confidentiality rules",
     "users": "people members team accounts approvals sign ups admins roles",
     "llms": "claude openai codex api keys tokens models credentials",
     "models": "opus sonnet haiku fable claude effort thinking agents steps elysia summaries",

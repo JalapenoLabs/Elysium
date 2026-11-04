@@ -72,6 +72,7 @@ export const UrlTree = {
   settingsLearningCategoryNew: '/settings/learning-categories/new',
   // Under its key and `/edit`, since a workspace may name a category `new`.
   settingsLearningCategoryEdit: '/settings/learning-categories/:categoryKey/edit',
+  settingsAgentGuidance: '/settings/agent-guidance',
   settingsConnectors: '/settings/connectors',
   settingsConnectorNew: '/settings/connectors/new',
   settingsConnectorNewKind: '/settings/connectors/new/:kind',

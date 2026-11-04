@@ -1,0 +1,40 @@
+{
+  "title": "Agent guidance",
+  "membersOnly": "The knowledge base is for the company's members.",
+  "loadError": "The agent guidance could not be loaded.",
+  "page": {
+    "help": "Every agent connected to Elysium reads this as its session starts: Claude Code and Codex over MCP, and Elysium's own coding agents and Elysia. A change reaches each agent on its next session. Elysium adds its rules after it for every agent, and no edit removes them.",
+    "version": "Version {{version}}"
+  },
+  "form": {
+    "label": "Guidance",
+    "length": "{{length}} of {{max}} characters",
+    "tooLong": "At most {{max}} characters, so every agent reads all of it."
+  },
+  "rules": {
+    "title": "Always included"
+  },
+  "claudeMd": {
+    "title": "CLAUDE.md",
+    "help": "For teams that want the guidance in their repositories: paste this into a repository's CLAUDE.md. Its first line names its version, so copy it again once the guidance changes.",
+    "copy": "Copy CLAUDE.md block"
+  },
+  "versions": {
+    "title": "Versions",
+    "saved": "{{who}} saved version {{version}}",
+    "restored": "{{who}} restored version {{from}} as version {{version}}",
+    "current": "Current",
+    "restore": "Restore this version",
+    "saveFirst": "Save or discard your edits first",
+    "showChanges": "Show changes",
+    "hideChanges": "Hide changes",
+    "changesLabel": "What version {{version}} changed",
+    "foldedLines_one": "{{count, compact}} unchanged line",
+    "foldedLines_other": "{{count, compact}} unchanged lines"
+  },
+  "toasts": {
+    "saved": "Agent guidance saved",
+    "restored": "Version {{version}} restored",
+    "changed": "Someone saved version {{version}} while you edited. Your text is kept; save again to replace it."
+  }
+}

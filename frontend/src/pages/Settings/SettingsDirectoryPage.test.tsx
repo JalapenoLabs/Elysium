@@ -79,6 +79,7 @@ describe('SettingsDirectoryPage', () => {
         tiles: [
           [ 'Meetings', '/settings/meetings' ],
           [ 'Company doc', '/settings/company-doc' ],
+          [ 'Agent guidance', '/settings/agent-guidance' ],
           [ 'Learning categories', '/settings/learning-categories' ],
         ],
       },

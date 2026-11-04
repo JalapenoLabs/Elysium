@@ -19,6 +19,7 @@ import {
   LuMail,
   LuPlug,
   LuRefreshCw,
+  LuScrollText,
   LuShieldCheck,
   LuTags,
   LuUser,
@@ -76,6 +77,11 @@ export function SettingsDirectoryPage() {
           icon={LuBookOpen}
           title={t('items.companyDoc.title')}
           href={UrlTree.settingsCompanyDoc}
+        />}
+        {isCompanyMember && <SettingsDirectoryItem
+          icon={LuScrollText}
+          title={t('items.agentGuidance.title')}
+          href={UrlTree.settingsAgentGuidance}
         />}
         {isAdmin && <SettingsDirectoryItem
           icon={LuTags}

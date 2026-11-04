@@ -62,6 +62,7 @@ import { HTTPError } from 'ky'
 import { getCheckRun, getConnector } from '../api/routes/connectorRoutes'
 import { getDraft } from '../api/routes/draftRoutes'
 import { getVersion } from '../api/routes/healthRoutes'
+import { AGENT_GUIDANCE_KEY } from '../api/routes/agentGuidanceRoutes'
 import { COMPANY_DOC_HISTORY_KEY, COMPANY_DOC_KEY } from '../api/routes/companyDocRoutes'
 import { getKnowledgeAsk } from '../api/routes/knowledgeRoutes'
 import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
@@ -223,6 +224,13 @@ const handlers: Handlers = {
     }
     void mutate(COMPANY_DOC_KEY)
     void mutate(COMPANY_DOC_HISTORY_KEY)
+  },
+  // The guidance and its versions are one answer, loaded again whole by the company's members.
+  'agentGuidance.changed': () => {
+    if (!selectIsCompanyMember(store.getState())) {
+      return
+    }
+    void mutate(AGENT_GUIDANCE_KEY)
   },
   // The list is short and admins alone read it, so it is loaded again whole, by them.
   'modelSetting.changed': () => {

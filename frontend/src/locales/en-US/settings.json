@@ -24,6 +24,9 @@
     "learningCategories": {
       "title": "Learning categories"
     },
+    "agentGuidance": {
+      "title": "Agent guidance"
+    },
     "users": {
       "title": "Users",
       "pending_one": "{{count, compact}} waiting",

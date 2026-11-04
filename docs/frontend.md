@@ -314,6 +314,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/meetings`          | `MeetingsPage`           | Recent meetings and meeting sources, as tabs in `?tab=`  |
 | `/settings/meetings/:meetingId` | `MeetingPage`        | One meeting: its topics and their projects, and its transcript beside its corrections, as tabs in `?tab=`; Approve and its hold |
 | `/settings/company-doc`       | `CompanyDocPage`         | The company doc, edited in place, its proposals beside each section, and its history; members |
+| `/settings/agent-guidance`    | `AgentGuidancePage`      | What every connected agent reads, edited by admins, with its rules, CLAUDE.md block, and versions; members |
 | `/settings/learnings`         | redirect                 | To `/knowledge/learnings`; a page under it lands there too |
 | `/settings/learning-categories` | `LearningCategoriesPage` | Every learning category, the workspace's own reordered and removed from their rows; admins |
 | `/settings/learning-categories/new` | `NewLearningCategoryPage` | Add one of the workspace's own categories; admins |
@@ -323,9 +324,9 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
 
 The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s: Personal
-settings, Knowledge base (meetings; the company doc, hidden from guests; learning categories, for admins alone; and the
-knowledge base's own settings as they are built), and Workspace settings. Learnings are content rather than a setting,
-so they live on the Knowledge page. Each entry is a tile, its icon
+settings, Knowledge base (meetings; the company doc and the agent guidance, hidden from guests; learning categories, for
+admins alone; and the knowledge base's own settings as they are built), and Workspace settings. Learnings are
+content rather than a setting, so they live on the Knowledge page. Each entry is a tile, its icon
 and title and nothing more, all of it one React Aria `Link`: borderless at rest, it shows its box on hover and on
 keyboard focus. Every entry has an icon of its own.
 New settings pages add an entry to a section and a route under `/settings`, and render inside `SettingsPage`.
@@ -866,6 +867,28 @@ the company's members; anyone else is told the knowledge base is for members.
   the doc whole, which replaces the slice's.
 - `companyDocPresentation.ts` holds the section labels and hints, the history sentences, and how an agent is named,
   tested beside it.
+
+### Agent guidance
+
+`src/pages/Settings/AgentGuidance/` is the guidance every connected agent reads (`docs/knowledge.md`, Agent guidance),
+in the settings frame, for the company's members; a guest is told the knowledge base is for members.
+
+- **The page** (`AgentGuidancePage`) shows the current version in a chip beside the title and explains itself behind
+  `help`. Admins edit the guidance in `AgentGuidanceForm`, one text area (`agent-guidance-content`, focused as the page
+  opens) saved by the header's Save, with how many characters it holds of the `maxCharacters` the API allows, counted
+  as the API counts them; past that, Save is held with the reason. Members see the same text read-only and no Save.
+  Below it, Always included shows the rules Elysium adds for every agent.
+- **Edited against a version.** The form follows the current version while it is untouched, and keeps the person's
+  text, with the version they started from, once they edit. A save another admin's version beat answers `409
+  guidance_changed`: the page loads the newer version, keeps the text, says so in a warning, and the next Save replaces
+  it, since every version is kept.
+- **CLAUDE.md** shows the block the API made from the current version, with `CopyButton`, its use behind a `?`.
+- **Versions** (`AgentGuidanceVersions`) lists every version newest first: who saved or restored it, when, the current
+  one marked, and Show changes, which opens one version's change from the version before as a `TextDiff`. Admins have
+  Restore on every version whose text is not current; it acts at once with a toast, and waits, with a tooltip, while
+  the guidance has unsaved edits.
+- **Data.** Read from SWR alone (`AGENT_GUIDANCE_KEY`), since no other view shows it; every write answers the guidance
+  whole, which replaces the cached answer, and `agentGuidance.changed` revalidates it for members.
 
 ### Action items
 
