@@ -80,7 +80,8 @@ jobs:
           import json, math, re, sys
           info = json.load(open(sys.argv[1]))
           query, relevant, unrelated = json.load(open(sys.argv[2]))
-          model = re.search(r'pub const MODEL: &str = "([^"]+)";', open(sys.argv[3]).read()).group(1)
+          # rustfmt may wrap a longer name onto the next line, so any whitespace may follow `=`.
+          model = re.search(r'pub const MODEL: &str =\s*"([^"]+)"', open(sys.argv[3]).read()).group(1)
           assert info["served_model_name"] == model, (info["served_model_name"], model)
           assert all(len(vector) == 768 for vector in (query, relevant, unrelated))
           assert all(abs(math.fsum(value * value for value in vector) - 1) < 1e-4 for vector in (query, relevant, unrelated))

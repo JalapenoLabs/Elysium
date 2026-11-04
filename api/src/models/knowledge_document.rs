@@ -16,13 +16,14 @@
 use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
 use diesel::prelude::*;
-use diesel::sql_types::Nullable;
-use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use diesel::sql_types::{Nullable, Text};
+use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::database::schema::sql_types::Vector;
 use crate::database::schema::{knowledge_documents, knowledge_passages};
+use crate::embeddings::Embedding;
 use crate::models::company_doc::Section;
 
 /// What a document was made from. Each kind is a column of its own, unique and cascading.
@@ -217,6 +218,104 @@ pub async fn remove(
         }
     }
     Ok(())
+}
+
+/// A passage the embedding model has still to embed, as it read when it was taken.
+#[derive(Debug, Clone, PartialEq, Eq, Queryable)]
+pub struct UnembeddedPassage {
+    pub document_id: Uuid,
+    pub position: i32,
+    pub content: String,
+}
+
+/// Up to `limit` passages waiting for the embedding model, newest documents first, through the
+/// partial index `knowledge_passages_unembedded`.
+///
+/// Newest first, so what was just saved is found by meaning within a pass even while a
+/// backfill of older sources waits.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn unembedded(
+    connection: &mut AsyncPgConnection,
+    limit: i64,
+) -> QueryResult<Vec<UnembeddedPassage>> {
+    knowledge_passages::table
+        .filter(knowledge_passages::embedding.is_null())
+        .select((
+            knowledge_passages::document_id,
+            knowledge_passages::position,
+            knowledge_passages::content,
+        ))
+        // Both descending, so the index is read backwards rather than sorted.
+        .order((
+            knowledge_passages::document_id.desc(),
+            knowledge_passages::position.desc(),
+        ))
+        .limit(limit)
+        .load(connection)
+        .await
+}
+
+/// Records each passage's embedding as made by `model`, in one transaction, and answers how
+/// many were recorded.
+///
+/// A passage is written only while its text is still what was embedded: indexing its source
+/// again may have rewritten it since it was taken ([`upsert`]), and that text waits for an
+/// embedding of its own. A passage whose document is gone is likewise left out.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn store_embeddings(
+    connection: &mut AsyncPgConnection,
+    model: &str,
+    embedded: &[(UnembeddedPassage, Embedding)],
+) -> QueryResult<usize> {
+    connection
+        .transaction(async |connection| {
+            let mut stored = 0;
+            for (passage, embedding) in embedded {
+                // No Rust type stands for pgvector's `vector`, so the embedding travels as
+                // pgvector's text form and is cast where it lands.
+                let vector = sql::<Nullable<Vector>>("")
+                    .bind::<Text, _>(embedding.to_pgvector())
+                    .sql("::vector");
+                stored += diesel::update(
+                    knowledge_passages::table.find((passage.document_id, passage.position)),
+                )
+                .filter(knowledge_passages::content.eq(&passage.content))
+                .set((
+                    knowledge_passages::embedding.eq(vector),
+                    knowledge_passages::embedding_model.eq(model),
+                ))
+                .execute(connection)
+                .await?;
+            }
+            Ok(stored)
+        })
+        .await
+}
+
+/// Forgets every embedding made by a model other than `model`, so each of those passages
+/// waits for `model` again, and answers how many there were.
+///
+/// Vectors of two models are not comparable: a query embedded by one ranks the other's at
+/// random. So a passage whose embedding the current model did not make is treated as not
+/// embedded at all, and found by its words alone until it is embedded again.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn forget_embeddings_not_made_by(
+    connection: &mut AsyncPgConnection,
+    model: &str,
+) -> QueryResult<usize> {
+    diesel::update(knowledge_passages::table.filter(knowledge_passages::embedding_model.ne(model)))
+        .set((
+            knowledge_passages::embedding.eq(sql::<Nullable<Vector>>("NULL")),
+            knowledge_passages::embedding_model.eq(None::<String>),
+        ))
+        .execute(connection)
+        .await
 }
 
 /// Rewrites a document's passages by position: one whose text held is left as it is, embedding

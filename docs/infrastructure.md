@@ -90,7 +90,7 @@ the image as `elysium-whisper:dev` (service `whisper-image`) before the engine s
 as `elysium-whisper:local`. See `docs/meetings.md`, Transcription.
 
 The embedding model is a compose service, `embeddings`, unlike Whisper: it is called all day, by the engine for every
-passage of the knowledge base and by the API for every search, so it stays running. Production runs
+passage of the knowledge base and, once hybrid search is built, by the API for every search, so it stays running. Production runs
 `jalapenolabs/elysium-embeddings` of the same release; the development stack builds it as `elysium-embeddings:dev`
 and production from a checkout as `elysium-embeddings:local`, each service building and running its own image. Its
 four CPUs mean a host needs at least four. See `docs/knowledge.md`, Embeddings.

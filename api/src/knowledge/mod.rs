@@ -9,5 +9,11 @@
 //!
 //! - [`passages`]: how a source's text is cut into the passages the index searches and the
 //!   embedding model embeds.
+//!
+//! and the one loop it runs in the engine:
+//!
+//! - [`embedder`]: gives every passage its embedding as it arrives, through the embedding model
+//!   (`crate::embeddings`), and again when the model changes.
 
+pub mod embedder;
 pub mod passages;

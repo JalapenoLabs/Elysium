@@ -311,8 +311,8 @@ services:
 
   # The embedding model: nomic-embed-text-v1.5 served by text-embeddings-inference, with the
   # model built in (embeddings/Dockerfile). It embeds the knowledge base's passages for the
-  # engine and searches' queries for the API, and nothing else reaches it: its only network has
-  # no route out, so no text leaves the host. Long-lived rather than a container per job, as
+  # engine and, with hybrid search, queries for the API; nothing else reaches it. Its only
+  # network has no route out, so no text leaves the host. Long-lived rather than a container per job, as
   # Whisper is, because it is called all day, takes about 1.5 GiB, and starts in seconds; the
   # engine waits for nothing from it, and embeds once it answers. See docs/knowledge.md,
   # Embeddings.

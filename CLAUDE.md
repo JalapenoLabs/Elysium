@@ -59,8 +59,13 @@ Self-improvement (learning from feedback, self-healing connectors) is designed i
   into a local image, rebuilt on every `up` (`pull_policy: build`), so a deploy that changes a file recreates exactly
   the services that use it. Each image has one building service. See `docs/infrastructure.md`, Configuration images.
 - `.github/workflows/publish.yml` pushes `jalapenolabs/elysium-api`, `jalapenolabs/elysium-workspace`,
-  `jalapenolabs/elysium-whisper`, and `jalapenolabs/elysium-oauth-broker` to Docker Hub on every push to `main` and every
-  `v*` tag. A release is a `vX.Y.Z` tag. See `docs/ci.md`.
+  `jalapenolabs/elysium-whisper`, `jalapenolabs/elysium-embeddings`, and `jalapenolabs/elysium-oauth-broker` to Docker
+  Hub on every push to `main` and every `v*` tag. A release is a `vX.Y.Z` tag. See `docs/ci.md`.
+- The knowledge base's embedding model (nomic-embed-text-v1.5 on text-embeddings-inference, `embeddings/Dockerfile`,
+  pinned and checked) is the compose service `embeddings`, on an internal network only the engine and the API join,
+  so no text leaves the host. The engine's embedder (`crate::knowledge::embedder`) embeds passages as they arrive.
+  The API joins the network so hybrid search (on the roadmap) embeds its query directly. See `docs/knowledge.md`,
+  Embeddings.
 - Agent turns run the official `claude` CLI in the workspace container (`workspace/Dockerfile`), which the engine
   creates through `docker-proxy` and reaches by `docker exec`, never inside the API's or the engine's own container.
   Callers in the engine submit turns to `crate::runner`. See `docs/coding.md`.

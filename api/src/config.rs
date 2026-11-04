@@ -52,6 +52,9 @@ pub struct Config {
     /// The image transcriptions run in, the `elysium-whisper` of the same release as the API.
     /// See `crate::whisper`.
     pub whisper_image: String,
+    /// The embedding service, the compose service `embeddings`, on the network only the engine
+    /// and the API join. See `crate::embeddings`.
+    pub embeddings: Url,
     pub mail: MailConfig,
 }
 
@@ -102,6 +105,9 @@ impl Config {
             }),
             workspace_image: required("WORKSPACE_IMAGE")?,
             whisper_image: required("WHISPER_IMAGE")?,
+            embeddings: optional_base_url("EMBEDDINGS_URL")?.unwrap_or_else(|| {
+                Url::parse("http://embeddings:8080/").expect("a static URL parses")
+            }),
             mail: MailConfig {
                 oauth_broker: optional_base_url("OAUTH_BROKER_URL")?,
                 oauth_broker_internal: optional_base_url("OAUTH_BROKER_INTERNAL_URL")?,

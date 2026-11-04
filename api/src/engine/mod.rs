@@ -14,6 +14,8 @@
 //!   (`crate::company_doc::workflow`);
 //! - **readers**: the link watcher, connector ingest, the Confluence and YouTrack readers,
 //!   meetings, and every read someone asked for ([`syncs`]);
+//! - **the knowledge base**: the embedder, which gives every passage of the index its embedding
+//!   through the embedding service (`crate::knowledge::embedder`);
 //! - **keepers**: the browser reconciler, the mail server brought back up, the password vault and
 //!   the requests the API sends it (`crate::passwords::remote`), update checks, nightly backups,
 //!   and moving identities onto the current schema.
@@ -55,6 +57,8 @@ use crate::connectors::activity::Activity;
 use crate::connectors::ingest::Ingest;
 use crate::elysia::Elysia;
 use crate::elysia::runner::TurnRunner;
+use crate::embeddings::Embeddings;
+use crate::knowledge::embedder::Embedder;
 use crate::meetings::fetch::{FetchMeeting, FetchMeetingDeps};
 use crate::meetings::sources::Sources;
 use crate::meetings::transcribe::{TranscribeMeeting, TranscribeMeetingDeps};
@@ -274,6 +278,13 @@ pub async fn run() -> Result<()> {
             shutdown.clone(),
         ),
     ));
+
+    // The knowledge base: every passage embedded as it arrives, by the embedding service.
+    let embedder = Embedder::new(
+        database.clone(),
+        Embeddings::new(http.clone(), config.embeddings.clone()),
+    );
+    loops.push(("knowledge.embedder", embedder.start(shutdown.clone())));
 
     // Keepers.
     let browsers = services::build_browsers(

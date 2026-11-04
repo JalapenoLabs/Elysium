@@ -28,6 +28,7 @@ mod crypto;
 mod database;
 mod drafts;
 mod elysia;
+mod embeddings;
 mod engine;
 mod environment;
 mod errors;

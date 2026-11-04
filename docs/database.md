@@ -74,7 +74,7 @@ checks:
 
 The database-backed tests give each test its own database. They cover up, down, and up again, single reverts,
 redo, concurrent migrators, the pending-migration refusal, the rebuild for a changed collation, the knowledge
-index's cascades and columns, learnings saved, revised, undone, deleted, and indexed with them, learning categories
+index's cascades and columns, passages embedded by the embedder against a fake embedding service, learnings saved, revised, undone, deleted, and indexed with them, learning categories
 added, reordered, and removed with their learnings moved, and every LLM,
 storage location, GitHub
 credential, Jira credential, environment variable, coding session, action item, initiative, comment, history, and link

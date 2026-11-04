@@ -8,8 +8,9 @@ benefits from what anyone's agent saves.
 This doc is the design. Little of it is built; the roadmap is the issues in the Knowledge base milestone. Built so
 far: the index's tables in Postgres (Search, below); learnings, saved through the routes, the MCP server, and
 Settings, Learnings, filed under the built-in categories and the workspace's own, and indexed as they are saved
-(Learnings, below); and the company doc, edited in Settings, Company doc, proposed to by its scheduled review and by
-agents, read by every agent, and indexed as it changes (The company doc, below).
+(Learnings, below); the company doc, edited in Settings, Company doc, proposed to by its scheduled review and by
+agents, read by every agent, and indexed as it changes (The company doc, below); and the embedding model, with the
+engine's embedder giving every passage its embedding as it arrives (Embeddings, below).
 
 ## What is indexed
 
@@ -97,14 +98,118 @@ is built to the same rule.
   words dropped on both sides, so a question asked in a sentence matches, while a key such as `WAY-123` stays a
   phrase of its exact tokens. Searches parse their query with `english` too.
 - Embeddings come from a small open model, pinned, in its own container on the host, so no text leaves it. Anthropic
-  offers no embedding model. The model is to be nomic-embed-text-v1.5 (Apache-2.0, 137M parameters, 8,192-token
-  context), small enough for the host's CPU, so the column is `vector(768)`, its size, searched by cosine distance
-  through an HNSW index. A passage is `NULL` there until embedded, and each embedding names the model and revision
-  that made it, so changing the model re-embeds. Another size is a migration that re-embeds everything. The model
-  expects its task prefixes, `search_document: ` on passages and `search_query: ` on queries.
-- Embedding is an engine step: new and changed passages are embedded as they arrive, from what the partial index
+  offers no embedding model. The model is nomic-embed-text-v1.5 (Apache-2.0, 137M parameters), small enough for the
+  host's CPU, so the column is `vector(768)`, its size, searched by cosine distance through an HNSW index. A passage
+  is `NULL` there until embedded, and each embedding names the model and revision that made it, so changing the model
+  re-embeds. Another size is a migration that re-embeds everything. The model expects its task prefixes,
+  `search_document: ` on passages and `search_query: ` on queries. See Embeddings, below.
+- The engine's embedder embeds new and changed passages as they arrive, from what the partial index
   `knowledge_passages_unembedded` holds. Until then a passage is found by its words alone.
 - The web app has a Knowledge page: search, browse learnings, and ask.
+
+## Embeddings
+
+The embedding model turns each passage, and each search's query, into the vector its meaning is searched by. It runs
+on the host, so no text leaves it.
+
+### The model and its runtime
+
+- **nomic-embed-text-v1.5** at Hugging Face revision `e5cf08aadaa33385f5990def41f7a23405aec398`: Apache-2.0, 137M
+  parameters, 768 dimensions, mean pooling, trained on a context of 2,048 tokens. That revision on purpose: the newest
+  (`e9b67630`) has the same weights byte for byte, but its `config.json` names the hidden size twice, which the
+  runtime below refuses to read.
+- **Hugging Face's text-embeddings-inference (TEI) 1.9.4**, its CPU image, serving the model through ONNX Runtime in
+  fp32. TEI is Hugging Face's own server for exactly this: maintained, Apache-2.0, shipped as versioned images that
+  pin by digest, with the HTTP API (`/embed`, `/info`, `/health`), batching, tokenization, and truncation built in.
+  A server of our own around ONNX Runtime would mean owning all of that.
+- **ONNX Runtime, not TEI's Candle backend.** On 4 CPUs of a Ryzen 9 7950X, Candle embedded under 0.4 passages a
+  second and took 67 seconds to warm up; ONNX Runtime embeds 4.5 a second and warms up in 16. Both give the same
+  vectors (cosine 1.000000 between them on the same text). The image carries the ONNX weights alone, so a
+  configuration TEI's ONNX backend cannot read stops it starting, rather than falling back to Candle.
+- **fp32, not the int8 model.** The model's int8 ONNX export embeds twice as fast (9.4 a second on the same 4 CPUs),
+  but its vectors are only 0.97 cosine from fp32's, which moves rankings. Search quality wins over throughput.
+- **2,048 tokens at most.** `--max-batch-tokens 2048` is both a batch's size and the longest input, the context the
+  model was trained on, and a longer passage is cut there (`--auto-truncate`). Passages are about 400 tokens, so only
+  a rare long one is cut. At TEI's default of 16,384, its warm-up over 8,192 tokens took ONNX Runtime to 7.8 GiB; at
+  2,048 it peaks near 1.5 GiB.
+
+### The image
+
+`embeddings/Dockerfile` builds `jalapenolabs/elysium-embeddings`, published with each release like the workspace and
+Whisper images (`docs/infrastructure.md`). It is about 2 GB, 550 MB of it the model.
+
+- The base, `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4`, is pinned by digest.
+- Each of the model's eight files is added with `ADD --checksum`, which refuses a file whose SHA-256 differs and makes
+  the checksum the layer's cache key, so a rebuild never downloads it again. They are the first layers after the base.
+- It runs as an unprivileged user with the Hub client offline, and serves the model under the name
+  `nomic-ai/nomic-embed-text-v1.5@<revision>`, which `/info` answers and which every embedding is recorded as made by
+  (`MODEL` in `api/src/embeddings/`; a test holds the two to the same revision).
+
+### A service, not a container per job
+
+Unlike Whisper (`docs/meetings.md`, Transcription), the model runs as a long-lived compose service, `embeddings`
+(container `elysium-embeddings`). It is called all day, by the engine for every passage and, once hybrid search is
+built, by the API for every search; it holds 1.5 GiB and starts in seconds, and a container per call would pay the
+warm-up on every search.
+
+- **Network.** Its only network, `embeddings`, is internal: it has no route out of the host, so nothing sent to the
+  model can leave it. Only the engine and the API join it, and reach it at `EMBEDDINGS_URL`
+  (`http://embeddings:8080`). nginx does not, so nothing public reaches it. See `docs/security.md`, Embeddings.
+- **The API joins it** so hybrid search, on the roadmap, embeds its query directly (`Embeddings::embed_query`)
+  rather than asking the engine over the bus: a person is waiting, and the service holds nothing secret.
+- **Limits.** Four CPUs, which is also how many threads ONNX Runtime works on, since it counts the container's CPU
+  quota, so a host needs at least four. A quarter of Docker's default CPU weight, so the API, Postgres, and agents'
+  turns win under contention and a backfill takes what is left. 3 GiB of memory with no swap, 256 processes, a
+  read-only root with `/tmp` as a tmpfs, every capability dropped, and no new privileges.
+- **Health.** `/health`, with 90 seconds to start. The engine does not wait for it: the embedder tries again until it
+  answers.
+
+### The embedder
+
+The engine's embedder (`api/src/knowledge/embedder.rs`) gives every passage its embedding as it arrives. It is a loop
+of the engine's own rather than a workflow step: a run is one workflow on one source (`docs/engine.md`, Runs), while
+embedding is the same small job for every passage of every source, so a run per document would fill the Runs page
+with thousands of one-step runs. Its queue is the index itself.
+
+- **A pass.** It takes up to 32 passages without an embedding, newest documents first, through the partial index
+  `knowledge_passages_unembedded`, embeds them in one request with the document prefix, and records each embedding
+  with its `embedding_model`, then takes the next batch, until none waits. Newest first, so what was just saved is
+  found by meaning within a pass even during a backfill. No connection or lock is held while the model works.
+- **Rewritten meanwhile.** An embedding is recorded only while its passage's text is still what was embedded:
+  indexing a source again may rewrite a passage during the pass, and the new text waits for an embedding of its own.
+- **When.** Between passes it looks every 10 seconds, an index scan of an empty partial index when nothing waits, so
+  a passage saved now is found by its words at once and by meaning within seconds.
+- **Another model.** As the engine starts, every embedding another model made is forgotten (`embedding` and
+  `embedding_model` set to `NULL`), so a release that changes the model re-embeds every passage through the same
+  queue. Vectors of two models are not comparable, so meanwhile those passages are found by their words alone.
+- **Checked before it writes.** Once a pass, when there is work, it asks the service's `/info` which model it serves.
+  A service serving another, such as a deployment whose images drifted apart, embeds nothing, and each pass logs it
+  at error level (`knowledge.embeddings.wrong_model`). Every vector is checked to be 768 finite numbers.
+- **Failures.** A service that is starting, stopped, or refusing, or a database not answering, ends the pass, and the
+  next is tried 30 seconds later; what earlier batches recorded stays. The service going away is a warning once and
+  coming back an info line, not a line each retry. A shutdown loses at most the batch in flight, which is taken
+  again.
+- **No activity.** A batch takes seconds and is safe to repeat, so the embedder holds no activity for auto-update.
+- **The log** carries counts and durations (`knowledge.embeddings.stored`), never a word of a passage.
+
+### How fast it is
+
+`embeddings/measure.sh` runs the image under the service's limits, under `nice` and with no network, embeds every
+passage of the checkout's `docs/*.md`, cut about as the knowledge base cuts text, 32 at a time with the document prefix,
+and prints the host, the rate, and the peak memory.
+
+| Host                                             | CPUs | Passages | Rate | Peak memory |
+|--------------------------------------------------|------|----------|------|-------------|
+| Development: AMD Ryzen 9 7950X (16 cores, 32 threads), 125 GiB, kernel 7.2.8, 2026-11-04 | 4 | 554, 1,256 characters on average | 4.5 a second, 16,254 an hour | 1.3 GiB |
+| Production VM, n2-highcpu-32 (32 vCPUs)          | 4    | Measured at deploy | Measured at deploy | Measured at deploy |
+
+To measure the production VM after a deploy that built `elysium-embeddings:local`, from the deployment's checkout:
+
+```sh
+embeddings/measure.sh
+```
+
+`--cpus 8` (or any other count) measures another cap, to judge whether the service's four are worth raising.
 
 ## Learnings
 
