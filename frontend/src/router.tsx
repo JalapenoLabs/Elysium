@@ -13,6 +13,7 @@ import { ConnectorPage } from './pages/Settings/Connectors/ConnectorPage'
 import { NewConnectorPage } from './pages/Settings/Connectors/NewConnectorPage'
 import { ConnectorsPage } from './pages/Settings/Connectors/ConnectorsPage'
 import { AppShell } from './layout/AppShell'
+import { UnknownRouteRedirect } from './layout/UnknownRouteRedirect'
 import { AuthErrorPage } from './pages/Auth/AuthErrorPage'
 import { AuthLayout } from './pages/Auth/AuthLayout'
 import { LoginPage } from './pages/Auth/LoginPage'
@@ -340,9 +341,10 @@ const workspaceRoutes: RouteObject = {
       path: UrlTree.settingsStorageEdit,
       element: <EditStorageLocationPage />,
     },
+    // An address no route matches goes one level up, to its nearest parent page.
     {
       path: '*',
-      element: <Navigate to={UNKNOWN_ROUTE_REDIRECT_TO} replace />,
+      element: <UnknownRouteRedirect />,
     },
   ],
 }

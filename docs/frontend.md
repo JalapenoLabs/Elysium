@@ -120,8 +120,14 @@ another site keeps its own address. It also mounts the toast region.
 
 ## Routes
 
-Paths live in `UrlTree` in `src/urls.ts`, and the route table lives in `src/router.tsx`. `/` and unknown paths
-redirect to Action items, the first page in the sidebar; there is no home page.
+Paths live in `UrlTree` in `src/urls.ts`, and the route table lives in `src/router.tsx`. `/` redirects to Action
+items, the first page in the sidebar; there is no home page.
+
+An unknown path goes one level up, to its nearest parent page (`getUnknownRouteRedirect` in `src/unknownRoutes.ts`):
+`/settings/x` to `/settings`, `/settings/llms/x` to `/settings/llms`. Parents with a parameter are skipped, since the
+record may not exist, so `/studio/x/y` lands on `/studio`, and a record whose page is under `/edit`, such as
+`/settings/environment/:variableId`, lands on its list. A path with no parent page goes to Action items. A new page
+needs nothing for this beyond its `UrlTree` entry.
 
 | Path                          | Page                     | Notes                                                    |
 |-------------------------------|--------------------------|----------------------------------------------------------|
