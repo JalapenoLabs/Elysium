@@ -298,7 +298,8 @@ indexed by connector and by start time.
 ### `timeline_records`
 
 Everything ingested, newest first by `occurred_at` (indexed). Unique on `(connector_id, external_id)`, so an
-item is recorded once per connector.
+item is recorded once per connector. `timeline_records_by_ingestion` on `(created_at, id)` reads it in the order it was
+ingested, as the company doc's review does.
 
 | Column                 | Type          | Notes                                                                   |
 |------------------------|---------------|-------------------------------------------------------------------------|
@@ -355,20 +356,82 @@ Which projects a record is about. Primary key `(timeline_record_id, project_id)`
 | `attributed_by`      | `TEXT`        | The actor, as history writes it (`user:<id>`, `elysia`)     |
 | `created_at`         | `TIMESTAMPTZ` | Set on insert                                               |
 
+### `company_doc_sections`
+
+The company doc's seven fixed sections, one row each, seeded by the migration as the system user; see
+`docs/knowledge.md`, The company doc. Each section is a source of the knowledge index (`knowledge_documents`).
+
+| Column        | Type          | Notes                                                                 |
+|---------------|---------------|-----------------------------------------------------------------------|
+| `section`     | `TEXT`        | Primary key: `company`, `leadership`, `people`, `stakeholders`, `products`, `projects`, or `glossary` |
+| `content`     | `TEXT`        | Markdown, at most 12,000 characters; empty until written              |
+| `created_by`  | `UUID`        | References `users`; the system user                                   |
+| `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger        |
+
+### `company_doc_proposals`
+
+Changes proposed to one section, each waiting for a person to approve or reject it. The partial unique index
+`company_doc_proposals_pending_once` on `(section, md5(content))` while `pending` keeps the same change pending once;
+`company_doc_proposals_by_state` on `(state, id)` reads what waits and what was rejected.
+
+| Column               | Type          | Notes                                                                  |
+|----------------------|---------------|------------------------------------------------------------------------|
+| `id`                 | `UUID`        | UUIDv7, primary key                                                    |
+| `section`            | `TEXT`        | References `company_doc_sections`                                      |
+| `base_content`       | `TEXT`        | The section as it read when the change was proposed                    |
+| `content`            | `TEXT`        | The section as the change would leave it; never `base_content`         |
+| `reason`             | `TEXT`        | 1 to 2,000 characters                                                  |
+| `quote`, `source`    | `TEXT`        | Where it was read; at most 2,000 and 500 characters                    |
+| `timeline_record_id` | `UUID`        | References `timeline_records`, `SET NULL`: the record the review cited |
+| `workflow_run_id`    | `UUID`        | References `workflow_runs`, `SET NULL`: the review's run that proposed it |
+| `state`              | `TEXT`        | `pending`, `approved`, or `rejected`                                   |
+| `decided_by`, `decided_at` | `UUID`, `TIMESTAMPTZ` | Who decided and when; set exactly once it is not `pending` |
+| `created_by`         | `UUID`        | References `users`: the person, or Elysia's or the coding agent's machine user |
+| `agent`, `agent_name` | `TEXT`       | The agent acting for them: `mcp:<client id>` with the name it registered, or `session:<number>` |
+| `created_at`         | `TIMESTAMPTZ` | Written by the API                                                     |
+
+### `company_doc_events`
+
+The company doc's history, one row per change, shaped like `learning_events`; see `docs/knowledge.md`, History and
+undo.
+
+| Column        | Type          | Notes                                                                 |
+|---------------|---------------|-----------------------------------------------------------------------|
+| `id`          | `UUID`        | UUIDv7, primary key; orders entries as they were written              |
+| `kind`        | `TEXT`        | `edited` or `approved`; text, so a later kind needs no enum migration |
+| `created_by`  | `UUID`        | References `users`: who edited, approved, or undid                    |
+| `proposal_id` | `UUID`        | References `company_doc_proposals`: set exactly on `approved`         |
+| `data`        | `JSONB`       | `changes`, each section `{ from, to }`, and `undid` for an undo       |
+| `created_at`  | `TIMESTAMPTZ` | Written by the API, the moment of the change                          |
+
+### `company_doc_review_cursor`
+
+How far the company doc's review has read the timeline (`docs/engine.md`, The company doc). One row
+(`singleton`), seeded by the migration.
+
+| Column                | Type          | Notes                                                                |
+|-----------------------|---------------|----------------------------------------------------------------------|
+| `singleton`           | `BOOLEAN`     | Primary key, always true                                             |
+| `reviewed_through_at` | `TIMESTAMPTZ` | The ingestion time (`timeline_records.created_at`) of the last record read; NULL before the first review |
+| `reviewed_through_id` | `UUID`        | That record's id, so records ingested in the same instant are each read once; not a reference, since the record may go |
+| `created_by`          | `UUID`        | References `users`; the system user                                  |
+| `updated_at`          | `TIMESTAMPTZ` | Maintained by trigger                                                |
+
 ### `knowledge_documents`
 
 The knowledge base's index, one document per thing it was made from; see `docs/knowledge.md`. Each kind of source is
 a column of its own, unique and cascading, with exactly one set (`knowledge_documents_one_source`): deleting the
 source deletes its document and passages, a document for a source already gone is refused, and indexing a source
-again upserts its one document on that column. The sources are a timeline record and a learning; the company doc adds
-its own.
+again upserts its one document on that column. The sources are a timeline record, a learning, and a section of the
+company doc.
 
 | Column               | Type          | Notes                                                                  |
 |----------------------|---------------|------------------------------------------------------------------------|
 | `id`                 | `UUID`        | UUIDv7, primary key                                                    |
-| `source`             | `TEXT`        | The search's source filter: a record's kind, such as `slack`, or `learning` |
+| `source`             | `TEXT`        | The search's source filter: a record's kind, such as `slack`, `learning`, or `company_doc` |
 | `timeline_record_id` | `UUID`        | Unique; references `timeline_records`, cascading                       |
 | `learning_id`        | `UUID`        | Unique; references `learnings`, cascading                              |
+| `company_doc_section` | `TEXT`       | Unique; references `company_doc_sections`, cascading                   |
 | `title`, `url`       | `TEXT`        | How a citation names it and links to it; at most 2048 and 4096 characters |
 | `occurred_at`        | `TIMESTAMPTZ` | When it was said, for the date filter                                  |
 | `content_sha256`     | `TEXT`        | Hex SHA-256 of the text it was indexed from; unchanged text is left alone |

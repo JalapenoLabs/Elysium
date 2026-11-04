@@ -28,7 +28,7 @@ use uuid::Uuid;
 use super::bearer::McpCaller;
 use super::workspace::{Workspace, answer, caller, refuse_without_write};
 use crate::auth::MemberUser;
-use crate::models::learning::Agent;
+use crate::models::agent::Agent;
 use crate::models::learning_category::{self, LearningCategory};
 use crate::routes::v1::learnings::{self, SaveLearningRequest};
 use crate::state::AppState;
@@ -164,7 +164,7 @@ fn category_choices(categories: &[LearningCategory]) -> Value {
 ///
 /// The name is only a label, so a client Hydra cannot describe right now is still recorded, by
 /// its id alone, rather than refusing the person's change.
-async fn acting_agent(state: &AppState, caller: &McpCaller) -> Option<Agent> {
+pub(super) async fn acting_agent(state: &AppState, caller: &McpCaller) -> Option<Agent> {
     let name = match state.auth.hydra.client(&caller.client_id).await {
         Ok(client) => client.client_name,
         Err(error) => {

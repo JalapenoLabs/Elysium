@@ -21,6 +21,9 @@ deadpool = { version = "0.13.1", default-features = false, features = ["managed"
 diesel = { version = "2.3.13", default-features = false, features = ["postgres_backend", "chrono", "serde_json", "uuid", "32-column-tables"] }
 diesel-async = { version = "0.9.2", features = ["postgres", "deadpool", "async-connection-wrapper", "migrations"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
+# Three-way merges of a company doc section when a proposal is approved after the section
+# changed. See `crate::models::company_doc`.
+diffy = "0.4.2"
 diesel_migrations = { version = "2.3.2", default-features = false, features = ["postgres"] }
 dotenvy = "0.15.7"
 futures-util = "0.3.34"

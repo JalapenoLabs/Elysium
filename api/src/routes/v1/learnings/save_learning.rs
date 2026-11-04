@@ -19,7 +19,8 @@ use validator::Validate;
 use super::{LearningResponse, announce, author};
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
-use crate::models::learning::{self, Agent, HistoryKind, LearningContent};
+use crate::models::agent::Agent;
+use crate::models::learning::{self, HistoryKind, LearningContent};
 use crate::routes::v1::action_items::validate_not_blank;
 use crate::state::AppState;
 

@@ -3,7 +3,8 @@
 //! The MCP server external clients reach, and what every one of its tools shares.
 //!
 //! The tools are grouped by what they act on, each group a `#[tool_router]` block in its own
-//! module ([`super::learnings`], [`super::projects`], [`super::sessions`]), combined in
+//! module ([`super::company_doc`], [`super::learnings`], [`super::projects`],
+//! [`super::sessions`]), combined in
 //! [`Workspace::new`]. A tool reaches the person calling it through [`caller`]: the
 //! [`McpCaller`] the bearer check attached to the HTTP request.
 //!
@@ -32,9 +33,12 @@ const INSTRUCTIONS: &str = "Elysium is a shared workspace of projects, action it
 initiatives, and coding sessions, and the company's knowledge base. Every call acts as the person \
 who connected this client, with what they granted it. A coding session is an agent working on a \
 project's repositories in Elysium's workspace: start one with sessions_create, steer it with \
-sessions_send_prompt, and follow its work with sessions_events. When you learn something the next \
-agent would otherwise have to rediscover, save it with learning_save; everyone in the company \
-reads what is saved there, and nothing in it is for repeating outside the company.";
+sessions_send_prompt, and follow its work with sessions_events. The company doc says who the \
+company is and how its people, clients, and terms are spelled: read it with company_doc_read \
+before writing about them, and propose what you learn for certain with company_doc_propose, which \
+waits for a person's approval. When you learn something the next agent would otherwise have to \
+rediscover, save it with learning_save; everyone in the company reads what is saved there, and \
+nothing in it is for repeating outside the company.";
 
 /// The MCP server. One is built per request: the server keeps no session state, so any
 /// request can be answered on its own.
@@ -50,6 +54,7 @@ impl Workspace {
         Self {
             state,
             tool_router: Self::tool_router()
+                + Self::company_doc_router()
                 + Self::learnings_router()
                 + Self::projects_router()
                 + Self::sessions_router(),

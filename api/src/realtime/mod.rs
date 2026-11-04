@@ -146,6 +146,11 @@ pub enum ServerEvent {
     /// load it again.
     #[serde(rename = "learningCategories.changed")]
     LearningCategoriesChanged,
+    /// The company doc changed, or a change to it was proposed or decided. Nothing more: the
+    /// doc is one, and a guest hears every event and reaches no knowledge base; members load it
+    /// again.
+    #[serde(rename = "companyDoc.changed")]
+    CompanyDocChanged,
     /// A check in a run moved on, or (`checkId` null, `state` `finished`) the run ended. Ids and
     /// states only: a check's message can name what an account reaches, and the run answers the
     /// person who started it.

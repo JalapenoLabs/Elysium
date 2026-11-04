@@ -309,6 +309,28 @@ pub async fn find_live(
         .optional()
 }
 
+/// The newest run of `workflow` on a source, live or finished, if it ever ran: for a schedule
+/// that runs a workflow again some time after its last run started.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn newest(
+    connection: &mut AsyncPgConnection,
+    workflow: &str,
+    source_kind: &str,
+    source_id: &str,
+) -> QueryResult<Option<WorkflowRun>> {
+    workflow_runs::table
+        .filter(workflow_runs::workflow.eq(workflow))
+        .filter(workflow_runs::source_kind.eq(source_kind))
+        .filter(workflow_runs::source_id.eq(source_id))
+        .order(workflow_runs::id.desc())
+        .select(WorkflowRun::as_select())
+        .first(connection)
+        .await
+        .optional()
+}
+
 /// Run `id`.
 ///
 /// # Errors

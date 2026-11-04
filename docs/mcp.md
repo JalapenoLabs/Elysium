@@ -114,12 +114,16 @@ Tools are named for what they act on, then what they do.
 | `sessions_rename`      | `workspace:write` | Renames a coding session                                               |
 | `sessions_send_prompt` | `workspace:write` | Sends a prompt to a session's agent as a new turn                      |
 | `sessions_events`      | `workspace:read`  | Reads a session's conversation, the latest events or those after one   |
+| `company_doc_read`     | `workspace:read`  | Reads the company doc, each section with the proposals still pending |
+| `company_doc_propose`  | `workspace:write` | Proposes a change to one section, for a person to approve       |
 | `learning_save`        | `workspace:write` | Saves a learning to the knowledge base; its title, if taken, revises that learning |
 | `learning_delete`      | `workspace:write` | Deletes a learning softly, out of the knowledge base until restored    |
 
-- **Knowledge base.** The learning tools answer admins and members alone, and a guest's client `403 members_only`, as
-  the routes do (`docs/knowledge.md`, Who sees what). They record the client as the agent acting for the person: its
-  id, and the name it registered, read from Hydra when it saves. A name Hydra cannot give is logged and left out.
+- **Knowledge base.** The learning and company doc tools answer admins and members alone, and a guest's client `403
+  members_only`, as the routes do (`docs/knowledge.md`, Who sees what). The writing ones record the client as the agent
+  acting for the person: its id, and the name it registered, read from Hydra when it writes. A name Hydra cannot give
+  is logged and left out. `company_doc_propose` takes edits in the form Claude Code's Edit tool takes, and changes
+  nothing until a person approves (`docs/knowledge.md`, The company doc).
 - **Learning categories.** A workspace adds its own, so `learning_save`'s compiled schema cannot name them. Listing the
   tools (`list_tools` in `api/src/mcp/workspace.rs`) writes every category into its `category` property as a `oneOf`
   of `{ const, title, description }`, built-in ones first, so an agent picks from the list as it stands, knowing what
@@ -141,10 +145,10 @@ Tools are named for what they act on, then what they do.
 
 ### Adding a tool
 
-Tools are grouped by what they act on, one module each under `api/src/mcp/` (`learnings.rs`, `projects.rs`,
-`sessions.rs`), each a `#[tool_router(router = <group>_router)]` block combined in `Workspace::new`. A knowledge base
-tool checks its caller with `MemberUser::check(caller.user)` first and passes the `MemberUser` on, as the route's
-extractor does.
+Tools are grouped by what they act on, one module each under `api/src/mcp/` (`company_doc.rs`, `learnings.rs`,
+`projects.rs`, `sessions.rs`), each a `#[tool_router(router = <group>_router)]` block combined in `Workspace::new`. A
+knowledge base tool checks its caller with `MemberUser::check(caller.user)` first and passes the `MemberUser` on, as
+the route's extractor does.
 
 1. Expose the route's work as a function: the handler's body moves into a `pub async fn` on the route module that takes
    `&AppState`, the acting user's id when it creates, and the request struct, and answers the response. The handler

@@ -12,7 +12,8 @@ use uuid::Uuid;
 use super::{announce, author};
 use crate::auth::MemberUser;
 use crate::errors::ApiError;
-use crate::models::learning::{self, Agent};
+use crate::models::agent::Agent;
+use crate::models::learning;
 use crate::state::AppState;
 
 pub async fn handle(

@@ -10,6 +10,7 @@ mod backups;
 pub mod browser_sessions;
 pub mod changesets;
 pub mod coding_sessions;
+pub mod company_doc;
 pub mod connectors;
 pub mod drafts;
 pub mod elysia;
@@ -86,6 +87,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/action-items", action_items::router())
         .nest("/browser-sessions", browser_sessions::router())
         .nest("/changesets", changesets::router())
+        .nest("/company-doc", company_doc::router())
         .nest("/connectors", connectors::router())
         .nest("/drafts", drafts::router())
         .nest("/elysia", elysia::router())

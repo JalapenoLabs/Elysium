@@ -276,10 +276,10 @@ async fn run_turn(
     Ok(())
 }
 
-/// Her tool servers: her own, and the password vault's while it is ready. A vault that becomes
-/// ready mid-turn is granted from her next turn.
+/// Her tool servers: her own, the knowledge base's, and the password vault's while it is ready.
+/// A vault that becomes ready mid-turn is granted from her next turn.
 fn tool_servers(passwords_ready: bool) -> Vec<&'static ToolServer> {
-    let mut servers = vec![&tools::elysia::SERVER];
+    let mut servers = vec![&tools::elysia::SERVER, &tools::knowledge::SERVER];
     if passwords_ready {
         servers.push(&tools::passwords::SERVER);
     }
@@ -728,8 +728,11 @@ mod tests {
                 .map(|server| server.name)
                 .collect()
         };
-        assert_eq!(names(false), ["elysia"]);
-        assert_eq!(names(true), ["elysia", "elysium_passwords"]);
+        assert_eq!(names(false), ["elysia", "elysium_knowledge"]);
+        assert_eq!(
+            names(true),
+            ["elysia", "elysium_knowledge", "elysium_passwords"]
+        );
     }
 
     #[tokio::test]

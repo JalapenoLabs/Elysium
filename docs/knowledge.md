@@ -6,16 +6,17 @@ and can ask about past meetings, decisions, conversations, and what other agents
 benefits from what anyone's agent saves.
 
 This doc is the design. Little of it is built; the roadmap is the issues in the Knowledge base milestone. Built so
-far: the index's tables in Postgres (Search, below), and learnings, saved through the routes, the MCP server, and
+far: the index's tables in Postgres (Search, below); learnings, saved through the routes, the MCP server, and
 Settings, Learnings, filed under the built-in categories and the workspace's own, and indexed as they are saved
-(Learnings, below).
+(Learnings, below); and the company doc, edited in Settings, Company doc, proposed to by its scheduled review and by
+agents, read by every agent, and indexed as it changes (The company doc, below).
 
 ## What is indexed
 
 - Everything on the timeline: meetings (corrected transcripts and their segments), mail, Slack, Teams, Confluence,
   Jira, YouTrack, and GitHub issues and comments, and agent turn summaries.
 - Learnings that people and agents save.
-- The company doc (see `docs/engine.md`).
+- The company doc, one document per section (The company doc, below).
 
 Repository code is not indexed: agents with a checkout search it directly.
 
@@ -83,15 +84,15 @@ is built to the same rule.
   passages in Postgres itself, and a document for a source already gone is refused. Indexing a source again upserts
   its one document on that column; the SHA-256 of the text it was indexed from says whether anything changed, and
   passages are rewritten by position, so one whose text held keeps its embedding. The columns today are a timeline
-  record's and a learning's; the company doc adds its own.
+  record's, a learning's, and a company doc section's.
 - Every source enters the index through one function, `knowledge_document::upsert` (`api/src/models/`), and leaves it
   through `remove`. Each takes the caller's transaction, so a source and its document always change together, and
   `KnowledgeSource` is the one place that maps a kind of source to its column. A source's text is cut into passages
   by `knowledge::passages::split` (`api/src/knowledge/`): at paragraph breaks, packed back together up to 1,600
   characters (about 400 tokens), with a longer paragraph cut at the last whitespace that fits. The cut depends on the
   text alone, so the same text always gives the same passages.
-- Learnings are indexed in the transaction that saves them. Indexing timeline records, with a backfill, is on the
-  roadmap: it maps each record kind to its passages and calls the same upsert.
+- Learnings and the company doc's sections are indexed in the transaction that changes them. Indexing timeline
+  records, with a backfill, is on the roadmap: it maps each record kind to its passages and calls the same upsert.
 - The full-text vector uses Postgres's `english` configuration, generated from the passage: words are stemmed and stop
   words dropped on both sides, so a question asked in a sentence matches, while a key such as `WAY-123` stays a
   phrase of its exact tokens. Searches parse their query with `english` too.
@@ -218,11 +219,119 @@ each change with Undo. New learning is its own page. Both lists filter by catego
 Knowledge page (Search, above) folds these in once it is built; see `docs/frontend.md`, Learnings and Learning
 categories.
 
+## The company doc
+
+One document per instance knows the company. Every agent reads it, and correcting a meeting's transcript leans on it
+most (`docs/engine.md`, Meetings), so it carries how the company spells its people's names and its jargon. The model
+is `api/src/models/company_doc.rs`, what every caller shares of it `api/src/company_doc/`, the routes
+`/api/v1/company-doc` (`docs/api.md`), and the tables `company_doc_sections`, `company_doc_proposals`,
+`company_doc_events`, and `company_doc_review_cursor` (`docs/database.md`).
+
+### Sections
+
+The doc has seven fixed sections, each Markdown of at most 12,000 characters, in this order:
+
+| Section        | What belongs there                                                                        |
+|----------------|-------------------------------------------------------------------------------------------|
+| `company`      | Who the company is: what it does, for whom, and where                                    |
+| `leadership`   | Who leads it, and what each of them owns                                                 |
+| `people`       | Everyone who comes up, one per line: their name as they spell it, how it is often misheard, and what they do |
+| `stakeholders` | Clients, partners, investors, and vendors, with who speaks for each                      |
+| `products`     | What the company makes and sells                                                         |
+| `projects`     | The work under way, and who is on it                                                     |
+| `glossary`     | Names, acronyms, and jargon, one per line in alphabetical order, as the company spells them |
+
+The sections are rows seeded by their migration; people never add or remove one. The limit keeps the whole doc
+inside the review's one prompt beside what it reads (`docs/engine.md`, The company doc). The API names and describes
+each section to agents in English; the web app names and describes them from its translations.
+
+### Who changes it
+
+- **People edit it directly**, any number of sections at once from the page's Save, as one change in its history.
+- **Everyone else proposes.** The scheduled review, Elysia, coding agents, and people's MCP clients never write the
+  doc: each proposes a change to one section, and nothing changes until a person approves it. Any member approves or
+  rejects any proposal, one at a time; a guest reaches none of it (Who sees what, above).
+
+Proposals are the company doc's own, not changesets (`docs/action-items.md`, Changesets). A changeset is a batch of
+action-item operations, scoped to a project, with dependencies between them, applied as its proposer through the
+action-item writes and reviewed in the Action items area. A proposal to the doc is one section's text, with no
+dependencies, reviewed beside the section it changes. Folding it into changesets would carry project scoping and the
+action-item review into a document that has neither, so the doc keeps the rule (nothing applies until a person
+approves each change, and every applied change is recorded and can be undone) in a model of its own.
+
+### Proposals
+
+- **A proposal** is one section's new text with the text it was made against, its reason, and optionally the quote
+  and source it was read in (and, for the review's, the timeline record and the run). It is `pending` until a person
+  approves or rejects it, and records who decided and when.
+- **Agents propose edits**, in the form Claude Code's Edit tool takes: `find` is text the section holds exactly once,
+  and `replace` takes its place; an empty `find` adds to the end. Elysium applies them to the section as it stands and
+  stores the result, so an agent that misreads a long section cannot drop what it did not mean to change. An edit
+  whose text is missing or found twice is refused, saying which.
+- **The same change is pending once.** Proposing a section text that is already pending answers that proposal, so a
+  review that runs twice, or two agents reading the same message, make one.
+- **Approving** writes the proposal into its section as a change by the person approving. When the section changed
+  since the proposal was made, the two changes are merged three ways from the text it was made against, line by
+  line, the way version control merges a branch; a proposal whose lines were changed since is refused with
+  `409 proposal_overlaps` and stays pending, for the person to reject or make by hand. Without the merge, every edit
+  to People or the glossary would leave every pending proposal to them unusable.
+- **Rejecting** changes nothing in the doc and is not part of its history; the proposal keeps the decision, and the
+  review reads the latest rejections so it does not propose them again.
+
+Who proposed is recorded as learnings record who saved (`created_by` and `agent`): a person and the MCP client acting
+for them (`mcp:<client id>`), the coding agent's machine user for a session (`session:<number>`), or Elysia, for her
+turns and for the review, which also names its run.
+
+### History and undo
+
+Every change that writes the doc records a history entry in the same transaction, shaped as learnings' history is:
+
+| Kind       | `data`                                                                                   |
+|------------|------------------------------------------------------------------------------------------|
+| `edited`   | `changes`: each section that changed, `{ from, to }`; `undid` when an undo wrote it      |
+| `approved` | `changes`, as for an edit; the entry names the proposal it applied (`proposal_id`)       |
+
+- An entry names who made the change: the person who edited, approved, or undid.
+- Any entry can be undone by any member, and the undo is an `edited` entry naming the one it reversed, so it can be
+  undone in turn. It is undone section by section: a section that still holds what the entry wrote gets back what it
+  replaced, and one changed since keeps its newer text. A change with nothing left to reverse answers `409`.
+- A section given its own text again is not part of a change, and a save that changes nothing records nothing.
+
+### The review
+
+A workflow on the engine, `company_doc_review`, reads what was ingested since its last run and proposes changes, as
+Elysia. Its one step, `review_company_doc`, is a text turn on the step's model setting, Opus 5.5 at high effort unless
+an admin chose another. Its schedule, its window, and how it fits one prompt are in `docs/engine.md`, The company doc.
+
+### In the index
+
+Each section is a document of its own (`company_doc`, titled "Company doc: Glossary" and so on), upserted in the
+transaction that changes it, so search finds what the doc says the moment it commits and a citation names the section.
+An empty section leaves the index. A section's document is attributed to the person whose change it now reads as.
+
+### Agents read it
+
+- Over MCP, `company_doc_read` answers every section, in order, with what belongs there and the proposals still
+  pending, so an agent knows what may change and need not propose it again; `company_doc_propose` proposes, needing
+  `workspace:write`, as the person and their client (`docs/mcp.md`).
+- In a turn, the same two tools are on the `elysium_knowledge` server, which every coding and Studio session's turn
+  and every one of Elysia's gets, project or not (`docs/coding.md`). A session proposes as its coding agent, Elysia as
+  herself.
+- Every change announces `companyDoc.changed`, with nothing in it, and members load the doc again
+  (`docs/realtime.md`).
+
+### In the web app
+
+Settings, Company doc (`/settings/company-doc`, in the Knowledge base section, for members) edits every section in
+one form saved from the header, each section with its pending proposals beside it as a diff with Approve and Reject,
+and the history below with Undo. Look for updates starts a review at once. See `docs/frontend.md`, Company doc.
+
 ## MCP
 
 - Tools return evidence: `knowledge_search` (hybrid search with source, project, person, and date filters, returning
   ranked passages with citations), `knowledge_get` (a whole document or meeting transcript, or a span of it),
   `meetings_list`, `learning_save`, `learning_delete`, `company_doc_read`, and `company_doc_propose`.
+- `company_doc_read` and `company_doc_propose` are built (`api/src/mcp/company_doc.rs`; The company doc, above).
 - `learning_save` and `learning_delete` are built (`api/src/mcp/learnings.rs`). They call the routes' own `save` and
   `delete` with the connecting person as who saved it and the client as the agent acting for them, so a learning an
   agent saves is validated, recorded, indexed, and announced exactly as one saved in the browser. Until the editable

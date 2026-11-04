@@ -121,6 +121,30 @@ impl From<crate::models::learning::LearningError> for ApiError {
     }
 }
 
+impl From<crate::models::company_doc::CompanyDocError> for ApiError {
+    fn from(error: crate::models::company_doc::CompanyDocError) -> Self {
+        use crate::models::company_doc::CompanyDocError;
+
+        match error {
+            CompanyDocError::Database(database) => database.into(),
+            refused @ (CompanyDocError::Invalid(_)
+            | CompanyDocError::TooLong(_)
+            | CompanyDocError::EditDoesNotApply(_)
+            | CompanyDocError::ChangesNothing(_)) => Self::BadRequest(refused.to_string()),
+            CompanyDocError::AlreadyDecided(_) => {
+                Self::Conflict("this proposal was already decided")
+            }
+            // The web app answers this by saying the proposal no longer fits the section.
+            CompanyDocError::Overlaps(_) => Self::CodedConflict {
+                code: "proposal_overlaps",
+                message: "the section changed since this was proposed, in the same lines; \
+                    reject it, or make the change by hand",
+            },
+            CompanyDocError::NothingToUndo(message) => Self::Conflict(message),
+        }
+    }
+}
+
 impl From<crate::models::learning_category::CategoryError> for ApiError {
     fn from(error: crate::models::learning_category::CategoryError) -> Self {
         use crate::models::learning_category::CategoryError;

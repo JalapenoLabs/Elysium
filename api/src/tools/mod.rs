@@ -11,7 +11,8 @@
 //! so a listed tool always has a handler. Each tool set is one module with its own
 //! table, listed in [`SERVERS`]: [`storage`] for the project's storage locations and
 //! [`work`] for its action items and initiatives, both for coding sessions, [`elysia`]
-//! for Elysia's own turns, and [`passwords`] for the logins any agent may sign in with.
+//! for Elysia's own turns, [`passwords`] for the logins any agent may sign in with, and
+//! [`knowledge`] for the company's knowledge base, which every agent reads.
 //!
 //! Results are JSON text. A failure answers the agent with what to fix, never with an
 //! internal error chain: database and decryption failures are logged here and reported
@@ -20,6 +21,7 @@
 pub mod elysia;
 pub mod endpoint;
 pub mod grants;
+pub mod knowledge;
 pub mod passwords;
 pub mod storage;
 pub mod work;
@@ -164,11 +166,12 @@ pub struct ToolServer {
 }
 
 /// Every server Elysium serves, looked up by name when a call arrives.
-pub const SERVERS: [&ToolServer; 4] = [
+pub const SERVERS: [&ToolServer; 5] = [
     &storage::SERVER,
     &work::SERVER,
     &elysia::SERVER,
     &passwords::SERVER,
+    &knowledge::SERVER,
 ];
 
 /// Why a call could not be carried out. `Display` is what the agent reads, so every

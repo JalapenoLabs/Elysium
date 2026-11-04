@@ -139,7 +139,8 @@ Everything else follows these rules:
   approved person. Writing tools also need `workspace:write` and record the person as actor and creator.
 - A tool never reimplements a route: it calls the function the route's handler calls, so a change made over MCP is
   validated, recorded, and announced exactly as one made in the browser. Tools exist for projects (read), coding
-  sessions, and saving and deleting learnings; Studio items, action items, and initiatives are on the roadmap.
+  sessions, saving and deleting learnings, and reading and proposing to the company doc; Studio items, action items,
+  and initiatives are on the roadmap.
 
 ## Agents run on the host
 
@@ -368,6 +369,20 @@ Everything else follows these rules:
   re-checks the item against the collection in the database. TOTP seeds are never shown, only current codes.
 - Every password and code handed to an agent is scrubbed from every turn's recorded output, as secret environment
   variables are.
+
+## The company doc
+
+- One document per instance knows the company in seven fixed sections: company, leadership, people, stakeholders,
+  products, projects, and glossary, the last two carrying how names and jargon are spelled. See `docs/knowledge.md`,
+  The company doc.
+- People edit it directly; everyone else (the scheduled review, Elysia, coding agents, MCP clients) proposes a change
+  to one section, and nothing changes until a person approves each one. Proposals are the doc's own, not changesets.
+  Approving merges with what changed since, three ways, and refuses overlapping lines.
+- Every change is recorded in its history with before and after, and undone section by section. Each section is a
+  source of the knowledge index.
+- The review is the engine workflow `company_doc_review`, every six hours while something new was ingested
+  (`docs/engine.md`, The company doc). Agents read and propose through `company_doc_read` and `company_doc_propose`,
+  over MCP and on the `elysium_knowledge` server every turn gets.
 
 ## Action items
 

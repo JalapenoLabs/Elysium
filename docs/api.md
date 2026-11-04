@@ -510,6 +510,34 @@ the plaintext of a non-secret variable and `null` for a secret one, whose value 
 a rule answers `400` naming the key and the rule, a secret with an empty value answers `400`, and making a secret
 visible without sending its `value` answers `400`. A duplicate key answers `409`. See `docs/environment.md`.
 
+### `/api/v1/company-doc`
+
+Every route answers admins and members, and a guest `403 members_only`. See `docs/knowledge.md`, The company doc.
+
+| Method and path                                   | Does                                                         |
+|---------------------------------------------------|--------------------------------------------------------------|
+| `GET /company-doc`                                | Every section in order, each with its pending proposals      |
+| `PATCH /company-doc`                              | Writes `sections`, a map of section keys to Markdown, as one change |
+| `GET /company-doc/history`                        | Every change, oldest first                                   |
+| `POST /company-doc/history/{entryId}/undo`        | Reverses one change, section by section                      |
+| `POST /company-doc/proposals/{id}/approve`        | Writes a proposal into its section, merged with what changed since |
+| `POST /company-doc/proposals/{id}/reject`         | Turns a proposal down; the doc is left as it is              |
+| `POST /company-doc/review`                        | Starts the review now, or answers the one under way          |
+
+The doc answers `sections`, each with `section`, `purpose` (what belongs there, in English, for agents), `content`,
+`updatedAt`, and `proposals`. A `CompanyDocProposal` has `id`, `section`, `baseContent`, `content`, `reason`, `quote`,
+`source`, `timelineRecordId`, `workflowRunId`, `state`, `decidedBy`, `decidedAt`, `createdBy`, `agent` (`{ id, name }`
+or `null`), and `createdAt`; a history entry has `id`, `kind`, `createdBy`, `proposalId`, `data`, and `createdAt`.
+
+`PATCH` trims each section and answers `400` for one past 12,000 characters or a key that is not a section; sections
+left out keep their text. Approving and rejecting answer `{ proposal, doc }`, and `409` for a proposal already decided;
+approving one whose lines changed since answers `409 proposal_overlaps` and leaves it pending. Undo answers the doc,
+and `409` when the change has nothing left to reverse. Review answers `{ run: { id, state }, started }`: `201` with a
+new run, `200` with the one already live.
+
+Nothing creates a proposal over HTTP: the review, the MCP server's `company_doc_propose`, and agents' tool of the same
+name call `crate::company_doc::propose` in-process.
+
 ### `/api/v1/learnings`
 
 Every route answers admins and members, and a guest `403 members_only`; the feed answers admins alone.

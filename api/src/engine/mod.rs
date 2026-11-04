@@ -10,7 +10,8 @@
 //!   (`crate::sessions::queue`), Elysia's intake and dispatcher (`crate::elysia`), and the Claude
 //!   account keeper that refreshes what turns run on (`crate::claude_accounts`);
 //! - **workflow runs**: the step workers that claim each run's steps from the queue and run them
-//!   (`crate::workflows`);
+//!   (`crate::workflows`), and the schedule that starts the company doc's review
+//!   (`crate::company_doc::workflow`);
 //! - **readers**: the link watcher, connector ingest, the Confluence and YouTrack readers,
 //!   meetings, and every read someone asked for ([`syncs`]);
 //! - **keepers**: the browser reconciler, the mail server brought back up, the password vault and
@@ -45,6 +46,9 @@ use crate::backups::{self, Backups, BackupsDeps};
 use crate::browser::devtools::Devtools;
 use crate::claude_accounts::oauth::Anthropic;
 use crate::claude_accounts::{ClaudeAccounts, ClaudeAccountsDeps, TurnSignal};
+use crate::company_doc::workflow::{
+    self as company_doc_review, ReviewCompanyDoc, ReviewCompanyDocDeps,
+};
 use crate::confluence::Confluence;
 use crate::confluence::reader::{Reader as ConfluenceReader, ReaderDeps as ConfluenceReaderDeps};
 use crate::connectors::activity::Activity;
@@ -182,7 +186,13 @@ pub async fn run() -> Result<()> {
         storage: foundation.storage.clone(),
         whisper,
     }));
+    steps.register(ReviewCompanyDoc::new(ReviewCompanyDocDeps {
+        database: database.clone(),
+        events: events.clone(),
+        runner: runner.clone(),
+    }));
     steps.assert_runs(&meetings::workflow::workflow());
+    steps.assert_runs(&company_doc_review::workflow());
     let workers = Workers::new(WorkersDeps {
         database: database.clone(),
         events: events.clone(),
@@ -190,6 +200,11 @@ pub async fn run() -> Result<()> {
         steps,
     });
     loops.push(("workflows.workers", workers.start(shutdown.clone())));
+    // The company doc's review, every few hours while something new was ingested.
+    loops.push((
+        "company_doc.review",
+        company_doc_review::schedule(database.clone(), events.clone(), shutdown.clone()),
+    ));
     let elysia = Elysia::new(TurnRunner::Host(runner.clone()), grants);
     let elysia_tasks = elysia.start(
         database.clone(),

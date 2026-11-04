@@ -8,8 +8,9 @@ company.
 This doc is the design. Little of it is built; the roadmap is the issues in the Engine milestone. Built so far: the
 event stream through Redis pub/sub, the engine as a service of its own that runs every background loop, workflow runs
 on a Postgres queue of step jobs with the Runs page (Runs, below), the step and workflow framework over that queue,
-with each step's model setting (Workflows and steps, and Models, below), and the meeting workflow's first two steps,
-which fetch each meeting and transcribe its recording with a local Whisper (Meetings, below).
+with each step's model setting (Workflows and steps, and Models, below), the meeting workflow's first two steps,
+which fetch each meeting and transcribe its recording with a local Whisper (Meetings, below), and the company doc's
+scheduled review (The company doc, below).
 
 ## A service of its own
 
@@ -92,10 +93,11 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
 - A run is one workflow on one source. Each step of a run is its own job row with state, attempts, input, and output,
   so one step can be retried, skipped, or resumed alone. Runs show in the web app the way GitHub Actions shows jobs.
 
-Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and the first production
-workflow, `meeting` (`api/src/meetings/workflow.rs`), whose steps so far are `fetch_meeting` and
-`transcribe_meeting`. The engine registers every production step in `api/src/engine/mod.rs` and checks each declared
-workflow against them there. Tests declare their own.
+Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and two production
+workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps so far are `fetch_meeting` and
+`transcribe_meeting`, and `company_doc_review` (`api/src/company_doc/workflow.rs`), one step, `review_company_doc`.
+The engine registers every production step in `api/src/engine/mod.rs` and checks each declared workflow against them
+there. Tests declare their own.
 
 ### A step
 
@@ -235,9 +237,43 @@ the Runs page.
 ## The company doc
 
 - One document per instance knows the company: who it is, its leadership, people and how their names are spelled,
-  stakeholders, products, projects, and a glossary of names and jargon. Correction leans on it most.
-- A scheduled workflow reads what was ingested since it last ran and proposes changes. Nothing changes the doc until
-  the person approves it, and the person edits it directly at any time. It lives in the Knowledge base milestone.
+  stakeholders, products, projects, and a glossary of names and jargon. Correction leans on it most. The doc itself,
+  its proposals, and its history are designed in `docs/knowledge.md`, The company doc.
+- Built: a scheduled workflow, `company_doc_review`, reads what was ingested since it last ran and proposes changes.
+  Nothing changes the doc until a person approves each one, and people edit it directly at any time.
+
+### The review
+
+- **One run at a time.** The workflow runs on one source, the doc (`company_doc` / `company_doc`), so it has one live
+  run. A run's input is the instant it reads up to, two minutes before it started: a record is stamped when the
+  transaction that ingests it starts, so one committed a moment late is never passed by.
+- **Where it reads from.** `company_doc_review_cursor` holds the last record read, by ingestion time and id. A run
+  reads every owner's records after it, oldest first (`timeline_records.created_at`), never further back than 14 days
+  before its window ends; the first review, which has no cursor, reads those 14 days.
+- **A turn.** Each turn is one text turn on the runner (`TurnMode::Text`: no tools, no settings) on the step's model
+  setting, which it reads once there is something to read. Its prompt is the doc whole, the newest 30 pending and 30
+  rejected proposals as compact diffs, and as many records as fit, each body cut to 1,500 characters, under 120,000
+  bytes, since the runner passes the prompt as one argument and Linux allows one argument 128 KiB. A doc that leaves
+  too little room fails the step for good, saying so. The prompt and the checks on the answer are
+  `api/src/company_doc/review.rs`.
+- **Nothing in the answer is trusted.** Each proposal must name a section, hold edits and a reason, and be the first
+  for its section; it cites a record only when that record was offered, and its source is written from the record.
+  Each is then proposed like any agent's, so an edit whose text the section does not hold is left out, and so is a
+  change people already rejected. What was left out, and why, is written to the step's log.
+- **Once each.** A turn's proposals and the cursor's move to the last record it read commit in one transaction, and
+  the cursor moves only from where the turn started, so an attempt that runs again after its engine stopped proposes
+  nothing twice.
+- **How much.** A run takes at most three turns; what is left waits for the next run, so one run never spends a day's
+  usage at once. A run that read nothing skips its step, saying so.
+- **When.** The engine's schedule (`company_doc::workflow::schedule`) looks every 10 minutes and starts a run, as
+  Elysia, when none ran yet or the last one succeeded at least six hours before, and something was ingested since
+  the cursor. A run still live, failed and waiting on a person, holds the next one back, as every workflow's live run
+  does. People start one at once from the Company doc page's Look for updates (`POST /api/v1/company-doc/review`),
+  which answers the live run when there is one.
+- **What it logs.** How many records it read and what it proposed to which section, never a word of the records:
+  every member reads every run's log, and a record is its owner's. The proposals themselves quote what they cite,
+  which the knowledge base shares with every member (`docs/knowledge.md`, Who sees what).
+- The limits (interval, window, turns, prompt budget) are constants in `api/src/company_doc/`.
 
 ## Project Managers
 
@@ -278,7 +314,7 @@ the Runs page.
   one runs on the default in code (`api/src/models/step_model_setting.rs`).
 - A step whose work is an agent turn asks for its setting as the turn starts (`StepContext::model`), which reads it
   then and writes it to the step's log, so a change applies from the next turn, a retry's included. It passes both to
-  the runner (`TurnRequest::model` and `effort`).
+  the runner (`TurnRequest::model` and `effort`). The company doc's review is the first step that does.
 - `step_model_setting::for_step` is the one place a step's model is resolved. The admin settings page that lists each
   step and agent with its model and effort is on the roadmap, and so are overrides per agent kind and per project;
   both change what it answers, never what a step does.

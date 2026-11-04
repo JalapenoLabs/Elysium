@@ -405,6 +405,66 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    company_doc_events (id) {
+        id -> Uuid,
+        kind -> Text,
+        created_by -> Uuid,
+        proposal_id -> Nullable<Uuid>,
+        data -> Jsonb,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    company_doc_proposals (id) {
+        id -> Uuid,
+        section -> Text,
+        base_content -> Text,
+        content -> Text,
+        reason -> Text,
+        quote -> Nullable<Text>,
+        source -> Nullable<Text>,
+        timeline_record_id -> Nullable<Uuid>,
+        workflow_run_id -> Nullable<Uuid>,
+        state -> Text,
+        decided_by -> Nullable<Uuid>,
+        decided_at -> Nullable<Timestamptz>,
+        created_by -> Uuid,
+        agent -> Nullable<Text>,
+        agent_name -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    company_doc_review_cursor (singleton) {
+        singleton -> Bool,
+        reviewed_through_at -> Nullable<Timestamptz>,
+        reviewed_through_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    company_doc_sections (section) {
+        section -> Text,
+        content -> Text,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     connector_check_results (connector_id, check_id) {
         connector_id -> Uuid,
         check_id -> Text,
@@ -781,6 +841,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         learning_id -> Nullable<Uuid>,
+        company_doc_section -> Nullable<Text>,
     }
 }
 
@@ -1387,6 +1448,13 @@ diesel::joinable!(coding_sessions -> github_credentials (github_credential_id));
 diesel::joinable!(coding_sessions -> projects (project_id));
 diesel::joinable!(coding_sessions -> studio_items (studio_item_id));
 diesel::joinable!(coding_sessions -> users (created_by));
+diesel::joinable!(company_doc_events -> company_doc_proposals (proposal_id));
+diesel::joinable!(company_doc_events -> users (created_by));
+diesel::joinable!(company_doc_proposals -> company_doc_sections (section));
+diesel::joinable!(company_doc_proposals -> timeline_records (timeline_record_id));
+diesel::joinable!(company_doc_proposals -> workflow_runs (workflow_run_id));
+diesel::joinable!(company_doc_review_cursor -> users (created_by));
+diesel::joinable!(company_doc_sections -> users (created_by));
 diesel::joinable!(connector_check_results -> connectors (connector_id));
 diesel::joinable!(connector_runs -> connectors (connector_id));
 diesel::joinable!(connectors -> browser_sessions (browser_session_id));
@@ -1423,6 +1491,7 @@ diesel::joinable!(jira_credential_boards -> jira_credentials (jira_credential_id
 diesel::joinable!(jira_credential_projects -> jira_credentials (jira_credential_id));
 diesel::joinable!(jira_credentials -> users (created_by));
 diesel::joinable!(jira_done_transitions -> jira_credentials (jira_credential_id));
+diesel::joinable!(knowledge_documents -> company_doc_sections (company_doc_section));
 diesel::joinable!(knowledge_documents -> learnings (learning_id));
 diesel::joinable!(knowledge_documents -> timeline_records (timeline_record_id));
 diesel::joinable!(knowledge_documents -> users (created_by));
@@ -1494,6 +1563,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     changesets,
     claude_accounts,
     coding_sessions,
+    company_doc_events,
+    company_doc_proposals,
+    company_doc_review_cursor,
+    company_doc_sections,
     connector_check_results,
     connector_runs,
     connectors,

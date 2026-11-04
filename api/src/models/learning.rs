@@ -22,11 +22,11 @@ use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
-use tracing::{Level, event};
 use uuid::Uuid;
 
 use crate::database::schema::{learning_events, learnings};
 use crate::knowledge::passages;
+use crate::models::agent::Agent;
 use crate::models::knowledge_document::{self, IndexedDocument, KnowledgeSource};
 use crate::models::learning_category;
 
@@ -46,50 +46,6 @@ pub struct LearningContent {
     /// The key of the category it is filed under.
     pub category: String,
     pub evidence: String,
-}
-
-/// The agent acting for the person who made a change: today an MCP client they connected.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Agent {
-    /// Its recorded form, `mcp:<client id>`.
-    id: String,
-    /// What it called itself, such as `Claude Code`. Registered by the client, so a label only.
-    name: Option<String>,
-}
-
-/// The longest agent name kept, in characters, as `learnings.agent_name` allows.
-const AGENT_NAME_MAX_CHARACTERS: usize = 200;
-
-/// The longest client id `learnings.agent` holds after its `mcp:` prefix.
-const CLIENT_ID_MAX_CHARACTERS: usize = 255;
-
-impl Agent {
-    /// The MCP client `client_id`, named as it registered itself.
-    ///
-    /// `None`, with a warning, for an id the column cannot hold: Hydra issues ids far shorter,
-    /// so only a client registered some other way could have one.
-    pub fn mcp_client(client_id: &str, name: &str) -> Option<Self> {
-        let length = client_id.chars().count();
-        if length == 0
-            || length > CLIENT_ID_MAX_CHARACTERS
-            || client_id.contains(char::is_whitespace)
-        {
-            event!(
-                name: "learning.agent.unrecordable",
-                Level::WARN,
-                oauth.client.id.length = length,
-                "an MCP client id that cannot be recorded; the change names no agent",
-            );
-            return None;
-        }
-        let name = name.trim();
-        let name =
-            (!name.is_empty()).then(|| name.chars().take(AGENT_NAME_MAX_CHARACTERS).collect());
-        Some(Self {
-            id: format!("mcp:{client_id}"),
-            name,
-        })
-    }
 }
 
 /// Who makes a change, and when.
@@ -336,8 +292,8 @@ async fn create(
             body: content.body,
             category: content.category,
             evidence: content.evidence,
-            agent: author.agent.map(|agent| agent.id.as_str()),
-            agent_name: author.agent.and_then(|agent| agent.name.as_deref()),
+            agent: author.agent.map(Agent::id),
+            agent_name: author.agent.and_then(Agent::name),
             created_by: author.user_id,
             created_at: author.at,
         })
@@ -699,8 +655,8 @@ async fn record(
             learning_id,
             kind: kind.as_str(),
             created_by: author.user_id,
-            agent: author.agent.map(|agent| agent.id.as_str()),
-            agent_name: author.agent.and_then(|agent| agent.name.as_deref()),
+            agent: author.agent.map(Agent::id),
+            agent_name: author.agent.and_then(Agent::name),
             data,
             created_at: author.at,
         })
@@ -920,27 +876,6 @@ mod tests {
                 ),
                 "{data} is refused"
             );
-        }
-    }
-
-    #[test]
-    fn an_mcp_client_is_recorded_by_its_id_and_labelled_by_its_name() {
-        let agent = Agent::mcp_client("6b1f0c3e-77a4-4d0e-9a51-3c2d1f0e8a90", "  Claude Code ")
-            .expect("an ordinary client id is recorded");
-        assert_eq!(agent.id, "mcp:6b1f0c3e-77a4-4d0e-9a51-3c2d1f0e8a90");
-        assert_eq!(agent.name.as_deref(), Some("Claude Code"));
-
-        let unnamed = Agent::mcp_client("client", " ").expect("recorded");
-        assert_eq!(unnamed.name, None, "a blank name is no name");
-
-        let long_name = Agent::mcp_client("client", &"n".repeat(500)).expect("recorded");
-        assert_eq!(
-            long_name.name.map(|name| name.chars().count()),
-            Some(AGENT_NAME_MAX_CHARACTERS)
-        );
-
-        for unrecordable in ["", "has space", &"c".repeat(CLIENT_ID_MAX_CHARACTERS + 1)] {
-            assert!(Agent::mcp_client(unrecordable, "Claude Code").is_none());
         }
     }
 }

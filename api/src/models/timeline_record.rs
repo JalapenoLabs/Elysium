@@ -105,6 +105,42 @@ pub async fn find_by_external_id(
         .optional()
 }
 
+/// Up to `limit` records of every owner, in the order they were ingested: after position
+/// `after` (an ingestion instant and id, from an earlier read), ingested no earlier than
+/// `since` and no later than `through`. For a reader of everything ingested, such as the
+/// company doc's review, which reads for the whole company (`docs/knowledge.md`, Who sees what).
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn ingested_between(
+    connection: &mut AsyncPgConnection,
+    after: Option<(DateTime<Utc>, Uuid)>,
+    since: DateTime<Utc>,
+    through: DateTime<Utc>,
+    limit: i64,
+) -> QueryResult<Vec<TimelineRecord>> {
+    let mut query = timeline_records::table
+        .filter(timeline_records::created_at.ge(since))
+        .filter(timeline_records::created_at.le(through))
+        .order((
+            timeline_records::created_at.asc(),
+            timeline_records::id.asc(),
+        ))
+        .limit(limit)
+        .select(TimelineRecord::as_select())
+        .into_boxed();
+    if let Some((at, id)) = after {
+        query = query.filter(
+            timeline_records::created_at
+                .gt(at)
+                .or(timeline_records::created_at
+                    .eq(at)
+                    .and(timeline_records::id.gt(id))),
+        );
+    }
+    query.load(connection).await
+}
+
 /// The record `id`, when `owner` owns it, without its attributions.
 ///
 /// # Errors

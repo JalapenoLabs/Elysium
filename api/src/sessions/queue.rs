@@ -414,11 +414,12 @@ struct ToolAccess {
     has_passwords: bool,
 }
 
-/// The tool servers a turn may call: the work tools when the session has a project, the
-/// storage tools when that project reaches a storage location, and the password tools while
-/// the vault is up.
+/// The tool servers a turn may call: the knowledge base's always, the work tools when the
+/// session has a project, the storage tools when that project reaches a storage location, and
+/// the password tools while the vault is up.
 fn tool_servers(access: ToolAccess) -> Vec<&'static ToolServer> {
-    let mut servers = Vec::with_capacity(3);
+    let mut servers = Vec::with_capacity(4);
+    servers.push(&tools::knowledge::SERVER);
     if access.has_project {
         servers.push(&tools::work::SERVER);
     }
@@ -454,14 +455,29 @@ mod tests {
         };
         assert_eq!(
             names(true, true, true),
-            ["elysium_work", "elysium_storage", "elysium_passwords"]
+            [
+                "elysium_knowledge",
+                "elysium_work",
+                "elysium_storage",
+                "elysium_passwords"
+            ]
         );
-        assert_eq!(names(true, false, false), ["elysium_work"]);
-        assert!(names(false, false, false).is_empty());
-        assert_eq!(names(false, true, false), ["elysium_storage"]);
+        assert_eq!(
+            names(true, false, false),
+            ["elysium_knowledge", "elysium_work"]
+        );
+        assert_eq!(
+            names(false, false, false),
+            ["elysium_knowledge"],
+            "every turn reads the company doc"
+        );
+        assert_eq!(
+            names(false, true, false),
+            ["elysium_knowledge", "elysium_storage"]
+        );
         assert_eq!(
             names(false, false, true),
-            ["elysium_passwords"],
+            ["elysium_knowledge", "elysium_passwords"],
             "a session without a project still signs in to things"
         );
     }

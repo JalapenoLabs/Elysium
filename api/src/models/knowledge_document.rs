@@ -23,12 +23,15 @@ use uuid::Uuid;
 
 use crate::database::schema::sql_types::Vector;
 use crate::database::schema::{knowledge_documents, knowledge_passages};
+use crate::models::company_doc::Section;
 
 /// What a document was made from. Each kind is a column of its own, unique and cascading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KnowledgeSource {
     /// The learning with this id.
     Learning(Uuid),
+    /// This section of the company doc.
+    CompanyDocSection(Section),
 }
 
 impl KnowledgeSource {
@@ -36,6 +39,7 @@ impl KnowledgeSource {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Learning(_) => "learning",
+            Self::CompanyDocSection(_) => "company_doc",
         }
     }
 }
@@ -104,6 +108,11 @@ async fn lock(
             .first(connection)
             .await
             .optional(),
+        KnowledgeSource::CompanyDocSection(section) => query
+            .filter(knowledge_documents::company_doc_section.eq(section.as_str()))
+            .first(connection)
+            .await
+            .optional(),
     }
 }
 
@@ -121,6 +130,16 @@ async fn insert(
                 .values((
                     knowledge_documents::id.eq(id),
                     knowledge_documents::learning_id.eq(learning_id),
+                    fields,
+                ))
+                .execute(connection)
+                .await?;
+        }
+        KnowledgeSource::CompanyDocSection(section) => {
+            insert
+                .values((
+                    knowledge_documents::id.eq(id),
+                    knowledge_documents::company_doc_section.eq(section.as_str()),
                     fields,
                 ))
                 .execute(connection)
@@ -188,6 +207,13 @@ pub async fn remove(
             diesel::delete(documents.filter(knowledge_documents::learning_id.eq(id)))
                 .execute(connection)
                 .await?;
+        }
+        KnowledgeSource::CompanyDocSection(section) => {
+            diesel::delete(
+                documents.filter(knowledge_documents::company_doc_section.eq(section.as_str())),
+            )
+            .execute(connection)
+            .await?;
         }
     }
     Ok(())

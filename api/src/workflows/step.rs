@@ -173,13 +173,6 @@ impl StepContext {
     ///
     /// # Errors
     /// A retryable failure when the setting cannot be read.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "correction (#79) is the first step whose work is an agent turn"
-        )
-    )]
     pub async fn model(&self) -> Result<ModelChoice, StepFailure> {
         let read = async {
             let mut connection = self.database.get().await?;

@@ -32,7 +32,8 @@ use uuid::Uuid;
 pub use self::delete_learning::delete;
 pub use self::save_learning::{SaveLearningRequest, save};
 use crate::auth::MemberUser;
-use crate::models::learning::{Agent, Author, HistoryEntry, Learning, Recorded};
+use crate::models::agent::Agent;
+use crate::models::learning::{Author, HistoryEntry, Learning, Recorded};
 use crate::realtime::ServerEvent;
 use crate::state::AppState;
 
