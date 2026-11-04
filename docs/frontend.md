@@ -121,13 +121,64 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
   opens a submenu (`items`); `isPending` shows on its button or on the menu's trigger.
 - **Phones.** Below `sm` the right side stacks under the title and every control in it spans the full width,
   centered (`.page-actions` in `src/index.css`).
-- **Save.** A form inside the page registers the page's Save with `usePageSave` (`pageSave.ts`); see Settings pages
-  for how it works. A page with a form carries it in the header. A `/new` page also keeps its Create button
-  below the form, labelled the same, submitting the same form: two places, one action, as the new project, item, and
-  initiative pages do. Moving the item, initiative, and project pages, which save each field as it changes, onto the
-  header Save is on the roadmap.
+- **Save.** A page with a form carries its one Save in the header; see Saving. A `/new` page also keeps its Create
+  button below the form, labelled the same, submitting the same form: two places, one action, as the new project,
+  item, and initiative pages do.
 - **Workspace pages.** A page that manages its own scrolling (the Coding page, a Studio item) renders `PageHeader`
-  alone in its top bar, with the same props, and passes `className` for its spacing.
+  alone in its top bar, with the same props, and passes `className` for its spacing. It has no Save, so nothing on it
+  is a field: a Studio item is renamed from its Actions menu, in a dialog with its own button.
+
+### Saving
+
+Elysium saves manually, per page (`~/.claude/docs/ux.md`, Saving). No field saves itself as it changes: a page's
+fields wait for its one Save, and every save is confirmed with a toast. What acts on its own is an action (a button
+or menu item that does one thing, such as Resolve, Approve, Link, Forget, or Delete), never a field.
+
+- **Registering.** The form that owns the page's fields registers the page's Save, however deep it sits, with
+  `usePageSave` (`src/layout/page/pageSave.ts`), which returns the form's `onSubmit`:
+
+  ```tsx
+  const onSubmit = usePageSave({
+    // Resolves true once saved, false when invalid or refused; the form reports a refusal itself.
+    save: saveForm(form, async (values) => { ...; return true }),
+    isDirty: form.formState.isDirty,
+    // Optional: why Save is disabled, shown in its tooltip; and a label other than Save.
+    blockedReason: null,
+    label: t('actions.connect'),
+  })
+  return <Form onSubmit={onSubmit}>...</Form>
+  ```
+
+  `saveForm` runs a react-hook-form form's validation, then its handler. A page whose own component holds the form,
+  because its fields sit in the header and beside other sections (an item, an initiative, a project), passes the same
+  object to `Page` as `save` instead.
+- **One path.** `Page` runs the save for every way of saving: the header's Save, the floating card, Ctrl+S, Enter in
+  the form, and Save and continue. It tracks the save's progress itself, so Save shows pending and nothing runs it
+  twice. Save is enabled while the form is dirty and not blocked; disabled, its tooltip says why, "Nothing to save
+  yet" when nothing changed. Forms keep no save button or cancel button of their own, except a `/new` page's Create.
+- **Floating Save.** While the header's Save is scrolled out of view and the form is dirty, `FloatingSaveCard` offers
+  it in the bottom right. Dismissing it lasts until the header's Save is back in view.
+- **Leaving.** While the form is dirty, every way out of the page (a link, the sidebar, the breadcrumbs, Esc, the
+  browser's Back, or a change of the page's query, which can swap what it edits) is held by React Router's
+  `useBlocker` and asks in `LeavePageDialog`, with a warning icon: Discard work, Save and continue, or Keep editing.
+  Enter saves and continues; Esc keeps editing. A save that fails stays on the page. Closing or reloading the tab gets
+  the browser's own warning. A form's own navigation after it saves (a `/new` page opening what it created, an edit
+  page going back to its list) goes through without asking, and during Save and continue it is held, so the person
+  still lands where they were heading. Leaving a record just deleted passes `LEAVE_WITHOUT_ASKING` as the navigation's
+  state. The blocker needs a data router, so tests that render a `Page` use `createMemoryRouter`.
+- **Keyboard.** Esc goes up a level: to `escapeTo`, or on a page with a Save to its last parent, and the leave prompt
+  asks first when the form is dirty. It is left alone when a component already used it (`defaultPrevented`, as an
+  inline field putting its text back does), inside a menu or list box, and while a modal is open, so a modal closes
+  first. Ctrl+S (Cmd+S) never opens the browser's save dialog on any `Page`, and presses Save when it can. The rules
+  are `readPageShortcut` in `src/layout/page/pageShortcuts.ts`.
+- **Records edited in place.** An item, an initiative, and a project keep their fields in one form
+  (`useActionItemEditor`, `useInitiativeEditor`, `useProjectEditor`): the title in the header (`rename`), the notes
+  or description, and the side panel's fields. `InlineEditableText` reads as text until clicked and edits the form
+  value as it is typed, so Save and Ctrl+S always see it. Fields not touched follow the record as the event stream
+  changes it, and a save sends only what differs from the record as it stands, joining and leaving projects and
+  initiatives one route each; a save that fails part way is finished by the next.
+- **Feedback.** A save is confirmed with a toast alone. Nothing a save reports may move the page, so there are no
+  success banners above the form.
 
 `AppShell` also mounts HeroUI's `RouterProvider`, wired to React Router's `navigate` and `useRouterHref`
 (`src/layout/useRouterHref.ts`). That makes any HeroUI `Link` `href` a client-side navigation, while a full URL to
@@ -182,6 +233,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/llms/add-<type>`   | `AddLlmPage`             | One per provider, see below                              |
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
 | `/settings/email`             | `ManageEmailPage`        | Mail server and domains, and every kind of mailbox       |
+| `/settings/email/:accountId/edit` | `EditMailboxPage`    | A mailbox's sender name and whether it is active         |
 | `/settings/environment`       | `ManageEnvironmentPage`  | Environment variables every coding session receives     |
 | `/settings/environment/new`   | `AddEnvironmentVariablePage` | Add an environment variable                          |
 | `/settings/environment/:variableId/edit` | `EditEnvironmentVariablePage` | Edit an environment variable              |
@@ -233,32 +285,9 @@ only describes itself:
 ```
 
 - **Header.** The standard page header, with Save between the primary action and the Actions menu.
-- **One Save per page.** The form that owns the page's settings registers it, however deep it sits, with
-  `usePageSave` (`src/layout/page/pageSave.ts`), and puts the same id on its `<Form>`:
-
-  ```tsx
-  usePageSave({
-    formId: LLM_FORM_ID,
-    isDirty: form.formState.isDirty,
-    isPending: form.formState.isSubmitting,
-    // Optional: why Save is disabled, shown in its tooltip; and a label other than Save.
-    blockedReason: null,
-    label: t('actions.connect'),
-  })
-  ```
-
-  Save submits that form (`type='submit' form={formId}`), so Save, Enter, and Ctrl+S share the form's own submit
-  handler and validation. It is enabled while the form is dirty, not pending, and not blocked. Forms keep no save
-  button or cancel button of their own; the breadcrumbs and Esc go back. A page with nothing to save, such as a list,
-  registers nothing and shows no Save.
-- **Floating Save.** While the header's Save is scrolled out of view and the form is dirty, `FloatingSaveCard` offers
-  it in the bottom right. Dismissing it lasts until the header's Save is back in view.
-- **Keyboard.** Esc goes to the last parent, or `/settings`, asking first when the form is dirty. It is left alone
-  when a component already used it (`defaultPrevented`), inside a menu or list box, and while a modal is open, so a
-  modal closes first. Ctrl+S (Cmd+S) never opens the browser's save dialog on any `Page`, and presses Save when it
-  can. The rules are `readPageShortcut` in `src/layout/page/pageShortcuts.ts`.
-- **Feedback.** A save is confirmed with a toast alone. Nothing a save reports may move the page, so there are no
-  success banners above the form.
+- **One Save per page.** The form that owns the page's settings registers it with `usePageSave`, as every page does
+  (see Saving). Esc goes to the last parent, or `/settings`. A page with nothing to save, such as a list, registers
+  nothing and shows no Save.
 
 ## Accounts
 
@@ -298,8 +327,10 @@ offers them in autofill. See `docs/auth.md`.
     new one up in the same modal.
   - **Passkeys, Lookup codes, Sessions.** Each list with its action above it.
 - **Users** (`/settings/users`). Admins only. Workspace access settings, then pending sign-ups pinned above everyone
-  approved. Users flow through SWR, then `usersSlice`, then the `user.*` events. The directory entry is hidden from
-  others and badges the pending count.
+  approved. The access switches and each person's role are the page's fields, kept by its Save; a role the API
+  refuses, such as the last admin's, stays picked. Approving, disabling, and the rest of a row's menu act at once.
+  Users flow through SWR, then `usersSlice`, then the `user.*` events. The directory entry is hidden from others and
+  badges the pending count.
 - **Updates** (`/settings/updates`). Admins only. The release running, auto-update's state with what it waits for, a
   warning when no updater is connected, Check now, Update now for a release that rolled back, and the update history.
   The status flows through SWR, then `updatesSlice`, then the `updates.status` event. The directory entry is hidden
@@ -395,9 +426,10 @@ Below the credentials, admins see Agent configuration (`AgentConfigurationSettin
 agent's Claude Code configuration is checked out from, saved to the workspace settings (see `docs/coding.md`).
 
 Storage under `src/pages/Settings/Storage/` lists storage locations in a table (name, provider and region, zone or
-bucket with directory, projects, limit, and a Studio default switch, `StudioDefaultSwitch`) whose row menu edits,
-tests, or deletes one; delete confirms through `useConfirm`. Adding and editing are their own pages: `StorageLocationEditorLayout` holds the breadcrumbs and title,
-and `StorageLocationForm` lays out the form beside a `StorageSetupChecklist` for the chosen provider.
+bucket with directory, projects, limit, and a Default chip on Studio's default) whose row menu edits, tests, or
+deletes one; delete confirms through `useConfirm`. Adding and editing are their own pages: `StorageLocationEditorLayout`
+holds the breadcrumbs and title, and `StorageLocationForm` lays out the form beside a `StorageSetupChecklist` for the
+chosen provider. A stored location's form also has the Studio's default switch, sent only when changed.
 
 The Provider picker offers three options (`STORAGE_OPTIONS`): Bunny Storage, Amazon S3, and Google Cloud Storage. The
 last two are the API's `s3` kind with a `service`, split in the picker because each is set up in its own console. The
@@ -421,8 +453,9 @@ soon as the kind changes, mirroring the API. `githubPresentation.ts` holds the l
 `matchesGithubTokenKind`, which checks a token's prefix before the API spends a call on it. An expired token shows a
 danger chip in place of its date. The default token wears a Default chip, and the row menu makes a token the default
 or stops. `src/components/GithubTokenSelect.tsx` picks a token for a project (`ProjectGithubField` on the project
-page, saved on change, with a notice when its token was deleted) and for a session (`CreateSessionModal`). Both offer
-following the level above, no token, or a token by name. See `docs/github.md`.
+page, kept by its Save, with a notice when its token was deleted) and for a session (`CreateSessionModal`). Both offer
+following the level above, no token, or a token by name. See `docs/github.md`. The edit page sits under Connectors in
+the breadcrumbs, and goes back there once saved.
 
 Jira under `src/pages/Settings/Jira/` holds any number of Jira Cloud credentials, each one Atlassian account on one
 site with the projects and boards Elysium may read. Nothing about a project or a board is ever typed in: every option
@@ -441,7 +474,9 @@ comes from what Jira said the token reaches.
   the token, the site, or a project lost since the page opened.
 - `JiraDoneTransitionsPage` picks one of the site's allowed projects (the same `['jira-credential-projects', id]`
   listing) into `?project=`, and `JiraDoneTransitionPanel` reads that project's done statuses and choice from the API
-  each time it opens: the one chosen, the only one, or a warning to choose among several, with a select and Forget.
+  each time it opens: the one chosen, the only one, or a warning to choose among several, with a select kept by the
+  page's Save and Forget, which acts at once. Picking another project with a choice unsaved asks first. These pages
+  and the credential's edit page sit under Connectors in the breadcrumbs.
 - `JiraConnectionFields` is the connection half both forms render. The token field is optional while editing and turns
   required as soon as the site or the account email changes, mirroring the API.
 - `JiraScopeFields` is the allowlist half both forms render: an All projects switch over `JiraScopePicker`, and the
@@ -475,9 +510,9 @@ no ready mail server, or no domain. `CreateMailboxModal` picks one of the server
 plain anchors to the API's
 OAuth start route, because the answer is a redirect to the broker; a client-side route change would not follow it.
 `useOAuthOutcomeToast` announces the `mailConnected` or `mailError` the callback returns with, then strips it from
-the URL. The row menu tests the connection, sends a test message, changes the sender name (through `usePrompt`),
-toggles active, and disconnects; the disconnect confirmation says whether mail is deleted (self-hosted) or only
-forgotten (OAuth).
+the URL. The row menu opens the mailbox's edit page, tests the connection, sends a test message, and disconnects;
+the disconnect confirmation says whether mail is deleted (self-hosted) or only forgotten (OAuth). The edit page
+(`EditMailboxPage`, `MailboxForm`) holds the sender name and whether the mailbox is active, kept by its Save.
 
 ### Learnings
 
@@ -549,13 +584,14 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   switch that lists deleted items instead, each with Restore. Filters live in the address (`actionItemFilters.ts`),
   with only what differs from the defaults written, so a filtered list survives opening an item and coming back.
 - **Item page** (`ActionItemPage`, which loads the item for `ActionItemView`) edits the title (the page's title) and
-  notes in place with `InlineEditableText`. `useActionItemPageActions` gives its header the first state change the
+  notes in place with `InlineEditableText`, kept by the page's Save (see Saving). `useActionItemPageActions` gives its header the first state change the
   state allows as the primary action (`transitionsByState` mirrors the API's table), and an Actions menu with the
   other state changes, Snooze (a submenu of the presets, Pick a day, and End snooze), Wait on someone, Stop waiting,
   Start a coding session, and Delete. `ActionItemSessions` lists the coding sessions started
-  from the item, from the `codingSessions` slice, below its comments. `ActionItemDetailsPanel` saves priority, due date,
-  projects, and initiatives as they change; projects and initiatives go through their per-id routes, one request per
-  one joined or left (`membershipChanges.ts`). A deleted item is read-only under a banner with Restore.
+  from the item, from the `codingSessions` slice, below its comments. `ActionItemDetailsPanel` holds priority, due date,
+  projects, and initiatives, kept by the same Save; projects and initiatives go through their per-id routes, one
+  request per one joined or left (`membershipChanges.ts`). A due date is sent only when its day changed
+  (`toChangedDayInstant`). A deleted item is read-only under a banner with Restore.
 - **Links** (`ActionItemLinks`, under the item's notes) lists the item's links from the `actionItemLinks` slice, the
   primary first, each with its provider, kind, key (opening it in the provider), and state. What the provider says now
   (title, status, assignee, priority, due date) comes from `useActionItemLinkRemotes`, which reads every link live
@@ -584,9 +620,9 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
 - **Initiatives** (`InitiativesPage`, `InitiativeTable`) list name, state, progress, target date, and projects, active
   ones by default, with a Deleted initiatives switch like items'. Progress is always resolved and total together
   (`InitiativeProgressSummary`), with a bar beside the counts, never a percentage.
-- **Initiative page** (`InitiativePage`) edits the name (the page's title, with its state chip beside it) and the
-  description in place, and Delete is its Actions menu. It edits state, target date, and projects in
-  `InitiativeDetailsPanel`. `BurnupChart` draws total and resolved as steps from the API's burnup, with a legend,
+- **Initiative page** (`InitiativePage`, which loads the initiative for `InitiativeView`) edits the name (the page's
+  title, with its state chip beside it) and the description in place, and Delete is its Actions menu. It edits state,
+  target date, and projects in `InitiativeDetailsPanel`. All of them are kept by the page's Save. `BurnupChart` draws total and resolved as steps from the API's burnup, with a legend,
   direct end labels, a crosshair and tooltip that snap to the nearest change (by pointer or arrow keys), and the same
   numbers in a table beneath; its geometry is `burnup.ts`. `InitiativeMembers` lists the items with a button to take
   one out, adds existing items from a search, and links to a new item started in the initiative.
@@ -728,17 +764,22 @@ through the same state as the toolbar. The chosen view is remembered per browser
 The cover thumbnail opts out of the row click with `data-no-row-highlight`, so previewing it does not navigate.
 
 `ProjectPage` loads the project for `ProjectDetails`, which edits it in place. The name is the page's title.
-`ProjectBanner` runs the cover across the page below the header: double-clicking it, or its Change cover button, picks an image and uploads it at once; without a cover
-it is a single Add a cover image button. Beside Change cover, a Fit and Fill switch saves the project's `coverFit`,
-which every rendering of the cover follows. Both controls show on hover or focus. About, below the banner, holds the description and who created the project. The name and description are
-`InlineEditableText`, saved as soon as they are changed. The header's Actions menu (`useProjectActions`) holds what
-cannot be done in place: Remove cover, and Delete, which
+Everything on it that changes the project is kept by the page's Save (see Saving).
+`ProjectBanner` runs the cover across the page below the header: double-clicking it, or its Change cover button,
+picks an image, shown in place until Save uploads it, with Keep the current cover to drop it; without a cover it is a
+single Add a cover image button. Beside Change cover, a Fit and Fill switch sets the project's `coverFit`, which every
+rendering of the cover follows. The controls show on hover or focus, and stay while a new cover waits. About, below
+the banner, holds the description and who created the project. The name and description are `InlineEditableText`.
+Save sends the changed fields first, then uploads the cover; a cover that fails stays picked, so the next Save
+uploads it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Remove cover,
+and Delete, which
 confirms through `useConfirm` and only explains while sessions remain. Below, `CodingSessionsTable` lists the
 project's coding sessions; a row or title opens the session on the Coding page.
 
-`src/components/InlineEditableText.tsx` shows text that becomes its own editor when clicked, in the same typography.
-Enter saves a single line, Ctrl or Cmd with Enter a multi-line one, and clicking away saves too; Escape cancels. Its
-`onSave` receives the trimmed value only when it changed, and throwing keeps the editor open on what was typed.
+`src/components/InlineEditableText.tsx` shows a field of the page's form as text that becomes its own editor when
+clicked, in the same typography. Every keystroke changes the form. Enter finishes a single line, Ctrl or Cmd with
+Enter a multi-line one, and clicking away finishes too, trimming the value; Escape puts back what was there when
+editing began, and a required value left empty is put back the same way.
 
 Each tile opens with `ProjectCover`, a 16:9 frame that follows the project's `coverFit`. With `fill` the cover covers
 the frame, cropped to it, which suits photos. With `fit`, the default, it is contained, never cropped or stretched: a

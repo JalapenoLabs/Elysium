@@ -452,6 +452,8 @@ changesets under `/api/v1/changesets`, the `work_propose_changes` tool, and thei
   state stays in components.
 - Server data flows SWR, then Redux, then the event stream: an SWR loader fetches it once and buffers it, Redux is
   the source of truth components render, and the event stream keeps Redux current. See `docs/frontend.md`.
+- Elysium saves manually, per page: no field saves itself, and a page's fields wait for its one Save, which `Page`
+  runs for every way of saving. Leaving with unsaved changes asks first. See `docs/frontend.md`, Saving.
 - Every user-facing string goes through i18next. `en-US` is the only locale today.
 - Every date, duration, and number shown goes through `frontend/src/format/`: "January 1st 2026 at 8:56pm", never
   numeric months, and "1.4M" with one decimal. Lint fails on formatting anywhere else. See `docs/frontend.md`, Dates

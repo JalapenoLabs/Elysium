@@ -332,9 +332,9 @@ project's `done` statuses from `GET /rest/api/3/project/{key}/statuses` now. `PU
 them, refused with `400` for any other, and wakes the watcher so waiting closes are tried at once. `DELETE` forgets the
 choice. The project must be one the credential may touch, or `403`.
 
-The frontend chooses under Settings, Jira, a site's Done statuses (`/settings/jira/:credentialId/done-transitions`):
-pick one of the site's allowed projects, and the page reads that project's answer and offers its done statuses when
-it has several. A close waiting on a choice links there with the project already picked (`docs/frontend.md`).
+The frontend chooses a site's Done statuses on their own page under Settings, Connectors
+(`/settings/jira/:credentialId/done-transitions`): pick one of the site's allowed projects, and the page reads that
+project's answer and offers its done statuses when it has several, the choice kept by the page's Save. A close waiting on a choice links there with the project already picked (`docs/frontend.md`).
 
 `POST /{id}/issues/{key}/comments` takes `{ body }` and answers
 `201 { comment: { id, author, body, createdAt, updatedAt } }`.

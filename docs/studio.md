@@ -221,7 +221,10 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
 - **Composer** (`StudioComposer`). It wraps the Coding page's `PromptComposer` and sends through `sendStudioTurn`.
   It waits while the item's sessions load, and asks for what to make when the item has never run.
 - **Deleted items.** A deleted item is read-only under a banner with Restore. A pull error shows as a banner too.
-- **Delete** (`useStudioItemActions`, the Actions menu of the item's header, `StudioItemHeader`). It confirms
+- **Rename** (`useStudioItemActions`, the Actions menu of the item's header, `StudioItemHeader`). It asks for the
+  new title in a dialog saved by its own button, since the page is a workspace with no Save of its own. A deleted
+  item has no Rename.
+- **Delete** (the same menu). It confirms
   through `useConfirm` with one switch, off when it opens, that makes the delete permanent; turned on, the dialog
   says it can't be undone and counts down. A soft delete rereads the item to show it deleted; a permanent one returns
   to the grid.
@@ -255,7 +258,8 @@ The viewer is `@google/model-viewer` (`StudioModelViewer`), imported lazily so t
 
 ### Settings
 
-Settings, Storage has a Studio default column whose switch (`StudioDefaultSwitch`) sets `isStudioDefault`.
+A storage location's edit page has a Studio's default switch that sets `isStudioDefault`, kept by the page's Save;
+Settings, Storage marks the default location in its Studio default column.
 
 ## Roadmap
 
