@@ -5,7 +5,8 @@
       "meeting": "Meeting"
     },
     "steps": {
-      "fetch_meeting": "Fetch transcript and recording"
+      "fetch_meeting": "Fetch transcript and recording",
+      "transcribe_meeting": "Transcribe the recording"
     },
     "sources": {
       "meeting": "Meeting"

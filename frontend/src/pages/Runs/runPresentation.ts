@@ -55,6 +55,7 @@ export const runNameKeys = {
   ]),
   steps: new Map<string, ParseKeys<'runs'>>([
     [ 'fetch_meeting', 'names.steps.fetch_meeting' ],
+    [ 'transcribe_meeting', 'names.steps.transcribe_meeting' ],
   ]),
   sources: new Map<string, ParseKeys<'runs'>>([
     [ 'meeting', 'names.sources.meeting' ],

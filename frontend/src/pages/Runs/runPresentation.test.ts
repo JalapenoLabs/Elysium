@@ -52,6 +52,7 @@ describe('runNameKeys', () => {
   it('names the meeting workflow, its steps, and what its runs are about', () => {
     expect(runNameKeys.workflows.has('meeting')).toBe(true)
     expect(runNameKeys.steps.has('fetch_meeting')).toBe(true)
+    expect(runNameKeys.steps.has('transcribe_meeting')).toBe(true)
     expect(runNameKeys.sources.has('meeting')).toBe(true)
   })
 })
