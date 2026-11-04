@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { Changeset } from '../../api/routes/changesetRoutes'
+import type { ChangesetList } from './ChangesetTable'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -13,18 +14,22 @@ import { selectChangesets } from '../../store/changesetsSlice'
 import { Spinner, Tabs } from '@heroui/react'
 import { EmptyNotice } from '../../components/EmptyNotice'
 import { PageTabs } from '../../components/PageTabs'
-import { ChangesetListItem } from './ChangesetListItem'
+import { ChangesetTable } from './ChangesetTable'
 
 // Misc
 import { useChangesetsLoader } from '../../hooks/useServerData'
 import { useTabParam } from '../../hooks/useTabParam'
+import { usePageToolsContainer } from '../../layout/page/pageTools'
 
-const TABS = [ 'pending', 'reviewed' ] as const
+const TABS = [ 'pending', 'reviewed' ] as const satisfies readonly ChangesetList[]
 
 // `/action-items/changesets`: the changesets waiting for review, and on a tab of their own the
-// ones already decided, each newest first. The open tab lives in the address.
+// ones already decided, each a table newest first, its search, Columns, and export in the Action
+// items titlebar. Only the open tab's panel is mounted, so one table at a time holds the
+// titlebar. The open tab lives in the address.
 export function ChangesetsPage() {
   const { t } = useTranslation('changesets')
+  const toolsContainer = usePageToolsContainer()
   const status = useChangesetsLoader()
   const changesets = useAppSelector(selectChangesets)
   const [ selectedTab, selectTab ] = useTabParam(TABS)
@@ -58,18 +63,24 @@ export function ChangesetsPage() {
       { id: 'reviewed', label: t('tabs.reviewed'), count: reviewed.length },
     ]}
   >
-    <Tabs.Panel id='pending'>{
-      pending.length
-        ? pending.map((changeset) => <ChangesetListItem key={changeset.id} changeset={changeset} />)
-        : <EmptyNotice>
+    <Tabs.Panel id='pending'>
+      <ChangesetTable
+        changesets={pending}
+        list='pending'
+        controlsContainer={toolsContainer}
+        emptyNotice={<EmptyNotice>
           <span className='block font-semibold'>{t('list.emptyTitle')}</span>
           <span>{t('list.emptyBody')}</span>
-        </EmptyNotice>
-    }</Tabs.Panel>
-    <Tabs.Panel id='reviewed'>{
-      reviewed.length
-        ? reviewed.map((changeset) => <ChangesetListItem key={changeset.id} changeset={changeset} />)
-        : <EmptyNotice>{t('list.noneReviewed')}</EmptyNotice>
-    }</Tabs.Panel>
+        </EmptyNotice>}
+      />
+    </Tabs.Panel>
+    <Tabs.Panel id='reviewed'>
+      <ChangesetTable
+        changesets={reviewed}
+        list='reviewed'
+        controlsContainer={toolsContainer}
+        emptyNotice={<EmptyNotice>{t('list.noneReviewed')}</EmptyNotice>}
+      />
+    </Tabs.Panel>
   </PageTabs>
 }

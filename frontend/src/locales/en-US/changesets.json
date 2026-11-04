@@ -41,9 +41,16 @@
     "loadError": "Changesets could not be loaded.",
     "emptyTitle": "Nothing to review",
     "emptyBody": "When Elysia or a coding session proposes changes to your items, they wait here until you decide.",
-    "noneReviewed": "Nothing reviewed yet.",
-    "review": "Review",
-    "open": "Open"
+    "noneReviewed": "Nothing reviewed yet."
+  },
+  "table": {
+    "summary": "Summary",
+    "state": "State",
+    "proposer": "Proposed by",
+    "project": "Project",
+    "changes": "Changes",
+    "proposed": "Proposed",
+    "decided": "Decided"
   },
   "lead": {
     "title_one": "{{count, compact}} changeset waits for your review",
