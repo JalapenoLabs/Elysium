@@ -19,7 +19,7 @@ export function ThemeSelector() {
   const { preference, setPreference } = useThemePreference()
 
   return <RadioGroup
-    aria-label={t('personalDetails.appearance.label')}
+    aria-label={t('profile.appearance.label')}
     orientation='horizontal'
     value={preference}
     onChange={(value) => {

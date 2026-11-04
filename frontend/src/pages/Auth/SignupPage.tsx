@@ -11,6 +11,7 @@ import useSWR from 'swr'
 // User interface
 import { Alert, Button, FieldError, Form, Input, Label, Link, Spinner, TextField } from '@heroui/react'
 import { PasswordInput } from '../../components/PasswordInput'
+import { PersonNameFields } from '../../components/PersonNameFields'
 import { KratosMessages } from './KratosMessages'
 
 // Misc
@@ -21,7 +22,7 @@ import { usePasswordAssessment } from '../../hooks/usePasswordAssessment'
 import { UrlTree } from '../../urls'
 import { fieldErrorText } from './kratosPresentation'
 
-// Signing up with a name, an email, and a password. Passkeys are added once the account
+// Signing up with a first and last name, an email, and a password. Passkeys are added once the account
 // exists; Elysium refuses a passkey sign-up. Everyone but the first person then waits for an
 // admin, which the workspace shows them after the full page load that follows.
 export function SignupPage() {
@@ -29,11 +30,12 @@ export function SignupPage() {
   const { data: status } = useSWR('v1/auth/status', getAuthStatus)
   const [ flow, setFlow ] = useState<RegistrationFlow | null>(null)
   const [ failure, setFailure ] = useState<string | null>(null)
-  const [ name, setName ] = useState('')
+  const [ firstName, setFirstName ] = useState('')
+  const [ lastName, setLastName ] = useState('')
   const [ email, setEmail ] = useState('')
   const [ password, setPassword ] = useState('')
   const [ isSubmitting, setIsSubmitting ] = useState(false)
-  const assessment = usePasswordAssessment(password, [ name, email ])
+  const assessment = usePasswordAssessment(password, [ firstName, lastName, email ])
 
   useEffect(() => {
     let isCurrent = true
@@ -71,7 +73,10 @@ export function SignupPage() {
         updateRegistrationFlowBody: {
           method: 'password',
           csrf_token: csrfToken(flow),
-          traits: { email: email.trim(), name: name.trim() },
+          traits: {
+            email: email.trim(),
+            name: { first: firstName.trim(), last: lastName.trim() },
+          },
           password,
         },
       })
@@ -106,7 +111,7 @@ export function SignupPage() {
     ? collectMessages(flow)
     : null
   const canSubmit = Boolean(flow)
-    && name.trim().length > 0
+    && firstName.trim().length > 0
     && email.trim().length > 0
     && assessment.isAcceptable
     && !isSubmitting
@@ -132,20 +137,17 @@ export function SignupPage() {
 
     {flow && messages && <Form onSubmit={submit} validationBehavior='aria'>
       <KratosMessages messages={messages.form} />
-      <TextField
-        isRequired
-        autoFocus
-        className='compact'
-        autoComplete='name'
-        maxLength={100}
-        isInvalid={Boolean(messages.byField['traits.name'])}
-        value={name}
-        onChange={setName}
-      >
-        <Label>{t('fields.name')}</Label>
-        <Input />
-        <FieldError>{fieldErrorText(messages.byField['traits.name'], t)}</FieldError>
-      </TextField>
+      <div className='compact'>
+        <PersonNameFields
+          autoFocus
+          firstName={firstName}
+          lastName={lastName}
+          onFirstNameChange={setFirstName}
+          onLastNameChange={setLastName}
+          firstNameError={fieldErrorText(messages.byField['traits.name.first'], t)}
+          lastNameError={fieldErrorText(messages.byField['traits.name.last'], t)}
+        />
+      </div>
       <TextField
         isRequired
         className='compact'

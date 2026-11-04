@@ -5,32 +5,30 @@ import type { Session } from '@ory/client-fetch'
 // Core
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import useSWR from 'swr'
 
 // User interface
 import { Button, Chip, Spinner, toast } from '@heroui/react'
-import { LuMonitorSmartphone } from 'react-icons/lu'
-import { SecuritySection } from './SecuritySection'
+import { LuLogOut, LuMonitorSmartphone } from 'react-icons/lu'
 
 // Misc
 import { kratos } from '../../../api/kratos'
+import { useSignedInSessions } from './useSignedInSessions'
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
-// Where this person is signed in, straight from Kratos. Signing a device out ends its
-// session; the workspace notices within half a minute.
+// Where this person is signed in, on the Sessions tab. Signing a device out ends its session;
+// the workspace notices within half a minute.
 export function SessionsSection() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const [ isEnding, setIsEnding ] = useState(false)
-  const { data: current } = useSWR('kratos/session', () => kratos.toSession())
-  const { data: others, error, mutate } = useSWR('kratos/sessions', () => kratos.listMySessions())
+  const signedIn = useSignedInSessions()
 
   async function endOthers() {
     setIsEnding(true)
     try {
       await kratos.disableMyOtherSessions()
       toast.success(t('security.sessions.othersEnded'))
-      await mutate()
+      await signedIn.reload()
     }
     catch (failure) {
       console.debug('SessionsSection could not end the other sessions', { failure })
@@ -43,7 +41,7 @@ export function SessionsSection() {
     try {
       await kratos.disableMySession({ id: session.id })
       toast.success(t('security.sessions.ended'))
-      await mutate()
+      await signedIn.reload()
     }
     catch (failure) {
       console.debug('SessionsSection could not end a session', { failure, sessionId: session.id })
@@ -51,32 +49,24 @@ export function SessionsSection() {
     }
   }
 
-  // Kratos lists every session but the one asking, so this device comes first, from whoami.
-  const sessions: Session[] = []
-  if (current) {
-    sessions.push(current)
-  }
-  sessions.push(...(others ?? []))
-
-  return <SecuritySection
-    title={t('security.sessions.title')}
-    description={t('security.sessions.description')}
-    status={<Button
-      size='sm'
-      variant='outline'
-      isDisabled={!others?.length}
-      isPending={isEnding}
-      onPress={endOthers}
-    >
-      <span>{t('security.sessions.endOthers')}</span>
-    </Button>}
-  >
-    {error && <p className='text-sm text-danger'>{t('security.sessions.loadError')}</p>}
-    {!error && !others && <Spinner size='sm' />}
+  return <section>
+    <div className='compact flex justify-end'>
+      <Button
+        variant='outline'
+        isDisabled={!signedIn.others?.length}
+        isPending={isEnding}
+        onPress={endOthers}
+      >
+        <LuLogOut className='size-4' aria-hidden />
+        <span>{t('security.sessions.endOthers')}</span>
+      </Button>
+    </div>
+    {signedIn.loadFailed && <p className='text-sm text-danger'>{t('security.sessions.loadError')}</p>}
+    {!signedIn.loadFailed && !signedIn.isLoaded && <Spinner size='sm' />}
     <ul className='flex flex-col gap-2'>{
-      sessions.map((session) => {
+      signedIn.sessions.map((session) => {
         const device = session.devices?.[0]
-        const isCurrent = session.id === current?.id
+        const isCurrent = session.id === signedIn.current?.id
         return <li key={session.id} className='level rounded-lg bg-surface-secondary px-4 py-3'>
           <div className='level-left min-w-0'>
             <LuMonitorSmartphone className='size-5 shrink-0 text-accent' aria-hidden />
@@ -102,5 +92,5 @@ export function SessionsSection() {
         </li>
       })
     }</ul>
-  </SecuritySection>
+  </section>
 }

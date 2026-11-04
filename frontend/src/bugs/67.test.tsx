@@ -34,6 +34,7 @@ const me: Me = {
   user: person,
   hasSecondFactor: true,
   mfaEnrollmentRequired: false,
+  authenticatorNickname: null,
 }
 
 // What the stubbed API answers, by path.

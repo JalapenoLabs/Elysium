@@ -15,6 +15,7 @@
       "reconnecting": "Live updates interrupted. Reconnecting…"
     },
     "account": "Account menu for {{name}}",
+    "profile": "My profile",
     "security": "Sign-in & security",
     "signOut": "Sign out"
   }

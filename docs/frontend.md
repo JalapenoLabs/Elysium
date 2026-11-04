@@ -50,7 +50,8 @@ Code here keeps to it:
   menu button at the start of the topbar that opens the same `SidebarNavigation` in a drawer from the left; following
   a link closes it.
 - `Topbar` spans the content column. It has a search field and, on the right, the Elysia button, the live updates
-  dot, and the settings gear. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
+  dot, the settings gear, and the account menu (`UserMenu`): My profile, Sign-in & security, then Sign out below a
+  divider, each with an icon. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
   green while the event stream is connected and amber while it reconnects.
 - `ElysiaPanel` (`src/elysia/`) is on the right while it is open: her status, questions, work, and the
   conversation or her activity. `AppShell` places it: beside the page from `2xl` up, floating over the page's right
@@ -93,7 +94,8 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/studio`                     | `StudioPage`             | Studio items as tiles, filtered from the address         |
 | `/studio/:itemId`             | `StudioItemPage`         | One item: the stage beside its conversation, live or deleted |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
-| `/settings/personal-details`  | `PersonalDetailsPage`    | Appearance: light, dark, or system theme                 |
+| `/settings/profile`           | `ProfilePage`            | My profile: name and email, and the light, dark, or system theme |
+| `/settings/personal-details`  | redirect                 | To `/settings/profile`                                   |
 | `/settings/browsers`          | `ManageBrowsersPage`     | The person's own browsers, their status; add and remove  |
 | `/settings/browsers/:browserSessionId` | `BrowserSessionPage` | One browser, streamed live, to sign in to an account in; see `docs/browser.md` |
 | `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
@@ -180,9 +182,21 @@ offers them in autofill. See `docs/auth.md`.
   - **Event stream.** The stream opens only once the person may use the workspace, and closes on sign-out.
 - **The waiting page.** `/pending` asks `/me` every 5 seconds. It is the one page that polls: a pending person may not
   open the event stream.
-- **Sign-in & security** (`/settings/security`). Name and email, password, authenticator app, lookup codes, passkeys,
-  and where the person is signed in. Each is a Kratos settings flow; a change needing a recent sign-in sends the person
-  to `/login` in refresh mode and back.
+- **Kratos settings flows.** My profile and Sign-in & security each run one through `useKratosSettingsFlow`
+  (`src/hooks/`), named with the page a change needing a recent sign-in sends the person back to, from `/login` in
+  refresh mode. A field's refusal shows on the field; Kratos's messages for the whole form become toasts, and the
+  success it reports after every save is dropped for the page's own toast, so nothing moves the page.
+- **My profile** (`/settings/profile`). First and last name side by side (`PersonNameFields`, also on sign-up), the
+  email below them, saved to Kratos by the page's Save; then the theme, which applies as soon as it is picked.
+- **Sign-in & security** (`/settings/security`). Tabs, the open one kept in `?tab=`: General, Passkeys, Lookup codes,
+  and Sessions, where lists show their totals beside their names.
+  - **General.** A Password card whose Change password opens `ChangePasswordModal`, which asks for the new password
+    twice. A Two-factor authentication card showing whether it is on, the authenticator app by its nickname, and
+    whether lookup codes are set up, with Add 2FA, or Change 2FA and Remove 2FA. Adding sets the app up in a modal
+    (`AuthenticatorEnrollment`: an optional nickname, the QR code and key, and the code). Changing renames the app, or
+    moves to a new one, which removes the old app first, since Kratos offers a new QR code only then, and sets the
+    new one up in the same modal.
+  - **Passkeys, Lookup codes, Sessions.** Each list with its action above it.
 - **Users** (`/settings/users`). Admins only. Workspace access settings, then pending sign-ups pinned above everyone
   approved. Users flow through SWR, then `usersSlice`, then the `user.*` events. The directory entry is hidden from
   others and badges the pending count.
@@ -689,7 +703,7 @@ gray colors, so the theme controls the base color.
 
 ### Light, dark, and system
 
-Users choose Light, Dark, or System under Settings, Personal details. The choice is saved per browser in
+Users choose Light, Dark, or System under Settings, My profile. The choice is saved per browser in
 localStorage under `elysium.theme`, and defaults to System.
 
 - The `theme` slice holds the preference and its resolved theme. `themeChanged(preference)` resolves System
@@ -794,5 +808,4 @@ components are tested; pages are checked in the running app.
 - Additional locales, once the product adopts them.
 - Tests for the older areas' pure logic, such as the timeline merge in `sessionEventsSlice`.
 - Search results behind the topbar field.
-- Contact and account fields on the Personal details page once user accounts exist, with the theme preference
-  moving to the user profile.
+- The theme preference moving from each browser to the person's profile.

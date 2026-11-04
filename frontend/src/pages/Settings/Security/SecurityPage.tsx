@@ -1,37 +1,83 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { Key } from '@heroui/react'
+import type { ParseKeys } from 'i18next'
+
 // Core
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router'
 
 // Redux
 import { useAppSelector } from '../../../store/hooks'
 import { selectAccessRefusal, selectMe } from '../../../store/authSlice'
 
 // User interface
-import { Alert, Button, Spinner } from '@heroui/react'
-import { KratosMessages } from '../../Auth/KratosMessages'
-import { AuthenticatorSection } from './AuthenticatorSection'
+import { Alert, Button, Chip, Spinner, Tabs } from '@heroui/react'
 import { LookupCodesSection } from './LookupCodesSection'
 import { PasskeysSection } from './PasskeysSection'
-import { PasswordSection } from './PasswordSection'
-import { ProfileSection } from './ProfileSection'
+import { PasswordCard } from './PasswordCard'
 import { SessionsSection } from './SessionsSection'
 import { SettingsPage } from '../SettingsPage'
+import { TwoFactorCard } from './TwoFactorCard'
 
 // Misc
-import { useSettingsFlow } from './useSettingsFlow'
+import { useKratosSettingsFlow } from '../../../hooks/useKratosSettingsFlow'
+import { UrlTree } from '../../../urls'
+import { readPasskeys } from './securityPresentation'
+import { useSignedInSessions } from './useSignedInSessions'
 
-// Sign-in & security: the profile, the password, passkeys, the authenticator app, lookup
-// codes, and where this person is signed in. Every change runs through Kratos. When the
-// workspace requires an authenticator app, this is the one page someone without one may
-// open, and it says why.
+const TABS = [ 'general', 'passkeys', 'lookup', 'sessions' ] as const
+type Tab = typeof TABS[number]
+
+const tabLabelKeys = {
+  general: 'security.tabs.general',
+  passkeys: 'security.tabs.passkeys',
+  lookup: 'security.tabs.lookup',
+  sessions: 'security.tabs.sessions',
+} as const satisfies Record<Tab, ParseKeys<'auth'>>
+
+// The open tab lives in the address, so a sign-in a change asked for comes back to it.
+const TAB_PARAM = 'tab'
+
+// Sign-in & security: the password and two-factor authentication on General, then passkeys,
+// lookup codes, and where this person is signed in, each on its own tab. Every change runs
+// through Kratos. When the workspace requires an authenticator app, this is the one page
+// someone without one may open, and it says why.
 export function SecurityPage() {
   const { t } = useTranslation([ 'auth', 'common' ])
   const me = useAppSelector(selectMe)
   const refusal = useAppSelector(selectAccessRefusal)
-  const settings = useSettingsFlow()
+  const [ params, setParams ] = useSearchParams()
+  const settings = useKratosSettingsFlow(UrlTree.settingsSecurity)
+  const signedIn = useSignedInSessions()
   const flow = settings.flow
   const mustEnroll = refusal === 'mfa_enrollment_required' || Boolean(me?.mfaEnrollmentRequired)
+  const selectedTab = TABS.find((tab) => tab === params.get(TAB_PARAM)) ?? 'general'
+
+  // Lists show their totals beside their names, once they are known.
+  const countByTab: Record<Tab, number | null> = {
+    general: null,
+    passkeys: flow
+      ? readPasskeys(flow).length
+      : null,
+    lookup: null,
+    sessions: signedIn.isLoaded
+      ? signedIn.sessions.length
+      : null,
+  }
+
+  function selectTab(key: Key) {
+    const tab = TABS.find((candidate) => candidate === key)
+    if (!tab) {
+      console.debug('SecurityPage ignored an unknown tab', { key })
+      return
+    }
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set(TAB_PARAM, tab)
+      return next
+    }, { replace: true })
+  }
 
   return <SettingsPage title={t('security.title')}>
     {mustEnroll && <Alert status='warning' className='relaxed'>
@@ -53,15 +99,31 @@ export function SecurityPage() {
       <Spinner />
     </div>}
 
-    {flow && <>
-      <KratosMessages messages={flow.ui.messages ?? []} />
-      {/* Keyed by flow so each panel starts from what Kratos now holds after a change. */}
-      <ProfileSection key={`profile-${flow.id}`} flow={flow} onSubmit={settings.submit} />
-      <PasswordSection flow={flow} onSubmit={settings.submit} />
-      <AuthenticatorSection flow={flow} onSubmit={settings.submit} />
-      <LookupCodesSection flow={flow} onSubmit={settings.submit} />
-      <PasskeysSection flow={flow} onSubmit={settings.submit} />
-      <SessionsSection />
-    </>}
+    {flow && <Tabs variant='secondary' selectedKey={selectedTab} onSelectionChange={selectTab}>
+      <Tabs.ListContainer className='relaxed'>
+        <Tabs.List aria-label={t('security.tabs.label')}>{
+          TABS.map((tab) => <Tabs.Tab key={tab} id={tab}>
+            <span>{t(tabLabelKeys[tab])}</span>
+            {countByTab[tab] !== null && <Chip size='sm' variant='soft' className='ml-2'>{
+              countByTab[tab]
+            }</Chip>}
+            <Tabs.Indicator />
+          </Tabs.Tab>)
+        }</Tabs.List>
+      </Tabs.ListContainer>
+      <Tabs.Panel id='general'>
+        <PasswordCard flow={flow} onSubmit={settings.submit} />
+        <TwoFactorCard flow={flow} onSubmit={settings.submit} />
+      </Tabs.Panel>
+      <Tabs.Panel id='passkeys'>
+        <PasskeysSection flow={flow} onSubmit={settings.submit} />
+      </Tabs.Panel>
+      <Tabs.Panel id='lookup'>
+        <LookupCodesSection flow={flow} onSubmit={settings.submit} />
+      </Tabs.Panel>
+      <Tabs.Panel id='sessions'>
+        <SessionsSection />
+      </Tabs.Panel>
+    </Tabs>}
   </SettingsPage>
 }

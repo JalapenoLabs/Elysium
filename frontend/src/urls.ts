@@ -29,6 +29,8 @@ export const UrlTree = {
   studio: '/studio',
   studioItem: '/studio/:itemId',
   settings: '/settings',
+  settingsProfile: '/settings/profile',
+  // My profile's old address, which redirects to it.
   settingsPersonalDetails: '/settings/personal-details',
   settingsSecurity: '/settings/security',
   settingsUsers: '/settings/users',

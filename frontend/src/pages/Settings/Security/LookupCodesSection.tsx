@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { SettingsFlow } from '@ory/client-fetch'
-import type { SettingsSubmission } from './useSettingsFlow'
+import type { SettingsSubmission } from '../../../hooks/useKratosSettingsFlow'
 
 // Core
 import { useState } from 'react'
@@ -9,7 +9,6 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Alert, Button } from '@heroui/react'
-import { SecuritySection } from './SecuritySection'
 
 // Misc
 import { useConfirm } from '../../../hooks/useConfirm'
@@ -29,8 +28,9 @@ const lookupBodies = {
   confirm: { method: 'lookup_secret', lookup_secret_confirm: true },
 } as const satisfies Record<LookupAction, SettingsSubmission>
 
-// One-time codes that stand in for the authenticator app when the phone is lost. Each works
-// once; new ones replace the old only after this person confirms they saved them.
+// One-time codes that stand in for the authenticator app when the phone is lost, on the Lookup
+// codes tab. Each works once; new ones replace the old only after this person confirms they
+// saved them.
 export function LookupCodesSection(props: Props) {
   const { t } = useTranslation([ 'auth', 'common' ])
   const confirm = useConfirm()
@@ -55,10 +55,7 @@ export function LookupCodesSection(props: Props) {
     })
   }
 
-  return <SecuritySection
-    title={t('security.lookup.title')}
-    description={t('security.lookup.description')}
-  >
+  return <section>
     {lookup.codes && <div className='relaxed'>
       {lookup.canConfirm && <Alert status='warning' className='compact'>
         <Alert.Indicator />
@@ -108,5 +105,5 @@ export function LookupCodesSection(props: Props) {
         <span>{t('security.lookup.disable')}</span>
       </Button>}
     </div>
-  </SecuritySection>
+  </section>
 }

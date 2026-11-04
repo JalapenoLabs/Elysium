@@ -5,13 +5,13 @@
     "workspace": "Workspace settings"
   },
   "items": {
-    "personalDetails": {
-      "title": "Personal details",
-      "description": "Appearance and preferences for how Elysium looks on this device."
+    "profile": {
+      "title": "My profile",
+      "description": "Your name, the email you sign in with, and how Elysium looks on this device."
     },
     "security": {
       "title": "Sign-in & security",
-      "description": "Your name, email, password, passkeys, authenticator app, and where you're signed in."
+      "description": "Your password, two-factor authentication, passkeys, lookup codes, and where you're signed in."
     },
     "browsers": {
       "title": "Browser sign-ins",
@@ -64,8 +64,15 @@
       "description": "Connect the Bitwarden or Vaultwarden account agents sign in to things with."
     }
   },
-  "personalDetails": {
-    "title": "Personal details",
+  "profile": {
+    "title": "My profile",
+    "saved": "Profile saved.",
+    "firstNameRequired": "Enter your first name.",
+    "emailRequired": "Enter your email.",
+    "details": {
+      "heading": "Name and email",
+      "loadError": "Your profile could not load."
+    },
     "appearance": {
       "heading": "Appearance",
       "description": "Choose how Elysium looks. System follows your device's light or dark setting. Saved on this browser.",

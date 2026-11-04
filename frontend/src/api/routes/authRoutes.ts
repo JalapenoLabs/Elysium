@@ -26,10 +26,24 @@ export type Me = {
   hasSecondFactor: boolean
   // The workspace requires an authenticator app, and this person has none yet.
   mfaEnrollmentRequired: boolean
+  // What this person named their authenticator app, such as "Bitwarden". Shown only while
+  // Kratos says the app is set up.
+  authenticatorNickname: string | null
 }
 
 export function getMe() {
   return apiClient
     .get('v1/me')
     .json<Me>()
+}
+
+// Answers 409 when Kratos holds no authenticator app to name.
+export function setAuthenticatorNickname(nickname: string) {
+  return apiClient
+    .put('v1/me/authenticator-nickname', { json: { nickname }})
+}
+
+export function clearAuthenticatorNickname() {
+  return apiClient
+    .delete('v1/me/authenticator-nickname')
 }

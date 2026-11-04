@@ -6,7 +6,7 @@ import type { KratosUi } from '../../../api/kratosFlows'
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { readAuthenticator, readLookupCodes, readPasskeys, readProfile } from './securityPresentation'
+import { readAuthenticator, readLookupCodes, readPasskeys } from './securityPresentation'
 
 function input(name: string, group: string, extra: Record<string, unknown> = {}, label?: unknown) {
   return {
@@ -28,16 +28,6 @@ function text(id: string, group: string, value: unknown) {
 function flow(nodes: unknown[]) {
   return { id: 'settings-1', ui: { nodes }} as unknown as KratosUi
 }
-
-describe('readProfile', () => {
-  it('reads the name and email Kratos holds', () => {
-    const settings = flow([
-      input('traits.email', 'profile', { value: 'ada@example.com', type: 'email' }),
-      input('traits.name', 'profile', { value: 'Ada', type: 'text' }),
-    ])
-    expect(readProfile(settings)).toEqual({ name: 'Ada', email: 'ada@example.com' })
-  })
-})
 
 describe('readPasskeys', () => {
   it('lists each passkey from its remove button', () => {

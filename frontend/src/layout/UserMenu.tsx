@@ -11,15 +11,16 @@ import { selectMe } from '../store/authSlice'
 import { useAppSelector } from '../store/hooks'
 
 // User interface
-import { Avatar, Button, Dropdown, Label } from '@heroui/react'
+import { Avatar, Button, Dropdown, Label, Separator } from '@heroui/react'
+import { LuLogOut, LuShieldCheck, LuUser } from 'react-icons/lu'
 
 // Misc
 import { signOut } from '../auth/signOut'
 import { UrlTree } from '../urls'
 import { getInitials } from './userMenuPresentation'
 
-// The signed-in person, at the right of the topbar: who they are, their security settings,
-// and signing out.
+// The signed-in person, at the right of the topbar: who they are, their profile and security
+// settings, and signing out, last, below a divider.
 export function UserMenu() {
   const { t } = useTranslation('navigation')
   const navigate = useNavigate()
@@ -30,6 +31,7 @@ export function UserMenu() {
   }
 
   const actions: Record<string, () => void> = {
+    profile: () => void navigate(UrlTree.settingsProfile),
     security: () => void navigate(UrlTree.settingsSecurity),
     signOut: () => void signOut(),
   }
@@ -50,10 +52,17 @@ export function UserMenu() {
         <p className='text-xs opacity-70'>{me.user.email}</p>
       </div>
       <Dropdown.Menu onAction={(key: Key) => actions[String(key)]?.()}>
+        <Dropdown.Item id='profile' textValue={t('topbar.profile')}>
+          <LuUser className='size-4' aria-hidden />
+          <Label>{t('topbar.profile')}</Label>
+        </Dropdown.Item>
         <Dropdown.Item id='security' textValue={t('topbar.security')}>
+          <LuShieldCheck className='size-4' aria-hidden />
           <Label>{t('topbar.security')}</Label>
         </Dropdown.Item>
+        <Separator />
         <Dropdown.Item id='signOut' textValue={t('topbar.signOut')}>
+          <LuLogOut className='size-4' aria-hidden />
           <Label>{t('topbar.signOut')}</Label>
         </Dropdown.Item>
       </Dropdown.Menu>

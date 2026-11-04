@@ -17,17 +17,17 @@ type ThemeOption = {
 export const themeOptions = [
   {
     preference: 'light',
-    labelKey: 'personalDetails.appearance.options.light',
+    labelKey: 'profile.appearance.options.light',
     Preview: ThemePreviewLight,
   },
   {
     preference: 'dark',
-    labelKey: 'personalDetails.appearance.options.dark',
+    labelKey: 'profile.appearance.options.dark',
     Preview: ThemePreviewDark,
   },
   {
     preference: 'system',
-    labelKey: 'personalDetails.appearance.options.system',
+    labelKey: 'profile.appearance.options.system',
     Preview: ThemePreviewSystem,
   },
 ] as const satisfies readonly ThemeOption[]

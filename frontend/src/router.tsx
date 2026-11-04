@@ -37,7 +37,7 @@ import { ProjectsPage } from './pages/Projects/ProjectsPage'
 import { StudioItemPage } from './pages/Studio/StudioItemPage'
 import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
-import { PersonalDetailsPage } from './pages/Settings/PersonalDetails/PersonalDetailsPage'
+import { ProfilePage } from './pages/Settings/Profile/ProfilePage'
 import { ManageEmailPage } from './pages/Settings/Email/ManageEmailPage'
 import { AddEnvironmentVariablePage } from './pages/Settings/Environment/AddEnvironmentVariablePage'
 import { EditEnvironmentVariablePage } from './pages/Settings/Environment/EditEnvironmentVariablePage'
@@ -167,8 +167,12 @@ const workspaceRoutes: RouteObject = {
       element: <SettingsDirectoryPage />,
     },
     {
+      path: UrlTree.settingsProfile,
+      element: <ProfilePage />,
+    },
+    {
       path: UrlTree.settingsPersonalDetails,
-      element: <PersonalDetailsPage />,
+      element: <Navigate to={UrlTree.settingsProfile} replace />,
     },
     {
       path: UrlTree.settingsSecurity,

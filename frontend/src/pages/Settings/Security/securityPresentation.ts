@@ -126,17 +126,3 @@ export function readLookupCodes(flow: KratosUi): LookupCodesState {
     canDisable: Boolean(findInput(flow, 'lookup_secret_disable')),
   }
 }
-
-// The profile Kratos holds, as the settings flow shows it.
-export function readProfile(flow: KratosUi) {
-  const name = findInput(flow, 'traits.name')?.attributes.value
-  const email = findInput(flow, 'traits.email')?.attributes.value
-  return {
-    name: typeof name === 'string'
-      ? name
-      : '',
-    email: typeof email === 'string'
-      ? email
-      : '',
-  } as const
-}

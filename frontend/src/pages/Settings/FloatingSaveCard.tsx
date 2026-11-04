@@ -24,8 +24,8 @@ export function FloatingSaveCard(props: Props) {
     aria-label={t('page.floatingSave.label')}
     className='fixed right-6 bottom-6 z-40 shadow-lg'
   >
-    <Card.Content className='level gap-3'>
-      <span className='text-sm'>{t('page.floatingSave.unsaved')}</span>
+    <Card.Content className='flex-row items-center gap-4'>
+      <span className='text-sm whitespace-nowrap'>{t('page.floatingSave.unsaved')}</span>
       <div className='level-right gap-1'>
         <SettingsSaveButton save={props.save} />
         <Tooltip delay={300}>

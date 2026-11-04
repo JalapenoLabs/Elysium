@@ -16,6 +16,7 @@ function me(overrides: Parameters<typeof makeUser>[0] = {}) {
     user: makeUser(overrides),
     hasSecondFactor: false,
     mfaEnrollmentRequired: false,
+    authenticatorNickname: null,
   }
 }
 

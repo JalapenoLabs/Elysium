@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { SettingsFlow } from '@ory/client-fetch'
-import type { SettingsSubmission } from './useSettingsFlow'
+import type { SettingsSubmission } from '../../../hooks/useKratosSettingsFlow'
 
 // Core
 import { useState } from 'react'
@@ -10,7 +10,6 @@ import { useTranslation } from 'react-i18next'
 // User interface
 import { Button, Tooltip } from '@heroui/react'
 import { LuFingerprint, LuPlus, LuTrash2 } from 'react-icons/lu'
-import { SecuritySection } from './SecuritySection'
 
 // Utility
 import { startRegistration } from '@simplewebauthn/browser'
@@ -29,7 +28,7 @@ type Props = {
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
 
 // Passkeys held by a password manager (Bitwarden, 1Password) or the browser, for signing in
-// without a password.
+// without a password: the Passkeys tab.
 export function PasskeysSection(props: Props) {
   const { t } = useTranslation([ 'auth', 'common' ])
   const confirm = useConfirm()
@@ -65,20 +64,18 @@ export function PasskeysSection(props: Props) {
     })
   }
 
-  return <SecuritySection
-    title={t('security.passkeys.title')}
-    description={t('security.passkeys.description')}
-    status={<Button
-      size='sm'
-      variant='outline'
-      isDisabled={!creationData}
-      isPending={isAdding}
-      onPress={add}
-    >
-      <LuPlus className='size-4' aria-hidden />
-      <span>{t('security.passkeys.add')}</span>
-    </Button>}
-  >
+  return <section>
+    <div className='compact flex justify-end'>
+      <Button
+        variant='outline'
+        isDisabled={!creationData}
+        isPending={isAdding}
+        onPress={add}
+      >
+        <LuPlus className='size-4' aria-hidden />
+        <span>{t('security.passkeys.add')}</span>
+      </Button>
+    </div>
     {!passkeys.length && <p className='text-sm opacity-70'>{t('security.passkeys.empty')}</p>}
     <ul className='flex flex-col gap-2'>{
       passkeys.map((passkey) => {
@@ -122,5 +119,5 @@ export function PasskeysSection(props: Props) {
       </li>
       })
     }</ul>
-  </SecuritySection>
+  </section>
 }

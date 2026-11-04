@@ -91,6 +91,12 @@ export const PENDING_APPROVAL_POLL_MS = 5_000
 // Passwords must be at least this long; Kratos refuses shorter ones too (kratos/kratos.yml).
 export const PASSWORD_MIN_LENGTH = 12
 
+// The longest first or last name Kratos accepts (kratos/identity-v2.schema.json).
+export const NAME_PART_MAX_LENGTH = 50
+
+// The longest nickname for an authenticator app (`authenticator_nicknames` in the API).
+export const AUTHENTICATOR_NICKNAME_MAX_LENGTH = 50
+
 // Whether Elysia's panel is open beside the page, remembered per browser.
 export const ELYSIA_PANEL_STORAGE_KEY = 'elysium.elysia.panel.v1'
 
