@@ -38,17 +38,15 @@ export function ConnectorKindCard(props: Props) {
       </div>
       <Popover>
         <Tooltip delay={400}>
-          <Tooltip.Trigger>
-            <Button
-              isIconOnly
-              size='sm'
-              variant='ghost'
-              className='relative z-10'
-              aria-label={t('picker.about', { name })}
-            >
-              <LuCircleHelp className='size-4' aria-hidden />
-            </Button>
-          </Tooltip.Trigger>
+          <Button
+            isIconOnly
+            size='sm'
+            variant='ghost'
+            className='relative z-10'
+            aria-label={t('picker.about', { name })}
+          >
+            <LuCircleHelp className='size-4' aria-hidden />
+          </Button>
           <Tooltip.Content>{t('picker.about', { name })}</Tooltip.Content>
         </Tooltip>
         <Popover.Content placement='bottom end' className='max-w-xs'>

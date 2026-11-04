@@ -202,9 +202,7 @@
     "serverCreateFailed": "The mail server could not be created",
     "domainAdded": "{{name}} added",
     "domainRemoved": "{{name}} removed",
-    "domainRemoveFailed": "{{name}} could not be removed",
-    "copied": "Copied",
-    "copyFailed": "The browser did not allow copying"
+    "domainRemoveFailed": "{{name}} could not be removed"
   },
   "oauthErrors": {
     "access_denied": "Access was not granted.",

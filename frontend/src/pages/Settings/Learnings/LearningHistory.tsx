@@ -90,19 +90,17 @@ export function LearningHistory(props: Props) {
           </div>
         </div>
         <Tooltip delay={300}>
-          <Tooltip.Trigger>
-            <Button
-              isIconOnly
-              size='sm'
-              variant='ghost'
-              aria-label={t('history.undoLabel')}
-              isPending={undoingId === entry.id}
-              isDisabled={undoingId !== null}
-              onPress={() => undo(entry)}
-            >
-              <LuUndo2 className='size-4' aria-hidden />
-            </Button>
-          </Tooltip.Trigger>
+          <Button
+            isIconOnly
+            size='sm'
+            variant='ghost'
+            aria-label={t('history.undoLabel')}
+            isPending={undoingId === entry.id}
+            isDisabled={undoingId !== null}
+            onPress={() => undo(entry)}
+          >
+            <LuUndo2 className='size-4' aria-hidden />
+          </Button>
           <Tooltip.Content>
             <span>{t('history.undoLabel')}</span>
           </Tooltip.Content>

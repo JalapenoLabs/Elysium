@@ -7,8 +7,8 @@ import type { Connector } from '../../../api/routes/connectorRoutes'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Card, Chip, Dropdown, Label, Link } from '@heroui/react'
-import { LuSettings } from 'react-icons/lu'
+import { Button, Card, Chip, Dropdown, Label, Link, Separator, Tooltip } from '@heroui/react'
+import { LuListChecks, LuPause, LuPlay, LuRefreshCw, LuSettings, LuTrash2 } from 'react-icons/lu'
 import { ConnectorLogo } from './ConnectorLogo'
 
 // Misc
@@ -33,6 +33,10 @@ export function ConnectorRow(props: Props) {
   const toggleLabel = connector.isActive
     ? t('actions.pause')
     : t('actions.resume')
+  const ToggleIcon = connector.isActive
+    ? LuPause
+    : LuPlay
+  const menuLabel = t('actions.menu', { name })
 
   return <Card className='compact p-4'>
     <div className='level items-start gap-4'>
@@ -65,21 +69,34 @@ export function ConnectorRow(props: Props) {
           }</p>
         </div>
         <Dropdown>
-          <Button isIconOnly size='sm' variant='ghost' aria-label={t('actions.menu', { name })}>
-            <LuSettings className='size-4' aria-hidden />
-          </Button>
+          <Tooltip delay={300}>
+            <Button isIconOnly size='sm' variant='ghost' aria-label={menuLabel}>
+              <LuSettings className='size-4' aria-hidden />
+            </Button>
+            <Tooltip.Content>
+              <span>{menuLabel}</span>
+            </Tooltip.Content>
+          </Tooltip>
           <Dropdown.Popover placement='bottom end'>
-            <Dropdown.Menu onAction={(key: Key) => props.onAction(connector, String(key) as ConnectorAction)}>
+            <Dropdown.Menu
+              aria-label={menuLabel}
+              onAction={(key: Key) => props.onAction(connector, String(key) as ConnectorAction)}
+            >
               <Dropdown.Item id='runChecks' textValue={t('actions.runChecks')}>
+                <LuListChecks className='size-4' aria-hidden />
                 <Label>{t('actions.runChecks')}</Label>
               </Dropdown.Item>
               <Dropdown.Item id='sync' textValue={t('actions.sync')} isDisabled={!connector.isActive}>
+                <LuRefreshCw className='size-4' aria-hidden />
                 <Label>{t('actions.sync')}</Label>
               </Dropdown.Item>
               <Dropdown.Item id='toggle' textValue={toggleLabel}>
+                <ToggleIcon className='size-4' aria-hidden />
                 <Label>{toggleLabel}</Label>
               </Dropdown.Item>
+              <Separator />
               <Dropdown.Item id='delete' textValue={t('actions.delete')} variant='danger'>
+                <LuTrash2 className='size-4' aria-hidden />
                 <Label>{t('actions.delete')}</Label>
               </Dropdown.Item>
             </Dropdown.Menu>

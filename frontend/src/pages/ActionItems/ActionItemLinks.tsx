@@ -16,8 +16,8 @@ import {
 } from '../../store/actionItemLinksSlice'
 
 // User interface
-import { Button, Chip, Dropdown, Label, Link, Spinner, Tooltip, useOverlayState } from '@heroui/react'
-import { LuEllipsis, LuExternalLink, LuPlus } from 'react-icons/lu'
+import { Button, Chip, Dropdown, Label, Link, Separator, Spinner, Tooltip, useOverlayState } from '@heroui/react'
+import { LuEllipsis, LuExternalLink, LuPlus, LuStar, LuUnlink } from 'react-icons/lu'
 import { LinkTargetModal } from './LinkTargetModal'
 import { PendingWrites } from './PendingWrites'
 
@@ -228,11 +228,18 @@ function LinkRow(props: LinkRowProps) {
             </Tooltip.Content>
           </Tooltip>
           <Dropdown.Popover placement='bottom end'>
-            <Dropdown.Menu onAction={(key: Key) => actions[String(key)]?.()}>
+            <Dropdown.Menu
+              aria-label={t('common:actions.moreActions')}
+              onAction={(key: Key) => actions[String(key)]?.()}
+            >
               {!link.isPrimary && <Dropdown.Item id='primary' textValue={t('links.makePrimary')}>
+                <LuStar className='size-4' aria-hidden />
                 <Label>{t('links.makePrimary')}</Label>
               </Dropdown.Item>}
+              {/* Above the unlink, unless it stands alone. */}
+              {!link.isPrimary && <Separator />}
               <Dropdown.Item id='remove' textValue={t('links.remove')} variant='danger'>
+                <LuUnlink className='size-4' aria-hidden />
                 <Label>{t('links.remove')}</Label>
               </Dropdown.Item>
             </Dropdown.Menu>

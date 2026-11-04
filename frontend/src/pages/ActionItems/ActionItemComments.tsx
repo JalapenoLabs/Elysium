@@ -17,8 +17,19 @@ import {
 } from '../../store/actionItemCommentsSlice'
 
 // User interface
-import { Button, Description, Dropdown, Form, Label, Spinner, TextArea, TextField } from '@heroui/react'
-import { LuEllipsis } from 'react-icons/lu'
+import {
+  Button,
+  Description,
+  Dropdown,
+  Form,
+  Label,
+  Separator,
+  Spinner,
+  TextArea,
+  TextField,
+  Tooltip,
+} from '@heroui/react'
+import { LuEllipsis, LuPencil, LuTrash2 } from 'react-icons/lu'
 
 // Misc
 import { DateText } from '../../format/DateText'
@@ -151,11 +162,16 @@ export function ActionItemComments(props: Props) {
               {isEdited && <span className='ml-2 opacity-60'>{t('comments.edited')}</span>}
             </span>
             {isOwn && !isDeleted && <Dropdown>
-              <Button isIconOnly size='sm' variant='ghost' aria-label={t('common:actions.moreActions')}>
-                <LuEllipsis className='size-4' aria-hidden />
-              </Button>
+              <Tooltip delay={300}>
+                <Button isIconOnly size='sm' variant='ghost' aria-label={t('common:actions.moreActions')}>
+                  <LuEllipsis className='size-4' aria-hidden />
+                </Button>
+                <Tooltip.Content>
+                  <span>{t('common:actions.moreActions')}</span>
+                </Tooltip.Content>
+              </Tooltip>
               <Dropdown.Popover placement='bottom end'>
-                <Dropdown.Menu onAction={(key: Key) => {
+                <Dropdown.Menu aria-label={t('common:actions.moreActions')} onAction={(key: Key) => {
                   if (key === 'edit') {
                     edit(comment)
                     return
@@ -163,9 +179,12 @@ export function ActionItemComments(props: Props) {
                   remove(comment)
                 }}>
                   <Dropdown.Item id='edit' textValue={t('common:actions.edit')}>
+                    <LuPencil className='size-4' aria-hidden />
                     <Label>{t('common:actions.edit')}</Label>
                   </Dropdown.Item>
+                  <Separator />
                   <Dropdown.Item id='delete' textValue={t('common:actions.delete')} variant='danger'>
+                    <LuTrash2 className='size-4' aria-hidden />
                     <Label>{t('common:actions.delete')}</Label>
                   </Dropdown.Item>
                 </Dropdown.Menu>

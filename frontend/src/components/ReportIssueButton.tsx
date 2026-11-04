@@ -25,20 +25,18 @@ export function ReportIssueButton(props: Props) {
   const reportIssue = useReportIssue()
 
   return <Tooltip delay={400}>
-    <Tooltip.Trigger>
-      <Button
-        size='sm'
-        variant='ghost'
-        isIconOnly={props.isIconOnly}
-        aria-label={props.isIconOnly
-          ? t('button.tooltip')
-          : undefined}
-        onPress={() => reportIssue(props.subject)}
-      >
-        <LuFlag className='size-4' aria-hidden />
-        {!props.isIconOnly && <span>{t('button.label')}</span>}
-      </Button>
-    </Tooltip.Trigger>
+    <Button
+      size='sm'
+      variant='ghost'
+      isIconOnly={props.isIconOnly}
+      aria-label={props.isIconOnly
+        ? t('button.tooltip')
+        : undefined}
+      onPress={() => reportIssue(props.subject)}
+    >
+      <LuFlag className='size-4' aria-hidden />
+      {!props.isIconOnly && <span>{t('button.label')}</span>}
+    </Button>
     <Tooltip.Content>{t('button.tooltip')}</Tooltip.Content>
   </Tooltip>
 }

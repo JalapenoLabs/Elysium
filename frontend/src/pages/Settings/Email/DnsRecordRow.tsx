@@ -7,8 +7,8 @@ import type { CheckedDnsRecord, DnsRecordPurpose, DnsRecordStatus } from '../../
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Chip, Tooltip } from '@heroui/react'
-import { LuCopy } from 'react-icons/lu'
+import { Chip, Tooltip } from '@heroui/react'
+import { CopyButton } from '../../../components/CopyButton'
 
 const statusChipColors = {
   published: 'success',
@@ -33,7 +33,6 @@ const purposeLabelKeys = {
 
 type Props = {
   record: CheckedDnsRecord
-  onCopy: (text: string) => void
 }
 
 // One recommended record and how public DNS compares. A status that needs explaining
@@ -53,10 +52,10 @@ export function DnsRecordRow(props: Props) {
     <td className='px-3 py-2 whitespace-nowrap'>{t(purposeLabelKeys[record.purpose])}</td>
     <td className='px-3 py-2 font-mono text-xs'>{record.recordType}</td>
     <td className='px-3 py-2'>
-      <CopyableText text={record.name} label={t('dns.table.name')} onCopy={props.onCopy} />
+      <CopyableText text={record.name} label={t('dns.table.name')} />
     </td>
     <td className='px-3 py-2'>
-      <CopyableText text={record.value} label={t('dns.table.value')} onCopy={props.onCopy} />
+      <CopyableText text={record.value} label={t('dns.table.value')} />
     </td>
     <td className='px-3 py-2 whitespace-nowrap'>{
       explanation
@@ -74,7 +73,6 @@ export function DnsRecordRow(props: Props) {
 type CopyableTextProps = {
   text: string
   label: string
-  onCopy: (text: string) => void
 }
 
 function CopyableText(props: CopyableTextProps) {
@@ -84,15 +82,8 @@ function CopyableText(props: CopyableTextProps) {
     <code className='min-w-0 flex-1 truncate font-mono text-xs leading-6' title={props.text}>{
       props.text
     }</code>
-    <Button
-      isIconOnly
-      size='sm'
-      variant='ghost'
-      className='shrink-0'
-      aria-label={t('dns.copy', { what: props.label })}
-      onPress={() => props.onCopy(props.text)}
-    >
-      <LuCopy className='size-3.5' aria-hidden />
-    </Button>
+    <div className='shrink-0'>
+      <CopyButton value={props.text} label={t('dns.copy', { what: props.label })} />
+    </div>
   </div>
 }

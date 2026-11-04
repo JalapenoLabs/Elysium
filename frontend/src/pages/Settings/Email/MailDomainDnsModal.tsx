@@ -9,13 +9,13 @@ import useSWR from 'swr'
 
 // User interface
 import { Button, Modal, Spinner } from '@heroui/react'
-import { LuCopy, LuRefreshCw } from 'react-icons/lu'
+import { LuRefreshCw } from 'react-icons/lu'
+import { CopyButton } from '../../../components/CopyButton'
 import { DnsRecordRow } from './DnsRecordRow'
 
 // Misc
 import { getUpstreamErrorMessage } from '../../../api/errors'
 import { checkMailDomainDns } from '../../../api/routes/mailRoutes'
-import { toast } from '../../../toast/toast'
 
 type Props = {
   state: UseOverlayStateReturn
@@ -39,17 +39,6 @@ export function MailDomainDnsModal(props: Props) {
     () => checkMailDomainDns(domainId),
     { revalidateOnFocus: false },
   )
-
-  async function copy(text: string) {
-    try {
-      await navigator.clipboard.writeText(text)
-      toast.success(t('toasts.copied'))
-    }
-    catch (copyError) {
-      console.debug('MailDomainDnsModal could not copy to the clipboard', { copyError })
-      toast.danger(t('toasts.copyFailed'))
-    }
-  }
 
   const hasDkim = data?.records.some((record) => record.purpose === 'dkim')
 
@@ -98,7 +87,6 @@ export function MailDomainDnsModal(props: Props) {
                   data.records.map((record) => <DnsRecordRow
                     key={`${record.name}-${record.value}`}
                     record={record}
-                    onCopy={copy}
                   />)
                 }</tbody>
               </table>
@@ -115,16 +103,9 @@ export function MailDomainDnsModal(props: Props) {
                 <pre className='max-h-60 overflow-auto rounded-md bg-default p-3 pr-12 text-xs'>{
                   data.zoneFile
                 }</pre>
-                <Button
-                  isIconOnly
-                  size='sm'
-                  variant='ghost'
-                  className='absolute top-2 right-2'
-                  aria-label={t('dns.copy', { what: t('dns.zoneFile') })}
-                  onPress={() => copy(data.zoneFile)}
-                >
-                  <LuCopy className='size-4' aria-hidden />
-                </Button>
+                <div className='absolute top-2 right-2'>
+                  <CopyButton value={data.zoneFile} label={t('dns.copy', { what: t('dns.zoneFile') })} />
+                </div>
               </div>
             </details>
 

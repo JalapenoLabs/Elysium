@@ -227,9 +227,14 @@ export function ReportIssueModal(props: Props) {
               <div className='compact flex items-center gap-1'>
                 <p className='text-sm font-medium'>{t('dialog.preview')}</p>
                 <Popover>
-                  <Button isIconOnly size='sm' variant='ghost' aria-label={t('dialog.preview')}>
-                    <LuCircleHelp className='size-4' aria-hidden />
-                  </Button>
+                  <Tooltip delay={300}>
+                    <Button isIconOnly size='sm' variant='ghost' aria-label={t('common:page.help')}>
+                      <LuCircleHelp className='size-4' aria-hidden />
+                    </Button>
+                    <Tooltip.Content>
+                      <span>{t('common:page.help')}</span>
+                    </Tooltip.Content>
+                  </Tooltip>
                   <Popover.Content placement='top' className='max-w-xs'>
                     <Popover.Dialog>
                       <p className='text-sm'>{t('dialog.previewHint')}</p>

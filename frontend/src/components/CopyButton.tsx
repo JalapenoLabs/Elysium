@@ -35,17 +35,15 @@ export function CopyButton(props: Props) {
   }
 
   return <Tooltip delay={400}>
-    <Tooltip.Trigger>
-      <Button
-        size='sm'
-        variant='ghost'
-        isIconOnly
-        aria-label={props.label}
-        onPress={() => void copy()}
-      >
-        <LuCopy className='size-4' aria-hidden />
-      </Button>
-    </Tooltip.Trigger>
+    <Button
+      size='sm'
+      variant='ghost'
+      isIconOnly
+      aria-label={props.label}
+      onPress={() => void copy()}
+    >
+      <LuCopy className='size-4' aria-hidden />
+    </Button>
     <Tooltip.Content>{props.label}</Tooltip.Content>
   </Tooltip>
 }

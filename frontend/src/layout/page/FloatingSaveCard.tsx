@@ -35,17 +35,15 @@ export function FloatingSaveCard(props: Props) {
           onPress={props.onSave}
         />
         <Tooltip delay={300}>
-          <Tooltip.Trigger>
-            <Button
-              isIconOnly
-              size='sm'
-              variant='ghost'
-              aria-label={t('page.floatingSave.dismiss')}
-              onPress={props.onDismiss}
-            >
-              <LuX className='size-4' aria-hidden />
-            </Button>
-          </Tooltip.Trigger>
+          <Button
+            isIconOnly
+            size='sm'
+            variant='ghost'
+            aria-label={t('page.floatingSave.dismiss')}
+            onPress={props.onDismiss}
+          >
+            <LuX className='size-4' aria-hidden />
+          </Button>
           <Tooltip.Content>
             <span>{t('page.floatingSave.dismiss')}</span>
           </Tooltip.Content>

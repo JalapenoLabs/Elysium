@@ -72,21 +72,19 @@ export function SecretInput(props: Props) {
       />
       <InputGroup.Suffix>
         <Tooltip delay={400}>
-          <Tooltip.Trigger>
-            <Button
-              isIconOnly
-              size='sm'
-              variant='ghost'
-              aria-label={toggleLabel}
-              aria-pressed={isRevealed}
-              isDisabled={props.isDisabled}
-              onPress={() => setIsRevealed((revealed) => !revealed)}
-            >
-              {isRevealed
-                ? <LuEyeOff className='size-4' aria-hidden />
-                : <LuEye className='size-4' aria-hidden />}
-            </Button>
-          </Tooltip.Trigger>
+          <Button
+            isIconOnly
+            size='sm'
+            variant='ghost'
+            aria-label={toggleLabel}
+            aria-pressed={isRevealed}
+            isDisabled={props.isDisabled}
+            onPress={() => setIsRevealed((revealed) => !revealed)}
+          >
+            {isRevealed
+              ? <LuEyeOff className='size-4' aria-hidden />
+              : <LuEye className='size-4' aria-hidden />}
+          </Button>
           <Tooltip.Content>{toggleLabel}</Tooltip.Content>
         </Tooltip>
       </InputGroup.Suffix>

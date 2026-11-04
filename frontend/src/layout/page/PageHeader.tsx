@@ -137,11 +137,9 @@ function PageHelp(props: HelpProps) {
 
   return <Popover>
     <Tooltip delay={300}>
-      <Tooltip.Trigger>
-        <Button isIconOnly size='sm' variant='ghost' aria-label={t('page.help')}>
-          <LuCircleHelp className='size-4' aria-hidden />
-        </Button>
-      </Tooltip.Trigger>
+      <Button isIconOnly size='sm' variant='ghost' aria-label={t('page.help')}>
+        <LuCircleHelp className='size-4' aria-hidden />
+      </Button>
       <Tooltip.Content>
         <span>{t('page.help')}</span>
       </Tooltip.Content>

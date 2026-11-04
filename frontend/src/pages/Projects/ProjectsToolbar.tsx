@@ -7,7 +7,7 @@ import type { ProjectSort, ProjectSortKey, ProjectView } from './projectListing'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { Button, Label, ListBox, Select, ToggleButton, ToggleButtonGroup } from '@heroui/react'
+import { Button, Label, ListBox, Select, ToggleButton, ToggleButtonGroup, Tooltip } from '@heroui/react'
 import { LuArrowDownNarrowWide, LuArrowUpNarrowWide, LuLayoutGrid, LuTable2 } from 'react-icons/lu'
 
 // Misc
@@ -77,16 +77,21 @@ export function ProjectsToolbar(props: Props) {
         </Select.Popover>
       </Select>
 
-      <Button
-        isIconOnly
-        variant='outline'
-        aria-label={directionLabel}
-        onPress={() => props.onSortChange({ ...props.sort, descending: !props.sort.descending })}
-      >
-        {props.sort.descending
-          ? <LuArrowDownNarrowWide className='size-4' aria-hidden />
-          : <LuArrowUpNarrowWide className='size-4' aria-hidden />}
-      </Button>
+      <Tooltip delay={300}>
+        <Button
+          isIconOnly
+          variant='outline'
+          aria-label={directionLabel}
+          onPress={() => props.onSortChange({ ...props.sort, descending: !props.sort.descending })}
+        >
+          {props.sort.descending
+            ? <LuArrowDownNarrowWide className='size-4' aria-hidden />
+            : <LuArrowUpNarrowWide className='size-4' aria-hidden />}
+        </Button>
+        <Tooltip.Content>
+          <span>{directionLabel}</span>
+        </Tooltip.Content>
+      </Tooltip>
 
       <ToggleButtonGroup
         aria-label={t('toolbar.view')}

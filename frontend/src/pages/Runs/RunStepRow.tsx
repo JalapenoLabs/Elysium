@@ -123,19 +123,17 @@ export function RunStepRow(props: Props) {
         stepActionsByState[step.state].map((action) => {
           const Icon = actionIcons[action]
           return <Tooltip key={action} delay={300}>
-            <Tooltip.Trigger>
-              <Button
-                isIconOnly
-                size='sm'
-                variant='ghost'
-                aria-label={t(actionLabelKeys[action])}
-                isDisabled={pendingAction !== null}
-                isPending={pendingAction === action}
-                onPress={() => run(action)}
-              >
-                <Icon className='size-4' aria-hidden />
-              </Button>
-            </Tooltip.Trigger>
+            <Button
+              isIconOnly
+              size='sm'
+              variant='ghost'
+              aria-label={t(actionLabelKeys[action])}
+              isDisabled={pendingAction !== null}
+              isPending={pendingAction === action}
+              onPress={() => run(action)}
+            >
+              <Icon className='size-4' aria-hidden />
+            </Button>
             <Tooltip.Content>
               <span>{t(actionLabelKeys[action])}</span>
             </Tooltip.Content>
