@@ -1,6 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ParseKeys } from 'i18next'
+import type { PageTab } from '../../../components/PageTabs'
 
 // Core
 import { useTranslation } from 'react-i18next'
@@ -10,8 +11,9 @@ import { useAppSelector } from '../../../store/hooks'
 import { selectAccessRefusal, selectMe } from '../../../store/authSlice'
 
 // User interface
-import { Alert, Button, Chip, Spinner, Tabs } from '@heroui/react'
+import { Alert, Button, Spinner, Tabs } from '@heroui/react'
 import { LookupCodesSection } from './LookupCodesSection'
+import { PageTabs } from '../../../components/PageTabs'
 import { PasskeysSection } from './PasskeysSection'
 import { PasswordCard } from './PasswordCard'
 import { SessionsSection } from './SessionsSection'
@@ -50,7 +52,7 @@ export function SecurityPage() {
   // In the address, so a sign-in a change asked for comes back to the tab it left.
   const [ selectedTab, selectTab ] = useTabParam(TABS)
 
-  // Lists show their totals beside their names, once they are known.
+  // Lists show their totals beside their names, once they are known. General is no list.
   const countByTab: Record<Tab, number | null> = {
     general: null,
     passkeys: flow
@@ -61,6 +63,11 @@ export function SecurityPage() {
       ? signedIn.sessions.length
       : null,
   }
+  const tabs: PageTab<Tab>[] = TABS.map((tab) => ({
+    id: tab,
+    label: t(tabLabelKeys[tab]),
+    count: countByTab[tab],
+  }))
 
   return <SettingsPage title={t('security.title')}>
     {mustEnroll && <Alert status='warning' className='relaxed'>
@@ -82,18 +89,12 @@ export function SecurityPage() {
       <Spinner />
     </div>}
 
-    {flow && <Tabs variant='secondary' selectedKey={selectedTab} onSelectionChange={selectTab}>
-      <Tabs.ListContainer className='relaxed'>
-        <Tabs.List aria-label={t('security.tabs.label')}>{
-          TABS.map((tab) => <Tabs.Tab key={tab} id={tab}>
-            <span>{t(tabLabelKeys[tab])}</span>
-            {countByTab[tab] !== null && <Chip size='sm' variant='soft' className='ml-2'>{
-              countByTab[tab]
-            }</Chip>}
-            <Tabs.Indicator />
-          </Tabs.Tab>)
-        }</Tabs.List>
-      </Tabs.ListContainer>
+    {flow && <PageTabs
+      label={t('security.tabs.label')}
+      selectedKey={selectedTab}
+      onSelectionChange={selectTab}
+      tabs={tabs}
+    >
       <Tabs.Panel id='general'>
         <PasswordCard flow={flow} onSubmit={settings.submit} />
         <TwoFactorCard flow={flow} />
@@ -107,6 +108,6 @@ export function SecurityPage() {
       <Tabs.Panel id='sessions'>
         <SessionsSection />
       </Tabs.Panel>
-    </Tabs>}
+    </PageTabs>}
   </SettingsPage>
 }

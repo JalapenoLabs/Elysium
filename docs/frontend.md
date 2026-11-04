@@ -144,7 +144,9 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
   `canSaveUnchanged`, so Save can be pressed at once while leaving still asks only about real changes.
 - **Lists.** A page shows one list (`~/.claude/docs/ux.md`, Lists of data). A page with more puts each on a tab of
   `PageTabs` (`src/components/PageTabs.tsx`), each tab named with its total beside it, zero included, and none while
-  it is still loading; a count of what waits on the person (the inbox, sign-ups) is accented while above zero. The
+  it is still loading; a count of what waits on the person (the inbox, sign-ups) is accented while above zero. Tabs
+  inside another page's tabs (Changesets' under Action items) pass `level='nested'` and draw as a compact segmented
+  control rather than a second underline. The
   open tab lives in the address through `useTabParam` (`src/hooks/useTabParam.ts`): `?tab=`, plain for the first tab,
   replacing the history entry, so a tab survives a reload and a link can open one (`getTabUrl`). A form never shares
   a page with a list: one that belongs beside a list is a page of its own, reached from the list page's actions and
@@ -1310,7 +1312,8 @@ base variables for each theme. HeroUI derives the hover, soft, and secondary sha
   because `#267fb5` alone falls short of body-text contrast. Borders sit a step lighter than Matter's own, which
   vanish against the page. Dividers (`--separator`) are a 16% tint of the muted text rather than a color, so one
   shows the same on the page, the side panels, and the menus and popovers, which sit lighter than the page in dark
-  mode.
+  mode. HeroUI's soft accent is deepened in dark mode (a 30% tint, its text the link blue), since its own reads
+  dimmer than a plain chip there and an accented count must stand out.
 
 ### Fields
 

@@ -56,6 +56,7 @@ export function ChangesetsPage() {
 
   return <PageTabs
     label={t('tabs.label')}
+    level='nested'
     selectedKey={selectedTab}
     onSelectionChange={selectTab}
     tabs={[

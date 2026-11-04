@@ -22,8 +22,25 @@ export type PageTab<Id extends string> = {
   href?: string
 }
 
+// A page's own tabs, or tabs inside one of them, such as Changesets' under the Action items tabs.
+type TabsLevel = 'page' | 'nested'
+
+// Nested tabs are a compact segmented control rather than a second full-width underline, so
+// they read as part of the tab above them rather than as a rival heading.
+const tabsVariantByLevel = {
+  page: 'secondary',
+  nested: 'primary',
+} as const satisfies Record<TabsLevel, 'primary' | 'secondary'>
+
+const listContainerClassByLevel = {
+  page: 'relaxed',
+  nested: 'relaxed w-fit max-w-full',
+} as const satisfies Record<TabsLevel, string>
+
 type Props<Id extends string> = {
   label: string
+  // `page` unless the tabs sit inside another set of tabs.
+  level?: TabsLevel
   tabs: PageTab<Id>[]
   selectedKey: Id
   // Unset for tabs that are links, which change the page by navigating.
@@ -35,15 +52,17 @@ type Props<Id extends string> = {
 // A page's lists, one per tab, each tab named with its total beside it (`~/.claude/docs/ux.md`,
 // Lists of data). Pair it with `useTabParam`, so the open tab lives in the address.
 export function PageTabs<Id extends string>(props: Props<Id>) {
+  const level = props.level ?? 'page'
+
   // Spaced below as a whole, so whatever follows the tabs (an `Outlet`, when the tabs are pages)
   // sits apart from them, and spaced between the list and its panel.
   return <Tabs
     className='relaxed'
-    variant='secondary'
+    variant={tabsVariantByLevel[level]}
     selectedKey={props.selectedKey}
     onSelectionChange={props.onSelectionChange}
   >
-    <Tabs.ListContainer className='relaxed'>
+    <Tabs.ListContainer className={listContainerClassByLevel[level]}>
       <Tabs.List aria-label={props.label}>{
         props.tabs.map((tab) => <Tabs.Tab key={tab.id} id={tab.id} href={tab.href}>
           {/* A label stays on one line; a list too long for the page scrolls instead. */}

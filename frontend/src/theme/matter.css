@@ -102,6 +102,12 @@
   --focus: #267fb5;
   /* Matter's bright blue: #267fb5 is too dim for body-size link text on #14191f. */
   --link: #4cbbff;
+  /* HeroUI's soft accent (a 12% tint, text mixed toward the foreground) reads dimmer than a
+     plain chip on this page, so an accented count would look quieter than an ordinary one.
+     A deeper tint with the link blue keeps it the one that stands out. */
+  --accent-soft: color-mix(in oklab, var(--accent) 30%, transparent);
+  --accent-soft-hover: color-mix(in oklab, var(--accent) 36%, transparent);
+  --accent-soft-foreground: var(--link);
 
   /* Filled fields a step lighter than the page, lightening on hover, with no border
      until focus rings them in Matter's blue. */
