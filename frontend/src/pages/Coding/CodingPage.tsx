@@ -18,6 +18,8 @@ import { buttonVariants, Link, useOverlayState } from '@heroui/react'
 import { DockviewReact } from 'dockview-react'
 import { LuLayoutPanelLeft, LuPlus, LuRotateCcw } from 'react-icons/lu'
 import { PageHeader } from '../../layout/page/PageHeader'
+import { CodingTab } from './CodingTab'
+import { CodingTabsMenu } from './CodingTabsMenu'
 import { ConversationPanel } from './ConversationPanel'
 import { RenameSessionModal } from './RenameSessionModal'
 import { SessionsPanel } from './SessionsPanel'
@@ -190,6 +192,11 @@ export function CodingPage() {
           className='h-full'
           theme={elysiumDockviewTheme}
           components={panelComponents}
+          // Elysium's own tab and overflow menu, so their buttons have translated names and
+          // tooltips; the strip still scrolls sideways as well.
+          defaultTabComponent={CodingTab}
+          rightHeaderActionsComponent={CodingTabsMenu}
+          disableTabsOverflowList
           watermarkComponent={CodingWatermark}
           onReady={onReady}
         />

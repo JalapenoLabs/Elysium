@@ -5,7 +5,9 @@
     "reset": "Reset layout"
   },
   "panels": {
-    "sessions": "Sessions"
+    "sessions": "Sessions",
+    "close": "Close {{title}}",
+    "all": "Every tab"
   },
   "sessions": {
     "label": "Coding sessions",

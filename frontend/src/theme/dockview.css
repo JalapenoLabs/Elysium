@@ -63,3 +63,20 @@
   --dv-scrollbar-background-color: color-mix(in srgb, var(--muted) 40%, transparent);
   --dv-icon-hover-background-color: var(--default);
 }
+
+/* The Coding page's own tab (CodingTab) shows its close button as Dockview's tab does: on
+   the active tab, on the one under the mouse, and on every tab where nothing hovers. */
+.dockview-theme-elysium .dv-tab.dv-inactive-tab .coding-tab-close {
+  visibility: hidden;
+}
+
+.dockview-theme-elysium .dv-tab.dv-inactive-tab:hover .coding-tab-close,
+.dockview-theme-elysium .dv-tab.dv-inactive-tab:focus-within .coding-tab-close {
+  visibility: visible;
+}
+
+@media (hover: none) {
+  .dockview-theme-elysium .dv-tab.dv-inactive-tab .coding-tab-close {
+    visibility: visible;
+  }
+}
