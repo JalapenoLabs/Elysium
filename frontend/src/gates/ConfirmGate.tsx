@@ -1,36 +1,62 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { ReactNode } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
 
 // Core
 import { createContext, useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
-import { AlertDialog, Button, useOverlayState } from '@heroui/react'
+import { AlertDialog, Button, Label, Switch, useOverlayState } from '@heroui/react'
+import { CountdownButton } from '../components/CountdownButton'
+
+// Misc
+import { IRREVERSIBLE_CONFIRM_SECONDS } from '../constants'
+
+// An option the action can take, shown as a switch that is off when the dialog opens, such
+// as also deleting what a delete otherwise keeps.
+export type ConfirmSwitch = {
+  id: string
+  label: string
+  // Switched on, it makes the action one that can't be undone, as `isIrreversible` does.
+  makesIrreversible?: boolean
+}
 
 export type ConfirmOptions = {
   title: string
+  // What happens, naming what it happens to: people read the body more than the title.
   message: ReactNode
   // Defaults to "Confirm".
   confirmText?: string
-  // Defaults to "Cancel", or "Close" when the action cannot be confirmed.
+  // Defaults to "Cancel", or "Got it" when the action cannot be confirmed.
   cancelText?: string
-  // `danger` for destructive actions: a danger icon and a danger confirm button.
+  // `danger` for destructive actions: a danger icon and button, and Enter never confirms.
+  // `accent`, the default, opens with Confirm focused, so Enter confirms.
   tone?: 'danger' | 'accent'
+  // For an action that can't be undone, such as a permanent delete. It is `danger`, says in
+  // bold that it can't be undone, and holds Confirm for a few seconds, counting them down in
+  // its label. A delete that can be undone (a soft delete) leaves this off.
+  isIrreversible?: boolean
+  switches?: ConfirmSwitch[]
   // False when the action is blocked, such as deleting something still in use: the
   // dialog then only explains why, with no confirm button.
   canConfirm?: boolean
-  // The dialog stays open, its button pending, until this settles. It closes when this
-  // resolves and stays open when it throws, so a caller can report the failure and let
-  // the user try again or cancel.
-  onConfirm: () => Promise<void> | void
+  // Receives the ids of the switches left on. The dialog stays open, its button pending,
+  // until this settles. It closes when this resolves and stays open when it throws, so a
+  // caller can report the failure and let the user try again or cancel.
+  onConfirm: (switchedOn: ReadonlySet<string>) => Promise<void> | void
   onCancel?: () => void
 }
 
 export const ConfirmContext = createContext<(options: ConfirmOptions) => void>(() => {
   throw new Error('ConfirmGate is missing from the component tree')
 })
+
+// One question asked; the id tells each asking apart, so a new one starts its countdown over.
+type Question = {
+  id: number
+  options: ConfirmOptions
+}
 
 type Props = {
   children: ReactNode
@@ -41,24 +67,26 @@ type Props = {
 export function ConfirmGate(props: Props) {
   const { t } = useTranslation('common')
   const overlay = useOverlayState()
-  const [ options, setOptions ] = useState<ConfirmOptions | null>(null)
+  const [ question, setQuestion ] = useState<Question | null>(null)
+  const [ switchedOn, setSwitchedOn ] = useState<ReadonlySet<string>>(new Set())
   const [ isPending, setIsPending ] = useState(false)
 
   const openOverlay = overlay.open
-  const confirm = useCallback((nextOptions: ConfirmOptions) => {
-    setOptions(nextOptions)
+  const confirm = useCallback((options: ConfirmOptions) => {
+    setQuestion((previous) => ({ id: (previous?.id ?? 0) + 1, options }))
+    setSwitchedOn(new Set())
     openOverlay()
   }, [ openOverlay ])
 
   async function onConfirm() {
-    if (!options) {
+    if (!question) {
       console.debug('ConfirmGate confirmed with no question open')
       return
     }
 
     setIsPending(true)
     try {
-      await options.onConfirm()
+      await question.options.onConfirm(switchedOn)
       overlay.close()
     }
     catch (error) {
@@ -75,29 +103,78 @@ export function ConfirmGate(props: Props) {
       return
     }
     if (!isOpen) {
-      options?.onCancel?.()
+      question?.options.onCancel?.()
     }
     overlay.setOpen(isOpen)
   }
 
-  const tone = options?.tone ?? 'accent'
+  function toggle(switchId: string, isSelected: boolean) {
+    const next = new Set(switchedOn)
+    if (isSelected) {
+      next.add(switchId)
+    }
+    else {
+      next.delete(switchId)
+    }
+    setSwitchedOn(next)
+  }
+
+  const options = question?.options
+  const switches = options?.switches ?? []
   const canConfirm = options?.canConfirm ?? true
+  const isIrreversible = canConfirm && (Boolean(options?.isIrreversible) || switches.some(
+    (option) => option.makesIrreversible && switchedOn.has(option.id),
+  ))
+  const tone = isIrreversible
+    ? 'danger'
+    : options?.tone ?? 'accent'
+
+  function blockEnter(event: KeyboardEvent) {
+    // A destructive action is confirmed by a deliberate press, never by Enter (ux.md,
+    // Hotkeys); Space on a focused Confirm still presses it.
+    if (tone === 'danger' && event.key === 'Enter') {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+  }
 
   return <ConfirmContext.Provider value={confirm}>
     {props.children}
-    <AlertDialog.Backdrop isOpen={overlay.isOpen} onOpenChange={onOpenChange}>
+    <AlertDialog.Backdrop
+      isOpen={overlay.isOpen}
+      onOpenChange={onOpenChange}
+      // An alert dialog ignores Esc unless told otherwise; this one is always safe to leave.
+      isKeyboardDismissDisabled={false}
+    >
       <AlertDialog.Container>
         <AlertDialog.Dialog className='sm:max-w-md'>
           <AlertDialog.Header>
             <AlertDialog.Icon status={tone} />
             <AlertDialog.Heading>{options?.title}</AlertDialog.Heading>
           </AlertDialog.Header>
-          <AlertDialog.Body>{
-            typeof options?.message === 'string'
-              ? <p>{options.message}</p>
-              : options?.message
-          }</AlertDialog.Body>
-          <AlertDialog.Footer>
+          <AlertDialog.Body>
+            {typeof options?.message === 'string'
+              ? <p className='compact'>{options.message}</p>
+              : options?.message}
+            {canConfirm && switches.map((option) => <Switch
+              key={option.id}
+              className='compact'
+              isSelected={switchedOn.has(option.id)}
+              isDisabled={isPending}
+              onChange={(isSelected) => toggle(option.id, isSelected)}
+            >
+              <Switch.Content>
+                <Switch.Control>
+                  <Switch.Thumb />
+                </Switch.Control>
+                <Label>{option.label}</Label>
+              </Switch.Content>
+            </Switch>)}
+            {isIrreversible && <p>
+              <strong>{t('confirm.irreversible')}</strong>
+            </p>}
+          </AlertDialog.Body>
+          <AlertDialog.Footer onKeyDownCapture={blockEnter}>
             <Button
               variant='tertiary'
               isDisabled={isPending}
@@ -106,18 +183,24 @@ export function ConfirmGate(props: Props) {
               <span>{
                 options?.cancelText ?? (canConfirm
                   ? t('actions.cancel')
-                  : t('actions.close'))
+                  : t('actions.gotIt'))
               }</span>
             </Button>
-            {canConfirm && <Button
+            {canConfirm && <CountdownButton
+              // Each question, and each time a switch makes it irreversible, counts down anew.
+              key={`${question?.id}-${isIrreversible}`}
+              seconds={isIrreversible
+                ? IRREVERSIBLE_CONFIRM_SECONDS
+                : 0}
+              label={options?.confirmText ?? t('actions.confirm')}
               variant={tone === 'danger'
                 ? 'danger'
                 : 'primary'}
+              // Focused, Enter confirms a safe action, as in any dialog (ux.md, Hotkeys).
+              autoFocus={tone === 'accent'}
               isPending={isPending}
-              onPress={onConfirm}
-            >
-              <span>{options?.confirmText ?? t('actions.confirm')}</span>
-            </Button>}
+              onPress={() => void onConfirm()}
+            />}
           </AlertDialog.Footer>
         </AlertDialog.Dialog>
       </AlertDialog.Container>

@@ -147,3 +147,7 @@ export const ISSUE_REPORT_PREVIEW_DELAY_MS = 400
 // Filing a report searches GitHub and then posts to it, which can take longer than a plain
 // request; the API's own deadline is 30 seconds.
 export const ISSUE_REPORT_FILE_TIMEOUT_MS = 30_000
+
+// How long confirming something that can't be undone, such as a permanent delete, holds its
+// button before it can be pressed, so the dialog is read first (ux.md, Delete confirmations).
+export const IRREVERSIBLE_CONFIRM_SECONDS = 5

@@ -1,15 +1,20 @@
 {
   "actions": {
     "cancel": "Cancel",
-    "close": "Close",
     "confirm": "Confirm",
     "create": "Create",
     "delete": "Delete",
+    "done": "Done",
     "edit": "Edit",
+    "gotIt": "Got it",
     "rename": "Rename",
     "retry": "Retry",
     "save": "Save",
     "moreActions": "More actions"
+  },
+  "confirm": {
+    "irreversible": "This can't be undone.",
+    "countdown": "{{action}} ({{seconds}})"
   },
   "search": {
     "placeholder": "Search",

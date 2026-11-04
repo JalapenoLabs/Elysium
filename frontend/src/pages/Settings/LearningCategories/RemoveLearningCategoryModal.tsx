@@ -4,15 +4,16 @@ import type { PresentedLearningCategory } from '../Learnings/learningPresentatio
 import type { LearningCategory } from '../../../api/routes/learningCategoryRoutes'
 
 // Core
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // User interface
 import { AlertDialog, Button } from '@heroui/react'
+import { CountdownButton } from '../../../components/CountdownButton'
 import { OptionSelect } from '../../../components/OptionSelect'
 
-// A removal cannot be undone, so its button waits this many seconds before it can be pressed.
-const CONFIRM_DELAY_SECONDS = 5
+// Misc
+import { IRREVERSIBLE_CONFIRM_SECONDS } from '../../../constants'
 
 type Props = {
   // The category to remove. The page renders the dialog only while one is being removed,
@@ -30,22 +31,13 @@ type Props = {
 // under is removed only once the admin chooses where they move, since none may be left without
 // a category.
 export function RemoveLearningCategoryModal(props: Props) {
-  const { t } = useTranslation('learningCategories')
+  const { t } = useTranslation([ 'learningCategories', 'common' ])
   const category = props.category
   const targets = props.categories.filter((option) => option.key !== category.key)
   const [ moveTo, setMoveTo ] = useState<string | null>(null)
-  const [ secondsLeft, setSecondsLeft ] = useState(CONFIRM_DELAY_SECONDS)
   const [ isPending, setIsPending ] = useState(false)
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setSecondsLeft((seconds) => Math.max(seconds - 1, 0))
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [])
-
   const hasLearnings = category.learningCount > 0
-  const canRemove = secondsLeft === 0 && (!hasLearnings || moveTo !== null)
 
   async function remove() {
     setIsPending(true)
@@ -65,6 +57,8 @@ export function RemoveLearningCategoryModal(props: Props) {
 
   return <AlertDialog.Backdrop
     isOpen
+    // An alert dialog ignores Esc unless told otherwise; leaving this one is always safe.
+    isKeyboardDismissDisabled={false}
     onOpenChange={(isOpen) => {
       // Dismissing while the removal runs would hide its outcome.
       if (!isOpen && !isPending) {
@@ -84,7 +78,7 @@ export function RemoveLearningCategoryModal(props: Props) {
           <p className='compact'>
             <span>{t('remove.body', { label: category.label })}</span>
             {' '}
-            <strong>{t('remove.irreversible')}</strong>
+            <strong>{t('common:confirm.irreversible')}</strong>
           </p>
           {hasLearnings && <>
             <p className='compact'>{
@@ -99,7 +93,15 @@ export function RemoveLearningCategoryModal(props: Props) {
             />
           </>}
         </AlertDialog.Body>
-        <AlertDialog.Footer>
+        <AlertDialog.Footer
+          onKeyDownCapture={(event) => {
+            // A removal is confirmed by a deliberate press, never by Enter (ux.md, Hotkeys).
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              event.stopPropagation()
+            }
+          }}
+        >
           <Button
             variant='tertiary'
             isDisabled={isPending}
@@ -107,18 +109,14 @@ export function RemoveLearningCategoryModal(props: Props) {
           >
             <span>{t('remove.cancel')}</span>
           </Button>
-          <Button
+          <CountdownButton
+            seconds={IRREVERSIBLE_CONFIRM_SECONDS}
+            label={t('remove.confirm')}
             variant='danger'
-            isDisabled={!canRemove}
+            isDisabled={hasLearnings && moveTo === null}
             isPending={isPending}
             onPress={() => void remove()}
-          >
-            <span>{
-              secondsLeft > 0
-                ? t('remove.confirmIn', { seconds: secondsLeft })
-                : t('remove.confirm')
-            }</span>
-          </Button>
+          />
         </AlertDialog.Footer>
       </AlertDialog.Dialog>
     </AlertDialog.Container>

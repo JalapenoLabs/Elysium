@@ -147,7 +147,7 @@ export function MailDomainDnsModal(props: Props) {
             <span>{t('dns.recheck')}</span>
           </Button>
           <Button slot='close'>
-            <span>{t('common:actions.close')}</span>
+            <span>{t('common:actions.done')}</span>
           </Button>
         </Modal.Footer>
       </Modal.Dialog>

@@ -58,7 +58,7 @@ type MessageBodyProps = {
   message: string
 }
 
-// Why no form is shown, with only Close.
+// Why no form is shown, with only Cancel.
 function MessageBody(props: MessageBodyProps) {
   const { t } = useTranslation('common')
 
@@ -68,7 +68,7 @@ function MessageBody(props: MessageBodyProps) {
     </Modal.Body>
     <Modal.Footer>
       <Button slot='close' variant='tertiary'>
-        <span>{t('actions.close')}</span>
+        <span>{t('actions.cancel')}</span>
       </Button>
     </Modal.Footer>
   </>

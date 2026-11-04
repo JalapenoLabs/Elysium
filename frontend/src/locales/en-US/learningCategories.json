@@ -37,13 +37,11 @@
   "remove": {
     "title": "Remove {{label}}?",
     "body": "Agents and people will no longer file learnings under {{label}}.",
-    "irreversible": "This can't be undone.",
     "learnings_one": "{{count, compact}} learning is filed under it. Choose where it moves.",
     "learnings_other": "{{count, compact}} learnings are filed under it. Choose where they move.",
     "moveTo": "Move to",
     "chooseCategory": "Choose a category",
     "confirm": "Remove",
-    "confirmIn": "Remove ({{seconds}})",
     "cancel": "Never mind"
   },
   "page": {

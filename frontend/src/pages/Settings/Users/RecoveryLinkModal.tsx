@@ -113,7 +113,7 @@ export function RecoveryLinkModal(props: Props) {
         </Modal.Body>
         <Modal.Footer>
           <Button slot='close' variant='tertiary'>
-            <span>{t('common:actions.close')}</span>
+            <span>{t('common:actions.done')}</span>
           </Button>
         </Modal.Footer>
       </Modal.Dialog>
