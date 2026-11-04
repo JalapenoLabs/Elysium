@@ -1,14 +1,13 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `/api/v1/browser-sessions`: browsers the host runs for a person to sign in to their
-//! accounts in, and the stream they watch one through. See `crate::browser` and
-//! `docs/browser.md`.
+//! `/api/v1/browser-sessions`: the browsers the host runs as connectors' accounts, and the
+//! stream their people sign in through. See `crate::browser` and `docs/browser.md`.
 //!
-//! A browser belongs to the person who created it. Every route answers its owner alone,
-//! and another person's browser is indistinguishable from one that does not exist.
+//! A browser is started with the connector it belongs to and removed with it
+//! (`/api/v1/connectors`), so nothing here adds or removes one. A browser belongs to the
+//! person who created it. Every route answers its owner alone, and another person's browser is
+//! indistinguishable from one that does not exist.
 
-mod create_browser_session;
-mod delete_browser_session;
 mod get_browser_session;
 mod list_browser_sessions;
 mod reset_browser_session;
@@ -27,14 +26,8 @@ use crate::state::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/",
-            get(list_browser_sessions::handle).post(create_browser_session::handle),
-        )
-        .route(
-            "/{id}",
-            get(get_browser_session::handle).delete(delete_browser_session::handle),
-        )
+        .route("/", get(list_browser_sessions::handle))
+        .route("/{id}", get(get_browser_session::handle))
         .route("/{id}/start-over", post(start_over_browser_session::handle))
         .route("/{id}/reset", post(reset_browser_session::handle))
         .route("/{id}/stream", get(stream_browser_session::handle))

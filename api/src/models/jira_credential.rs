@@ -15,6 +15,11 @@
 //! link rows and the column false. The rows carry each entry's display name so the settings
 //! page renders a selection without calling Jira, and each project's key so a bounded
 //! search can name it in JQL.
+//!
+//! A credential is an Atlassian account, and carries exactly one connector, made with it: a
+//! Jira connector, or a Confluence connector whose account allows no Jira project or board.
+//! [`list`] answers the Jira connectors' accounts alone, since everything that lists them
+//! (Settings, Jira, and every Jira picker) is choosing a Jira site.
 
 use std::collections::HashMap;
 
@@ -27,9 +32,11 @@ use uuid::Uuid;
 
 use crate::connectors::ConnectorKind;
 use crate::crypto::{Cipher, OpenError};
-use crate::database::schema::{jira_credential_boards, jira_credential_projects, jira_credentials};
+use crate::database::schema::{
+    connectors, jira_credential_boards, jira_credential_projects, jira_credentials,
+};
 use crate::jira::Account;
-use crate::models::connector::{self, AccountRef, NewConnector};
+use crate::models::connector::{self, AccountRef, Connector, NewConnector};
 
 /// The wildcard that stands for everything of a kind, including what is added later.
 const EVERYTHING: &str = "*";
@@ -313,7 +320,8 @@ impl JiraCredential {
     }
 }
 
-/// Every credential by name, each with what it is allowed to touch.
+/// Every credential a Jira connector carries, by name, each with what it is allowed to touch.
+/// The accounts of other kinds, such as Confluence, are left out: none is a Jira site.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -321,6 +329,11 @@ pub async fn list(
     connection: &mut AsyncPgConnection,
 ) -> QueryResult<Vec<(JiraCredential, Allowed)>> {
     let credentials: Vec<JiraCredential> = jira_credentials::table
+        .inner_join(
+            connectors::table
+                .on(connectors::jira_credential_id.eq(jira_credentials::id.nullable())),
+        )
+        .filter(connectors::kind.eq(ConnectorKind::Jira.as_str()))
         .order(jira_credentials::name.asc())
         .select(JiraCredential::as_select())
         .load(connection)
@@ -439,7 +452,7 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<J
 }
 
 /// Seals the token and inserts the credential with a new `UUIDv7` id, linked to what it may
-/// touch.
+/// touch, with the Jira connector it carries.
 ///
 /// # Errors
 /// Propagates database errors, including a unique violation on `name`.
@@ -448,6 +461,30 @@ pub async fn create(
     cipher: &Cipher,
     new_credential: &NewJiraCredential,
 ) -> QueryResult<JiraCredential> {
+    let empty = serde_json::Value::Object(serde_json::Map::new());
+    let (credential, _jira) = create_carrying(
+        connection,
+        cipher,
+        new_credential,
+        ConnectorKind::Jira,
+        empty,
+    )
+    .await?;
+    Ok(credential)
+}
+
+/// [`create`], for an account that carries a connector of `kind` reading `content` instead:
+/// a Confluence connector's, which allows no Jira project or board.
+///
+/// # Errors
+/// As [`create`].
+pub async fn create_carrying(
+    connection: &mut AsyncPgConnection,
+    cipher: &Cipher,
+    new_credential: &NewJiraCredential,
+    kind: ConnectorKind,
+    content: serde_json::Value,
+) -> QueryResult<(JiraCredential, Connector)> {
     let id = Uuid::now_v7();
     let verified = &new_credential.verified;
     let allowed = &new_credential.allowed;
@@ -477,20 +514,48 @@ pub async fn create(
                 .await?;
             replace_project_links(connection, id, &allowed.projects).await?;
             replace_board_links(connection, id, &allowed.boards).await?;
-            // Every Atlassian account carries its Jira connector, where its reading is shown,
+            // Every Atlassian account carries its one connector, where its reading is shown,
             // checked, and paused. See `crate::connectors`.
-            connector::create(
-                connection,
-                NewConnector::new(
-                    ConnectorKind::Jira.as_str(),
-                    AccountRef::Atlassian(id),
-                    new_credential.created_by,
-                ),
-            )
-            .await?;
-            Ok(credential)
+            let mut new_connector = NewConnector::new(
+                kind.as_str(),
+                AccountRef::Atlassian(id),
+                new_credential.created_by,
+            );
+            new_connector.content = content;
+            let carried = connector::create(connection, new_connector).await?;
+            Ok((credential, carried))
         })
         .await
+}
+
+/// Re-seals the token of credential `id`, which a migration copied from credential
+/// `sealed_for` and is still sealed for it, so it opens for its own row. Answers whether the
+/// credential still exists. See `crate::models::secret_copy`.
+///
+/// # Errors
+/// Fails when the copied token does not open for `sealed_for`, and on any database error.
+pub async fn reseal_token(
+    connection: &mut AsyncPgConnection,
+    cipher: &Cipher,
+    id: Uuid,
+    sealed_for: Uuid,
+) -> anyhow::Result<bool> {
+    let Some(credential) = jira_credentials::table
+        .find(id)
+        .select(JiraCredential::as_select())
+        .first(connection)
+        .await
+        .optional()?
+    else {
+        return Ok(false);
+    };
+    let token = cipher.open(&credential.token_encrypted, &token_context(sealed_for))?;
+    let resealed = cipher.seal(token.expose_secret(), &token_context(id));
+    diesel::update(jira_credentials::table.find(id))
+        .set(jira_credentials::token_encrypted.eq(resealed))
+        .execute(connection)
+        .await?;
+    Ok(true)
 }
 
 /// Applies `changes`, re-sealing the token under this row's id if one is given and

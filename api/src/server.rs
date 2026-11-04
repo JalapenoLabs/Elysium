@@ -59,6 +59,7 @@ use crate::mail::hosting::Hosting;
 use crate::mail::stalwart::Stalwart;
 use crate::mail::stalwart::container::StalwartContainer;
 use crate::meetings::{Meetings, MeetingsDeps};
+use crate::models::secret_copy;
 use crate::oauth::hydra::Hydra;
 use crate::passwords::{self, Passwords, PasswordsDeps};
 use crate::realtime::EventBus;
@@ -119,6 +120,24 @@ pub async fn serve() -> Result<()> {
         connections::connect_postgres(&config.database_url, config.database_max_connections)
             .await?;
     migrations::ensure_up_to_date(config.database_url.clone()).await?;
+    // Secrets a migration copied are re-sealed for their own rows before anything reads one.
+    {
+        let mut connection = database
+            .get()
+            .await
+            .context("no database connection to re-seal copied secrets")?;
+        let resealed = secret_copy::reseal_all(&mut connection, &cipher)
+            .await
+            .context("cannot read the secrets migrations copied")?;
+        if resealed > 0 {
+            event!(
+                name: "secrets.copies.resealed",
+                Level::INFO,
+                secret.count = resealed,
+                "re-sealed {{secret.count}} copied secrets for their own rows",
+            );
+        }
+    }
     let redis = connections::connect_redis(&config.redis_url).await?;
 
     // One HTTP client for every outbound call: the OAuth broker, Stalwart, GitHub, and

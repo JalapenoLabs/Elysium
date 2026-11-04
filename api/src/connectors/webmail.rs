@@ -192,6 +192,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::connectors::kinds::{Provides, providing};
 
     #[test]
     fn a_page_reading_keeps_its_messages_in_order() {
@@ -291,7 +292,7 @@ mod tests {
         for kind in [ConnectorKind::Outlook, ConnectorKind::Gmail] {
             assert!(service(kind).is_some(), "{kind:?} has a webmail service");
         }
-        for kind in ConnectorKind::MEETINGS {
+        for kind in providing(Provides::Meetings) {
             assert!(service(kind).is_none(), "{kind:?} reads meetings, not mail");
         }
     }

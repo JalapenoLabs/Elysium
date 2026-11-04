@@ -11,8 +11,7 @@ use secrecy::SecretString;
 use serde_json::Value;
 
 use super::{
-    AccountChoice, AccountChoices, AccountDefinition, AccountField, AccountFieldType, Definition,
-    Source,
+    AccountChoice, AccountDefinition, AccountField, AccountFieldType, Definition, Provides, Source,
 };
 use crate::auth::CurrentUser;
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
@@ -31,7 +30,7 @@ pub const DEFINITION: Definition = Definition {
     kind: ConnectorKind::Github,
     scope: Scope::Workspace,
     account: AccountKind::Github,
-    accounts: AccountChoices::New,
+    provides: &[Provides::Issues],
     start_url: None,
     content: &[],
     checks: &[
@@ -206,23 +205,17 @@ impl GithubChecks {
     }
 }
 
-/// A GitHub connector comes with a new GitHub account, made the way Settings, GitHub makes one.
+/// A GitHub connector comes with its new GitHub account, `new`, made the way Settings, GitHub
+/// makes one.
 ///
 /// # Errors
-/// [`ApiError::CodedConflict`] for an existing account, which already carries its connector;
-/// otherwise as [`create_github_credential::create_credential`].
+/// As [`create_github_credential::create_credential`].
 pub async fn create(
     state: &AppState,
     current: &CurrentUser,
-    account: AccountChoice,
+    new: Value,
     content: Value,
 ) -> Result<Connector, ApiError> {
-    let AccountChoice::New { new } = account else {
-        return Err(ApiError::CodedConflict {
-            code: "account_has_connector",
-            message: "a GitHub account already carries its GitHub connector",
-        });
-    };
     if content.as_object().is_some_and(|fields| !fields.is_empty()) {
         return Err(ApiError::BadRequest(
             "github reads everything its token reaches and takes no content".to_owned(),
@@ -234,12 +227,8 @@ pub async fn create(
     let credential = create_github_credential::create_credential(state, current.id(), body).await?;
 
     let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
-    let found = connector::find_by_account(
-        &mut connection,
-        ConnectorKind::Github.as_str(),
-        AccountRef::Github(credential.id),
-    )
-    .await?;
+    let found =
+        connector::find_by_account(&mut connection, AccountRef::Github(credential.id)).await?;
     found.ok_or(ApiError::NotFound)
 }
 

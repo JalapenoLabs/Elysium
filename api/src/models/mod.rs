@@ -31,6 +31,7 @@ pub mod mail_server;
 pub mod meeting;
 pub mod password_vault;
 pub mod project;
+pub mod secret_copy;
 pub mod session_event;
 pub mod storage_location;
 pub mod studio_asset;

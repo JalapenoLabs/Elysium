@@ -234,7 +234,7 @@ impl<'de, Reference: Deserialize<'de>> Deserialize<'de> for Selection<Reference>
 }
 
 /// Rejects names that are only whitespace; `length` alone would accept `"   "`.
-fn validate_not_blank(value: &str) -> Result<(), ValidationError> {
+pub(crate) fn validate_not_blank(value: &str) -> Result<(), ValidationError> {
     if value.trim().is_empty() {
         return Err(ValidationError::new("blank").with_message("must not be blank".into()));
     }
@@ -244,7 +244,7 @@ fn validate_not_blank(value: &str) -> Result<(), ValidationError> {
 /// Rejects anything that is not an email address, which is the username half of basic auth.
 ///
 /// Addresses are not parsed further than Jira needs: Jira decides whose account it is.
-fn validate_email_address(value: &str) -> Result<(), ValidationError> {
+pub(crate) fn validate_email_address(value: &str) -> Result<(), ValidationError> {
     let address = value.trim();
     let is_address = match address.split_once('@') {
         Some((local, domain)) => {

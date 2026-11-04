@@ -539,7 +539,7 @@ mod tests {
             )
             .await
             .is_err(),
-            "an account feeds each kind once"
+            "no two connectors share an account"
         );
     }
 

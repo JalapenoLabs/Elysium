@@ -1,19 +1,16 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Every account Elysium signs in with, as one list. See `docs/connectors.md`.
+//! The accounts connectors own, read for the hub's view of each connector. See
+//! `docs/connectors.md`.
 //!
 //! Accounts live in one store per way of signing in, each with the columns and constraints its
 //! provider needs: Atlassian accounts in `jira_credentials`, GitHub accounts in
-//! `github_credentials`, browsers in `browser_sessions`, and API keys in `token_accounts`. This
-//! module reads them together, with the connectors each one feeds, for the hub's Accounts list
-//! and for naming the account beside each connector.
-//!
-//! Atlassian and GitHub accounts are the workspace's, like their connectors; browsers and keys
-//! are their creator's.
+//! `github_credentials`, browsers in `browser_sessions`, and API keys in `token_accounts`. Each
+//! is owned by exactly one connector. This module names the account beside its connector, and
+//! reads what the link watcher records per account for the Jira and GitHub connectors.
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
 use diesel::dsl::count_star;
 use diesel::prelude::*;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -24,37 +21,9 @@ use super::{AccountKind, ConnectorKind};
 use crate::database::schema::{action_item_links, link_watch_cursors, timeline_records};
 use crate::models::connector::{AccountRef, Connector};
 use crate::models::link_watch_cursor::LinkWatchCursor;
-use crate::models::{
-    browser_session, connector, github_credential, jira_credential, token_account,
-};
+use crate::models::{browser_session, github_credential, jira_credential, token_account};
 
-/// An account as the hub lists it. Never carries a secret.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccountView {
-    pub id: Uuid,
-    pub kind: AccountKind,
-    pub name: String,
-    /// Who the provider says it is, such as a login or an address; empty when unknown.
-    pub identity: String,
-    /// When the provider last confirmed it.
-    pub checked_at: Option<DateTime<Utc>>,
-    /// The workspace default token coding sessions start with, for a GitHub account.
-    pub is_default: bool,
-    pub created_by: Uuid,
-    pub created_at: DateTime<Utc>,
-    /// The connectors it feeds.
-    pub used_by: Vec<AccountUse>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccountUse {
-    pub connector_id: Uuid,
-    pub kind: String,
-}
-
-/// An account's name and kind, beside the connector it feeds.
+/// An account's name and kind, beside the connector that owns it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountSummary {
@@ -63,90 +32,7 @@ pub struct AccountSummary {
     pub name: String,
 }
 
-/// Every account `person` sees, with the connectors each feeds: the workspace's Atlassian and
-/// GitHub accounts, and `person`'s own browsers and keys.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn list(
-    connection: &mut AsyncPgConnection,
-    person: Uuid,
-) -> QueryResult<Vec<AccountView>> {
-    let mut accounts: Vec<AccountView> = Vec::new();
-    for (credential, _allowed) in jira_credential::list(connection).await? {
-        accounts.push(AccountView {
-            id: credential.id,
-            kind: AccountKind::Atlassian,
-            name: credential.name,
-            identity: credential.display_name,
-            checked_at: Some(credential.checked_at),
-            is_default: false,
-            created_by: credential.created_by,
-            created_at: credential.created_at,
-            used_by: Vec::new(),
-        });
-    }
-    for credential in github_credential::list(connection).await? {
-        accounts.push(AccountView {
-            id: credential.id,
-            kind: AccountKind::Github,
-            name: credential.name,
-            identity: credential.login,
-            checked_at: Some(credential.checked_at),
-            is_default: credential.is_default,
-            created_by: credential.created_by,
-            created_at: credential.created_at,
-            used_by: Vec::new(),
-        });
-    }
-    for browser in browser_session::list_owned(connection, person).await? {
-        accounts.push(AccountView {
-            id: browser.id,
-            kind: AccountKind::Browser,
-            name: browser.name,
-            identity: browser.start_url,
-            checked_at: None,
-            is_default: false,
-            created_by: browser.created_by,
-            created_at: browser.created_at,
-            used_by: Vec::new(),
-        });
-    }
-    for account in token_account::list_owned(connection, person).await? {
-        let Some(kind) = AccountKind::parse(&account.kind) else {
-            continue;
-        };
-        accounts.push(AccountView {
-            id: account.id,
-            kind,
-            name: account.name,
-            identity: account.identity,
-            checked_at: account.checked_at,
-            is_default: false,
-            created_by: account.created_by,
-            created_at: account.created_at,
-            used_by: Vec::new(),
-        });
-    }
-
-    let connectors =
-        connector::list_visible(connection, person, &super::kinds::workspace_kinds()).await?;
-    let mut uses: HashMap<Uuid, Vec<AccountUse>> = HashMap::new();
-    for connector in connectors {
-        uses.entry(connector.account().id())
-            .or_default()
-            .push(AccountUse {
-                connector_id: connector.id,
-                kind: connector.kind,
-            });
-    }
-    for account in &mut accounts {
-        account.used_by = uses.remove(&account.id).unwrap_or_default();
-    }
-    Ok(accounts)
-}
-
-/// The name of every account `connectors` read through, by account id.
+/// The name of every account `connectors` own, by account id.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -156,7 +42,10 @@ pub async fn summaries(
 ) -> QueryResult<HashMap<Uuid, AccountSummary>> {
     let mut summaries: HashMap<Uuid, AccountSummary> = HashMap::new();
     for connector in connectors {
-        let account = connector.account();
+        // A connector waiting for its browser has no account to name yet.
+        let Some(account) = connector.account() else {
+            continue;
+        };
         if summaries.contains_key(&account.id()) {
             continue;
         }
@@ -219,8 +108,8 @@ pub async fn record_counts(
         .filter_map(|(connector_id, count)| connector_id.map(|id| (id, count)))
         .collect();
 
-    // Linked issues belong to the Jira and GitHub connectors, never to another kind reading
-    // through the same account, such as Confluence.
+    // Linked issues belong to the Jira and GitHub connectors, never to Confluence, whose
+    // account is an Atlassian one too.
     let link_connectors: Vec<&Connector> = link_connectors(connectors).collect();
     let jira_ids: Vec<Uuid> = link_connectors
         .iter()
@@ -258,8 +147,8 @@ pub async fn record_counts(
     Ok(counts)
 }
 
-/// The connectors among `connectors` that the link watcher reads: Jira and GitHub. An Atlassian
-/// account can feed Confluence too, so the watcher's counts and passes are matched by kind as
+/// The connectors among `connectors` that the link watcher reads: Jira and GitHub. Confluence's
+/// account is an Atlassian one too, so the watcher's counts and passes are matched by kind as
 /// well as account.
 fn link_connectors(connectors: &[Connector]) -> impl Iterator<Item = &Connector> {
     connectors.iter().filter(|connector| {

@@ -3,23 +3,23 @@
 //! Slack: a person's workspaces, read through Slack's web client in a browser they signed in
 //! to. See `docs/connectors.md`, Slack, and `crate::connectors::slack` for the reading.
 //!
-//! The account is the browser, as for Outlook and Gmail: nothing is installed into a Slack
-//! workspace. A new one is made and signed in to on its own page under Settings, Browser
-//! sign-ins; the hub then connects Slack through it. Its content picks the workspaces,
+//! The account is the connector's own browser, as for Outlook and Gmail, started with it at
+//! Slack's web client (`super::browser`): nothing is installed into a Slack workspace. Its
+//! person signs in on the stream the connector's page shows. Its content picks the workspaces,
 //! conversations, and direct messages it reads.
 
 use serde_json::{Value, json};
-use uuid::Uuid;
 
-use super::{AccountChoice, AccountChoices, ContentField, ContentFieldType, Definition, Source};
+use super::browser::{browser_of, owned_browser, starts_with_its_browser};
+use super::{AccountChoice, ContentField, ContentFieldType, Definition, Provides, Source};
 use crate::auth::CurrentUser;
 use crate::browser::{BrowserState, Browsers};
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
 use crate::connectors::slack::{self, Content, Counts, START_URL, Slack, Tab, Team, count_teams};
 use crate::connectors::{AccountKind, ConnectorKind, Scope, SignInState};
 use crate::errors::ApiError;
-use crate::models::browser_session::{self, BrowserSession};
-use crate::models::connector::{self, AccountRef, Connector, NewConnector};
+use crate::models::browser_session::BrowserSession;
+use crate::models::connector::{self, Connector};
 use crate::routes::v1::jira_credentials::Selection;
 use crate::state::AppState;
 
@@ -50,7 +50,7 @@ pub const DEFINITION: Definition = Definition {
     kind: ConnectorKind::Slack,
     scope: Scope::Personal,
     account: AccountKind::Browser,
-    accounts: AccountChoices::Existing,
+    provides: &[Provides::Messages],
     start_url: Some(START_URL),
     content: &[ContentField {
         id: "conversations",
@@ -59,27 +59,6 @@ pub const DEFINITION: Definition = Definition {
     }],
     checks: CHECKS,
 };
-
-/// The browser `id`, when `owner` created it.
-async fn owned_browser(
-    state: &AppState,
-    id: Uuid,
-    owner: Uuid,
-) -> Result<BrowserSession, ApiError> {
-    let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
-    let browser = browser_session::find(&mut connection, id)
-        .await?
-        .filter(|browser| browser.created_by == owner)
-        .ok_or(ApiError::NotFound)?;
-    Ok(browser)
-}
-
-fn sign_in_first() -> ApiError {
-    ApiError::BadRequest(
-        "Slack is read through a browser: sign in to one under Settings, Browser sign-ins first"
-            .to_owned(),
-    )
-}
 
 /// What a client sent as Slack's content, checked for shape: `"*"`, or ids that look like a
 /// workspace, a workspace's conversation, or its direct messages. Whether each is still there
@@ -117,30 +96,16 @@ fn is_pick(entry: &str) -> bool {
     }
 }
 
-pub async fn prepare_checks(
-    state: &AppState,
-    current: &CurrentUser,
-    source: Source<'_>,
-) -> Result<SlackChecks, ApiError> {
-    let (browser_id, content) = match source {
-        Source::Stored(stored) => {
-            let id = stored.browser_session_id.ok_or_else(|| {
-                ApiError::BadRequest("a Slack connector reads through a browser".to_owned())
-            })?;
-            let content = slack::parse_content(&stored.content)
-                .map_err(|error| ApiError::BadRequest(error.to_string()))?;
-            (id, content)
-        }
-        Source::Draft { account, content } => match account {
-            AccountChoice::Existing { id } => (id, content_of(content)?),
-            AccountChoice::New { .. } => return Err(sign_in_first()),
-        },
+pub async fn prepare_checks(state: &AppState, source: Source<'_>) -> Result<SlackChecks, ApiError> {
+    let Source::Stored(stored) = source else {
+        return Err(starts_with_its_browser());
     };
-    let browser = owned_browser(state, browser_id, current.id()).await?;
+    let content = slack::parse_content(&stored.content)
+        .map_err(|error| ApiError::BadRequest(error.to_string()))?;
     Ok(SlackChecks {
         reader: Slack::new(state.connectors.ingest.devtools().clone()),
         browsers: state.browsers.clone(),
-        browser,
+        browser: browser_of(state, stored).await?,
         content,
         counted: None,
     })
@@ -290,7 +255,7 @@ pub async fn options(
     account: AccountChoice,
 ) -> Result<Value, ApiError> {
     let AccountChoice::Existing { id } = account else {
-        return Err(sign_in_first());
+        return Err(starts_with_its_browser());
     };
     let browser = owned_browser(state, id, current.id()).await?;
     let reader = Slack::new(state.connectors.ingest.devtools().clone());
@@ -316,40 +281,17 @@ pub async fn options(
     Ok(json!({ "conversations": slack::options_of(&teams, &results) }))
 }
 
-/// Connects Slack through one of `current`'s browsers, reading `content`.
+/// Connects Slack for `current`, reading `content`, with a browser of its own to sign in on.
 ///
 /// # Errors
-/// [`ApiError::BadRequest`] for a new account (a browser is signed in to on its own page) or
-/// content of the wrong shape, [`ApiError::NotFound`] for a browser `current` does not have,
-/// and [`ApiError::Conflict`] when the browser already feeds Slack.
+/// [`ApiError::BadRequest`] for content of the wrong shape, and as `super::browser::create`.
 pub async fn create(
     state: &AppState,
     current: &CurrentUser,
-    account: AccountChoice,
     content: Value,
 ) -> Result<Connector, ApiError> {
-    let AccountChoice::Existing { id } = account else {
-        return Err(sign_in_first());
-    };
     content_of(content.clone())?;
-    owned_browser(state, id, current.id()).await?;
-    let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
-    let mut new = NewConnector::new(
-        ConnectorKind::Slack.as_str(),
-        AccountRef::Browser(id),
-        current.id(),
-    );
-    new.content = content;
-    let created = connector::create(&mut connection, new)
-        .await
-        .map_err(|error| match error {
-            diesel::result::Error::DatabaseError(
-                diesel::result::DatabaseErrorKind::UniqueViolation,
-                _,
-            ) => ApiError::Conflict("this browser already reads Slack"),
-            other => other.into(),
-        })?;
-    Ok(created)
+    super::browser::create(state, current, ConnectorKind::Slack, content).await
 }
 
 /// Replaces what the connector reads. Conversations it stops reading keep their place in its

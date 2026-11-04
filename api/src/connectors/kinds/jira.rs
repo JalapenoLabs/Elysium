@@ -14,8 +14,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::{
-    AccountChoice, AccountChoices, AccountDefinition, AccountField, AccountFieldType, ContentField,
-    ContentFieldType, Definition, Source, parse_content, parse_new_account,
+    AccountChoice, AccountDefinition, AccountField, AccountFieldType, ContentField,
+    ContentFieldType, Definition, Provides, Source, parse_content, parse_new_account,
 };
 use crate::auth::CurrentUser;
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
@@ -44,7 +44,7 @@ pub const DEFINITION: Definition = Definition {
     kind: ConnectorKind::Jira,
     scope: Scope::Workspace,
     account: AccountKind::Atlassian,
-    accounts: AccountChoices::New,
+    provides: &[Provides::Issues],
     start_url: None,
     content: &[
         ContentField {
@@ -130,16 +130,16 @@ struct Content {
     boards: Selection<i64>,
 }
 
-/// A site to call, signed in as the account.
+/// A site to call, signed in as the account. Confluence signs in to its site the same way.
 #[derive(Debug)]
-struct SignedSite {
-    url: String,
-    email: String,
-    token: SecretString,
+pub(super) struct SignedSite {
+    pub(super) url: String,
+    pub(super) email: String,
+    pub(super) token: SecretString,
 }
 
 impl SignedSite {
-    fn site(&self) -> Site<'_> {
+    pub(super) fn site(&self) -> Site<'_> {
         Site {
             url: &self.url,
             email: &self.email,
@@ -149,7 +149,7 @@ impl SignedSite {
 }
 
 /// The site a new account's fields name, normalized as a stored one is.
-fn new_site(fields: Value) -> Result<SignedSite, ApiError> {
+pub(super) fn new_site(fields: Value) -> Result<SignedSite, ApiError> {
     let fields: NewSite = parse_new_account(AccountKind::Atlassian, fields)?;
     let url = normalize_site_url(&fields.site_url)
         .map_err(|advice| ApiError::BadRequest(advice.to_owned()))?;
@@ -161,7 +161,10 @@ fn new_site(fields: Value) -> Result<SignedSite, ApiError> {
 }
 
 /// A stored account's site and its allowlist.
-async fn stored_site(state: &AppState, id: uuid::Uuid) -> Result<(SignedSite, Allowed), ApiError> {
+pub(super) async fn stored_site(
+    state: &AppState,
+    id: uuid::Uuid,
+) -> Result<(SignedSite, Allowed), ApiError> {
     let opened = open(state, id).await?;
     let site = opened.site();
     let signed = SignedSite {
@@ -326,23 +329,17 @@ impl JiraChecks {
     }
 }
 
-/// A Jira connector comes with a new Atlassian account, made the way Settings, Jira makes one.
+/// A Jira connector comes with its new Atlassian account, `new`, made the way Settings, Jira
+/// makes one.
 ///
 /// # Errors
-/// [`ApiError::CodedConflict`] for an existing account, which already carries its connector;
-/// otherwise as [`create_jira_credential::create_credential`].
+/// As [`create_jira_credential::create_credential`].
 pub async fn create(
     state: &AppState,
     current: &CurrentUser,
-    account: AccountChoice,
+    new: Value,
     content: Value,
 ) -> Result<Connector, ApiError> {
-    let AccountChoice::New { new } = account else {
-        return Err(ApiError::CodedConflict {
-            code: "account_has_connector",
-            message: "an Atlassian account already carries its Jira connector",
-        });
-    };
     let Value::Object(mut body) = new else {
         return Err(ApiError::BadRequest(
             "a new Atlassian account is an object of its fields".to_owned(),
@@ -361,12 +358,8 @@ pub async fn create(
         create_jira_credential::create_credential(state, current.id(), body).await?;
 
     let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
-    let found = connector::find_by_account(
-        &mut connection,
-        ConnectorKind::Jira.as_str(),
-        AccountRef::Atlassian(credential.id),
-    )
-    .await?;
+    let found =
+        connector::find_by_account(&mut connection, AccountRef::Atlassian(credential.id)).await?;
     found.ok_or(ApiError::NotFound)
 }
 

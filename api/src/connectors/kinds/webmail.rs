@@ -3,15 +3,14 @@
 //! Outlook and Gmail: a person's inbox, read through a browser they signed in to. See
 //! `docs/connectors.md` and `docs/browser.md`.
 //!
-//! The account is the browser. A new one is made and signed in to on its own page under
-//! Settings, Browser sign-ins, which streams it; the hub then connects the mailbox through it.
-//! A browser feeds each kind at most once, and removing the connector leaves the browser, and
-//! its sign-in, as it was.
+//! The account is the connector's own browser, started with it at the mailbox's start page
+//! (`super::browser`); its person signs in on the stream the connector's page shows. Removing
+//! the connector removes the browser and its sign-in.
 
 use serde_json::Value;
-use uuid::Uuid;
 
-use super::{AccountChoice, AccountChoices, AccountDefinition, Definition, Source};
+use super::browser::{browser_of, starts_with_its_browser};
+use super::{AccountDefinition, Definition, Provides, Source};
 use crate::auth::CurrentUser;
 use crate::browser::{BrowserState, Browsers};
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
@@ -20,8 +19,8 @@ use crate::connectors::{
     AccountKind, BrowserReader, ConnectorKind, ReadInput, Reading, Scope, SignInState,
 };
 use crate::errors::ApiError;
-use crate::models::browser_session::{self, BrowserSession};
-use crate::models::connector::{self, AccountRef, Connector, NewConnector};
+use crate::models::browser_session::BrowserSession;
+use crate::models::connector::Connector;
 use crate::state::AppState;
 
 const CHECKS: &[CheckSpec] = &[
@@ -51,7 +50,7 @@ pub const OUTLOOK: Definition = Definition {
     kind: ConnectorKind::Outlook,
     scope: Scope::Personal,
     account: AccountKind::Browser,
-    accounts: AccountChoices::Existing,
+    provides: &[Provides::Mail],
     start_url: Some("https://outlook.office.com/mail/"),
     content: &[],
     checks: CHECKS,
@@ -61,7 +60,7 @@ pub const GMAIL: Definition = Definition {
     kind: ConnectorKind::Gmail,
     scope: Scope::Personal,
     account: AccountKind::Browser,
-    accounts: AccountChoices::Existing,
+    provides: &[Provides::Mail],
     start_url: Some("https://mail.google.com/mail/"),
     content: &[],
     checks: CHECKS,
@@ -72,36 +71,15 @@ pub const ACCOUNT: AccountDefinition = AccountDefinition {
     fields: &[],
 };
 
-/// The browser `id`, when `owner` created it. Teams reads through browsers too.
-pub(super) async fn owned_browser(
-    state: &AppState,
-    id: Uuid,
-    owner: Uuid,
-) -> Result<BrowserSession, ApiError> {
-    let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
-    let browser = browser_session::find(&mut connection, id)
-        .await?
-        .filter(|browser| browser.created_by == owner)
-        .ok_or(ApiError::NotFound)?;
-    Ok(browser)
-}
-
 pub async fn prepare_checks(
     state: &AppState,
-    current: &CurrentUser,
     kind: ConnectorKind,
     source: Source<'_>,
 ) -> Result<WebmailChecks, ApiError> {
-    let browser_id = match source {
-        Source::Stored(stored) => stored.browser_session_id.ok_or_else(|| {
-            ApiError::BadRequest("a mailbox connector reads through a browser".to_owned())
-        })?,
-        Source::Draft { account, .. } => match account {
-            AccountChoice::Existing { id } => id,
-            AccountChoice::New { .. } => return Err(sign_in_first()),
-        },
+    let Source::Stored(stored) = source else {
+        return Err(starts_with_its_browser());
     };
-    let browser = owned_browser(state, browser_id, current.id()).await?;
+    let browser = browser_of(state, stored).await?;
     let service = service(kind)
         .ok_or_else(|| ApiError::BadRequest(format!("{} is not a mailbox", kind.as_str())))?;
     Ok(WebmailChecks {
@@ -110,13 +88,6 @@ pub async fn prepare_checks(
         browser,
         reading: None,
     })
-}
-
-pub(super) fn sign_in_first() -> ApiError {
-    ApiError::BadRequest(
-        "this is read through a browser: sign in to one under Settings, Browser sign-ins first"
-            .to_owned(),
-    )
 }
 
 /// A mailbox's checks against one browser.
@@ -204,40 +175,21 @@ impl WebmailChecks {
     }
 }
 
-/// Connects the mailbox `kind` reads through one of `current`'s browsers.
+/// Connects the mailbox `kind` reads for `current`, with a browser of its own to sign in on.
 ///
 /// # Errors
-/// [`ApiError::BadRequest`] for a new account (a browser is signed in to on its own page) or any
-/// content, [`ApiError::NotFound`] for a browser `current` does not have, and
-/// [`ApiError::Conflict`] when the browser already feeds this kind.
+/// [`ApiError::BadRequest`] for any content, and as `super::browser::create`.
 pub async fn create(
     state: &AppState,
     current: &CurrentUser,
     kind: ConnectorKind,
-    account: AccountChoice,
     content: Value,
 ) -> Result<Connector, ApiError> {
-    let AccountChoice::Existing { id } = account else {
-        return Err(sign_in_first());
-    };
     if content.as_object().is_some_and(|fields| !fields.is_empty()) {
         return Err(ApiError::BadRequest(format!(
             "{} reads the whole inbox and takes no content",
             kind.as_str()
         )));
     }
-    let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
-    let created = connector::create(
-        &mut connection,
-        NewConnector::new(kind.as_str(), AccountRef::Browser(id), current.id()),
-    )
-    .await
-    .map_err(|error| match error {
-        diesel::result::Error::DatabaseError(
-            diesel::result::DatabaseErrorKind::UniqueViolation,
-            _,
-        ) => ApiError::Conflict("this browser already reads that mailbox"),
-        other => other.into(),
-    })?;
-    Ok(created)
+    super::browser::create(state, current, kind, content).await
 }

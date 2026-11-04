@@ -3,18 +3,19 @@
 //! Fireflies: a person's meetings, read with their own API key and cut into segments on the
 //! timeline. See `docs/meetings.md`.
 //!
-//! The account is the key, a token account of its own, so one key can feed a second connector
-//! later without being given twice. The connector's content is the storage location its
-//! recordings and clips are kept in.
+//! The account is the key, a token account the connector owns: given with the connector,
+//! checked with Fireflies before it is stored, and removed with it. The connector's content is
+//! the storage location its recordings and clips are kept in.
 
+use diesel_async::AsyncConnection;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::Value;
 use uuid::Uuid;
 
 use super::{
-    AccountChoice, AccountChoices, AccountDefinition, AccountField, AccountFieldType, ContentField,
-    ContentFieldType, Definition, Source, parse_content, parse_new_account,
+    AccountChoice, AccountDefinition, AccountField, AccountFieldType, ContentField,
+    ContentFieldType, Definition, Provides, Source, parse_content, parse_new_account,
 };
 use crate::auth::CurrentUser;
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
@@ -42,7 +43,7 @@ pub const DEFINITION: Definition = Definition {
     kind: ConnectorKind::Fireflies,
     scope: Scope::Personal,
     account: AccountKind::Fireflies,
-    accounts: AccountChoices::Either,
+    provides: &[Provides::Meetings],
     start_url: None,
     content: &[ContentField {
         id: "storageLocationId",
@@ -114,7 +115,6 @@ async fn owned_key(state: &AppState, id: Uuid, owner: Uuid) -> Result<SecretStri
 
 pub async fn prepare_checks(
     state: &AppState,
-    current: &CurrentUser,
     source: Source<'_>,
 ) -> Result<FirefliesChecks, ApiError> {
     let key = match source {
@@ -124,13 +124,15 @@ pub async fn prepare_checks(
             })?;
             owned_key(state, id, stored.created_by).await?
         }
-        Source::Draft { account, .. } => match account {
-            AccountChoice::Existing { id } => owned_key(state, id, current.id()).await?,
-            AccountChoice::New { new } => {
-                let fields: NewKey = parse_new_account(AccountKind::Fireflies, new)?;
-                fields.api_key.0
-            }
-        },
+        Source::Draft { account, .. } => {
+            let AccountChoice::New { new } = account else {
+                return Err(ApiError::BadRequest(
+                    "a Fireflies connector is given its own API key".to_owned(),
+                ));
+            };
+            let fields: NewKey = parse_new_account(AccountKind::Fireflies, new)?;
+            fields.api_key.0
+        }
     };
     Ok(FirefliesChecks {
         fireflies: state.meetings.fireflies().clone(),
@@ -212,79 +214,61 @@ async fn ensure_location(state: &AppState, storage_location_id: Uuid) -> Result<
     }
 }
 
-/// Connects `current`'s meetings, with a new key (checked with Fireflies before it is stored)
-/// or one of their token accounts, keeping recordings in the content's storage location.
+/// Connects `current`'s meetings with the new key `new`, checked with Fireflies before it is
+/// stored, keeping recordings in the content's storage location. The key's account and the
+/// connector are stored together.
 ///
 /// # Errors
-/// [`ApiError::BadRequest`] for content or a key Fireflies refuses, [`ApiError::NotFound`] for an
-/// account `current` does not have, and [`ApiError::Conflict`] when the account already feeds
-/// Fireflies.
+/// [`ApiError::BadRequest`] for content or a key Fireflies refuses, and
+/// [`ApiError::BadGateway`] when Fireflies cannot be reached.
 pub async fn create(
     state: &AppState,
     current: &CurrentUser,
-    account: AccountChoice,
+    new: Value,
     content: Value,
 ) -> Result<Connector, ApiError> {
     let content: Content = parse_content(ConnectorKind::Fireflies, content)?;
     ensure_location(state, content.storage_location_id).await?;
-
-    let token_account_id = match account {
-        AccountChoice::Existing { id } => {
-            owned_key(state, id, current.id()).await?;
-            id
-        }
-        AccountChoice::New { new } => {
-            let fields: NewKey = parse_new_account(AccountKind::Fireflies, new)?;
-            // A key is stored only once Fireflies accepts it, so no account holds a key nobody tried.
-            let user = state
-                .meetings
-                .fireflies()
-                .whoami(&fields.api_key.0)
-                .await
-                .map_err(|error| match error {
-                    SourceError::Unauthorized(message) => ApiError::BadRequest(message),
-                    SourceError::NotFound | SourceError::Refused(_) => {
-                        ApiError::BadGateway(error.to_string())
-                    }
-                })?;
-            let name = fields
-                .name
-                .map(|name| name.trim().to_owned())
-                .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| DEFAULT_NAME.to_owned());
-            let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
-            let created = token_account::create(
-                &mut connection,
-                NewTokenAccount::new(
-                    &state.cipher,
-                    AccountKind::Fireflies.as_str(),
-                    &name.chars().take(120).collect::<String>(),
-                    &fields.api_key.0,
-                    &user.email,
-                    current.id(),
-                ),
-            )
-            .await?;
-            created.id
-        }
-    };
-
-    let mut new_connector = NewConnector::new(
-        ConnectorKind::Fireflies.as_str(),
-        AccountRef::Token(token_account_id),
-        current.id(),
-    );
-    new_connector.storage_location_id = Some(content.storage_location_id);
-    let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
-    let created = connector::create(&mut connection, new_connector)
+    let fields: NewKey = parse_new_account(AccountKind::Fireflies, new)?;
+    // A key is stored only once Fireflies accepts it, so no account holds a key nobody tried.
+    let user = state
+        .meetings
+        .fireflies()
+        .whoami(&fields.api_key.0)
         .await
         .map_err(|error| match error {
-            diesel::result::Error::DatabaseError(
-                diesel::result::DatabaseErrorKind::UniqueViolation,
-                _,
-            ) => ApiError::Conflict("this key already reads its meetings"),
-            other => other.into(),
+            SourceError::Unauthorized(message) => ApiError::BadRequest(message),
+            SourceError::NotFound | SourceError::Refused(_) => {
+                ApiError::BadGateway(error.to_string())
+            }
         })?;
+    let name = fields
+        .name
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| DEFAULT_NAME.to_owned());
+    let new_account = NewTokenAccount::new(
+        &state.cipher,
+        AccountKind::Fireflies.as_str(),
+        &name.chars().take(120).collect::<String>(),
+        &fields.api_key.0,
+        &user.email,
+        current.id(),
+    );
+
+    let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
+    let created = connection
+        .transaction(async |connection| {
+            let account = token_account::create(connection, new_account).await?;
+            let mut new_connector = NewConnector::new(
+                ConnectorKind::Fireflies.as_str(),
+                AccountRef::Token(account.id),
+                current.id(),
+            );
+            new_connector.storage_location_id = Some(content.storage_location_id);
+            connector::create(connection, new_connector).await
+        })
+        .await?;
     Ok(created)
 }
 

@@ -6,7 +6,7 @@
 //! The key is sealed bound to the row's id, so a ciphertext copied into another row refuses to
 //! open, and it is never returned. What the provider answered about the key the last time it
 //! was checked is kept as `identity`, such as the address it belongs to. An account belongs to
-//! whoever created it; removing it removes the connectors it feeds.
+//! whoever created it, and to the one connector that owns it; removing it removes that connector.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -104,22 +104,6 @@ impl NewTokenAccount {
             site_url: None,
         }
     }
-}
-
-/// The accounts `owner` created, oldest first.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn list_owned(
-    connection: &mut AsyncPgConnection,
-    owner: Uuid,
-) -> QueryResult<Vec<TokenAccount>> {
-    token_accounts::table
-        .filter(token_accounts::created_by.eq(owner))
-        .select(TokenAccount::as_select())
-        .order(token_accounts::created_at.asc())
-        .load(connection)
-        .await
 }
 
 /// The account `id`, when `owner` created it.

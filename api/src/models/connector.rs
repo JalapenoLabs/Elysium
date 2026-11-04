@@ -1,13 +1,15 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Connectors: one use of one account, reading a service as its person. See
+//! Connectors: a service read as its person, through an account the connector owns. See
 //! `crate::connectors` and `docs/connectors.md`.
 //!
-//! A connector reads through exactly one account, which its kind decides
-//! (`crate::connectors::kinds`): a signed-in browser, a token account, an Atlassian account
+//! A connector signs in with one account of its own, which its kind decides
+//! (`crate::connectors::kinds`): a browser, a token account, an Atlassian account
 //! (`jira_credentials`), or a GitHub account (`github_credentials`). The
-//! `connectors_one_account` constraint holds that exactly one is set, and an account feeds
-//! each kind at most once. Removing the account removes its connectors.
+//! `connectors_one_sign_in` constraint holds that exactly one is set, and a unique index on
+//! each that no two connectors share one. The one exception is a mail or chat connector that
+//! shared its browser before each connector owned its own: it waits without one until its
+//! person starts its browser. Removing the account removes its connector.
 //!
 //! What a connector reads is its content: Jira's allowlist on its Atlassian account, a
 //! meeting source's storage location in `storage_location_id`, and anything else in
@@ -72,25 +74,14 @@ impl AccountRef {
 }
 
 impl Connector {
-    /// The account it reads through. The `connectors_one_account` constraint holds that
-    /// exactly one is set.
-    ///
-    /// # Panics
-    /// When a row holds no account, which the database refuses to store.
-    pub fn account(&self) -> AccountRef {
-        if let Some(id) = self.browser_session_id {
-            return AccountRef::Browser(id);
-        }
-        if let Some(id) = self.token_account_id {
-            return AccountRef::Token(id);
-        }
-        if let Some(id) = self.jira_credential_id {
-            return AccountRef::Atlassian(id);
-        }
-        let id = self.github_credential_id.expect(
-            "the connectors_one_account constraint holds that every connector has an account",
-        );
-        AccountRef::Github(id)
+    /// The account it signs in with, or `None` for one read through a browser while it waits
+    /// for its browser. The `connectors_one_sign_in` constraint holds that at most one is set.
+    pub fn account(&self) -> Option<AccountRef> {
+        self.browser_session_id
+            .map(AccountRef::Browser)
+            .or(self.token_account_id.map(AccountRef::Token))
+            .or(self.jira_credential_id.map(AccountRef::Atlassian))
+            .or(self.github_credential_id.map(AccountRef::Github))
     }
 }
 
@@ -193,17 +184,15 @@ pub async fn find(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<C
         .await
 }
 
-/// The connector of `kind` reading through `account`, if there is one.
+/// The connector that owns `account`, if one does.
 ///
 /// # Errors
 /// Propagates any database error.
 pub async fn find_by_account(
     connection: &mut AsyncPgConnection,
-    kind: &str,
     account: AccountRef,
 ) -> QueryResult<Option<Connector>> {
     let query = connectors::table
-        .filter(connectors::kind.eq(kind))
         .select(Connector::as_select())
         .into_boxed();
     let query = match account {
@@ -215,30 +204,9 @@ pub async fn find_by_account(
     query.first(connection).await.optional()
 }
 
-/// The connectors reading through `account`, of any kind.
-///
-/// # Errors
-/// Propagates any database error.
-pub async fn list_by_account(
-    connection: &mut AsyncPgConnection,
-    account: AccountRef,
-) -> QueryResult<Vec<Connector>> {
-    let query = connectors::table
-        .select(Connector::as_select())
-        .order(connectors::created_at.asc())
-        .into_boxed();
-    let query = match account {
-        AccountRef::Browser(id) => query.filter(connectors::browser_session_id.eq(id)),
-        AccountRef::Token(id) => query.filter(connectors::token_account_id.eq(id)),
-        AccountRef::Atlassian(id) => query.filter(connectors::jira_credential_id.eq(id)),
-        AccountRef::Github(id) => query.filter(connectors::github_credential_id.eq(id)),
-    };
-    query.load(connection).await
-}
-
 /// The Atlassian and GitHub accounts whose Jira or GitHub connector is paused, which the link
-/// watcher skips. Only those kinds count: pausing a Confluence connector on the same Atlassian
-/// account leaves the watcher reading its Jira issues.
+/// watcher skips. Only those kinds count: a Confluence connector's Atlassian account is its own,
+/// and the watcher never reads through it.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -269,8 +237,8 @@ pub async fn paused_link_accounts(connection: &mut AsyncPgConnection) -> QueryRe
 ///
 /// # Errors
 /// [`diesel::result::Error::NotFound`] when the browser does not exist or belongs to someone
-/// else; a unique violation when the account already feeds this kind; a foreign key violation
-/// for an account or storage location that does not exist.
+/// else; a unique violation when another connector already owns the account; a foreign key
+/// violation for an account or storage location that does not exist.
 pub async fn create(
     connection: &mut AsyncPgConnection,
     new_connector: NewConnector,
@@ -311,6 +279,29 @@ pub async fn record_poll(
         .await
 }
 
+/// Gives the connector `id`, one waiting for its browser, the browser `browser_session_id`.
+///
+/// # Errors
+/// [`diesel::result::Error::NotFound`] when there is no such row or it already has an account.
+pub async fn attach_browser(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    browser_session_id: Uuid,
+) -> QueryResult<Connector> {
+    diesel::update(
+        connectors::table
+            .find(id)
+            .filter(connectors::browser_session_id.is_null())
+            .filter(connectors::token_account_id.is_null())
+            .filter(connectors::jira_credential_id.is_null())
+            .filter(connectors::github_credential_id.is_null()),
+    )
+    .set(connectors::browser_session_id.eq(browser_session_id))
+    .returning(Connector::as_returning())
+    .get_result(connection)
+    .await
+}
+
 /// Pauses or resumes the connector `id`.
 ///
 /// # Errors
@@ -348,7 +339,8 @@ pub async fn set_content(
         .await
 }
 
-/// Removes the connector `id`. Its records stay on the timeline; its account stays.
+/// Removes the connector `id`. Its records stay on the timeline. The account it owned is the
+/// caller's to remove; removing the account first removes the connector with it.
 ///
 /// # Errors
 /// [`diesel::result::Error::NotFound`] when there is no such row.

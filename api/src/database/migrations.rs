@@ -26,7 +26,7 @@ use secrecy::{ExposeSecret, SecretString};
 use tracing::{Level, event};
 
 /// Every migration in `api/migrations`, compiled in.
-const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
+pub(super) const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 /// Advisory lock id shared by every Elysium migrator. The value is arbitrary but
 /// must stay constant across releases; it spells "Elysium" in ASCII.

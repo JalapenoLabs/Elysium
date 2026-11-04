@@ -2,19 +2,31 @@
 
 //! Every connector kind, defined once. See `docs/connectors.md`.
 //!
-//! Each kind is one module that declares its [`Definition`] (whose it is, the account it reads
-//! through, what it reads, and its ordered checks) and fills the hub's verbs for it: running
-//! its checks, creating it, listing the options its content picks from, changing that content,
-//! syncing it now, and removing it. This module is the one place that matches on the kind, so
-//! routes and the web app never do.
+//! Each kind is one module that declares its [`Definition`] (whose it is, what it provides, the
+//! account it signs in with, what it reads, and its ordered checks) and fills the hub's verbs
+//! for it: running its checks, creating it with its sign-in, listing the options its content
+//! picks from, changing that content, syncing it now, and removing it with its sign-in. This
+//! module is the one place that matches on the kind, so routes and the web app never do.
+//!
+//! # A connector owns its sign-in
+//!
+//! Every connector signs in on its own: a new connector always comes with a new account, which
+//! no other connector reads through, and removing the connector removes it. A kind read through
+//! a browser starts its browser with it ([`browser`]); every other kind's account is checked
+//! with its provider before anything is stored.
 //!
 //! # Adding a kind
 //!
 //! A new kind adds a [`ConnectorKind`], a module here with its definition and verbs, a row in
-//! [`DEFINITIONS`] and in each dispatch below, and its names and check sentences to the web app's
-//! `connectors` translations. A kind whose account is a new provider adds an [`AccountKind`] and,
-//! when its sign-in is one API key, keeps that key in `token_accounts`.
+//! [`DEFINITIONS`] and in each dispatch below, its name to the web app's `CONNECTOR_KINDS`, its
+//! names, description, and check sentences to its `connectors` translations, and its logo to its
+//! `connectorLogos`. What it
+//! [`Provides`] is how the loops that read a kind of thing find it, such as
+//! `crate::meetings` finding every kind that provides meetings. A kind whose account is a new
+//! provider adds an [`AccountKind`] and, when its sign-in is one API key, keeps that key in
+//! `token_accounts`.
 
+pub mod browser;
 pub mod confluence;
 pub mod fireflies;
 pub mod github;
@@ -44,11 +56,11 @@ use crate::state::AppState;
 pub struct Definition {
     pub kind: ConnectorKind,
     pub scope: Scope,
-    /// The account it reads through.
+    /// The kinds of thing it reads.
+    pub provides: &'static [Provides],
+    /// The account it signs in with, which each of its connectors owns.
     pub account: AccountKind,
-    /// Whether a new connector takes a new account, one the person already has, or either.
-    pub accounts: AccountChoices,
-    /// The page a new browser opens at, for a kind that reads through one.
+    /// The page its browser opens at, for a kind that reads through one.
     pub start_url: Option<&'static str>,
     /// What it reads, which its connector's form asks for.
     pub content: &'static [ContentField],
@@ -56,18 +68,20 @@ pub struct Definition {
     pub checks: &'static [CheckSpec],
 }
 
-/// Which accounts a new connector of a kind may read through, which its form offers.
+/// A kind of thing a connector reads, so a loop that reads one kind of thing, or a list that
+/// groups connectors by it, finds every kind that provides it without naming them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AccountChoices {
-    /// Only a new one, made with the connector: an Atlassian or GitHub account carries exactly
-    /// one connector of its kind.
-    New,
-    /// Only one the person already has: a browser, signed in to on its own page, or an
-    /// Atlassian account a Jira connector made.
-    Existing,
-    /// Either.
-    Either,
+pub enum Provides {
+    /// Issues and pull requests.
+    Issues,
+    /// Pages and their comments.
+    Pages,
+    Mail,
+    /// Chats and channel messages.
+    Messages,
+    /// Recorded meetings and their transcripts.
+    Meetings,
 }
 
 /// One thing a connector's form asks for.
@@ -94,7 +108,7 @@ pub enum ContentFieldType {
 #[serde(rename_all = "camelCase")]
 pub struct AccountDefinition {
     pub kind: AccountKind,
-    /// What a new account asks for; empty for a browser, which is signed in to on its own page.
+    /// What a new account asks for; empty for a browser, which is signed in to on its stream.
     pub fields: &'static [AccountField],
 }
 
@@ -148,6 +162,15 @@ pub fn definition(kind: ConnectorKind) -> &'static Definition {
         .expect("every kind has a definition in DEFINITIONS")
 }
 
+/// Every kind that provides `what`, in the hub's order.
+pub fn providing(what: Provides) -> Vec<ConnectorKind> {
+    DEFINITIONS
+        .into_iter()
+        .filter(|definition| definition.provides.contains(&what))
+        .map(|definition| definition.kind)
+        .collect()
+}
+
 /// The kind a stored connector names.
 ///
 /// # Errors
@@ -179,8 +202,9 @@ pub fn is_visible(connector: &Connector, person: Uuid) -> bool {
     })
 }
 
-/// The account a connector being set up reads through: one the person already has, or a new
-/// one, in its kind's own fields.
+/// The account a request names: a new one, in its kind's own fields, for a connector being set
+/// up; or, for listing what a stored connector's content can pick from, the account that
+/// connector owns.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum AccountChoice {
@@ -253,16 +277,12 @@ pub async fn prepare_checks(
         }
         ConnectorKind::Github => KindChecks::Github(github::prepare_checks(state, source).await?),
         ConnectorKind::Outlook | ConnectorKind::Gmail => {
-            KindChecks::Webmail(webmail::prepare_checks(state, current, kind, source).await?)
+            KindChecks::Webmail(webmail::prepare_checks(state, kind, source).await?)
         }
-        ConnectorKind::Teams => {
-            KindChecks::Teams(teams::prepare_checks(state, current, source).await?)
-        }
-        ConnectorKind::Slack => {
-            KindChecks::Slack(slack::prepare_checks(state, current, source).await?)
-        }
+        ConnectorKind::Teams => KindChecks::Teams(teams::prepare_checks(state, source).await?),
+        ConnectorKind::Slack => KindChecks::Slack(slack::prepare_checks(state, source).await?),
         ConnectorKind::Fireflies => {
-            KindChecks::Fireflies(fireflies::prepare_checks(state, current, source).await?)
+            KindChecks::Fireflies(fireflies::prepare_checks(state, source).await?)
         }
         ConnectorKind::Youtrack => {
             KindChecks::Youtrack(youtrack::prepare_checks(state, current, source).await?)
@@ -328,12 +348,14 @@ pub fn start_checks(
     run
 }
 
-/// Creates a connector of `kind` for `current`, reading through `account`, with `content`.
+/// Creates a connector of `kind` for `current`, with the new account it signs in with and
+/// `content`. A kind read through a browser starts its browser; any other checks its account
+/// with its provider first.
 ///
 /// # Errors
-/// [`ApiError::BadRequest`] for an account or content the kind cannot use,
-/// [`ApiError::Conflict`] when the account already feeds this kind, and whatever the provider
-/// answered while checking a new account.
+/// [`ApiError::BadRequest`] for an account or content the kind cannot use, including one that
+/// names an existing account (no account is ever shared), [`ApiError::CodedConflict`] when the
+/// host has no browser port left, and whatever the provider answered while checking it.
 pub async fn create(
     state: &AppState,
     current: &CurrentUser,
@@ -341,18 +363,40 @@ pub async fn create(
     account: AccountChoice,
     content: Value,
 ) -> Result<Connector, ApiError> {
+    let AccountChoice::New { new } = account else {
+        return Err(ApiError::BadRequest(
+            "a connector signs in on its own; give its new account, not an existing one".to_owned(),
+        ));
+    };
     match kind {
-        ConnectorKind::Jira => jira::create(state, current, account, content).await,
-        ConnectorKind::Confluence => confluence::create(state, current, account, content).await,
-        ConnectorKind::Github => github::create(state, current, account, content).await,
+        ConnectorKind::Jira => jira::create(state, current, new, content).await,
+        ConnectorKind::Confluence => confluence::create(state, current, new, content).await,
+        ConnectorKind::Github => github::create(state, current, new, content).await,
         ConnectorKind::Outlook | ConnectorKind::Gmail => {
-            webmail::create(state, current, kind, account, content).await
+            webmail::create(state, current, kind, content).await
         }
-        ConnectorKind::Teams => teams::create(state, current, account, content).await,
-        ConnectorKind::Slack => slack::create(state, current, account, content).await,
-        ConnectorKind::Fireflies => fireflies::create(state, current, account, content).await,
-        ConnectorKind::Youtrack => youtrack::create(state, current, account, content).await,
+        ConnectorKind::Teams => teams::create(state, current, content).await,
+        ConnectorKind::Slack => slack::create(state, current, content).await,
+        ConnectorKind::Fireflies => fireflies::create(state, current, new, content).await,
+        ConnectorKind::Youtrack => youtrack::create(state, current, new, content).await,
     }
+}
+
+/// Starts a browser for `connector`, one read through a browser that is waiting for one, and
+/// answers it reading through that browser.
+///
+/// # Errors
+/// [`ApiError::BadRequest`] for a kind that signs in with a token, [`ApiError::Conflict`] when it
+/// already has its browser, and [`ApiError::CodedConflict`] when the host has no port left.
+pub async fn sign_in(state: &AppState, connector: &Connector) -> Result<Connector, ApiError> {
+    let kind = kind_of(connector)?;
+    if definition(kind).account != AccountKind::Browser {
+        return Err(ApiError::BadRequest(format!(
+            "{} signs in with the account it was made with",
+            kind.as_str()
+        )));
+    }
+    browser::sign_in(state, kind, connector).await
 }
 
 /// What each of `kind`'s selection fields can pick from through `account`:
@@ -464,24 +508,31 @@ pub fn sync(state: &AppState, connector: &Connector) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Removes `connector`. A Jira or GitHub connector is its account's, so it goes with its
-/// account; any other leaves its account for others to use.
+/// Removes `connector` and the account it owns: its token, or its browser and the profile its
+/// person signed in on. What it recorded stays on the timeline.
 ///
 /// # Errors
-/// [`ApiError::NotFound`] when it was already removed.
+/// [`ApiError::NotFound`] when it was already removed, and whatever Docker answered while
+/// removing a browser.
 pub async fn remove(state: &AppState, connector: &Connector) -> Result<(), ApiError> {
     match kind_of(connector)? {
         ConnectorKind::Jira => jira::remove(state, connector).await,
         ConnectorKind::Github => github::remove(state, connector).await,
-        ConnectorKind::Confluence
-        | ConnectorKind::Outlook
+        ConnectorKind::Confluence => confluence::remove(state, connector).await,
+        ConnectorKind::Outlook
         | ConnectorKind::Gmail
         | ConnectorKind::Teams
-        | ConnectorKind::Slack
-        | ConnectorKind::Fireflies
-        | ConnectorKind::Youtrack => {
+        | ConnectorKind::Slack => browser::remove(state, connector).await,
+        ConnectorKind::Fireflies | ConnectorKind::Youtrack => {
+            let id = connector.token_account_id.ok_or_else(|| {
+                ApiError::Internal(anyhow::anyhow!(
+                    "a {} connector without its token account",
+                    connector.kind
+                ))
+            })?;
             let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
-            crate::models::connector::delete(&mut connection, connector.id).await?;
+            // The account's connector goes with it, by its foreign key.
+            crate::models::token_account::delete(&mut connection, id).await?;
             Ok(())
         }
     }
@@ -529,6 +580,31 @@ mod tests {
             .map(|definition| definition.kind)
             .collect();
         assert_eq!(defined, ConnectorKind::ALL);
+    }
+
+    #[test]
+    fn every_kind_provides_something_and_meetings_come_from_fireflies() {
+        for definition in DEFINITIONS {
+            assert!(
+                !definition.provides.is_empty(),
+                "{} provides nothing",
+                definition.kind.as_str()
+            );
+        }
+        assert_eq!(providing(Provides::Meetings), [ConnectorKind::Fireflies]);
+    }
+
+    #[test]
+    fn a_browser_kind_names_the_page_its_browser_opens_at() {
+        for definition in DEFINITIONS {
+            let reads_through_a_browser = definition.account == AccountKind::Browser;
+            assert_eq!(
+                definition.start_url.is_some(),
+                reads_through_a_browser,
+                "{}",
+                definition.kind.as_str()
+            );
+        }
     }
 
     #[test]

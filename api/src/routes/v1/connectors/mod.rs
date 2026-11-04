@@ -3,8 +3,9 @@
 //! `/api/v1/connectors`: the hub. Every connector the signed-in person sees, what each kind
 //! is, their checks, and their recent syncs. See `crate::connectors` and `docs/connectors.md`.
 //!
-//! A workspace kind's connectors (Jira, GitHub) are everyone's, like their accounts; a personal
-//! kind's (mail, meetings) answer their creator alone, and are `404` to anyone else. No route
+//! A workspace kind's connectors (Jira, Confluence, GitHub) are everyone's; a personal kind's
+//! (mail, chat, meetings) answer their creator alone, and are `404` to anyone else. Each
+//! connector owns its account, so adding one signs in and removing one signs out. No route
 //! matches on the kind: `crate::connectors::kinds` does.
 
 mod check_draft;
@@ -17,6 +18,7 @@ mod list_connectors;
 mod list_kinds;
 mod list_options;
 mod run_checks;
+mod sign_in_connector;
 mod sync_connector;
 mod update_connector;
 
@@ -59,6 +61,7 @@ pub fn router() -> Router<AppState> {
                 .delete(delete_connector::handle),
         )
         .route("/{id}/checks", post(run_checks::handle))
+        .route("/{id}/sign-in", post(sign_in_connector::handle))
         .route("/{id}/sync", post(sync_connector::handle))
 }
 
@@ -149,6 +152,7 @@ pub struct ConnectorView {
     id: Uuid,
     kind: String,
     scope: Scope,
+    /// The account it owns, or `null` for one read through a browser while it waits for one.
     account: Option<AccountSummary>,
     status: Status,
     is_active: bool,
@@ -240,8 +244,8 @@ pub async fn views(
             .last_polled_at
             .or_else(|| pass.map(|pass| pass.updated_at));
         let content = match (kind, stored.jira_credential_id) {
-            // A Jira connector's content is its account's allowlist. Another kind reading
-            // through the same Atlassian account, such as Confluence, keeps its own.
+            // A Jira connector's content is its account's allowlist. Confluence's account
+            // allows nothing of Jira's, and keeps the spaces it reads on the connector.
             (ConnectorKind::Jira, Some(credential_id)) => {
                 let credential = jira_credential::find(&mut connection, credential_id).await?;
                 let allowed = jira_credential::allowed_of(&mut connection, &credential).await?;
@@ -253,7 +257,9 @@ pub async fn views(
             id: stored.id,
             kind: stored.kind.clone(),
             scope: kinds::definition(kind).scope,
-            account: summaries.get(&stored.account().id()).cloned(),
+            account: stored
+                .account()
+                .and_then(|account| summaries.get(&account.id()).cloned()),
             status: status(
                 stored.is_active,
                 state.connectors.activity.is_syncing(stored.id),

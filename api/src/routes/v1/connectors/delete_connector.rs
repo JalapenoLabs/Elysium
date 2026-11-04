@@ -1,8 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `DELETE /api/v1/connectors/{id}`: stop reading through an account. What it recorded stays on
-//! the timeline. A Jira or GitHub connector goes with its account, which carries exactly one;
-//! any other leaves its account, and the account's sign-in, as they were.
+//! `DELETE /api/v1/connectors/{id}`: remove a connector and the account it owns, which signs it
+//! out: its token is forgotten, or its browser is removed with the profile its person signed in
+//! on. What it recorded stays on the timeline.
 
 use axum::extract::rejection::PathRejection;
 use axum::extract::{Path, State};

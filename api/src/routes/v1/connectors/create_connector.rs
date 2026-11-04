@@ -1,13 +1,13 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! `POST /api/v1/connectors`: add a connector of a kind, reading through an account the person
-//! has (`{ "id": ... }`) or a new one (`{ "new": { ...its fields } }`), with its content.
+//! `POST /api/v1/connectors`: add a connector of a kind with the new account it signs in with
+//! (`{ "new": { ...its fields } }`) and its content. Every connector owns its account; none is
+//! ever shared, so naming an existing one is refused.
 //!
-//! What each kind accepts is its own (`crate::connectors::kinds`): Jira and GitHub come with a
-//! new account, made and checked the way their settings pages make one; a mailbox reads
-//! through a browser the person already signed in to; Fireflies takes a key, new or saved,
-//! and a storage location. A new account's secret is checked with its provider before
-//! anything is stored.
+//! What each kind accepts is its own (`crate::connectors::kinds`): Jira and GitHub's accounts
+//! are made and checked the way their settings pages make one, Confluence's as Jira's is, and a
+//! key's with its provider, all before anything is stored. A kind read through a browser takes
+//! no fields: its browser starts with it, `starting`, and its person signs in on its stream.
 
 use axum::Json;
 use axum::extract::State;

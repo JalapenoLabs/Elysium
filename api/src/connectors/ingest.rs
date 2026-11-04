@@ -164,7 +164,10 @@ impl Ingest {
             .await
             .context("no database connection available")?;
         let kinds = ConnectorKind::BROWSER_READ.map(ConnectorKind::as_str);
-        Ok(connector::list_active(&mut connection, &kinds).await?)
+        let mut connectors = connector::list_active(&mut connection, &kinds).await?;
+        // One waiting for its browser has nothing to read until its person starts one.
+        connectors.retain(|connector| connector.browser_session_id.is_some());
+        Ok(connectors)
     }
 
     /// Reads one connector and records what came of it, a failed read included.

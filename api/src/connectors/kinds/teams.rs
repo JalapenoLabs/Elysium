@@ -3,15 +3,15 @@
 //! Microsoft Teams: a person's chats and channels, read through a browser they signed in to.
 //! See `docs/connectors.md` and `crate::connectors::teams`.
 //!
-//! The account is the browser, as for Outlook: a browser signed in to Microsoft for Outlook
-//! reads Teams too, opening Teams in a tab of its own when it has none. Nothing is installed
-//! into the organization. A browser feeds Teams at most once, and removing the connector leaves
-//! the browser, and its sign-in, as it was.
+//! The account is the connector's own browser, started with it at Teams' start page
+//! (`super::browser`); its person signs in to Microsoft on the stream the connector's page
+//! shows. The reader opens Teams in a tab of its own when the browser has none. Nothing is
+//! installed into the organization, and removing the connector removes the browser.
 
 use serde_json::{Value, json};
 
-use super::webmail::{owned_browser, sign_in_first};
-use super::{AccountChoice, AccountChoices, ContentField, ContentFieldType, Definition, Source};
+use super::browser::{browser_of, owned_browser, starts_with_its_browser};
+use super::{AccountChoice, ContentField, ContentFieldType, Definition, Provides, Source};
 use crate::auth::CurrentUser;
 use crate::browser::{BrowserState, Browsers};
 use crate::connectors::checks::{CheckSpec, Checks, Outcome};
@@ -19,7 +19,7 @@ use crate::connectors::teams::{START_URL, Selection, Teams, TeamsReading};
 use crate::connectors::{AccountKind, ConnectorKind, Scope, SignInState};
 use crate::errors::ApiError;
 use crate::models::browser_session::BrowserSession;
-use crate::models::connector::{self, AccountRef, Connector, NewConnector};
+use crate::models::connector::{self, Connector};
 use crate::state::AppState;
 
 const CHECKS: &[CheckSpec] = &[
@@ -49,7 +49,7 @@ pub const DEFINITION: Definition = Definition {
     kind: ConnectorKind::Teams,
     scope: Scope::Personal,
     account: AccountKind::Browser,
-    accounts: AccountChoices::Existing,
+    provides: &[Provides::Messages],
     start_url: Some(START_URL),
     content: &[ContentField {
         id: "conversations",
@@ -65,43 +65,15 @@ fn selection(content: &Value) -> Result<Selection, ApiError> {
         .map_err(|reason| ApiError::BadRequest(format!("teams content is not valid: {reason}")))
 }
 
-/// The browser a Teams connector reads through, stored or being set up.
-async fn browser_of(
-    state: &AppState,
-    current: &CurrentUser,
-    account: Option<&AccountChoice>,
-    stored: Option<&Connector>,
-) -> Result<BrowserSession, ApiError> {
-    let id = match (stored, account) {
-        (Some(stored), _) => stored.browser_session_id.ok_or_else(|| {
-            ApiError::BadRequest("a Teams connector reads through a browser".to_owned())
-        })?,
-        (None, Some(AccountChoice::Existing { id })) => *id,
-        (None, _) => return Err(sign_in_first()),
-    };
-    owned_browser(state, id, current.id()).await
-}
-
-pub async fn prepare_checks(
-    state: &AppState,
-    current: &CurrentUser,
-    source: Source<'_>,
-) -> Result<TeamsChecks, ApiError> {
-    let (browser, selection) = match source {
-        Source::Stored(stored) => (
-            browser_of(state, current, None, Some(stored)).await?,
-            selection(&stored.content)?,
-        ),
-        Source::Draft { account, content } => (
-            browser_of(state, current, Some(&account), None).await?,
-            selection(&content)?,
-        ),
+pub async fn prepare_checks(state: &AppState, source: Source<'_>) -> Result<TeamsChecks, ApiError> {
+    let Source::Stored(stored) = source else {
+        return Err(starts_with_its_browser());
     };
     Ok(TeamsChecks {
         reader: Teams::new(state.connectors.ingest.devtools().clone()),
         browsers: state.browsers.clone(),
-        browser,
-        selection,
+        browser: browser_of(state, stored).await?,
+        selection: selection(&stored.content)?,
         reading: None,
     })
 }
@@ -199,54 +171,37 @@ impl TeamsChecks {
     }
 }
 
-/// Connects Teams through one of `current`'s browsers, reading the conversations `content`
-/// names, or every one.
+/// Connects Teams for `current`, reading the conversations `content` names, or every one, with
+/// a browser of its own to sign in on.
 ///
 /// # Errors
-/// [`ApiError::BadRequest`] for a new account (a browser is signed in to on its own page) or
-/// content that is not a selection, [`ApiError::NotFound`] for a browser `current` does not
-/// have, and [`ApiError::Conflict`] when the browser already feeds Teams.
+/// [`ApiError::BadRequest`] for content that is not a selection, and as
+/// `super::browser::create`.
 pub async fn create(
     state: &AppState,
     current: &CurrentUser,
-    account: AccountChoice,
     content: Value,
 ) -> Result<Connector, ApiError> {
-    let AccountChoice::Existing { id } = account else {
-        return Err(sign_in_first());
-    };
     let content = stored_content(&selection(&content)?);
-    owned_browser(state, id, current.id()).await?;
-    let mut connection = state.database.get().await.map_err(anyhow::Error::from)?;
-    let mut new = NewConnector::new(
-        ConnectorKind::Teams.as_str(),
-        AccountRef::Browser(id),
-        current.id(),
-    );
-    new.content = content;
-    let created = connector::create(&mut connection, new)
-        .await
-        .map_err(|error| match error {
-            diesel::result::Error::DatabaseError(
-                diesel::result::DatabaseErrorKind::UniqueViolation,
-                _,
-            ) => ApiError::Conflict("this browser already reads Teams"),
-            other => other.into(),
-        })?;
-    Ok(created)
+    super::browser::create(state, current, ConnectorKind::Teams, content).await
 }
 
 /// Every conversation the browser's Teams has stored, to pick from:
 /// `{ conversations: { options: [{ id, label, detail }], truncated } }`.
 ///
 /// # Errors
-/// As [`create`], and [`ApiError::BadGateway`] when the browser cannot be read.
+/// [`ApiError::BadRequest`] for a new account, whose browser starts with its connector;
+/// [`ApiError::NotFound`] for a browser `current` does not own; and [`ApiError::BadGateway`]
+/// when the browser cannot be read.
 pub async fn options(
     state: &AppState,
     current: &CurrentUser,
     account: AccountChoice,
 ) -> Result<Value, ApiError> {
-    let browser = browser_of(state, current, Some(&account), None).await?;
+    let AccountChoice::Existing { id } = account else {
+        return Err(starts_with_its_browser());
+    };
+    let browser = owned_browser(state, id, current.id()).await?;
     let reader = Teams::new(state.connectors.ingest.devtools().clone());
     let reading = reader
         .read_teams(&browser, None, &Selection::All)

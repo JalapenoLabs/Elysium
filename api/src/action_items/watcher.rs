@@ -40,7 +40,6 @@ use uuid::Uuid;
 use crate::action_items::links::rules::{self, Reaction};
 use crate::action_items::links::{LinkError, Links, Remote, WriteOutcome};
 use crate::action_items::{Actor, Transition, WorkError};
-use crate::connectors::ConnectorKind;
 use crate::connectors::activity::Activity;
 use crate::database::Pool;
 use crate::models::action_item::{self, ActionItem, ActionItemState, NewActionItem};
@@ -217,15 +216,13 @@ async fn report(
     outcome: ConnectorRunOutcome<'_>,
     started: DateTime<Utc>,
 ) {
-    let (kind, account) = match credential.provider {
-        LinkProvider::Jira => (ConnectorKind::Jira, AccountRef::Atlassian(credential.id)),
-        LinkProvider::Github => (ConnectorKind::Github, AccountRef::Github(credential.id)),
+    let account = match credential.provider {
+        LinkProvider::Jira => AccountRef::Atlassian(credential.id),
+        LinkProvider::Github => AccountRef::Github(credential.id),
     };
     let found = async {
         let mut connection = connect(&context.database).await?;
-        Ok::<_, anyhow::Error>(
-            connector::find_by_account(&mut connection, kind.as_str(), account).await?,
-        )
+        Ok::<_, anyhow::Error>(connector::find_by_account(&mut connection, account).await?)
     };
     let Ok(Some(found)) = found.await else {
         event!(

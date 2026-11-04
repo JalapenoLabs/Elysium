@@ -51,6 +51,7 @@ use self::fireflies::Fireflies;
 use self::segmentation::{MeetingContext, ProjectChoice, Segment};
 use self::source::{ListedMeeting, MeetingSource, SourceError, TranscriptLine, is_public_download};
 use crate::connectors::activity::Activity;
+use crate::connectors::kinds::{self, Provides};
 use crate::connectors::{ConnectorKind, SignInState};
 use crate::crypto::Cipher;
 use crate::database::Pool;
@@ -230,7 +231,10 @@ impl Meetings {
 
     /// Lists every active meeting account's new meetings.
     async fn poll(&self) {
-        let kinds = ConnectorKind::MEETINGS.map(ConnectorKind::as_str);
+        let kinds: Vec<&str> = kinds::providing(Provides::Meetings)
+            .into_iter()
+            .map(ConnectorKind::as_str)
+            .collect();
         let accounts = match self.connection().await {
             Ok(mut connection) => connector::list_active(&mut connection, &kinds)
                 .await

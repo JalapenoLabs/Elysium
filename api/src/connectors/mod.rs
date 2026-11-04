@@ -1,14 +1,15 @@
 // Copyright © 2026 Jalapeno Labs
 
-//! Connectors: services Elysium reads as its user, the accounts it reads them through, and the
+//! Connectors: services Elysium reads as its user, each through an account of its own, and the
 //! timeline everything they read lands on. See `docs/connectors.md`.
 //!
-//! # Accounts and connectors
+//! # A connector owns its sign-in
 //!
 //! An account is how Elysium signs in to a provider as a person ([`AccountKind`]): an
-//! Atlassian or GitHub token, an API key, or a browser the person signed in to. A connector is
-//! one use of one account (`crate::models::connector`): a [`ConnectorKind`], what it reads, and
-//! what its reading has found. One account can feed several connectors, each kind once.
+//! Atlassian or GitHub token, an API key, or a browser the person signed in to. A connector
+//! (`crate::models::connector`) is a [`ConnectorKind`], the one account it owns, what it reads,
+//! and what its reading has found. No account is shared: adding a connector signs in, and
+//! removing it removes the account.
 //!
 //! # Kinds are defined once
 //!
@@ -79,8 +80,8 @@ pub enum ConnectorKind {
     /// Meetings recorded and transcribed by Fireflies.ai, read with its owner's API key. See
     /// `crate::meetings`.
     Fireflies,
-    /// Pages and comments on a Confluence Cloud site, read through an Atlassian account a Jira
-    /// connector already uses. See `crate::confluence`.
+    /// Pages and comments on a Confluence Cloud site, read through an Atlassian account of its
+    /// own. See `crate::confluence`.
     Confluence,
     /// YouTrack Cloud issues and comments, read with its owner's permanent token. See
     /// `crate::youtrack`.
@@ -102,16 +103,13 @@ impl ConnectorKind {
     ];
 
     /// The kinds the link watcher reads (`crate::action_items::watcher`), which records its
-    /// progress per account rather than on the connector. An Atlassian account can feed other
-    /// kinds too, so anything about the watcher's reading asks for these kinds, never for an
-    /// account alone.
+    /// progress per account rather than on the connector. Confluence's account is an Atlassian
+    /// one too, so anything about the watcher's reading asks for these kinds, never for an
+    /// Atlassian account alone.
     pub const LINKS: [Self; 2] = [Self::Jira, Self::Github];
 
     /// Every kind read through a browser, which `ingest` reads through [`readers::for_kind`].
     pub const BROWSER_READ: [Self; 4] = [Self::Outlook, Self::Gmail, Self::Teams, Self::Slack];
-
-    /// The kinds that read meetings, which `crate::meetings` reads.
-    pub const MEETINGS: [Self; 1] = [Self::Fireflies];
 
     pub const fn as_str(self) -> &'static str {
         match self {

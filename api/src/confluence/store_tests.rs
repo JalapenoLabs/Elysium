@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! Confluence against a real Postgres and the fake Confluence site: the reader end to end, and
-//! that a Confluence connector never takes on its Atlassian account's Jira connector's reading.
+//! that a Confluence connector's Atlassian account of its own never takes on Jira's reading.
 //!
 //! `#[ignore]`d so `cargo test` stays hermetic; `api/scripts/verify-migrations.sh` runs them.
 
@@ -26,58 +26,63 @@ use crate::models::action_item::{ActionItemPriority, ActionItemState, NewActionI
 use crate::models::action_item_link::{
     self, LinkCredential, LinkKind, LinkProvider, LinkState, NewLink, Observation,
 };
-use crate::models::connector::{self, AccountRef, Connector, NewConnector};
+use crate::models::connector::{self, AccountRef, Connector};
 use crate::models::jira_credential::{self, Allowed, Allowlist, NewJiraCredential, VerifiedToken};
 use crate::models::link_watch_cursor;
 use crate::realtime::EventBus;
 use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, cipher, migrated_database};
 
-/// An Atlassian account the fake Confluence accepts, with the Jira connector it is made with.
-async fn atlassian_account(connection: &mut AsyncPgConnection, cipher: &Cipher) -> Uuid {
-    jira_credential::create(
-        connection,
-        cipher,
-        &NewJiraCredential {
-            name: "Work".to_owned(),
-            verified: VerifiedToken {
-                site_url: SITE_URL.to_owned(),
-                account_email: EMAIL.to_owned(),
-                token: SecretString::from(TOKEN),
-                account: crate::jira::Account {
-                    account_id: ACCOUNT_ID.to_owned(),
-                    display_name: "Alex Navarro".to_owned(),
-                    email: None,
-                },
+/// An Atlassian account the fake Confluence accepts, named `name`.
+fn new_account(name: &str, allowed: Allowed) -> NewJiraCredential {
+    NewJiraCredential {
+        name: name.to_owned(),
+        verified: VerifiedToken {
+            site_url: SITE_URL.to_owned(),
+            account_email: EMAIL.to_owned(),
+            token: SecretString::from(TOKEN),
+            account: crate::jira::Account {
+                account_id: ACCOUNT_ID.to_owned(),
+                display_name: "Alex Navarro".to_owned(),
+                email: None,
             },
-            allowed: Allowed {
-                projects: Allowlist::All,
-                boards: Allowlist::All,
-            },
-            created_by: TEST_PERSON_ID,
         },
-    )
-    .await
-    .expect("the account is created")
-    .id
+        allowed,
+        created_by: TEST_PERSON_ID,
+    }
 }
 
-/// A Confluence connector on `account_id`, reading the ENG space, its first reads `baselined`
-/// or not.
+/// An Atlassian account with the Jira connector it is made with.
+async fn atlassian_account(connection: &mut AsyncPgConnection, cipher: &Cipher) -> Uuid {
+    let allowed = Allowed {
+        projects: Allowlist::All,
+        boards: Allowlist::All,
+    };
+    jira_credential::create(connection, cipher, &new_account("Work", allowed))
+        .await
+        .expect("the account is created")
+        .id
+}
+
+/// A Confluence connector with its own Atlassian account, which allows nothing of Jira's, reading
+/// the ENG space, its first reads `baselined` or not.
 async fn confluence_connector(
     connection: &mut AsyncPgConnection,
-    account_id: Uuid,
+    cipher: &Cipher,
     baselined: bool,
 ) -> Connector {
-    let mut new_connector = NewConnector::new(
-        ConnectorKind::Confluence.as_str(),
-        AccountRef::Atlassian(account_id),
-        TEST_PERSON_ID,
-    );
-    new_connector.content =
-        json!({ "spaces": [{ "id": "1", "key": "ENG", "name": "Engineering" }] });
-    let created = connector::create(connection, new_connector)
-        .await
-        .expect("the connector is created");
+    let allowed = Allowed {
+        projects: Allowlist::Only(Vec::new()),
+        boards: Allowlist::Only(Vec::new()),
+    };
+    let (_account, created) = jira_credential::create_carrying(
+        connection,
+        cipher,
+        &new_account("Wiki", allowed),
+        ConnectorKind::Confluence,
+        json!({ "spaces": [{ "id": "1", "key": "ENG", "name": "Engineering" }] }),
+    )
+    .await
+    .expect("the connector is created");
     if !baselined {
         return created;
     }
@@ -134,8 +139,7 @@ async fn recorded(connection: &mut AsyncPgConnection, connector_id: Uuid) -> (Ve
 async fn a_read_records_each_change_in_its_spaces_and_raises_a_question_on_the_persons_page_once() {
     let (url, mut connection) = migrated_database().await;
     let cipher = Arc::new(cipher());
-    let account_id = atlassian_account(&mut connection, &cipher).await;
-    let stored = confluence_connector(&mut connection, account_id, true).await;
+    let stored = confluence_connector(&mut connection, &cipher, true).await;
     let reader = reader(&url, Arc::clone(&cipher)).await;
 
     reader.read_now(&stored).await;
@@ -170,8 +174,7 @@ async fn a_read_records_each_change_in_its_spaces_and_raises_a_question_on_the_p
 async fn a_new_connectors_first_read_records_without_raising_and_baselines() {
     let (url, mut connection) = migrated_database().await;
     let cipher = Arc::new(cipher());
-    let account_id = atlassian_account(&mut connection, &cipher).await;
-    let stored = confluence_connector(&mut connection, account_id, false).await;
+    let stored = confluence_connector(&mut connection, &cipher, false).await;
     let reader = reader(&url, Arc::clone(&cipher)).await;
 
     reader.read_now(&stored).await;
@@ -187,23 +190,19 @@ async fn a_new_connectors_first_read_records_without_raising_and_baselines() {
 
 /// The Jira connector the Atlassian account `account_id` was made with.
 async fn jira_connector(connection: &mut AsyncPgConnection, account_id: Uuid) -> Connector {
-    connector::find_by_account(
-        connection,
-        ConnectorKind::Jira.as_str(),
-        AccountRef::Atlassian(account_id),
-    )
-    .await
-    .expect("the query runs")
-    .expect("an Atlassian account carries its Jira connector")
+    connector::find_by_account(connection, AccountRef::Atlassian(account_id))
+        .await
+        .expect("the query runs")
+        .expect("an Atlassian account carries its Jira connector")
 }
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-async fn pausing_confluence_does_not_pause_the_watcher_for_its_accounts_jira_issues() {
+async fn pausing_confluence_never_pauses_the_link_watcher() {
     let (_url, mut connection) = migrated_database().await;
     let cipher = cipher();
     let account_id = atlassian_account(&mut connection, &cipher).await;
-    let confluence = confluence_connector(&mut connection, account_id, true).await;
+    let confluence = confluence_connector(&mut connection, &cipher, true).await;
 
     connector::set_active(&mut connection, confluence.id, false)
         .await
@@ -229,14 +228,29 @@ async fn pausing_confluence_does_not_pause_the_watcher_for_its_accounts_jira_iss
 
 #[tokio::test]
 #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
-async fn the_watchers_pass_and_link_counts_belong_to_jira_never_to_confluence_on_the_same_account()
-{
+async fn a_confluence_account_is_never_offered_as_a_jira_site() {
     let (_url, mut connection) = migrated_database().await;
     let cipher = cipher();
     let account_id = atlassian_account(&mut connection, &cipher).await;
-    // Created after the Jira connector, but listed first, so a match by account alone would
-    // hand the watcher's pass to Confluence.
-    let confluence = confluence_connector(&mut connection, account_id, true).await;
+    let confluence = confluence_connector(&mut connection, &cipher, true).await;
+
+    let listed: Vec<Uuid> = jira_credential::list(&mut connection)
+        .await
+        .expect("listed")
+        .into_iter()
+        .map(|(credential, _allowed)| credential.id)
+        .collect();
+    assert_eq!(listed, [account_id]);
+    assert_ne!(confluence.jira_credential_id, Some(account_id));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn the_watchers_pass_and_link_counts_belong_to_jira_never_to_confluence() {
+    let (_url, mut connection) = migrated_database().await;
+    let cipher = cipher();
+    let account_id = atlassian_account(&mut connection, &cipher).await;
+    let confluence = confluence_connector(&mut connection, &cipher, true).await;
     let jira = jira_connector(&mut connection, account_id).await;
     let credential = LinkCredential {
         provider: LinkProvider::Jira,

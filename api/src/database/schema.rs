@@ -806,6 +806,16 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    secret_copies (target, row_id) {
+        target -> Text,
+        row_id -> Uuid,
+        sealed_for -> Uuid,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     session_events (session_id, sequence) {
         session_id -> Int8,
         sequence -> Int8,
@@ -1157,6 +1167,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     meetings,
     password_vault,
     projects,
+    secret_copies,
     session_events,
     storage_location_projects,
     storage_locations,
