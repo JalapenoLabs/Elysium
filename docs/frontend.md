@@ -255,6 +255,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
 | `/projects/:projectId`        | `ProjectPage`            | One project, edited in place, with its lists as tabs in `?tab=` |
+| `/projects/:projectId/models` | `ProjectModelsPage`      | The models the project's own agents run on, from its Actions menu |
 | `/action-items/initiatives/:initiativeId/containers/new` | `NewInitiativeContainerPage` | Follow a Jira epic or filter, or a GitHub milestone or label |
 | `/coding`                     | `CodingPage`             | Dockview workspace; `?item=` redirects to `/coding/new?item=` |
 | `/coding/new`                 | `NewCodingSessionPage`   | New session; `?item=` starts it from that action item    |
@@ -284,7 +285,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/llms/add-<provider>` | redirect               | To `/settings/llms/new/<provider>`                       |
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
 | `/settings/llms/agent-configuration` | `AgentConfigurationPage` | The repository agents' Claude Code configuration comes from; admins |
-| `/settings/models`            | `ModelSettingsPage`      | The model and effort each step and agent runs on; admins |
+| `/settings/models`            | `ModelSettingsPage`      | The model and effort each kind, step, and agent runs on, as tabs in `?tab=`; admins |
 | `/settings/email`             | `ManageEmailPage`        | Mailboxes and domains as tabs in `?tab=`                 |
 | `/settings/email/server/new`  | `NewMailServerPage`      | Create the mail server, or try again after it failed     |
 | `/settings/email/domains/new` | `NewMailDomainPage`      | Add a domain to the mail server                          |
@@ -724,21 +725,34 @@ and disconnect, or delete a self-hosted mailbox; the disconnect confirmation say
 
 ### Models
 
-`src/pages/Settings/Models/` is where admins choose the model and effort each workflow step and agent runs on
-(`docs/engine.md`, Models), in the settings frame; anyone else is told it is for admins, and the directory hides the
-entry.
+`src/pages/Settings/Models/` is where admins choose the model and effort each kind of agent, and each workflow step and
+agent, runs on across the workspace (`docs/engine.md`, Models), in the settings frame; anyone else is told to ask an
+admin, and the directory hides the entry. The order a turn's model is resolved in sits behind the page's `help`.
 
-- **The list** (`ModelSettingsPage`, `ModelSettingsTable`) is uikit's `SmartTable`, unsorted, since the order is the
-  workflows' own: each step and agent by its words over its name in code (a step's words are the Runs pages',
-  `useRunNames`), its kind, its model and effort, and whether it runs on its default or a choice. A step that runs no
-  model says so in place of fields.
-- **Fields.** Model and effort are the page's fields, kept by its Save, which sends one `PUT` per row that changed,
-  keeping a refused one picked, as Users keeps roles. The model is `ModelField`, a combo box suggesting the current
-  Claude models by product name that also takes any id or alias typed, such as `opus[1m]`; `isModelName` mirrors the
-  API's rule, so one that could read as a flag shows its error and blocks Save. Use default, a row action on a row
-  with a choice, acts at once.
-- **Data.** SWR, then `modelSettingsSlice`, then `modelSetting.changed`, which carries an agent's name alone and makes
-  admins load the list again. `modelSettingsPresentation.ts` holds the rules and labels, tested beside it.
+- **Two tabs** (`PageTabs`, the open one in `?tab=`), each a uikit `SmartTable`, unsorted, since the order is the
+  API's own. **Agent kinds** (`KindModelsTable`): each kind over the steps and agents it covers (or None yet), its
+  model and effort, whether it runs on its default or a choice, the model's price per million tokens, input over
+  output (`ModelPriceText`, from the API's `modelPrices`; a model typed by hand reads Not known), and what its turns
+  spent since the window's start, over how many turns (`RecordedUsageText`; a kind whose turns keep no cost reads Not
+  recorded). **Steps and agents** (`AgentModelsTable`): each by its words over its name in code (a step's words are
+  the Runs pages', `useRunNames`), its kind, the model and effort it resolves to, and where that came from (Own
+  setting, Kind setting, or Default). A step that runs no model says so in place of fields.
+- **Fields.** Model and effort are the page's fields on both tabs, kept by its one Save, which sends one `PUT` per row
+  that changed, kinds first, so a step picked to match its kind's new choice is stored as following it; a refused one
+  stays picked, as Users keeps roles. The model is `ModelField`, a combo box suggesting the current Claude models by
+  product name that also takes any id or alias typed, such as `opus[1m]`; `isModelName` mirrors the API's rule, so one
+  that could read as a flag shows its error and blocks Save. The effort is `EffortField`. Use default (a kind) and
+  Follow kind (a step or agent), row actions on a row with a choice, act at once.
+- **A project's models** (`src/pages/Projects/ProjectModelsPage.tsx`, `ProjectModels`, `ProjectModelsTable`),
+  reached from the project page's Actions menu, under the project in the breadcrumbs: a row per kind that works for one
+  project, with the same fields, prices, and the project's own spend, and whether it is the project's choice or follows
+  the workspace. Its Save keeps the project's choices; Use workspace setting acts at once. Anyone who may edit the
+  project uses it.
+- **Data.** The workspace's list flows through SWR, then `modelSettingsSlice` (kinds, steps and agents, and the
+  choices offered), then the event stream: `modelSetting.changed` and `kindModelSetting.changed` (with no project) make
+  admins load it again. A project's list is read from SWR alone (`getProjectModelSettingsKey`), since no other view
+  shows it; `kindModelSetting.changed` revalidates that project's key, or with no project every project's, which
+  refetches only while a page holds it. `modelSettingsPresentation.ts` holds the rules and labels, tested beside it.
 
 ### Learnings
 
@@ -1056,8 +1070,8 @@ single Add a cover image button. Beside Change cover, a Fit and Fill switch sets
 rendering of the cover follows. The controls show on hover or focus, and stay while a new cover waits. About, below
 the banner, holds the description and who created the project. The name and description are `InlineEditableText`.
 Save sends the changed fields first, then uploads the cover; a cover that fails stays picked, so the next Save
-uploads it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Remove cover,
-at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions remain. Below,
+uploads it alone. The header's Actions menu (`useProjectActions`) holds what cannot be done in place: Models, a link to the models
+its agents run on (see Models), Remove cover, at once with Undo, and Delete, which confirms through `useConfirm` and only explains while sessions remain. Below,
 `ProjectLists` holds the project's lists as tabs, each with its total, the open one in `?tab=`: Action items (still
 owed), Initiatives, Timeline (`ProjectTimeline`, counted by the API's `total`), and Coding sessions
 (`CodingSessionsTable`; a row or title opens the session on the Coding page). Switching tabs keeps unsaved edits.
@@ -1180,7 +1194,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `mailAccounts`   | Connected mailboxes, sorted by address                                  |
 | `mailDomains`    | The mail server's domains, sorted by name                               |
 | `mailServer`     | The mail server's state, replaced whole by every update                 |
-| `modelSettings`  | What each step and agent runs on, and the models and efforts offered; admins |
+| `modelSettings`  | What each kind, step, and agent runs on, and the models, prices, and efforts offered; admins |
 | `notifications` | Toasts kept for the notification menu, newest first, and which are read |
 | `projects`       | Projects, sorted by name                                                |
 | `githubCredentials` | GitHub tokens, sorted by name                                        |

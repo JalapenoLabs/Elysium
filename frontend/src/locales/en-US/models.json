@@ -1,13 +1,15 @@
 {
   "title": "Models",
-  "help": "Each workflow step and agent runs on its model at its effort, through your Claude credentials in priority order. A change applies from its next turn. Steps that only fetch, transcribe, or index run no model.",
-  "adminOnly": "Only admins choose the models agents run on.",
+  "help": "A turn runs on the first of these that is set: its project's choice for its kind, the step's or agent's own setting, its kind's setting, then the kind's default. A change applies from the next turn. Prices are Anthropic's, per million tokens, and higher effort spends more tokens. On a subscription, spent is what the same tokens would cost on the API.",
+  "adminOnly": "Ask an admin to choose the models agents run on.",
   "invalidModel": "Use a model id or alias, such as claude-opus-5-5 or opus[1m]",
   "invalidModelFor": "Fix the model for {{name}} first",
+  "tabs": {
+    "label": "Models",
+    "kinds": "Agent kinds",
+    "agents": "Steps and agents"
+  },
   "table": {
-    "label": "Models by step and agent",
-    "name": "Step or agent",
-    "kind": "Kind",
     "model": "Model",
     "effort": "Effort",
     "setting": "Setting",
@@ -18,9 +20,33 @@
     "chosen": "Chosen",
     "loadError": "Model settings could not be loaded."
   },
+  "kindsTable": {
+    "label": "Models by agent kind",
+    "name": "Kind",
+    "noMembers": "None yet",
+    "price": "Price per 1M tokens",
+    "spent": "Spent since {{date}}"
+  },
+  "agentsTable": {
+    "label": "Models by step and agent",
+    "name": "Step or agent",
+    "kind": "Kind",
+    "source": "From"
+  },
   "kinds": {
-    "step": "Workflow step",
-    "agent": "Agent"
+    "worker": "Workers",
+    "project_manager": "Project Managers",
+    "correction": "Correction",
+    "segmenting": "Segmenting",
+    "triage": "Triage",
+    "elysia": "Elysia",
+    "summaries": "Summaries"
+  },
+  "sources": {
+    "project": "This project",
+    "agent": "Own setting",
+    "kind": "Kind setting",
+    "default": "Default"
   },
   "efforts": {
     "low": "Low",
@@ -36,12 +62,34 @@
     "turn_summary": "Turn summaries",
     "segment_meeting": "Meeting segmentation"
   },
+  "price": {
+    "input": "{{amount}} in",
+    "output": "{{amount}} out",
+    "unknown": "Not known"
+  },
+  "usage": {
+    "turns_one": "{{count, compact}} turn",
+    "turns_other": "{{count, compact}} turns",
+    "notRecorded": "Not recorded"
+  },
   "actions": {
-    "useDefault": "Use default"
+    "useDefault": "Use default",
+    "followKind": "Follow kind"
   },
   "toasts": {
     "saved": "Model settings saved",
     "saveFailed": "The model for {{name}} could not be saved",
-    "reset": "{{name}} is back on its default"
+    "reset": "{{name}} is back on its default",
+    "followsKind": "{{name}} follows its kind again"
+  },
+  "project": {
+    "title": "Models",
+    "help": "A kind without a choice here follows the workspace. A step or agent the workspace set on its own keeps that setting until this project chooses. Prices are Anthropic's, per million tokens, and higher effort spends more tokens.",
+    "tableLabel": "Models for this project's agents",
+    "following": "Workspace",
+    "useWorkspace": "Use workspace setting",
+    "saved": "Project models saved",
+    "followsWorkspace": "{{name}} follows the workspace again",
+    "loadError": "This project's models could not be loaded."
   }
 }

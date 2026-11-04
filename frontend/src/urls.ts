@@ -27,6 +27,7 @@ export const UrlTree = {
   projects: '/projects',
   projectsNew: '/projects/new',
   projectView: '/projects/:projectId',
+  projectModels: '/projects/:projectId/models',
   coding: '/coding',
   codingNew: '/coding/new',
   codingSession: '/coding/:sessionId',
@@ -177,6 +178,10 @@ export function getNewInitiativeUrl(projectId: string) {
 
 export function getProjectViewUrl(projectId: string) {
   return UrlTree.projectView.replace(':projectId', projectId)
+}
+
+export function getProjectModelsUrl(projectId: string) {
+  return UrlTree.projectModels.replace(':projectId', projectId)
 }
 
 export function getRunViewUrl(runId: string) {

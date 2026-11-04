@@ -1,21 +1,40 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { AgentModel } from '../../../api/routes/modelSettingRoutes'
+import type { AgentModel, KindModel } from '../../../api/routes/modelSettingRoutes'
 
 // Core
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { currentChoice, isModelName, pendingChanges } from './modelSettingsPresentation'
+import {
+  currentAgentChoice,
+  currentKindChoice,
+  isModelName,
+  membersByKind,
+  pendingChanges,
+} from './modelSettingsPresentation'
 
 const opusHigh = { model: 'claude-opus-5-5', effort: 'high' } as const
+const haikuLow = { model: 'claude-haiku-5-5', effort: 'low' } as const
 
 function agent(name: string, overrides: Partial<AgentModel> = {}): AgentModel {
   return {
     name,
-    kind: 'agent',
+    isStep: false,
+    kind: 'elysia',
+    setting: null,
+    resolved: { ...opusHigh, source: 'default' },
+    ...overrides,
+  }
+}
+
+function kind(name: KindModel['name'], overrides: Partial<KindModel> = {}): KindModel {
+  return {
+    name,
     default: opusHigh,
     setting: null,
+    runsInProjects: false,
+    usage: null,
     ...overrides,
   }
 }
@@ -34,38 +53,62 @@ describe('isModelName', () => {
   })
 })
 
-describe('currentChoice', () => {
-  it('is the setting while there is one, and the default otherwise', () => {
-    expect(currentChoice(agent('elysia'))).toEqual(opusHigh)
-    expect(currentChoice(agent('elysia', {
-      setting: { model: 'claude-haiku-5-5', effort: 'low', updatedAt: '2026-11-04T12:00:00Z' },
-    }))).toEqual({ model: 'claude-haiku-5-5', effort: 'low' })
+describe('currentKindChoice', () => {
+  it('is the admin\'s setting while there is one, and the default otherwise', () => {
+    expect(currentKindChoice(kind('summaries', { default: haikuLow }))).toEqual(haikuLow)
+    expect(currentKindChoice(kind('worker', {
+      setting: { model: 'claude-sonnet-5-5', effort: 'medium', updatedAt: '2026-11-04T12:00:00Z' },
+    }))).toEqual({ model: 'claude-sonnet-5-5', effort: 'medium' })
+  })
+})
+
+describe('currentAgentChoice', () => {
+  it('is what the agent resolves to, whichever level it came from', () => {
+    expect(currentAgentChoice(agent('coding_session', {
+      kind: 'worker',
+      resolved: { model: 'claude-sonnet-5-5', effort: 'medium', source: 'kind' },
+    }))).toEqual({ model: 'claude-sonnet-5-5', effort: 'medium' })
   })
 
   it('is nothing for a step that runs no model', () => {
-    expect(currentChoice(agent('transcribe_meeting', { kind: 'step', default: null }))).toBeNull()
+    expect(currentAgentChoice(agent('transcribe_meeting', { isStep: true, kind: null, resolved: null }))).toBeNull()
   })
 })
 
 describe('pendingChanges', () => {
-  it('sends only what differs from what each agent runs on now, in the order listed', () => {
+  it('sends only what differs from what each row runs on now, in the order listed', () => {
     const agents = [
       agent('elysia'),
       agent('coding_session'),
-      agent('turn_summary', { default: { model: 'claude-haiku-5-5', effort: 'low' }}),
+      agent('turn_summary', { resolved: { ...haikuLow, source: 'default' }}),
     ]
     const pending = pendingChanges(agents, {
       turn_summary: { model: 'claude-sonnet-5-5', effort: 'medium' },
       // Picked back to what it runs on: no change.
       coding_session: opusHigh,
       elysia: { model: 'claude-opus-5-5', effort: 'max' },
-    })
+    }, currentAgentChoice)
 
-    expect(pending.map((change) => change.agent.name)).toEqual([ 'elysia', 'turn_summary' ])
+    expect(pending.map((change) => change.row.name)).toEqual([ 'elysia', 'turn_summary' ])
     expect(pending[1].choice).toEqual({ model: 'claude-sonnet-5-5', effort: 'medium' })
   })
 
-  it('ignores a change for an agent the list no longer has', () => {
-    expect(pendingChanges([ agent('elysia') ], { gone: opusHigh })).toEqual([])
+  it('ignores a change for a row the list no longer has', () => {
+    expect(pendingChanges([ kind('worker') ], { triage: opusHigh }, currentKindChoice)).toEqual([])
+  })
+})
+
+describe('membersByKind', () => {
+  it('lists each kind\'s steps and agents by their words, and leaves out steps that run no model', () => {
+    const members = membersByKind([
+      agent('coding_session', { kind: 'worker' }),
+      agent('transcribe_meeting', { isStep: true, kind: null, resolved: null }),
+      agent('studio_session', { kind: 'worker' }),
+      agent('elysia'),
+    ], (listed) => listed.name.toUpperCase())
+
+    expect(members.get('worker')).toEqual([ 'CODING_SESSION', 'STUDIO_SESSION' ])
+    expect(members.get('elysia')).toEqual([ 'ELYSIA' ])
+    expect(members.has('triage')).toBe(false)
   })
 })

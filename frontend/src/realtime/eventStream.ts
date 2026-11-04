@@ -62,7 +62,7 @@ import { getDraft } from '../api/routes/draftRoutes'
 import { getVersion } from '../api/routes/healthRoutes'
 import { COMPANY_DOC_HISTORY_KEY, COMPANY_DOC_KEY } from '../api/routes/companyDocRoutes'
 import { LEARNING_CATEGORIES_KEY } from '../api/routes/learningCategoryRoutes'
-import { MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
+import { getProjectModelSettingsKey, MODEL_SETTINGS_KEY } from '../api/routes/modelSettingRoutes'
 import { getLearning, LEARNING_FEED_KEY, learningHistoryKey } from '../api/routes/learningRoutes'
 import { getMeeting } from '../api/routes/meetingRoutes'
 import { getRun, getStepLog } from '../api/routes/runRoutes'
@@ -213,6 +213,22 @@ const handlers: Handlers = {
       return
     }
     void mutate(MODEL_SETTINGS_KEY)
+  },
+  // A project's choice changes that project's page alone. The workspace's changes what every
+  // project's page shows it follows, and what admins see each step and agent resolve to. Each
+  // key refetches only while a page holds it.
+  'kindModelSetting.changed': (event) => {
+    const projectId = event.data.projectId
+    if (projectId) {
+      void mutate(getProjectModelSettingsKey(projectId))
+      return
+    }
+    void mutate((key) => typeof key === 'string'
+      && key.startsWith('v1/projects/')
+      && key.endsWith('/model-settings'))
+    if (selectIsAdmin(store.getState())) {
+      void mutate(MODEL_SETTINGS_KEY)
+    }
   },
   'connector.deleted': (event) => {
     store.dispatch(connectorDeleted(event.data.id))

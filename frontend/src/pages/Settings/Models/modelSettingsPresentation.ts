@@ -1,9 +1,17 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { ParseKeys } from 'i18next'
-import type { AgentModel, Effort, ModelChoice } from '../../../api/routes/modelSettingRoutes'
+import type {
+  AgentKind,
+  AgentModel,
+  Effort,
+  KindModel,
+  ModelChoice,
+  ModelSource,
+} from '../../../api/routes/modelSettingRoutes'
 
-// Words and rules for the model settings page. Pure, and tested beside.
+// Words and rules for the pages that choose models: Settings, Models and a project's Models.
+// Pure, and tested beside.
 
 // What the CLI's `--model` may be given: a letter or digit, then up to 99 letters, digits, dots,
 // underscores, hyphens, or brackets. Mirrors `agent_models::is_model_name` in the API, which
@@ -32,9 +40,22 @@ export const effortLabelKeys = {
 } as const satisfies Record<Effort, ParseKeys<'models'>>
 
 export const kindLabelKeys = {
-  step: 'kinds.step',
-  agent: 'kinds.agent',
-} as const satisfies Record<AgentModel['kind'], ParseKeys<'models'>>
+  worker: 'kinds.worker',
+  project_manager: 'kinds.project_manager',
+  correction: 'kinds.correction',
+  segmenting: 'kinds.segmenting',
+  triage: 'kinds.triage',
+  elysia: 'kinds.elysia',
+  summaries: 'kinds.summaries',
+} as const satisfies Record<AgentKind, ParseKeys<'models'>>
+
+// Why a step or agent runs on what it does, in the words of the column that says so.
+export const sourceLabelKeys = {
+  project: 'sources.project',
+  agent: 'sources.agent',
+  kind: 'sources.kind',
+  default: 'sources.default',
+} as const satisfies Record<ModelSource, ParseKeys<'models'>>
 
 // The words for each agent outside the step framework, by its name in code. Steps take their
 // words from the Runs pages, so both pages name a step alike. The set is open-ended on the
@@ -47,31 +68,63 @@ export const agentNameKeys = new Map<string, ParseKeys<'models'>>([
   [ 'segment_meeting', 'agents.segment_meeting' ],
 ])
 
-// What `agent` runs on now: its setting, or its default. `null` for a step that runs no model.
-export function currentChoice(agent: AgentModel): ModelChoice | null {
-  if (agent.setting) {
+// What `kind` runs on across the workspace now: an admin's setting, or its default.
+export function currentKindChoice(kind: KindModel): ModelChoice {
+  if (kind.setting) {
     return {
-      model: agent.setting.model,
-      effort: agent.setting.effort,
+      model: kind.setting.model,
+      effort: kind.setting.effort,
     }
   }
-  return agent.default
+  return kind.default
+}
+
+// What `agent` runs on outside any project now, whatever level it came from. `null` for a
+// step that runs no model.
+export function currentAgentChoice(agent: AgentModel): ModelChoice | null {
+  if (!agent.resolved) {
+    return null
+  }
+  return {
+    model: agent.resolved.model,
+    effort: agent.resolved.effort,
+  }
 }
 
 export function isSameChoice(first: ModelChoice | null, second: ModelChoice | null) {
   return first?.model === second?.model && first?.effort === second?.effort
 }
 
-// What the page holds that differs from what each agent runs on now, in the order listed:
-// what Save sends. A change typed back to what is stored is no change.
-export function pendingChanges(agents: AgentModel[], changes: Record<string, ModelChoice>) {
-  const pending: { agent: AgentModel, choice: ModelChoice }[] = []
-  for (const agent of agents) {
-    const choice = changes[agent.name]
-    if (!choice || isSameChoice(choice, currentChoice(agent))) {
+// What a page holds that differs from what each row runs on now, in the order listed: what Save
+// sends. A change picked back to what is stored is no change, and a change for a row the list no
+// longer has is dropped.
+export function pendingChanges<Row extends { name: string }>(
+  rows: Row[],
+  changes: Partial<Record<string, ModelChoice>>,
+  currentOf: (row: Row) => ModelChoice | null,
+) {
+  const pending: { row: Row, choice: ModelChoice }[] = []
+  for (const row of rows) {
+    const choice = changes[row.name]
+    if (!choice || isSameChoice(choice, currentOf(row))) {
       continue
     }
-    pending.push({ agent, choice })
+    pending.push({ row, choice })
   }
   return pending
+}
+
+// The steps and agents of each kind, by their words, in the order listed, so a kind's row can
+// say what it covers. A kind with none yet has no entry.
+export function membersByKind(agents: AgentModel[], nameOf: (agent: AgentModel) => string) {
+  const members = new Map<AgentKind, string[]>()
+  for (const agent of agents) {
+    if (!agent.kind) {
+      continue
+    }
+    const names = members.get(agent.kind) ?? []
+    names.push(nameOf(agent))
+    members.set(agent.kind, names)
+  }
+  return members
 }

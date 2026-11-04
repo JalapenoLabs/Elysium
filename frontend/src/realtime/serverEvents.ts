@@ -13,6 +13,7 @@ import type { JiraCredential } from '../api/routes/jiraRoutes'
 import type { Llm, LlmUsage } from '../api/routes/llmRoutes'
 import type { MailAccount, MailDomain, MailServer } from '../api/routes/mailRoutes'
 import type { MeetingState } from '../api/routes/meetingRoutes'
+import type { AgentKind } from '../api/routes/modelSettingRoutes'
 import type { PasswordVault, VaultStatus } from '../api/routes/passwordVaultRoutes'
 import type { Project } from '../api/routes/projectRoutes'
 import type { RunState, StepState } from '../api/routes/runRoutes'
@@ -61,9 +62,12 @@ export type ServerEvent =
   // The company doc changed, or a change to it was proposed or decided. Nothing more, for the
   // same reason; members load it again.
   | { type: 'companyDoc.changed' }
-  // An admin chose what a step or agent runs on, or put it back on its default. Its name alone;
+  // An admin chose what a step or agent runs on, or let it follow its kind again. Its name alone;
   // admins load the list again.
   | { type: 'modelSetting.changed', data: { agent: string } }
+  // Someone chose what a kind of agent runs on, for the workspace (`projectId` null) or for one
+  // project, or put it back. Pages showing either load it again.
+  | { type: 'kindModelSetting.changed', data: { kind: AgentKind, projectId: string | null } }
   // A check in a run moved on, or (`checkId` null, `state` finished) the run ended.
   | {
     type: 'connectorCheckRun.updated'

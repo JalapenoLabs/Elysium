@@ -13,7 +13,7 @@ import { useAppDispatch } from '../../store/hooks'
 import { projectDeleted, projectUpserted } from '../../store/projectsSlice'
 
 // User interface
-import { LuImageOff, LuTrash2 } from 'react-icons/lu'
+import { LuBrainCircuit, LuImageOff, LuTrash2 } from 'react-icons/lu'
 
 // Utility
 import { HTTPError } from 'ky'
@@ -22,7 +22,7 @@ import { HTTPError } from 'ky'
 import { deleteProject, deleteProjectCover, restoreProjectCover } from '../../api/routes/projectRoutes'
 import { useConfirm } from '../../hooks/useConfirm'
 import { LEAVE_WITHOUT_ASKING } from '../../layout/page/pageSave'
-import { UrlTree } from '../../urls'
+import { getProjectModelsUrl, UrlTree } from '../../urls'
 import { toast } from '../../toast/toast'
 
 type Options = {
@@ -32,7 +32,8 @@ type Options = {
 }
 
 // The project page's actions, its Actions menu: what the page cannot do in place. The name,
-// description, and a new cover are edited where they are shown.
+// description, and a new cover are edited where they are shown; the models its agents run on
+// are a page of their own.
 export function useProjectActions(options: Options): PageAction[] {
   const { t } = useTranslation([ 'projects', 'common' ])
   const dispatch = useAppDispatch()
@@ -115,6 +116,12 @@ export function useProjectActions(options: Options): PageAction[] {
   }
 
   return [
+    {
+      id: 'models',
+      label: t('page.models'),
+      icon: LuBrainCircuit,
+      href: getProjectModelsUrl(options.project.id),
+    },
     {
       id: 'removeCover',
       label: t('page.removeCover'),
