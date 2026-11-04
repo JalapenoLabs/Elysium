@@ -451,7 +451,8 @@ See `docs/mcp.md`.
   `src/theme/matter.css`): HeroUI 3.2 only marks a pending button and stops presses, drawing nothing. A component
   with several such buttons tracks which one runs with `usePendingAction` (`src/hooks/`): that one is pending, the
   others are disabled, and a press while one runs is ignored. The connector hub tracks running actions per connector
-  (`useConnectorActions`), so one connector's sync never holds another's.
+  (`useConnectorActions`), so one connector's sync never holds another's. The ring can only hide elements, so a
+  Button's text is always in a span; `src/bugs/187.test.ts` fails on text written straight into one.
 - **Menus** (Dropdowns). Every item leads with its icon; destructive items are last, below a `Separator`, red, and
   fill red under the mouse or keyboard (`.menu-item--danger` in `src/theme/matter.css`), and each asks first or
   offers Undo. A trigger with text ends with a chevron.
