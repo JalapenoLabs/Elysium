@@ -20,8 +20,13 @@
       "reconnecting": "Live updates interrupted. Reconnecting…"
     },
     "account": "Account menu for {{name}}",
-    "profile": "My profile",
-    "security": "Sign-in & security",
-    "signOut": "Sign out"
+    "accountTooltip": "Account",
+    "myAccount": "My account",
+    "security": "Security",
+    "signOut": "Sign out",
+    "signOutConfirm": {
+      "title": "Sign out?",
+      "message": "You'll need to sign in again to use Elysium on this browser."
+    }
   }
 }

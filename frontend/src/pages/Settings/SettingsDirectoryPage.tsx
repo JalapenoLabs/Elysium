@@ -45,9 +45,9 @@ export function SettingsDirectoryPage() {
       <div className='grid grid-cols-1 gap-x-10 gap-y-8 md:grid-cols-2 xl:grid-cols-3'>
         <SettingsDirectoryItem
           icon={LuUser}
-          title={t('items.profile.title')}
-          description={t('items.profile.description')}
-          href={UrlTree.settingsProfile}
+          title={t('items.account.title')}
+          description={t('items.account.description')}
+          href={UrlTree.settingsAccount}
         />
         <SettingsDirectoryItem
           icon={LuShieldCheck}

@@ -15,7 +15,7 @@ import { csrfToken, readKratosFailure } from '../api/kratosFlows'
 import { toast } from '../toast/toast'
 import { getLoginUrl, KRATOS_FLOW_PARAM } from '../urls'
 
-// The changes My profile and Sign-in & security make, as Kratos takes each submission.
+// The changes My account and Security make, as Kratos takes each submission.
 export type SettingsSubmission = Extract<
   UpdateSettingsFlowBody,
   { method: 'profile' | 'password' | 'totp' | 'lookup_secret' | 'passkey' }
@@ -25,7 +25,7 @@ export type SettingsSubmission = Extract<
 // authenticator app, and lookup codes is one submission of it. `returnTo` is the page using
 // it, where a change that needs a recent sign-in, or the second factor, comes back to.
 //
-// A recovery link lands on Sign-in & security with its flow in the address, already signed
+// A recovery link lands on Security with its flow in the address, already signed
 // in. Kratos's messages for the whole form become toasts (`useKratosMessageToasts`), so
 // nothing they say moves the page; a field's own message stays on its field.
 export function useKratosSettingsFlow(returnTo: string) {

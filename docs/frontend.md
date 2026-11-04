@@ -63,8 +63,9 @@ Code here keeps to it:
     `motion-reduce:transition-none`, which HeroUI's variant applies under `prefers-reduced-motion` and under
     `data-reduce-motion`. All of it is classes, never injected styles.
 - `Topbar` spans the content column. It has a search field and, on the right, the Elysia button, the live updates
-  dot, the settings gear, and the account menu (`UserMenu`): My profile, Sign-in & security, then Sign out below a
-  divider, each with an icon. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
+  dot, the settings gear, and the account menu (`UserMenu`), its avatar named in a tooltip: the person's name in
+  small bold and their email in smaller italic, a divider, My account and Security as links, then Sign out below a
+  divider, which asks in a dialog first; each item has an icon. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
   green while the event stream is connected and amber while it reconnects.
 - `ElysiaPanel` (`src/elysia/`) is on the right while it is open: her status, questions, work, and the
   conversation or her activity. `AppShell` places it: beside the page from `2xl` up, floating over the page's right
@@ -171,8 +172,10 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/runs`                       | `RunsPage`               | Workflow runs, newest first, a page at a time; members only |
 | `/runs/:runId`                | `RunPage`                | One run: its steps, each opening to its log, and its history |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
-| `/settings/profile`           | `ProfilePage`            | My profile: name and email, and the light, dark, or system theme |
-| `/settings/personal-details`  | redirect                 | To `/settings/profile`                                   |
+| `/settings/account`           | `AccountPage`            | My account: name and email, and the light, dark, or system theme |
+| `/settings/profile`           | redirect                 | To `/settings/account`                                   |
+| `/settings/personal-details`  | redirect                 | To `/settings/account`                                   |
+| `/settings/security`          | `SecurityPage`           | Security: password, two-factor, passkeys, lookup codes, sessions |
 | `/settings/browsers`          | redirect                 | To `/settings/connectors`                                |
 | `/settings/browsers/:browserSessionId` | `BrowserSignInRedirect` | To the connector that owns the browser, else the list |
 | `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
@@ -268,8 +271,8 @@ offers them in autofill. See `docs/auth.md`.
   recovery link once made turns the page into its next step: who to ask for the link.
 
 - **The gate.** `src/auth/AuthGate.tsx` wraps every workspace page. It loads `GET /api/v1/me` into `authSlice` and
-  sends people where they must go first: sign-in, the second factor, `/pending`, the disabled notice, or Sign-in &
-  security when the workspace requires an authenticator app.
+  sends people where they must go first: sign-in, the second factor, `/pending`, the disabled notice, or Security
+  when the workspace requires an authenticator app.
   - **Refusals.** Any request's `401` or coded `403` lands in Redux through the ky hook in `src/api/index.ts`, and the
     gate routes on it the same way.
   - **Event stream.** The stream opens only once the person may use the workspace, and closes on sign-out.
@@ -277,13 +280,13 @@ offers them in autofill. See `docs/auth.md`.
     so the ended session is refused at once (`docs/auth.md`, Ending a session). The tab still lists from Kratos.
 - **The waiting page.** `/pending` asks `/me` every 5 seconds. It is the one page that polls: a pending person may not
   open the event stream.
-- **Kratos settings flows.** My profile and Sign-in & security each run one through `useKratosSettingsFlow`
+- **Kratos settings flows.** My account and Security each run one through `useKratosSettingsFlow`
   (`src/hooks/`), named with the page a change needing a recent sign-in sends the person back to, from `/login` in
   refresh mode. A field's refusal shows on the field; Kratos's messages for the whole form become toasts, and the
   success it reports after every save is dropped for the page's own toast, so nothing moves the page.
-- **My profile** (`/settings/profile`). First and last name side by side (`PersonNameFields`, also on sign-up), the
+- **My account** (`/settings/account`). First and last name side by side (`PersonNameFields`, also on sign-up), the
   email below them, saved to Kratos by the page's Save; then the theme, which applies as soon as it is picked.
-- **Sign-in & security** (`/settings/security`). Tabs, the open one kept in `?tab=`: General, Passkeys, Lookup codes,
+- **Security** (`/settings/security`). Tabs, the open one kept in `?tab=`: General, Passkeys, Lookup codes,
   and Sessions, where lists show their totals beside their names.
   - **General.** A Password card whose Change password opens `ChangePasswordModal`, which asks for the new password
     twice. A Two-factor authentication card showing whether it is on, the authenticator app by its nickname, and
@@ -932,7 +935,7 @@ gray colors, so the theme controls the base color.
 
 ### Light, dark, and system
 
-Users choose Light, Dark, or System under Settings, My profile. The choice is saved per browser in
+Users choose Light, Dark, or System under Settings, My account. The choice is saved per browser in
 localStorage under `elysium.theme`, and defaults to System.
 
 - The `theme` slice holds the preference and its resolved theme. `themeChanged(preference)` resolves System

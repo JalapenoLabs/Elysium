@@ -33,8 +33,9 @@ export const UrlTree = {
   runs: '/runs',
   runView: '/runs/:runId',
   settings: '/settings',
+  settingsAccount: '/settings/account',
+  // My account's earlier addresses, which redirect to it so links and bookmarks still land.
   settingsProfile: '/settings/profile',
-  // My profile's old address, which redirects to it.
   settingsPersonalDetails: '/settings/personal-details',
   settingsSecurity: '/settings/security',
   settingsUsers: '/settings/users',

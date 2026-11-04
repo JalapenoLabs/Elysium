@@ -17,7 +17,7 @@ import { PasswordInput } from '../../../components/PasswordInput'
 import { collectMessages } from '../../../api/kratosFlows'
 import { usePasswordAssessment } from '../../../hooks/usePasswordAssessment'
 import { fieldErrorText } from '../../Auth/kratosPresentation'
-import { readProfile } from '../Profile/profilePresentation'
+import { readProfile } from '../Account/profilePresentation'
 
 type Props = {
   state: UseOverlayStateReturn

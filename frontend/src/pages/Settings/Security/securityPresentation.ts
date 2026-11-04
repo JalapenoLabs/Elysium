@@ -7,7 +7,7 @@ import { findInput } from '../../../api/kratosFlows'
 
 // Reads what a Kratos settings flow says about each way of signing in. Kratos describes
 // them as form nodes, named in its `ui/node/identifiers.go`; these turn them into what the
-// Sign-in & security page shows.
+// Security page shows.
 
 // A text or image node, which Kratos names by `id` rather than `name`.
 function findDisplayNode(flow: KratosUi, id: string) {

@@ -20,7 +20,7 @@ import { KRATOS_FLOW_PARAM, UrlTree } from '../../urls'
 import { fieldErrorText } from './kratosPresentation'
 
 // Forgotten passwords. Kratos makes a one-time link for the address, which signs its holder
-// in and opens Sign-in & security to set a new password. Elysium sends no email yet, so the
+// in and opens Security to set a new password. Elysium sends no email yet, so the
 // link is written to the API's log for an admin to pass on; once it is made, the page says
 // so in place of the form. A refusal is a toast, so nothing moves the form.
 export function RecoveryPage() {

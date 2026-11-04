@@ -18,7 +18,7 @@ import { fieldErrorText } from '../../Auth/kratosPresentation'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { readProfile } from './profilePresentation'
 
-const PROFILE_FORM_ID = 'profile-form'
+const ACCOUNT_FORM_ID = 'account-form'
 
 type Props = {
   flow: SettingsFlow
@@ -27,7 +27,7 @@ type Props = {
 
 // The name everyone in the workspace sees, and the email this person signs in with, saved to
 // Kratos from the page's Save.
-export function ProfileForm(props: Props) {
+export function AccountForm(props: Props) {
   const { t } = useTranslation([ 'auth', 'settings' ])
   const stored = readProfile(props.flow)
   const [ firstName, setFirstName ] = useState(stored.firstName)
@@ -41,14 +41,14 @@ export function ProfileForm(props: Props) {
     || email.trim() !== stored.email
   let blockedReason: string | null = null
   if (!firstName.trim()) {
-    blockedReason = t('settings:profile.firstNameRequired')
+    blockedReason = t('settings:account.firstNameRequired')
   }
   else if (!email.trim()) {
-    blockedReason = t('settings:profile.emailRequired')
+    blockedReason = t('settings:account.emailRequired')
   }
 
   usePageSave({
-    formId: PROFILE_FORM_ID,
+    formId: ACCOUNT_FORM_ID,
     isDirty,
     isPending: isSaving,
     blockedReason,
@@ -65,12 +65,12 @@ export function ProfileForm(props: Props) {
           name: { first: firstName.trim(), last: lastName.trim() },
         },
       },
-      t('settings:profile.saved'),
+      t('settings:account.saved'),
     )
     setIsSaving(false)
   }
 
-  return <Form id={PROFILE_FORM_ID} onSubmit={save} validationBehavior='aria' className='max-w-2xl'>
+  return <Form id={ACCOUNT_FORM_ID} onSubmit={save} validationBehavior='aria' className='max-w-2xl'>
     <div className='compact'>
       <PersonNameFields
         autoFocus

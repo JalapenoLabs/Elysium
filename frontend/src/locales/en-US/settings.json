@@ -6,12 +6,12 @@
     "workspace": "Workspace settings"
   },
   "items": {
-    "profile": {
-      "title": "My profile",
+    "account": {
+      "title": "My account",
       "description": "Your name, the email you sign in with, and how Elysium looks on this device."
     },
     "security": {
-      "title": "Sign-in & security",
+      "title": "Security",
       "description": "Your password, two-factor authentication, passkeys, lookup codes, and where you're signed in."
     },
     "mcp": {
@@ -69,14 +69,14 @@
       "description": "Connect the Bitwarden or Vaultwarden account agents sign in to things with."
     }
   },
-  "profile": {
-    "title": "My profile",
-    "saved": "Profile saved.",
+  "account": {
+    "title": "My account",
+    "saved": "Name and email saved.",
     "firstNameRequired": "Enter your first name.",
     "emailRequired": "Enter your email.",
     "details": {
       "heading": "Name and email",
-      "loadError": "Your profile could not load."
+      "loadError": "Your name and email could not load."
     },
     "appearance": {
       "heading": "Appearance",

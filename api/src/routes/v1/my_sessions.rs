@@ -1,7 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `DELETE /api/v1/me/sessions/{id}` and `DELETE /api/v1/me/sessions`: end one of the signed-in
-//! person's other sessions, or all of them, from Sign-in & security's Sessions tab.
+//! person's other sessions, or all of them, from the Sessions tab of the Security page.
 //!
 //! The API ends them on the person's behalf, with the cookie of the session asking, rather than
 //! the browser asking Kratos, so the cached sessions are forgotten in the same step and the ended

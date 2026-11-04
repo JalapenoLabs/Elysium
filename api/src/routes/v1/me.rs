@@ -4,7 +4,7 @@
 //!
 //! The one workspace route a pending, disabled, or not-yet-enrolled person may reach, so the
 //! frontend can show them why they are waiting. The pending page asks it every few seconds
-//! to notice an approval. It also names the person's authenticator app, which Sign-in & security
+//! to notice an approval. It also names the person's authenticator app, which the Security page
 //! shows while Kratos says the app is set up.
 
 use anyhow::Context;

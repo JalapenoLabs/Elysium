@@ -21,7 +21,7 @@ type Props = {
 }
 
 // First and last name side by side, first on the left, wherever a person's name is entered:
-// sign-up and My profile. The last name is optional, for people with one name.
+// sign-up and My account. The last name is optional, for people with one name.
 export function PersonNameFields(props: Props) {
   const { t } = useTranslation('auth')
 

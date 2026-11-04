@@ -39,7 +39,7 @@ const tabLabelKeys = {
 // The open tab lives in the address, so a sign-in a change asked for comes back to it.
 const TAB_PARAM = 'tab'
 
-// Sign-in & security: the password and two-factor authentication on General, then passkeys,
+// Security: the password and two-factor authentication on General, then passkeys,
 // lookup codes, and where this person is signed in, each on its own tab. Every change runs
 // through Kratos. When the workspace requires an authenticator app, this is the one page
 // someone without one may open, and it says why.

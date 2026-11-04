@@ -42,7 +42,7 @@ import { RunsPage } from './pages/Runs/RunsPage'
 import { StudioItemPage } from './pages/Studio/StudioItemPage'
 import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
-import { ProfilePage } from './pages/Settings/Profile/ProfilePage'
+import { AccountPage } from './pages/Settings/Account/AccountPage'
 import { ManageEmailPage } from './pages/Settings/Email/ManageEmailPage'
 import { AddEnvironmentVariablePage } from './pages/Settings/Environment/AddEnvironmentVariablePage'
 import { EditEnvironmentVariablePage } from './pages/Settings/Environment/EditEnvironmentVariablePage'
@@ -82,8 +82,8 @@ export type RouteLayoutHandle = {
   layout: 'page' | 'workspace'
 }
 
-// Every workspace page, inside the app's frame.
-const workspaceRoutes: RouteObject = {
+// Every workspace page, inside the app's frame. Exported for tests that follow its redirects.
+export const workspaceRoutes: RouteObject = {
   path: UrlTree.root,
   element: <AppShell />,
   children: [
@@ -184,12 +184,16 @@ const workspaceRoutes: RouteObject = {
       element: <SettingsDirectoryPage />,
     },
     {
+      path: UrlTree.settingsAccount,
+      element: <AccountPage />,
+    },
+    {
       path: UrlTree.settingsProfile,
-      element: <ProfilePage />,
+      element: <Navigate to={UrlTree.settingsAccount} replace />,
     },
     {
       path: UrlTree.settingsPersonalDetails,
-      element: <Navigate to={UrlTree.settingsProfile} replace />,
+      element: <Navigate to={UrlTree.settingsAccount} replace />,
     },
     {
       path: UrlTree.settingsSecurity,

@@ -100,8 +100,8 @@ when a schema changes, so a change to what identities hold is a new schema, neve
   is logged (`auth.identities.migrate.refused`) and keeps the legacy schema, which still signs in, until the next
   start.
 - **Splitting a legacy name.** The first word is the first name and the rest the last name, which keeps compound
-  surnames ("García Márquez") whole; a one-word name has no last name. People correct a wrong split on My profile.
-- **Until an identity moves.** The API reads either shape (`PersonName` in `api/src/auth/kratos.rs`), and My profile
+  surnames ("García Márquez") whole; a one-word name has no last name. People correct a wrong split on My account.
+- **Until an identity moves.** The API reads either shape (`PersonName` in `api/src/auth/kratos.rs`), and My account
   shows a legacy name split the same way, so nobody is locked out in between.
 
 The move is one way. A release from before `person-v2` neither registers it nor reads a split name, so it must never
@@ -132,9 +132,9 @@ app holds Elysium's codes. Kratos holds one app per identity and has nowhere for
 - **Written by the person alone.** `PUT` and `DELETE /api/v1/me/authenticator-nickname` sit beside `/me`, outside the
   workspace's access rule, since someone the workspace requires to set up an app names it while doing so. `PUT`
   answers `409` unless Kratos holds an app to name.
-- **Read through `/me`**, as `authenticatorNickname`. Sign-in & security shows it only while Kratos says the app is
+- **Read through `/me`**, as `authenticatorNickname`. Security shows it only while Kratos says the app is
   set up, so a name left behind is never shown beside another app.
-- **Removed with the app.** Sign-in & security forgets it when the person removes their app, and when they set one
+- **Removed with the app.** Security forgets it when the person removes their app, and when they set one
   up without a name; an admin's Reset authenticator forgets it too.
 
 ## Sessions
@@ -312,7 +312,7 @@ There is no mail yet.
   delivery). The API logs the recovery link at `WARN` as `auth.recovery.issued`, with the address it was requested
   for. An operator finds it with `docker compose logs api` and passes it on.
 - **Admin-issued links.** A link created from Settings, Users needs no log access.
-- **Using a link.** A link works for 15 minutes, once. It signs its holder in and opens Settings, Sign-in & security,
+- **Using a link.** A link works for 15 minutes, once. It signs its holder in and opens Settings, Security,
   where Change password sets a new one. A person with an authenticator app still enters its code.
 - **Privacy.** The page answers the same whether or not the address has an account, and Kratos sends nothing for an
   unknown address.
