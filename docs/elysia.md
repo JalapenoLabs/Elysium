@@ -172,7 +172,7 @@ The Elysia milestone holds each of these as an issue.
 - Her memory of the person: preferences, how they like things written, who matters, and corrections they made, kept
   as a document they can read and edit, apart from the company doc.
 - Proactive reporting: she announces the work she starts with an estimate, and says when it is ready.
-- Notifications away from the page through web push and an installable app, and `ctrl+P` navigation to anything,
-  with her as a target.
+- Notifications away from the page through web push and an installable app. Asking her from the navbar's global
+  search, which is Elysium's one way to reach anything (there is no separate `ctrl+P` palette).
 - A configurable name, voice, and persona, "Elysia" by default, changed everywhere she appears.
 - Her turns' full logs, through Activity (`docs/activity.md`).

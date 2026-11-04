@@ -119,7 +119,8 @@ so they can decide quickly. The current UI, modeled on Stripe's dashboard, is th
   chat are one stream of action items.
 - The unit is resolved, not read. Resolving an item moves the user to the next one, with an automatic pause so the
   user is never pulled out of something mid-read.
-- `ctrl+P` navigates to anything: people, mail, messages, projects, repositories.
+- One global search in the navbar (`/` to focus) reaches anything: people, mail, messages, projects,
+  repositories, pages, and actions, and hands a question to Elysia.
 - Elysia's status is visible at a glance by color: orange running, red errored, pink needs you, green done, with a
   sound for each and spoken updates as she goes.
 - A dockable workspace: open a panel beside Elysia, split, rearrange, and pop out.
