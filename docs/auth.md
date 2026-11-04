@@ -102,6 +102,10 @@ when a schema changes, so a change to what identities hold is a new schema, neve
 - **Until an identity moves.** The API reads either shape (`PersonName` in `api/src/auth/kratos.rs`), and My profile
   shows a legacy name split the same way, so nobody is locked out in between.
 
+The move is one way. A release from before `person-v2` neither registers it nor reads a split name, so it must never
+run against identities that have moved. The updater's rollback is safe, since it restores Kratos's database from the
+backup it took before the update along with Elysium's; pinning an older release by hand needs the same restore.
+
 Removing the legacy schema, and the code that reads it, is on the roadmap once every deployment has started a release
 that moves identities.
 
