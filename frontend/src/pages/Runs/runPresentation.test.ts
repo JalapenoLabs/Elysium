@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { RUN_STATES, STEP_STATES } from '../../api/routes/runRoutes'
 import {
   nameFromIdentifier,
+  runNameKeys,
   runStateLabelKeys,
   stepActionsByState,
   stepStateLabelKeys,
@@ -35,6 +36,23 @@ describe('stepActionsByState', () => {
     expect(stepActionsByState.running).toEqual([])
     expect(stepActionsByState.succeeded).toEqual([])
     expect(stepActionsByState.skipped).toEqual([])
+  })
+})
+
+describe('runNameKeys', () => {
+  it('has words for every name it maps', () => {
+    for (const keys of Object.values(runNameKeys)) {
+      for (const key of keys.values()) {
+        expect(i18next.exists(`runs:${key}`)).toBe(true)
+      }
+    }
+  })
+
+  // Mirrors the meeting workflow in api/src/meetings/workflow.rs.
+  it('names the meeting workflow, its steps, and what its runs are about', () => {
+    expect(runNameKeys.workflows.has('meeting')).toBe(true)
+    expect(runNameKeys.steps.has('fetch_meeting')).toBe(true)
+    expect(runNameKeys.sources.has('meeting')).toBe(true)
   })
 })
 

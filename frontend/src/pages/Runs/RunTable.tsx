@@ -21,7 +21,8 @@ import { DateText } from '../../format/DateText'
 import { useUsersLoader } from '../../hooks/useServerData'
 import { useSmartTableLabels } from '../../hooks/useSmartTableLabels'
 import { getRunViewUrl } from '../../urls'
-import { nameFromIdentifier, runStateChipColors, runStateLabelKeys } from './runPresentation'
+import { runStateChipColors, runStateLabelKeys } from './runPresentation'
+import { useRunNames } from './useRunNames'
 
 type Props = {
   runs: WorkflowRun[]
@@ -51,6 +52,7 @@ const columnSizes = {
 export function RunTable(props: Props) {
   const { t } = useTranslation([ 'runs', 'common' ])
   const labels = useSmartTableLabels()
+  const names = useRunNames()
   const [ search, setSearch ] = useState('')
   useUsersLoader()
   const userNames = useAppSelector(selectUserNamesById, shallowEqual)
@@ -59,7 +61,7 @@ export function RunTable(props: Props) {
     const startedBy = (run: WorkflowRun) => userNames[run.createdBy] ?? t('common:table.someone')
 
     const searchValue = {
-      run: (run: WorkflowRun) => `${nameFromIdentifier(run.workflow)} ${run.sourceKind} ${run.sourceId}`,
+      run: (run: WorkflowRun) => `${names.workflow(run.workflow)} ${names.source(run.sourceKind)} ${run.sourceId}`,
       state: (run: WorkflowRun) => t(runStateLabelKeys[run.state]),
       startedBy,
       started: (run: WorkflowRun) => run.createdAt,
@@ -69,10 +71,10 @@ export function RunTable(props: Props) {
     const renderCell = {
       run: (run: WorkflowRun) => <div className='min-w-0'>
         <Link href={getRunViewUrl(run.id)} className='font-medium text-inherit no-underline'>{
-          nameFromIdentifier(run.workflow)
+          names.workflow(run.workflow)
         }</Link>
         <div className='truncate text-xs opacity-70'>{
-          t('run.source', { kind: nameFromIdentifier(run.sourceKind), id: run.sourceId })
+          t('run.source', { kind: names.source(run.sourceKind), id: run.sourceId })
         }</div>
       </div>,
       state: (run: WorkflowRun) => <Chip size='sm' variant='soft' color={runStateChipColors[run.state]}>{
@@ -100,7 +102,7 @@ export function RunTable(props: Props) {
         cell: ({ row }) => renderCell[columnKey](row.original),
       }),
     })
-  }, [ t, userNames ])
+  }, [ t, names, userNames ])
 
   return <SmartTable
     ids={{

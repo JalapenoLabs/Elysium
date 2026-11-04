@@ -20,7 +20,8 @@ import { formatDateTime } from '../../format/dates'
 import { useRunLoader } from '../../hooks/useServerData'
 import { useUserNames } from '../../hooks/useUserNames'
 import { UrlTree } from '../../urls'
-import { nameFromIdentifier, runStateChipColors, runStateLabelKeys } from './runPresentation'
+import { runStateChipColors, runStateLabelKeys } from './runPresentation'
+import { useRunNames } from './useRunNames'
 
 // `/runs/:runId`: one run as GitHub Actions shows one, its steps in order, each collapsed to a
 // line that opens to its log, then its history. A guest is sent back to the start.
@@ -42,6 +43,7 @@ function RunView(props: Props) {
   const { t } = useTranslation([ 'runs', 'common' ])
   const status = useRunLoader(props.runId)
   const userNames = useUserNames()
+  const names = useRunNames()
   const run = useAppSelector((state) => selectRunById(state, props.runId))
   const steps = useAppSelector((state) => selectStepsOfRun(state, props.runId))
   const history = useAppSelector((state) => selectRunHistory(state, props.runId))
@@ -59,7 +61,7 @@ function RunView(props: Props) {
     }</div>
   }
 
-  const name = nameFromIdentifier(run.workflow)
+  const name = names.workflow(run.workflow)
   return <div className='container'>
     <Breadcrumbs className='compact'>
       <Breadcrumbs.Item href={UrlTree.runs}>{t('title')}</Breadcrumbs.Item>
@@ -70,7 +72,7 @@ function RunView(props: Props) {
       <div className='min-w-0 flex-1'>
         <h1 className='text-3xl font-bold'>{name}</h1>
         <p className='mt-1 text-sm opacity-70'>{
-          t('run.source', { kind: nameFromIdentifier(run.sourceKind), id: run.sourceId })
+          t('run.source', { kind: names.source(run.sourceKind), id: run.sourceId })
         }</p>
         <p className='text-sm opacity-70'>{
           t('run.startedBy', {

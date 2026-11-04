@@ -26,7 +26,8 @@ import { StepLog } from './StepLog'
 
 // Misc
 import { formatTime } from '../../format/dates'
-import { nameFromIdentifier, stepActionsByState, stepStateLabelKeys } from './runPresentation'
+import { stepActionsByState, stepStateLabelKeys } from './runPresentation'
+import { useRunNames } from './useRunNames'
 import { useStepActions } from './useStepActions'
 
 type Props = {
@@ -61,10 +62,11 @@ const actionLabelKeys = {
 export function RunStepRow(props: Props) {
   const { t } = useTranslation('runs')
   const act = useStepActions()
+  const names = useRunNames()
   const { step } = props
   const [ isOpen, setIsOpen ] = useState(step.state === 'failed')
   const [ pendingAction, setPendingAction ] = useState<StepAction | null>(null)
-  const name = nameFromIdentifier(step.step)
+  const name = names.step(step.step)
   const line = step.summary ?? step.error
   const retriesAt = step.state === 'queued' && step.attempts > 0
     ? step.availableAt

@@ -1,5 +1,16 @@
 {
   "title": "Runs",
+  "names": {
+    "workflows": {
+      "meeting": "Meeting"
+    },
+    "steps": {
+      "fetch_meeting": "Fetch transcript and recording"
+    },
+    "sources": {
+      "meeting": "Meeting"
+    }
+  },
   "runStates": {
     "queued": "Queued",
     "running": "Running",

@@ -710,8 +710,9 @@ sidebar's Runs link and both pages are for members alone; a guest who opens one 
   Resume on a held one, and Skip on any not yet done. The run the API answers lands in Redux at once; a `409`, from
   a step that moved on meanwhile, says so and reloads the run.
 - **Live.** `workflowRun.changed` reloads that run by id, once the list was read or the run is shown;
-  `stepJob.changed` reloads a step's log, once it was opened. Workflows, steps, and sources are named in code, and
-  the pages read those names as words (`nameFromIdentifier`) until workflows bring words of their own.
+  `stepJob.changed` reloads a step's log, once it was opened. Workflows, steps, and sources are named in code; the
+  pages name each by its words in `runs.json` (`names`, looked up through `runNameKeys` by `useRunNames`), and one the
+  web app has no words for yet as its name in code read as words (`nameFromIdentifier`).
 
 ### Projects page
 

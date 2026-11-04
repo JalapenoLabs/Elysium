@@ -13,7 +13,7 @@ import { selectUserNamesById } from '../../store/usersSlice'
 // Misc
 import { formatShortDateTime } from '../../format/dates'
 import { useUsersLoader } from '../../hooks/useServerData'
-import { nameFromIdentifier } from './runPresentation'
+import { useRunNames } from './useRunNames'
 
 type Props = {
   history: RunHistoryEntry[]
@@ -32,7 +32,8 @@ export function RunHistory(props: Props) {
   const { t } = useTranslation([ 'runs', 'common' ])
   useUsersLoader()
   const userNames = useAppSelector(selectUserNamesById, shallowEqual)
-  const stepNames = new Map(props.steps.map((step) => [ step.id, nameFromIdentifier(step.step) ]))
+  const names = useRunNames()
+  const stepNames = new Map(props.steps.map((step) => [ step.id, names.step(step.step) ]))
 
   return <ol className='flex flex-col gap-1 text-sm'>{
     props.history.map((entry) => {

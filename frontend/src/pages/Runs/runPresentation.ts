@@ -46,9 +46,24 @@ export const stepActionsByState = {
   succeeded: [],
 } as const satisfies Record<StepState, readonly StepAction[]>
 
+// The words for each workflow, step, and source kind the API declares, by its name in code.
+// The set is open-ended on the server, so these are maps rather than typed records: a name
+// a newer API sends before the web app has words for it reads as `nameFromIdentifier`.
+export const runNameKeys = {
+  workflows: new Map<string, ParseKeys<'runs'>>([
+    [ 'meeting', 'names.workflows.meeting' ],
+  ]),
+  steps: new Map<string, ParseKeys<'runs'>>([
+    [ 'fetch_meeting', 'names.steps.fetch_meeting' ],
+  ]),
+  sources: new Map<string, ParseKeys<'runs'>>([
+    [ 'meeting', 'names.sources.meeting' ],
+  ]),
+} as const
+export type RunNameKind = keyof typeof runNameKeys
+
 // A workflow's, step's, or source's name in code, such as `fetch_transcript`, as words:
-// "Fetch transcript". Workflows declare their names in code, so this is how a page names
-// one it has no words of its own for.
+// "Fetch transcript". This is how a page names one it has no words of its own for.
 export function nameFromIdentifier(identifier: string) {
   const words = identifier
     .split('_')
