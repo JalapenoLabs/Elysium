@@ -33,7 +33,7 @@ export function MobileNavigation() {
     {/* Controlled, so the root trigger wrapper is skipped, as in CreateSessionModal. */}
     <Drawer.Backdrop isOpen={drawer.isOpen} onOpenChange={drawer.setOpen}>
       <Drawer.Content placement='left'>
-        <Drawer.Dialog aria-label={t('primary.label')} className='w-64 bg-sidebar px-3 py-4'>
+        <Drawer.Dialog aria-label={t('primary.label')} className='flex w-64 flex-col bg-sidebar px-2 py-3'>
           <SidebarNavigation onNavigate={drawer.close} />
         </Drawer.Dialog>
       </Drawer.Content>

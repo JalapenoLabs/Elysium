@@ -7,6 +7,10 @@
     "studio": "Studio",
     "runs": "Runs"
   },
+  "sidebar": {
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar"
+  },
   "topbar": {
     "openNavigation": "Open navigation",
     "settings": "Settings",

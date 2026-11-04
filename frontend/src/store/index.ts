@@ -35,6 +35,7 @@ import { realtimeSlice } from './realtimeSlice'
 import { runsSlice } from './runsSlice'
 import { sessionEventsSlice } from './sessionEventsSlice'
 import { sessionsViewSlice } from './sessionsViewSlice'
+import { sidebarSlice } from './sidebarSlice'
 import { storageLocationsSlice } from './storageLocationsSlice'
 import { studioAssetsSlice } from './studioAssetsSlice'
 import { studioFeedbackSlice } from './studioFeedbackSlice'
@@ -87,6 +88,7 @@ export function createAppStore() {
       [sessionEventsSlice.name]: sessionEventsSlice.reducer,
       [passwordVaultSlice.name]: passwordVaultSlice.reducer,
       [sessionsViewSlice.name]: sessionsViewSlice.reducer,
+      [sidebarSlice.name]: sidebarSlice.reducer,
       [storageLocationsSlice.name]: storageLocationsSlice.reducer,
       [studioAssetsSlice.name]: studioAssetsSlice.reducer,
       [studioFeedbackSlice.name]: studioFeedbackSlice.reducer,

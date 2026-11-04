@@ -129,6 +129,9 @@ export const AUTHENTICATOR_NICKNAME_MAX_LENGTH = 50
 // Whether Elysia's panel is open beside the page, remembered per browser.
 export const ELYSIA_PANEL_STORAGE_KEY = 'elysium.elysia.panel.v1'
 
+// Whether the sidebar is collapsed to its icons, remembered per browser.
+export const SIDEBAR_STORAGE_KEY = 'elysium.sidebar.v1'
+
 // How many messages one page of Elysia's conversation holds, as the API pages them by default.
 export const ELYSIA_MESSAGE_PAGE_SIZE = 50
 

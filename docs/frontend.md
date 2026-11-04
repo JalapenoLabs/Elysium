@@ -45,10 +45,23 @@ Code here keeps to it:
 
 `src/layout/AppShell.tsx` is the root route's element and renders on every page:
 
-- `Sidebar` sits on the left from `md` up: the brand, then the primary navigation from `src/layout/navigation.ts`.
-  Add top-level areas to that list, not to the component. Below `md` it is hidden, and `MobileNavigation` puts a
-  menu button at the start of the topbar that opens the same `SidebarNavigation` in a drawer from the left; following
-  a link closes it.
+- `Sidebar` sits on the left from `md` up: the primary navigation from `src/layout/navigation.ts`, then the logo at
+  its foot (`SidebarBrand`), full width, linking to `/`. Add top-level areas to that list, not to the component.
+  Below `md` it is hidden, and `MobileNavigation` puts a menu button at the start of the topbar that opens the same
+  `SidebarNavigation` in a drawer from the left, always expanded; following a link closes it.
+  - **Links.** Large, padded, each with its icon. Hovering fills a link neutrally; the current page is accent-colored
+    with a bar at its edge, so the two never look alike. They are React Aria `Link`s routed through the
+    `RouterProvider` in `AppShell`, which gives the collapsed tooltips their trigger and reports hover only for a
+    real mouse.
+  - **Collapsing.** A small round chevron on the sidebar's edge, level with the middle of the topbar, collapses it to
+    a 4rem column of icons and expands it again, each with a tooltip. It shows while the mouse is over the sidebar,
+    while it has keyboard focus, and always on touch screens. Collapsed, the width clips the labels away (they stay
+    the links' accessible names), each icon names itself in a tooltip to its right, and the logo shrinks to its mark.
+    The choice is remembered per browser: `sidebarSlice`, stored under `elysium.sidebar.v1` by `startSidebarSync`,
+    which also follows the choice made in another tab.
+  - **Motion.** Collapsing, hovering, and the current page's bar animate in about 200ms. Every transition carries
+    `motion-reduce:transition-none`, which HeroUI's variant applies under `prefers-reduced-motion` and under
+    `data-reduce-motion`. All of it is classes, never injected styles.
 - `Topbar` spans the content column. It has a search field and, on the right, the Elysia button, the live updates
   dot, the settings gear, and the account menu (`UserMenu`): My profile, Sign-in & security, then Sign out below a
   divider, each with an icon. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
@@ -811,6 +824,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `drafts`         | The person's drafts of the records viewed, newest first                 |
 | `sessionEvents`  | Events for conversations that are open, merged by sequence              |
 | `sessionsView`   | Whether the Coding page's Sessions panel shows a table or tiles         |
+| `sidebar`        | Whether the sidebar is collapsed to its icons, remembered per browser   |
 | `realtime`       | Event stream connection: `connecting`, `open`, or `reconnecting`        |
 | `theme`          | Theme preference and what it resolves to                                |
 
