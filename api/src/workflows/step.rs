@@ -82,6 +82,11 @@ pub enum Done<Output> {
         )
     )]
     Held { output: Output, summary: String },
+    /// It found nothing to do, such as a meeting with no recording to transcribe. `reason` is
+    /// the line its row collapses to. Like a person's skip, it gives no output: the step after
+    /// it receives this step's own input, so a step that may skip itself takes and gives one
+    /// type, or gives a type its input also reads as.
+    Skipped { reason: String },
 }
 
 /// Why an attempt could not do its work.
@@ -368,6 +373,7 @@ async fn attempt<Attempted: Step>(
             Ok(output) => StepOutcome::Held { output, summary },
             Err(error) => unstorable(name, &error),
         },
+        Done::Skipped { reason } => StepOutcome::Skipped { reason },
     }
 }
 

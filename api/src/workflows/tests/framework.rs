@@ -13,8 +13,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use super::{
-    ChooseModel, Count, Describe, Double, FailOnce, Increment, Number, Report, Review, person,
-    running_workers, test_steps, until_run_is,
+    ChooseModel, Count, Describe, Double, FailOnce, Increment, NothingToDo, Number, Report, Review,
+    person, running_workers, test_steps, until_run_is,
 };
 use crate::database::Pool;
 use crate::models::step_job::{self, StepOutcome};
@@ -426,6 +426,71 @@ async fn a_held_step_stops_its_run_until_resumed_and_then_passes_its_output_on()
         output_of(&mut connection, run_id, 2).await["input"],
         json!({ "n": 42 })
     );
+
+    shutdown.cancel();
+    running.await.expect("the workers stop");
+}
+
+#[tokio::test]
+async fn a_step_with_nothing_to_do_skips_itself_saying_why() {
+    let (steps, _calls) = test_steps();
+    let (name, nothing_to_do) = steps.find("nothing_to_do").expect("registered");
+    let context = StepContext {
+        run_id: Uuid::now_v7(),
+        step_job_id: Uuid::now_v7(),
+        attempt: 1,
+        log: StepLog::default(),
+        step: name,
+        database: unconnected_pool(),
+    };
+
+    assert_eq!(
+        nothing_to_do(json!({ "n": 7 }), context).await,
+        StepOutcome::Skipped {
+            reason: "Nothing to do with 7".to_owned(),
+        }
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+async fn a_step_that_skips_itself_hands_the_next_its_input_and_the_run_goes_on() {
+    let (url, mut connection) = migrated_database().await;
+    let events = EventBus::in_process();
+    let (shutdown, running) = running_workers(&url, &events, test_steps().0).await;
+    let optional = declare("optional")
+        .first::<Double>()
+        .then::<NothingToDo>()
+        .then::<Describe>()
+        .build();
+
+    let run_id = workflows::start(
+        &mut connection,
+        &events,
+        optional.new_run(started_with("m-1", Number { n: 21 })),
+    )
+    .await
+    .expect("the run starts")
+    .settled
+    .run
+    .id;
+    until_run_is(&mut connection, run_id, WorkflowRunState::Succeeded).await;
+    let steps = workflow_run::steps_of(&mut connection, run_id)
+        .await
+        .expect("steps read");
+    assert_eq!(steps[1].state, step_job::StepJobState::Skipped);
+    assert_eq!(steps[1].summary.as_deref(), Some("Nothing to do with 42"));
+    assert_eq!(steps[1].output, None, "a skipped step gives nothing");
+    assert_eq!(
+        output_of(&mut connection, run_id, 2).await["input"],
+        json!({ "n": 42 }),
+        "the step after it received its input"
+    );
+    // Nobody skipped it, so the run's history records no person's skip.
+    let history = workflow_run::history(&mut connection, run_id)
+        .await
+        .expect("history");
+    assert!(history.iter().all(|entry| entry.kind != "skipped"));
 
     shutdown.cancel();
     running.await.expect("the workers stop");

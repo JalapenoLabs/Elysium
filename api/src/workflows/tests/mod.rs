@@ -195,6 +195,22 @@ impl Step for Review {
     }
 }
 
+/// Finds nothing to do with any number, and skips itself saying so.
+#[derive(Debug)]
+struct NothingToDo;
+
+impl Step for NothingToDo {
+    const NAME: &'static str = "nothing_to_do";
+    type Input = Number;
+    type Output = Number;
+
+    async fn run(&self, input: Number, _context: StepContext) -> Result<Done<Number>, StepFailure> {
+        Ok(Done::Skipped {
+            reason: format!("Nothing to do with {}", input.n),
+        })
+    }
+}
+
 /// Answers the model and effort its turn would run on.
 #[derive(Debug)]
 struct ChooseModel;
@@ -258,6 +274,7 @@ fn test_steps() -> (Steps, Calls) {
     steps.register(Count);
     steps.register(Report);
     steps.register(Review);
+    steps.register(NothingToDo);
     steps.register(ChooseModel);
     steps.register(WaitForever);
     (steps, calls)

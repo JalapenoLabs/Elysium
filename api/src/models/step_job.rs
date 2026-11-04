@@ -86,7 +86,7 @@ pub enum StepJobState {
     Held,
     /// Its last attempt failed, and it is not tried again on its own.
     Failed,
-    /// Someone skipped it.
+    /// Someone skipped it, or it found nothing to do.
     Skipped,
     Succeeded,
 }
@@ -156,6 +156,9 @@ pub enum StepOutcome {
     /// It did its work and asks a person to look before the run goes on, such as approving a
     /// corrected transcript. `summary` says what to look at; resuming passes `output` on.
     Held { output: Value, summary: String },
+    /// It found nothing to do. `reason` is the line its row collapses to. It gives no output,
+    /// so the step after it receives its input, as after a person's skip.
+    Skipped { reason: String },
     /// It could not do its work. A `retryable` failure, such as a provider that did not answer,
     /// is tried again after a backoff while attempts remain; any other fails the step at once.
     Failed { reason: String, retryable: bool },
@@ -366,6 +369,17 @@ pub async fn finish(
                             step_jobs::state.eq(StepJobState::Held),
                             step_jobs::output.eq(output),
                             step_jobs::summary.eq(bounded(&summary, SUMMARY_LIMIT)),
+                            step_jobs::error.eq(None::<String>),
+                        ))
+                        .execute(connection)
+                        .await?;
+                }
+                StepOutcome::Skipped { reason } => {
+                    ended
+                        .set((
+                            unclaimed,
+                            step_jobs::state.eq(StepJobState::Skipped),
+                            step_jobs::summary.eq(bounded(&reason, SUMMARY_LIMIT)),
                             step_jobs::error.eq(None::<String>),
                         ))
                         .execute(connection)
