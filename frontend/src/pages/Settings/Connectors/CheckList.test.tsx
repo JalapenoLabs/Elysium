@@ -50,6 +50,24 @@ describe('CheckList', () => {
     />)
     expect(screen.getByText('1 of 3')).toBeTruthy()
   })
+
+  it('offers a report beside each failed check alone, naming the check', () => {
+    const reportSubjectOf = vi.fn((checkId: string) => ({ kind: 'checkRun' as const, runId: 'run-1', checkId }))
+    render(<CheckList
+      kind='jira'
+      specs={SPECS}
+      outcomes={[
+        { ...NOTHING, checkId: 'sign_in', state: 'passed' },
+        { ...NOTHING, checkId: 'list_projects', state: 'failed', message: 'Jira refused the token' },
+        { ...NOTHING, checkId: 'sample_issues', state: 'skipped', blockedBy: 'list_projects' },
+      ]}
+      reportSubjectOf={reportSubjectOf}
+    />)
+
+    expect(screen.getAllByRole('button', { name: 'Report this problem to Elysium\'s developers' })).toHaveLength(1)
+    expect(reportSubjectOf).toHaveBeenCalledWith('list_projects')
+    expect(reportSubjectOf).not.toHaveBeenCalledWith('sign_in')
+  })
 })
 
 describe('AccountFields', () => {

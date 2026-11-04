@@ -11,6 +11,7 @@ import { actionItemLinkUpserted } from '../../store/actionItemLinksSlice'
 
 // User interface
 import { Button, Link, Spinner, toast } from '@heroui/react'
+import { ReportIssueButton } from '../../components/ReportIssueButton'
 
 // Misc
 import { cancelActionItemLinkWrite } from '../../api/routes/actionItemRoutes'
@@ -93,9 +94,19 @@ export function PendingWrites(props: Props) {
             >{t('links.pending.chooseDone')}</Link>}
           </div>
         </div>
-        {!props.isReadOnly && <Button size='sm' variant='tertiary' onPress={() => cancel(write)}>
-          <span>{t('links.pending.cancel')}</span>
-        </Button>}
+        <div className='flex shrink-0 items-center gap-1'>
+          {description.lastError && <ReportIssueButton
+            isIconOnly
+            subject={{
+              kind: 'error',
+              area: `action_items.link_write.${props.link.provider}.${write.kind}`,
+              message: description.lastError,
+            }}
+          />}
+          {!props.isReadOnly && <Button size='sm' variant='tertiary' onPress={() => cancel(write)}>
+            <span>{t('links.pending.cancel')}</span>
+          </Button>}
+        </div>
       </li>
     })
   }</ul>

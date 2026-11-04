@@ -15,6 +15,7 @@ import { selectAllConnectors } from '../../../store/connectorsSlice'
 import { Button, Card, Chip, Label, ListBox, SearchField, Select, Spinner, buttonVariants } from '@heroui/react'
 import { Link } from 'react-router'
 import { SettingsPage } from '../SettingsPage'
+import { ReportIssueButton } from '../../../components/ReportIssueButton'
 import { ConnectorRow } from './ConnectorRow'
 
 // Misc
@@ -75,13 +76,19 @@ export function ConnectorsPage() {
               </span>
               <span className='flex shrink-0 items-center gap-2'>
                 <span className='opacity-60'>{new Date(run.startedAt).toLocaleString()}</span>
-                {run.outcome === 'failed' && connector && <Button
-                  size='sm'
-                  variant='ghost'
-                  onPress={() => act(connector, 'sync')}
-                >
-                  <span>{t('activity.retry')}</span>
-                </Button>}
+                {run.outcome === 'failed' && connector && <>
+                  <ReportIssueButton
+                    isIconOnly
+                    subject={{ kind: 'connectorSync', connectorId: connector.id, runId: run.id }}
+                  />
+                  <Button
+                    size='sm'
+                    variant='ghost'
+                    onPress={() => act(connector, 'sync')}
+                  >
+                    <span>{t('activity.retry')}</span>
+                  </Button>
+                </>}
               </span>
             </li>
           })

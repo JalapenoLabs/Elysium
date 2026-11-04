@@ -1,12 +1,14 @@
 // Copyright © 2026 Jalapeno Labs
 
 import type { CheckOutcome, CheckSpec, ConnectorKind } from '../../../api/routes/connectorRoutes'
+import type { IssueReportSubject } from '../../../api/routes/issueReportRoutes'
 
 // Core
 import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Card, Chip, Spinner } from '@heroui/react'
+import { ReportIssueButton } from '../../../components/ReportIssueButton'
 
 // Misc
 import { checkStateColors, describeOutcome } from './connectorPresentation'
@@ -18,6 +20,9 @@ type Props = {
   outcomes: Array<CheckOutcome & { checkId: string }>
   // When the outcomes were last stored, for a connector's saved results.
   ranAt?: string | null
+  // What a failed check is reported as, which depends on where the outcomes came from. Without
+  // it, failures offer no Report.
+  reportSubjectOf?: (checkId: string) => IssueReportSubject
 }
 
 // A kind's checks in the order they run, each with where it stands and why, as Onyx's
@@ -57,7 +62,13 @@ export function CheckList(props: Props) {
               describeOutcome(t, outcome, labelOf, spec.id)
             }</p>}
           </div>
-          {spec.required && <span className='text-xs opacity-60'>{t('checks.required')}</span>}
+          <span className='flex items-center gap-1'>
+            {state === 'failed' && props.reportSubjectOf && <ReportIssueButton
+              isIconOnly
+              subject={props.reportSubjectOf(spec.id)}
+            />}
+            {spec.required && <span className='text-xs opacity-60'>{t('checks.required')}</span>}
+          </span>
         </li>
       })
     }</ul>

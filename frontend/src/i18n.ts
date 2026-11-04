@@ -18,6 +18,7 @@ import email from './locales/en-US/email.json'
 import environment from './locales/en-US/environment.json'
 import github from './locales/en-US/github.json'
 import initiatives from './locales/en-US/initiatives.json'
+import issueReports from './locales/en-US/issueReports.json'
 import jira from './locales/en-US/jira.json'
 import llms from './locales/en-US/llms.json'
 import meetings from './locales/en-US/meetings.json'
@@ -52,6 +53,7 @@ export const resources = {
     connectors,
     github,
     initiatives,
+    issueReports,
     jira,
     llms,
     meetings,

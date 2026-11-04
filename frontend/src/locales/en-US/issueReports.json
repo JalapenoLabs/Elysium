@@ -1,0 +1,46 @@
+{
+  "button": {
+    "label": "Report",
+    "tooltip": "Report this problem to Elysium's developers"
+  },
+  "dialog": {
+    "title": "Report a problem",
+    "token": "File as",
+    "filedAs": "Filed on {{repository}} as @{{login}}.",
+    "note": "What were you doing? (optional)",
+    "preview": "What will be posted",
+    "previewHint": "Names, addresses, tokens, and links are removed. If this problem is already reported, this is added to its issue.",
+    "post": "Post to GitHub",
+    "loading": "Preparing the report…",
+    "previous": "You reported this on {{when}}.",
+    "viewPrevious": "View your report",
+    "remaining_one": "{{count}} report left today.",
+    "remaining_other": "{{count}} reports left today.",
+    "noToken": "Reporting files an issue as you, with a GitHub token you added.",
+    "addToken": "Add a GitHub token"
+  },
+  "readiness": {
+    "ready": "Can report",
+    "fine_grained": "Fine-grained tokens can only report if they were made for JalapenoLabs. A classic token with public_repo always can.",
+    "missing_scope": "Needs the public_repo scope",
+    "expired": "Expired"
+  },
+  "blocked": {
+    "loading": "The report is still being prepared.",
+    "noToken": "Add a GitHub token of your own first.",
+    "tokenCannotReport": "This token cannot file reports. Choose another.",
+    "limitReached": "You have filed as many reports as you can today."
+  },
+  "toasts": {
+    "opened": "Reported as issue #{{number}}",
+    "commented": "Added to issue #{{number}}",
+    "view": "View on GitHub"
+  },
+  "errors": {
+    "alreadyReported": "You already reported this problem to its open issue",
+    "limit": "You have filed as many reports as you can today",
+    "tokenCannotReport": "GitHub would not let this token file the report",
+    "gone": "This problem is no longer there to report. Run it again, then report it.",
+    "loadFailed": "The report could not be prepared"
+  }
+}

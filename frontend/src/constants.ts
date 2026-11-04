@@ -108,3 +108,13 @@ export const TIMELINE_PAGE_SIZE = 50
 
 // The zxcvbn score, out of 4, a new password must reach before the form submits.
 export const PASSWORD_MIN_SCORE = 3
+
+// The longest note a problem report carries, as `NOTE_MAX_CHARACTERS` in api/src/issue_reports/draft.rs.
+export const ISSUE_REPORT_NOTE_MAX_CHARACTERS = 2_000
+
+// How long typing in a report's note rests before its preview is rendered again.
+export const ISSUE_REPORT_PREVIEW_DELAY_MS = 400
+
+// Filing a report searches GitHub and then posts to it, which can take longer than a plain
+// request; the API's own deadline is 30 seconds.
+export const ISSUE_REPORT_FILE_TIMEOUT_MS = 30_000

@@ -148,6 +148,11 @@ export function NewTokenConnectorForm(props: Props) {
       {failedRequired && <p className='mt-2 text-sm text-warning'>{t('form.requiredFailed')}</p>}
     </Card>
 
-    {run && <CheckList kind={kind} specs={props.definition.checks} outcomes={run.checks} />}
+    {run && <CheckList
+      kind={kind}
+      specs={props.definition.checks}
+      outcomes={run.checks}
+      reportSubjectOf={(checkId) => ({ kind: 'checkRun', runId: run.id, checkId })}
+    />}
   </Form>
 }

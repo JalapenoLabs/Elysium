@@ -11,6 +11,7 @@ import { useAppSelector } from '../../../store/hooks'
 
 // User interface
 import { Button, Card, Chip, Link, Spinner } from '@heroui/react'
+import { ReportIssueButton } from '../../../components/ReportIssueButton'
 import { SettingsPage } from '../SettingsPage'
 import { BrowserSignIn } from './BrowserSignIn'
 import { CheckList } from './CheckList'
@@ -93,7 +94,10 @@ export function ConnectorPage() {
     </div>
 
     {connector.lastError && <Card className='relaxed p-4'>
-      <p className='text-sm font-medium'>{t('detail.lastError')}</p>
+      <div className='level gap-2'>
+        <p className='text-sm font-medium'>{t('detail.lastError')}</p>
+        <ReportIssueButton subject={{ kind: 'connectorSync', connectorId: connector.id }} />
+      </div>
       <p className='text-sm text-danger break-words'>{connector.lastError}</p>
     </Card>}
 
@@ -101,7 +105,15 @@ export function ConnectorPage() {
 
     {Boolean(definition.content.length) && <ConnectorContentForm connector={connector} definition={definition} />}
 
-    <CheckList kind={connector.kind} specs={definition.checks} outcomes={outcomes} ranAt={ranAt} />
+    <CheckList
+      kind={connector.kind}
+      specs={definition.checks}
+      outcomes={outcomes}
+      ranAt={ranAt}
+      reportSubjectOf={(checkId) => run
+        ? { kind: 'checkRun', runId: run.id, checkId }
+        : { kind: 'connectorCheck', connectorId: connector.id, checkId }}
+    />
 
     {accountId && connector.kind === 'jira' && <div className='level-left'>
       <Link href={getJiraCredentialEditUrl(accountId)}>{t('detail.editAccount')}</Link>
