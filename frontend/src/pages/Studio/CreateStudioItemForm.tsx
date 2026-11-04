@@ -34,6 +34,7 @@ import { PageCreateFooter } from '../../layout/page/PageCreateFooter'
 import { zodResolver } from '@hookform/resolvers/zod'
 
 // Misc
+import { useFormDraft } from '../../drafts/useFormDraft'
 import { getApiErrorMessage } from '../../api/errors'
 import { createStudioItem } from '../../api/routes/studioRoutes'
 import { useInitialFocus } from '../../hooks/useInitialFocus'
@@ -70,6 +71,8 @@ export function CreateStudioItemForm() {
       storageLocationId: getDefaultStudioLocationId(getStudioLocationChoices(locations, null)),
     },
   })
+  // The prompt and title are kept for the tab until the item is created.
+  const forgetDraft = useFormDraft(form, { name: 'studio-item', fields: [ 'prompt', 'title' ]})
 
   const [ prompt, title, projectId, storageLocationId ] = useWatch({
     control: form.control,
@@ -103,6 +106,7 @@ export function CreateStudioItemForm() {
       })
       dispatch(studioItemUpserted(item))
       dispatch(codingSessionUpserted(session))
+      forgetDraft()
       toast.success(t('toasts.created', { title: item.title }))
       void navigate(getStudioItemUrl(item.id))
       return true
@@ -133,6 +137,7 @@ export function CreateStudioItemForm() {
 
   const onSubmit = usePageSave({
     save,
+    onDiscard: forgetDraft,
     isDirty: form.formState.isDirty,
     blockedReason: blockedReason(),
     label: t('common:actions.create'),

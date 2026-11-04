@@ -27,6 +27,7 @@ import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 // Misc
 import { cancelClaudeSignIn, finishClaudeSignIn, startClaudeSignIn } from '../../../api/routes/llmRoutes'
 import { getApiErrorMessage } from '../../../api/errors'
+import { useTextDraft } from '../../../drafts/useTextDraft'
 import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { toast } from '../../../toast/toast'
@@ -45,7 +46,9 @@ export function ClaudeSignInForm(props: Props) {
   const { t } = useTranslation([ 'llms', 'common' ])
   const dispatch = useAppDispatch()
   const [ signIn, setSignIn ] = useState<ClaudeSignIn | null>(null)
-  const [ name, setName ] = useState('')
+  // The name is kept for the tab until the account is added.
+  const nameDraft = useTextDraft('llm.claude-account.name')
+  const name = nameDraft.text ?? ''
   const [ priority, setPriority ] = useState(0)
   const [ code, setCode ] = useState('')
   // The name opens the page; the code field takes focus once the sign-in shows it.
@@ -86,6 +89,7 @@ export function ClaudeSignInForm(props: Props) {
       })
       waitingId.current = null
       dispatch(llmUpserted(response.llm))
+      nameDraft.forget()
       toast.success(t('signIn.signedIn', { name: response.llm.name }))
       props.onSaved(response.llm)
       return true
@@ -105,6 +109,7 @@ export function ClaudeSignInForm(props: Props) {
     save: () => signIn
       ? finish(signIn)
       : start(),
+    onDiscard: nameDraft.forget,
     isDirty: Boolean(signIn) || Boolean(name.trim()) || priority !== 0,
     canSaveUnchanged: true,
     blockedReason: signIn && !code.trim()
@@ -128,7 +133,7 @@ export function ClaudeSignInForm(props: Props) {
       autoComplete='off'
       isDisabled={Boolean(signIn)}
       value={name}
-      onChange={setName}
+      onChange={nameDraft.change}
     >
       <Label>{t('form.name')}</Label>
       <Input ref={nameRef} placeholder={t('signIn.namePlaceholder')} />

@@ -22,6 +22,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { HTTPError } from 'ky'
 
 // Misc
+import { useFormDraft } from '../../drafts/useFormDraft'
 import { createProject, uploadProjectCover } from '../../api/routes/projectRoutes'
 import { useInitialFocus } from '../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../layout/page/pageSave'
@@ -53,6 +54,9 @@ export function ProjectForm(props: Props) {
       description: '',
     },
   })
+  // What is typed is kept for the tab until the project is created; a picked cover is a file,
+  // which storage cannot hold.
+  const forgetDraft = useFormDraft(form, { name: 'project', fields: [ 'name', 'description' ]})
 
   // The project is saved first, then its cover: a new project has no id until saved.
   // A cover that fails leaves the saved project in place and says so.
@@ -78,6 +82,7 @@ export function ProjectForm(props: Props) {
       dispatch(projectUpserted(response.project))
       const saved = await uploadCover(response.project)
 
+      forgetDraft()
       toast.success(t('toasts.created', { name: values.name }))
       props.onSaved(saved)
       return true
@@ -96,6 +101,7 @@ export function ProjectForm(props: Props) {
 
   const onSubmit = usePageSave({
     save,
+    onDiscard: forgetDraft,
     // A cover picked before anything is typed is work to keep too.
     isDirty: form.formState.isDirty || coverFile !== null,
     label: t('form.create'),

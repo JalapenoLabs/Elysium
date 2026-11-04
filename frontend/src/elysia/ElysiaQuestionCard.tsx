@@ -12,6 +12,7 @@ import { Button, Description, Form, Label, TextArea, TextField } from '@heroui/r
 // Misc
 import { answerElysiaQuestion, dismissElysiaQuestion } from '../api/routes/elysiaRoutes'
 import { submitOnEnter } from '../components/submitOnEnter'
+import { useTextDraft } from '../drafts/useTextDraft'
 import { toast } from '../toast/toast'
 
 // An answer's length, as the API bounds it.
@@ -26,7 +27,9 @@ type Props = {
 // `elysia.updated` event that follows arrives.
 export function ElysiaQuestionCard(props: Props) {
   const { t } = useTranslation('elysia')
-  const [ draft, setDraft ] = useState('')
+  // An answer in the person's own words is kept for the tab until it is sent.
+  const answerDraft = useTextDraft(`elysia-answer.${props.question.id}`)
+  const draft = answerDraft.text ?? ''
   const [ isSending, setIsSending ] = useState(false)
 
   async function answer(text: string) {
@@ -42,7 +45,7 @@ export function ElysiaQuestionCard(props: Props) {
     setIsSending(true)
     try {
       await answerElysiaQuestion(props.question.id, body)
-      setDraft('')
+      answerDraft.forget()
     }
     catch (error) {
       console.debug('ElysiaQuestionCard failed to answer', { error, questionId: props.question.id })
@@ -57,6 +60,7 @@ export function ElysiaQuestionCard(props: Props) {
     setIsSending(true)
     try {
       await dismissElysiaQuestion(props.question.id)
+      answerDraft.forget()
     }
     catch (error) {
       console.debug('ElysiaQuestionCard failed to dismiss', { error, questionId: props.question.id })
@@ -94,7 +98,7 @@ export function ElysiaQuestionCard(props: Props) {
         className='w-full'
         value={draft}
         maxLength={ANSWER_MAX_CHARACTERS}
-        onChange={setDraft}
+        onChange={answerDraft.change}
       >
         <Label className='sr-only'>{t('questions.answerLabel')}</Label>
         <TextArea

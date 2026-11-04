@@ -12,9 +12,10 @@ import { LuSendHorizontal } from 'react-icons/lu'
 
 // Misc
 import { submitOnEnter } from '../../components/submitOnEnter'
+import { useTextDraft } from '../../drafts/useTextDraft'
 
 type Props = {
-  // The field's id, one per conversation.
+  // The field's id, one per conversation, which also names the prompt's draft.
   id: string
   // Sends the prompt and reports its own failures. Resolves true when the prompt was sent,
   // which clears the field; false keeps what was typed so it can be sent again.
@@ -33,7 +34,9 @@ type Props = {
 // send only clears the field.
 export function PromptComposer(props: Props) {
   const { t } = useTranslation('coding')
-  const [ prompt, setPrompt ] = useState('')
+  // What is typed is kept for the tab until it is sent, one draft per conversation.
+  const promptDraft = useTextDraft(props.id)
+  const prompt = promptDraft.text ?? ''
   const [ isSending, setIsSending ] = useState(false)
 
   const canSend = !props.sendBlocker && !isSending && prompt.trim().length > 0
@@ -48,7 +51,7 @@ export function PromptComposer(props: Props) {
     try {
       const isSent = await props.onSend(prompt)
       if (isSent) {
-        setPrompt('')
+        promptDraft.forget()
       }
     }
     finally {
@@ -76,7 +79,7 @@ export function PromptComposer(props: Props) {
         aria-label={t('conversation.composer.label')}
         className='min-w-0 flex-1 basis-48'
         value={prompt}
-        onChange={setPrompt}
+        onChange={promptDraft.change}
       >
         <Label className='sr-only'>{t('conversation.composer.label')}</Label>
         <TextArea

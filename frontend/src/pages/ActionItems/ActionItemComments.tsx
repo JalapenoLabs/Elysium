@@ -43,6 +43,7 @@ import { useConfirm } from '../../hooks/useConfirm'
 import { usePrompt } from '../../hooks/usePrompt'
 import { useActionItemCommentsLoader } from '../../hooks/useServerData'
 import { submitOnEnter } from '../../components/submitOnEnter'
+import { useTextDraft } from '../../drafts/useTextDraft'
 import { describeActor } from './actionItemPresentation'
 import { toast } from '../../toast/toast'
 
@@ -65,7 +66,9 @@ export function ActionItemComments(props: Props) {
   const status = useActionItemCommentsLoader(props.item.id)
   const actorNames = useActorNames()
   const comments = useAppSelector((state) => selectActionItemComments(state, props.item.id))
-  const [ draft, setDraft ] = useState('')
+  // The comment being written is kept for the tab until it is posted, one per item.
+  const commentDraft = useTextDraft(`action-item-comment.${props.item.id}`)
+  const draft = commentDraft.text ?? ''
   const [ isPosting, setIsPosting ] = useState(false)
   const isDeleted = Boolean(props.item.deletedAt)
 
@@ -79,7 +82,7 @@ export function ActionItemComments(props: Props) {
     try {
       const response = await createActionItemComment(props.item.id, body)
       dispatch(actionItemCommentUpserted(response.comment))
-      setDraft('')
+      commentDraft.forget()
     }
     catch (error) {
       console.debug('ActionItemComments failed to post a comment', { error, itemId: props.item.id })
@@ -211,7 +214,7 @@ export function ActionItemComments(props: Props) {
         className='w-full'
         value={draft}
         maxLength={COMMENT_MAX_CHARACTERS}
-        onChange={setDraft}
+        onChange={commentDraft.change}
       >
         <Label className='sr-only'>{t('comments.label')}</Label>
         <TextArea

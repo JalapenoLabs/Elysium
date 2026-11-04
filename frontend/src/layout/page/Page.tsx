@@ -238,7 +238,10 @@ export function Page(props: Props) {
       isOpen={blocker.state === 'blocked'}
       isSaving={isSaving}
       saveBlockedReason={save?.blockedReason ?? null}
-      onDiscard={() => blocker.proceed?.()}
+      onDiscard={() => {
+        saveRef.current?.onDiscard?.()
+        blocker.proceed?.()
+      }}
       onSaveAndContinue={() => void saveAndContinue()}
       onKeepEditing={() => blocker.reset?.()}
     />

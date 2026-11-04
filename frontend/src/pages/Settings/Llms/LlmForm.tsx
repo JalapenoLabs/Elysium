@@ -37,6 +37,7 @@ import { getLocalTimeZone, parseAbsoluteToLocal, toCalendarDate, today, toZoned 
 import { HTTPError } from 'ky'
 
 // Misc
+import { useFormDraft } from '../../../drafts/useFormDraft'
 import { createLlm, updateLlm } from '../../../api/routes/llmRoutes'
 import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
@@ -85,6 +86,13 @@ export function LlmForm(props: Props) {
         : null,
     },
   })
+  // A new credential is kept for the tab until it is added, all but its token.
+  const forgetDraft = useFormDraft(form, {
+    name: `llm.${props.type}`,
+    fields: [ 'name', 'description' ],
+    choices: [ 'priority', 'isActive' ],
+    isEnabled: !props.llm,
+  })
 
   const save = saveForm(form, async (values) => {
     // Midnight at the start of the chosen day in the viewer's zone, sent as a UTC instant.
@@ -129,6 +137,7 @@ export function LlmForm(props: Props) {
 
       const response = await createLlm({ ...payload, secretToken: values.secretToken })
       dispatch(llmUpserted(response.llm))
+      forgetDraft()
       toast.success(t('toasts.created', { name: values.name }))
       props.onSaved(response.llm)
       return true
@@ -147,6 +156,7 @@ export function LlmForm(props: Props) {
 
   const onSubmit = usePageSave({
     save,
+    onDiscard: forgetDraft,
     isDirty: form.formState.isDirty,
     label: mode === 'create'
       ? t('common:actions.create')

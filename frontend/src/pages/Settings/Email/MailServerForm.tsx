@@ -20,6 +20,7 @@ import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 import { zodResolver } from '@hookform/resolvers/zod'
 
 // Misc
+import { useFormDraft } from '../../../drafts/useFormDraft'
 import { createMailServer } from '../../../api/routes/mailRoutes'
 import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
@@ -49,11 +50,24 @@ export function MailServerForm() {
       hostname: '',
     },
   })
+  // What is typed is kept for the tab until creation starts. A hostname put back that is not
+  // the one the domain suggests was typed by hand, so it stops following the domain.
+  const forgetDraft = useFormDraft(form, {
+    name: 'mail-server',
+    fields: [ 'domain', 'hostname' ],
+    onRestore: (restored) => {
+      const domain = restored.domain?.trim().toLowerCase() ?? ''
+      if (restored.hostname && restored.hostname !== `mail.${domain}`) {
+        setIsHostnameEdited(true)
+      }
+    },
+  })
 
   const save = saveForm(form, async (values) => {
     try {
       const response = await createMailServer(values)
       dispatch(mailServerUpdated(response.server))
+      forgetDraft()
       void navigate(getTabUrl(UrlTree.settingsEmail, 'domains'))
       return true
     }
@@ -68,6 +82,7 @@ export function MailServerForm() {
 
   const onSubmit = usePageSave({
     save,
+    onDiscard: forgetDraft,
     isDirty: form.formState.isDirty,
     label: t('common:actions.create'),
   })

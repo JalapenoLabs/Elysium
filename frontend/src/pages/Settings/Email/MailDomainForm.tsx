@@ -21,6 +21,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { HTTPError } from 'ky'
 
 // Misc
+import { useFormDraft } from '../../../drafts/useFormDraft'
 import { getUpstreamErrorMessage } from '../../../api/errors'
 import { createMailDomain } from '../../../api/routes/mailRoutes'
 import { useInitialFocus } from '../../../hooks/useInitialFocus'
@@ -47,11 +48,14 @@ export function MailDomainForm() {
       name: '',
     },
   })
+  // What is typed is kept for the tab until the domain is added.
+  const forgetDraft = useFormDraft(form, { name: 'mail-domain', fields: [ 'name' ]})
 
   const save = saveForm(form, async (values) => {
     try {
       const response = await createMailDomain(values.name)
       dispatch(mailDomainUpserted(response.domain))
+      forgetDraft()
       toast.success(t('toasts.domainAdded', { name: response.domain.name }))
       void navigate(getTabUrl(UrlTree.settingsEmail, 'domains'))
       return true
@@ -73,6 +77,7 @@ export function MailDomainForm() {
 
   const onSubmit = usePageSave({
     save,
+    onDiscard: forgetDraft,
     isDirty: form.formState.isDirty,
     label: t('common:actions.create'),
   })

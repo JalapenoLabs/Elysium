@@ -34,6 +34,7 @@ import { getApiErrorCode, getApiErrorMessage, getUpstreamErrorMessage } from '..
 import { fileIssueReport, previewIssueReport } from '../api/routes/issueReportRoutes'
 import { formatDateTime } from '../format/dates'
 import { ISSUE_REPORT_NOTE_MAX_CHARACTERS, ISSUE_REPORT_PREVIEW_DELAY_MS } from '../constants'
+import { useTextDraft } from '../drafts/useTextDraft'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useInitialFocus } from '../hooks/useInitialFocus'
 import { getNewConnectorUrl } from '../urls'
@@ -61,7 +62,9 @@ type Props = {
 // what is posted; Post waits until the preview matches the note as typed.
 export function ReportIssueModal(props: Props) {
   const { t } = useTranslation([ 'issueReports', 'common' ])
-  const [ note, setNote ] = useState('')
+  // The note is kept for the tab until the report is filed, one per thing reported.
+  const noteDraft = useTextDraft(`issue-report.${JSON.stringify(props.subject)}`)
+  const note = noteDraft.text ?? ''
   const [ pickedId, setPickedId ] = useState<string | null>(null)
   const [ isPosting, setIsPosting ] = useState(false)
   const noteRef = useInitialFocus()
@@ -94,6 +97,7 @@ export function ReportIssueModal(props: Props) {
       toast.success(t(filedToastLabels[filed.filedAs], { number: filed.issueNumber }), {
         link: { label: t('toasts.view'), href: filed.url },
       })
+      noteDraft.forget()
       props.state.close()
     }
     catch (error) {
@@ -214,7 +218,7 @@ export function ReportIssueModal(props: Props) {
               id='report-issue-note'
               maxLength={ISSUE_REPORT_NOTE_MAX_CHARACTERS}
               value={note}
-              onChange={setNote}
+              onChange={noteDraft.change}
             >
               <Label>{t('dialog.note')}</Label>
               <TextArea ref={noteRef} rows={3} />

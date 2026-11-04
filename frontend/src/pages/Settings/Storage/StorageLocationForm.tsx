@@ -35,6 +35,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { HTTPError } from 'ky'
 
 // Misc
+import { useFormDraft } from '../../../drafts/useFormDraft'
 import { getUpstreamErrorMessage } from '../../../api/errors'
 import {
   BUNNY_STORAGE_REGIONS,
@@ -112,6 +113,13 @@ export function StorageLocationForm(props: Props) {
       accessKey: '',
     },
   })
+  // A new location is kept for the tab until it is added, all but its keys.
+  const forgetDraft = useFormDraft(form, {
+    name: 'storage-location',
+    fields: [ 'name', 'zone', 'bucket', 'awsRegion', 'pathPrefix' ],
+    choices: [ 'option', 'bunnyRegion', 'isUnlimited' ],
+    isEnabled: !props.location,
+  })
 
   const save = saveForm(form, async (values) => {
     const payload = {
@@ -148,6 +156,7 @@ export function StorageLocationForm(props: Props) {
       else {
         const response = await createStorageLocation({ ...payload, accessKey: values.accessKey })
         dispatch(storageLocationUpserted(response.location))
+        forgetDraft()
         toast.success(t('toasts.created', { name: values.name }))
         props.onSaved(response.location)
         return true
@@ -169,6 +178,7 @@ export function StorageLocationForm(props: Props) {
 
   const onSubmit = usePageSave({
     save,
+    onDiscard: forgetDraft,
     isDirty: form.formState.isDirty,
     label: props.location
       ? undefined

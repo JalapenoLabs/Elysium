@@ -17,6 +17,7 @@ import { LuSendHorizontal } from 'react-icons/lu'
 // Misc
 import { listElysiaMessages, sendElysiaMessage } from '../api/routes/elysiaRoutes'
 import { submitOnEnter } from '../components/submitOnEnter'
+import { useTextDraft } from '../drafts/useTextDraft'
 import { formatShortDateTime } from '../format/dates'
 import { useElysiaMessagesLoader } from '../hooks/useServerData'
 import { useUserNames } from '../hooks/useUserNames'
@@ -39,7 +40,9 @@ export function ElysiaConversation(props: Props) {
   const status = useElysiaMessagesLoader()
   const messages = useAppSelector(selectElysiaMessages)
   const userNames = useUserNames()
-  const [ draft, setDraft ] = useState('')
+  // The message being written is kept for the tab until it is sent.
+  const messageDraft = useTextDraft('elysia-message')
+  const draft = messageDraft.text ?? ''
   const [ isSending, setIsSending ] = useState(false)
   const [ isLoadingEarlier, setIsLoadingEarlier ] = useState(false)
   const [ hasEarlier, setHasEarlier ] = useState<boolean | null>(null)
@@ -72,7 +75,7 @@ export function ElysiaConversation(props: Props) {
     try {
       const response = await sendElysiaMessage(body)
       dispatch(elysiaMessageCreated(response.message))
-      setDraft('')
+      messageDraft.forget()
     }
     catch (error) {
       console.debug('ElysiaConversation failed to send a message', { error })
@@ -155,7 +158,7 @@ export function ElysiaConversation(props: Props) {
         className='w-full'
         value={draft}
         maxLength={MESSAGE_MAX_CHARACTERS}
-        onChange={setDraft}
+        onChange={messageDraft.change}
       >
         <Label className='sr-only'>{t('composer.label')}</Label>
         <TextArea

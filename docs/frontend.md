@@ -188,6 +188,7 @@ or menu item that does one thing, such as Resolve, Approve, Link, Forget, or Del
   browser's Back, or a change of the page's query other than its tab, which can swap what it edits; switching tabs
   keeps the form mounted, so it never asks, `swapsWhatPageEdits`) is held by React Router's
   `useBlocker` and asks in `LeavePageDialog`, with a warning icon: Discard work, Save and continue, or Keep editing.
+  Discard work calls the page save's `onDiscard` first, which ends a `/new` form's draft (see Forms, Drafts).
   Enter saves and continues; Esc keeps editing. A save that fails stays on the page. Closing or reloading the tab gets
   the browser's own warning. A form's own navigation after it saves (a `/new` page opening what it created, an edit
   page going back to its list) goes through without asking, and during Save and continue it is held, so the person
@@ -711,8 +712,8 @@ page folds it in, in the settings frame:
   built-in one or the workspace's own, kept in `?category=`. Deleted learnings are a tab of their own, and admins get a
   third, the feed (`LearningFeed`): every change to every learning, newest first, read on with Show older. A guest is told the knowledge base is for members, as the API refuses them (`selectIsCompanyMember`).
 - **New learning** (`NewLearningPage`, `LearningForm`) saves from the header's Save and opens the learning saved,
-  saying whether it was new or revised one whose takeaway it named. What is typed is kept in session storage
-  (`newLearningDraft.ts`) until it is saved; a blank form never overwrites it.
+  saying whether it was new or revised one whose takeaway it named. What is typed is kept as a draft until it is
+  saved (see Forms, Drafts).
 - **A learning's page** (`LearningPage`) corrects it with the same form, remounted whenever the learning changes so it
   always edits what the learning says now. Delete happens at once, with Undo in its toast; a deleted learning reads
   as it was, under a notice, with Restore. `LearningHistory` lists every change newest first, each with Undo.
@@ -742,8 +743,8 @@ page folds it in, in the settings frame:
   asks where they move, and the button waits for an answer too.
 - **New and edit** are their own pages over `LearningCategoryForm`, saved from the header's Save. A new category's key
   follows its name (`keyFromLabel`) until the key is typed by hand, and is read-only once saved. What a new one holds
-  is kept in session storage (`newLearningCategoryDraft.ts`) until it is saved. `learningCategoryFormSchema.ts`
-  mirrors the API's bounds.
+  is kept as a draft until it is saved; a key put back that its name would not make was typed by hand.
+  `learningCategoryFormSchema.ts` mirrors the API's bounds.
 
 ### Action items
 
@@ -859,7 +860,7 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   the conversation), or for mail the person's own mailbox, pointing at Settings, Email when they have none; it
   continues the record's newest unsent draft from the `drafts` slice, and Send writes or edits that draft and sends it
   (`docs/connectors.md`, Sending). A send that failed shows its reason under the text it kept, with Report. What is
-  typed is kept in session storage per record (`REPLY_DRAFT_STORAGE_PREFIX`) until it is sent or discarded.
+  typed is kept as a draft per record (`reply.<recordId>`, see Forms, Drafts) until it is sent or discarded.
   `draft.changed` reloads a draft by id, and drops one that is gone.
 - **Start a coding session**, on the item page and in Next, goes to `/coding/new?item=<id>`
   (`getNewCodingSessionUrl`), New session started from the item; see [Coding](#coding).
@@ -1201,6 +1202,25 @@ Workspace, mail server, and broker failures answer `502` with the upstream's mes
   `given-name`, `family-name`, `username webauthn`, `current-password`, `new-password`, `one-time-code`), `url`
   for an address they own, and `off` for everything else (names of records, keys, searches, codes).
   `src/bugs/167.test.tsx` checks the `/new` forms for all three.
+- **Drafts.** What is typed and not yet saved or sent is kept in session storage for the tab, so a reload or a crash
+  gives it back (`~/.claude/docs/ux.md`, Form inputs). `src/drafts/sessionDrafts.ts` reads, keeps, and forgets a
+  draft under one name (`elysium.draft.v1.<name>`), in a try/catch, so a browser without storage still has a working
+  form. A draft with nothing typed in it is never written, so blanking a box or a form opening blank never wipes
+  what was kept; it ends only when forgotten.
+  - **New forms.** `useFormDraft(form, { name, fields, choices })` keeps a react-hook-form form's listed text fields
+    and the choices beside them, puts them back into the blank form as changes when it opens (so Save is ready and
+    leaving asks first), and returns `forget`, which the form calls once it creates and registers as its page save's
+    `onDiscard`, so Discard work ends the draft too. Every `/new` form has one: items, initiatives, projects, coding
+    sessions (one per item a session starts from), Studio items, learnings and their categories, environment
+    variables, storage locations, LLMs, the mail server, domains, and mailboxes, and the password vault. A token
+    connector keeps its account's fields but the secret ones.
+  - **Never secrets.** A form lists what it keeps, and a `SecretInput` field is never on the list; an environment
+    variable's value is listed only while it is not secret (`fields` may be a function of the values). Fields a page
+    presets from its address, such as `?project=`, and files are left out too.
+  - **Boxes of text.** `useTextDraft(name)` is state for one box: the session and Studio prompts (named by the field's
+    id), comments per item, replies per record, the report note per thing reported, and Elysia's message and
+    answers. Sending forgets it.
+  - `src/bugs/168.test.tsx` plays a reload, a create, Discard work, and a secret.
 - Read field values with `useWatch`, not `form.watch`. The React Compiler lint rejects `watch`.
 - HeroUI v3 field `onChange` handlers receive the value, not a DOM event.
 - A `Switch`'s clickable part is `Switch.Content`, so it wraps the `Switch.Control` and the `Label` together. A

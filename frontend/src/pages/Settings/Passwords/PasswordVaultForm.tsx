@@ -33,6 +33,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { HTTPError } from 'ky'
 
 // Misc
+import { useFormDraft } from '../../../drafts/useFormDraft'
 import { getApiErrorMessage } from '../../../api/errors'
 import { connectPasswordVault, PASSWORD_SERVERS } from '../../../api/routes/passwordVaultRoutes'
 import { useInitialFocus } from '../../../hooks/useInitialFocus'
@@ -75,6 +76,13 @@ export function PasswordVaultForm(props: Props) {
       masterPassword: '',
     },
   })
+  // A vault being connected keeps where it is for the tab until it connects, never its keys.
+  const forgetDraft = useFormDraft(form, {
+    name: 'password-vault',
+    fields: [ 'serverUrl' ],
+    choices: [ 'server' ],
+    isEnabled: !stored,
+  })
 
   const save = saveForm(form, async (values) => {
     try {
@@ -89,6 +97,7 @@ export function PasswordVaultForm(props: Props) {
         masterPassword: values.masterPassword || undefined,
       })
       dispatch(passwordVaultLoaded({ vault: response.vault, status: response.status }))
+      forgetDraft()
       toast.success(t('toasts.connected', { email: response.vault.accountEmail }))
       props.onSaved()
       return true
@@ -108,6 +117,7 @@ export function PasswordVaultForm(props: Props) {
 
   const onSubmit = usePageSave({
     save,
+    onDiscard: forgetDraft,
     isDirty: form.formState.isDirty,
     label: t('actions.connect'),
   })

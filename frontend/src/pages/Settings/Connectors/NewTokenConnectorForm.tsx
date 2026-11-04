@@ -23,6 +23,7 @@ import { PageCreateFooter } from '../../../layout/page/PageCreateFooter'
 
 // Misc
 import { checkConnectorDraft, createConnector } from '../../../api/routes/connectorRoutes'
+import { forgetSessionDraft, keepSessionDraft, readSessionDraft } from '../../../drafts/sessionDrafts'
 import { getConnectorUrl } from '../../../urls'
 import { usePageSave } from '../../../layout/page/pageSave'
 import { connectorErrorMessage, hasRequiredFailure } from './connectorPresentation'
@@ -33,6 +34,22 @@ type Props = {
   accountDefinition: AccountDefinition
 }
 
+// The account's fields worth keeping as a draft: every one typed in but a secret, which is
+// never written to storage. Read back the same way, since storage is outside the app.
+function publicAccountFields(values: unknown, definition: AccountDefinition) {
+  const kept: Record<string, string> = {}
+  if (!values || typeof values !== 'object') {
+    return kept
+  }
+  for (const field of definition.fields) {
+    const value: unknown = Reflect.get(values, field.id)
+    if (field.field.type !== 'secret' && typeof value === 'string' && value) {
+      kept[field.id] = value
+    }
+  }
+  return kept
+}
+
 // A new connector that signs in with a token: the account it owns, what it reads, and its
 // checks, run against what was typed before anything is stored. Create waits for a finished
 // run, since it is what proves the token works, and offers "Create anyway" when a required
@@ -41,7 +58,11 @@ export function NewTokenConnectorForm(props: Props) {
   const { t } = useTranslation([ 'connectors', 'common' ])
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
-  const [ fields, setFields ] = useState<Record<string, string>>({})
+  // What is typed, but the token, is kept for the tab until the connector is created.
+  const draftName = `connector.${props.definition.kind}`
+  const [ fields, setFields ] = useState(
+    () => publicAccountFields(readSessionDraft(draftName), props.accountDefinition),
+  )
   const [ content, setContent ] = useState<Record<string, unknown>>({})
   const [ runId, setRunId ] = useState<string | null>(null)
   const [ isStartingChecks, setIsStartingChecks ] = useState(false)
@@ -59,6 +80,7 @@ export function NewTokenConnectorForm(props: Props) {
   const onSubmit = usePageSave({
     save: create,
     isDirty,
+    onDiscard: () => forgetSessionDraft(draftName),
     blockedReason: isFinished
       ? null
       : t('form.checkFirst'),
@@ -87,6 +109,7 @@ export function NewTokenConnectorForm(props: Props) {
     try {
       const response = await createConnector({ kind, account, content })
       dispatch(connectorUpserted(response.connector))
+      forgetSessionDraft(draftName)
       toast.success(t('form.created'))
       void navigate(getConnectorUrl(response.connector.id))
       return true
@@ -106,6 +129,8 @@ export function NewTokenConnectorForm(props: Props) {
         values={fields}
         onChange={(values) => {
           setFields(values)
+          const kept = publicAccountFields(values, props.accountDefinition)
+          keepSessionDraft(draftName, kept, Object.values(kept))
           setRunId(null)
         }}
       />

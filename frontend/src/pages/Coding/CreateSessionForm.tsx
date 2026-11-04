@@ -38,6 +38,7 @@ import { SessionRepositoriesField } from './SessionRepositoriesField'
 import { zodResolver } from '@hookform/resolvers/zod'
 
 // Misc
+import { useFormDraft } from '../../drafts/useFormDraft'
 import { getApiErrorMessage } from '../../api/errors'
 import { createCodingSession } from '../../api/routes/codingSessionRoutes'
 import { useInitialFocus } from '../../hooks/useInitialFocus'
@@ -104,6 +105,16 @@ export function CreateSessionForm(props: Props) {
       githubChoice: INHERIT_GITHUB_TOKEN,
     },
   })
+  // The title, prompt, and token choice are kept for the tab until the session starts, one draft
+  // per item a session starts from. The project and repositories are picked from lists that
+  // may have changed by the time the draft comes back.
+  const forgetDraft = useFormDraft(form, {
+    name: actionItem
+      ? `coding-session.item-${actionItem.id}`
+      : 'coding-session',
+    fields: [ 'title', 'prompt' ],
+    choices: [ 'githubChoice' ],
+  })
 
   const save = saveForm(form, async (values) => {
     const prompt = values.prompt.trim()
@@ -128,6 +139,7 @@ export function CreateSessionForm(props: Props) {
         actionItemId: actionItem?.id,
       })
       dispatch(codingSessionUpserted(session))
+      forgetDraft()
       toast.success(t('toasts.created', { title }))
       void navigate(getCodingSessionUrl(session.id))
       return true
@@ -178,6 +190,7 @@ export function CreateSessionForm(props: Props) {
 
   const onSubmit = usePageSave({
     save,
+    onDiscard: forgetDraft,
     isDirty: form.formState.isDirty,
     // Everything but the project is optional, and a lone project comes preselected, so a
     // session can start from the form as it opens.

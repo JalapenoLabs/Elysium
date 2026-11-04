@@ -26,14 +26,8 @@ import { createReplyDraft, deleteDraft, sendDraft, updateDraft } from '../api/ro
 import { useMailAccountsLoader, useRecordDraftsLoader } from '../hooks/useServerData'
 import { submitOnEnter } from '../components/submitOnEnter'
 import { UrlTree } from '../urls'
-import {
-  forgetReply,
-  mailRecipients,
-  placeLabelKeys,
-  readSavedReply,
-  saveReply,
-  sendingMailboxes,
-} from './replyPresentation'
+import { useTextDraft } from '../drafts/useTextDraft'
+import { mailRecipients, placeLabelKeys, sendingMailboxes } from './replyPresentation'
 import { toast } from '../toast/toast'
 
 // A message's length, as the API bounds a draft.
@@ -60,8 +54,10 @@ export function ReplyComposer(props: Props) {
   const me = useAppSelector(selectMe)
   const mailAccounts = useAppSelector(selectAllMailAccounts)
   const draft = drafts[0] ?? null
-  // `null` until the person types, so the box shows a stored draft's text once it loads.
-  const [ typed, setTyped ] = useState<string | null>(() => readSavedReply(record.id))
+  // What the person typed, kept for the tab; null until they type, so the box shows a stored
+  // draft's text once it loads.
+  const typedDraft = useTextDraft(`reply.${record.id}`)
+  const typed = typedDraft.text
   // The kind's first place unless the person picks another; none lets the API choose.
   const [ place, setPlace ] = useState<ReplyPlace | null>(props.replies.through === 'connector'
     ? props.replies.places[0] ?? null
@@ -75,11 +71,6 @@ export function ReplyComposer(props: Props) {
     ? mailboxes[0].id
     : null)
   const isMail = props.replies.through === 'mailbox'
-
-  function type(value: string) {
-    setTyped(value)
-    saveReply(record.id, value)
-  }
 
   async function send() {
     const body = text.trim()
@@ -108,8 +99,7 @@ export function ReplyComposer(props: Props) {
       const response = await sendDraft(current.id)
       dispatch(draftUpserted(response.draft))
       if (response.draft.state === 'sent') {
-        setTyped(null)
-        forgetReply(record.id)
+        typedDraft.forget()
         toast.success(t('reply.sent'))
       }
     }
@@ -139,13 +129,12 @@ export function ReplyComposer(props: Props) {
         return
       }
     }
-    setTyped(null)
-    forgetReply(record.id)
+    typedDraft.forget()
     toast.success(t('reply.discarded'), {
       action: {
         label: t('common:actions.undo'),
         onPress: () => {
-          type(discardedText)
+          typedDraft.change(discardedText)
           if (discarded) {
             setPlace(discarded.place)
             setChosenMailboxId(discarded.mailAccountId)
@@ -207,7 +196,7 @@ export function ReplyComposer(props: Props) {
       value={text}
       maxLength={REPLY_MAX_CHARACTERS}
       isDisabled={isSending}
-      onChange={type}
+      onChange={typedDraft.change}
     >
       <Label className='sr-only'>{t('reply.label')}</Label>
       <TextArea

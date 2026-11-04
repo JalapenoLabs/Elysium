@@ -31,6 +31,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { HTTPError } from 'ky'
 
 // Misc
+import { useFormDraft } from '../../../drafts/useFormDraft'
 import { getUpstreamErrorMessage } from '../../../api/errors'
 import { createMailbox } from '../../../api/routes/mailRoutes'
 import { useInitialFocus } from '../../../hooks/useInitialFocus'
@@ -66,11 +67,14 @@ export function CreateMailboxForm(props: Props) {
       displayName: '',
     },
   })
+  // What is typed is kept for the tab until the mailbox is created.
+  const forgetDraft = useFormDraft(form, { name: 'mailbox', fields: [ 'localPart', 'displayName' ]})
 
   const save = saveForm(form, async (values) => {
     try {
       const response = await createMailbox(values)
       dispatch(mailAccountUpserted(response.account))
+      forgetDraft()
       toast.success(t('toasts.created', { address: response.account.address }))
       void navigate(UrlTree.settingsEmail)
       return true
@@ -92,6 +96,7 @@ export function CreateMailboxForm(props: Props) {
 
   const onSubmit = usePageSave({
     save,
+    onDiscard: forgetDraft,
     isDirty: form.formState.isDirty,
     label: t('common:actions.create'),
   })

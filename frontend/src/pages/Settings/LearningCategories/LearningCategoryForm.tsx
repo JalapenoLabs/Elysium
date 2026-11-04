@@ -4,7 +4,7 @@ import type { LearningCategory } from '../../../api/routes/learningCategoryRoute
 import type { LearningCategoryFormInput, LearningCategoryFormValues } from './learningCategoryFormSchema'
 
 // Core
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
@@ -23,14 +23,10 @@ import { HTTPError } from 'ky'
 // Misc
 import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { getApiErrorMessage } from '../../../api/errors'
+import { useFormDraft } from '../../../drafts/useFormDraft'
 import { createLearningCategory, updateLearningCategory } from '../../../api/routes/learningCategoryRoutes'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createLearningCategoryFormSchema, keyFromLabel } from './learningCategoryFormSchema'
-import {
-  forgetNewLearningCategoryDraft,
-  readNewLearningCategoryDraft,
-  saveNewLearningCategoryDraft,
-} from './newLearningCategoryDraft'
 import { toast } from '../../../toast/toast'
 
 type Props = {
@@ -59,30 +55,21 @@ export function LearningCategoryForm(props: Props) {
     },
   })
 
-  // A new category's draft comes back as changes to the blank form, so Save is ready for it.
-  useEffect(() => {
-    if (stored) {
-      return
-    }
-    const draft = readNewLearningCategoryDraft()
-    if (!draft) {
-      return
-    }
-    form.setValue('label', draft.label, { shouldDirty: true })
-    form.setValue('key', draft.key, { shouldDirty: true })
-    form.setValue('description', draft.description, { shouldDirty: true })
-    setIsKeyTyped(draft.isKeyTyped)
-  }, [ stored, form ])
+  // A new category is kept for the tab until it is saved. A key put back that is not the one
+  // its name makes was typed by hand, so it stops following the name.
+  const forgetDraft = useFormDraft(form, {
+    name: 'learning-category',
+    fields: [ 'label', 'key', 'description' ],
+    isEnabled: !stored,
+    onRestore: (restored) => {
+      if (restored.key !== undefined && restored.key !== keyFromLabel(restored.label ?? '')) {
+        setIsKeyTyped(true)
+      }
+    },
+  })
 
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
   const values = useWatch({ control: form.control })
-
-  useEffect(() => {
-    if (stored) {
-      return
-    }
-    saveNewLearningCategoryDraft({ ...values, isKeyTyped })
-  }, [ stored, values, isKeyTyped ])
 
   const save = saveForm(form, async (submitted) => {
     try {
@@ -101,7 +88,7 @@ export function LearningCategoryForm(props: Props) {
 
       const response = await createLearningCategory(submitted)
       dispatch(learningCategoryUpserted(response.category))
-      forgetNewLearningCategoryDraft()
+      forgetDraft()
       toast.success(t('toasts.created'))
       props.onSaved(response.category)
       return true
@@ -123,6 +110,7 @@ export function LearningCategoryForm(props: Props) {
   const onSubmit = usePageSave({
     save,
     isDirty: form.formState.isDirty,
+    onDiscard: forgetDraft,
     label: stored
       ? undefined
       : t('common:actions.create'),

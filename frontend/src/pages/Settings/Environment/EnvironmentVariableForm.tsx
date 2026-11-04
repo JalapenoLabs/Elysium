@@ -32,6 +32,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { HTTPError } from 'ky'
 
 // Misc
+import { useFormDraft } from '../../../drafts/useFormDraft'
 import { getApiErrorMessage } from '../../../api/errors'
 import { createEnvironmentVariable, updateEnvironmentVariable } from '../../../api/routes/environmentRoutes'
 import { useInitialFocus } from '../../../hooks/useInitialFocus'
@@ -70,6 +71,15 @@ export function EnvironmentVariableForm(props: Props) {
       description: stored?.description ?? '',
     },
   })
+  // A new variable is kept for the tab until it is added; its value only while it is not secret.
+  const forgetDraft = useFormDraft(form, {
+    name: 'environment-variable',
+    fields: (current) => current.isSecret
+      ? [ 'key', 'description' ]
+      : [ 'key', 'description', 'value' ],
+    choices: [ 'isSecret' ],
+    isEnabled: !stored,
+  })
 
   const save = saveForm(form, async (values) => {
     try {
@@ -93,6 +103,7 @@ export function EnvironmentVariableForm(props: Props) {
       else {
         const response = await createEnvironmentVariable(values)
         dispatch(environmentVariableUpserted(response.variable))
+        forgetDraft()
         toast.success(t('toasts.created', { key: values.key }))
       }
       props.onSaved()
@@ -115,6 +126,7 @@ export function EnvironmentVariableForm(props: Props) {
 
   const onSubmit = usePageSave({
     save,
+    onDiscard: forgetDraft,
     isDirty: form.formState.isDirty,
     label: stored
       ? undefined

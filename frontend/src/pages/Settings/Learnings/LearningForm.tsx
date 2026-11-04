@@ -23,13 +23,12 @@ import { HTTPError } from 'ky'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
+import { useFormDraft } from '../../../drafts/useFormDraft'
 import { BUILT_IN_LEARNING_CATEGORIES, correctLearning, saveLearning } from '../../../api/routes/learningRoutes'
 import { useInitialFocus } from '../../../hooks/useInitialFocus'
 import { useLearningCategories } from '../../../hooks/useLearningCategories'
 import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createLearningFormSchema } from './learningFormSchema'
-import { LEARNING_FIELDS } from './learningPresentation'
-import { forgetNewLearningDraft, readNewLearningDraft, saveNewLearningDraft } from './newLearningDraft'
 import { toast } from '../../../toast/toast'
 
 const saveToastKeys = {
@@ -74,19 +73,13 @@ export function LearningForm(props: Props) {
   const { status: categoriesStatus, categories } = useLearningCategories()
   const titleRef = useInitialFocus()
 
-  // A new learning's draft comes back as changes to the blank form, so Save is ready for it.
-  useEffect(() => {
-    if (stored) {
-      return
-    }
-    const draft = readNewLearningDraft()
-    if (!draft) {
-      return
-    }
-    for (const field of LEARNING_FIELDS) {
-      form.setValue(field, draft[field], { shouldDirty: true })
-    }
-  }, [ stored, form ])
+  // A new learning's words, and its category, are kept for the tab until it is saved.
+  const forgetDraft = useFormDraft(form, {
+    name: 'learning',
+    fields: [ 'title', 'body', 'evidence' ],
+    choices: [ 'category' ],
+    isEnabled: !stored,
+  })
 
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
   const values = useWatch({ control: form.control })
@@ -103,13 +96,6 @@ export function LearningForm(props: Props) {
     form.setValue('category', categories[0].key, { shouldDirty: true, shouldValidate: true })
   }, [ categoriesStatus, chosen, categories, category, form ])
 
-  useEffect(() => {
-    if (stored) {
-      return
-    }
-    saveNewLearningDraft(values)
-  }, [ stored, values ])
-
   const save = saveForm(form, async (submitted) => {
     try {
       if (stored) {
@@ -124,7 +110,7 @@ export function LearningForm(props: Props) {
 
       const response = await saveLearning(submitted)
       dispatch(learningUpserted(response.learning))
-      forgetNewLearningDraft()
+      forgetDraft()
       toast.success(t(saveToastKeys[response.outcome]))
       props.onSaved?.(response.learning)
       return true
@@ -146,6 +132,7 @@ export function LearningForm(props: Props) {
   const onSubmit = usePageSave({
     save,
     isDirty: form.formState.isDirty,
+    onDiscard: forgetDraft,
     label: stored
       ? undefined
       : t('common:actions.create'),

@@ -28,6 +28,9 @@ export type PageSave = {
   // Save can be pressed with nothing changed, for a /new page whose create needs nothing typed,
   // such as starting a browser. Leaving still asks only while the form is dirty.
   canSaveUnchanged?: boolean
+  // Called when the person leaves choosing Discard work, such as to end the form's draft
+  // (`useFormDraft`), so discarded words never come back on the next visit.
+  onDiscard?: () => void
 }
 
 export type PageSaveRegistry = {
@@ -70,10 +73,10 @@ export function usePageSave(pageSave: PageSave) {
   })
 
   const { register, runSave } = registry
-  const { isDirty, blockedReason, label, canSaveUnchanged } = pageSave
+  const { isDirty, blockedReason, label, canSaveUnchanged, onDiscard } = pageSave
   useEffect(() => {
-    register({ save: () => saveRef.current(), isDirty, blockedReason, label, canSaveUnchanged })
-  }, [ register, isDirty, blockedReason, label, canSaveUnchanged ])
+    register({ save: () => saveRef.current(), isDirty, blockedReason, label, canSaveUnchanged, onDiscard })
+  }, [ register, isDirty, blockedReason, label, canSaveUnchanged, onDiscard ])
 
   // Only an unmount takes the Save away, so the header button never flickers between
   // changes of the form's state.

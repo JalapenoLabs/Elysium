@@ -23,6 +23,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { getLocalTimeZone } from '@internationalized/date'
 
 // Misc
+import { useFormDraft } from '../../drafts/useFormDraft'
 import { getApiErrorMessage } from '../../api/errors'
 import { createInitiative } from '../../api/routes/initiativeRoutes'
 import { useInitialFocus } from '../../hooks/useInitialFocus'
@@ -58,6 +59,8 @@ export function InitiativeForm(props: Props) {
       projectIds: props.initialProjectIds,
     },
   })
+  // What is typed is kept for the tab until the initiative is started.
+  const forgetDraft = useFormDraft(form, { name: 'initiative', fields: [ 'name', 'description' ]})
 
   const save = saveForm(form, async (values) => {
     try {
@@ -70,6 +73,7 @@ export function InitiativeForm(props: Props) {
         projectIds: values.projectIds,
       })
       dispatch(initiativeUpserted(response.initiative))
+      forgetDraft()
       toast.success(t('toasts.created', { name: response.initiative.name }))
       props.onSaved(response.initiative.id)
       return true
@@ -84,6 +88,7 @@ export function InitiativeForm(props: Props) {
 
   const onSubmit = usePageSave({
     save,
+    onDiscard: forgetDraft,
     isDirty: form.formState.isDirty,
     label: t('form.submit'),
   })

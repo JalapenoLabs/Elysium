@@ -21,7 +21,7 @@ import { mailAccountsLoaded } from '../store/mailAccountsSlice'
 import { ReplyComposer } from './ReplyComposer'
 
 // Misc
-import { REPLY_DRAFT_STORAGE_PREFIX } from '../constants'
+import { readSessionDraft } from '../drafts/sessionDrafts'
 import { makeDraft, makeMailAccount, makeTimelineRecord, makeUser } from '../testFixtures'
 
 // The draft requests are the network boundary; the loaders' data arrives through Redux.
@@ -194,7 +194,7 @@ describe('ReplyComposer', () => {
     act(() => options?.action?.onPress())
 
     expect(replyBox()).toHaveProperty('value', 'Friday works.')
-    expect(window.sessionStorage.getItem(`${REPLY_DRAFT_STORAGE_PREFIX}record-1`)).toBe('Friday works.')
+    expect(readSessionDraft('reply.record-1')).toBe('Friday works.')
 
     // Its next send writes a new draft, in the conversation the discarded one was going to.
     routes.createReplyDraft.mockResolvedValue({
@@ -215,7 +215,7 @@ describe('ReplyComposer', () => {
   it('keeps what was typed for the tab until it is sent', async () => {
     renderComposer(RECORD, SLACK)
     fireEvent.change(replyBox(), { target: { value: 'Half a thought' }})
-    expect(window.sessionStorage.getItem(`${REPLY_DRAFT_STORAGE_PREFIX}record-1`)).toBe('Half a thought')
+    expect(readSessionDraft('reply.record-1')).toBe('Half a thought')
   })
 
   it('a reply by mail without a mailbox of the person\'s own says where to connect one', () => {
