@@ -53,6 +53,7 @@ function renderAs(role: UserRole) {
     },
     hasSecondFactor: true,
     mfaEnrollmentRequired: false,
+    authenticatorNickname: null,
   }))
   // A fresh cache per test, so one test's lists never answer another's.
   return render(<SWRConfig value={{ provider: () => new Map() }}>
