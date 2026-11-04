@@ -127,9 +127,15 @@ A page in the padded `main` renders inside `Page`, which draws the header and ho
   opens a submenu (`items`); `isPending` shows on its button or on the menu's trigger.
 - **Phones.** Below `sm` the right side stacks under the title and every control in it spans the full width,
   centered (`.page-actions` in `src/index.css`).
-- **Save.** A page with a form carries its one Save in the header; see Saving. A `/new` page also keeps its Create
-  button below the form, labelled the same, submitting the same form: two places, one action, as the new project,
-  item, and initiative pages do.
+- **Save.** A page with a form carries its one Save in the header; see Saving.
+- **Creating.** Every create flow is a page of its own under `/new`, never a dialog (`~/.claude/docs/ux.md`, Sub-pages
+  and Form layout). It has the header's Save, named for what it does (usually Create), and `PageCreateFooter` at the
+  end of its form: Back on the left, a real link to the page's last parent (or its `escapeTo`), and on the right the
+  same Save under the same label, its second place. Both run the page's one save, so they are always enabled,
+  pending, and explained alike; on phones they stack full width, Create on top. A form shared with an edit page
+  renders the footer only when creating. A `/new` page whose create needs nothing typed (starting a connector's
+  browser, starting a Claude sign-in, a coding session whose only project is preselected) registers its save with
+  `canSaveUnchanged`, so Save can be pressed at once while leaving still asks only about real changes.
 - **Workspace pages.** A page that manages its own scrolling (the Coding page, a Studio item) renders `PageHeader`
   alone in its top bar, with the same props, and passes `className` for its spacing. It has no Save, so nothing on it
   is a field: a Studio item is renamed from its Actions menu, in a dialog with its own button.
@@ -163,7 +169,8 @@ or menu item that does one thing, such as Resolve, Approve, Link, Forget, or Del
   twice. Save is enabled while the form is dirty and not blocked; disabled, its tooltip says why, "Nothing to save
   yet" when nothing changed. Forms keep no save button or cancel button of their own, except a `/new` page's Create.
 - **Floating Save.** While the header's Save is scrolled out of view and the form is dirty, `FloatingSaveCard` offers
-  it in the bottom right. Dismissing it lasts until the header's Save is back in view.
+  it in the bottom right, unless a `/new` page's Create below the form is in view. Dismissing it lasts until the
+  header's Save is back in view.
 - **Leaving.** While the form is dirty, every way out of the page (a link, the sidebar, the breadcrumbs, Esc, the
   browser's Back, or a change of the page's query, which can swap what it edits) is held by React Router's
   `useBlocker` and asks in `LeavePageDialog`, with a warning icon: Discard work, Save and continue, or Keep editing.
@@ -222,9 +229,12 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/projects`                   | `ProjectsPage`           | Projects as a table or tiles, searched and sorted        |
 | `/projects/new`               | `CreateProjectPage`      | Create a project, with its cover                         |
 | `/projects/:projectId`        | `ProjectPage`            | One project, edited in place, with its sessions          |
-| `/coding`                     | `CodingPage`             | Dockview workspace; `?item=` opens New session started from that item |
+| `/action-items/initiatives/:initiativeId/containers/new` | `NewInitiativeContainerPage` | Follow a Jira epic or filter, or a GitHub milestone or label |
+| `/coding`                     | `CodingPage`             | Dockview workspace; `?item=` redirects to `/coding/new?item=` |
+| `/coding/new`                 | `NewCodingSessionPage`   | New session; `?item=` starts it from that action item    |
 | `/coding/:sessionId`          | `CodingPage`             | Opens session number `sessionId`, then returns to `/coding` |
 | `/studio`                     | `StudioPage`             | Studio items as tiles, filtered from the address         |
+| `/studio/new`                 | `NewStudioItemPage`      | New Studio item, which opens once created                |
 | `/studio/:itemId`             | `StudioItemPage`         | One item: the stage beside its conversation, live or deleted |
 | `/runs`                       | `RunsPage`               | Workflow runs, newest first, a page at a time; members only |
 | `/runs/:runId`                | `RunPage`                | One run: its steps, each opening to its log, and its history |
@@ -236,9 +246,13 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/browsers`          | redirect                 | To `/settings/connectors`                                |
 | `/settings/browsers/:browserSessionId` | `BrowserSignInRedirect` | To the connector that owns the browser, else the list |
 | `/settings/llms`              | `ManageLlmsPage`         | List, activate or deactivate, and delete LLMs            |
-| `/settings/llms/add-<type>`   | `AddLlmPage`             | One per provider, see below                              |
+| `/settings/llms/new/:provider` | `AddLlmPage`            | One per provider, see below                              |
+| `/settings/llms/add-<provider>` | redirect               | To `/settings/llms/new/<provider>`                       |
 | `/settings/llms/:llmId/edit`  | `EditLlmPage`            | Edit a credential; its provider type is fixed            |
 | `/settings/email`             | `ManageEmailPage`        | Mail server and domains, and every kind of mailbox       |
+| `/settings/email/server/new`  | `NewMailServerPage`      | Create the mail server, or try again after it failed     |
+| `/settings/email/domains/new` | `NewMailDomainPage`      | Add a domain to the mail server                          |
+| `/settings/email/mailboxes/new` | `NewMailboxPage`       | Create a mailbox on the mail server                      |
 | `/settings/email/:accountId/edit` | `EditMailboxPage`    | A mailbox's sender name and whether it is active         |
 | `/settings/environment`       | `ManageEnvironmentPage`  | Environment variables every coding session receives     |
 | `/settings/environment/new`   | `AddEnvironmentVariablePage` | Add an environment variable                          |
@@ -418,9 +432,11 @@ Manage LLMs is split into these files:
 - `LlmTable` renders the credentials with uikit's `SmartTable`: search, result count, sorting, and column
   controls. Column widths and order persist in localStorage.
 - `LlmRowActions` is the per-row menu to edit, activate or deactivate, and delete.
-- `AddLlmPage` and `EditLlmPage` are full pages, not modals. Each provider type has its own add page:
-  `add-claude-api-key`, `add-claude-code-oauth`, `add-openai-api-key`, and `add-codex-oauth` (`chatgpt-oauth`),
-  mapped in `llmProviders.ts`.
+- `AddLlmPage` and `EditLlmPage` are full pages, not modals. Each provider type has its own add page under
+  `/settings/llms/new/`, named by its slug in `llmSlugByType` (`llmProviders.ts`): `claude-account`,
+  `claude-api-key`, `claude-code-oauth`, `openai-api-key`, and `codex-oauth` (`chatgpt-oauth`). A slug it does not
+  know goes back to the list, and `/settings/llms/add-<slug>` redirects to the slug's page. A Claude account's page
+  (`ClaudeSignInForm`) has no token to paste: its Save is the step ahead, Start sign-in and then Finish sign-in.
 - `LlmEditorLayout` puts `LlmForm` on the left and `LlmSetupChecklist` on the right: the steps for getting that
   type's token as checkboxes, with commands and links. Commands, paths, and URLs are data in `llmProviders.ts`
   and never translated. Checked steps are not saved.
@@ -459,7 +475,7 @@ soon as the kind changes, mirroring the API. `githubPresentation.ts` holds the l
 `matchesGithubTokenKind`, which checks a token's prefix before the API spends a call on it. An expired token shows a
 danger chip in place of its date. The default token wears a Default chip, and the row menu makes a token the default
 or stops. `src/components/GithubTokenSelect.tsx` picks a token for a project (`ProjectGithubField` on the project
-page, kept by its Save, with a notice when its token was deleted) and for a session (`CreateSessionModal`). Both offer
+page, kept by its Save, with a notice when its token was deleted) and for a session (`CreateSessionForm`). Both offer
 following the level above, no token, or a token by name. See `docs/github.md`. The edit page sits under Connectors in
 the breadcrumbs, and goes back there once saved.
 
@@ -503,18 +519,19 @@ Elysium would refuse is flagged before saving. See `docs/environment.md`.
 
 Email under `src/pages/Settings/Email/` has two sections.
 
-`MailServerSection` follows the mail server's state from Redux. With no server it offers `CreateMailServerModal`
-(first domain, and a hostname that follows it as `mail.<domain>` until edited); while it is created it shows the
-current step from `mailServer.updated` events; once ready it lists domains in `MailDomainTable`, with
-`AddMailDomainModal`, a remove confirmation (which only explains while the domain has mailboxes), and
-`MailDomainDnsModal`, which checks the domain's records through SWR each time it opens and lists them with copy
-buttons (`DnsRecordRow`).
+`MailServerSection` follows the mail server's state from Redux. With no server it links to creating one
+(`NewMailServerPage`, `MailServerForm`: the first domain, and a hostname that follows it as `mail.<domain>` until
+edited, which goes back to Email once creation starts); while it is created it shows the current step from
+`mailServer.updated` events; once ready it lists domains in `MailDomainTable`, with Add domain
+(`NewMailDomainPage`, `MailDomainForm`), a remove confirmation (which only explains while the domain has mailboxes),
+and `MailDomainDnsModal`, which checks the domain's records through SWR each time it opens and lists them with copy
+buttons (`DnsRecordRow`). Each create page says why when the server cannot take what it creates
+(`mailServerBlockerKeys`, `getMailboxBlockerKey` in `mailPresentation.ts`) instead of showing its form.
 
 The mailboxes section shows `MailAccountTable`. `MailboxSourceActions` offers Connect Gmail, Connect Outlook, and
 Create mailbox, disabling each with the reason: no broker (from `GET /api/v1/mail/capabilities`, read through SWR),
-no ready mail server, or no domain. `CreateMailboxModal` picks one of the server's domains. The Connect buttons are
-plain anchors to the API's
-OAuth start route, because the answer is a redirect to the broker; a client-side route change would not follow it.
+no ready mail server, or no domain. Create mailbox links to `NewMailboxPage`, whose `CreateMailboxForm` picks one of
+the server's domains. The Connect buttons are plain anchors to the API's OAuth start route, because the answer is a redirect to the broker; a client-side route change would not follow it.
 `useOAuthOutcomeToast` announces the `mailConnected` or `mailError` the callback returns with, then strips it from
 the URL. The row menu opens the mailbox's edit page, tests the connection, sends a test message, and disconnects;
 the disconnect confirmation says whether mail is deleted (self-hosted) or only forgotten (OAuth). The edit page
@@ -634,8 +651,9 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   one out, adds existing items from a search, and links to a new item started in the initiative.
   `InitiativeContainers` lists the epics, saved filters, milestones, and labels it follows from the `initiativeLinks`
   slice, each with when the watcher last read it or why it could not, and whether it held more than the watcher reads.
-  `AddContainerModal` picks one through `ContainerTargetPicker`: a Jira epic by search, a saved filter from
-  `JiraFilterList`, or a repository's milestone or label from `GithubContainerList`. `containerPresentation.ts` holds
+  Follow opens `NewInitiativeContainerPage`, whose `AddContainerForm` picks one through `ContainerTargetPicker`: a
+  Jira epic by search, a saved filter from `JiraFilterList`, or a repository's milestone or label from
+  `GithubContainerList`, and goes back to the initiative once it follows it. `containerPresentation.ts` holds
   which kinds each provider has.
 - **Changesets** (`ChangesetsPage`, `ChangesetListItem`) lists the changesets waiting for review, then the reviewed
   ones, each with its summary, proposer, when it was proposed, its decisions so far, and its state.
@@ -662,9 +680,8 @@ initiative, and create pages stand on their own with breadcrumbs. The sidebar ke
   (`docs/connectors.md`, Sending). A send that failed shows its reason under the text it kept, with Report. What is
   typed is kept in session storage per record (`REPLY_DRAFT_STORAGE_PREFIX`) until it is sent or discarded.
   `draft.changed` reloads a draft by id, and drops one that is gone.
-- **Start a coding session**, on the item page and in Next, goes to `/coding?item=<id>` (`getNewCodingSessionUrl`). The
-  Coding page opens New session started from the item once Dockview is ready, then returns to `/coding`; see
-  [Coding](#coding).
+- **Start a coding session**, on the item page and in Next, goes to `/coding/new?item=<id>`
+  (`getNewCodingSessionUrl`), New session started from the item; see [Coding](#coding).
 
 The shared `src/components/` pieces are `DayPicker` (a date without a time), `MultiPicker` (tags from a searchable
 list), `OptionSelect` (a labelled select over a short list), and `EmptyNotice` (what a list shows instead of an empty
@@ -704,10 +721,13 @@ matter when changing it:
   uikit holds columns to at least 160 pixels unless a column sets its own bounds, and left-aligns every header, so the
   `#` header carries `.numeric-column-header`, which `src/index.css` moves to the right edge. The tables' storage ids
   end in `.v2`, since uikit appends a column it has not seen to the end of a saved column order.
-- `CreateSessionModal` is the dialog's frame. It holds `CreateSessionForm`, or, for a session started from an action
-  item, `ActionItemSessionForm`, which loads the item first, since the form presets itself from it: the title, the
-  item's projects (`getSessionProjectChoices` in `sessionItemProjects.ts` mirrors the API; an item in one project fixes
-  it), and a required prompt. The form sends the prompt with the create, and the API queues it as the first turn.
+- New session is its own page, `/coding/new` (`NewCodingSessionPage`), in the padded frame rather than the
+  workspace, with the missing credential warning above its form. It holds `CreateSessionForm`, or, with `?item=`,
+  `ActionItemSessionForm`, which loads the item first, since the form presets itself from it: the title, the item's
+  projects (`getSessionProjectChoices` in `sessionItemProjects.ts` mirrors the API; an item in one project fixes it),
+  and a required prompt. The form sends the prompt with the create, and the API queues it as the first turn; then it
+  opens `/coding/<number>`, which focuses the new session's conversation. The header's New session and the empty
+  Sessions panel link to the page, and `/coding?item=<id>` redirects to it.
 - `CreateSessionForm` picks the session's repositories through `SessionRepositoriesField`. `GithubRepositoryPicker`
   is HeroUI's `Autocomplete` in multiple selection over the resolved token's repositories, loaded through SWR under
   `['github-repositories', credentialId]`; its value only counts the picks, since each pick is a row below it

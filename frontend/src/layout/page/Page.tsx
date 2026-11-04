@@ -52,6 +52,7 @@ export function Page(props: Props) {
   const [ isSaving, setIsSaving ] = useState(false)
   const [ isHeaderSaveVisible, setIsHeaderSaveVisible ] = useState(true)
   const [ isCardDismissed, setIsCardDismissed ] = useState(false)
+  const [ isCreateFooterVisible, setIsCreateFooterVisible ] = useState(false)
   const headerSaveRef = useRef<HTMLDivElement>(null)
   // The blocker asks outside of rendering, so it reads the save and its progress from refs.
   const saveRef = useRef<PageSave | null>(null)
@@ -96,9 +97,23 @@ export function Page(props: Props) {
   }, [ t ])
 
   const registry = useMemo<PageSaveRegistry>(() => ({ register, runSave }), [ register, runSave ])
+  // A /new page's Create below its form stands in for the header's Save while it is in view,
+  // so the floating card never offers a third button for the same save.
+  const createFooterRef = useCallback((element: HTMLDivElement | null) => {
+    if (!element) {
+      return undefined
+    }
+    const observer = new IntersectionObserver(([ entry ]) => setIsCreateFooterVisible(entry.isIntersecting))
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+      setIsCreateFooterVisible(false)
+    }
+  }, [])
+
   const saveState = useMemo<PageSaveState>(
-    () => ({ save, isSaving, runSave, backTo }),
-    [ save, isSaving, runSave, backTo ],
+    () => ({ save, isSaving, runSave, backTo, createFooterRef }),
+    [ save, isSaving, runSave, backTo, createFooterRef ],
   )
 
   const shouldBlock = useCallback<BlockerFunction>(({ currentLocation, nextLocation }) => {
@@ -183,7 +198,11 @@ export function Page(props: Props) {
     return () => window.removeEventListener('keydown', onShortcut)
   }, [])
 
-  const showsFloatingCard = save !== null && !isHeaderSaveVisible && !isCardDismissed && save.isDirty
+  const showsFloatingCard = save !== null
+    && !isHeaderSaveVisible
+    && !isCreateFooterVisible
+    && !isCardDismissed
+    && save.isDirty
 
   return <PageSaveContext value={registry}>
     {ownSave && <OwnPageSave save={ownSave} />}

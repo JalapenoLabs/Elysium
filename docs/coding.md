@@ -85,7 +85,7 @@ once, since another credential would fail the same way. When every credential is
 read it from its environment.
 
 With no usable credential a turn still runs once, on whatever login the workspace holds, and normally fails with the
-CLI's "Not logged in". The New session dialog warns before that happens and links to Settings, LLMs; its check
+CLI's "Not logged in". The New session page warns before that happens and links to Settings, LLMs; its check
 (`hasAgentCredential` in `frontend/src/pages/Settings/Llms/llmPresentation.ts`) mirrors the runner's.
 
 ### Claude accounts

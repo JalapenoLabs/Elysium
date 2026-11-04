@@ -24,7 +24,7 @@ export function PageCreateFooter() {
     throw new Error('PageCreateFooter must be rendered inside a Page')
   }
 
-  return <div className='page-create-footer'>
+  return <div ref={state.createFooterRef} className='page-create-footer'>
     {state.backTo && <Link
       href={state.backTo}
       className={buttonVariants({ variant: 'outline' })}

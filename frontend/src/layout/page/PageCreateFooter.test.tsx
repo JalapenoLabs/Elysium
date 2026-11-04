@@ -4,7 +4,7 @@ import type { Mock } from 'vitest'
 
 // Core
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 
@@ -19,6 +19,19 @@ import { TestAriaRouter } from '../../testRouter'
 type Context = {
   // Resolves whether the create went through, as a form's save does.
   onSave: Mock<() => Promise<boolean>>
+  // What each watched element reports to, as scrolling would.
+  observers: Map<Element, IntersectionObserverCallback>
+}
+
+// Reports an element as in or out of view.
+function setVisible(context: Context, element: Element, isVisible: boolean) {
+  const callback = context.observers.get(element)
+  if (!callback) {
+    throw new Error('the element is not observed')
+  }
+  act(() => {
+    callback([ { isIntersecting: isVisible } as IntersectionObserverEntry ], {} as IntersectionObserver)
+  })
 }
 
 type FormProps = {
@@ -70,8 +83,15 @@ function createButtons() {
 describe('PageCreateFooter', () => {
   beforeEach<Context>((context) => {
     context.onSave = vi.fn<() => Promise<boolean>>().mockResolvedValue(true)
+    context.observers = new Map()
     vi.stubGlobal('IntersectionObserver', class {
-      observe() {}
+      private callback: IntersectionObserverCallback
+      constructor(callback: IntersectionObserverCallback) {
+        this.callback = callback
+      }
+      observe(element: Element) {
+        context.observers.set(element, this.callback)
+      }
       disconnect() {}
     })
   })
@@ -123,5 +143,21 @@ describe('PageCreateFooter', () => {
     // Nothing was typed, so there is nothing to lose by leaving.
     fireEvent.click(screen.getByRole('link', { name: 'Back' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/things'))
+  })
+
+  it<Context>('never adds the floating Save while the Create below the form is in view', (context) => {
+    renderNewPage(context)
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Lamp' }})
+
+    const footer = document.querySelector('.page-create-footer')!
+    // The page watches two elements: the header's Save and the footer.
+    const headerSave = [ ...context.observers.keys() ].find((element) => element !== footer)!
+
+    setVisible(context, headerSave, false)
+    setVisible(context, footer, true)
+    expect(screen.queryByRole('region', { name: 'Save changes' })).toBeNull()
+
+    setVisible(context, footer, false)
+    expect(screen.getByRole('region', { name: 'Save changes' })).toBeTruthy()
   })
 })

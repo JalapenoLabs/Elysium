@@ -3,6 +3,8 @@
 import type { FormEvent } from 'react'
 import type { FieldValues, UseFormReturn } from 'react-hook-form'
 
+import type { RefCallback } from 'react'
+
 // Core
 import { createContext, useCallback, useContext, useEffect, useRef } from 'react'
 
@@ -42,6 +44,8 @@ export type PageSaveState = {
   runSave: () => Promise<boolean>
   // Where Back goes: the page's `escapeTo`, or its last parent.
   backTo: string | undefined
+  // Given the footer, so the page knows when its Create is in view.
+  createFooterRef: RefCallback<HTMLDivElement>
 }
 
 export const PageSaveStateContext = createContext<PageSaveState | null>(null)

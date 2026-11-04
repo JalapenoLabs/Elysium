@@ -185,9 +185,9 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
   content fails to load (the provider is down, or the file is gone) shows the empty frame too.
 - **Filters.** A project (or no project) and a Deleted items switch, kept in the address (`?project=`,
   `?deleted=true`), so a filtered grid survives opening an item. Deleted tiles offer Restore.
-- **New item** (`CreateStudioItemForm`). The prompt, an optional title and project, and a storage location. The
-  location list follows the project as the API does, and starts on Studio's default when it is among
-  them (`studioStorage.ts`).
+- **New item** (`/studio/new`, `NewStudioItemPage` holding `CreateStudioItemForm`). The prompt, an optional title
+  and project, and a storage location. The location list follows the project as the API does, and starts on
+  Studio's default when it is among them (`studioStorage.ts`). Creating it opens the item.
 - **No storage.** With no storage location at all, the page shows `StudioNoStorage`, which links to Settings,
   Storage, in place of the grid.
 
