@@ -158,6 +158,18 @@ export const ELYSIA_USER_ID = '00000000-0000-0000-0000-000000000002'
 // person's, so nobody moves it between projects.
 export const PROJECT_MANAGER_USER_ID = '00000000-0000-0000-0000-000000000004'
 
+// Every coding session's agent, as the API seeds it (`CODING_AGENT_USER_ID` in
+// api/src/models/user.rs): a session's turn summaries on its project's timeline are the
+// workspace's, as every session is listed to everyone.
+export const CODING_AGENT_USER_ID = '00000000-0000-0000-0000-000000000003'
+
+// Whose timeline records are the workspace's rather than one person's: Elysium's own agents', which
+// every company member reads (`SHARED_OWNERS` in api/src/models/timeline_record.rs).
+export const WORKSPACE_RECORD_OWNERS: readonly string[] = [
+  PROJECT_MANAGER_USER_ID,
+  CODING_AGENT_USER_ID,
+]
+
 // The zxcvbn score, out of 4, a new password must reach before the form submits.
 export const PASSWORD_MIN_SCORE = 3
 

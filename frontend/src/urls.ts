@@ -127,6 +127,10 @@ export const DONE_TRANSITION_PROJECT_PARAM = 'project'
 // The query parameter that starts a new coding session from an action item.
 export const NEW_SESSION_ITEM_PARAM = 'item'
 
+// The query parameter naming the turn a session's conversation opens at, as a turn summary on a
+// project's timeline links to it.
+export const FOCUS_TURN_PARAM = 'turn'
+
 // The query parameter that holds what the search page searches for. Its kind of result is its
 // open tab (`TAB_PARAM`).
 export const SEARCH_QUERY_PARAM = 'q'
@@ -312,6 +316,16 @@ export function getSecurityTabUrl(tab: 'passkeys' | 'lookup' | 'sessions') {
 
 export function getStudioItemUrl(itemId: string) {
   return UrlTree.studioItem.replace(':itemId', itemId)
+}
+
+// A session's conversation, opened at one of its turns: on the Coding page, or on its Studio
+// item's page for a Studio session.
+export function getSessionTurnUrl(sessionId: number, turnId: string, studioItemId: string | null) {
+  const conversation = studioItemId
+    ? getStudioItemUrl(studioItemId)
+    : getCodingSessionUrl(sessionId)
+  const params = new URLSearchParams({ [FOCUS_TURN_PARAM]: turnId })
+  return `${conversation}?${params.toString()}`
 }
 
 type LoginOptions = {

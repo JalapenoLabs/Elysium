@@ -5,8 +5,12 @@ import type { SessionEvent } from '../../api/routes/codingSessionRoutes'
 import type { TimelineTurn } from './timelineTurns'
 
 // Core
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+
+// Redux
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { selectFocusedTurnId, turnFocusSettled } from '../../store/sessionEventsSlice'
 
 // User interface
 import { Chip, Spinner } from '@heroui/react'
@@ -28,9 +32,12 @@ type Props = {
 
 // One session's events as a conversation, read like a CI log: each prompt stays visible, and
 // the work it started collapses to one row with the turn's summary. It does not scroll by
-// itself, so a page can list several sessions in one scrolling column.
+// itself, so a page can list several sessions in one scrolling column; the one exception is a
+// turn a link asked for (a turn summary on a project's timeline), which opens and scrolls into
+// view once it is here.
 export function TimelineEventList(props: Props) {
   const entries = useMemo(() => groupTimelineTurns(props.events), [ props.events ])
+  const focusedTurnId = useAppSelector(selectFocusedTurnId)
 
   // Some harnesses name the tool only when it starts; completions look the name up here.
   const toolNamesByCallId = useMemo(() => {
@@ -63,6 +70,7 @@ export function TimelineEventList(props: Props) {
         {entry.log.length > 0 && <TurnLog
           turn={entry}
           summary={props.summariesByTurnId[entry.turnId]}
+          isFocused={entry.turnId === focusedTurnId}
         >{
           entry.log.map(renderEvent)
         }</TurnLog>}
@@ -74,15 +82,36 @@ export function TimelineEventList(props: Props) {
 type TurnLogProps = {
   turn: TimelineTurn
   summary: string | undefined
+  // A link asked for this turn: it opens and scrolls into view.
+  isFocused: boolean
   // The turn's events, already rendered.
   children: ReactNode
 }
 
 // A turn's work behind one row. A running turn stays open so its progress shows; a finished
-// one closes to its summary, until the viewer opens it.
+// one closes to its summary, until the viewer opens it, or a link asks for it.
 function TurnLog(props: TurnLogProps) {
   const { t } = useTranslation('coding')
+  const dispatch = useAppDispatch()
+  const rowRef = useRef<HTMLDivElement>(null)
   const [ chosenExpanded, setChosenExpanded ] = useState<boolean | null>(null)
+  const isFocused = props.isFocused
+
+  // Asked for, it opens as if the reader had opened it, and stays open once the ask settles.
+  if (isFocused && chosenExpanded !== true) {
+    setChosenExpanded(true)
+  }
+
+  // Runs after the conversation's own scroll to its latest message, so the asked-for turn is
+  // where the reader lands; scrolling away from the bottom also stops the conversation following.
+  useEffect(() => {
+    if (!isFocused) {
+      return
+    }
+    rowRef.current?.scrollIntoView({ block: 'start' })
+    dispatch(turnFocusSettled())
+  }, [ isFocused, dispatch ])
+
   const completed = props.turn.completed
   const isExpanded = chosenExpanded ?? !completed
   const headline = props.summary
@@ -91,7 +120,7 @@ function TurnLog(props: TurnLogProps) {
       ? t('conversation.turnFinished', { status: t(turnStateLabelKeys[completed.status]).toLowerCase() })
       : t('conversation.turnWorking'))
 
-  return <div className='rounded-lg border border-separator'>
+  return <div ref={rowRef} className='scroll-mt-4 rounded-lg border border-separator'>
     <button
       type='button'
       className='level w-full cursor-pointer gap-2 px-3 py-2 text-left text-sm hover:bg-surface-secondary'

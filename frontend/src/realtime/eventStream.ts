@@ -78,7 +78,7 @@ import {
   EVENT_STREAM_PATH,
   EVENT_STREAM_RETRY_INITIAL_MS,
   EVENT_STREAM_RETRY_MAX_MS,
-  PROJECT_MANAGER_USER_ID,
+  WORKSPACE_RECORD_OWNERS,
 } from '../constants'
 
 // The universal event stream: one EventSource for the whole app, open for as long as
@@ -287,11 +287,12 @@ const handlers: Handlers = {
   },
   // The event carries no content; a page showing its owner's timeline reloads it. The inbox
   // item it raised arrives as its own `actionItem.upserted`.
-  // A Project Manager's records are the workspace's, which its members read.
+  // What Elysium's agents record (a Project Manager's turns, a session's turn summaries) is the
+  // workspace's, which its members read.
   'timelineRecord.created': (event) => {
     const state = store.getState()
     const isOwn = event.data.createdBy === state.auth.me?.user.id
-    const isWorkspaces = event.data.createdBy === PROJECT_MANAGER_USER_ID && selectIsCompanyMember(state)
+    const isWorkspaces = WORKSPACE_RECORD_OWNERS.includes(event.data.createdBy) && selectIsCompanyMember(state)
     if (!isOwn && !isWorkspaces) {
       return
     }

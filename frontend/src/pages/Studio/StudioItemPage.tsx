@@ -1,11 +1,13 @@
 // Copyright © 2026 Jalapeno Labs
 
 // Core
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
+import { useParams, useSearchParams } from 'react-router'
 
 // Redux
-import { useAppSelector } from '../../store/hooks'
+import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { turnFocusRequested } from '../../store/sessionEventsSlice'
 import { selectStudioItemById } from '../../store/studioItemsSlice'
 
 // User interface
@@ -14,15 +16,31 @@ import { StudioItemWorkspace } from './StudioItemWorkspace'
 
 // Misc
 import { useStudioItemLoader } from '../../hooks/useServerData'
-import { UrlTree } from '../../urls'
+import { FOCUS_TURN_PARAM, UrlTree } from '../../urls'
 
 // `/studio/:itemId`: one item, live or deleted. Loads it, then hands it to the workspace,
-// which can rely on it being there.
+// which can rely on it being there. `?turn=<id>` opens its conversation at that turn, as a turn
+// summary on a project's timeline links to it.
 export function StudioItemPage() {
   const { t } = useTranslation('studio')
+  const dispatch = useAppDispatch()
   const itemId = useParams().itemId ?? ''
+  const [ searchParams, setSearchParams ] = useSearchParams()
+  const requestedTurnId = searchParams.get(FOCUS_TURN_PARAM)
   const status = useStudioItemLoader(itemId)
   const item = useAppSelector((state) => selectStudioItemById(state, itemId))
+
+  // Asked for once; the address drops it, so a reload lands on the latest message as usual.
+  useEffect(() => {
+    if (!requestedTurnId) {
+      return
+    }
+    dispatch(turnFocusRequested(requestedTurnId))
+    setSearchParams((params) => {
+      params.delete(FOCUS_TURN_PARAM)
+      return params
+    }, { replace: true })
+  }, [ requestedTurnId, dispatch, setSearchParams ])
 
   if (item) {
     return <StudioItemWorkspace item={item} />

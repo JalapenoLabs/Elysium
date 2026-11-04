@@ -1037,7 +1037,10 @@ matter when changing it:
   props. Page actions reach them through `CodingActionsContext`.
 - `/coding/<number>` (`getCodingSessionUrl`) opens that session's conversation once Dockview and the sessions are both
   loaded, then replaces the address with `/coding`; a number no session has goes straight to `/coding`. The project
-  page links sessions this way.
+  page links sessions this way. `?turn=<id>` (`getSessionTurnUrl`) also asks for one of its turns: the ask is held in
+  Redux (`sessionEvents.focusedTurnId`), never in the panel's saved parameters, so a reload does not ask again, and the
+  `TimelineEventList` holding that turn opens it and scrolls it into view once its history is there, then settles the
+  ask. Scrolling away from the bottom stops the conversation following new messages, as a reader scrolling up does.
 - The Sessions panel shows its sessions as a table or as tiles. `SessionsToolbar` is the panel's titlebar for both:
   `ListSearchField`, the result count, the table's filters, Columns, and export, and, on the right, a Table and Tiles
   switch (HeroUI's `ToggleButtonGroup`, as on the Projects page). Search matches the number, title, project, state,
@@ -1104,7 +1107,8 @@ matter when changing it:
 - **Deletes.** `studioItem.deleted` carries only an id, so, as for action items, it revalidates the deleted list
   and the item's own page.
 - **Reuse from Coding.** The conversation reuses `TimelineEventList` and `useFollowingScroll`, and the composer
-  reuses `PromptComposer` and its `sendBlocker`, which disables Send with the reason in a tooltip.
+  reuses `PromptComposer` and its `sendBlocker`, which disables Send with the reason in a tooltip. `/studio/<id>?turn=<id>`
+  asks for one of the item's turns the way the Coding page does, then drops the parameter from the address.
 - **Pure logic.** Grouping files by stem, the stage's default subject, layout modes and the stored layout, tile
   thumbnails, filters, location choices, and drawing geometry are pure modules with tests
   beside them.
@@ -1194,8 +1198,10 @@ Promises (`PromisesTable`) is a `SmartTable` of the promises it keeps: what was 
 conversation, opening in a new tab), the work it waits on (a batch by title, or an item linking to it), its state with
 a link to its follow-up once drafted, and when it was made. All three read Redux, loaded by `useProjectManagerLoader`
 and kept current by `projectManager.changed`, which reloads the project's Project Manager and any turn open on its
-page. A Project Manager's own records on the Timeline tab show
-neither Reply nor the project controls: they are the workspace's, on their own project.
+page. What Elysium's agents put on the Timeline tab (a Project Manager's records, and a session's turn summaries,
+`WORKSPACE_RECORD_OWNERS`) shows neither Reply nor the project controls: it is the workspace's, on its own project. A
+turn summary links to its session's conversation at that turn, "Open in session 12", on the Coding page or its Studio
+item's page (`turnSummarySession`).
 
 `src/components/InlineEditableText.tsx` shows a field of the page's form as text that becomes its own editor when
 clicked, in the same typography. Every keystroke changes the form. Enter finishes a single line, Ctrl or Cmd with

@@ -12,6 +12,7 @@ import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router'
 // Redux
 import { codingSessionDeleted, selectCodingSessionById } from '../../store/codingSessionsSlice'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
+import { turnFocusRequested } from '../../store/sessionEventsSlice'
 
 // User interface
 import { buttonVariants, Link, useOverlayState } from '@heroui/react'
@@ -30,7 +31,7 @@ import { deleteCodingSession } from '../../api/routes/codingSessionRoutes'
 import { listFormat } from '../../format/intl'
 import { useConfirm } from '../../hooks/useConfirm'
 import { useCodingSessionsLoader } from '../../hooks/useServerData'
-import { getNewCodingSessionUrl, NEW_SESSION_ITEM_PARAM, UrlTree } from '../../urls'
+import { FOCUS_TURN_PARAM, getNewCodingSessionUrl, NEW_SESSION_ITEM_PARAM, UrlTree } from '../../urls'
 import { CodingActionsContext } from './codingActionsContext'
 import {
   CODING_PANEL_COMPONENTS,
@@ -55,8 +56,9 @@ const panelComponents = {
 // conversation panel per open session, arranged however the user drags them. The
 // layout persists per browser. This page owns the dialogs; panels open them through
 // CodingActionsContext. `/coding/<number>` opens that session's conversation once the
-// workspace and the session are both loaded, then returns to `/coding`. New session is its
-// own page, `/coding/new`, where a link to `/coding?item=<id>` lands too.
+// workspace and the session are both loaded, at the turn `?turn=<id>` names if it names one,
+// then returns to `/coding`. New session is its own page, `/coding/new`, where a link to
+// `/coding?item=<id>` lands too.
 export function CodingPage() {
   const { t } = useTranslation([ 'coding', 'common' ])
   const dispatch = useAppDispatch()
@@ -67,6 +69,7 @@ export function CodingPage() {
   const params = useParams()
   const [ searchParams ] = useSearchParams()
   const requestedItemId = searchParams.get(NEW_SESSION_ITEM_PARAM)
+  const requestedTurnId = searchParams.get(FOCUS_TURN_PARAM)
   const requestedSessionId = Number(params.sessionId)
   const sessionsStatus = useCodingSessionsLoader()
   const requestedSession = useAppSelector((state) => selectCodingSessionById(state, requestedSessionId))
@@ -160,6 +163,9 @@ export function CodingPage() {
       return
     }
     if (requestedSession) {
+      if (requestedTurnId) {
+        dispatch(turnFocusRequested(requestedTurnId))
+      }
       openConversation(dockviewApiRef.current, requestedSession)
     }
     else if (sessionsStatus === 'loading') {
@@ -169,7 +175,7 @@ export function CodingPage() {
       console.debug('CodingPage was linked to a session it cannot find', { sessionId: params.sessionId })
     }
     navigate(UrlTree.coding, { replace: true })
-  }, [ params.sessionId, isDockviewReady, requestedSession, sessionsStatus, navigate ])
+  }, [ params.sessionId, isDockviewReady, requestedSession, requestedTurnId, sessionsStatus, dispatch, navigate ])
 
 
   function onReady(event: DockviewReadyEvent) {

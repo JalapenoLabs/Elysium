@@ -11,7 +11,11 @@
     "slack": "Slack",
     "mail": "Mail",
     "project_manager": "Project Manager",
+    "turn_summary": "Agent turn",
     "other": "Record"
+  },
+  "turnSummary": {
+    "open": "Open in session {{number}}"
   },
   "segment": {
     "inMeeting": "In {{meeting}}, {{start}} to {{end}}",

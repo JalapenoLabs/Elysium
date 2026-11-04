@@ -5,7 +5,8 @@ import type { AttributionHistoryEntry, Attribution, TimelineRecord } from '../..
 import type { Project } from '../../api/routes/projectRoutes'
 
 // Misc
-import { ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID } from '../../constants'
+import { ELYSIA_USER_ID, WORKSPACE_RECORD_OWNERS } from '../../constants'
+import { getSessionTurnUrl } from '../../urls'
 
 // What each kind of record is called. A kind added later reads as a plain record until it
 // gets its own name.
@@ -17,6 +18,7 @@ const sourceLabelKeys: Record<string, ParseKeys<'timeline'>> = {
   slack: 'sources.slack',
   mail: 'sources.mail',
   project_manager: 'sources.project_manager',
+  turn_summary: 'sources.turn_summary',
 }
 
 export function sourceLabelKey(sourceKind: string): ParseKeys<'timeline'> {
@@ -37,10 +39,31 @@ export function segmentDetails(record: TimelineRecord) {
   } as const
 }
 
-// Whether a record is the workspace's rather than one person's: what a Project Manager put on
-// its project's timeline. Nobody answers it or moves it between projects.
+// Whether a record is the workspace's rather than one person's: what a Project Manager or a
+// coding session put on its project's timeline. Nobody answers it or moves it between projects.
 export function isWorkspaceRecord(record: TimelineRecord): boolean {
-  return record.createdBy === PROJECT_MANAGER_USER_ID
+  return WORKSPACE_RECORD_OWNERS.includes(record.createdBy)
+}
+
+// The session a turn summary's record is of, and where its conversation opens at that turn, from
+// what its metadata names (`crate::sessions::timeline`); `null` for any other record, or one
+// whose metadata does not name them.
+export function turnSummarySession(record: TimelineRecord) {
+  if (record.sourceKind !== 'turn_summary') {
+    return null
+  }
+  const { sessionId, turnId, studioItemId } = record.metadata
+  if (typeof sessionId !== 'number' || typeof turnId !== 'string') {
+    console.debug('turnSummarySession met a turn summary naming no session or turn', { recordId: record.id })
+    return null
+  }
+  const itemId = typeof studioItemId === 'string'
+    ? studioItemId
+    : null
+  return {
+    sessionId,
+    url: getSessionTurnUrl(sessionId, turnId, itemId),
+  } as const
 }
 
 // Whether a clip plays as video; anything else plays as audio.

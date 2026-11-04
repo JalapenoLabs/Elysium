@@ -6,7 +6,7 @@ import type { AttributionHistoryEntry, TimelineRecord } from '../../api/routes/t
 import { describe, expect, it } from 'vitest'
 
 // Misc
-import { ELYSIA_USER_ID } from '../../constants'
+import { CODING_AGENT_USER_ID, ELYSIA_USER_ID, PROJECT_MANAGER_USER_ID } from '../../constants'
 import { makeProject } from '../../testFixtures'
 import {
   boundedConfidence,
@@ -14,8 +14,10 @@ import {
   isElysiaAttribution,
   isVideoClip,
   projectsToAdd,
+  isWorkspaceRecord,
   segmentDetails,
   sourceLabelKey,
+  turnSummarySession,
 } from './timelinePresentation'
 
 function record(overrides: Partial<TimelineRecord> = {}): TimelineRecord {
@@ -131,5 +133,53 @@ describe('describeAttributionChange', () => {
     expect(describeAttributionChange(entry({ ...theirs, kind: 'unattributed', after: null })).key)
       .toBe('history.removed')
     expect(describeAttributionChange(entry({ ...theirs, undid: 'entry-0' })).key).toBe('history.undid')
+  })
+})
+
+// #193: a session's turn summaries are the workspace's records, and each opens its session at
+// that turn.
+describe('turnSummarySession', () => {
+  function summary(metadata: Record<string, unknown>): TimelineRecord {
+    return record({
+      sourceKind: 'turn_summary',
+      connectorId: null,
+      externalId: 'turn:turn-7',
+      actor: 'Session 12',
+      title: 'Fixed the login form.',
+      body: '',
+      metadata,
+      createdBy: CODING_AGENT_USER_ID,
+    })
+  }
+
+  it('opens a Coding session on the Coding page at its turn', () => {
+    expect(turnSummarySession(summary({ sessionId: 12, turnId: 'turn-7', studioItemId: null }))).toEqual({
+      sessionId: 12,
+      url: '/coding/12?turn=turn-7',
+    })
+  })
+
+  it('opens a Studio session on its item\'s page at its turn', () => {
+    const studio = summary({ sessionId: 12, turnId: 'turn-7', studioItemId: 'item-3' })
+    expect(turnSummarySession(studio)?.url).toBe('/studio/item-3?turn=turn-7')
+  })
+
+  it('answers nothing for another kind of record, or a summary naming no turn', () => {
+    expect(turnSummarySession(record())).toBeNull()
+    expect(turnSummarySession(summary({ sessionId: 12 }))).toBeNull()
+  })
+})
+
+describe('isWorkspaceRecord', () => {
+  it('reads what Elysium\'s agents record as the workspace\'s, and a person\'s as theirs', () => {
+    expect(isWorkspaceRecord(record({ createdBy: CODING_AGENT_USER_ID }))).toBe(true)
+    expect(isWorkspaceRecord(record({ createdBy: PROJECT_MANAGER_USER_ID }))).toBe(true)
+    expect(isWorkspaceRecord(record())).toBe(false)
+  })
+})
+
+describe('sourceLabelKey for agents\' records', () => {
+  it('names a turn summary', () => {
+    expect(sourceLabelKey('turn_summary')).toBe('sources.turn_summary')
   })
 })

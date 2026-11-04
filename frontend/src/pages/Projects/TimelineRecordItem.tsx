@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 
 // User interface
 import { Button, Chip, Link } from '@heroui/react'
-import { LuExternalLink } from 'react-icons/lu'
+import { LuExternalLink, LuSquareTerminal } from 'react-icons/lu'
 import { RecordProjects } from './RecordProjects'
 import { SegmentClip } from './SegmentClip'
 import { RecordReply } from '../../replies/RecordReply'
@@ -16,7 +16,7 @@ import { RecordReply } from '../../replies/RecordReply'
 // Misc
 import { formatDateTime } from '../../format/dates'
 import { formatMediaPosition } from '../../format/durations'
-import { isWorkspaceRecord, segmentDetails, sourceLabelKey } from './timelinePresentation'
+import { isWorkspaceRecord, segmentDetails, sourceLabelKey, turnSummarySession } from './timelinePresentation'
 
 type Props = {
   record: TimelineRecord
@@ -24,14 +24,16 @@ type Props = {
 
 // One record, on a project's timeline or a meeting's topics. A meeting segment shows its
 // summary, its clip, and its transcript excerpt on request; other records show their text, and a
-// message can be answered with Reply. Below, the projects it is on, which the person corrects. A
-// Project Manager's record is the workspace's, on its own project, so it shows neither.
+// message can be answered with Reply, and an agent's turn opens its session at that turn. Below,
+// the projects it is on, which the person corrects. What Elysium's agents record is the
+// workspace's, on its own project, so it shows neither.
 export function TimelineRecordItem(props: Props) {
   const { t } = useTranslation([ 'timeline', 'common' ])
   const [ showsTranscript, setShowsTranscript ] = useState(false)
   const record = props.record
   const details = segmentDetails(record)
   const media = record.media
+  const turnSession = turnSummarySession(record)
 
   return <li className='rounded-xl border border-separator bg-surface p-4'>
     <div className='level items-start gap-3'>
@@ -61,6 +63,13 @@ export function TimelineRecordItem(props: Props) {
       >
         <span>{t('openSource')}</span>
         <LuExternalLink className='size-3.5' aria-hidden />
+      </Link>}
+      {turnSession && <Link
+        href={turnSession.url}
+        className='shrink-0 gap-1 text-sm'
+      >
+        <LuSquareTerminal className='size-3.5' aria-hidden />
+        <span>{t('turnSummary.open', { number: turnSession.sessionId })}</span>
       </Link>}
     </div>
 

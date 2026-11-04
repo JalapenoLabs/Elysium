@@ -5,14 +5,14 @@ import type { KnowledgePassage } from '../../api/routes/knowledgeRoutes'
 import type { IconType } from 'react-icons'
 
 // User interface
-import { LuBuilding2, LuFileText, LuLightbulb, LuSend, LuVideo } from 'react-icons/lu'
+import { LuBuilding2, LuFileText, LuLightbulb, LuSend, LuSquareTerminal, LuVideo } from 'react-icons/lu'
 
 // Misc
 import { connectorLogos } from '../Settings/Connectors/connectorLogos'
 
 // Every source the index holds documents of today, as `knowledge_documents.source` names them
 // (docs/knowledge.md, What is indexed), in the order the filters offer them: mail, chat,
-// pages and issues, meetings, then what lives in Elysium.
+// pages and issues, meetings, then what lives in Elysium, its agents' turns first.
 export const KNOWLEDGE_SOURCES = [
   'outlook',
   'gmail',
@@ -22,6 +22,7 @@ export const KNOWLEDGE_SOURCES = [
   'confluence',
   'youtrack',
   'meeting',
+  'turn_summary',
   'learning',
   'company_doc',
 ] as const
@@ -43,6 +44,7 @@ const presentationBySource = {
   confluence: { labelKey: 'sources.confluence', ...connectorLogos.confluence },
   youtrack: { labelKey: 'sources.youtrack', ...connectorLogos.youtrack },
   meeting: { labelKey: 'sources.meeting', icon: LuVideo, className: '' },
+  turn_summary: { labelKey: 'sources.turn_summary', icon: LuSquareTerminal, className: '' },
   learning: { labelKey: 'sources.learning', icon: LuLightbulb, className: '' },
   company_doc: { labelKey: 'sources.company_doc', icon: LuBuilding2, className: '' },
 } as const satisfies Record<KnowledgeSource, SourcePresentation>

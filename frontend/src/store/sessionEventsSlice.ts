@@ -28,10 +28,14 @@ export type SessionTimeline = {
 
 type SessionEventsState = {
   bySessionId: Record<number, SessionTimeline>
+  // The turn a link asked a conversation to open at, until the conversation showing it has.
+  // Turn ids are unique across sessions, so one is enough for whichever conversation holds it.
+  focusedTurnId: string | null
 }
 
 const initialState: SessionEventsState = {
   bySessionId: {},
+  focusedTurnId: null,
 }
 
 export const sessionEventsSlice = createSlice({
@@ -74,6 +78,14 @@ export const sessionEventsSlice = createSlice({
         return
       }
       timeline.summariesByTurnId[action.payload.turnId] = action.payload.summary
+    },
+    // A link, such as a turn summary on a project's timeline, asked for this turn.
+    turnFocusRequested(state, action: PayloadAction<string>) {
+      state.focusedTurnId = action.payload
+    },
+    // The conversation holding the turn opened it and scrolled to it.
+    turnFocusSettled(state) {
+      state.focusedTurnId = null
     },
     // A conversation panel closed; its events are not worth keeping in memory.
     sessionTimelineReleased(state, action: PayloadAction<number>) {
@@ -139,9 +151,15 @@ export const {
   sessionHistoryLoaded,
   sessionEventReceived,
   turnSummaryReceived,
+  turnFocusRequested,
+  turnFocusSettled,
   sessionTimelineReleased,
 } = sessionEventsSlice.actions
 
 export function selectSessionTimeline(state: RootState, sessionId: number) {
   return state.sessionEvents.bySessionId[sessionId]
+}
+
+export function selectFocusedTurnId(state: RootState) {
+  return state.sessionEvents.focusedTurnId
 }

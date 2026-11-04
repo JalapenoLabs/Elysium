@@ -188,6 +188,9 @@ Everything else follows these rules:
 - Every completed or failed turn is summarized in one or two sentences by a small model, as a text turn on the runner
   (no tools, no settings, its own conversation), and the conversation collapses each turn to that summary. A summary
   that fails is logged and left out; it never changes the turn.
+- A summary of a session with a project is a timeline record of that project in the same transaction, one per turn,
+  owned by the coding agent's machine user and read by every member, indexed for search, and opening the session at
+  that turn. It wakes no Project Manager. See `docs/knowledge.md`, Turn summaries.
 
 ## Mail
 

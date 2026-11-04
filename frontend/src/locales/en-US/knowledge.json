@@ -78,6 +78,7 @@
     "confluence": "Confluence",
     "youtrack": "YouTrack",
     "meeting": "Meetings",
+    "turn_summary": "Agent turns",
     "learning": "Learnings",
     "company_doc": "Company doc"
   },
