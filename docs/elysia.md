@@ -11,6 +11,8 @@ doc is what is built and what comes next.
   conversation or her activity.
 - **The conversation** takes a person's message and queues a turn; her reply joins the conversation when the turn
   ends.
+- **Asking her from search**: the topbar's search ends with "Ask Elysia about…", which opens her panel on the
+  conversation and sends what was typed as the person's message (`docs/frontend.md`, Global search).
 - **Her questions** can be answered with one of her suggestions or in a person's own words, or dismissed. An answer
   queues a turn so she continues the work it was about.
 - **The intake** listens to the event stream and queues `event` turns for what can mean work for her (see
@@ -172,7 +174,6 @@ The Elysia milestone holds each of these as an issue.
 - Her memory of the person: preferences, how they like things written, who matters, and corrections they made, kept
   as a document they can read and edit, apart from the company doc.
 - Proactive reporting: she announces the work she starts with an estimate, and says when it is ready.
-- Notifications away from the page through web push and an installable app. Asking her from the navbar's global
-  search, which is Elysium's one way to reach anything (there is no separate `ctrl+P` palette).
+- Notifications away from the page through web push and an installable app.
 - A configurable name, voice, and persona, "Elysia" by default, changed everywhere she appears.
 - Her turns' full logs, through Activity (`docs/activity.md`).

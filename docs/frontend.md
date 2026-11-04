@@ -62,12 +62,11 @@ Code here keeps to it:
   - **Motion.** Collapsing, hovering, and the current page's bar animate in about 200ms. Every transition carries
     `motion-reduce:transition-none`, which HeroUI's variant applies under `prefers-reduced-motion` and under
     `data-reduce-motion`. All of it is classes, never injected styles.
-- `Topbar` spans the content column. It has a search field and, on the right, the Elysia button, the live updates
-  dot, the settings gear, the notification bell (`NotificationBell`, see Toasts), and the account menu (`UserMenu`),
-  its avatar named in a tooltip: the person's name in
-  small bold and their email in smaller italic, a divider, My account and Security as links, then Sign out below a
-  divider, which asks in a dialog first; each item has an icon. Pressing `/` outside a text field focuses search. Search itself does nothing yet. The dot is
-  green while the event stream is connected and amber while it reconnects.
+- `Topbar` spans the content column. It has the global search (`GlobalSearch`, see Global search) and, on the right,
+  the Elysia button, the live updates dot, the settings gear, the notification bell (`NotificationBell`, see Toasts),
+  and the account menu (`UserMenu`), its avatar named in a tooltip: the person's name in small bold and their email in
+  smaller italic, a divider, My account and Security as links, then Sign out below a divider, which asks in a dialog
+  first; each item has an icon. The dot is green while the event stream is connected and amber while it reconnects.
 - `ElysiaPanel` (`src/elysia/`) is on the right while it is open: her status, questions, work, and the
   conversation or her activity. `AppShell` places it: beside the page from `2xl` up, floating over the page's right
   edge below that (pages lay out by viewport breakpoints, so squeezing them beside a 26rem panel breaks their
@@ -240,6 +239,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/studio/:itemId`             | `StudioItemPage`         | One item: the stage beside its conversation, live or deleted |
 | `/runs`                       | `RunsPage`               | Workflow runs, newest first, a page at a time; members only |
 | `/runs/:runId`                | `RunPage`                | One run: its steps, each opening to its log, and its history |
+| `/search`                     | `SearchPage`             | Every search result for `?q=`, as the topbar's View all opens it |
 | `/settings`                   | `SettingsDirectoryPage`  | Stripe-style directory; reached from the topbar gear     |
 | `/settings/account`           | `AccountPage`            | My account: name and email, and the light, dark, or system theme |
 | `/settings/profile`           | redirect                 | To `/settings/account`                                   |
@@ -406,6 +406,44 @@ offers them in autofill. See `docs/auth.md`.
 See `docs/mcp.md`.
 
 ## Pages and components
+
+### Global search
+
+The topbar's search (`src/search/`) is Elysium's one way to reach anything (`~/.claude/docs/ux.md`, Global
+searchbars); there is no separate command palette.
+
+- **Keys.** `/` outside a text field focuses it. Ctrl+F is left to a page's own table search (uikit's `focusHotkey`).
+  While typing, the arrow keys move through the results (React Aria's `Autocomplete` over a `Menu`, focus staying in
+  the field), Enter opens the one highlighted, the first by default, and Esc clears the field, then leaves it; an Esc
+  it used never reaches the page's Esc (`readPageShortcut`).
+- **Results.** The closest five, in sections by kind (Pages, Actions), each with its icon and the page it sits under,
+  then View all, a link to `/search?q=`, and Ask Elysia about what was typed. Nothing matching says so, above Ask
+  Elysia. Choosing a result, clicking anywhere else, or tabbing away clears it. Every result that goes somewhere is a
+  real link; an action runs in place, and one that needs it asks first, as Sign out does. On phones the results span
+  the screen under the topbar.
+- **The search page.** `SearchPage` shows every result for `?q=` in the same sections, then Ask Elysia. Typing
+  replaces the address, so Back leaves the page.
+- **Registering.** Each part of the app lists its own pages and actions in a `searchEntries.ts` beside it, exporting
+  `searchEntries: SearchEntry[]`; `searchRegistry.ts` gathers every such file with `import.meta.glob`, so a new page
+  shows up by adding that file, never by editing a central list. Those files hold only links, icons, and translation
+  keys, since they load with the app. An entry is a page (`href`) or an action (`href` to a create page, or `run`,
+  which receives the store's `dispatch` and the confirm dialog). Links are parameterless `UrlTree` paths, with a query
+  where one opens a tab (`getSecurityTabUrl`). `searchRegistry.test.ts` checks ids, links, and keys.
+- **Words.** An entry's title and the page it sits under reuse its area's own keys, spelled with their namespace;
+  hidden tags, one string of words per entry, are in its translations (`search:tags.*` today), so each language lists
+  its own synonyms: "2FA" finds Two-factor authentication, "log out" finds Sign out. `audience` (`members`, `admins`)
+  leaves out what the viewer's role cannot open, as the sidebar and the settings directory do.
+- **Matching.** `searchMatch.ts`: every typed word must begin a word of the title, the tags, or the parent, accents
+  and punctuation ignored; the title counts most, then tags, then the parent, and a title that begins with what was
+  typed ranks first. Ties read alphabetically (`searchRanking.ts`).
+- **Sources.** `useGlobalSearch(query)` merges every source into one ranked list. A source answers
+  `{ results, isLoading }` (`SearchSourceAnswer`) with results in the shared `SearchResult` shape. The registry
+  answers at once in the browser. A source that asks the API joins there, waiting 300ms after typing stops and
+  cancelling the request a newer query replaces; while any source loads, the field's magnifying glass is a spinner and
+  the results show Loading…. Its results take a `SearchGroup` of their own, named in `searchGroupLabelKeys`.
+- **Ask Elysia.** `useAskElysia` opens her panel on the conversation (`elysiaSlice`'s `panelView`) and sends what was
+  typed as the person's message, which queues her turn. A message that fails to send says so in a toast and stays
+  typed in the search.
 
 ### Confirm and prompt gates
 
@@ -948,7 +986,7 @@ Selectors return existing references; never build objects or strings inside one.
 | `actionItemLinks` | Links of the items viewed, the primary first, then oldest first         |
 | `changesets`     | Every changeset, newest first                                           |
 | `runs`           | Runs read so far, newest first, the steps and history of the runs viewed, and the logs opened |
-| `elysia`         | Elysia at a glance, her conversation oldest first, her turns newest first, and whether her panel is open |
+| `elysia`         | Elysia at a glance, her conversation oldest first, her turns newest first, and whether her panel is open and on what |
 | `initiativeLinks` | Containers of the initiatives viewed, oldest first                     |
 | `initiatives`    | Live and deleted initiatives in separate halves, by name                |
 | `llms`           | LLM credentials, sorted by priority                                     |
@@ -1140,7 +1178,7 @@ first render.
 - `en-US` is the source locale and the only one shipped today.
 - Namespaces are one file each under `src/locales/en-US/`: `common`, `navigation`, `settings`, `llms`,
   `email`, `storage`, `github`, `jira`, `environment`, `learnings`, `projects`, `coding`,
-  `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`, `runs`.
+  `actionItems`, `initiatives`, `changesets`, `studio`, `elysia`, `runs`, `search`.
 - `src/@types/i18next.d.ts` types every key, so a missing or misspelled key fails `yarn typecheck`.
 - Enum values such as LLM types and statuses are translated through lookup tables typed with
   `satisfies Record<..., ParseKeys<'llms'>>`.
@@ -1214,5 +1252,6 @@ components are tested; pages are checked in the running app.
 
 - Additional locales, once the product adopts them.
 - Tests for the older areas' pure logic, such as the timeline merge in `sessionEventsSlice`.
-- Search results behind the topbar field.
+- Search results for action items, projects, coding sessions, and initiatives, from the API, beside the pages and
+  actions.
 - The theme preference moving from each browser to the person's profile.
