@@ -9,7 +9,7 @@
 //!   ([`crate::workflows::Step::AGENT_KIND`]), named by its step name, such as
 //!   `correct_transcript`;
 //! - **an agent outside the step framework** ([`Agent`]): Elysia, coding sessions, Studio
-//!   sessions, and turn summaries.
+//!   sessions, turn summaries, and the knowledge base's answers to questions.
 //!
 //! Every agent belongs to one [`AgentKind`]: the workers, the Project Managers, correction,
 //! segmenting, triage, Elysia, and the summaries. A kind is what an admin tunes once for all of
@@ -122,7 +122,8 @@ pub enum AgentKind {
     Correction,
     /// Cutting a meeting's transcript or a conversation into topics attributed to projects.
     Segmenting,
-    /// Deciding what a message or conversation asks for and who it is for.
+    /// Reading what was said across the workspace: deciding what a message or conversation asks
+    /// for and who it is for, and answering questions asked of the knowledge base from it.
     Triage,
     /// Elysia's own turns, and the work she does in her name, such as reviewing the company doc.
     Elysia,
@@ -208,15 +209,19 @@ pub enum Agent {
     /// The one or two sentence summary of each finished session turn
     /// (`crate::sessions::summary`).
     TurnSummary,
+    /// The answer to a question someone asked the knowledge base, written from the passages its
+    /// search found (`crate::knowledge::answerer`).
+    KnowledgeAsk,
 }
 
 impl Agent {
     /// Every agent, in the order the settings page lists them.
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Elysia,
         Self::CodingSession,
         Self::StudioSession,
         Self::TurnSummary,
+        Self::KnowledgeAsk,
     ];
 
     /// The agent's name in code, which its setting is filed under.
@@ -226,6 +231,7 @@ impl Agent {
             Self::CodingSession => "coding_session",
             Self::StudioSession => "studio_session",
             Self::TurnSummary => "turn_summary",
+            Self::KnowledgeAsk => "knowledge_ask",
         }
     }
 
@@ -235,6 +241,9 @@ impl Agent {
             Self::Elysia => AgentKind::Elysia,
             Self::CodingSession | Self::StudioSession => AgentKind::Worker,
             Self::TurnSummary => AgentKind::Summaries,
+            // Reading what was said across the whole workspace, for no one project, and answering
+            // only with what it says: triage's work, which a person reads and acts on.
+            Self::KnowledgeAsk => AgentKind::Triage,
         }
     }
 }
@@ -794,6 +803,11 @@ mod tests {
         assert_eq!(Agent::StudioSession.kind(), AgentKind::Worker);
         assert_eq!(Agent::TurnSummary.kind(), AgentKind::Summaries);
         assert_eq!(Agent::Elysia.kind(), AgentKind::Elysia);
+        assert_eq!(Agent::KnowledgeAsk.kind(), AgentKind::Triage);
+        assert!(
+            !Agent::KnowledgeAsk.kind().runs_in_projects(),
+            "an ask reads the whole knowledge base"
+        );
     }
 
     #[test]

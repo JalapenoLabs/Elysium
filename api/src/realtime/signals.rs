@@ -52,6 +52,8 @@ pub enum Signal {
     /// A workflow run was started, or a person retried, skipped, or resumed one of its steps:
     /// the engine's step workers claim what is due now.
     Workflows,
+    /// Someone asked the knowledge base a question: the engine's answerer takes it now.
+    KnowledgeAsks,
     /// Someone asked for connector `connector_id` to be read now.
     ConnectorSync { connector_id: Uuid },
     /// A request to the password vault, sealed for the engine. See `crate::passwords::remote`.

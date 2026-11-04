@@ -2,7 +2,8 @@
 
 //! The knowledge tools: their names and schemas, and, driven through the router at `/api/mcp`
 //! (#96), a member's client finding, opening, and listing what a coworker recorded, a guest's
-//! client refused every tool, and a client's searches spending the person's one budget.
+//! client refused every tool, a client's searches spending the person's one budget, and a
+//! client asking for a written answer (#97).
 //!
 //! The router tests are `#[ignore]`d so `cargo test` stays hermetic;
 //! `api/scripts/verify-migrations.sh` runs them.
@@ -31,15 +32,21 @@ fn the_tools_are_listed_under_the_names_the_knowledge_base_gives_them() {
         .into_iter()
         .map(|tool| tool.name.to_string())
         .collect();
-    assert_eq!(names.len(), 3);
-    for name in ["knowledge_search", "knowledge_get", "meetings_list"] {
+    assert_eq!(names.len(), 5);
+    for name in [
+        "knowledge_search",
+        "knowledge_get",
+        "meetings_list",
+        "knowledge_ask",
+        "knowledge_ask_get",
+    ] {
         assert!(names.contains(&name.to_owned()), "{name}: {names:?}");
     }
 }
 
 #[test]
 fn every_argument_is_described_and_no_other_is_taken() {
-    let expected: [(&str, &[&str]); 3] = [
+    let expected: [(&str, &[&str]); 5] = [
         (
             "knowledge_search",
             &[
@@ -54,6 +61,11 @@ fn every_argument_is_described_and_no_other_is_taken() {
             "meetings_list",
             &["from", "to", "person", "project", "limit"],
         ),
+        (
+            "knowledge_ask",
+            &["question", "sources", "project", "person", "from", "to"],
+        ),
+        ("knowledge_ask_get", &["id"]),
     ];
     let tools = Workspace::knowledge_router().list_all();
     for (name, arguments) in expected {
@@ -212,6 +224,11 @@ async fn a_guests_client_is_refused_every_knowledge_tool() {
         ("knowledge_search", json!({ "query": "launch" })),
         ("knowledge_get", json!({ "documentId": document_id })),
         ("meetings_list", json!({})),
+        (
+            "knowledge_ask",
+            json!({ "question": "When is the launch?" }),
+        ),
+        ("knowledge_ask_get", json!({ "id": Uuid::now_v7() })),
     ] {
         let refused = call(&state, &bearer, tool, arguments).await;
         assert_eq!(refused["isError"], true, "{tool}: {refused}");
@@ -252,4 +269,42 @@ async fn a_clients_searches_spend_the_persons_one_budget() {
         StatusCode::TOO_MANY_REQUESTS,
         "the browser spends the same budget"
     );
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+async fn a_client_asks_and_reads_its_answer_back_as_the_person() {
+    let (url, _connection) = migrated_database().await;
+    let state = app_state(&url).await;
+    let bearer = mcp_bearer(&state, &[SCOPE_READ]).await;
+    // Nothing the search finds answers it, so it is answered within the call, without a turn.
+    let asked = call(
+        &state,
+        &bearer,
+        "knowledge_ask",
+        json!({ "question": "What is ZZZ-999?" }),
+    )
+    .await;
+    let asked = &content(&asked)["ask"];
+    assert_eq!(asked["state"], "answered", "{asked}");
+    assert_eq!(asked["answer"]["claims"], json!([]));
+
+    let read = call(
+        &state,
+        &bearer,
+        "knowledge_ask_get",
+        json!({ "id": asked["id"] }),
+    )
+    .await;
+    assert_eq!(content(&read)["ask"], *asked, "the same ask, read back");
+
+    let missing = call(
+        &state,
+        &bearer,
+        "knowledge_ask_get",
+        json!({ "id": Uuid::now_v7() }),
+    )
+    .await;
+    assert_eq!(missing["isError"], true);
+    assert_eq!(missing["structuredContent"]["status"], 404);
 }

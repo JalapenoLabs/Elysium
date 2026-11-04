@@ -9,8 +9,10 @@
 //!
 //! Each route's work is a function of its own ([`search`], [`open`], [`list_meetings`]), which
 //! the MCP server's knowledge tools and the agents' `elysium_knowledge` tools call too, so every
-//! caller finds, opens, and lists the same things, checked and budgeted alike.
+//! caller finds, opens, and lists the same things, checked and budgeted alike. Asking for a
+//! written answer is [`asks`], which the MCP server's `knowledge_ask` calls.
 
+pub mod asks;
 mod get_document;
 mod list_meetings;
 mod search_knowledge;
@@ -30,4 +32,5 @@ pub fn router() -> Router<AppState> {
         .route("/search", get(search_knowledge::handle))
         .route("/documents/{id}", get(get_document::handle))
         .route("/meetings", get(list_meetings::handle))
+        .nest("/asks", asks::router())
 }

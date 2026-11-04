@@ -86,6 +86,10 @@ pub mod sql_types {
     pub struct IssueReportFiling;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "knowledge_ask_state"))]
+    pub struct KnowledgeAskState;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "link_kind"))]
     pub struct LinkKind;
 
@@ -848,6 +852,26 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::KnowledgeAskState;
+
+    knowledge_asks (id) {
+        id -> Uuid,
+        created_by -> Uuid,
+        question -> Text,
+        filters -> Jsonb,
+        passages -> Jsonb,
+        searched_by_meaning -> Bool,
+        state -> KnowledgeAskState,
+        answer -> Nullable<Jsonb>,
+        error -> Nullable<Text>,
+        created_at -> Timestamptz,
+        started_at -> Nullable<Timestamptz>,
+        finished_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
 
     knowledge_backfills (source) {
         source -> Text,
@@ -1558,6 +1582,7 @@ diesel::joinable!(jira_credentials -> users (created_by));
 diesel::joinable!(jira_done_transitions -> jira_credentials (jira_credential_id));
 diesel::joinable!(kind_model_settings -> projects (project_id));
 diesel::joinable!(kind_model_settings -> users (created_by));
+diesel::joinable!(knowledge_asks -> users (created_by));
 diesel::joinable!(knowledge_backfills -> users (created_by));
 diesel::joinable!(knowledge_documents -> company_doc_sections (company_doc_section));
 diesel::joinable!(knowledge_documents -> learnings (learning_id));
@@ -1664,6 +1689,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     jira_credentials,
     jira_done_transitions,
     kind_model_settings,
+    knowledge_asks,
     knowledge_backfills,
     knowledge_documents,
     knowledge_passages,

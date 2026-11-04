@@ -33,6 +33,7 @@ pub mod issue_report;
 pub mod jira_credential;
 pub mod jira_done_transition;
 pub mod kind_model_setting;
+pub mod knowledge_ask;
 pub mod knowledge_backfill;
 pub mod knowledge_document;
 pub mod knowledge_meeting;

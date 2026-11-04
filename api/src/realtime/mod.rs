@@ -50,6 +50,7 @@ pub use self::signals::{Signal, SignalReceiver, Wake};
 use crate::agent_models::AgentKind;
 use crate::backups::BackupsStatus;
 use crate::mail::hosting::MailServerStatus;
+use crate::models::knowledge_ask::KnowledgeAskState;
 use crate::models::step_job::StepJobState;
 use crate::models::workflow_run::WorkflowRunState;
 use crate::passwords::VaultStatus;
@@ -142,6 +143,15 @@ pub enum ServerEvent {
     /// id.
     #[serde(rename = "learning.changed")]
     LearningChanged { id: Uuid },
+    /// A question asked of the knowledge base was made, taken, answered, or failed. Its id,
+    /// asker, and state alone: the question and its answer are the asker's, whose pages load it
+    /// by id, and every other client knows to ignore it.
+    #[serde(rename = "knowledgeAsk.changed")]
+    KnowledgeAskChanged {
+        id: Uuid,
+        asked_by: Uuid,
+        state: KnowledgeAskState,
+    },
     /// A workspace learning category was added, edited, reordered, or removed. Nothing more:
     /// the list is short, and a guest hears every event and reaches no knowledge base; members
     /// load it again.

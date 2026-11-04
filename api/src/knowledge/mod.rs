@@ -11,14 +11,19 @@
 //!   embedding model embeds;
 //! - [`records`]: the document each timeline record becomes;
 //! - [`search`]: the one search of the index, by words and by meaning, ranked together;
+//! - [`ask`]: asking for a written answer, its prompt, the checks on its citations, and each
+//!   person's budget;
 //!
 //! and the loops it runs in the engine:
 //!
+//! - [`answerer`]: writes the answer to each question asked, in a text turn on the runner;
 //! - [`embedder`]: gives every passage its embedding as it arrives, through the embedding model
 //!   (`crate::embeddings`), and again when the model changes;
 //! - [`backfill`]: indexes the records stored before records were indexed as they are stored,
 //!   and every record again when how a record is indexed changes.
 
+pub mod answerer;
+pub mod ask;
 pub mod backfill;
 pub mod embedder;
 pub mod passages;
