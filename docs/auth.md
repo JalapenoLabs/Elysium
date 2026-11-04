@@ -54,8 +54,8 @@ separately from the CSRF cookie, so both are configured.
 
 ## Signing up
 
-Sign-up is one form: name, email, and a password. Passkeys are added from Settings afterwards, so every account has
-a password and one way to recover it.
+Sign-up is one form: first and last name side by side, then email, and a password. Passkeys are added from Settings
+afterwards, so every account has a password and one way to recover it.
 
 Before Kratos stores a new identity, it asks the API (`POST /internal/kratos/registration`, a pre-persist webhook).
 The API refuses in two cases:
@@ -76,11 +76,34 @@ person's account, so accounts are created in the order people finished signing u
   never both become admin.
 - **A lost webhook.** The API also creates any missing account on the person's first request
   (`api/src/auth/middleware.rs`), so an identity is never left without one.
-- **Names.** Kratos refuses a blank name. One that reaches the API blank anyway, such as an identity written through
-  Kratos's admin API, takes the email's local part.
+- **Names.** Kratos refuses a blank first name; the last name is optional, for people with one name. The account's
+  `users.name` is the two joined by a space, the name the whole workspace shows. One that reaches the API blank
+  anyway, such as an identity written through Kratos's admin API, takes the email's local part.
 
 Email addresses are stored lowercased. There is no email verification, since there is no mail yet: an admin approving
 the sign-up is the check.
+
+## Identity schemas
+
+An identity's traits are its email and its name, `{ first, last }`, described by `kratos/identity-v2.schema.json`
+(schema `person-v2`). Kratos validates traits only when an identity is written and never rewrites a stored identity
+when a schema changes, so a change to what identities hold is a new schema, never an edit of the old one:
+
+- **Both schemas are registered.** `kratos/kratos.yml` registers the legacy `person` schema
+  (`kratos/identity.schema.json`, one `name` string) beside `person-v2`, and new identities take `person-v2`.
+- **The API moves identities on.** On every start, `api/src/auth/identity_schemas.rs` lists every identity, in the
+  background and retrying until Kratos answers, and moves each one still on `person` to `person-v2` with one JSON Patch
+  that names the new schema and replaces only the name. Kratos validates the result against `person-v2` and never
+  touches credentials, so passwords, passkeys, and authenticator apps keep working. An identity Kratos refuses to move
+  is logged (`auth.identities.migrate.refused`) and keeps the legacy schema, which still signs in, until the next
+  start.
+- **Splitting a legacy name.** The first word is the first name and the rest the last name, which keeps compound
+  surnames ("García Márquez") whole; a one-word name has no last name. People correct a wrong split on My profile.
+- **Until an identity moves.** The API reads either shape (`PersonName` in `api/src/auth/kratos.rs`), and My profile
+  shows a legacy name split the same way, so nobody is locked out in between.
+
+Removing the legacy schema, and the code that reads it, is on the roadmap once every deployment has started a release
+that moves identities.
 
 ## Signing in
 
@@ -93,6 +116,20 @@ the sign-up is the check.
 Kratos enforces the second factor itself (`required_aal: highest_available`), and a passkey counts as the first
 factor, so a person with an authenticator app is asked for its code after a passkey too. Someone who wants a
 one-step sign-in uses a passkey without enrolling an app.
+
+### Authenticator nicknames
+
+A person may name their authenticator app, such as "Bitwarden", when they set it up or later, so they remember which
+app holds Elysium's codes. Kratos holds one app per identity and has nowhere for a name, so it lives in Elysium's
+`authenticator_nicknames`, one row per account (`api/src/models/authenticator_nickname.rs`):
+
+- **Written by the person alone.** `PUT` and `DELETE /api/v1/me/authenticator-nickname` sit beside `/me`, outside the
+  workspace's access rule, since someone the workspace requires to set up an app names it while doing so. `PUT`
+  answers `409` unless Kratos holds an app to name.
+- **Read through `/me`**, as `authenticatorNickname`. Sign-in & security shows it only while Kratos says the app is
+  set up, so a name left behind is never shown beside another app.
+- **Removed with the app.** Sign-in & security forgets it when the person removes their app, and when they set one
+  up without a name; an admin's Reset authenticator forgets it too.
 
 ## Sessions
 
@@ -165,8 +202,8 @@ Admins manage people under Settings, Users (`/api/v1/users`).
 
 **Security actions:**
 - **Sign out everywhere.** This also disconnects every MCP client they connected (`docs/mcp.md`).
-- **Reset authenticator.** This removes a person's authenticator app and lookup codes and signs them out, MCP clients
-  included, for someone who lost both.
+- **Reset authenticator.** This removes a person's authenticator app, its nickname, and their lookup codes and signs
+  them out, MCP clients included, for someone who lost both.
 - **Create a recovery link.** The admin hands the one-time link over; it works for 15 minutes.
 
 **Workspace settings:**
@@ -193,8 +230,8 @@ There is no mail yet.
   delivery). The API logs the recovery link at `WARN` as `auth.recovery.issued`, with the address it was requested
   for. An operator finds it with `docker compose logs api` and passes it on.
 - **Admin-issued links.** A link created from Settings, Users needs no log access.
-- **Using a link.** A link works for 15 minutes, once. It signs its holder in and opens Settings, Sign-in & security
-  to set a new password. A person with an authenticator app still enters its code.
+- **Using a link.** A link works for 15 minutes, once. It signs its holder in and opens Settings, Sign-in & security,
+  where Change password sets a new one. A person with an authenticator app still enters its code.
 - **Privacy.** The page answers the same whether or not the address has an account, and Kratos sends nothing for an
   unknown address.
 
@@ -271,5 +308,6 @@ Machines are rows in `users` with fixed ids (`api/src/models/user.rs`):
 ## Roadmap
 
 - What guests may not see or do.
+- Retiring the legacy `person` identity schema and the code that reads it.
 - Mail: email verification at sign-up, and recovery links sent rather than logged.
 - `users` as the owner of action items, replacing `owner_kind = 'user'`, which predates accounts.

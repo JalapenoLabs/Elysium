@@ -4,7 +4,8 @@
 //!
 //! The one workspace route a pending, disabled, or not-yet-enrolled person may reach, so the
 //! frontend can show them why they are waiting. The pending page asks it every few seconds
-//! to notice an approval.
+//! to notice an approval. It also names the person's authenticator app, which Sign-in & security
+//! shows while Kratos says the app is set up.
 
 use anyhow::Context;
 use axum::Extension;
@@ -16,7 +17,7 @@ use super::users::UserResponse;
 use crate::auth::Principal;
 use crate::auth::kratos::AssuranceLevel;
 use crate::errors::ApiError;
-use crate::models::user;
+use crate::models::{authenticator_nickname, user};
 use crate::state::AppState;
 
 pub async fn handle(
@@ -29,11 +30,14 @@ pub async fn handle(
         .await
         .context("no database connection available")?;
     let settings = user::workspace_settings(&mut connection).await?;
+    let authenticator_nickname =
+        authenticator_nickname::find(&mut connection, principal.user.id).await?;
     let has_second_factor = principal.assurance >= AssuranceLevel::Aal2;
 
     Ok(Json(json!({
         "user": UserResponse::from(principal.user),
         "hasSecondFactor": has_second_factor,
         "mfaEnrollmentRequired": settings.require_mfa && !has_second_factor,
+        "authenticatorNickname": authenticator_nickname,
     })))
 }

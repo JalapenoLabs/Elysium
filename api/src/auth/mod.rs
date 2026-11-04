@@ -20,6 +20,7 @@
 //! admins may do.
 
 pub mod hook_key;
+pub mod identity_schemas;
 pub mod kratos;
 pub mod middleware;
 pub mod sessions;

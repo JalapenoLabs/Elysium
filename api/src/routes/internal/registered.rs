@@ -16,6 +16,7 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use uuid::Uuid;
 
+use crate::auth::kratos::PersonName;
 use crate::errors::ApiError;
 use crate::models::user::{self, Profile};
 use crate::realtime::ServerEvent;
@@ -27,7 +28,7 @@ use crate::state::AppState;
 pub struct RequestBody {
     identity_id: Uuid,
     email: String,
-    name: String,
+    name: PersonName,
 }
 
 pub async fn handle(
@@ -35,7 +36,7 @@ pub async fn handle(
     body: Result<Json<RequestBody>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     let Json(body) = body?;
-    let profile = Profile::new(body.identity_id, &body.email, &body.name);
+    let profile = Profile::new(body.identity_id, &body.email, &body.name.full_name());
 
     let mut connection = state
         .database

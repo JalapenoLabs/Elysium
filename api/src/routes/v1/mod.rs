@@ -4,6 +4,7 @@
 
 pub mod action_items;
 mod auth_status;
+mod authenticator_nickname;
 mod backups;
 pub mod browser_sessions;
 pub mod changesets;
@@ -31,7 +32,7 @@ pub mod workspace_settings;
 
 use axum::Router;
 use axum::middleware::from_fn_with_state;
-use axum::routing::get;
+use axum::routing::{get, put};
 
 use crate::auth::middleware::{authenticate, require_access, require_same_origin};
 use crate::state::AppState;
@@ -43,6 +44,10 @@ pub fn router(state: &AppState) -> Router<AppState> {
         workspace_router().route_layer(from_fn_with_state(state.clone(), require_access));
     let signed_in = Router::new()
         .route("/me", get(me::handle))
+        .route(
+            "/me/authenticator-nickname",
+            put(authenticator_nickname::set).delete(authenticator_nickname::clear),
+        )
         .merge(workspace)
         .route_layer(from_fn_with_state(state.clone(), authenticate))
         .route_layer(from_fn_with_state(state.clone(), require_same_origin));

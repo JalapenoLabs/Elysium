@@ -29,7 +29,7 @@ use crate::action_items::links::Links;
 use crate::action_items::watcher::{WatchContext, Watcher};
 use crate::activity::Activities;
 use crate::auth::kratos::Kratos;
-use crate::auth::{Auth, hook_key};
+use crate::auth::{Auth, hook_key, identity_schemas};
 use crate::backups::dump::{Dumper, POSTGRES_CONTAINER};
 use crate::backups::{self, Backups, BackupsDeps};
 use crate::browser::Browsers;
@@ -297,8 +297,12 @@ pub async fn serve() -> Result<()> {
         shutdown.clone(),
     );
 
+    let auth = build_auth(&config, http.clone());
+    // Moves identities created before names were split onto the current schema.
+    let identity_migration = identity_schemas::start(auth.kratos.clone(), shutdown.clone());
+
     let state = AppState {
-        auth: build_auth(&config, http.clone()),
+        auth,
         backups,
         browsers,
         claude_accounts,
@@ -421,6 +425,14 @@ pub async fn serve() -> Result<()> {
             Level::ERROR,
             error.message = %error,
             "the backup schedule did not stop cleanly",
+        );
+    }
+    if let Err(error) = identity_migration.await {
+        event!(
+            name: "auth.identities.migrate.join_failed",
+            Level::ERROR,
+            error.message = %error,
+            "the identity schema migration ended abnormally",
         );
     }
     if let Err(error) = update_checks.await {

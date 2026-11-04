@@ -816,6 +816,18 @@ See `docs/auth.md`.
 `users_person_or_machine` makes a row exactly one of the two, so a machine never holds a Kratos identity and a person
 never holds a machine's role. `users_pending_has_no_role` ties a missing role to being pending.
 
+### `authenticator_nicknames`
+
+What a person calls their authenticator app, such as "Bitwarden". A child of `users`: Kratos holds the app, one per
+identity, and this only names it. See `docs/auth.md`, Authenticator nicknames.
+
+| Column       | Type          | Notes                                                              |
+|--------------|---------------|--------------------------------------------------------------------|
+| `user_id`    | `UUID`        | Primary key; references `users`, `ON DELETE CASCADE`               |
+| `nickname`   | `TEXT`        | 1 to 50 characters, already trimmed (`authenticator_nicknames_length`) |
+| `created_at` | `TIMESTAMPTZ` | Set on insert                                                      |
+| `updated_at` | `TIMESTAMPTZ` | Maintained by trigger                                              |
+
 ### `workspace_settings`
 
 One row, always present (`singleton` is its key and must be true).

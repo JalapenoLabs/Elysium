@@ -21,10 +21,15 @@ serve:
       disable_for_health: true
 
 identity:
-  default_schema_id: person
+  # New identities take person-v2, which splits the name into first and last. Kratos never
+  # rewrites a stored identity, so the legacy person schema stays registered for identities
+  # not yet moved on; the API moves each one when it starts (`api/src/auth/identity_schemas.rs`).
+  default_schema_id: person-v2
   schemas:
     - id: person
       url: file:///etc/elysium-kratos/identity.schema.json
+    - id: person-v2
+      url: file:///etc/elysium-kratos/identity-v2.schema.json
 
 selfservice:
   default_browser_return_url: @PUBLIC_URL@/
@@ -82,7 +87,7 @@ selfservice:
       enabled: true
       ui_url: @PUBLIC_URL@/signup
       lifespan: 15m
-      # One form: name, email, and password together.
+      # One form: first and last name, email, and password together.
       style: unified
       after:
         # Elysium decides whether a sign-up may proceed (sign-up closed, a password

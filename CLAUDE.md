@@ -85,6 +85,9 @@ Everything else follows these rules:
 - Kratos (`kratos/`) owns identities: passwords, passkeys, authenticator apps, lookup codes, sessions, and recovery.
   Elysium never re-implements any of it. The frontend renders Kratos's flows through its JSON API at
   `/api/identity/`; the API calls Kratos's admin API alone. See `docs/auth.md`.
+- An identity holds an email and a first and last name. A change to what identities hold is a new Kratos schema
+  registered beside the old one, never an edit of it, and the API moves each identity onto it when it starts
+  (`api/src/auth/identity_schemas.rs`). See `docs/auth.md`, Identity schemas.
 - Kratos's configuration is derived from `ELYSIUM_PUBLIC_URL` and `ELYSIUM_ENCRYPTION_KEY` by
   `kratos/entrypoint.sh`. Nothing for Kratos goes in the bootstrap file. Its database, `kratos`, shares Elysium's
   Postgres server and credentials.

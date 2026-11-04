@@ -168,7 +168,7 @@ async fn principal(
     };
 
     let traits = &session.identity.traits;
-    let profile = Profile::new(session.identity.id, &traits.email, &traits.name);
+    let profile = Profile::new(session.identity.id, &traits.email, &traits.name.full_name());
     let mut connection = state
         .database
         .get()

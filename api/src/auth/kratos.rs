@@ -20,6 +20,10 @@ use uuid::Uuid;
 /// How long one call may take. Every call is a single row lookup or write on Kratos's side.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How many identities one listing page holds. Kratos's admin API pages its listings; a
+/// workspace is a few dozen people, so this is one page in practice, well under its limit.
+const IDENTITY_PAGE_SIZE: &str = "500";
+
 /// The session cookie Kratos sets, named in `kratos/kratos.yml`.
 pub const SESSION_COOKIE: &str = "elysium_session";
 
@@ -67,11 +71,52 @@ pub struct Identity {
     pub traits: Traits,
 }
 
-/// What `kratos/identity.schema.json` stores for a person.
+/// What a person's identity stores: `kratos/identity-v2.schema.json`, or the legacy
+/// `kratos/identity.schema.json` until `super::identity_schemas` moves the identity on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Traits {
     pub email: String,
-    pub name: String,
+    pub name: PersonName,
+}
+
+/// A person's name, as either identity schema stores it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PersonName {
+    /// `person-v2`: first and last name apart. The last name may be empty, for people who have
+    /// one name.
+    Split {
+        first: String,
+        #[serde(default)]
+        last: String,
+    },
+    /// The legacy `person` schema's one string, read until the identity is moved on.
+    Whole(String),
+}
+
+impl PersonName {
+    /// The name the workspace shows: the first name, then the last name if there is one.
+    pub fn full_name(&self) -> String {
+        match self {
+            Self::Split { first, last } => {
+                let first = first.trim();
+                let last = last.trim();
+                if last.is_empty() {
+                    return first.to_owned();
+                }
+                format!("{first} {last}")
+            }
+            Self::Whole(name) => name.trim().to_owned(),
+        }
+    }
+}
+
+/// An identity's schema and traits, as the admin API lists them.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListedIdentity {
+    pub id: Uuid,
+    pub schema_id: String,
+    pub traits: Traits,
 }
 
 /// An identity with the kinds of credential it holds, as the admin API reports it.
@@ -182,6 +227,64 @@ impl Kratos {
             .await
     }
 
+    /// Every identity, with its schema and traits, read page by page.
+    ///
+    /// # Errors
+    /// Returns [`KratosError::Refused`] when Kratos cannot be reached or answers otherwise.
+    pub async fn identities(&self) -> Result<Vec<ListedIdentity>, KratosError> {
+        let mut identities = Vec::new();
+        let mut page_token: Option<String> = None;
+        loop {
+            let mut url = join(&self.admin, "admin/identities");
+            url.query_pairs_mut()
+                .append_pair("page_size", IDENTITY_PAGE_SIZE);
+            if let Some(token) = &page_token {
+                url.query_pairs_mut().append_pair("page_token", token);
+            }
+            let response = self
+                .http
+                .get(url)
+                .header(reqwest::header::ACCEPT, "application/json")
+                .timeout(REQUEST_TIMEOUT)
+                .send()
+                .await
+                .map_err(|error| KratosError::Refused(error.without_url().to_string()))?;
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(KratosError::Refused(format!("{status}: {body}")));
+            }
+
+            let next = response
+                .headers()
+                .get(reqwest::header::LINK)
+                .and_then(|link| link.to_str().ok())
+                .and_then(next_page_token);
+            let page: Vec<ListedIdentity> = read(response).await?;
+            identities.extend(page);
+            match next {
+                Some(token) => page_token = Some(token),
+                None => return Ok(identities),
+            }
+        }
+    }
+
+    /// Applies a JSON Patch to an identity, which Kratos then validates against the schema the
+    /// patched identity names. Kratos refuses to patch credentials, so they are never touched.
+    ///
+    /// # Errors
+    /// Returns [`KratosError::NotFound`] for an unknown identity, and
+    /// [`KratosError::Refused`] for a patch Kratos refuses or traits its schema does not allow.
+    pub async fn patch_identity(&self, id: Uuid, operations: Value) -> Result<(), KratosError> {
+        self.admin_call::<Value>(
+            Method::PATCH,
+            &format!("admin/identities/{id}"),
+            Some(operations),
+        )
+        .await
+        .map(drop)
+    }
+
     /// Lets an identity sign in, or stops it.
     ///
     /// # Errors
@@ -192,13 +295,7 @@ impl Kratos {
             IdentityState::Inactive => "inactive",
         };
         let patch = json!([{ "op": "replace", "path": "/state", "value": value }]);
-        self.admin_call::<Value>(
-            Method::PATCH,
-            &format!("admin/identities/{id}"),
-            Some(patch),
-        )
-        .await
-        .map(drop)
+        self.patch_identity(id, patch).await
     }
 
     /// Signs the identity out everywhere.
@@ -314,4 +411,70 @@ async fn read<Response: DeserializeOwned>(
 fn join(base: &Url, path: &str) -> Url {
     base.join(path)
         .expect("a relative path joins onto an origin")
+}
+
+/// The `page_token` of the next page, from a listing's `Link` header, such as
+/// `</admin/identities?page_size=500&page_token=abc>; rel="next"`. None on the last page.
+fn next_page_token(link: &str) -> Option<String> {
+    link.split(',').find_map(|entry| {
+        let (target, parameters) = entry.split_once(';')?;
+        if !parameters.contains(r#"rel="next""#) {
+            return None;
+        }
+        let target = target.trim().strip_prefix('<')?.strip_suffix('>')?;
+        // The target is relative; any base parses its query the same way.
+        let url = Url::parse("http://kratos.invalid")
+            .ok()?
+            .join(target)
+            .ok()?;
+        url.query_pairs()
+            .find(|(key, _)| key == "page_token")
+            .map(|(_, value)| value.into_owned())
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_both_schemas_names() {
+        let split: Traits = serde_json::from_value(
+            json!({ "email": "a@example.com", "name": { "first": "Ada", "last": "Lovelace" } }),
+        )
+        .expect("person-v2 traits");
+        assert_eq!(split.name.full_name(), "Ada Lovelace");
+
+        let one_name: Traits = serde_json::from_value(
+            json!({ "email": "c@example.com", "name": { "first": " Cher " } }),
+        )
+        .expect("person-v2 traits without a last name");
+        assert_eq!(one_name.name.full_name(), "Cher");
+
+        let legacy: Traits =
+            serde_json::from_value(json!({ "email": "g@example.com", "name": "  Grace Hopper " }))
+                .expect("legacy person traits");
+        assert_eq!(legacy.name.full_name(), "Grace Hopper");
+    }
+
+    #[test]
+    fn a_cached_session_keeps_its_name_shape() {
+        let name = PersonName::Split {
+            first: "Ada".to_owned(),
+            last: String::new(),
+        };
+        let round_trip: PersonName =
+            serde_json::from_value(serde_json::to_value(&name).expect("serializes"))
+                .expect("reads back");
+        assert_eq!(round_trip, name);
+    }
+
+    #[test]
+    fn follows_the_next_page_alone() {
+        let first_page = r#"</admin/identities?page_size=500&page_token=00000000-0000-0000-0000-000000000000>; rel="first",</admin/identities?page_size=500&page_token=019a4b2c>; rel="next""#;
+        assert_eq!(next_page_token(first_page).as_deref(), Some("019a4b2c"));
+
+        let last_page = r#"</admin/identities?page_size=500&page_token=00000000-0000-0000-0000-000000000000>; rel="first""#;
+        assert_eq!(next_page_token(last_page), None);
+    }
 }

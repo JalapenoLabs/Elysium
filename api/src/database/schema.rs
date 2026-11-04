@@ -232,6 +232,17 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    authenticator_nicknames (user_id) {
+        user_id -> Uuid,
+        nickname -> Text,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     browser_sessions (id) {
         id -> Uuid,
         name -> Text,
@@ -1049,6 +1060,7 @@ diesel::joinable!(action_item_links -> jira_credentials (jira_credential_id));
 diesel::joinable!(action_item_projects -> action_items (action_item_id));
 diesel::joinable!(action_item_projects -> projects (project_id));
 diesel::joinable!(action_items -> users (created_by));
+diesel::joinable!(authenticator_nicknames -> users (user_id));
 diesel::joinable!(browser_sessions -> users (created_by));
 diesel::joinable!(changeset_operations -> changesets (changeset_id));
 diesel::joinable!(changesets -> projects (project_id));
@@ -1134,6 +1146,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     action_item_links,
     action_item_projects,
     action_items,
+    authenticator_nicknames,
     browser_sessions,
     changeset_operations,
     changesets,

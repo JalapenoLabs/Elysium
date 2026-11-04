@@ -323,7 +323,9 @@ pub async fn app_state_with_storage(
 /// workspace's authenticator rule never applies, and far enough from expiry that nothing asks
 /// Kratos to extend it.
 pub async fn signed_in_cookie(state: &crate::state::AppState) -> String {
-    use crate::auth::kratos::{AssuranceLevel, Identity, SESSION_COOKIE, Session, Traits};
+    use crate::auth::kratos::{
+        AssuranceLevel, Identity, PersonName, SESSION_COOKIE, Session, Traits,
+    };
 
     let token = format!("ory_st_test_{}", Uuid::now_v7().simple());
     let session = Session {
@@ -334,7 +336,10 @@ pub async fn signed_in_cookie(state: &crate::state::AppState) -> String {
             id: TEST_PERSON_KRATOS_ID,
             traits: Traits {
                 email: "tester@example.com".to_owned(),
-                name: "Tester".to_owned(),
+                name: PersonName::Split {
+                    first: "Tester".to_owned(),
+                    last: String::new(),
+                },
             },
         },
     };

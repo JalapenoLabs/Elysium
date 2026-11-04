@@ -2,7 +2,8 @@
 
 //! `POST /api/v1/users/{id}/reset-mfa`: remove a person's authenticator app and lookup codes,
 //! for someone who lost both, and sign them out, MCP clients included, so their next sign-in
-//! needs only a password or passkey. They can set a new authenticator up afterwards.
+//! needs only a password or passkey. They can set a new authenticator up afterwards; the old
+//! one's nickname goes with it.
 
 use anyhow::Context;
 use axum::extract::rejection::PathRejection;
@@ -13,6 +14,7 @@ use uuid::Uuid;
 use super::identity_of;
 use crate::auth::AdminUser;
 use crate::errors::ApiError;
+use crate::models::authenticator_nickname;
 use crate::models::user::{self, UserEventKind};
 use crate::state::AppState;
 
@@ -33,6 +35,7 @@ pub async fn handle(
 
     let kratos = &state.auth.kratos;
     kratos.delete_credentials(identity, "totp").await?;
+    authenticator_nickname::clear(&mut connection, person.id).await?;
     kratos.delete_credentials(identity, "lookup_secret").await?;
     kratos.revoke_sessions(identity).await?;
     // Part of the reset itself, so a failure fails the request, as in `revoke_sessions`.
