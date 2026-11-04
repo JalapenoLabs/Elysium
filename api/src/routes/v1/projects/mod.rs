@@ -7,6 +7,7 @@ mod delete_cover;
 mod delete_project;
 mod get_cover;
 mod list_projects;
+mod restore_cover;
 mod update_project;
 mod upload_cover;
 
@@ -14,7 +15,7 @@ pub use list_projects::list;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{get, patch};
+use axum::routing::{get, patch, post};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -40,6 +41,7 @@ pub fn router() -> Router<AppState> {
                 // over its own limit before decoding.
                 .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
         )
+        .route("/{id}/cover/restore", post(restore_cover::handle))
 }
 
 /// A project as clients see it.
@@ -53,8 +55,9 @@ pub struct ProjectResponse {
     /// Who created it.
     created_by: Uuid,
     updated_at: DateTime<Utc>,
-    /// When the cover last changed, or `None` without one. Clients add it to the cover's
-    /// URL, so a changed cover is fetched afresh and an unchanged one comes from cache.
+    /// When the cover last changed, or `None` when none shows (a removed cover included).
+    /// Clients add it to the cover's URL, so a changed cover is fetched afresh and an
+    /// unchanged one, a restored one too, comes from cache.
     cover_updated_at: Option<DateTime<Utc>>,
     cover_fit: ProjectCoverFit,
     github: ProjectGithub,
@@ -76,13 +79,13 @@ pub struct ProjectGithub {
 impl From<Project> for ProjectResponse {
     fn from(project: Project) -> Self {
         Self {
+            cover_updated_at: project.cover_updated_at(),
             id: project.id,
             name: project.name,
             description: project.description,
             created_at: project.created_at,
             created_by: project.created_by,
             updated_at: project.updated_at,
-            cover_updated_at: project.cover_image_updated_at,
             cover_fit: project.cover_fit,
             github: ProjectGithub {
                 access: project.github_access,

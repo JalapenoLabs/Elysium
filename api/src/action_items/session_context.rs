@@ -264,6 +264,7 @@ mod tests {
             created_at: moment(0),
             updated_at: moment(0),
             cover_image_updated_at: None,
+            cover_removed_at: None,
             cover_fit: ProjectCoverFit::Fit,
             github_access: GithubAccess::Default,
             github_credential_id: None,

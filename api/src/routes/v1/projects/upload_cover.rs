@@ -44,7 +44,7 @@ pub async fn handle(
         .get()
         .await
         .context("no database connection available")?;
-    let updated = project::set_cover(&mut connection, id, Some(compressed)).await?;
+    let updated = project::set_cover(&mut connection, id, compressed).await?;
 
     let response = ProjectResponse::from(updated);
     let body = json!({ "project": &response });

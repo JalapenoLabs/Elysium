@@ -1008,6 +1008,7 @@ diesel::table! {
         github_access -> GithubAccess,
         github_credential_id -> Nullable<Uuid>,
         created_by -> Uuid,
+        cover_removed_at -> Nullable<Timestamptz>,
     }
 }
 

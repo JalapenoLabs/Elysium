@@ -187,7 +187,8 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | DELETE | `/api/v1/projects/{id}`               | `204`; `409` while sessions belong to it            |
 | GET    | `/api/v1/projects/{id}/cover`         | `200` WebP image; `404` without a cover             |
 | PUT    | `/api/v1/projects/{id}/cover`         | `200` `{ project }`; the body is the image file     |
-| DELETE | `/api/v1/projects/{id}/cover`         | `200` `{ project }`                                 |
+| DELETE | `/api/v1/projects/{id}/cover`         | `200` `{ project }`; the image is kept to restore    |
+| POST   | `/api/v1/projects/{id}/cover/restore` | `200` `{ project }`, showing the removed cover again |
 | GET    | `/api/v1/storage-locations`           | `200` `{ locations: StorageLocation[] }`, by name   |
 | POST   | `/api/v1/storage-locations`           | `201` `{ location }`                                |
 | GET    | `/api/v1/storage-locations/{id}`      | `200` `{ location }`                                |
@@ -408,6 +409,11 @@ to fit 2400 by 1350 when larger, keeping its shape, and stored as lossy WebP at 
 dropping metadata (`api/src/images.rs`). Anything refused answers `400`; a larger body answers `413`.
 `GET /{id}/cover` serves it with `Cache-Control: private, max-age=31536000, immutable`: clients add `coverUpdatedAt` to
 the URL, so each cover version has its own. Cover changes publish `project.upserted`.
+
+`DELETE /{id}/cover` is soft: the cover stops showing (`coverUpdatedAt` is null and `GET /{id}/cover` answers `404`),
+but its image is kept until a new cover replaces it, so a project keeps at most one removed cover.
+`POST /{id}/cover/restore` shows it again with its old `coverUpdatedAt`, so the cached image still serves. Both answer
+the project as it is when there is nothing to remove or restore, so an Undo after a new upload keeps the new cover.
 
 ### `/api/v1/storage-locations`
 

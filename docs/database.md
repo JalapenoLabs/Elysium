@@ -502,12 +502,14 @@ What coding sessions are grouped under.
 | `updated_at`  | `TIMESTAMPTZ` | Maintained by trigger                    |
 | `cover_image` | `BYTEA`       | Cover, compressed to WebP; at most 1 MB stored |
 | `cover_image_updated_at` | `TIMESTAMPTZ` | When the cover changed; set exactly when `cover_image` is |
+| `cover_removed_at` | `TIMESTAMPTZ` | When the cover was removed; it stays stored to restore |
 | `cover_fit`   | `project_cover_fit` | `fit` or `fill`, defaults to `fit`; kept when the cover is removed |
 | `github_access` | `github_access` | `default`, `none`, or `specific`; defaults to `default` |
 | `github_credential_id` | `UUID` | References `github_credentials`, `ON DELETE SET NULL`; set only for `specific` |
 
 `Project` in `api/src/models/project.rs` leaves `cover_image` out, so listing projects never loads images;
-`find_cover` reads it for the one route that serves a cover.
+`find_cover` reads it for the one route that serves a cover. A removed cover is neither served nor reported:
+`Project::cover_updated_at` is the one that shows.
 
 ### `github_credentials`
 

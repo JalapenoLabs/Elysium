@@ -5,6 +5,9 @@
 //! A project may have a cover image, stored compressed in `cover_image`. [`Project`]
 //! leaves the bytes out, so listing projects never loads images; [`find_cover`] reads
 //! them for the one request that serves a cover.
+//!
+//! Removing a cover hides it ([`remove_cover`]) and keeps the image until a new cover
+//! replaces it, so [`restore_cover`] can bring it back: removing a cover can be undone.
 
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -101,8 +104,11 @@ pub struct Project {
     pub description: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    /// When the cover last changed; `None` when the project has no cover.
+    /// When the stored cover last changed; `None` when nothing is stored. A removed cover
+    /// is still stored, so read [`Project::cover_updated_at`] for the one that shows.
     pub cover_image_updated_at: Option<DateTime<Utc>>,
+    /// When the stored cover was removed, or `None` while it shows.
+    pub cover_removed_at: Option<DateTime<Utc>>,
     pub cover_fit: ProjectCoverFit,
     pub github_access: GithubAccess,
     /// The project's own token, for `Specific` access only.
@@ -112,6 +118,12 @@ pub struct Project {
 }
 
 impl Project {
+    /// When the cover that shows last changed, or `None` when none shows.
+    pub fn cover_updated_at(&self) -> Option<DateTime<Utc>> {
+        self.cover_image_updated_at
+            .filter(|_updated_at| self.cover_removed_at.is_none())
+    }
+
     /// The token this project's sessions start with, given the workspace default.
     pub const fn github_credential(&self, workspace_default: Option<Uuid>) -> Option<Uuid> {
         match self.github_access {
@@ -279,7 +291,7 @@ pub async fn update(
         .await
 }
 
-/// A project's cover as stored, and when it last changed, or `None` without one.
+/// A project's cover as stored, and when it last changed, or `None` when none shows.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] when no project has that id.
@@ -287,29 +299,81 @@ pub async fn find_cover(
     connection: &mut AsyncPgConnection,
     id: Uuid,
 ) -> QueryResult<Option<(Vec<u8>, DateTime<Utc>)>> {
-    let (image, updated_at) = projects::table
+    let (image, updated_at, removed_at) = projects::table
         .find(id)
-        .select((projects::cover_image, projects::cover_image_updated_at))
-        .first::<(Option<Vec<u8>>, Option<DateTime<Utc>>)>(connection)
+        .select((
+            projects::cover_image,
+            projects::cover_image_updated_at,
+            projects::cover_removed_at,
+        ))
+        .first::<(
+            Option<Vec<u8>>,
+            Option<DateTime<Utc>>,
+            Option<DateTime<Utc>>,
+        )>(connection)
         .await?;
+    if removed_at.is_some() {
+        return Ok(None);
+    }
     Ok(image.zip(updated_at))
 }
 
-/// Replaces the cover with `image`, already compressed, or removes it when `None`.
+/// Replaces the cover with `image`, already compressed. It shows at once, and a removed
+/// cover it replaces is gone for good.
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown id.
 pub async fn set_cover(
     connection: &mut AsyncPgConnection,
     id: Uuid,
-    image: Option<Vec<u8>>,
+    image: Vec<u8>,
 ) -> QueryResult<Project> {
-    let updated_at = image.as_ref().map(|_image| Utc::now());
     diesel::update(projects::table.find(id))
         .set((
             projects::cover_image.eq(image),
-            projects::cover_image_updated_at.eq(updated_at),
+            projects::cover_image_updated_at.eq(Utc::now()),
+            projects::cover_removed_at.eq(None::<DateTime<Utc>>),
         ))
+        .returning(Project::as_returning())
+        .get_result(connection)
+        .await
+}
+
+/// Hides the cover that shows, keeping its image so [`restore_cover`] can bring it back.
+/// A project with no cover showing is returned as it is.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] for an unknown id.
+pub async fn remove_cover(
+    connection: &mut AsyncPgConnection,
+    id: Uuid,
+    now: DateTime<Utc>,
+) -> QueryResult<Project> {
+    let removed = diesel::update(
+        projects::table
+            .find(id)
+            .filter(projects::cover_image.is_not_null())
+            .filter(projects::cover_removed_at.is_null()),
+    )
+    .set(projects::cover_removed_at.eq(now))
+    .returning(Project::as_returning())
+    .get_result(connection)
+    .await
+    .optional()?;
+    match removed {
+        Some(project) => Ok(project),
+        None => find(connection, id).await,
+    }
+}
+
+/// Shows the removed cover again. A project without one is returned as it is, so a cover
+/// uploaded since the removal is never replaced by the one removed.
+///
+/// # Errors
+/// Returns [`diesel::result::Error::NotFound`] for an unknown id.
+pub async fn restore_cover(connection: &mut AsyncPgConnection, id: Uuid) -> QueryResult<Project> {
+    diesel::update(projects::table.find(id))
+        .set(projects::cover_removed_at.eq(None::<DateTime<Utc>>))
         .returning(Project::as_returning())
         .get_result(connection)
         .await
@@ -437,7 +501,7 @@ mod tests {
             None
         );
 
-        let covered = set_cover(&mut connection, project.id, Some(b"RIFF-webp".to_vec()))
+        let covered = set_cover(&mut connection, project.id, b"RIFF-webp".to_vec())
             .await
             .expect("set");
         let (image, updated_at) = find_cover(&mut connection, project.id)
@@ -445,19 +509,84 @@ mod tests {
             .expect("read")
             .expect("a cover");
         assert_eq!(image, b"RIFF-webp");
-        assert_eq!(covered.cover_image_updated_at, Some(updated_at));
+        assert_eq!(covered.cover_updated_at(), Some(updated_at));
 
-        let uncovered = set_cover(&mut connection, project.id, None)
+        let uncovered = remove_cover(&mut connection, project.id, Utc::now())
             .await
             .expect("remove");
-        assert_eq!(uncovered.cover_image_updated_at, None);
+        assert_eq!(
+            uncovered.cover_updated_at(),
+            None,
+            "a removed cover does not show"
+        );
         assert_eq!(
             find_cover(&mut connection, project.id).await.expect("read"),
-            None
+            None,
+            "a removed cover is not served"
         );
+        let removed_at = uncovered.cover_removed_at;
+        let removed_again = remove_cover(&mut connection, project.id, Utc::now())
+            .await
+            .expect("remove again");
+        assert_eq!(
+            removed_again.cover_removed_at, removed_at,
+            "removing it again keeps when it was removed"
+        );
+
+        let restored = restore_cover(&mut connection, project.id)
+            .await
+            .expect("restore");
+        assert_eq!(
+            restored.cover_updated_at(),
+            Some(updated_at),
+            "the same cover shows again, so its cached URL still holds"
+        );
+        let (image, _updated_at) = find_cover(&mut connection, project.id)
+            .await
+            .expect("read")
+            .expect("the restored cover");
+        assert_eq!(image, b"RIFF-webp");
 
         find_cover(&mut connection, Uuid::now_v7())
             .await
             .expect_err("an unknown project has no cover to read");
+        remove_cover(&mut connection, Uuid::now_v7(), Utc::now())
+            .await
+            .expect_err("an unknown project has no cover to remove");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_cover_uploaded_after_a_removal_is_never_replaced_by_the_removed_one() {
+        let (_url, mut connection) = migrated_database().await;
+        let project = create(&mut connection, &new_project("Recovered"))
+            .await
+            .expect("insert");
+
+        let bare = remove_cover(&mut connection, project.id, Utc::now())
+            .await
+            .expect("removing nothing answers the project");
+        assert_eq!(bare.cover_removed_at, None, "nothing was there to remove");
+
+        set_cover(&mut connection, project.id, b"first".to_vec())
+            .await
+            .expect("set");
+        remove_cover(&mut connection, project.id, Utc::now())
+            .await
+            .expect("remove");
+        let replaced = set_cover(&mut connection, project.id, b"second".to_vec())
+            .await
+            .expect("replace");
+        assert_eq!(replaced.cover_removed_at, None, "a new cover shows at once");
+
+        let restored = restore_cover(&mut connection, project.id)
+            .await
+            .expect("a late undo");
+        assert_eq!(restored.cover_updated_at(), replaced.cover_updated_at());
+        let (image, _updated_at) = find_cover(&mut connection, project.id)
+            .await
+            .expect("read")
+            .expect("a cover");
+        assert_eq!(image, b"second", "the newer cover stays");
     }
 }

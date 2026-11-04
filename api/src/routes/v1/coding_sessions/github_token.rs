@@ -189,6 +189,7 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
             cover_image_updated_at: None,
+            cover_removed_at: None,
             cover_fit: ProjectCoverFit::Fit,
             github_access,
             github_credential_id,
