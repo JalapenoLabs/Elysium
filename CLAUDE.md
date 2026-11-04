@@ -54,10 +54,10 @@ Self-improvement (learning from feedback, self-healing connectors) is designed i
 - A step implements `workflows::Step` (a name, typed input and output) and never knows its workflow; a workflow is
   declared from step types (`workflows::declare`), each taking what the one before gives, and a run may enter it at
   any step with that step's input. See `docs/engine.md`, Workflows and steps.
-- Every agent's turn (a step's, Elysia's, a coding or Studio session's, a turn summary, meeting segmentation) belongs
-  to one kind (`agent_models::AgentKind`: worker, Project Manager, correction, segmenting, triage, Elysia, summaries)
-  and runs on the model resolved by `crate::agent_models` as the turn starts: the project's override of its kind, its
-  own setting, its kind's, then the kind's default (Opus 5.5 at high, summaries Haiku 5.5 at low). Admins set the
+- Every agent's turn (a step's, such as correcting or segmenting, Elysia's, a coding or Studio session's, a turn
+  summary) belongs to one kind (`agent_models::AgentKind`: worker, Project Manager, correction, segmenting, triage,
+  Elysia, summaries) and runs on the model resolved by `crate::agent_models` as the turn starts: the project's
+  override of its kind, its own setting, its kind's, then the kind's default (Opus 5.5 at high, summaries Haiku 5.5 at low). Admins set the
   workspace's under Settings, Models; whoever may edit a project sets its own. Every step declares `AGENT_KIND`, and
   every workflow is listed in `workflows::declared`. See `docs/engine.md`, Models.
 - nginx, Kratos, Hydra, and the updater never bind-mount their configuration: each directory's `Dockerfile` builds it
@@ -288,10 +288,14 @@ Everything else follows these rules:
 - Each meeting is a run of the engine's `meeting` workflow, whose `fetch_meeting` step stores the source's raw
   transcript with its SHA-256 and uploads the recording to the account's storage location; fetching the same meeting
   again changes nothing. Nothing a source's own AI wrote (summaries, action items, notes) is read or kept.
-- The meetings loop then segments a fetched meeting in one of Elysia's text turns on the runner and publishes it:
-  `ffmpeg` cuts each segment's clip in the workspace container, and each segment becomes a timeline record with its
-  excerpt, summary, span, and clip, attributed to its projects. Segmenting moves into the workflow as a step later;
-  until then a failed run fails its meeting, and retrying the meeting retries the run. See `docs/meetings.md`.
+- The run's last step, `segment_meeting`, segments the corrected transcript in one text turn on the segmenting kind's
+  model and publishes it: `ffmpeg` cuts each segment's clip in the workspace container at the words Whisper heard
+  nearest its ends, and each segment becomes a timeline record with its excerpt, summary, span, and clip, attributed
+  to its projects. The step also takes a conversation (record ids), whose messages it attributes, which is where
+  intake enters the workflow. The meetings loop only lists meetings and starts their runs; a meeting keeps how far it
+  got, and its failure or skip is its run's. See `docs/meetings.md`, Processing and Segmentation.
+- Every change to what a record is attributed to is recorded in `timeline_record_events` and undoable; Elysia never
+  overrides a person's attribution. See `docs/connectors.md`, The timeline.
 - Each meeting with audio is also transcribed by a local Whisper (faster-whisper, large-v3, pinned and checked in
   `whisper/`), the meeting workflow's `transcribe_meeting` step: one container per transcription that the engine
   creates through `docker-proxy`, with no network, the recording on standard input and the transcript, every word
@@ -301,9 +305,10 @@ Everything else follows these rules:
   and other meetings, into a copy beside the raw ones, which are never changed. The model only names lines and their
   fixed text, each checked word by word, so the copy keeps every line, speaker, and time. A source's "Wait for my
   approval before acting on meetings", or a meeting held by hand, holds the run with an inbox item until the person
-  approves the copy, and the loop segments only once the run is through. See `docs/meetings.md`, Correction.
-- Nothing the segmentation answer says is trusted: segments must lie inside the meeting in order, and attributions
-  must name projects that were offered. A failed step is retried each pass, three times, then retried by the person.
+  approves the copy, and segmenting runs once it goes on. See `docs/meetings.md`, Correction.
+- Nothing the segmentation answer says is trusted: segments must lie inside the meeting (or the conversation) in order,
+  and attributions must name projects that were offered. A failed step takes the run's attempts and backoff, then waits
+  for the person to retry it from the Meetings page or the run's page.
 - Recording downloads follow redirects only to `https` named hosts. `meeting.changed` carries a meeting's id, state,
   and owner, never its title or transcript.
 

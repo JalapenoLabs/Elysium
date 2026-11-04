@@ -9,10 +9,10 @@ This doc is the design. Little of it is built; the roadmap is the issues in the 
 event stream through Redis pub/sub, the engine as a service of its own that runs every background loop, workflow runs
 on a Postgres queue of step jobs with the Runs page (Runs, below), the step and workflow framework over that queue,
 with the model and effort every kind of agent, step, and agent runs on, workspace-wide and per project (Workflows and
-steps, and Models, below), the meeting workflow's first three steps, which fetch each meeting, transcribe its
-recording with a local Whisper, and correct its transcript against everything Elysium knows, waiting for its person's
-approval when asked (Meetings,
-below), and the company doc's scheduled review (The company doc, below).
+steps, and Models, below), the meeting workflow, which fetches each meeting, transcribes its recording with a local
+Whisper, corrects its transcript against everything Elysium knows, waiting for its person's approval when asked, and
+segments it onto projects' timelines, a step that segments a conversation too (Meetings, below), and the company doc's
+scheduled review (The company doc, below).
 
 ## A service of its own
 
@@ -101,8 +101,9 @@ Each moves to Postgres or Redis when the API scales; until then it runs one repl
   (`docs/knowledge.md`, The backfill).
 
 Built: the framework (`api/src/workflows/step.rs` and `workflow.rs`), on the queue below, and two production
-workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps so far are `fetch_meeting`,
-`transcribe_meeting`, and `correct_transcript`, and `company_doc_review` (`api/src/company_doc/workflow.rs`), one step, `review_company_doc`.
+workflows: `meeting` (`api/src/meetings/workflow.rs`), whose steps are `fetch_meeting`, `transcribe_meeting`,
+`correct_transcript`, and `segment_meeting`, and `company_doc_review` (`api/src/company_doc/workflow.rs`), one step,
+`review_company_doc`.
 The engine registers every production step in `api/src/engine/mod.rs` and checks each workflow in
 `workflows::declared` against them there, and every step it registers against those workflows. Tests declare their
 own.
@@ -223,8 +224,9 @@ the Runs page.
   transcription service's own AI summary or notes, since the model behind them is unknown.
 - Built: each meeting is a run of the `meeting` workflow, whose `fetch_meeting` step reads every meeting source the
   same way, stores the raw transcript with its SHA-256, and uploads the recording; running it again for the same
-  meeting changes nothing. Segmenting still runs in the meetings loop until it becomes a step here. See
-  `docs/meetings.md`, Processing.
+  meeting changes nothing. The meetings loop only lists meetings and starts their runs; whether a meeting failed, and
+  why, is its run's, so a person acting on the run's page moves the meeting at once. See `docs/meetings.md`,
+  Processing.
 - Built: when there is audio, the run's `transcribe_meeting` step produces a second transcript, word by word, with a
   local Whisper (faster-whisper with Whisper large-v3, pinned and checked) in a container of its own with no network,
   and stores it beside the source's. Anthropic offers no transcription for recorded audio, and nothing leaves the host.
@@ -239,8 +241,14 @@ the Runs page.
 - Built: each meeting source has "Wait for my approval before acting on meetings", off by default. On, a run stops
   after correction (`Done::Held`) with an inbox item to review the diff, and continues once approved, the output
   saying so; Resume on the Runs page passes the held output on unapproved. One meeting can also be held by hand.
-- Segmenting attributes spans of the corrected transcript to projects, with their clip and summary, onto each
-  project's timeline beside agent work and every other record, so a project reads top to bottom across meetings.
+- Built: segmenting, the run's `segment_meeting` step, cuts the corrected transcript into topics in one text turn, each
+  with its span, summary, and projects with Elysia's confidence, cuts each topic's clip at the words Whisper heard
+  nearest its ends, and puts every topic on the timeline as a record of its own, attributed to its projects, beside
+  agent work and every other record, so a project reads top to bottom across meetings. The person corrects what a
+  topic is about from its meeting's page or a project's timeline, every change recorded in history and undoable, and
+  Elysia never overrides them. Its input also takes a conversation, records already on a person's timeline, so a
+  request workflow enters at this step (`Workflow::new_run_at`); a conversation's topics attribute its messages. See
+  `docs/meetings.md`, Segmentation.
 
 ## Conversations
 
@@ -327,9 +335,8 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
 
 - **What has a setting.** An agent is anything whose work is a turn on the runner, named as it is in code: a workflow
   step whose work is an agent turn, by its step name, and the agents outside the step framework: Elysia
-  (`elysia`), coding sessions (`coding_session`), Studio sessions (`studio_session`), turn summaries
-  (`turn_summary`), and meeting segmentation (`segment_meeting`, the name of the step it becomes, so its setting
-  carries over).
+  (`elysia`), coding sessions (`coding_session`), Studio sessions (`studio_session`), and turn summaries
+  (`turn_summary`).
 - **Kinds.** Every agent belongs to one kind (`agent_models::AgentKind`, stored as the enum `agent_kind`), the one
   typed list of what sort of work a turn is:
 
@@ -338,7 +345,7 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
   | `worker`          | Coding sessions, Studio sessions                   | Yes                  |
   | `project_manager` | None yet (#84, #85)                                | Yes                  |
   | `correction`      | Transcript correction (`correct_transcript`)       | No                   |
-  | `segmenting`      | Meeting segmentation                               | No                   |
+  | `segmenting`      | Segmenting meetings and conversations (`segment_meeting`) | No            |
   | `triage`          | None yet                                           | No                   |
   | `elysia`          | Elysia, and the company doc's review, done in her name | No               |
   | `summaries`       | Turn summaries                                     | Yes                  |
@@ -371,9 +378,9 @@ level, their resolver, the admin page, and each project's own page (`api/src/age
   exception it was set to be: an admin who later sets the kind does not silently undo it, and the page never shows a
   setting that no longer does anything.
 - **Who resolves.** Each caller resolves as its turn starts, so a change applies from the next turn. A coding or Studio
-  session's turn and its summary resolve with the session's project; Elysia's dispatcher and the meetings loop with
-  none. A step's turn resolves through `StepContext::model`, with no project, since every step today reads meetings
-  or the company doc; it writes "Runs on X at Y effort, from Z" to the step's log, a retry's included. A step that
+  session's turn and its summary resolve with the session's project; Elysia's dispatcher with none. A step's turn
+  resolves through `StepContext::model`, with no project, since every step today reads meetings, conversations, or
+  the company doc; it writes "Runs on X at Y effort, from Z" to the step's log, a retry's included. A step that
   works for one project, such as a Project Manager's, carries the project in its input and resolves with it through
   `for_step`. Every caller passes the result to the runner (`TurnRequest::model` and `effort`), so `--model` and
   `--effort` override whatever the agents' configuration repository's settings name.

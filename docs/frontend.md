@@ -311,7 +311,7 @@ needs nothing for this beyond its `UrlTree` entry.
 | `/settings/jira/:credentialId/edit` | `EditJiraCredentialPage` | Edit a Jira site                                   |
 | `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
 | `/settings/meetings`          | `MeetingsPage`           | Recent meetings and meeting sources, as tabs in `?tab=`  |
-| `/settings/meetings/:meetingId` | `MeetingPage`        | One meeting: its transcript as heard beside its corrections, Approve, and its hold |
+| `/settings/meetings/:meetingId` | `MeetingPage`        | One meeting: its topics and their projects, and its transcript beside its corrections, as tabs in `?tab=`; Approve and its hold |
 | `/settings/company-doc`       | `CompanyDocPage`         | The company doc, edited in place, its proposals beside each section, and its history; members |
 | `/settings/learnings`         | redirect                 | To `/knowledge/learnings`; a page under it lands there too |
 | `/settings/learning-categories` | `LearningCategoriesPage` | Every learning category, the workspace's own reordered and removed from their rows; admins |

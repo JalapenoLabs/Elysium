@@ -47,6 +47,7 @@ Each SSE message is unnamed (`message`), and its `data` is one JSON envelope:
 | `kindModelSetting.changed` | `{ kind, projectId }` | Someone chose what a kind of agent runs on, for the workspace (`projectId` null) or one project, or put it back; admins load the workspace's list again, and a page showing a project's loads it again |
 | `connectorCheckRun.updated` | `{ runId, connectorId, checkId, state }` | A check in a run moved on, or the run ended (`checkId` null, `state` `finished`); load the run for its messages |
 | `timelineRecord.created` | `{ id, sourceKind, createdBy, actionItemId }` | Something was ingested; never its content, see `docs/connectors.md` |
+| `timelineRecord.changed` | `{ id, createdBy }`      | What a record is attributed to changed: its owner's change or undo, or segmenting read its conversation again; its owner loads it by id |
 | `draft.changed`          | `{ id, createdBy }`      | A draft was written, edited, discarded, or a send of it began, landed, or failed; never its text, see `docs/connectors.md` |
 | `meeting.changed`        | `{ id, state, createdBy }` | A meeting was read or its processing moved on; never its title or transcript, see `docs/meetings.md` |
 | `project.upserted`   | `Project`                | A project was created or changed                           |

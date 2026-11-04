@@ -37,7 +37,7 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/connectors/{id}/sign-in`     | `200` `{ connector }`: starts a browser for one waiting for its own |
 | GET    | `/api/v1/meetings`                    | `200` `{ meetings: Meeting[] }`, the caller's 100 newest; `reviewItemId` keeps the one an inbox item asks to review |
 | GET    | `/api/v1/meetings/{id}`               | `200` `{ meeting }`                                 |
-| POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; resumes a failed meeting, `404` for one that has not failed |
+| POST   | `/api/v1/meetings/{id}/retry`         | `200` `{ meeting }`; retries its run's failed step, `404` when its run has not failed |
 | GET    | `/api/v1/meetings/{id}/transcript`    | `200` `{ original, corrected }`: the transcript as heard and its corrected copy, line for line |
 | POST   | `/api/v1/meetings/{id}/correction/approve` | `200` `{ meeting }`; approves the corrected copy and lets a run held for it go on, `404` before it is corrected |
 | POST   | `/api/v1/meetings/{id}/hold`          | `200` `{ meeting }`; waits for the caller's approval, `409` (`meeting_corrected`) once corrected |
@@ -45,8 +45,10 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | GET    | `/api/v1/timeline`                    | `200` `{ records: TimelineRecord[], total }`, the caller's, newest first |
 | GET    | `/api/v1/timeline/{id}`               | `200` `{ record }`                                  |
 | GET    | `/api/v1/timeline/{id}/media`         | The record's clip, streamed from storage; `404` when it has none |
-| PUT    | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record }`; the caller attributes it to a project |
-| DELETE | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record }`                            |
+| PUT    | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record, entryId }`; the caller attributes it to a project |
+| DELETE | `/api/v1/timeline/{id}/projects/{projectId}` | `200` `{ record, entryId }`; the caller takes it off a project |
+| GET    | `/api/v1/timeline/{id}/history`       | `200` `{ history: HistoryEntry[] }`, every change to its attributions, oldest first |
+| POST   | `/api/v1/timeline/{id}/history/{entryId}/undo` | `200` `{ record, entryId }`; reverses one change, `409` (`attribution_changed`) when it changed since |
 | GET    | `/api/v1/drafts?recordId=`            | `200` `{ drafts: Draft[] }`: the caller's unsent drafts answering a record, newest first |
 | POST   | `/api/v1/drafts`                      | `201` `{ draft }`: a reply or a new mail, sent nowhere yet |
 | GET    | `/api/v1/drafts/{id}`                 | `200` `{ draft }`                                   |
@@ -361,7 +363,8 @@ a token and `409` for one that has its browser. Someone else's personal connecto
 `docs/connectors.md`.
 
 A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durationMs`, `organizer`,
-`participants`, `url`, `state` (`pending`, `recorded`, `segmented`, `done`, or `failed`), `attempts`, `lastError`,
+`participants`, `url`, `state` (`pending`, `recorded`, `segmented`, or `done` as far as it got, or `failed` or
+`skipped` as its newest run says), `lastError` (why its run failed, while it has),
 `hasRecording`, `segmentCount`, `holdForApproval`, `correction` (`{ changedLines, approvedAt, approvedBy,
 reviewItemId, createdAt }`, or `null` before it is corrected), `runId` (its newest run of the meeting workflow),
 `awaitingApproval` (whether that run is held for the caller's approval), `createdAt`, and `updatedAt`. `sourceKind` is
@@ -374,8 +377,13 @@ corrected; each line is `{ startMs, endMs, speaker, text }`. See `docs/meetings.
 A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
 attributedBy, createdAt }`), `createdBy`, and `createdAt`. `GET /timeline` takes `projectId`, `actionItemId` (the record
-that raised that item), `before` (an `occurredAt`, for the next page), and `limit` (1 to 200, default 50).
-`GET /timeline/{id}/media` streams the clip in `media.clip`, privately cached for good. Every route answers the record's owner alone. See `docs/connectors.md`.
+that raised that item), `meetingId` (that meeting's segments), `before` (an `occurredAt`, for the next page), and
+`limit` (1 to 200, default 50).
+`GET /timeline/{id}/media` streams the clip in `media.clip`, privately cached for good. A change to a record's
+attributions answers the record and `entryId`, the history entry it recorded (`null` when nothing changed); a
+`HistoryEntry` has `id`, `timelineRecordId`, `projectId`, `kind` (`attributed` or `unattributed`), `createdBy` (the
+owner, or Elysia's machine user), `before` and `after` (each `{ confidence, attributedBy }` or `null`), `undid`, and
+`createdAt`. Every route answers the record's owner alone. See `docs/connectors.md`.
 
 ### `/api/v1/drafts`
 

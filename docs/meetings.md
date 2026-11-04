@@ -54,13 +54,13 @@ connector read are its connector's again, so resuming it reads none of them twic
 
 Every meeting belongs to a connector (`connectors`), the same table mailboxes use. `UNIQUE (connector_id, external_id)`
 on both `meetings` and `timeline_records` is what keeps a meeting, and each of its segments, from being recorded twice.
-A listing that stored meetings, and a meeting that finished or failed, is a run of its connector, and a connector is
-`syncing` while one of its meetings is processed.
+A listing that stored meetings, and a meeting whose segments were published, is a run of its connector, and a
+connector is `syncing` while a meeting of its is fetched or its segments are cut and published.
 
 ## Processing
 
-`Meetings::start` runs one loop until shutdown, and each meeting is also a run of the engine's `meeting` workflow
-(`docs/engine.md`, Workflows and steps), which fetches it, transcribes its recording, and corrects its transcript.
+`Meetings::start` runs one loop until shutdown, and every step of a meeting is a step of its run of the engine's
+`meeting` workflow (`docs/engine.md`, Workflows and steps), declared in `api/src/meetings/workflow.rs`.
 
 - **Listing**, every ten minutes (`POLL_INTERVAL`): each active connector of a kind that provides meetings lists,
   through its kind's source, the meetings that started since its cursor (`{"since": <the newest start time seen>}`),
@@ -68,51 +68,45 @@ A listing that stored meetings, and a meeting that finished or failed, is a run 
   (`FIRST_LISTING_DAYS`), so it arrives with its recent meetings but not its whole history. Each meeting the connector
   has not seen is stored `pending`, with its kind as `source_kind`. A key its source refuses marks the connector
   `signed_out` with the reason in `last_error`.
-- **Processing**, every minute (`PROCESS_INTERVAL`): each `pending` meeting's run is started, or followed, and every
-  fetched meeting is carried through the loop's steps until it is done or one fails.
+- **Starting runs**, every minute (`PROCESS_INTERVAL`): each meeting not yet `done` that needs a run gets one, started
+  by the system user (`workflow::run_to_start`).
 
-| Step        | From        | Where           | What happens                                                    |
-|-------------|-------------|-----------------|-----------------------------------------------------------------|
-| Fetch       | `pending`   | Its run         | `fetch_meeting` stores the transcript and uploads the recording (Fetching, below), and moves the meeting to `recorded` |
-| Transcribe  | `recorded`  | Its run         | `transcribe_meeting` transcribes the recording with the local Whisper and stores it beside the source's transcript (Transcription, below); the meeting's state does not change |
-| Correct     | `recorded`  | Its run         | `correct_transcript` writes a corrected copy beside the raw transcripts, and holds the run for its person's approval when the source or the meeting asks (Correction, below); the meeting's state does not change |
-| Segment     | `recorded`  | The loop        | Once the run is through, Elysia reads the corrected copy (or the source's transcript, when the run handed on none) in one text turn and answers the topic segments, each with its projects |
-| Publish     | `segmented` | The loop        | `ffmpeg` cuts each segment's clip in the workspace, each is uploaded to `meetings/<id>/segments/<n>.<ext>`, and every segment becomes a timeline record in one transaction |
+| Step                 | Moves the meeting       | What happens                                                    |
+|----------------------|-------------------------|-----------------------------------------------------------------|
+| `fetch_meeting`      | `pending` to `recorded` | Stores the transcript and uploads the recording (Fetching, below) |
+| `transcribe_meeting` | No                      | Transcribes the recording with the local Whisper and stores it beside the source's transcript (Transcription, below) |
+| `correct_transcript` | No                      | Writes a corrected copy beside the raw transcripts, and holds the run for its person's approval when the source or the meeting asks (Correction, below) |
+| `segment_meeting`    | `segmented`, then `done` | Cuts the corrected copy into topics, cuts each one's clip, and publishes every topic as a timeline record attributed to its projects (Segmentation, below) |
 
-### The run and the loop
+### A meeting's run
 
-The workflow is declared in `api/src/meetings/workflow.rs`: `fetch_meeting`, `transcribe_meeting`, then
-`correct_transcript`. Segmenting joins it as a step after the correction (`docs/engine.md`, Meetings), taking the
-corrected copy as its input, and the loop's Segment and Publish move into the run. Until then the two share the meeting
-this way:
-
-- The loop starts a `pending` meeting's run on its pass: one run per meeting (source `meeting`, the meeting's id),
-  started by the system user. Starting answers the live run when there is one, so every pass may ask.
-- The run's fetch moves the meeting to `recorded`. The loop segments a `recorded` meeting only once its run is
-  through, that is, once the meeting has no live run (`Meetings::waits_on_run`): segmenting reads what the correction
-  hands on, so it waits for the transcription and the correction. A run that failed at either, or is held for
-  approval, keeps the meeting `recorded` until a person retries or skips the step on the run's page, or approves the
-  corrected transcript. A meeting whose run succeeded, or that has no run, is the loop's.
-- The loop segments, and excerpts its records from, the corrected copy the run's correction handed on
-  (`workflow::corrected_copy`), or the source's transcript when the correction was skipped or the run ran before the
-  workflow corrected meetings.
-- A run whose fetch fails fails its meeting with the run's reason, recorded as a failed run of its connector, so the
-  Meetings page and the connector say why. Its step's own attempts and backoff are the run's (`docs/engine.md`, Runs).
-- Retrying a meeting whose fetch failed (`POST /api/v1/meetings/{id}/retry`, `workflow::retry`) also retries its run's
-  failed step, as the person who asked, in the same transaction; otherwise the loop would find the same failed run and
-  fail the meeting again. A person may retry that step from the run's page instead, and the meeting is fetched all the
-  same.
-
-A step of the loop that fails records why on the meeting (`last_error`, `attempts`) and is tried again on the next
-pass. After three failures (`MAX_ATTEMPTS`) the meeting is `failed`; the same retry resumes it from the step it
-failed at: segmenting for a meeting that was fetched, publishing for one with segments. Every step is safe to repeat:
-storage paths are fixed per meeting and segment, and records are written only once every clip is up.
+- **One run carries a meeting.** The loop starts a meeting's run from its fetch when it never had one (source
+  `meeting`, the meeting's id), and one that enters the workflow at segmenting (`Workflow::new_run_at`) when it was
+  fetched and its newest run ended before segmenting was one of its steps, with what the meeting holds
+  (`workflow::run_from_segmenting`): its transcript's hash, its recording, its Whisper transcript, and its corrected
+  copy with whether it was approved. Any other meeting is its run's, live or not, and the loop starts nothing for it.
+- **A meeting keeps how far it got, and nothing else.** `meetings.state` is `pending`, `recorded`, `segmented`, or
+  `done`, each written by a step. Whether it failed, and why, is its newest run's, read as the meeting is answered
+  (`workflow::processing`): a failed run reads as `failed` with the run's reason, and a run that went through without
+  publishing it, because a person skipped a step it needed, reads as `skipped`. Nothing copies the run's state onto the
+  meeting, so a step retried or skipped from the run's page moves the meeting at once.
+- **Skipping.** A step skipped by a person hands the next one its own input (`docs/engine.md`, A step), and every
+  meeting step reads its predecessor's input as a meeting not fetched, not transcribed, or not corrected. So skipping
+  the fetch skips the meeting: transcription, correction, and segmenting each skip it in turn, the run succeeds, and the
+  meeting reads `skipped` with no other run started.
+- **Retrying.** Retry on the Meetings page (`POST /api/v1/meetings/{id}/retry`, `workflow::retry`) retries its run's
+  failed step as the person who asked, exactly as Retry on the run's page does. Each step's attempts and backoff are
+  the run's (`docs/engine.md`, Runs).
+- Every step is safe to repeat: what it stores is written once, storage paths are fixed per meeting and segment, and a
+  meeting's records are written in the transaction that marks it done.
 
 ### Fetching
 
 `fetch_meeting` (`api/src/meetings/fetch.rs`) takes `{ meetingId }` and gives `{ meetingId, transcriptHash,
-recording }`, the recording being where it is kept (`{ storageLocationId, path, contentType }`) or `null`. One step
-reads every source, through the meeting's connector and `Sources::for_kind`, so a new source needs no step of its own.
+recording }`, the recording being where it is kept (`{ storageLocationId, path, contentType }`) or `null`. What it
+takes reads as what it gives with no hash, a meeting not fetched, which is what the step after receives when a person
+skips it. One step reads every source, through the meeting's connector and `Sources::for_kind`, so a new source needs
+no step of its own.
 
 - It fetches the transcript and a fresh recording address from the source, downloads the recording into the
   workspace, and uploads it to the connector's storage location at `meetings/<id>/recording.<ext>`. Without a
@@ -148,7 +142,8 @@ step and the next one still reads its input.
 - As a running step, a transcription holds an activity, so auto-update waits for it rather than cutting it short.
 - A meeting without a recording (the source keeps none, or the connector names nowhere to keep it) skips the step,
   saying "No recording, so nothing to transcribe", and one whose recording has no audio stream skips it saying that.
-  A step skipped this way gives nothing, so the next one receives the fetch's output (`docs/engine.md`, A step).
+  A step skipped this way gives nothing, so the next one receives the fetch's output (`docs/engine.md`, A step). A
+  meeting not fetched skips it saying "Not fetched, so nothing to transcribe".
 - Storage or Docker not answering, or the container stopping on its own, is tried again with the run's backoff. A
   recording Whisper cannot decode, a transcription that runs out of memory, one that passes six hours
   (`TRANSCRIPTION_TIMEOUT`), and a transcript Elysium cannot read fail the step for good, for a person to retry or skip.
@@ -230,8 +225,10 @@ Transcription mishears names, products, and jargon, and every source mishears th
 each meeting's transcript against everything it knows before acting on it. `correct_transcript`
 (`api/src/meetings/correct.rs`; the prompt and the checks on the answer are `correction.rs`) takes what the
 transcription gives and gives it back with `correctedTranscriptHash`, naming the corrected copy, and `approved`, whether
-its person had approved it when the run went on. What the transcription gives reads as that with no copy, so a person
-may skip the step and the next one still reads its input. The raw transcripts are never written.
+its person had approved it when the run went on, as segmenting's input (`TranscriptToSegment::Meeting`, whose JSON is
+`CorrectedMeeting`'s own). What the transcription gives reads as that with no copy, so a person may skip the step and
+the next one still reads its input. A meeting not fetched skips it, saying "Not fetched, so nothing to correct". The
+raw transcripts are never written.
 
 - **What it reads.** Every transcript the meeting has: the source's lines and, when the recording was transcribed,
   Whisper's. The company doc, with its pending proposals (`company_doc::read`, `docs/knowledge.md`), its sections in
@@ -300,35 +297,91 @@ the copy maps onto Whisper's word timings by time alone: a step cuts a segment's
 
 ### Segmentation
 
-Segmentation is a text turn on the runner (`TurnMode::Text`, `docs/coding.md`), on the model resolved for
-`segment_meeting`, of the segmenting kind: Opus 5.5 at high effort unless an admin chose another for it or the kind
-(`docs/engine.md`, Models): no tools, no
-settings, and nothing kept to resume. Its prompt holds the meeting's title, length, and participants, every project's
-id, name, and the start of its description, and the transcript as `[m:ss] Speaker: text` lines. The answer is one
-JSON object of segments, each with its start and end in seconds, a title, a summary of what was said and decided, and
+`segment_meeting` (`api/src/meetings/segment.rs`; the prompts and the checks on the answers are `segmentation.rs`) is
+the workflow's last step. It is named for the meetings it segments, and its model setting is filed under that name; it
+takes either of two things to segment (`TranscriptToSegment`, untagged, so each reads as its own JSON):
+
+- **A meeting** past its correction (`CorrectedMeeting`), or what the transcription or the fetch gave when a person
+  skipped the steps between.
+- **A conversation** (`ConversationToSegment`: `{ title, recordIds }`), messages already on one person's timeline,
+  which intake gathers from a direct message thread or a channel and enters the workflow with at this step
+  (`Workflow::new_run_at`). `title` is what the conversation is called where it was had, such as `#launch in
+  Mooreslab`.
+
+What it gives (`Segmented`) is every topic in order, each with its title, summary, span, the projects Elysia attributed
+it to with her confidence, and its records: a meeting segment's own, or a conversation topic's messages. Steps after it
+read from that what landed on which project.
+
+**The turn.** One text turn on the runner (`TurnMode::Text`, `docs/coding.md`) through `StepContext::model`, on the
+segmenting kind: Opus 5.5 at high effort unless an admin chose another for the step, the kind, or (where a kind runs in
+projects) a project (`docs/engine.md`, Models). No tools, no settings, and nothing kept to resume. Its prompt holds
+every project's id, name, and the start of its description, and:
+
+| Source       | The prompt holds                                                   | The answer names each segment by |
+|--------------|--------------------------------------------------------------------|----------------------------------|
+| Meeting      | Its title, length, participants, and transcript as `[m:ss] Speaker: text` lines | Its start and end in seconds |
+| Conversation | Its title, message count, participants, and messages as `[n] [m:ss] Speaker: text` lines, timed from the first | Its first and last message, numbered from 1 |
+
+A conversation's topics are runs of messages, since a chat's topics are not stretches of time: two messages a few
+seconds apart may be two requests. Each answer segment also has a title, a summary of what was said and decided, and
 `{ projectId, confidence }` pairs.
 
-Nothing in the answer is taken on trust (`api/src/meetings/segmentation.rs`):
+**Nothing in the answer is taken on trust:**
 
-- A segment is kept only inside the meeting, in order, starting no earlier than the last one ended, and 15 seconds
-  long at least. At most 40 are kept.
+- A meeting's segment is kept only inside the meeting, in order, starting no earlier than the last one ended, and 15
+  seconds long at least. A conversation's is kept only as a run of its messages, starting after the last one ended and
+  ending at its last message at most. At most 40 are kept.
 - An attribution is kept only for a project that was offered, once per segment, with its confidence clamped to 0 to 1,
-  and dropped below 0.3.
-- An answer with no JSON, the wrong shape, or no segment left fails the step.
+  and dropped below 0.3. One to a project removed while the turn ran is left out when it is written.
+- An answer with no JSON, the wrong shape, or no segment left fails the attempt, which the run's backoff tries again.
 
 The runner passes a prompt as one argument to `claude`, and Linux allows one argument 128 KiB. A transcript therefore
 merges each speaker's consecutive lines and, past 100 KB, shortens every line evenly; a transcript too long for even
-that keeps its start and says where it was cut.
+that keeps its start and says where it was cut. A conversation's messages are never merged, since the answer names
+them by number, and are shortened the same way.
+
+**A meeting**, step by step:
+
+1. A meeting not fetched skips the step ("Not fetched, so nothing to segment"), and one already `done` answers what it
+   published, changing nothing.
+2. It reads the corrected copy its input names (`correct::corrected_lines`), or the source's transcript when the run
+   handed on none. A meeting in which nothing was said is `done` with no topics, and the step skips ("Nothing was said,
+   so nothing to segment").
+3. The answer is stored on the meeting (`meetings.segments`, `segmented`) before anything else, once: an attempt that
+   finds it stored cuts and publishes from it without asking again.
+4. Each segment's clip is cut and uploaded (Clips, below).
+5. Every segment becomes a timeline record (Segment records, below), attributed to its projects as Elysia, and the
+   meeting is marked `done`, in one transaction. Then each record is announced, the meeting's connector records a run,
+   and the workspace's copy of the recording is removed.
+
+The connector shows as syncing meanwhile, and the step holds a `workflowStep` activity as every running step does, so
+auto-update waits for clips being cut.
+
+**A conversation:** its records are read (any it names that are gone are left out, and a conversation of more than one
+person's records fails for good), ordered by when they were said, and segmented in one turn. Each message is then
+attributed to its topic's projects, and the reading replaces what Elysia said of those messages before: an attribution
+of hers that it no longer makes is taken off, so a conversation read again as it grows keeps no guess its fuller
+reading dropped. A person's attributions are never touched (`docs/connectors.md`, The timeline). No record is made: a
+conversation's messages are already its records, and a topic of one is a run of them. Each message whose attributions
+changed is announced as `timelineRecord.changed`.
+
+**What it logs.** Counts, line and message counts, and storage paths, never a title or a word that was said.
 
 ### Clips
 
 `ffmpeg` runs in the workspace container (`workspace/Dockerfile`), so the API's image stays small. Each meeting gets a
 scratch directory there, `.elysium/meetings/<id>`, holding its recording while its clips are cut, fetched back from
 storage if the workspace lost it, and removed once the meeting is done. Storage is where recordings and clips are
-kept.
+kept, each clip at `meetings/<id>/segments/<n>.<ext>`.
 
-A clip is cut with `-c copy`: fast and lossless, but it starts at the keyframe nearest the segment's start, a second
-or two early at most. MP4-family clips are written with `+faststart`, so a browser plays them as they stream.
+A segment's times come from the transcript, whose lines a source times to a second or so. When Whisper heard the
+recording, its word timings are exact to the audio, so a clip is cut from the start of the word nearest the segment's
+start to the end of the word nearest its end (`segmentation::clip_span`), each within three seconds: a word farther away
+belongs to speech across a silence Whisper skipped, so that end keeps the transcript's time, as both do for a meeting
+Whisper did not transcribe. The record's span stays the transcript's, and its clip names the stretch it holds.
+
+A clip is cut with `-c copy`: fast and lossless, but it starts at the keyframe nearest its start, a second or two early
+at most. MP4-family clips are written with `+faststart`, so a browser plays them as they stream.
 
 Recording downloads use their own HTTP client, which follows redirects only to `https` addresses on a named host,
 and the first address is held to the same rule, so a source's address cannot lead Elysium into its own network.
@@ -346,10 +399,11 @@ Each segment is a timeline record:
 | `title`        | The segment's title                                                            |
 | `body`         | Its transcript excerpt, as `[m:ss] Speaker: text` lines                        |
 | `url`          | The meeting's page at its source                                               |
-| `media`        | `{ meetingId, startMs, endMs, clip: { storageLocationId, path, contentType } \| null }` |
+| `media`        | `{ meetingId, startMs, endMs, clip: { storageLocationId, path, contentType, startMs, endMs } \| null }`, the clip's own span cut at Whisper's words |
 | `metadata`     | `{ meetingId, meetingTitle, meetingSource, segmentIndex, summary }`            |
 
-Its projects are attributed by `elysia` with her confidence; a person's attribution replaces hers, as for any record.
+Its projects are attributed by `elysia` with her confidence; a person's attribution replaces hers, Elysia never changes
+it back, and every change is in the record's history, undoable (`docs/connectors.md`, The timeline).
 Each record publishes `timelineRecord.created`, which Elysia's intake hears. `GET /api/v1/timeline/{id}/media`
 streams the clip from storage to the record's owner alone. Each segment is a document of the knowledge index, stored
 with its record: its title, its summary, and its excerpt, never its clip (`docs/knowledge.md`, Timeline records).
@@ -367,16 +421,19 @@ with its record: its title, its summary, and its excerpt, never its clip (`docs/
     it.
   - **Recent meetings.** A table (`MeetingTable`) whose search, Columns, and export sit in the page's titlebar: each
     meeting's title, opening its page; the source it came from, linking to its connector while there is one; its
-    state, with why it failed, that its run waits for the person's approval, or that a finished one was published
-    from its transcript alone; when it started, how long it ran, and how many topics Elysia found. A failed meeting's
-    row has Retry, which resumes it from the step it failed at.
+    state (as its run says: failed with why, skipped, or how far it got), that its run waits for the person's
+    approval, or that a finished one was published from its transcript alone; when it started, how long it ran, and how
+    many topics Elysia found. A failed meeting's row has Retry, which retries its run's failed step at once.
 - **A meeting's page** (`/settings/meetings/:meetingId`, `MeetingPage`): its title, source, and state; when it
   started, how long it ran, and a link to it at its source, in a new tab; where its correction stands (not corrected
-  yet, waiting for the person's approval, approved and by whom, or not approved); and its transcript
-  (`MeetingTranscript`, `GET /meetings/{id}/transcript`): as heard beside its corrections, as a `TextDiff` whose
-  unchanged lines fold away, or as heard until it is corrected or when nothing needed it. Approve is the header's
-  primary action while the copy waits for one. Its Actions hold the meeting for the person's approval, or stop
-  holding it, until it is corrected and unless its source already waits, and open its run.
+  yet, waiting for the person's approval, approved and by whom, or not approved); and two tabs, the open one in
+  `?tab=`. **Topics**, counted, the first: its segments in the order they were said (`MeetingTopics`,
+  `GET /timeline?meetingId=`), each shown as on a project's timeline with the projects it is on, which is where a
+  topic Elysia put on no project, or the wrong one, is corrected. **Transcript** (`MeetingTranscript`,
+  `GET /meetings/{id}/transcript`): as heard beside its corrections, as a `TextDiff` whose unchanged lines fold away,
+  or as heard until it is corrected or when nothing needed it. Approve is the header's primary action while the copy
+  waits for one. Its Actions hold the meeting for the person's approval, or stop holding it, until it is corrected and
+  unless its source already waits, and open its run.
 - **An item asking for a review** links to its meeting's page, from the item's page (`MeetingReviewLink`, reading
   `GET /meetings?reviewItemId=`).
 - **The source's setting** is its connector's content form's switch, "Wait for my approval before acting on
@@ -384,10 +441,15 @@ with its record: its title, its summary, and its excerpt, never its clip (`docs/
 - **A project's timeline** (`ProjectTimeline`, the project page's Timeline tab, which counts every record): every
   record attributed to the project, newest first, fifty at a time with "Show older". A meeting segment shows its
   title, its place in the meeting, its summary, its clip (video or audio, loaded only when played), and its
-  transcript excerpt on request. Elysia's attribution
-  says how sure she was; the person can confirm it, which makes it theirs, or take the record off the project.
-- Records and meetings reach Redux through SWR loaders and stay current through `timelineRecord.created` and
-  `meeting.changed`, each loading what it names by id, and `workflowRun.changed` for a meeting's run, which reloads
+  transcript excerpt on request.
+- **What a record is about** (`RecordProjects`, below every record on a project's timeline and every topic): each
+  project it is on, Elysia's saying how sure she was. The person confirms hers, which makes it theirs, takes the
+  record off a project, or adds it to one from Add to a project; each happens at once, with Undo in its toast. History
+  (`RecordHistory`, `GET /timeline/{id}/history`) lists every change, Elysia's and theirs, newest first, each with
+  Undo; one changed again since says so and stays.
+- Records and meetings reach Redux through SWR loaders and stay current through `timelineRecord.created`,
+  `timelineRecord.changed`, and `meeting.changed`, each loading what it names by id, and `workflowRun.changed` for a
+  meeting's run, which reloads
   the meeting so its page and row say when the run holds for approval (`docs/frontend.md`). A meeting's transcript is
   read again once its correction lands.
 
@@ -397,6 +459,7 @@ with its record: its title, its summary, and its excerpt, never its clip (`docs/
 |-----------------------------|--------------------------------------------------------------------------|
 | `meeting.changed`           | A meeting was read, its processing moved on, its corrected copy was stored or approved, or its hold changed: its id, state, and owner, never its title or transcript |
 | `timelineRecord.created`    | A segment's record was stored                                            |
+| `timelineRecord.changed`    | What a record is attributed to changed: a person's change or undo, or a conversation segmented again |
 | `connector.changed`         | A meeting connector was added, a listing changed its sign-in state or error, or a meeting moved it |
 
 ## Roadmap
@@ -405,11 +468,9 @@ with its record: its title, its summary, and its excerpt, never its clip (`docs/
   (`docs/browser.md`): Meet's land in Google Drive, Teams' in OneDrive, both reachable as the user. Every source today
   signs in with a key (`Meetings::key_of`); a source read through a browser resolves its sign-in beside its source in
   `sources.rs` instead.
-- Segmenting as a step of the meeting workflow after correction (`docs/engine.md`, Meetings), taking the corrected
-  copy as its input, replacing the loop's Segment and Publish, and cutting clips by the Whisper transcript's word
-  timings.
 - Passing long prompts to the CLI on standard input, so a transcript never has to be shortened to fit an argument,
   and a long meeting's correction reads the company doc once rather than in every turn.
 - Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.
-- Holding an activity while a meeting's clips are cut, so auto-update waits for them; the fetch's download already
-  holds one as a step of its run.
+- Whether a conversation's topics become records of their own, with their summaries on the project's timeline, once
+  intake segments conversations (#81); today a topic's summary is in the step's output, and its messages carry its
+  projects.

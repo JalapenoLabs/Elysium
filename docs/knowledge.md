@@ -193,7 +193,7 @@ Confluence pages and comments, YouTrack issues and comments, meeting segments, a
 `api/src/knowledge/records.rs`, which says what a record's document is, and `timeline_record::index`
 (`api/src/models/`), which puts it in the index.
 
-- **On write.** `timeline_record::insert_new`, which every reader, the meetings loop, and sending go through, indexes
+- **On write.** `timeline_record::insert_new`, which every reader, segmenting, and sending go through, indexes
   a new record in the same transaction that stores it, so a record is found by its words the moment it commits and a
   record that fails to store leaves nothing indexed. `timelineRecord.created` still carries ids alone; nothing listens
   to it to index. A kind recorded later, such as Jira's or GitHub's issues, is indexed the moment it is on the

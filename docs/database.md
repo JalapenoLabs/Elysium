@@ -359,6 +359,25 @@ Which projects a record is about. Primary key `(timeline_record_id, project_id)`
 | `attributed_by`      | `TEXT`        | The actor, as history writes it (`user:<id>`, `elysia`)     |
 | `created_at`         | `TIMESTAMPTZ` | Set on insert                                               |
 
+Every write goes through `models::attribution`, which records it in `timeline_record_events`.
+
+### `timeline_record_events`
+
+The history of what records are attributed to, one row per change, shaped like `learning_events`; see
+`docs/connectors.md`, The timeline. Cascades with its record and its project. `timeline_record_events_record` on
+`(timeline_record_id, id)` reads one record's history in order; `timeline_record_events_pair` on
+`(timeline_record_id, project_id)` answers whether a person decided a pair, which Elysia then leaves alone.
+
+| Column               | Type          | Notes                                                                 |
+|----------------------|---------------|-----------------------------------------------------------------------|
+| `id`                 | `UUID`        | UUIDv7, primary key; orders entries as they were written              |
+| `timeline_record_id` | `UUID`        | References `timeline_records`, cascading                              |
+| `project_id`         | `UUID`        | References `projects`, cascading                                      |
+| `kind`               | `TEXT`        | `attributed` (added, or how sure it is changed) or `unattributed`     |
+| `created_by`         | `UUID`        | References `users`: the record's owner, or Elysia's machine user      |
+| `data`               | `JSONB`       | `{ before, after }`, each `{ confidence, attributedBy }` or `null`, and `undid` for an undo |
+| `created_at`         | `TIMESTAMPTZ` | Written by the API, the moment of the change                          |
+
 ### `company_doc_sections`
 
 The company doc's seven fixed sections, one row each, seeded by the migration as the system user; see
@@ -538,8 +557,8 @@ in order.
 ### `meetings`
 
 Meetings read from a meeting source, and how far each one's processing got; see `docs/meetings.md`. Unique on
-`(connector_id, external_id)`; unfinished meetings are indexed for the processing loop. `recording_path` and
-`storage_location_id` are set together (`meetings_recording_fields`).
+`(connector_id, external_id)`; meetings not yet `done` are indexed for the meetings loop (`meetings_unfinished`).
+`recording_path` and `storage_location_id` are set together (`meetings_recording_fields`).
 
 | Column                   | Type          | Notes                                                                   |
 |--------------------------|---------------|-------------------------------------------------------------------------|
@@ -558,11 +577,9 @@ Meetings read from a meeting source, and how far each one's processing got; see 
 | `storage_location_id`    | `UUID`        | References `storage_locations`: where its recording is kept             |
 | `recording_path`         | `TEXT`        | The recording's path there; `NULL` when there is none                   |
 | `recording_content_type` | `TEXT`        | The recording's media type                                              |
-| `segments`               | `JSONB`       | Elysia's topic segments; `NULL` until she has read it                   |
+| `segments`               | `JSONB`       | Elysia's topic segments, written once by segmenting; `NULL` until she has read it |
 | `hold_for_approval`      | `BOOLEAN`     | Its person asked to approve its corrected transcript before it is acted on, whatever its source's setting; `false` unless set |
-| `state`                  | `TEXT`        | `pending`, `recorded`, `segmented`, `done`, or `failed`                 |
-| `attempts`               | `INTEGER`     | How many times its current step failed                                  |
-| `last_error`             | `TEXT`        | Why the last attempt failed, or `NULL`                                  |
+| `state`                  | `TEXT`        | How far its processing got: `pending`, `recorded`, `segmented`, or `done`. Whether it failed, and why, is its run's |
 | `created_by`             | `UUID`        | References `users`; whose meeting it is                                 |
 | `created_at`, `updated_at` | `TIMESTAMPTZ` | Set on insert; `updated_at` maintained by trigger                     |
 

@@ -552,13 +552,24 @@ person's mail is theirs even when it is about a shared project. That ownership i
 its recordings, not of the text: the knowledge base indexes every record for everyone in the workspace, in the
 transaction that stores it (`docs/knowledge.md`, Timeline records, and Who sees what).
 
-`timeline_record_projects` attributes records to projects, each with a confidence and who attributed it. A person's
-attribution has a confidence of 1 and replaces whatever was guessed for that project; Elysia's carry her
-confidence.
+`timeline_record_projects` attributes records to projects, each with a confidence and who attributed it. Elysia
+attributes as segmenting reads a meeting or a conversation (`docs/meetings.md`, Segmentation), with her confidence;
+the record's owner confirms, adds, or removes. Every change goes through `models::attribution`:
 
-`GET /api/v1/timeline` lists the caller's records newest first, optionally for one project and before a time, with
-`total`, how many records the filters match across every page (a project page's Timeline tab shows it); `PUT`
-and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribute one. See `docs/api.md`.
+- **A person's word stands.** A person's attribution has a confidence of 1 and replaces whatever Elysia guessed for
+  that project. Elysia never changes or removes a person's attribution, and never attributes a record to a project a
+  person decided on for it, either way, so a segment a person moved stays moved however often it is read again.
+- **History.** Each change is recorded in `timeline_record_events` in the same transaction, with what the attribution
+  held before and after (`docs/database.md`), and announced as `timelineRecord.changed`. A write that changes nothing
+  records nothing.
+- **Undo.** Any entry can be undone by the record's owner, and the undo is an entry of its own naming the one it
+  reversed (`undid`), so it can be undone in turn. Only an attribution still holding what the entry wrote is undone; one
+  changed since answers `409` (`attribution_changed`) rather than losing that change.
+
+`GET /api/v1/timeline` lists the caller's records newest first, optionally for one project or one meeting's segments
+and before a time, with `total`, how many records the filters match across every page (a project page's Timeline tab
+shows it); `PUT` and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribute one, and
+`/api/v1/timeline/{id}/history` lists and undoes its changes. See `docs/api.md`.
 
 ## Roadmap
 
@@ -577,11 +588,11 @@ and `DELETE /api/v1/timeline/{id}/projects/{projectId}` attribute and unattribut
 - YouTrack Server, on a customer's own host, beside YouTrack Cloud.
 - GitHub content: picking repositories rather than reading whatever the token reaches.
 - Keeping a token account's `identity` and `checked_at` current from its checks.
-- Elysia's triage on `timelineRecord.created`: classifying each message, drafting replies for review, and attributing
-  records to projects.
+- Elysia's triage on `timelineRecord.created`: classifying each message and drafting replies for review.
+  Conversations are attributed to projects by segmenting them, once intake gathers them (#81, `docs/meetings.md`,
+  Segmentation).
 - Sending checked against a signed-in Slack and Teams: Slack's `chat.postMessage` with the web client's session, and
   Teams' chat service token, address, and message shape.
 - Replies that thread in the recipient's mail client, once mail is read over IMAP and records keep `Message-ID`.
 - Writing a new message to a conversation picked rather than answered, and new mail, from the web app; the API takes
   new mail today.
-- History for attributions, so a correction can be undone like any other edit.
