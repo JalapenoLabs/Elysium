@@ -51,9 +51,9 @@ disk. A fetch that fails fails the turns that need it, with git's message.
 2. **Prepare.** The first turn after the engine starts (the engine also starts this at boot) ensures the container,
    kills turns a previous run left behind, and fetches `~/.claude`. Changing the configuration repository signals the
    engine to fetch it again.
-3. **Attempt.** One `claude` process on one credential, with `--model` and `--effort` when the request names them
-   (a workflow step's turn names both, from its setting: `docs/engine.md`, Models; others leave them to Claude Code,
-   or name a model alone). Secrets travel only in the exec's environment: the
+3. **Attempt.** One `claude` process on one credential, with `--model` and `--effort` when the request names them.
+   Every agent's turn names both, from its model setting (`docs/engine.md`, Models), so they override whatever the
+   agents' configuration repository's settings name. Secrets travel only in the exec's environment: the
    credential as `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, and the MCP configuration, which the turn script
    writes to a private file in the turn's directory. `claude` runs in its own process group, so stopping it stops
    its tools too.
@@ -211,7 +211,9 @@ row headed by a one or two sentence summary, which expands to the turn's full ev
 - **Input.** While the turn runs, its follower gathers a digest from the events it already scrubbed: the prompt (its
   first 2,000 characters), the tools called in order (the first 60 by name, then a count), how the turn ended, and the
   agent's final message and error, each cut down. Nothing is read back from the database.
-- **The model.** `claude-haiku-5-5`, through the runner like every turn: the official CLI on the same credential stack.
+- **The model.** The `turn_summary` setting, Haiku 5.5 (`claude-haiku-5-5`) at low effort unless an admin chose
+  another (`docs/engine.md`, Models), read as each summary starts, through the runner like every turn: the official CLI
+  on the same credential stack.
   The summary is a text turn (`TurnMode::Text`): no built-in tools (`--tools=`), no MCP servers (`--strict-mcp-config`),
   no user, project, or local settings (`--setting-sources=`), so the agents' configuration repository never steers it,
   its own system prompt, and no session kept (`--no-session-persistence`). It runs in a conversation of its own in

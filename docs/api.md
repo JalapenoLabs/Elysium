@@ -146,6 +146,9 @@ prefix unchanged. Health and build routes sit at the top level. Resource routes 
 | POST   | `/api/v1/learning-categories`         | `201` `{ category }`; admins                        |
 | PATCH  | `/api/v1/learning-categories/{key}`   | `200` `{ category }`; admins                        |
 | DELETE | `/api/v1/learning-categories/{key}`   | `204`; admins; `?moveTo=` names where its learnings go |
+| GET    | `/api/v1/model-settings`              | `200` `{ agents: AgentModel[], suggestedModels, efforts }`; admins |
+| PUT    | `/api/v1/model-settings/{agent}`      | `200` `{ agent }`; admins; `{ model, effort }`       |
+| DELETE | `/api/v1/model-settings/{agent}`      | `200` `{ agent }`; admins; back on its default       |
 | GET    | `/api/v1/search?q=&limit=`            | `200` `{ results: SearchHit[] }`: items, projects, sessions, and initiatives by title |
 | GET    | `/api/v1/runs`                        | `200` `{ runs: Run[], hasMore }`, newest first, 50 at a time; `?before=` a run id |
 | GET    | `/api/v1/runs/{id}`                   | `200` `{ run, steps: Step[], history: RunHistoryEntry[] }` |
@@ -566,6 +569,22 @@ any category has answers `409`. `PATCH` takes `label`, `description`, and `posit
 own counted from 0, past the end meaning last; the key never changes. A built-in category answers `409` to `PATCH` and
 `DELETE`. `DELETE` of a category with learnings answers `409 category_in_use` unless `moveTo` names another category,
 which they move to first, each as a revision in its history. See `docs/knowledge.md`, Categories.
+
+### `/api/v1/model-settings`
+
+Every route answers admins alone, and anyone else `403 admin_only`: it decides what every turn costs.
+
+An `AgentModel` has `name` (a step's name or an agent's, such as `elysia`), `kind` (`step` or `agent`), `default` (its
+`{ model, effort }` until an admin chooses otherwise, or `null` for a step that runs no model), and `setting` (the
+admin's `{ model, effort, updatedAt }`, or `null` while it runs on its default). The list holds every step of every
+declared workflow, first to last, then every agent; `suggestedModels` are the current Claude models, strongest first,
+and `efforts` the CLI's levels, lowest first.
+
+`PUT` takes `model`, trimmed, an id or alias the CLI takes (a letter or digit, then up to 99 letters, digits, dots,
+underscores, hyphens, or brackets), and `effort` (`low`, `medium`, `high`, `xhigh`, or `max`); anything else answers
+`400`. A choice equal to the default removes the setting. A name no step or agent has answers `404`, and a step that
+runs no model `409`. Each change is recorded in the workspace's history and announced as `modelSetting.changed`; one
+that changes nothing announces nothing. See `docs/engine.md`, Models.
 
 ### `/api/v1/runs`
 

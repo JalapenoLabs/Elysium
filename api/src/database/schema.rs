@@ -1032,6 +1032,19 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+
+    model_settings (agent) {
+        agent -> Text,
+        model -> Text,
+        effort -> Text,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::PasswordServer;
 
     password_vault (singleton) {
@@ -1145,19 +1158,6 @@ diesel::table! {
         lease_expires_at -> Nullable<Timestamptz>,
         started_at -> Nullable<Timestamptz>,
         finished_at -> Nullable<Timestamptz>,
-        updated_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-
-    step_model_settings (step) {
-        step -> Text,
-        model -> Text,
-        effort -> Text,
-        created_by -> Uuid,
-        created_at -> Timestamptz,
         updated_at -> Timestamptz,
     }
 }
@@ -1512,6 +1512,7 @@ diesel::joinable!(meeting_transcriptions -> meetings (meeting_id));
 diesel::joinable!(meetings -> connectors (connector_id));
 diesel::joinable!(meetings -> storage_locations (storage_location_id));
 diesel::joinable!(meetings -> users (created_by));
+diesel::joinable!(model_settings -> users (created_by));
 diesel::joinable!(password_vault -> users (created_by));
 diesel::joinable!(process_activities -> users (created_by));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
@@ -1520,7 +1521,6 @@ diesel::joinable!(session_events -> coding_sessions (session_id));
 diesel::joinable!(session_turns -> coding_sessions (session_id));
 diesel::joinable!(session_turns -> users (created_by));
 diesel::joinable!(step_jobs -> workflow_runs (run_id));
-diesel::joinable!(step_model_settings -> users (created_by));
 diesel::joinable!(storage_location_projects -> projects (project_id));
 diesel::joinable!(storage_location_projects -> storage_locations (storage_location_id));
 diesel::joinable!(storage_locations -> users (created_by));
@@ -1601,6 +1601,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     mail_servers,
     meeting_transcriptions,
     meetings,
+    model_settings,
     password_vault,
     process_activities,
     projects,
@@ -1608,7 +1609,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     session_events,
     session_turns,
     step_jobs,
-    step_model_settings,
     storage_location_projects,
     storage_locations,
     studio_assets,

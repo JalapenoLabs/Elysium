@@ -17,6 +17,7 @@ use serde_json::Value;
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use crate::models::model_setting::ModelChoice;
 use crate::models::user::ELYSIA_USER_ID;
 use crate::runner::{
     self, ConversationId, HarnessSessionId, RunnerEvent, TurnMode, TurnOutcome, TurnRequest,
@@ -42,6 +43,8 @@ pub struct ElysiaTurn {
     pub resume: Option<String>,
     /// Her tool server, under the turn's grant.
     pub mcp_servers: Vec<runner::McpServer>,
+    /// The model and effort her setting names, resolved as the turn starts.
+    pub model: ModelChoice,
 }
 
 /// How a turn ended, in Elysia's terms.
@@ -107,28 +110,9 @@ async fn run_on_host(
     runner: &runner::Runner,
     turn: ElysiaTurn,
 ) -> Result<ElysiaOutcome, RunnerError> {
-    let working_directory = WorkspacePath::new(WORKING_DIRECTORY)
-        .map_err(|error| RunnerError::Refused(error.to_string()))?;
-    let resume = turn
-        .resume
-        .as_deref()
-        .and_then(|session_id| session_id.parse::<HarnessSessionId>().ok());
-
+    let turn_id = turn.turn_id;
     let mut ticket = runner
-        .submit(TurnRequest {
-            conversation: ConversationId::new(ELYSIA_USER_ID),
-            label: format!("elysia:{}", turn.turn_id),
-            prompt: turn.prompt,
-            working_directory,
-            resume,
-            mcp_servers: turn.mcp_servers,
-            allowed_tools: None,
-            system_prompt_append: Some(turn.instructions),
-            environment: Vec::new(),
-            model: None,
-            effort: None,
-            mode: TurnMode::Agent,
-        })
+        .submit(request(turn)?)
         .map_err(|error| RunnerError::Refused(error.to_string()))?;
 
     // The last rate-limit report says when a spent window resets.
@@ -145,12 +129,37 @@ async fn run_on_host(
     event!(
         name: "elysia.turn.unfinished",
         Level::ERROR,
-        elysia.turn.id = %turn.turn_id,
+        elysia.turn.id = %turn_id,
         "the runner closed the turn's events without finishing it",
     );
     Err(RunnerError::Refused(
         "the runner closed the turn without finishing it".to_owned(),
     ))
+}
+
+/// The runner's request for `turn`: her one conversation and directory, her instructions, and
+/// the model and effort her setting names.
+fn request(turn: ElysiaTurn) -> Result<TurnRequest, RunnerError> {
+    let working_directory = WorkspacePath::new(WORKING_DIRECTORY)
+        .map_err(|error| RunnerError::Refused(error.to_string()))?;
+    let resume = turn
+        .resume
+        .as_deref()
+        .and_then(|session_id| session_id.parse::<HarnessSessionId>().ok());
+    Ok(TurnRequest {
+        conversation: ConversationId::new(ELYSIA_USER_ID),
+        label: format!("elysia:{}", turn.turn_id),
+        prompt: turn.prompt,
+        working_directory,
+        resume,
+        mcp_servers: turn.mcp_servers,
+        allowed_tools: None,
+        system_prompt_append: Some(turn.instructions),
+        environment: Vec::new(),
+        model: Some(turn.model.model),
+        effort: Some(turn.model.effort),
+        mode: TurnMode::Agent,
+    })
 }
 
 /// The runner's outcome in Elysia's terms. `rate_limit` is the turn's last rate-limit
@@ -214,6 +223,28 @@ mod tests {
             output_tokens: None,
             usage_resets_at: None,
         }
+    }
+
+    #[test]
+    fn her_turn_runs_on_the_model_and_effort_her_setting_names() {
+        let request = request(ElysiaTurn {
+            turn_id: Uuid::now_v7(),
+            prompt: "What is waiting on me?".to_owned(),
+            instructions: "Be brief.".to_owned(),
+            resume: None,
+            mcp_servers: Vec::new(),
+            model: ModelChoice {
+                model: "claude-sonnet-5-5".to_owned(),
+                effort: crate::models::model_setting::Effort::Medium,
+            },
+        })
+        .expect("her directory is a plain relative path");
+
+        assert_eq!(request.model.as_deref(), Some("claude-sonnet-5-5"));
+        assert_eq!(
+            request.effort,
+            Some(crate::models::model_setting::Effort::Medium)
+        );
     }
 
     #[test]

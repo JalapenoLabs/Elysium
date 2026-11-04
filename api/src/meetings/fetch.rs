@@ -366,6 +366,8 @@ impl FetchMeeting {
 
 impl Step for FetchMeeting {
     const NAME: &'static str = "fetch_meeting";
+    /// It reads and stores; no model runs.
+    const RUNS_MODEL: bool = false;
     type Input = MeetingToFetch;
     type Output = RecordedMeeting;
 
@@ -592,7 +594,7 @@ mod tests {
         database: &Pool,
         meeting_id: Uuid,
     ) -> (RecordedMeeting, Option<String>, String) {
-        let context = StepContext::for_test(database.clone(), FetchMeeting::NAME);
+        let context = StepContext::for_test::<FetchMeeting>(database.clone());
         let log = context.log.clone();
         let done = step
             .run(MeetingToFetch { meeting_id }, context)

@@ -31,9 +31,21 @@ use diesel::QueryResult;
 use diesel_async::AsyncPgConnection;
 
 pub use self::step::{Done, Step, StepContext, StepFailure, StepLog, Steps};
-pub use self::workflow::{Start, Workflow, declare};
+pub use self::workflow::{Outline, Start, Workflow, declare};
 use crate::models::workflow_run::{self, NewRun, Settled, Started};
 use crate::realtime::{EventBus, ServerEvent, Signal};
+use crate::{company_doc, meetings};
+
+/// Every workflow this build runs. It is the one list the engine checks the steps it registers
+/// against as it starts ([`Steps::assert_runs`], [`Steps::assert_declared_in`]), and the one the
+/// model settings page lists steps from (`crate::agent_models::catalog`), so a step can neither
+/// run unlisted nor be listed without running. A new workflow is added here.
+pub fn declared() -> Vec<Outline> {
+    vec![
+        meetings::workflow::workflow().outline(),
+        company_doc::workflow::workflow().outline(),
+    ]
+}
 
 /// Starts `new` and tells the engine, unless the workflow already has a live run on the source,
 /// which is answered instead. See [`workflow_run::start`].

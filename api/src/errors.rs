@@ -167,6 +167,20 @@ impl From<crate::models::learning_category::CategoryError> for ApiError {
     }
 }
 
+impl From<crate::agent_models::ChangeError> for ApiError {
+    fn from(error: crate::agent_models::ChangeError) -> Self {
+        use crate::agent_models::ChangeError;
+
+        match error {
+            ChangeError::Unknown(_) => Self::NotFound,
+            ChangeError::RunsNoModel(_) => {
+                Self::Conflict("this step runs no model, so it has no model setting")
+            }
+            ChangeError::Database(database) => database.into(),
+        }
+    }
+}
+
 impl From<crate::models::step_job::StepActionError> for ApiError {
     fn from(error: crate::models::step_job::StepActionError) -> Self {
         use crate::models::step_job::StepActionError;

@@ -64,7 +64,7 @@ use crate::activity::Activities;
 use crate::claude_accounts::TurnSignal;
 use crate::crypto::Cipher;
 use crate::database::Pool;
-use crate::models::step_model_setting::Effort;
+use crate::models::model_setting::Effort;
 
 /// Where an agent in the workspace reaches the API: the API's own listener, on the
 /// `elysium-agents` network only the API and the workspace join. nginx is not on it, so
@@ -222,11 +222,10 @@ pub struct TurnRequest {
     pub system_prompt_append: Option<String>,
     /// For this turn only, beneath the credential Elysium sets.
     pub environment: Vec<EnvironmentEntry>,
-    /// `None` leaves the choice to Claude Code and its settings.
+    /// `None` leaves the choice to Claude Code and its settings. Every agent's turn passes the
+    /// model and effort its setting names, resolved by `crate::agent_models`.
     pub model: Option<String>,
-    /// How hard the model thinks; `None` leaves it to Claude Code and its settings. A workflow
-    /// step's turn passes the model and effort its setting names
-    /// (`crate::models::step_model_setting`).
+    /// How hard the model thinks; `None` leaves it to Claude Code and its settings.
     pub effort: Option<Effort>,
     pub mode: TurnMode,
 }

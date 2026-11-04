@@ -26,6 +26,7 @@ pub mod llms;
 pub mod mail;
 mod me;
 pub mod meetings;
+mod model_settings;
 mod my_sessions;
 pub mod oauth;
 pub mod password_vault;
@@ -101,6 +102,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/llms", llms::router())
         .nest("/mail", mail::router())
         .nest("/meetings", meetings::router())
+        .nest("/model-settings", model_settings::router())
         .nest("/projects", projects::router())
         .nest("/runs", runs::router())
         .nest("/search", search::router())

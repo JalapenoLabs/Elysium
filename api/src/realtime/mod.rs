@@ -151,6 +151,11 @@ pub enum ServerEvent {
     /// again.
     #[serde(rename = "companyDoc.changed")]
     CompanyDocChanged,
+    /// An admin chose the model and effort a step or agent runs on, or put it back on its
+    /// default. Its name alone: every client hears this, and only admins read the settings, so
+    /// their pages load the list again.
+    #[serde(rename = "modelSetting.changed")]
+    ModelSettingChanged { agent: String },
     /// A check in a run moved on, or (`checkId` null, `state` `finished`) the run ended. Ids and
     /// states only: a check's message can name what an account reaches, and the run answers the
     /// person who started it.

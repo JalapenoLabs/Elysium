@@ -34,6 +34,7 @@ use super::availability;
 use super::prompt::{self, IdleWork, PromptMessage, TurnContext};
 use super::runner::{ElysiaOutcome, ElysiaTurn, RunnerError};
 use super::{Elysia, stored_availability, trigger};
+use crate::agent_models::{self, Agent};
 use crate::database::Pool;
 use crate::models::elysia::{self, NewTurn, Turn, TurnStatus, Work, WorkStatus};
 use crate::models::user::{self, ELYSIA_USER_ID, SYSTEM_USER_ID};
@@ -220,6 +221,8 @@ async fn run_turn(
         publish_snapshot(&context.events, &mut connection).await?;
         return Ok(());
     };
+    // Read as the turn starts, so an admin's change applies from her next turn.
+    let model = agent_models::for_agent(&mut connection, Agent::Elysia).await?;
     // Her tools, for this turn alone, revoked when it ends.
     let granted = context
         .elysia
@@ -258,6 +261,7 @@ async fn run_turn(
             instructions: prompt::INSTRUCTIONS.to_owned(),
             resume,
             mcp_servers: grant.mcp_servers(),
+            model,
         })
         .await;
     grant.revoke().await;

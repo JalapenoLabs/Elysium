@@ -15,7 +15,7 @@ use serde_json::{Map, Value, json};
 
 use super::events::HarnessSessionId;
 use super::{EnvironmentEntry, McpServer, TurnMode};
-use crate::models::step_model_setting::Effort;
+use crate::models::model_setting::Effort;
 
 /// The variable [`TURN_SCRIPT`] reads the MCP configuration from.
 const MCP_CONFIG_VARIABLE: &str = "ELYSIUM_MCP_CONFIG";

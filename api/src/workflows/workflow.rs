@@ -100,8 +100,10 @@ pub struct Workflow<Input> {
 
 /// One step of a declared workflow.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct DeclaredStep {
-    pub(super) name: &'static str,
+pub struct DeclaredStep {
+    name: &'static str,
+    /// What the step declares as [`Step::RUNS_MODEL`].
+    runs_model: bool,
     /// The step's type, which the steps registered by its name must be.
     pub(super) type_id: TypeId,
 }
@@ -110,8 +112,40 @@ impl DeclaredStep {
     fn of<Declared: Step>() -> Self {
         Self {
             name: Declared::NAME,
+            runs_model: Declared::RUNS_MODEL,
             type_id: TypeId::of::<Declared>(),
         }
+    }
+
+    /// The step's name in code.
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Whether its work is an agent turn, which runs on its model setting.
+    pub fn runs_model(&self) -> bool {
+        self.runs_model
+    }
+}
+
+/// A declared workflow without its input type: its name and its steps in order, which is all
+/// the engine's checks and the model settings page need, so workflows of every input type sit
+/// in one list (`crate::workflows::declared`).
+#[derive(Debug, Clone)]
+pub struct Outline {
+    name: &'static str,
+    steps: Vec<DeclaredStep>,
+}
+
+impl Outline {
+    /// The workflow's name in code.
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// Its steps, first to last.
+    pub fn steps(&self) -> &[DeclaredStep] {
+        &self.steps
     }
 }
 
@@ -132,9 +166,12 @@ impl<Input> Workflow<Input> {
         self.name
     }
 
-    /// The steps it names, in order.
-    pub(super) fn declared_steps(&self) -> &[DeclaredStep] {
-        &self.steps
+    /// The workflow without its input type, for lists of every workflow.
+    pub fn outline(&self) -> Outline {
+        Outline {
+            name: self.name,
+            steps: self.steps.clone(),
+        }
     }
 }
 

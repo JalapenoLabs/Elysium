@@ -24,10 +24,11 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::Workflow;
+use super::Outline;
+use crate::agent_models;
 use crate::database::Pool;
+use crate::models::model_setting::ModelChoice;
 use crate::models::step_job::StepOutcome;
-use crate::models::step_model_setting::{self, ModelChoice};
 
 /// One reusable unit of a workflow's work, such as fetching a transcript.
 ///
@@ -48,6 +49,12 @@ pub trait Step: Send + Sync + 'static {
     /// words. Never a number, and never changed once runs name it, since a run stores the names
     /// of its steps and a build without one fails that step.
     const NAME: &'static str;
+
+    /// Whether its work is an agent turn, which runs on the model and effort its setting names
+    /// ([`StepContext::model`]). A step that only fetches, transcribes with the local Whisper,
+    /// or embeds runs no model of Claude's, has no setting, and the settings page says so. Every
+    /// step declares it, so none is offered a setting that changes nothing, or lacks one it reads.
+    const RUNS_MODEL: bool;
 
     /// What it takes. Serialized when a run starts at this step, and read back from the queue
     /// before each attempt.
@@ -131,6 +138,8 @@ pub struct StepContext {
     pub log: StepLog,
     /// The step's registered name, which its model setting is filed under.
     pub(super) step: &'static str,
+    /// What the step declared as [`Step::RUNS_MODEL`].
+    pub(super) runs_model: bool,
     pub(super) database: Pool,
 }
 
@@ -152,31 +161,41 @@ impl std::fmt::Debug for StepContext {
 
 #[cfg(test)]
 impl StepContext {
-    /// A context for calling the step named `step` directly, outside the queue, as the first
-    /// attempt of a run of its own.
-    pub fn for_test(database: Pool, step: &'static str) -> Self {
+    /// A context for calling step `Called` directly, outside the queue, as the first attempt of
+    /// a run of its own.
+    pub fn for_test<Called: Step>(database: Pool) -> Self {
         Self {
             run_id: Uuid::now_v7(),
             step_job_id: Uuid::now_v7(),
             attempt: 1,
             log: StepLog::default(),
-            step,
+            step: Called::NAME,
+            runs_model: Called::RUNS_MODEL,
             database,
         }
     }
 }
 
 impl StepContext {
-    /// The model and effort this step's agent turn runs on, read from its global setting now, as
-    /// the turn starts, so an admin's change applies from the next turn. Written to the log, so
-    /// the Runs page says which model did the work.
+    /// The model and effort this step's agent turn runs on, read from its setting now, as the
+    /// turn starts, so an admin's change applies from the next turn. Written to the log, so the
+    /// Runs page says which model did the work.
     ///
     /// # Errors
     /// A retryable failure when the setting cannot be read.
+    ///
+    /// # Panics
+    /// Panics when the step declared that it runs no model, which only a programming error can
+    /// cause: the settings page would offer it no setting to read.
     pub async fn model(&self) -> Result<ModelChoice, StepFailure> {
+        assert!(
+            self.runs_model,
+            "step {} reads its model setting but declares RUNS_MODEL = false",
+            self.step
+        );
         let read = async {
             let mut connection = self.database.get().await?;
-            anyhow::Ok(step_model_setting::for_step(&mut connection, self.step).await?)
+            anyhow::Ok(agent_models::for_step(&mut connection, self.step).await?)
         };
         let choice = read.await.map_err(|error| {
             StepFailure::retryable(format!(
@@ -242,7 +261,17 @@ pub(super) type ErasedStep = dyn Fn(Value, StepContext) -> StepFuture + Send + S
 struct Registered {
     /// The step's type, so a workflow naming a different type by the same name is caught.
     type_id: TypeId,
+    /// What it declared as [`Step::RUNS_MODEL`], handed to every attempt's context.
+    runs_model: bool,
     run: Arc<ErasedStep>,
+}
+
+/// A registered step, found by name for a claimed row.
+pub(super) struct Found {
+    /// The name it was registered by.
+    pub(super) name: &'static str,
+    pub(super) runs_model: bool,
+    pub(super) run: Arc<ErasedStep>,
 }
 
 /// Every step this build can run, by name. Built once at startup, then shared by every worker.
@@ -290,6 +319,7 @@ impl Steps {
         });
         let registered = Arc::new(Registered {
             type_id: TypeId::of::<Registering>(),
+            runs_model: Registering::RUNS_MODEL,
             run,
         });
         let previous = self.by_name.insert(name, registered);
@@ -301,29 +331,51 @@ impl Steps {
     ///
     /// # Panics
     /// Panics naming the first step that is missing or registered as another type.
-    pub fn assert_runs<Input>(&self, workflow: &Workflow<Input>) {
-        for declared in workflow.declared_steps() {
-            let registered = self.by_name.get(declared.name).unwrap_or_else(|| {
+    pub fn assert_runs(&self, workflow: &Outline) {
+        for declared in workflow.steps() {
+            let registered = self.by_name.get(declared.name()).unwrap_or_else(|| {
                 panic!(
                     "workflow {} names step {}, which is not registered",
                     workflow.name(),
-                    declared.name
+                    declared.name()
                 )
             });
             assert!(
                 registered.type_id == declared.type_id,
                 "workflow {} names step {} as a type other than the one registered by that name",
                 workflow.name(),
-                declared.name
+                declared.name()
+            );
+        }
+    }
+
+    /// Checks that every registered step is named by one of `workflows`, so none runs without
+    /// the settings page listing it (`crate::agent_models::catalog` reads the same workflows).
+    ///
+    /// # Panics
+    /// Panics naming the first step no workflow names, which only a programming error can
+    /// cause: a workflow missing from `crate::workflows::declared`.
+    pub fn assert_declared_in(&self, workflows: &[Outline]) {
+        for name in self.by_name.keys() {
+            let named = workflows
+                .iter()
+                .any(|workflow| workflow.steps().iter().any(|step| step.name() == *name));
+            assert!(
+                named,
+                "step {name} is registered, but no workflow in workflows::declared names it"
             );
         }
     }
 
     /// The step named `name`, under the name it was registered by, if this build has it.
-    pub(super) fn find(&self, name: &str) -> Option<(&'static str, Arc<ErasedStep>)> {
+    pub(super) fn find(&self, name: &str) -> Option<Found> {
         self.by_name
             .get_key_value(name)
-            .map(|(name, registered)| (*name, Arc::clone(&registered.run)))
+            .map(|(name, registered)| Found {
+                name,
+                runs_model: registered.runs_model,
+                run: Arc::clone(&registered.run),
+            })
     }
 }
 

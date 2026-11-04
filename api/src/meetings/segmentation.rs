@@ -50,10 +50,6 @@ const SUMMARY_CHARACTERS: usize = 1_000;
 /// The least confidence an attribution needs to be kept. Below it the model is guessing.
 const MIN_CONFIDENCE: f32 = 0.3;
 
-/// The model that segments meetings: reading an hour of conversation for its topics takes
-/// more than the small model that writes turn summaries.
-pub const SEGMENTATION_MODEL: &str = "claude-sonnet-5-5";
-
 pub const SYSTEM_PROMPT: &str = "\
 You divide a meeting's transcript into its topics, the way a person skimming the recording \
 would want it chaptered, and say which of the listed projects each topic is about. \

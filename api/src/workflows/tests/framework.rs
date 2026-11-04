@@ -16,14 +16,15 @@ use super::{
     ChooseModel, Count, Describe, Double, FailOnce, Increment, NothingToDo, Number, Report, Review,
     person, running_workers, test_steps, until_run_is,
 };
+use crate::agent_models;
 use crate::database::Pool;
+use crate::models::model_setting::{self, Effort, ModelChoice};
 use crate::models::step_job::{self, StepOutcome};
-use crate::models::step_model_setting::{self, Effort, ModelChoice};
 use crate::models::user::SYSTEM_USER_ID;
 use crate::models::workflow_run::{self, WorkflowRunState};
 use crate::realtime::{EventBus, Signal};
 use crate::test_support::{TEST_PERSON_ID, migrated_database};
-use crate::workflows::{self, Start, StepContext, StepLog, Steps, Workflow, declare};
+use crate::workflows::{self, Start, StepContext, Steps, Workflow, declare};
 
 /// Doubles, adds one, then says what it ended with.
 fn double_then_increment() -> Workflow<Number> {
@@ -124,11 +125,11 @@ fn entering_a_workflow_at_a_step_it_does_not_declare_is_a_programming_error() {
 #[test]
 fn every_test_workflow_names_only_steps_that_are_registered() {
     let (steps, _calls) = test_steps();
-    steps.assert_runs(&double_then_increment());
-    steps.assert_runs(&increment_then_double());
-    steps.assert_runs(&describe_only());
-    steps.assert_runs(&flaky());
-    steps.assert_runs(&tallying());
+    steps.assert_runs(&double_then_increment().outline());
+    steps.assert_runs(&increment_then_double().outline());
+    steps.assert_runs(&describe_only().outline());
+    steps.assert_runs(&flaky().outline());
+    steps.assert_runs(&tallying().outline());
 }
 
 #[test]
@@ -137,7 +138,7 @@ fn a_workflow_naming_a_step_nobody_registered_is_caught_before_it_runs() {
     let mut steps = Steps::new();
     steps.register(Double::default());
     steps.register(Report);
-    steps.assert_runs(&tallying());
+    steps.assert_runs(&tallying().outline());
 }
 
 /// A step that borrows another's name, as a typo or a copied step would.
@@ -146,6 +147,7 @@ struct Impostor;
 
 impl workflows::Step for Impostor {
     const NAME: &'static str = "double";
+    const RUNS_MODEL: bool = false;
     type Input = Number;
     type Output = Number;
 
@@ -166,7 +168,34 @@ impl workflows::Step for Impostor {
 fn a_workflow_naming_another_type_by_a_registered_name_is_caught() {
     let (steps, _calls) = test_steps();
     let workflow = declare("impostor").first::<Impostor>().build();
-    steps.assert_runs(&workflow);
+    steps.assert_runs(&workflow.outline());
+}
+
+#[test]
+fn every_registered_step_a_declared_workflow_names_passes() {
+    let mut steps = Steps::new();
+    steps.register(Double::default());
+    steps.register(Increment);
+    steps.assert_declared_in(&[double_then_increment().outline()]);
+}
+
+#[test]
+#[should_panic(
+    expected = "step report is registered, but no workflow in workflows::declared names it"
+)]
+fn a_registered_step_no_declared_workflow_names_is_caught_so_the_settings_page_lists_it() {
+    let mut steps = Steps::new();
+    steps.register(Double::default());
+    steps.register(Increment);
+    steps.register(Report);
+    steps.assert_declared_in(&[double_then_increment().outline()]);
+}
+
+#[tokio::test]
+#[should_panic(expected = "step double reads its model setting but declares RUNS_MODEL = false")]
+async fn a_step_that_runs_no_model_reading_a_model_setting_is_a_programming_error() {
+    let context = StepContext::for_test::<Double>(unconnected_pool());
+    drop(context.model().await);
 }
 
 #[test]
@@ -202,15 +231,8 @@ fn names_are_snake_case_from_a_letter_and_fit_the_queue() {
 #[tokio::test]
 async fn json_a_step_cannot_read_as_its_input_fails_it_for_good_naming_it() {
     let (steps, _calls) = test_steps();
-    let (name, report) = steps.find("report").expect("registered");
-    let context = StepContext {
-        run_id: Uuid::now_v7(),
-        step_job_id: Uuid::now_v7(),
-        attempt: 1,
-        log: StepLog::default(),
-        step: name,
-        database: unconnected_pool(),
-    };
+    let report = steps.find("report").expect("registered").run;
+    let context = StepContext::for_test::<Report>(unconnected_pool());
 
     let outcome = report(json!({ "n": 42 }), context).await;
     let StepOutcome::Failed { reason, retryable } = outcome else {
@@ -230,15 +252,8 @@ async fn json_a_step_cannot_read_as_its_input_fails_it_for_good_naming_it() {
 #[tokio::test]
 async fn a_step_answering_in_its_own_types_is_stored_as_json() {
     let (steps, _calls) = test_steps();
-    let (name, count) = steps.find("count").expect("registered");
-    let context = StepContext {
-        run_id: Uuid::now_v7(),
-        step_job_id: Uuid::now_v7(),
-        attempt: 1,
-        log: StepLog::default(),
-        step: name,
-        database: unconnected_pool(),
-    };
+    let count = steps.find("count").expect("registered").run;
+    let context = StepContext::for_test::<Count>(unconnected_pool());
 
     assert_eq!(
         count(json!({ "n": 7 }), context).await,
@@ -434,15 +449,8 @@ async fn a_held_step_stops_its_run_until_resumed_and_then_passes_its_output_on()
 #[tokio::test]
 async fn a_step_with_nothing_to_do_skips_itself_saying_why() {
     let (steps, _calls) = test_steps();
-    let (name, nothing_to_do) = steps.find("nothing_to_do").expect("registered");
-    let context = StepContext {
-        run_id: Uuid::now_v7(),
-        step_job_id: Uuid::now_v7(),
-        attempt: 1,
-        log: StepLog::default(),
-        step: name,
-        database: unconnected_pool(),
-    };
+    let nothing_to_do = steps.find("nothing_to_do").expect("registered").run;
+    let context = StepContext::for_test::<NothingToDo>(unconnected_pool());
 
     assert_eq!(
         nothing_to_do(json!({ "n": 7 }), context).await,
@@ -570,15 +578,9 @@ async fn a_steps_turn_runs_on_its_setting_read_as_it_starts_and_opus_at_high_oth
         model: "claude-sonnet-5-5".to_owned(),
         effort: Effort::Low,
     };
-    step_model_setting::set(
-        &mut connection,
-        "choose_model",
-        &chosen,
-        TEST_PERSON_ID,
-        Utc::now(),
-    )
-    .await
-    .expect("the setting is stored");
+    model_setting::set(&mut connection, "choose_model", &chosen, TEST_PERSON_ID)
+        .await
+        .expect("the setting is stored");
     let set = workflows::start(
         &mut connection,
         &events,
@@ -612,25 +614,24 @@ async fn a_step_setting_is_changed_in_place_and_others_keep_the_default() {
         effort: Effort::Max,
     };
     for choice in [&first, &second] {
-        step_model_setting::set(
+        model_setting::set(
             &mut connection,
             "correct_transcript",
             choice,
             TEST_PERSON_ID,
-            Utc::now(),
         )
         .await
         .expect("the setting is stored");
     }
 
     assert_eq!(
-        step_model_setting::for_step(&mut connection, "correct_transcript")
+        agent_models::for_step(&mut connection, "correct_transcript")
             .await
             .expect("reads"),
         second
     );
     assert_eq!(
-        step_model_setting::for_step(&mut connection, "segment_transcript")
+        agent_models::for_step(&mut connection, "segment_transcript")
             .await
             .expect("reads"),
         ModelChoice::default()
@@ -640,15 +641,9 @@ async fn a_step_setting_is_changed_in_place_and_others_keep_the_default() {
         effort: Effort::High,
     };
     assert!(
-        step_model_setting::set(
-            &mut connection,
-            "correct_transcript",
-            &flag,
-            TEST_PERSON_ID,
-            Utc::now()
-        )
-        .await
-        .is_err(),
+        model_setting::set(&mut connection, "correct_transcript", &flag, TEST_PERSON_ID)
+            .await
+            .is_err(),
         "a model that reads as a flag is refused"
     );
 }

@@ -217,6 +217,8 @@ impl TranscribeMeeting {
 
 impl Step for TranscribeMeeting {
     const NAME: &'static str = "transcribe_meeting";
+    /// Whisper runs on this host; no model of Claude's does.
+    const RUNS_MODEL: bool = false;
     type Input = RecordedMeeting;
     type Output = TranscribedMeeting;
 
@@ -350,7 +352,7 @@ mod tests {
             unconnected_pool(),
             Arc::new(crate::test_support::cipher()),
         );
-        let context = StepContext::for_test(unconnected_pool(), TranscribeMeeting::NAME);
+        let context = StepContext::for_test::<TranscribeMeeting>(unconnected_pool());
         let log = context.log.clone();
 
         let done = step
@@ -453,7 +455,7 @@ mod tests {
             path: format!("meetings/{}/recording.mp4", stored.id),
             content_type: Some("video/mp4".to_owned()),
         };
-        let context = StepContext::for_test(database, TranscribeMeeting::NAME);
+        let context = StepContext::for_test::<TranscribeMeeting>(database);
         let done = step
             .run(recorded(stored.id, Some(recording.clone())), context)
             .await

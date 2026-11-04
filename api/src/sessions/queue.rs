@@ -31,6 +31,7 @@ use uuid::Uuid;
 use super::scrub::Scrubber;
 use super::turn::Follower;
 use super::{Sessions, desktop};
+use crate::agent_models::{self, Agent};
 use crate::models::coding_session::{self, CodingSession};
 use crate::models::environment_variable::{self, TurnVariable};
 use crate::models::session_turn::{self, SessionTurn};
@@ -284,6 +285,10 @@ impl TurnQueue {
             .await
             .context("cannot read the project's storage locations")?
             .is_empty();
+        // Read as the turn starts, so an admin's change applies from the session's next turn.
+        let model = agent_models::for_agent(&mut connection, agent_of(&session))
+            .await
+            .context("cannot read the session's model setting")?;
         drop(connection);
 
         let (environment, secrets) = turn_environment(variables, github.as_ref());
@@ -324,8 +329,8 @@ impl TurnQueue {
             allowed_tools: None,
             system_prompt_append: turn.system_prompt_append,
             environment,
-            model: None,
-            effort: None,
+            model: Some(model.model),
+            effort: Some(model.effort),
             mode: TurnMode::Agent,
         };
         let ticket = self
@@ -403,6 +408,15 @@ fn turn_environment(
     (environment, secrets)
 }
 
+/// The agent whose model setting `session`'s turns run on: a Studio item's session makes one
+/// asset, which an admin may want on another model than multi-repository coding work.
+fn agent_of(session: &CodingSession) -> Agent {
+    if session.studio_item_id.is_some() {
+        return Agent::StudioSession;
+    }
+    Agent::CodingSession
+}
+
 /// Which of Elysium's tool servers a turn may use.
 #[derive(Debug, Clone, Copy)]
 struct ToolAccess {
@@ -440,6 +454,26 @@ fn lock<Value>(mutex: &Mutex<Value>) -> std::sync::MutexGuard<'_, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_studio_items_session_runs_on_studios_setting_and_every_other_on_codings() {
+        let mut session = CodingSession {
+            id: 12,
+            title: "Retry the uploads".to_owned(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            project_id: Some(Uuid::now_v7()),
+            github_credential_id: None,
+            action_item_id: None,
+            studio_item_id: None,
+            created_by: Uuid::now_v7(),
+            harness_session_id: None,
+        };
+        assert_eq!(agent_of(&session), Agent::CodingSession);
+
+        session.studio_item_id = Some(Uuid::now_v7());
+        assert_eq!(agent_of(&session), Agent::StudioSession);
+    }
 
     #[test]
     fn each_tool_server_is_granted_when_what_it_needs_is_there() {

@@ -60,6 +60,7 @@ use uuid::Uuid;
 use self::segmentation::{MeetingContext, ProjectChoice, Segment};
 use self::source::{ListedMeeting, MeetingSource, SourceError, TranscriptLine};
 use self::sources::{Source, Sources};
+use crate::agent_models::{self, Agent};
 use crate::connectors::activity::Activity;
 use crate::connectors::kinds::{self, Provides};
 use crate::connectors::{ConnectorKind, SignInState};
@@ -558,6 +559,11 @@ impl Meetings {
             transcript,
             choices,
         );
+        // Read as each segmentation starts, so an admin's change applies from the next one.
+        let model = {
+            let mut connection = self.connection().await?;
+            agent_models::for_agent(&mut connection, Agent::SegmentMeeting).await?
+        };
         let request = TurnRequest {
             conversation: ConversationId::new(Uuid::now_v7()),
             label: format!("meeting:{}", current.id),
@@ -569,8 +575,8 @@ impl Meetings {
             allowed_tools: None,
             system_prompt_append: None,
             environment: Vec::new(),
-            model: Some(segmentation::SEGMENTATION_MODEL.to_owned()),
-            effort: None,
+            model: Some(model.model),
+            effort: Some(model.effort),
             mode: TurnMode::Text {
                 system_prompt: segmentation::SYSTEM_PROMPT.to_owned(),
             },

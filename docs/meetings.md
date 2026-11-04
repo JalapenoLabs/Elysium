@@ -220,7 +220,8 @@ whisper/measure.sh
 
 ### Segmentation
 
-Segmentation is a text turn on the runner (`TurnMode::Text`, `docs/coding.md`), on `claude-sonnet-5-5`: no tools, no
+Segmentation is a text turn on the runner (`TurnMode::Text`, `docs/coding.md`), on the `segment_meeting` model
+setting, Opus 5.5 at high effort unless an admin chose another (`docs/engine.md`, Models): no tools, no
 settings, and nothing kept to resume. Its prompt holds the meeting's title, length, and participants, every project's
 id, name, and the start of its description, and the transcript as `[m:ss] Speaker: text` lines. The answer is one
 JSON object of segments, each with its start and end in seconds, a title, a summary of what was said and decided, and

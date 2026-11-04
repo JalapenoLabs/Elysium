@@ -4,10 +4,11 @@
 //! GitHub Actions log: each turn collapses to its summary and expands to its full events.
 //!
 //! The follower gathers a [`Digest`] of the turn as its events pass (already scrubbed of the
-//! turn's secrets), and once the turn has finished, [`summarize`] asks a small model for the
-//! summary as a text turn on the runner: the official CLI, on the same credentials as every
-//! turn, with no tools, no settings, and nothing kept to resume. It runs in a conversation of
-//! its own, so it never queues behind the session's next prompt.
+//! turn's secrets), and once the turn has finished, [`summarize`] asks the model the
+//! `turn_summary` setting names (Haiku 5.5 at low effort by default, `crate::agent_models`)
+//! for the summary as a text turn on the runner: the official CLI, on the same credentials as
+//! every turn, with no tools, no settings, and nothing kept to resume. It runs in a
+//! conversation of its own, so it never queues behind the session's next prompt.
 //!
 //! A summary is a convenience. One that fails is logged and left out, and the conversation
 //! shows the turn's prompt in its place; it never touches the turn's own outcome.
@@ -19,15 +20,13 @@ use uuid::Uuid;
 
 use super::queue::TurnQueue;
 use super::views::TurnSummaryView;
+use crate::agent_models::{self, Agent};
+use crate::models::model_setting::ModelChoice;
 use crate::models::turn_summary;
 use crate::realtime::ServerEvent;
 use crate::runner::{
     ConversationId, RunnerEvent, TurnMode, TurnOutcome, TurnRequest, TurnStatus, WorkspacePath,
 };
-
-/// The small model that writes summaries. A summary needs a few sentences of reading
-/// comprehension, not an agent.
-const SUMMARY_MODEL: &str = "claude-haiku-5-5";
 
 /// Where summary turns run. They use no tools, so the directory only needs to exist.
 const SUMMARY_DIRECTORY: &str = ".elysium/summaries";
@@ -113,8 +112,13 @@ pub(super) const fn deserves_summary(status: TurnStatus) -> bool {
     matches!(status, TurnStatus::Completed | TurnStatus::Failed)
 }
 
-/// The summary turn for a turn of `session_id` that ended with `outcome`.
-fn request(session_id: i64, digest: &Digest, outcome: &TurnOutcome) -> TurnRequest {
+/// The summary turn for a turn of `session_id` that ended with `outcome`, on `model`.
+fn request(
+    session_id: i64,
+    digest: &Digest,
+    outcome: &TurnOutcome,
+    model: ModelChoice,
+) -> TurnRequest {
     TurnRequest {
         conversation: ConversationId::new(Uuid::now_v7()),
         label: format!("summary:session:{session_id}"),
@@ -126,8 +130,8 @@ fn request(session_id: i64, digest: &Digest, outcome: &TurnOutcome) -> TurnReque
         allowed_tools: None,
         system_prompt_append: None,
         environment: Vec::new(),
-        model: Some(SUMMARY_MODEL.to_owned()),
-        effort: None,
+        model: Some(model.model),
+        effort: Some(model.effort),
         mode: TurnMode::Text {
             system_prompt: SYSTEM_PROMPT.to_owned(),
         },
@@ -172,10 +176,25 @@ pub(super) async fn summarize(
         );
     };
 
+    let sessions = &queue.inner.sessions;
+    // Read as each summary starts, so an admin's change applies from the next one.
+    let model = match sessions.inner.database.get().await {
+        Ok(mut connection) => agent_models::for_agent(&mut connection, Agent::TurnSummary)
+            .await
+            .map_err(|error| error.to_string()),
+        Err(error) => Err(error.to_string()),
+    };
+    let model = match model {
+        Ok(model) => model,
+        Err(reason) => {
+            failure(&format!("its model setting could not be read: {reason}"));
+            return;
+        }
+    };
     let Ok(mut ticket) = queue
         .inner
         .runner
-        .submit(request(session_id, digest, outcome))
+        .submit(request(session_id, digest, outcome, model))
     else {
         failure("Elysium is shutting down");
         return;
@@ -202,7 +221,6 @@ pub(super) async fn summarize(
         return;
     };
 
-    let sessions = &queue.inner.sessions;
     let recorded = match sessions.inner.database.get().await {
         Ok(mut connection) => turn_summary::record(&mut connection, session_id, turn_id, &summary)
             .await
@@ -256,12 +274,19 @@ mod tests {
 
     #[test]
     fn a_summary_runs_alone_with_no_tools_settings_or_secrets() {
-        let request = request(12, &digest(), &outcome(TurnStatus::Completed));
+        let model = Agent::TurnSummary.default_choice();
+        let request = request(
+            12,
+            &digest(),
+            &outcome(TurnStatus::Completed),
+            model.clone(),
+        );
 
         assert!(request.mcp_servers.is_empty());
         assert!(request.environment.is_empty());
         assert!(request.resume.is_none());
-        assert_eq!(request.model.as_deref(), Some(SUMMARY_MODEL));
+        assert_eq!(request.model, Some(model.model), "its setting's model");
+        assert_eq!(request.effort, Some(model.effort), "and its effort");
         assert!(matches!(request.mode, TurnMode::Text { .. }));
         // Its own conversation, so it never waits behind the session's next turn.
         assert_ne!(request.conversation, ConversationId::for_session(12));

@@ -62,7 +62,7 @@ use crate::knowledge::embedder::Embedder;
 use crate::meetings::fetch::{FetchMeeting, FetchMeetingDeps};
 use crate::meetings::sources::Sources;
 use crate::meetings::transcribe::{TranscribeMeeting, TranscribeMeetingDeps};
-use crate::meetings::{self, Meetings, MeetingsDeps};
+use crate::meetings::{Meetings, MeetingsDeps};
 use crate::passwords::remote;
 use crate::realtime::Signal;
 use crate::runner::Runner;
@@ -71,8 +71,8 @@ use crate::sessions::queue::{TurnQueue, TurnQueueDeps};
 use crate::sessions::{Sessions, SessionsDeps};
 use crate::tools::grants::Grants;
 use crate::updates::{Updates, UpdatesDeps};
-use crate::workflows::Steps;
 use crate::workflows::workers::{Workers, WorkersDeps};
+use crate::workflows::{self, Steps};
 use crate::youtrack::Youtrack;
 use crate::youtrack::reader::{ReaderDeps, YoutrackReader};
 
@@ -195,8 +195,11 @@ pub async fn run() -> Result<()> {
         events: events.clone(),
         runner: runner.clone(),
     }));
-    steps.assert_runs(&meetings::workflow::workflow());
-    steps.assert_runs(&company_doc_review::workflow());
+    let declared = workflows::declared();
+    for workflow in &declared {
+        steps.assert_runs(workflow);
+    }
+    steps.assert_declared_in(&declared);
     let workers = Workers::new(WorkersDeps {
         database: database.clone(),
         events: events.clone(),

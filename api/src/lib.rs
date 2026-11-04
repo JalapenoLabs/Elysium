@@ -14,6 +14,7 @@
 
 mod action_items;
 mod activity;
+mod agent_models;
 mod auth;
 mod backups;
 mod browser;

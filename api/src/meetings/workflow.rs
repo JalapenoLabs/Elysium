@@ -156,7 +156,7 @@ mod tests {
         ));
         steps.register(TranscribeMeeting::for_test(unconnected, cipher));
         // Panics, as the engine would at startup, if the two drift apart.
-        steps.assert_runs(&workflow());
+        steps.assert_runs(&workflow().outline());
     }
 
     #[test]

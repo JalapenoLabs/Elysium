@@ -1151,7 +1151,7 @@ What happened to accounts and workspace settings, one row per change.
 | `id`         | `UUID`        | UUIDv7, primary key                                                     |
 | `user_id`    | `UUID`        | Whose account; NULL for a workspace setting; `ON DELETE SET NULL`       |
 | `actor_id`   | `UUID`        | Who made the change; `ON DELETE SET NULL`, for a rejected sign-up's own events |
-| `kind`       | `TEXT`        | Such as `signed_up`, `approved`, `rejected`, `role_changed`, `disabled`, and for workspace settings `workspace_settings_changed` and `learning_category_added`, `_changed`, or `_removed` |
+| `kind`       | `TEXT`        | Such as `signed_up`, `approved`, `rejected`, `role_changed`, `disabled`, and for workspace settings `workspace_settings_changed`, `learning_category_added`, `_changed`, or `_removed`, and `model_setting_changed` (`{ agent, before, after }`, `null` for the default) |
 | `data`       | `JSONB`       | A JSON object shaped by `kind`, with values before and after            |
 | `created_at` | `TIMESTAMPTZ` | Set on insert                                                           |
 
@@ -1375,14 +1375,16 @@ Each step of a run, in order, and the engine's queue; see `docs/engine.md`, Runs
 | `finished_at`      | `TIMESTAMPTZ`    | When its last attempt ended                                            |
 | `updated_at`       | `TIMESTAMPTZ`    | Maintained by trigger                                                  |
 
-### `step_model_settings`
+### `model_settings`
 
-The model and effort a workflow step's agent turn runs on, one row per step an admin changed; a step without a row
-runs on the default in code, Opus 5.5 at high effort. See `docs/engine.md`, Models.
+The model and effort an agent runs on, one row per agent an admin changed: a workflow step whose work is an agent
+turn, by its step name, or an agent outside the step framework, such as `elysia` or `turn_summary`. An agent without
+a row runs on its default in code (`api/src/agent_models.rs`); choosing the default removes the row. See
+`docs/engine.md`, Models.
 
 | Column       | Type          | Notes                                                                       |
 |--------------|---------------|-----------------------------------------------------------------------------|
-| `step`       | `TEXT`        | The step's name in code, `snake_case`, primary key                          |
+| `agent`      | `TEXT`        | The step's or agent's name in code, `snake_case`, primary key               |
 | `model`      | `TEXT`        | What the CLI's `--model` takes; starts with a letter or digit, so never a flag |
 | `effort`     | `TEXT`        | `low`, `medium`, `high`, `xhigh`, or `max`; text, so a new level needs no enum migration |
 | `created_by` | `UUID`        | The admin who first set it                                                  |

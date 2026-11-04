@@ -37,7 +37,7 @@ use crate::database::Pool;
 use crate::models::company_doc::{
     self, CompanyDocError, DocSection, NewProposal, Proposal, ProposalState, Proposer,
 };
-use crate::models::step_model_setting::ModelChoice;
+use crate::models::model_setting::ModelChoice;
 use crate::models::timeline_record::{self, TimelineRecord};
 use crate::models::user::ELYSIA_USER_ID;
 use crate::models::workflow_run::{self, NewRun};
@@ -264,6 +264,8 @@ impl ReviewCompanyDoc {
 
 impl Step for ReviewCompanyDoc {
     const NAME: &'static str = "review_company_doc";
+    /// It reads what was ingested and proposes changes in one agent turn.
+    const RUNS_MODEL: bool = true;
     type Input = ReviewWindow;
     type Output = Reviewed;
 
@@ -706,6 +708,6 @@ mod tests {
             runner,
         }));
         // Panics, as the engine would at startup, if the two drift apart.
-        steps.assert_runs(&workflow());
+        steps.assert_runs(&workflow().outline());
     }
 }

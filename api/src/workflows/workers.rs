@@ -220,18 +220,19 @@ impl Workers {
         );
         let log = StepLog::default();
         let ending = match self.inner.steps.find(&claim.job.step) {
-            Some((name, step)) => {
+            Some(found) => {
                 let context = StepContext {
                     run_id: claim.job.run_id,
                     step_job_id: claim.job.id,
                     attempt: claim.job.attempts,
                     log: log.clone(),
-                    step: name,
+                    step: found.name,
+                    runs_model: found.runs_model,
                     database: self.inner.database.clone(),
                 };
                 // The row's check keeps input set on every step its run reached.
                 let input = claim.job.input.clone().unwrap_or_default();
-                self.drive(&claim, step(input, context), &log, &shutdown)
+                self.drive(&claim, (found.run)(input, context), &log, &shutdown)
                     .await
             }
             None => Ending::Returned(StepOutcome::Failed {
