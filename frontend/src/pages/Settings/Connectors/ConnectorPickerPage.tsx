@@ -3,6 +3,7 @@
 // Core
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router'
 
 // User interface
 import { SearchField, Spinner } from '@heroui/react'
@@ -10,18 +11,30 @@ import { SettingsPage } from '../SettingsPage'
 import { ConnectorKindCard } from './ConnectorKindCard'
 
 // Misc
-import { UrlTree } from '../../../urls'
+import { CONNECTOR_PROVIDES } from '../../../api/routes/connectorRoutes'
+import { CONNECTOR_PROVIDES_PARAM, UrlTree } from '../../../urls'
 import { searchKinds } from './connectorPresentation'
 import { useConnectorKinds } from './useConnectorKinds'
 
 // `/settings/connectors/new`: every kind as a searchable grid of logos and names, modeled on
-// Onyx's. Each opens its own form page.
+// Onyx's. Each opens its own form page. `?provides=meetings` narrows it to the kinds that
+// provide one kind of thing, so a page about meetings can offer every meeting source without
+// naming one.
 export function ConnectorPickerPage() {
   const { t } = useTranslation('connectors')
   const definitions = useConnectorKinds()
+  const [ searchParams ] = useSearchParams()
   const [ search, setSearch ] = useState('')
 
-  const kinds = definitions.kinds.map((definition) => definition.kind)
+  const requested = searchParams.get(CONNECTOR_PROVIDES_PARAM)
+  const provides = CONNECTOR_PROVIDES.find((candidate) => candidate === requested) ?? null
+  if (requested && !provides) {
+    console.debug('ConnectorPickerPage ignored an unknown provides filter', { requested })
+  }
+
+  const kinds = definitions.kinds
+    .filter((definition) => !provides || definition.provides.includes(provides))
+    .map((definition) => definition.kind)
   const shown = searchKinds(
     kinds,
     search,

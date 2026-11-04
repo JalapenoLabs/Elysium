@@ -35,8 +35,10 @@ export function ConnectorContentForm(props: Props) {
   const [ content, setContent ] = useState<Record<string, unknown> | null>(null)
   const [ isSaving, setIsSaving ] = useState(false)
   const connector = props.connector
-  const stored = connector.kind === 'fireflies'
-    ? { storageLocationId: connector.storageLocationId, ...connector.content }
+  // A storage location is kept on the connector itself, beside its content, rather than in it.
+  const storageField = props.definition.content.find((field) => field.field.type === 'storage_location')
+  const stored = storageField
+    ? { [storageField.id]: connector.storageLocationId, ...connector.content }
     : connector.content
   const shown = content ?? stored
 

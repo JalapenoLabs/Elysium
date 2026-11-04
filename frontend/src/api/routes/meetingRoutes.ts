@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ConnectorKind } from './connectorRoutes'
+
 // Misc
 import { apiClient } from '../index'
 
@@ -11,8 +13,10 @@ export type MeetingState = typeof MEETING_STATES[number]
 // timeline. Only its owner receives it.
 export type Meeting = {
   id: string
+  // The connector that read it, or null once that connector is removed.
   connectorId: string | null
-  sourceKind: string
+  // The kind of connector it came from, which outlives the connector.
+  sourceKind: ConnectorKind
   title: string
   startedAt: string
   durationMs: number | null

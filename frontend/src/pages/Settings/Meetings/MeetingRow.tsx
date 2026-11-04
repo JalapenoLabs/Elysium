@@ -5,6 +5,7 @@ import type { Meeting } from '../../../api/routes/meetingRoutes'
 // Core
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link as RouterLink } from 'react-router'
 
 // Redux
 import { useAppDispatch } from '../../../store/hooks'
@@ -12,10 +13,12 @@ import { meetingUpserted } from '../../../store/meetingsSlice'
 
 // User interface
 import { Button, Chip, Link, toast } from '@heroui/react'
+import { ConnectorLogo } from '../Connectors/ConnectorLogo'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { retryMeeting } from '../../../api/routes/meetingRoutes'
+import { getConnectorUrl } from '../../../urls'
 import { formatDuration, meetingStateChipColors, meetingStateLabelKeys } from './meetingsPresentation'
 
 const startedFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
@@ -24,14 +27,15 @@ type Props = {
   meeting: Meeting
 }
 
-// One meeting: its title, when it was and how long, how far its processing got, and why it
-// failed with the button to try again.
+// One meeting: its title, the source it came from, when it was and how long, how far its
+// processing got, and why it failed with the button to try again.
 export function MeetingRow(props: Props) {
-  const { t } = useTranslation([ 'meetings', 'common' ])
+  const { t } = useTranslation([ 'meetings', 'connectors', 'common' ])
   const dispatch = useAppDispatch()
   const [ isRetrying, setIsRetrying ] = useState(false)
   const meeting = props.meeting
   const duration = formatDuration(meeting.durationMs)
+  const sourceName = t(`connectors:kinds.${meeting.sourceKind}.name`)
 
   async function retry() {
     setIsRetrying(true)
@@ -68,7 +72,16 @@ export function MeetingRow(props: Props) {
           t(meetingStateLabelKeys[meeting.state])
         }</Chip>
       </div>
-      <p className='text-xs opacity-60'>{details.filter(Boolean).join(' · ')}</p>
+      <p className='flex flex-wrap items-center gap-x-1.5 text-xs'>
+        <ConnectorLogo kind={meeting.sourceKind} className='size-3.5' />
+        {meeting.connectorId
+          ? <RouterLink to={getConnectorUrl(meeting.connectorId)} className='opacity-80 hover:underline'>{
+            sourceName
+          }</RouterLink>
+          : <span className='opacity-80'>{sourceName}</span>}
+        <span aria-hidden className='opacity-60'>·</span>
+        <span className='opacity-60'>{details.filter(Boolean).join(' · ')}</span>
+      </p>
       {meeting.lastError && <p className='mt-1 text-sm text-danger'>{meeting.lastError}</p>}
     </div>
     <div className='flex shrink-0 items-center gap-2'>

@@ -239,8 +239,10 @@ Everything else follows these rules:
 ## Meetings
 
 - Meetings are read from a meeting source as their person (`api/src/meetings/`): today Fireflies, with the person's
-  own API key, so nothing is installed into an organization. Every meeting belongs to a connector, which is what
-  keeps it and its segments from being recorded twice. See `docs/meetings.md`.
+  own API key, so nothing is installed into an organization. A source is a connector whose kind declares it provides
+  meetings, managed under Connectors alone; the meetings page and loop never name one (`meetings::sources`). Every
+  meeting belongs to a connector, which is what keeps it and its segments from being recorded twice. See
+  `docs/meetings.md`.
 - Each meeting is recorded (transcript, and the recording uploaded to the account's storage location), segmented by
   Elysia in one text turn on the runner, and published: `ffmpeg` cuts each segment's clip in the workspace container,
   and each segment becomes a timeline record with its excerpt, summary, span, and clip, attributed to its projects.

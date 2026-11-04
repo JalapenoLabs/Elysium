@@ -57,6 +57,13 @@ export function SettingsDirectoryPage() {
           description={t('items.mcp.description')}
           href={UrlTree.settingsMcp}
         />
+      </div>
+    </section>
+    <section className='relaxed pt-6'>
+      <h2 className='relaxed text-base font-semibold'>{
+        t('sections.knowledgeBase')
+      }</h2>
+      <div className='grid grid-cols-1 gap-x-10 gap-y-8 md:grid-cols-2 xl:grid-cols-3'>
         <SettingsDirectoryItem
           icon={LuVideo}
           title={t('items.meetings.title')}

@@ -1,5 +1,7 @@
 // Copyright © 2026 Jalapeno Labs
 
+import type { ConnectorProvides } from './api/routes/connectorRoutes'
+
 // Urls
 export const UrlTree = {
   root: '/',
@@ -75,6 +77,10 @@ export type UrlValue = typeof UrlTree[keyof typeof UrlTree]
 export const NEW_ITEM_PROJECT_PARAM = 'project'
 export const NEW_ITEM_INITIATIVE_PARAM = 'initiative'
 
+// The query parameter that narrows the add-connector grid to the kinds providing one kind of
+// thing, such as meetings.
+export const CONNECTOR_PROVIDES_PARAM = 'provides'
+
 // The query parameter that opens a Jira site's done transitions on one project, such as from
 // a close still waiting on the choice.
 export const DONE_TRANSITION_PROJECT_PARAM = 'project'
@@ -141,6 +147,10 @@ export function getConnectorUrl(connectorId: string) {
 
 export function getNewConnectorUrl(kind: string) {
   return UrlTree.settingsConnectorNewKind.replace(':kind', kind)
+}
+
+export function getConnectorPickerUrl(provides: ConnectorProvides) {
+  return `${UrlTree.settingsConnectorNew}?${CONNECTOR_PROVIDES_PARAM}=${encodeURIComponent(provides)}`
 }
 
 export function getEnvironmentVariableEditUrl(variableId: string) {

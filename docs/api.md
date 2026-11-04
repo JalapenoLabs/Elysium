@@ -311,8 +311,9 @@ a token and `409` for one that has its browser. Someone else's personal connecto
 
 A `Meeting` has `id`, `connectorId`, `sourceKind`, `title`, `startedAt`, `durationMs`, `organizer`,
 `participants`, `url`, `state` (`pending`, `recorded`, `segmented`, `done`, or `failed`), `attempts`, `lastError`,
-`hasRecording`, `segmentCount`, `createdAt`, and `updatedAt`. Its transcript is not served; its segments reach the
-timeline. See `docs/meetings.md`.
+`hasRecording`, `segmentCount`, `createdAt`, and `updatedAt`. `sourceKind` is the kind of connector it came from,
+such as `fireflies`, and stays when `connectorId` becomes `null` because its connector was removed. Its transcript is
+not served; its segments reach the timeline. See `docs/meetings.md`.
 
 A `TimelineRecord` has `id`, `sourceKind`, `connectorId`, `externalId`, `occurredAt`, `actor`, `title`,
 `body`, `url`, `media`, `metadata`, `actionItemId` (the item it raised), `projects` (each `{ projectId, confidence,
@@ -657,7 +658,7 @@ of 30. Both are constants in `src/middleware/rate_limit.rs`.
 | `src/mail/`              | IMAP and SMTP transport, OAuth broker client, mail server hosting and administration, DNS checks |
 | `src/browser/`           | The browsers the host streams: their containers, the reconciler, Neko's API, the stream relay, and the DevTools client |
 | `src/connectors/`        | Accounts, kinds and their checks, sync activity, the webmail reader and its page scripts, and the ingest loop |
-| `src/meetings/`          | Meeting sources (Fireflies), the listing and processing loop, segmentation, and clips cut with `ffmpeg` |
+| `src/meetings/`          | Meeting sources, one per kind that provides meetings (`sources.rs`), the listing and processing loop, segmentation, and clips cut with `ffmpeg` |
 | `src/storage/`           | Storage provider clients, reached through `Storage` |
 | `src/environment/`       | The rules for which environment variable keys are refused |
 | `src/action_items/`      | Action item rules: actors, state transitions, Next's order, initiative progress, a session's first turn from an item, link providers (`links/`), the link watcher, and changesets' operations, dependencies, and decisions |

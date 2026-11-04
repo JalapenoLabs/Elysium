@@ -106,7 +106,7 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/environment/new`   | `AddEnvironmentVariablePage` | Add an environment variable                          |
 | `/settings/environment/:variableId/edit` | `EditEnvironmentVariablePage` | Edit an environment variable              |
 | `/settings/connectors`        | `ConnectorsPage`         | Every connector, its status, and activity               |
-| `/settings/connectors/new`    | `ConnectorPickerPage`    | A searchable grid of every kind, each opening its form  |
+| `/settings/connectors/new`    | `ConnectorPickerPage`    | A searchable grid of every kind, each opening its form; `?provides=` narrows it |
 | `/settings/connectors/new/:kind` | `NewConnectorPage`    | One kind's form: sign in, what it reads, live checks    |
 | `/settings/connectors/:connectorId` | `ConnectorPage`    | One connector: status, its browser to sign in on, content, and checks |
 | `/settings/github`            | redirect                 | To `/settings/connectors`                               |
@@ -116,11 +116,13 @@ redirect to Action items, the first page in the sidebar; there is no home page.
 | `/settings/jira/new`          | redirect                 | To `/settings/connectors/new`                           |
 | `/settings/jira/:credentialId/edit` | `EditJiraCredentialPage` | Edit a Jira site                                   |
 | `/settings/jira/:credentialId/done-transitions` | `JiraDoneTransitionsPage` | A project's done status; `?project=` picks it |
+| `/settings/meetings`          | `MeetingsPage`           | The person's meeting sources and recent meetings         |
 | `/settings/storage`           | `ManageStoragePage`      | Storage locations Elysium saves files to                 |
 | `/settings/storage/new`       | `AddStorageLocationPage` | Add a storage location                                   |
 | `/settings/storage/:locationId/edit` | `EditStorageLocationPage` | Edit a storage location                         |
 
-The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s.
+The settings directory groups entries into titled sections, each a responsive grid of `SettingsDirectoryItem`s: Personal
+settings, Knowledge base (meetings, and the knowledge base's own settings as they are built), and Workspace settings.
 New settings pages add an entry to a section and a route under `/settings`, and render inside `SettingsPage`.
 
 ### Settings pages

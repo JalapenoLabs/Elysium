@@ -9,6 +9,7 @@ import type {
 } from './api/routes/actionItemRoutes'
 import type { Changeset, ChangesetOperation } from './api/routes/changesetRoutes'
 import type { CodingSession } from './api/routes/codingSessionRoutes'
+import type { Connector } from './api/routes/connectorRoutes'
 import type { Initiative, InitiativeLink } from './api/routes/initiativeRoutes'
 import type { ClaudeAccount, Llm } from './api/routes/llmRoutes'
 import type { Project } from './api/routes/projectRoutes'
@@ -316,3 +317,24 @@ export function makeLlm(overrides: Partial<Llm> & Pick<Llm, 'id'>): Llm {
   }
 }
 
+// A Jira connector reading well, on its Atlassian account.
+export function makeConnector(overrides: Partial<Connector> & Pick<Connector, 'id'>): Connector {
+  return {
+    kind: 'jira',
+    scope: 'workspace',
+    account: { id: 'account-1', kind: 'atlassian', name: 'Work' },
+    status: 'active',
+    isActive: true,
+    signInState: 'unknown',
+    lastSyncAt: null,
+    lastError: null,
+    records: 0,
+    content: {},
+    storageLocationId: null,
+    checks: [],
+    lastRun: null,
+    createdBy: CREATED_BY,
+    createdAt: CREATED_AT,
+    ...overrides,
+  }
+}

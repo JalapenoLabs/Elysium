@@ -2,6 +2,7 @@
   "title": "Settings",
   "sections": {
     "personal": "Personal settings",
+    "knowledgeBase": "Knowledge base",
     "workspace": "Workspace settings"
   },
   "items": {
@@ -19,7 +20,7 @@
     },
     "meetings": {
       "title": "Meetings",
-      "description": "Connect Fireflies, so your meetings' topics land on their projects' timelines."
+      "description": "Your meeting sources, and your recent meetings as they reach their projects' timelines."
     },
     "users": {
       "title": "Users",

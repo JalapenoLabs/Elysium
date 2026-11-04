@@ -14,11 +14,22 @@ import { MeetingRow } from './MeetingRow'
 // Misc
 import { useMeetingsLoader } from '../../../hooks/useServerData'
 
-// The person's recent meetings, newest first, each with how far its processing got.
-export function MeetingList() {
+type Props = {
+  // Whether any meeting source is connected. Without one, the sources above already say what
+  // to do, so the list shows only while it holds meetings read before.
+  hasSources: boolean
+}
+
+// The person's recent meetings, newest first, each with the source it came from and how far its
+// processing got.
+export function MeetingList(props: Props) {
   const { t } = useTranslation([ 'meetings', 'common' ])
   const status = useMeetingsLoader()
   const meetings = useAppSelector(selectAllMeetings)
+
+  if (status === 'loaded' && !meetings.length && !props.hasSources) {
+    return null
+  }
 
   return <section className='relaxed'>
     <h2 className='compact text-xl font-semibold'>{t('list.heading')}</h2>

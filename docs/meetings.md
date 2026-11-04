@@ -5,14 +5,21 @@ into topic segments. Each segment lands on the timeline (`docs/connectors.md`) a
 trimmed to it, its transcript excerpt, and a summary, attributed to the projects it is about. So when a two hour
 meeting spends five minutes on a product, the product's timeline shows that five minute segment.
 
-Today one source exists, Fireflies.ai, read with the person's own API key. The code is `api/src/meetings/`.
+Meetings come from meeting sources. Today one exists, Fireflies.ai, read with the person's own API key. The code is
+`api/src/meetings/`.
 
 ## Meeting sources
 
-A meeting source is the meeting counterpart of a connector: it reads as its account's person, and installs nothing
-into an organization. Every source fills one trait, `MeetingSource` in `api/src/meetings/source.rs`: it lists the
-meetings that started since a time, and fetches one meeting's transcript with a fresh address to download its
-recording from.
+A meeting source is a connector whose kind provides meetings: its definition says so (`Provides::Meetings`,
+`docs/connectors.md`), and nothing else names it. It reads as its account's person, and installs nothing into an
+organization. Like every connector, it is added, edited, checked, paused, and removed under Settings, Connectors alone.
+
+Every source fills one trait, `MeetingSource` in `api/src/meetings/source.rs`: it lists the meetings that started
+since a time, and fetches one meeting's transcript with a fresh address to download its recording from.
+`api/src/meetings/sources.rs` is the one place a kind meets its source (`Sources::for_kind`), so the loop below lists
+and fetches every source the same way, and a test fails when a kind that provides meetings has no source. A new source
+adds its kind (`docs/connectors.md`, Adding a kind), declares that it provides meetings, and adds its client and its row
+in `for_kind`; the meetings page and the loop pick it up unchanged.
 
 | Source    | Signs in with                                  | Reads                                                    |
 |-----------|------------------------------------------------|----------------------------------------------------------|
@@ -31,8 +38,14 @@ the documented schema and a fixture, not yet against a live account.
 
 A Fireflies key is an account of its own (`token_accounts`, `docs/connectors.md`), sealed like every application
 secret (`docs/secrets.md`) and bound to its row. The Fireflies connector owns it, made and removed with it, and
-names the storage location recordings are kept in. A key is checked with Fireflies (`user { email }`) before anything is stored, so a key
-Fireflies refuses is never saved.
+names the storage location recordings are kept in. A key is checked with Fireflies (`user { email }`) before anything
+is stored, so a key Fireflies refuses is never saved.
+
+Every Fireflies key has its connector. The migration `2026-11-04-010000-0000_give_every_fireflies_key_a_connector`
+gave each key whose connector had been removed a paused Fireflies connector of its own, so its person resumes it from
+Connectors without entering the key again. Such a connector names no storage location until its person picks one on
+its page, and until then its recordings are not kept. When the person had one such key, the meetings its removed
+connector read are its connector's again, so resuming it reads none of them twice.
 
 Every meeting belongs to a connector (`connectors`), the same table mailboxes use. `UNIQUE (connector_id, external_id)`
 on both `meetings` and `timeline_records` is what keeps a meeting, and each of its segments, from being recorded twice.
@@ -43,17 +56,18 @@ A listing that stored meetings, and a meeting that finished or failed, is a run 
 
 `Meetings::start` runs one loop until shutdown.
 
-- **Listing**, every ten minutes (`POLL_INTERVAL`): each active meeting account lists the meetings that started since
-  its cursor (`{"since": <the newest start time seen>}`), at most 50 at a time. A new account's first listing reaches
-  back two weeks (`FIRST_LISTING_DAYS`), so it arrives with its recent meetings but not its whole history. Each
-  meeting the account has not seen is stored `pending`. A key Fireflies refuses marks the account `signed_out` with
-  the reason in `last_error`.
+- **Listing**, every ten minutes (`POLL_INTERVAL`): each active connector of a kind that provides meetings lists,
+  through its kind's source, the meetings that started since its cursor (`{"since": <the newest start time seen>}`),
+  at most 50 at a time (`LISTING_SIZE`). A new connector's first listing reaches back two weeks
+  (`FIRST_LISTING_DAYS`), so it arrives with its recent meetings but not its whole history. Each meeting the connector
+  has not seen is stored `pending`, with its kind as `source_kind`. A key its source refuses marks the connector
+  `signed_out` with the reason in `last_error`.
 - **Processing**, every minute (`PROCESS_INTERVAL`): each unfinished meeting is carried through its steps until it is
   done or one fails.
 
 | Step        | From        | What happens                                                                      |
 |-------------|-------------|-----------------------------------------------------------------------------------|
-| Record      | `pending`   | Fetch the transcript and the recording's address, download the recording into the workspace, upload it to the account's storage location at `meetings/<id>/recording.<ext>` |
+| Record      | `pending`   | Fetch the transcript and the recording's address from the meeting's source, download the recording into the workspace, upload it to the connector's storage location at `meetings/<id>/recording.<ext>` |
 | Segment     | `recorded`  | Elysia reads the transcript in one text turn and answers the topic segments, each with its projects |
 | Publish     | `segmented` | `ffmpeg` cuts each segment's clip in the workspace, each is uploaded to `meetings/<id>/segments/<n>.<ext>`, and every segment becomes a timeline record in one transaction |
 
@@ -117,9 +131,15 @@ streams the clip from storage to the record's owner alone.
 
 ## In the web app
 
-- **Settings, Meetings** (`/settings/meetings`): connect Fireflies with an API key and the storage location to keep
-  recordings in, see whether its listings succeed, disconnect it, and follow each recent meeting's state, with the
-  reason and a retry for one that failed. Every person connects their own.
+- **Settings, Meetings** (`/settings/meetings`, in the directory's Knowledge base section, `MeetingsPage`): the
+  person's meeting sources and their recent meetings. The page names no source itself; it finds them from the kinds
+  whose definitions provide meetings (`GET /connectors/kinds`), so a new source appears on it unchanged.
+  - **Sources.** Each of the person's meeting connectors, with its logo, account, and status, linking to its connector's
+    page, where it is edited, checked, paused, and removed. Add a source opens the add-connector grid narrowed to the
+    kinds that provide meetings (`/settings/connectors/new?provides=meetings`). With no source connected, the page
+    says so and shows each kind that provides meetings as a card opening its own form.
+  - **Recent meetings.** Each with the source it came from (linking to its connector while there is one), when it was
+    and how long, its state, and the reason and a retry for one that failed.
 - **A project's timeline** (`ProjectTimeline` on the project page): every record attributed to the project, newest
   first, fifty at a time with "Show older". A meeting segment shows its title, its place in the meeting, its summary,
   its clip (video or audio, loaded only when played), and its transcript excerpt on request. Elysia's attribution
@@ -138,7 +158,10 @@ streams the clip from storage to the record's owner alone.
 ## Roadmap
 
 - Google Meet and Teams recordings with their transcripts, read through the person's signed-in browser
-  (`docs/browser.md`): Meet's land in Google Drive, Teams' in OneDrive, both reachable as the user.
+  (`docs/browser.md`): Meet's land in Google Drive, Teams' in OneDrive, both reachable as the user. Every source today
+  signs in with a key (`Meetings::key_of`); a source read through a browser resolves its sign-in beside its source in
+  `sources.rs` instead.
+- Fetching each meeting as an engine step, one source per run (`docs/engine.md`), through the same `Sources::for_kind`.
 - Passing long prompts to the CLI on standard input, so a transcript never has to be shortened to fit an argument.
 - Seeking inside a clip: the media route serves a clip whole and does not answer range requests yet.
 - Holding an activity while a meeting's files move, so auto-update waits for a download in progress.

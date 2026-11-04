@@ -1,7 +1,5 @@
 // Copyright © 2026 Jalapeno Labs
 
-import type { Connector } from '../../../api/routes/connectorRoutes'
-
 // Core
 import { describe, expect, it } from 'vitest'
 
@@ -19,27 +17,7 @@ import {
   startingContent,
   summarize,
 } from './connectorPresentation'
-
-function makeConnector(overrides: Partial<Connector> & Pick<Connector, 'id'>): Connector {
-  return {
-    kind: 'jira',
-    scope: 'workspace',
-    account: { id: 'account-1', kind: 'atlassian', name: 'Work' },
-    status: 'active',
-    isActive: true,
-    signInState: 'unknown',
-    lastSyncAt: null,
-    lastError: null,
-    records: 0,
-    content: {},
-    storageLocationId: null,
-    checks: [],
-    lastRun: null,
-    createdBy: 'person-1',
-    createdAt: '2026-11-02T12:00:00Z',
-    ...overrides,
-  }
-}
+import { makeConnector } from '../../../testFixtures'
 
 const t = i18next.getFixedT('en-US', 'connectors')
 

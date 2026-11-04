@@ -118,7 +118,8 @@ its `connectors` translations.
 
 What a kind provides (`Provides`: `issues`, `pages`, `mail`, `messages`, `meetings`) is how a loop that reads one kind
 of thing finds every kind that reads it, without naming them: `crate::meetings` reads every kind
-`kinds::providing(Provides::Meetings)` answers.
+`kinds::providing(Provides::Meetings)` answers, each through its source (`crate::meetings::sources`), and the web app's
+Meetings page lists every connector whose kind provides meetings.
 
 A kind fills these verbs:
 
@@ -149,7 +150,8 @@ that counts something different takes an id of its own: Confluence's `sample_pag
 `sample_comments`. A kind whose account is a new provider adds an `AccountKind` and an `AccountDefinition`; when its
 sign-in is one API key, its key lives in `token_accounts`. `kinds/mod.rs`'s tests fail when a kind has no definition,
 provides nothing, an account kind has none, a browser kind names no start page, or a check depends on one that does not
-run before it.
+run before it. A kind that provides meetings also adds its source to `crate::meetings::sources` (`docs/meetings.md`), and
+a test there fails when it has none.
 
 ## Checks
 
@@ -217,7 +219,8 @@ Esc lead back.
   search over kind and account names and a status filter narrow it. Above it, a summary and the activity feed of
   recent syncs, each failed one with a retry.
 - **Adding** a connector starts at `/settings/connectors/new`, a searchable grid of every kind's logo and name; each
-  card's `?` opens what the kind reads in a popover, and the search matches that too. A card opens its kind's page,
+  card's `?` opens what the kind reads in a popover, and the search matches that too. `?provides=<what>` narrows the
+  grid to the kinds that provide it, such as `meetings` from the Meetings page. A card opens its kind's page,
   `/settings/connectors/new/<kind>`:
   - A token kind asks for its sign-in, what it reads (a selection loads its options from what the typed account
     reaches), and Test connection, which runs its checks live against what was typed. The page's Save, "Create

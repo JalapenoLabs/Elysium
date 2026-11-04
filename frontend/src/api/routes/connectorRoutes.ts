@@ -22,7 +22,8 @@ export const ACCOUNT_KINDS = [ 'atlassian', 'github', 'browser', 'fireflies', 'y
 export type AccountKind = typeof ACCOUNT_KINDS[number]
 
 // Mirrors `Provides` in api/src/connectors/kinds/mod.rs: the kinds of thing a connector reads.
-export type ConnectorProvides = 'issues' | 'pages' | 'mail' | 'messages' | 'meetings'
+export const CONNECTOR_PROVIDES = [ 'issues', 'pages', 'mail', 'messages', 'meetings' ] as const
+export type ConnectorProvides = typeof CONNECTOR_PROVIDES[number]
 
 export type SignInState = 'signed_in' | 'signed_out' | 'unknown'
 export type ConnectorScope = 'workspace' | 'personal'
