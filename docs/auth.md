@@ -146,9 +146,14 @@ app holds Elysium's codes. Kratos holds one app per identity and has nowhere for
   - There is no "remember me": every session is the same.
 - **Cookie.** `elysium_session` is first-party and `HttpOnly`, with `SameSite=Lax`, and set without a `Domain`
   attribute.
-- **Caching.** The API asks Kratos whose each session is (`whoami`) and caches the answer in Redis for 30 seconds,
-  under a hash of the cookie, filed under the person's Kratos identity (`api/src/auth/sessions.rs`). A session that
-  ends is forgotten at once (below). With Redis unreachable, every request asks Kratos, and nothing is refused for it.
+- **Caching.** The API asks Kratos whose each session is (`whoami`) and caches the answer in Redis for 15 minutes,
+  never past the session's own expiry, under a hash of the cookie, filed under the person's Kratos identity
+  (`api/src/auth/sessions.rs`). A session that ends is forgotten at once (below), so the cache never decides how long
+  a revoked session lasts, and a busy session asks Kratos about four times an hour. With Redis unreachable, every
+  request asks Kratos, and nothing is refused for it.
+- **Rolling under the cache.** Kratos extends a session only when the API asks, so a cached expiry stays exact until
+  then. The first request after a session is an hour old extends it and drops its cached answer, so the next request
+  reads the new expiry.
 - **Disabling is immediate.** Each request reads the person's `users` row, so a person disabled by an admin is
   refused on their next request.
 - **Password changes.** Changing a password signs out every other session.
@@ -188,7 +193,7 @@ every way one ends forgets the person's cached sessions in the same step:
   still ended in Kratos, and while Redis is unreachable nothing is read from it; only answers a Redis that comes back
   still holds could let the session through, until they expire.
 - **What the API never hears.** A change made in Kratos directly, such as an operator using its admin API, reaches
-  requests once the cached answer expires.
+  requests once the cached answer expires, within 15 minutes. That bound is what the cache's length is chosen for.
 
 ## Requests
 

@@ -4,7 +4,8 @@
 //! caches what Kratos and Hydra said about it: signing out, ending one's other sessions, an admin
 //! signing someone out, Kratos's own revocation on a settings change, disconnecting an MCP
 //! client, and deleting one. With Redis down, every request asks Kratos or Hydra instead and
-//! nothing is refused for it.
+//! nothing is refused for it. Since answers are cached for minutes (#190), a session in use still
+//! rolls: it is extended as soon as it is due, whatever the cache holds.
 //!
 //! The router runs against Postgres and Redis, with Kratos and Hydra faked on loopback: each
 //! fake counts how often it was asked, which proves an answer really was cached before the
@@ -36,6 +37,7 @@ use crate::auth::kratos::{
     AssuranceLevel, Identity, Kratos, PersonName, SESSION_COOKIE, Session, Traits,
 };
 use crate::auth::middleware::session_cookie;
+use crate::auth::sessions::SESSION_LIFESPAN;
 use crate::oauth::hydra::{Hydra, Introspection};
 use crate::oauth::mcp_resource;
 use crate::routes;
@@ -97,6 +99,7 @@ struct FakeKratos {
     person: Person,
     sessions: Arc<Mutex<KratosSessions>>,
     whoami_calls: Arc<AtomicUsize>,
+    extensions: Arc<AtomicUsize>,
 }
 
 impl FakeKratos {
@@ -105,15 +108,22 @@ impl FakeKratos {
             person,
             sessions: Arc::default(),
             whoami_calls: Arc::default(),
+            extensions: Arc::default(),
         }
     }
 
     /// Signs the person in once more, and answers the new session's cookie and id.
     fn sign_in(&self) -> (String, Uuid) {
+        self.sign_in_expiring_in(SESSION_LIFESPAN)
+    }
+
+    /// Signs the person in with a session that has `remaining` left to live, as one that was
+    /// last extended `SESSION_LIFESPAN - remaining` ago.
+    fn sign_in_expiring_in(&self, remaining: chrono::Duration) -> (String, Uuid) {
         let cookie = format!("ory_st_{}", Uuid::now_v7().simple());
         let session = Session {
             id: Uuid::now_v7(),
-            expires_at: Utc::now() + chrono::Duration::hours(72),
+            expires_at: Utc::now() + remaining,
             authenticator_assurance_level: AssuranceLevel::Aal2,
             identity: Identity {
                 id: self.person.identity,
@@ -144,6 +154,10 @@ impl FakeKratos {
         self.whoami_calls.load(Ordering::SeqCst)
     }
 
+    fn extensions(&self) -> usize {
+        self.extensions.load(Ordering::SeqCst)
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, KratosSessions> {
         self.sessions
             .lock()
@@ -170,7 +184,25 @@ impl FakeKratos {
                 delete(kratos_end_everywhere),
             )
             .route("/admin/identities/{id}", patch(kratos_patch_identity))
+            .route("/admin/sessions/{id}/extend", patch(kratos_extend))
             .with_state(self.clone())
+    }
+}
+
+/// Extends a session to a full lifespan from now, as Kratos's admin API does.
+async fn kratos_extend(State(kratos): State<FakeKratos>, Path(id): Path<Uuid>) -> Response {
+    kratos.extensions.fetch_add(1, Ordering::SeqCst);
+    let mut sessions = kratos.lock();
+    let found = sessions
+        .by_cookie
+        .values_mut()
+        .find(|(session, _)| session.id == id);
+    match found {
+        Some((session, _)) => {
+            session.expires_at = Utc::now() + SESSION_LIFESPAN;
+            axum::Json(session.clone()).into_response()
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
@@ -655,4 +687,33 @@ async fn with_redis_down_requests_ask_kratos_and_hydra_and_revoking_still_lands(
         .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert_eq!(stack.me(&cookie).await, StatusCode::UNAUTHORIZED);
+}
+
+/// #190: the long cache never holds back a rolling extension. The first request after a session
+/// is due extends it and drops the cached answer, so the next one reads the new expiry from
+/// Kratos, and the one after that is answered from the cache, not extended again.
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run by scripts/verify-migrations.sh"]
+async fn a_session_in_use_rolls_though_its_answer_is_cached() {
+    let stack = Stack::start().await;
+    // Last extended two hours ago: past the hour after which a request extends it.
+    let (cookie, _) = stack
+        .kratos
+        .sign_in_expiring_in(SESSION_LIFESPAN - chrono::Duration::hours(2));
+
+    assert_eq!(stack.me(&cookie).await, StatusCode::OK);
+    assert_eq!(stack.kratos.extensions(), 1);
+    assert_eq!(stack.me(&cookie).await, StatusCode::OK);
+    assert_eq!(stack.me(&cookie).await, StatusCode::OK);
+
+    assert_eq!(
+        stack.kratos.extensions(),
+        1,
+        "extended once, when it was due"
+    );
+    assert_eq!(
+        stack.kratos.whoami_calls(),
+        2,
+        "asked again once after the extension, then answered from the cache"
+    );
 }

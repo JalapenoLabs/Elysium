@@ -33,12 +33,22 @@ use super::revocable_cache::{Owner, REVOCATION_GRACE, RevocableCache};
 // one from before it.
 const _: () = assert!(REVOCATION_GRACE.as_secs() > kratos::REQUEST_TIMEOUT.as_secs());
 
-/// How long a Kratos answer is trusted, unless a revocation drops it first.
-const SESSION_CACHE_TTL: Duration = Duration::from_secs(30);
+/// How long a Kratos answer is trusted, unless a revocation drops it first, and never past the
+/// session's own expiry ([`cache_lifetime`]).
+///
+/// It no longer decides how long a revoked session lasts: every way a session ends forgets it at
+/// once. What it still bounds is a change the API never hears of, made in Kratos directly, such as
+/// an operator using Kratos's admin API; a quarter hour keeps that within minutes while a busy
+/// session asks Kratos about four times an hour rather than on every request.
+///
+/// It never holds back a session's rolling extension. Kratos extends a session only when the API
+/// asks, so the cached expiry stays exact until then, and [`extend_if_due`] drops the cached
+/// answer once it has asked.
+const SESSION_CACHE_TTL: Duration = Duration::from_mins(15);
 
 /// `session.lifespan` in `kratos/kratos.yml`: how long a session lasts from its last
 /// extension. Change the two together.
-const SESSION_LIFESPAN: chrono::Duration = chrono::Duration::hours(72);
+pub(super) const SESSION_LIFESPAN: chrono::Duration = chrono::Duration::hours(72);
 
 /// How old a session gets before a request extends it: `session.lifespan` less
 /// `session.earliest_possible_extend` in `kratos/kratos.yml`. An hour keeps a busy session to
@@ -67,11 +77,19 @@ pub async fn resolve(
             redis,
             cookie,
             &session,
-            SESSION_CACHE_TTL,
+            cache_lifetime(&session, Utc::now()),
             &[person(session.identity.id)],
         )
         .await;
     Ok(session)
+}
+
+/// How long `session` may stay cached from `now`: [`SESSION_CACHE_TTL`], or less when the
+/// session expires sooner, so a cached answer never outlives its session. Zero for one already
+/// expired, which is then not cached at all.
+fn cache_lifetime(session: &Session, now: chrono::DateTime<Utc>) -> Duration {
+    let remaining = (session.expires_at - now).to_std().unwrap_or_default();
+    remaining.min(SESSION_CACHE_TTL)
 }
 
 /// Extends `session` when it is due, and drops the cached copy so the next request sees the
@@ -196,8 +214,7 @@ pub async fn forget(redis: &ConnectionManager, identity: Uuid) {
 }
 
 /// Caches `session` for `cookie` as if Kratos had just answered for it, so router tests sign
-/// in without a Kratos. Kept for ten minutes rather than [`SESSION_CACHE_TTL`], so no test
-/// outlives its session.
+/// in without a Kratos.
 #[cfg(test)]
 pub async fn remember(redis: &ConnectionManager, cookie: &str, session: &Session) {
     SESSIONS
@@ -205,7 +222,7 @@ pub async fn remember(redis: &ConnectionManager, cookie: &str, session: &Session
             redis,
             cookie,
             session,
-            Duration::from_mins(10),
+            cache_lifetime(session, Utc::now()),
             &[person(session.identity.id)],
         )
         .await;
@@ -214,4 +231,47 @@ pub async fn remember(redis: &ConnectionManager, cookie: &str, session: &Session
 /// What a cached session is filed under: the Kratos identity it signs in.
 fn person(identity: Uuid) -> Owner {
     Owner::new("identity", &identity)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::kratos::{AssuranceLevel, Identity, PersonName, Traits};
+
+    fn expiring_in(remaining: chrono::Duration, now: chrono::DateTime<Utc>) -> Session {
+        Session {
+            id: Uuid::now_v7(),
+            expires_at: now + remaining,
+            authenticator_assurance_level: AssuranceLevel::Aal1,
+            identity: Identity {
+                id: Uuid::now_v7(),
+                traits: Traits {
+                    email: "ada@example.com".to_owned(),
+                    name: PersonName::Whole("Ada".to_owned()),
+                },
+            },
+        }
+    }
+
+    #[test]
+    fn a_session_is_cached_for_the_full_lifetime_when_it_lasts_longer() {
+        let now = Utc::now();
+        let session = expiring_in(chrono::Duration::hours(72), now);
+        assert_eq!(cache_lifetime(&session, now), SESSION_CACHE_TTL);
+    }
+
+    /// #190: a longer cache must never let an answer outlive its session.
+    #[test]
+    fn a_session_about_to_expire_is_cached_only_until_it_does() {
+        let now = Utc::now();
+        let session = expiring_in(chrono::Duration::minutes(3), now);
+        assert_eq!(cache_lifetime(&session, now), Duration::from_mins(3));
+    }
+
+    #[test]
+    fn an_expired_session_is_not_cached() {
+        let now = Utc::now();
+        let session = expiring_in(chrono::Duration::seconds(-5), now);
+        assert_eq!(cache_lifetime(&session, now), Duration::ZERO);
+    }
 }

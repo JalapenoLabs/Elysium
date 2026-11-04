@@ -55,8 +55,10 @@ A client is granted what it asked for from this list; anything else it asked for
 
 - **Lifetimes.** Access tokens last an hour. Refresh tokens rotate on every use and expire after 720 hours without one.
 - **Opaque.** Tokens are opaque and checked by introspection against Hydra's admin API
-  (`api/src/mcp/bearer.rs`). The answer is cached in Redis for 20 seconds under a hash of the token, filed under the
-  person and the client it was issued to (`api/src/oauth/tokens.rs`). With Redis unreachable, every call asks Hydra.
+  (`api/src/mcp/bearer.rs`). The answer is cached in Redis for five minutes, never past the token's own expiry, under a
+  hash of the token, filed under the person and the client it was issued to (`api/src/oauth/tokens.rs`). An answer
+  that a token is no longer active is kept the five minutes too, since it never becomes active again. With Redis
+  unreachable, every call asks Hydra.
 - **Audience.** Every token is bound to `https://<host>/api/mcp`. Hydra ignores the `resource` parameter MCP clients
   send (RFC 8707), so consent grants that audience itself, and also allows it on the client so a refresh carrying it
   is accepted. `/api/mcp` refuses any token whose audience does not include it.
@@ -79,7 +81,8 @@ again, as for sessions (`docs/auth.md`, Ending a session). Hydra's revoking call
 so nothing revokes without forgetting.
 
 What the API never hears is a client revoking its own token (`/oauth2/revoke`) or replacing it by refreshing: the old
-token's cached answer lives out its 20 seconds. Only the client holding the token can do either.
+token's cached answer lives out its five minutes at most. Only the client holding the token can do either, which is why
+that bound is safe, and it is shorter than the session cache's because an access token lives an hour at most.
 
 Approving a client is remembered: the same client asking for the same scopes again connects without asking, until the
 person disconnects it. The consent page still answers that through `POST /api/v1/oauth/consent/accept`, so every change

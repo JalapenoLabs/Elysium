@@ -26,8 +26,14 @@ use crate::auth::revocable_cache::{Owner, REVOCATION_GRACE, RevocableCache};
 // return one from before it.
 const _: () = assert!(REVOCATION_GRACE.as_secs() > hydra::REQUEST_TIMEOUT.as_secs());
 
-/// How long Hydra's answer about a token is trusted, unless a revocation drops it first.
-const INTROSPECTION_CACHE_TTL: Duration = Duration::from_secs(20);
+/// How long Hydra's answer about a token is trusted, unless a revocation drops it first, and never
+/// past the token's own expiry ([`cache_lifetime`]).
+///
+/// Every revocation Elysium makes forgets the answer at once, so this only bounds what Hydra does
+/// without telling it: a client revoking its own token (`/oauth2/revoke`) or replacing it by
+/// refreshing. Only the client holding the token can do either, so a few minutes is safe; it is
+/// kept shorter than the session cache's because an access token lives an hour at most.
+const INTROSPECTION_CACHE_TTL: Duration = Duration::from_mins(5);
 
 /// Hydra's answers, each filed under the person and the client the token was issued to.
 const TOKENS: RevocableCache = RevocableCache::new("elysium:mcp:tokens");
@@ -57,16 +63,26 @@ pub async fn introspect(
         );
         return Ok(introspection);
     };
+    let lifetime = cache_lifetime(&introspection, chrono::Utc::now().timestamp());
     TOKENS
-        .put(
-            redis,
-            token,
-            &introspection,
-            INTROSPECTION_CACHE_TTL,
-            &owners,
-        )
+        .put(redis, token, &introspection, lifetime, &owners)
         .await;
     Ok(introspection)
+}
+
+/// How long `introspection` may stay cached from `now`, seconds since the epoch:
+/// [`INTROSPECTION_CACHE_TTL`], or less when an active token expires sooner, so an answer never
+/// outlives its token. An inactive token never becomes active again, so its answer is kept the
+/// whole time.
+fn cache_lifetime(introspection: &Introspection, now: i64) -> Duration {
+    if !introspection.active {
+        return INTROSPECTION_CACHE_TTL;
+    }
+    let remaining = introspection
+        .exp
+        .and_then(|expiry| u64::try_from(expiry - now).ok())
+        .map_or(Duration::ZERO, Duration::from_secs);
+    remaining.min(INTROSPECTION_CACHE_TTL)
 }
 
 /// Disconnects `client_id` from `subject`, the person who connected it, revoking every token it
@@ -135,4 +151,72 @@ fn person(subject: Uuid) -> Owner {
 
 fn client(client_id: &str) -> Owner {
     Owner::new("client", &client_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NOW: i64 = 1_790_000_000;
+
+    fn active_until(exp: Option<i64>) -> Introspection {
+        Introspection {
+            active: true,
+            sub: Some(Uuid::now_v7().to_string()),
+            scope: Some("workspace:read".to_owned()),
+            aud: Vec::new(),
+            client_id: Some("client".to_owned()),
+            exp,
+            token_use: Some("access_token".to_owned()),
+        }
+    }
+
+    #[test]
+    fn a_token_is_cached_for_the_full_lifetime_when_it_lasts_longer() {
+        let token = active_until(Some(NOW + 3600));
+        assert_eq!(cache_lifetime(&token, NOW), INTROSPECTION_CACHE_TTL);
+    }
+
+    /// #190: a longer cache must never let an answer outlive its token.
+    #[test]
+    fn a_token_about_to_expire_is_cached_only_until_it_does() {
+        let token = active_until(Some(NOW + 90));
+        assert_eq!(cache_lifetime(&token, NOW), Duration::from_secs(90));
+    }
+
+    #[test]
+    fn an_expired_or_undated_token_is_not_cached() {
+        assert_eq!(
+            cache_lifetime(&active_until(Some(NOW - 1)), NOW),
+            Duration::ZERO
+        );
+        assert_eq!(cache_lifetime(&active_until(None), NOW), Duration::ZERO);
+    }
+
+    #[test]
+    fn an_inactive_answer_is_kept_the_whole_time() {
+        let revoked = Introspection {
+            active: false,
+            ..active_until(None)
+        };
+        assert_eq!(cache_lifetime(&revoked, NOW), INTROSPECTION_CACHE_TTL);
+    }
+
+    #[test]
+    fn only_an_active_answer_naming_its_person_and_client_is_filed() {
+        assert_eq!(
+            owners(&active_until(Some(NOW + 60))).map(|owners| owners.len()),
+            Some(2)
+        );
+        let anonymous = Introspection {
+            sub: None,
+            ..active_until(Some(NOW + 60))
+        };
+        assert_eq!(owners(&anonymous), None);
+        let revoked = Introspection {
+            active: false,
+            ..anonymous
+        };
+        assert_eq!(owners(&revoked), Some(Vec::new()));
+    }
 }
