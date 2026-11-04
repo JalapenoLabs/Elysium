@@ -33,27 +33,28 @@ export function PageSaveButton(props: Props) {
     disabledReason = t('page.save.nothingChanged')
   }
 
-  // A disabled button fires no hover events, so the tooltip's trigger is the wrapper. It is
-  // itself focusable, so it wraps the button only while there is a reason to show.
-  const button = <div ref={props.ref}>
-    <Button
-      isDisabled={!canPressSave(save, props.isSaving)}
-      isPending={props.isSaving}
-      onPress={props.onPress}
-    >
-      <span>{save.label ?? t('actions.save')}</span>
-    </Button>
-  </div>
+  const button = <Button
+    isDisabled={!canPressSave(save, props.isSaving)}
+    isPending={props.isSaving}
+    onPress={props.onPress}
+  >
+    <span>{save.label ?? t('actions.save')}</span>
+  </Button>
 
-  if (!disabledReason || props.isSaving) {
-    return button
-  }
-  return <Tooltip delay={200}>
-    <Tooltip.Trigger>{
-      button
-    }</Tooltip.Trigger>
-    <Tooltip.Content className='max-w-xs'>
-      <span>{disabledReason}</span>
-    </Tooltip.Content>
-  </Tooltip>
+  // The outer element stays the same as the button comes and goes from its tooltip, so the
+  // page's watch on it never loses track. A disabled button fires no hover events, so the
+  // tooltip's trigger wraps it; the trigger is itself focusable, so it is there only while
+  // there is a reason to show.
+  return <div ref={props.ref}>{
+    !disabledReason || props.isSaving
+      ? button
+      : <Tooltip delay={200}>
+        <Tooltip.Trigger>
+          <div>{button}</div>
+        </Tooltip.Trigger>
+        <Tooltip.Content className='max-w-xs'>
+          <span>{disabledReason}</span>
+        </Tooltip.Content>
+      </Tooltip>
+  }</div>
 }

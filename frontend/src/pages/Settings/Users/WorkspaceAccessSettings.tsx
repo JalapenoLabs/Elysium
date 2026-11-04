@@ -3,61 +3,43 @@
 import type { WorkspaceSettings } from '../../../api/routes/userRoutes'
 
 // Core
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Redux
 import { selectMe } from '../../../store/authSlice'
-import { useAppDispatch, useAppSelector } from '../../../store/hooks'
-import { workspaceSettingsUpdated } from '../../../store/workspaceSettingsSlice'
+import { useAppSelector } from '../../../store/hooks'
 
 // User interface
 import { Label, Link, Switch } from '@heroui/react'
 
 // Misc
-import { updateWorkspaceSettings } from '../../../api/routes/userRoutes'
 import { UrlTree } from '../../../urls'
-import { toast } from '../../../toast/toast'
+
+export type AccessSettings = Pick<WorkspaceSettings, 'signupOpen' | 'requireMfa'>
 
 type Props = {
   settings: WorkspaceSettings
+  // The switches changed on this page and not yet saved.
+  changes: Partial<AccessSettings>
+  onChange: (changes: Partial<AccessSettings>) => void
 }
 
-type SettingKey = 'signupOpen' | 'requireMfa'
-
 // Who may join, and what everyone must set up: open or close sign-up, and require an
-// authenticator app of every person.
+// authenticator app of every person. Fields of the Users page, kept by its Save.
 export function WorkspaceAccessSettings(props: Props) {
-  const { t } = useTranslation([ 'users', 'common' ])
-  const dispatch = useAppDispatch()
-  const [ saving, setSaving ] = useState<SettingKey | null>(null)
+  const { t } = useTranslation('users')
+  const signupOpen = props.changes.signupOpen ?? props.settings.signupOpen
+  const requireMfa = props.changes.requireMfa ?? props.settings.requireMfa
   // Requiring an authenticator applies to the admin turning it on too. Without one of their
   // own, they would be sent to set one up before they could reach this page again.
   const hasSecondFactor = Boolean(useAppSelector(selectMe)?.hasSecondFactor)
   const canRequireMfa = props.settings.requireMfa || hasSecondFactor
 
-  async function save(key: SettingKey, value: boolean) {
-    setSaving(key)
-    try {
-      const response = await updateWorkspaceSettings(key === 'signupOpen'
-        ? { signupOpen: value }
-        : { requireMfa: value })
-      dispatch(workspaceSettingsUpdated(response.settings))
-      toast.success(t('access.saved'))
-    }
-    catch (error) {
-      console.debug('WorkspaceAccessSettings could not save a setting', { error, key })
-      toast.danger(t('common:errors.unexpected'))
-    }
-    setSaving(null)
-  }
-
   return <div className='relaxed grid gap-6 rounded-xl border border-separator p-6 md:grid-cols-2'>
     <div>
       <Switch
-        isSelected={props.settings.signupOpen}
-        isDisabled={saving === 'signupOpen'}
-        onChange={(isSelected) => save('signupOpen', isSelected)}
+        isSelected={signupOpen}
+        onChange={(isSelected) => props.onChange({ ...props.changes, signupOpen: isSelected })}
       >
         <Switch.Content>
           <Switch.Control>
@@ -70,9 +52,9 @@ export function WorkspaceAccessSettings(props: Props) {
     </div>
     <div>
       <Switch
-        isSelected={props.settings.requireMfa}
-        isDisabled={saving === 'requireMfa' || !canRequireMfa}
-        onChange={(isSelected) => save('requireMfa', isSelected)}
+        isSelected={requireMfa}
+        isDisabled={!canRequireMfa}
+        onChange={(isSelected) => props.onChange({ ...props.changes, requireMfa: isSelected })}
       >
         <Switch.Content>
           <Switch.Control>

@@ -19,7 +19,7 @@ import { useAppDispatch } from '../../../store/hooks'
 import { jiraCredentialUpserted } from '../../../store/jiraCredentialsSlice'
 
 // User interface
-import { Alert, Button, Form, Spinner } from '@heroui/react'
+import { Alert, Form, Spinner } from '@heroui/react'
 import { JiraConnectionFields } from './JiraConnectionFields'
 import { JiraScopeFields } from './JiraScopeFields'
 import { JiraSetupChecklist } from './JiraSetupChecklist'
@@ -36,6 +36,7 @@ import {
   listJiraCredentialProjects,
   updateJiraCredential,
 } from '../../../api/routes/jiraRoutes'
+import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { toast } from '../../../toast/toast'
 import { createJiraFormSchema } from './jiraFormSchema'
 import {
@@ -48,13 +49,12 @@ import {
 type Props = {
   credential: JiraCredential
   onSaved: () => void
-  onCancel: () => void
 }
 
 // Edits a stored Jira site. The token is write-only: a blank field keeps the stored one,
 // which only holds while the site and account it was created for are unchanged. What the
 // token reaches is loaded fresh, so the pickers offer today's projects and boards rather
-// than the ones the credential was saved with.
+// than the ones the credential was saved with. Saved from the page's Save, in the header.
 export function JiraCredentialForm(props: Props) {
   const { t } = useTranslation([ 'jira', 'common' ])
   const dispatch = useAppDispatch()
@@ -86,7 +86,7 @@ export function JiraCredentialForm(props: Props) {
     ([ , credentialId ]) => listJiraCredentialBoards(credentialId),
   )
 
-  const onSubmit = form.handleSubmit(async (values) => {
+  const save = saveForm(form, async (values) => {
     try {
       const response = await updateJiraCredential(stored.id, {
         name: values.name,
@@ -99,11 +99,12 @@ export function JiraCredentialForm(props: Props) {
       dispatch(jiraCredentialUpserted(response.credential))
       toast.success(t('toasts.updated', { name: values.name }))
       props.onSaved()
+      return true
     }
     catch (error) {
       if (error instanceof HTTPError && error.response.status === 409) {
         form.setError('name', { message: t('form.errors.nameTaken') })
-        return
+        return false
       }
 
       // A 400 names what to check, and it can be the token, the site, or a project the
@@ -113,7 +114,13 @@ export function JiraCredentialForm(props: Props) {
         console.debug('JiraCredentialForm failed to save the credential', { error })
       }
       toast.danger(message ?? t('common:errors.unexpected'))
+      return false
     }
+  })
+
+  const onSubmit = usePageSave({
+    save,
+    isDirty: form.formState.isDirty || isScopeChanged,
   })
 
   // useWatch subscribes per field and, unlike form.watch, is safe for the React Compiler.
@@ -253,18 +260,6 @@ export function JiraCredentialForm(props: Props) {
         isProjectsDisabled={isMovingSite || isProjectScopeLocked}
         isBoardsDisabled={isMovingSite || isBoardScopeLocked}
       />}
-
-      <div className='mt-2 flex justify-end gap-2'>
-        <Button variant='tertiary' onPress={props.onCancel}>
-          <span>{t('common:actions.cancel')}</span>
-        </Button>
-        <Button
-          type='submit'
-          isPending={form.formState.isSubmitting}
-        >
-          <span>{t('common:actions.save')}</span>
-        </Button>
-      </div>
     </Form>
 
     <aside className='lg:sticky lg:top-4'>

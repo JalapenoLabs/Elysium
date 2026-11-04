@@ -33,7 +33,7 @@ export function EditJiraCredentialPage() {
     }
     return <div className='container py-10 text-center text-sm'>
       <p className='compact opacity-70'>{t('page.notFound')}</p>
-      <Link href={UrlTree.settingsJira} className='text-link'>{t('page.backToList')}</Link>
+      <Link href={UrlTree.settingsConnectors} className='text-link'>{t('page.backToList')}</Link>
     </div>
   }
 
@@ -44,8 +44,7 @@ export function EditJiraCredentialPage() {
       // Remount when navigating between sites so the form takes the new values.
       key={credential.id}
       credential={credential}
-      onSaved={() => navigate(UrlTree.settingsJira)}
-      onCancel={() => navigate(UrlTree.settingsJira)}
+      onSaved={() => navigate(UrlTree.settingsConnectors)}
     />
   </JiraCredentialEditorLayout>
 }

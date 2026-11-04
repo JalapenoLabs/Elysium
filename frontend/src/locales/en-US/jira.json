@@ -5,7 +5,7 @@
   },
   "page": {
     "notFound": "This Jira site does not exist. It may have been deleted.",
-    "backToList": "Back to Jira",
+    "backToList": "Back to Connectors",
     "hint": "Each credential is one Atlassian account on one Jira site, with the projects and boards Elysium may read."
   },
   "table": {

@@ -26,6 +26,8 @@ import {
 
 type Props = {
   users: User[]
+  // Roles picked on the page and not yet saved, by user id. The page's Save keeps them.
+  roleChanges: Record<string, PersonRole>
   onChangeRole: (user: User, role: PersonRole) => void
   onSetDisabled: (user: User, disabled: boolean) => void
   onRevokeSessions: (user: User) => void
@@ -57,7 +59,7 @@ const columnSizes = {
   rowActions: 64,
 } as const satisfies Record<UserColumnKey, number>
 
-// Everyone approved: their role (changed in place), whether they may sign in, how they sign
+// Everyone approved: their role (changed in place, kept by the page's Save), whether they may sign in, how they sign
 // in, and when they were last seen.
 export function UserTable(props: Props) {
   const { t } = useTranslation([ 'users', 'common' ])
@@ -102,12 +104,14 @@ export function UserTable(props: Props) {
         isLabelHidden
         label={t('table.roleFor', { name: user.name })}
         options={roleOptions}
-        value={user.role ?? 'member'}
+        value={props.roleChanges[user.id] ?? user.role ?? 'member'}
         onChange={(value) => {
           const role = PERSON_ROLES.find((option) => option === value)
-          if (role && role !== user.role) {
-            props.onChangeRole(user, role)
+          if (!role) {
+            console.debug('UserTable ignored an unknown role', { value })
+            return
           }
+          props.onChangeRole(user, role)
         }}
       />,
       status: (user: User) => user.status && <Chip size='sm' variant='soft' color={statusChipColors[user.status]}>{
@@ -174,6 +178,7 @@ export function UserTable(props: Props) {
     })
   }, [
     t,
+    props.roleChanges,
     props.onChangeRole,
     props.onSetDisabled,
     props.onRevokeSessions,

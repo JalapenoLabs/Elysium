@@ -16,14 +16,15 @@ type Props = {
   children: ReactNode
 }
 
-// The frame the edit page uses: the standard settings header under GitHub. The form lays
-// out itself and its kind's setup steps, since it knows the kind.
+// The frame the edit page uses: the standard settings header under Connectors, where every
+// GitHub account is listed. The form lays out itself and its kind's setup steps, since it
+// knows the kind.
 export function GithubCredentialEditorLayout(props: Props) {
-  const { t } = useTranslation('github')
+  const { t } = useTranslation('connectors')
 
   return <SettingsPage
     title={props.title}
-    parents={[{ label: t('title'), href: UrlTree.settingsGithub }]}
+    parents={[{ label: t('page.title'), href: UrlTree.settingsConnectors }]}
   >{
       props.children
     }</SettingsPage>

@@ -5,7 +5,7 @@
   },
   "page": {
     "notFound": "This GitHub token does not exist. It may have been deleted.",
-    "backToList": "Back to GitHub",
+    "backToList": "Back to Connectors",
     "defaultHint": "Sessions use the default token unless their project or the session picks another."
   },
   "kinds": {

@@ -12,9 +12,9 @@ import { useAppSelector } from '../../../store/hooks'
 import { selectProjectNamesById } from '../../../store/projectsSlice'
 
 // User interface
+import { Chip } from '@heroui/react'
 import { createManagedColumns, SmartTable } from '@jalapenolabs/uikit'
 import { StorageLocationRowActions } from './StorageLocationRowActions'
-import { StudioDefaultSwitch } from './StudioDefaultSwitch'
 
 // Misc
 import { ALL_PROJECTS } from '../../../api/routes/projectRoutes'
@@ -112,7 +112,14 @@ export function StorageLocationTable(props: Props) {
       limit: (location: StorageLocation) => location.storageLimitBytes === null
         ? t('table.noLimit')
         : formatBytes(location.storageLimitBytes),
-      studioDefault: (location: StorageLocation) => <StudioDefaultSwitch location={location} />,
+      // Chosen on the location's edit page, behind its Save.
+      studioDefault: (location: StorageLocation) => location.isStudioDefault && <Chip
+        size='sm'
+        variant='soft'
+        color='accent'
+      >{
+          t('table.isStudioDefault')
+        }</Chip>,
       createdBy: (location: StorageLocation) => userNames[location.createdBy] ?? t('common:table.someone'),
       rowActions: (location: StorageLocation) => <StorageLocationRowActions
         location={location}

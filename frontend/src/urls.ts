@@ -74,6 +74,7 @@ export const UrlTree = {
   settingsJiraEdit: '/settings/jira/:credentialId/edit',
   settingsJiraDoneTransitions: '/settings/jira/:credentialId/done-transitions',
   settingsEmail: '/settings/email',
+  settingsMailboxEdit: '/settings/email/:accountId/edit',
   settingsStorage: '/settings/storage',
   settingsStorageNew: '/settings/storage/new',
   settingsStorageEdit: '/settings/storage/:locationId/edit',
@@ -197,6 +198,10 @@ export function getJiraDoneTransitionsUrl(credentialId: string, projectKey?: str
     return url
   }
   return `${url}?${DONE_TRANSITION_PROJECT_PARAM}=${encodeURIComponent(projectKey)}`
+}
+
+export function getMailboxEditUrl(accountId: string) {
+  return UrlTree.settingsMailboxEdit.replace(':accountId', accountId)
 }
 
 export function getStorageLocationEditUrl(locationId: string) {

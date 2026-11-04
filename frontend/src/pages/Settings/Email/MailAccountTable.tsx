@@ -96,8 +96,6 @@ export function MailAccountTable(props: Props) {
         account={account}
         onTest={props.onTest}
         onSendTest={props.onSendTest}
-        onRename={props.onRename}
-        onToggleActive={props.onToggleActive}
         onDisconnect={props.onDisconnect}
       />,
     } satisfies Record<MailColumnKey, (account: MailAccount) => unknown>
@@ -139,7 +137,7 @@ export function MailAccountTable(props: Props) {
         }
       },
     })
-  }, [ t, props.onTest, props.onSendTest, props.onRename, props.onToggleActive, props.onDisconnect ])
+  }, [ t, props.onTest, props.onSendTest, props.onDisconnect ])
 
   if (!props.accounts.length) {
     return <p className='rounded-xl border border-separator py-10 text-center text-sm opacity-70'>{

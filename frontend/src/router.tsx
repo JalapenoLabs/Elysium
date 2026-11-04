@@ -43,6 +43,7 @@ import { StudioItemPage } from './pages/Studio/StudioItemPage'
 import { StudioPage } from './pages/Studio/StudioPage'
 import { SettingsDirectoryPage } from './pages/Settings/SettingsDirectoryPage'
 import { AccountPage } from './pages/Settings/Account/AccountPage'
+import { EditMailboxPage } from './pages/Settings/Email/EditMailboxPage'
 import { ManageEmailPage } from './pages/Settings/Email/ManageEmailPage'
 import { AddEnvironmentVariablePage } from './pages/Settings/Environment/AddEnvironmentVariablePage'
 import { EditEnvironmentVariablePage } from './pages/Settings/Environment/EditEnvironmentVariablePage'
@@ -332,6 +333,10 @@ export const workspaceRoutes: RouteObject = {
     {
       path: UrlTree.settingsEmail,
       element: <ManageEmailPage />,
+    },
+    {
+      path: UrlTree.settingsMailboxEdit,
+      element: <EditMailboxPage />,
     },
     {
       path: UrlTree.settingsStorage,

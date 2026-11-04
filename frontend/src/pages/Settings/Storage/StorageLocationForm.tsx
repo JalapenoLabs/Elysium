@@ -104,6 +104,7 @@ export function StorageLocationForm(props: Props) {
       storageLimitGigabytes: props.location?.storageLimitBytes
         ? props.location.storageLimitBytes / BYTES_PER_GIGABYTE
         : Number.NaN,
+      isStudioDefault: props.location?.isStudioDefault ?? false,
       accessKey: '',
     },
   })
@@ -125,9 +126,18 @@ export function StorageLocationForm(props: Props) {
         const accessKey = values.accessKey.trim()
           ? values.accessKey
           : undefined
-        const response = await updateStorageLocation(props.location.id, { ...payload, accessKey })
+        // Sent only when changed: true moves the default here from any other location.
+        const isStudioDefault = values.isStudioDefault === props.location.isStudioDefault
+          ? undefined
+          : values.isStudioDefault
+        const response = await updateStorageLocation(
+          props.location.id,
+          { ...payload, accessKey, isStudioDefault },
+        )
         dispatch(storageLocationUpserted(response.location))
-        toast.success(t('toasts.updated', { name: values.name }))
+        toast.success(isStudioDefault
+          ? t('toasts.studioDefaultSet', { name: values.name })
+          : t('toasts.updated', { name: values.name }))
         props.onSaved(response.location)
         return true
       }
@@ -378,6 +388,22 @@ export function StorageLocationForm(props: Props) {
           </Switch.Content>
         </Switch>
       </div>
+
+      {/* Studio's default, once the location exists */}
+      {props.location && <div>
+        <Switch
+          isSelected={values.isStudioDefault}
+          onChange={(isSelected) => form.setValue('isStudioDefault', isSelected, { shouldDirty: true })}
+        >
+          <Switch.Content>
+            <Switch.Control>
+              <Switch.Thumb />
+            </Switch.Control>
+            <Label>{t('form.studioDefault')}</Label>
+          </Switch.Content>
+        </Switch>
+        <Description className='mt-1 block'>{t('form.studioDefaultHint')}</Description>
+      </div>}
 
       {/* Access key id, for S3 */}
       {labels.keyId && <TextField

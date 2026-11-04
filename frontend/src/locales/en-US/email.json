@@ -151,9 +151,6 @@
   "actions": {
     "test": "Test connection",
     "sendTest": "Send test message",
-    "rename": "Change sender name",
-    "activate": "Activate",
-    "deactivate": "Deactivate",
     "disconnect": "Disconnect",
     "deleteMailbox": "Delete mailbox"
   },
@@ -174,10 +171,14 @@
       "domainRequired": "Choose a domain."
     }
   },
-  "renameForm": {
-    "title": "Change sender name",
+  "mailboxForm": {
+    "title": "Edit {{address}}",
     "displayName": "Sender name",
-    "hint": "Shown beside {{address}} on sent mail. Leave blank to show only the address."
+    "displayNameHint": "Shown beside {{address}} on sent mail. Leave blank to show only the address.",
+    "isActive": "Active",
+    "isActiveHint": "Only an active mailbox is read and can send.",
+    "notFound": "This mailbox does not exist, or was removed.",
+    "backToList": "Back to Email"
   },
   "disconnect": {
     "title": "Disconnect {{address}}?",

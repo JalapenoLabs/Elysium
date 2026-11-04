@@ -14,7 +14,6 @@ import { githubCredentialUpserted } from '../../../store/githubCredentialsSlice'
 
 // User interface
 import {
-  Button,
   Description,
   FieldError,
   Form,
@@ -37,6 +36,7 @@ import {
   GITHUB_TOKEN_KINDS,
   updateGithubCredential,
 } from '../../../api/routes/githubRoutes'
+import { saveForm, usePageSave } from '../../../layout/page/pageSave'
 import { createGithubFormSchema } from './githubFormSchema'
 import { githubKindLabelKeys, githubTokenLabelKeys } from './githubPresentation'
 import { toast } from '../../../toast/toast'
@@ -45,11 +45,11 @@ type Props = {
   // The credential being edited, or null to add a new one.
   credential: GithubCredential | null
   onSaved: () => void
-  onCancel: () => void
 }
 
 // Adds or edits a GitHub token, with that kind's setup steps beside it. The token is
 // write-only: when editing, a blank field keeps the stored one, unless the kind changed.
+// Saved from the page's Save, in the header.
 export function GithubCredentialForm(props: Props) {
   const { t } = useTranslation([ 'github', 'common' ])
   const dispatch = useAppDispatch()
@@ -69,7 +69,7 @@ export function GithubCredentialForm(props: Props) {
     },
   })
 
-  const onSubmit = form.handleSubmit(async (values) => {
+  const save = saveForm(form, async (values) => {
     try {
       if (stored) {
         const response = await updateGithubCredential(stored.id, {
@@ -91,11 +91,12 @@ export function GithubCredentialForm(props: Props) {
         toast.success(t('toasts.created', { name: values.name }))
       }
       props.onSaved()
+      return true
     }
     catch (error) {
       if (error instanceof HTTPError && error.response.status === 409) {
         form.setError('name', { message: t('form.errors.nameTaken') })
-        return
+        return false
       }
 
       // A token GitHub refuses comes back as a 400 naming what to check, which belongs on
@@ -103,12 +104,18 @@ export function GithubCredentialForm(props: Props) {
       const message = getApiErrorMessage(error)
       if (error instanceof HTTPError && error.response.status === 400 && message) {
         form.setError('token', { message })
-        return
+        return false
       }
 
       console.debug('GithubCredentialForm failed to save the credential', { error })
       toast.danger(t('common:errors.unexpected'), { description: message ?? undefined })
+      return false
     }
+  })
+
+  const onSubmit = usePageSave({
+    save,
+    isDirty: form.formState.isDirty,
   })
 
   const errors = form.formState.errors
@@ -187,18 +194,6 @@ export function GithubCredentialForm(props: Props) {
       </TextField>
 
       <p className='text-sm opacity-70'>{t('form.checkedHint')}</p>
-
-      <div className='mt-2 flex justify-end gap-2'>
-        <Button variant='tertiary' onPress={props.onCancel}>
-          <span>{t('common:actions.cancel')}</span>
-        </Button>
-        <Button
-          type='submit'
-          isPending={form.formState.isSubmitting}
-        >
-          <span>{t('common:actions.save')}</span>
-        </Button>
-      </div>
     </Form>
 
     <aside className='lg:sticky lg:top-4'>

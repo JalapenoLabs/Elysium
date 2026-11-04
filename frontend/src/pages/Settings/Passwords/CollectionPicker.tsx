@@ -12,11 +12,12 @@ import { useAppDispatch } from '../../../store/hooks'
 import { passwordVaultUpdated } from '../../../store/passwordVaultSlice'
 
 // User interface
-import { Description, Label, ListBox, Select, Spinner } from '@heroui/react'
+import { Description, Form, Label, ListBox, Select, Spinner } from '@heroui/react'
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
 import { chooseVaultCollection, listVaultCollections } from '../../../api/routes/passwordVaultRoutes'
+import { usePageSave } from '../../../layout/page/pageSave'
 import { toast } from '../../../toast/toast'
 
 type Props = {
@@ -28,11 +29,14 @@ type Props = {
 const NO_COLLECTION = 'none'
 
 // Chooses the one collection agents may read, from those the account reaches as the CLI
-// answers them, so no id is ever typed.
+// answers them, so no id is ever typed. Saved from the page's Save, in the header.
 export function CollectionPicker(props: Props) {
   const { t } = useTranslation('passwords')
   const dispatch = useAppDispatch()
-  const [ isSaving, setIsSaving ] = useState(false)
+  const stored = props.vault.collection?.id ?? NO_COLLECTION
+  // Null until something is picked, so the stored choice shows as the event stream changes it.
+  const [ chosen, setChosen ] = useState<string | null>(null)
+  const shown = chosen ?? stored
   const isReady = props.status.state === 'ready'
   // A form's one-off read, so it stays in SWR rather than Redux. Keyed by the account, so a
   // vault connected as someone else lists that account's collections.
@@ -43,25 +47,33 @@ export function CollectionPicker(props: Props) {
     () => listVaultCollections(),
   )
 
-  async function choose(collectionId: string | null) {
-    setIsSaving(true)
+  async function save() {
     try {
-      const response = await chooseVaultCollection(collectionId)
+      const response = await chooseVaultCollection(shown === NO_COLLECTION
+        ? null
+        : shown)
       if (response.vault) {
         dispatch(passwordVaultUpdated(response.vault))
       }
+      setChosen(null)
       toast.success(
         response.vault?.collection
           ? t('toasts.collectionChosen', { name: response.vault.collection.name })
           : t('toasts.collectionCleared'),
       )
+      return true
     }
     catch (chooseError) {
       console.debug('CollectionPicker could not choose the collection', { chooseError })
       toast.danger(t('toasts.failed'), { description: getApiErrorMessage(chooseError) ?? undefined })
+      return false
     }
-    setIsSaving(false)
   }
+
+  const onSubmit = usePageSave({
+    save,
+    isDirty: shown !== stored,
+  })
 
   let body = null
   if (!isReady) {
@@ -76,15 +88,14 @@ export function CollectionPicker(props: Props) {
   else {
     body = <Select
       className='max-w-md'
-      isDisabled={isSaving}
-      value={props.vault.collection?.id ?? NO_COLLECTION}
+      value={shown}
       onChange={(key) => {
-        const chosen = data.collections.find((collection) => collection.id === key)
-        if (!chosen && key !== NO_COLLECTION) {
+        const isKnown = key === NO_COLLECTION || data.collections.some((collection) => collection.id === key)
+        if (!isKnown) {
           console.debug('CollectionPicker ignored an unknown collection', { key })
           return
         }
-        void choose(chosen?.id ?? null)
+        setChosen(String(key))
       }}
     >
       <Label>{t('collection.label')}</Label>
@@ -112,8 +123,8 @@ export function CollectionPicker(props: Props) {
     </Select>
   }
 
-  return <section className='rounded-xl border border-separator p-6'>
+  return <Form onSubmit={onSubmit} className='rounded-xl border border-separator p-6'>
     <h2 className='compact text-xl font-semibold'>{t('collection.heading')}</h2>
     {body}
-  </section>
+  </Form>
 }

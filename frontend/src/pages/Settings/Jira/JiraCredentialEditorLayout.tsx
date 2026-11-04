@@ -16,14 +16,14 @@ type Props = {
   children: ReactNode
 }
 
-// The frame the edit pages share: the standard settings header under Jira. Each page lays
-// out its own form and the setup steps beside it.
+// The frame the edit pages share: the standard settings header under Connectors, where every
+// Jira site is listed. Each page lays out its own form and the setup steps beside it.
 export function JiraCredentialEditorLayout(props: Props) {
-  const { t } = useTranslation('jira')
+  const { t } = useTranslation('connectors')
 
   return <SettingsPage
     title={props.title}
-    parents={[{ label: t('title'), href: UrlTree.settingsJira }]}
+    parents={[{ label: t('page.title'), href: UrlTree.settingsConnectors }]}
   >{
       props.children
     }</SettingsPage>

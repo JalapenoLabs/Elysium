@@ -56,6 +56,8 @@ export function createStorageFormSchema(t: TFunction<'storage'>, stored: Storage
       ),
     projects: z.union([ z.literal(ALL_PROJECTS), z.array(z.string()) ]),
     isUnlimited: z.boolean(),
+    // Where Studio's New item form saves by default. Only a stored location can be chosen.
+    isStudioDefault: z.boolean(),
     // NaN while the field is empty. Checked below, and only when a limit applies.
     storageLimitGigabytes: z.number().or(z.nan()),
     accessKey: z

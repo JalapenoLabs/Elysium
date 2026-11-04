@@ -28,12 +28,9 @@ import {
   getMailCapabilities,
   sendMailTestMessage,
   testMailAccount,
-  updateMailAccount,
 } from '../../../api/routes/mailRoutes'
 import { useConfirm } from '../../../hooks/useConfirm'
-import { usePrompt } from '../../../hooks/usePrompt'
 import { useMailAccountsLoader } from '../../../hooks/useServerData'
-import { DISPLAY_NAME_MAX_CHARACTERS } from './mailFormSchemas'
 import { mailAccountKindLabelKeys } from './mailPresentation'
 import { useOAuthOutcomeToast } from './useOAuthOutcomeToast'
 import { toast } from '../../../toast/toast'
@@ -52,7 +49,6 @@ export function ManageEmailPage() {
   useOAuthOutcomeToast()
 
   const confirm = useConfirm()
-  const prompt = usePrompt()
   const createState = useOverlayState()
   // Remounting the form per opening resets it.
   const [ formSession, setFormSession ] = useState(0)
@@ -60,30 +56,6 @@ export function ManageEmailPage() {
   function openCreate() {
     setFormSession((session) => session + 1)
     createState.open()
-  }
-
-  // The one thing about a mailbox worth editing: the name recipients see beside it.
-  function promptSenderName(account: MailAccount) {
-    prompt({
-      title: t('renameForm.title'),
-      label: t('renameForm.displayName'),
-      description: t('renameForm.hint', { address: account.address }),
-      defaultValue: account.displayName,
-      isOptional: true,
-      maxLength: DISPLAY_NAME_MAX_CHARACTERS,
-      onSubmit: async (displayName) => {
-        try {
-          const response = await updateMailAccount(account.id, { displayName })
-          dispatch(mailAccountUpserted(response.account))
-          toast.success(t('toasts.updated', { address: response.account.address }))
-        }
-        catch (error) {
-          console.debug('ManageEmailPage failed to save the sender name', { error, accountId: account.id })
-          toast.danger(t('common:errors.unexpected'))
-          throw error
-        }
-      },
-    })
   }
 
   // A self-hosted mailbox is destroyed with its mail; an OAuth account is only forgotten.
@@ -164,18 +136,6 @@ export function ManageEmailPage() {
     }
   }
 
-  async function toggleActive(account: MailAccount) {
-    try {
-      const response = await updateMailAccount(account.id, { isActive: !account.isActive })
-      dispatch(mailAccountUpserted(response.account))
-      toast.success(t('toasts.updated', { address: account.address }))
-    }
-    catch (error) {
-      console.debug('ManageEmailPage failed to toggle a mailbox', { error, accountId: account.id })
-      toast.danger(t('common:errors.unexpected'))
-    }
-  }
-
   return <SettingsPage title={t('title')}>
     <MailServerSection />
 
@@ -221,8 +181,6 @@ export function ManageEmailPage() {
         accounts={accounts}
         onTest={runConnectionTest}
         onSendTest={sendTestMessage}
-        onRename={promptSenderName}
-        onToggleActive={toggleActive}
         onDisconnect={confirmDisconnect}
       />}
     </section>

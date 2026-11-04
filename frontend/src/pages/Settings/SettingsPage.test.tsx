@@ -16,6 +16,7 @@ import { usePageSave } from '../../layout/page/pageSave'
 
 type Observed = {
   callback: IntersectionObserverCallback
+  element?: Element
 }
 
 type Context = {
@@ -93,10 +94,14 @@ describe('SettingsPage', () => {
     context.observed = []
     context.onSave = vi.fn<() => Promise<boolean>>().mockResolvedValue(true)
     vi.stubGlobal('IntersectionObserver', class {
+      private observed: Observed
       constructor(callback: IntersectionObserverCallback) {
-        context.observed.push({ callback })
+        this.observed = { callback }
+        context.observed.push(this.observed)
       }
-      observe() {}
+      observe(element: Element) {
+        this.observed.element = element
+      }
       disconnect() {}
     })
   })
@@ -216,6 +221,18 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('LLM list')).toBeTruthy()
     expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
+  it<Context>('keeps watching the header\'s Save as it gains and loses its tooltip', (context) => {
+    renderPage(context)
+    // Disabled, Save sits inside a tooltip; enabled, it does not. The element watched for
+    // scrolling must be the same one either way, or the card shows beside a visible Save.
+    const watched = context.observed.at(-1)?.element
+    expect(watched?.isConnected).toBe(true)
+
+    change()
+    expect(context.observed.at(-1)?.element).toBe(watched)
+    expect(watched?.isConnected).toBe(true)
   })
 
   it<Context>('offers Save on a card while the header\'s is out of view, until dismissed', async (context) => {

@@ -27,4 +27,5 @@ export const { mailAccountsLoaded, mailAccountUpserted, mailAccountDeleted } = m
 
 export const {
   selectAll: selectAllMailAccounts,
+  selectById: selectMailAccountById,
 } = mailAccountsAdapter.getSelectors((state: RootState) => state.mailAccounts)

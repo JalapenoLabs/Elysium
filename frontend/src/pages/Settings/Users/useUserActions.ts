@@ -83,14 +83,17 @@ export function useUserActions() {
     })
   }
 
+  // Resolves whether the change was saved.
   async function changeRole(user: User, role: PersonRole) {
     try {
       const response = await updateUser(user.id, { role })
       dispatch(userUpserted(response.user))
       toast.success(t('toasts.roleChanged', { name: user.name }))
+      return true
     }
     catch (error) {
       reportFailure(error, 'change a role')
+      return false
     }
   }
 
