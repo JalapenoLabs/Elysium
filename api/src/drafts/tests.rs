@@ -3,15 +3,22 @@
 //! Drafts against Postgres: where a reply goes, a send that fails keeping its text and saying
 //! why, one send at a time, and what a sent draft leaves on the timeline. Nothing here reaches a
 //! real Slack, Teams, or mail server; a connector without its browser fails the way a browser
-//! that cannot post does.
+//! that cannot post does. A follow-up a Project Manager drafted is sent the same way, and keeps
+//! its promise as it is recorded.
 
-use diesel_async::AsyncPgConnection;
+use diesel::prelude::*;
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use uuid::uuid;
 
 use super::*;
+use crate::database::schema::drafts;
+use crate::models::action_item::{ActionItemPriority, NewActionItem, Owner};
 use crate::models::connector::{Connector, NewConnector};
+use crate::models::project::{self, NewProject};
+use crate::models::promise::{NewPromise, PromiseState, Work};
 use crate::models::user;
-use crate::test_support::{TEST_PERSON_ID, app_state, migrated_database};
+use crate::project_managers::promises;
+use crate::test_support::{TEST_PERSON, TEST_PERSON_ID, app_state, migrated_database};
 
 const OTHER_PERSON_ID: Uuid = uuid!("0199a3c4-0000-7000-8000-00000000f00d");
 
@@ -311,23 +318,29 @@ async fn a_sent_draft_becomes_the_record_its_reader_would_write_once() {
         created_by: TEST_PERSON_ID,
     };
 
-    let (sent, created) = record_sent(
+    let (sent, created, followed_up) = record_sent(
         &mut fixture.connection,
         &first,
         sent_record("T1/C1/1730000100.000300"),
+        &fixture.person,
     )
     .await
     .expect("recorded");
+    assert!(
+        followed_up.is_none(),
+        "a reply of the person's own keeps no promise"
+    );
     let created = created.expect("a new record");
     assert_eq!(sent.state, DraftState::Sent);
     assert_eq!(sent.sent_record_id, Some(created.id));
     assert!(sent.sent_at.is_some());
 
     // The reader got to the message first: the draft points at the record it already wrote.
-    let (sent, created_again) = record_sent(
+    let (sent, created_again, _) = record_sent(
         &mut fixture.connection,
         &second,
         sent_record("T1/C1/1730000100.000300"),
+        &fixture.person,
     )
     .await
     .expect("recorded");
@@ -413,4 +426,122 @@ async fn someone_elses_record_and_draft_are_not_found() {
         .await
         .expect_err("not theirs");
     assert!(matches!(refused, ApiError::NotFound));
+}
+
+#[tokio::test]
+#[ignore = "needs TEST_DATABASE_URL and TEST_REDIS_URL; run api/scripts/verify-migrations.sh"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one scenario: a promise, its work done, its follow-up drafted, then sent"
+)]
+async fn a_follow_up_sent_keeps_its_promise_and_resolves_its_item() {
+    let mut fixture = Fixture::start().await;
+    let (slack, record) = fixture.slack_message().await;
+    let launch = project::create(
+        &mut fixture.connection,
+        &NewProject {
+            name: "Launch".to_owned(),
+            description: String::new(),
+            created_by: TEST_PERSON_ID,
+        },
+    )
+    .await
+    .expect("a project")
+    .id;
+    let made = promise::record(
+        &mut fixture.connection,
+        &[NewPromise {
+            project_id: launch,
+            timeline_record_id: record.id,
+            recipient: "Ada".to_owned(),
+            summary: "when we launch".to_owned(),
+        }],
+    )
+    .await
+    .expect("recorded")
+    .pop()
+    .expect("new");
+    let launched = action_item::create(
+        &mut fixture.connection,
+        NewActionItem {
+            title: "Launch".to_owned(),
+            notes: String::new(),
+            state: ActionItemState::Open,
+            priority: ActionItemPriority::Normal,
+            due_at: None,
+            owner: Owner::User,
+            project_ids: vec![launch],
+            initiative_ids: Vec::new(),
+        },
+        TEST_PERSON,
+        Utc::now(),
+    )
+    .await
+    .expect("an item")
+    .record;
+    action_item::transition(
+        &mut fixture.connection,
+        launched.id,
+        Transition::Resolve,
+        TEST_PERSON,
+        Utc::now(),
+    )
+    .await
+    .expect("resolved");
+    promises::tie(
+        &mut fixture.connection,
+        &fixture.state.events,
+        launch,
+        made.id,
+        Work::Item(launched.id),
+    )
+    .await
+    .expect("tied to work already done");
+    let follow_up = promises::draft_follow_up(
+        &mut fixture.connection,
+        &fixture.state.events,
+        launch,
+        made.id,
+        "We launched this morning.",
+    )
+    .await
+    .expect("drafted");
+    let drafted: Draft = drafts::table
+        .filter(drafts::promise_id.eq(made.id))
+        .select(Draft::as_select())
+        .first(&mut fixture.connection)
+        .await
+        .expect("its draft");
+
+    let (sent, _created, followed_up) = record_sent(
+        &mut fixture.connection,
+        &drafted,
+        NewTimelineRecord {
+            id: Uuid::now_v7(),
+            source_kind: "slack".to_owned(),
+            connector_id: Some(slack.id),
+            external_id: Some("T1/C1/1730000200.000400".to_owned()),
+            occurred_at: Utc::now(),
+            actor: "Tester".to_owned(),
+            title: record.title.clone(),
+            body: drafted.body.clone(),
+            url: None,
+            media: None,
+            metadata: json!({}),
+            created_by: TEST_PERSON_ID,
+        },
+        &fixture.person,
+    )
+    .await
+    .expect("recorded");
+    assert_eq!(sent.state, DraftState::Sent);
+    let resolved = followed_up.expect("its item was resolved").record;
+    assert_eq!(resolved.id, follow_up.item.id);
+    assert_eq!(resolved.state, ActionItemState::Resolved);
+    let kept = promise::find_many(&mut fixture.connection, &[made.id])
+        .await
+        .expect("read")
+        .pop()
+        .expect("there");
+    assert_eq!(kept.state, PromiseState::Kept);
 }

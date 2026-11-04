@@ -62,8 +62,8 @@ use crate::models::action_item_link::{
     self, ActionItemLink, LinkCredential, LinkKind, LinkProvider, LinkState,
 };
 use crate::models::action_item_link_write::{self, LinkWrite, LinkWriteKind};
-use crate::models::initiative;
-use crate::realtime::{EventBus, ServerEvent};
+use crate::models::{initiative, promise};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::routes::v1::initiatives::initiative_responses;
 use crate::state::AppState;
 
@@ -425,8 +425,10 @@ pub async fn publish_initiatives(
 }
 
 /// After a write to an item: publishes the history it recorded, the item itself (as
-/// deleted when it is), and every initiative whose progress it may have moved: those the
-/// item is in, plus `left_initiative_ids` it just left. Answers the item as clients see it.
+/// deleted when it is), every initiative whose progress it may have moved: those the
+/// item is in, plus `left_initiative_ids` it just left, and every Project Manager whose promises
+/// the item is the work or the follow-up of, since its state moves them
+/// (`crate::models::promise::follow_item`). Answers the item as clients see it.
 ///
 /// A write that changed nothing publishes nothing.
 ///
@@ -485,6 +487,15 @@ pub async fn publish_item_writes(
         initiative_ids.extend_from_slice(&response.initiative_ids);
     }
     publish_initiatives(events, connection, &unique_ids(initiative_ids), now).await?;
+    let changed_ids: Vec<Uuid> = changed_ids.into_iter().collect();
+    let following = promise::projects_following(connection, &changed_ids).await?;
+    for &project_id in &following {
+        events.publish(&ServerEvent::ProjectManagerChanged { project_id });
+    }
+    if !following.is_empty() {
+        // A promise the item's work kept may have woken its Project Manager.
+        events.signal(&Signal::ProjectManagers);
+    }
     Ok(responses)
 }
 

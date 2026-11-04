@@ -24,7 +24,7 @@ use crate::database::schema::{action_item_projects, action_items, initiative_ite
 use crate::models::action_item_event::{
     self, Change, HistoryEntry, HistoryKind, Recorded, Subject, replaced,
 };
-use crate::models::{action_item_link_write, project};
+use crate::models::{action_item_link_write, project, promise};
 use crate::search::{self, SearchTerms};
 
 /// Where an item stands. See `docs/action-items.md`.
@@ -816,7 +816,8 @@ pub async fn update(
 ///
 /// Resolving an item also owes a close for every linked issue still open, in the same
 /// transaction, whoever resolved it: the watcher lands those writes
-/// (`crate::models::action_item_link_write`).
+/// (`crate::models::action_item_link_write`). The promises waiting on the item, or followed up
+/// by it, move with it in the same transaction too (`crate::models::promise::follow_item`).
 ///
 /// # Errors
 /// Returns [`diesel::result::Error::NotFound`] for an unknown id, [`WorkError::Conflict`]
@@ -848,6 +849,7 @@ pub async fn transition(
             if state == ActionItemState::Resolved {
                 action_item_link_write::owe_closes(connection, id, now).await?;
             }
+            promise::follow_item(connection, id, state, actor.user_id(), now).await?;
             let entry = action_item_event::record(
                 connection,
                 Change {

@@ -130,6 +130,10 @@ pub mod sql_types {
     pub struct ProjectManagerWakeKind;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "promise_state"))]
+    pub struct PromiseState;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "reply_place"))]
     pub struct ReplyPlace;
 
@@ -638,6 +642,7 @@ diesel::table! {
         created_by -> Uuid,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        promise_id -> Nullable<Uuid>,
     }
 }
 
@@ -1243,6 +1248,7 @@ diesel::table! {
         turn_id -> Nullable<Uuid>,
         created_by -> Uuid,
         created_at -> Timestamptz,
+        promise_id -> Nullable<Uuid>,
     }
 }
 
@@ -1277,6 +1283,27 @@ diesel::table! {
         github_credential_id -> Nullable<Uuid>,
         created_by -> Uuid,
         cover_removed_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::PromiseState;
+
+    promises (id) {
+        id -> Uuid,
+        project_id -> Uuid,
+        timeline_record_id -> Uuid,
+        recipient -> Text,
+        summary -> Text,
+        state -> PromiseState,
+        work_batch_id -> Nullable<Uuid>,
+        work_item_id -> Nullable<Uuid>,
+        due_at -> Nullable<Timestamptz>,
+        follow_up_item_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -1729,6 +1756,7 @@ diesel::joinable!(database_backups -> users (created_by));
 diesel::joinable!(deployment_updates -> users (created_by));
 diesel::joinable!(drafts -> connectors (connector_id));
 diesel::joinable!(drafts -> mail_accounts (mail_account_id));
+diesel::joinable!(drafts -> promises (promise_id));
 diesel::joinable!(drafts -> users (created_by));
 diesel::joinable!(elysia_messages -> users (created_by));
 diesel::joinable!(elysia_questions -> action_items (action_item_id));
@@ -1788,6 +1816,7 @@ diesel::joinable!(project_manager_turns -> timeline_records (timeline_record_id)
 diesel::joinable!(project_manager_turns -> users (created_by));
 diesel::joinable!(project_manager_wakes -> project_manager_turns (turn_id));
 diesel::joinable!(project_manager_wakes -> projects (project_id));
+diesel::joinable!(project_manager_wakes -> promises (promise_id));
 diesel::joinable!(project_manager_wakes -> timeline_records (timeline_record_id));
 diesel::joinable!(project_manager_wakes -> users (created_by));
 diesel::joinable!(project_manager_wakes -> work_batches (work_batch_id));
@@ -1795,6 +1824,10 @@ diesel::joinable!(project_managers -> projects (project_id));
 diesel::joinable!(project_managers -> users (created_by));
 diesel::joinable!(projects -> github_credentials (github_credential_id));
 diesel::joinable!(projects -> users (created_by));
+diesel::joinable!(promises -> projects (project_id));
+diesel::joinable!(promises -> timeline_records (timeline_record_id));
+diesel::joinable!(promises -> users (created_by));
+diesel::joinable!(promises -> work_batches (work_batch_id));
 diesel::joinable!(session_events -> coding_sessions (session_id));
 diesel::joinable!(session_turns -> coding_sessions (session_id));
 diesel::joinable!(session_turns -> users (created_by));
@@ -1903,6 +1936,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     project_manager_wakes,
     project_managers,
     projects,
+    promises,
     secret_copies,
     session_events,
     session_turns,

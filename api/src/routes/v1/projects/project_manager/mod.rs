@@ -1,7 +1,8 @@
 // Copyright © 2026 Jalapeno Labs
 
 //! `/api/v1/projects/{id}/project-manager`: a project's Project Manager, as its page shows it:
-//! what it is doing, its latest turns with what woke each, and its batches; one turn with its
+//! what it is doing, its latest turns with what woke each, its batches, and its promises; one
+//! turn with its
 //! log; and a person writing to it. Its turns quote what was ingested, so these answer the
 //! company's members alone, as the knowledge base does. See `docs/engine.md`, Project Managers.
 
@@ -16,6 +17,7 @@ use uuid::Uuid;
 use crate::models::project_manager::{Turn, TurnStatus, Wake, WakeKind};
 use crate::project_managers::Snapshot;
 use crate::project_managers::status::Status;
+use crate::routes::v1::promises::PromiseResponse;
 use crate::routes::v1::work_batches::BatchResponse;
 
 /// A project's Project Manager, as its page shows it.
@@ -32,6 +34,8 @@ pub struct ProjectManagerResponse {
     turns: Vec<TurnResponse>,
     /// Its latest batches, newest first.
     batches: Vec<BatchResponse>,
+    /// Its latest promises, newest first.
+    promises: Vec<PromiseResponse>,
 }
 
 impl From<Snapshot> for ProjectManagerResponse {
@@ -54,6 +58,13 @@ impl From<Snapshot> for ProjectManagerResponse {
                 .batches
                 .into_iter()
                 .map(BatchResponse::from)
+                .collect(),
+            promises: snapshot
+                .promises
+                .into_iter()
+                .map(|(promise, record, draft_id)| {
+                    PromiseResponse::new(promise, record.as_ref(), draft_id)
+                })
                 .collect(),
         }
     }
@@ -92,7 +103,7 @@ impl TurnResponse {
     }
 }
 
-/// One thing that woke a turn: a message with its text, a record, or a batch, by id.
+/// One thing that woke a turn: a message with its text, a record, a batch, or a promise, by id.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WakeResponse {
@@ -100,6 +111,7 @@ pub struct WakeResponse {
     kind: WakeKind,
     timeline_record_id: Option<Uuid>,
     work_batch_id: Option<Uuid>,
+    promise_id: Option<Uuid>,
     body: Option<String>,
     /// Who caused it: the person or Elysia who wrote, or whoever attributed the record.
     created_by: Uuid,
@@ -113,6 +125,7 @@ impl From<Wake> for WakeResponse {
             kind: wake.kind,
             timeline_record_id: wake.timeline_record_id,
             work_batch_id: wake.work_batch_id,
+            promise_id: wake.promise_id,
             body: wake.body,
             created_by: wake.created_by,
             created_at: wake.created_at,

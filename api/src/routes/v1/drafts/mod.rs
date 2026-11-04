@@ -50,6 +50,9 @@ pub struct DraftResponse {
     attempted_at: Option<DateTime<Utc>>,
     sent_at: Option<DateTime<Utc>>,
     sent_record_id: Option<Uuid>,
+    /// The promise it keeps, for a follow-up a Project Manager drafted, which its item's page
+    /// sends rather than the record's reply box.
+    promise_id: Option<Uuid>,
     created_by: Uuid,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
@@ -70,6 +73,7 @@ impl From<Draft> for DraftResponse {
             attempted_at: draft.attempted_at,
             sent_at: draft.sent_at,
             sent_record_id: draft.sent_record_id,
+            promise_id: draft.promise_id,
             created_by: draft.created_by,
             created_at: draft.created_at,
             updated_at: draft.updated_at,

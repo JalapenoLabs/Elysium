@@ -8,6 +8,10 @@
 //! `draft` (or `failed`) to `sending` to `sent` or `failed`, and only [`claim`] moves it to
 //! `sending`, in one statement, so two presses of Send never post one message twice. A draft
 //! that failed keeps its text and the reason (`last_error`) and can be sent again.
+//!
+//! A draft a Project Manager wrote to keep a promise names it (`promise_id`); it is the person's
+//! like any other, but belongs to the follow-up item it was drafted with, so the reply box of the
+//! record it answers never shows it (`list_unsent_for_record`).
 
 use chrono::{DateTime, TimeDelta, Utc};
 use diesel::prelude::*;
@@ -77,6 +81,8 @@ pub struct Draft {
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The promise it keeps, for a follow-up a Project Manager drafted.
+    pub promise_id: Option<Uuid>,
 }
 
 /// What sends a draft. Exactly one of the two columns it fills is set.
@@ -109,6 +115,8 @@ pub struct NewDraft {
     pub place: Option<ReplyPlace>,
     pub body: String,
     pub created_by: Uuid,
+    /// The promise it keeps, for a follow-up.
+    pub promise_id: Option<Uuid>,
 }
 
 /// Stores a new draft, unsent.
@@ -130,6 +138,7 @@ pub async fn create(connection: &mut AsyncPgConnection, new: NewDraft) -> QueryR
             drafts::place.eq(new.place),
             drafts::body.eq(new.body),
             drafts::created_by.eq(new.created_by),
+            drafts::promise_id.eq(new.promise_id),
         ))
         .returning(Draft::as_returning())
         .get_result(connection)
@@ -153,7 +162,8 @@ pub async fn find_owned(
         .await
 }
 
-/// `owner`'s drafts answering `record_id` that were never sent, newest first.
+/// `owner`'s drafts answering `record_id` that were never sent, newest first: the person's own
+/// replies, which the record's reply box continues, never a follow-up drafted for a promise.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -166,8 +176,25 @@ pub async fn list_unsent_for_record(
         .filter(drafts::reply_to_record_id.eq(record_id))
         .filter(drafts::created_by.eq(owner))
         .filter(drafts::state.ne(DraftState::Sent))
+        .filter(drafts::promise_id.is_null())
         .order((drafts::created_at.desc(), drafts::id.desc()))
         .select(Draft::as_select())
+        .load(connection)
+        .await
+}
+
+/// The follow-up drafted for each of the promises `promise_ids` that has one, as
+/// `(promise, draft)` ids. Ids alone: a draft is its person's, and only they read it.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn ids_for_promises(
+    connection: &mut AsyncPgConnection,
+    promise_ids: &[Uuid],
+) -> QueryResult<Vec<(Uuid, Uuid)>> {
+    drafts::table
+        .filter(drafts::promise_id.eq_any(promise_ids))
+        .select((drafts::promise_id.assume_not_null(), drafts::id))
         .load(connection)
         .await
 }

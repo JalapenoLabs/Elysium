@@ -33,6 +33,7 @@ mod my_sessions;
 pub mod oauth;
 pub mod password_vault;
 pub mod projects;
+pub mod promises;
 mod runs;
 mod search;
 mod sign_out;
@@ -110,6 +111,7 @@ fn workspace_router() -> Router<AppState> {
         .nest("/meetings", meetings::router())
         .nest("/model-settings", model_settings::router())
         .nest("/projects", projects::router())
+        .nest("/promises", promises::router())
         .nest("/runs", runs::router())
         .nest("/search", search::router())
         .nest("/storage-locations", storage_locations::router())

@@ -16,7 +16,10 @@
 //!   way, by their numbers rather than by time, and each message is attributed to its topic's
 //!   projects. No record is made: a conversation's messages are already its records, and a
 //!   topic of one is a run of them, so a topic record would put every message on a project's
-//!   timeline twice. The request workflow starts at this step with a conversation.
+//!   timeline twice. The same answer names the promises the person made in it, each recorded on
+//!   its project for that project's Project Manager to follow up (`crate::models::promise`),
+//!   when the message it was made in can be answered through its connector. The request
+//!   workflow starts at this step with a conversation.
 //!
 //! What it gives ([`Segmented`]) names every topic's span, projects, and records, for the steps
 //! after it, which read what landed on which project.
@@ -29,7 +32,8 @@
 //! connector and segment, and the meeting is marked done in the transaction that stores its
 //! records, so a meeting already done answers what it published and changes nothing. A
 //! conversation's segmentation is Elysia's whole reading of it: it replaces what she said of its
-//! messages before, so reading it again, as it grows, never attributes a message twice.
+//! messages before, so reading it again, as it grows, never attributes a message twice, and a
+//! message holds one promise at most, so it never records one twice either.
 //!
 //! # What it never overrides
 //!
@@ -57,16 +61,19 @@ use super::segmentation::{self, ConversationSegment, MeetingContext, ProjectChoi
 use super::source::TranscriptLine;
 use super::{SEGMENT_SOURCE_KIND, conversation};
 use crate::agent_models::AgentKind;
+use crate::connectors::ConnectorKind;
 use crate::connectors::activity::Activity;
+use crate::connectors::kinds::{self, Replies};
 use crate::crypto::Cipher;
 use crate::database::Pool;
 use crate::models::attribution::{self, Attributor};
 use crate::models::connector_run::ConnectorRun;
 use crate::models::meeting::{self, Meeting, MeetingState};
 use crate::models::meeting_transcription;
-use crate::models::project;
+use crate::models::promise::{self, NewPromise, Promise};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
-use crate::realtime::{EventBus, ServerEvent};
+use crate::models::{project, user};
+use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::runner::events::{RunnerEvent, TurnStatus};
 use crate::runner::workspace::WorkspaceContainer;
 use crate::runner::{ConversationId, Runner, TurnMode, TurnRequest, WorkspacePath};
@@ -700,7 +707,14 @@ impl SegmentMeeting {
         log.line(&format!("Reading {} messages", messages.len()));
 
         let choices = self.project_choices().await?;
-        let prompt = segmentation::conversation_prompt(&input.title, &messages, &choices);
+        let person = {
+            let mut connection = self.connection().await?;
+            user::find(&mut connection, owner)
+                .await
+                .map_err(StepFailure::retryable)?
+                .name
+        };
+        let prompt = segmentation::conversation_prompt(&input.title, &person, &messages, &choices);
         let answer = self
             .ask(
                 "conversation:segmentation".to_owned(),
@@ -709,36 +723,47 @@ impl SegmentMeeting {
                 context,
             )
             .await?;
-        let segments = segmentation::parse_conversation_answer(&answer, &messages, &choices)
+        let reading = segmentation::parse_conversation_answer(&answer, &messages, &choices)
             .map_err(|error| {
                 StepFailure::retryable(format!("The segmentation's answer: {error}"))
             })?;
+        let segments = reading.segments;
+        let found = promises_to_keep(&reading.promises, &records);
+        let unanswerable = reading.promises.len() - found.len();
+        if unanswerable > 0 {
+            log.line(&format!(
+                "{unanswerable} promises were made where no follow-up can answer them"
+            ));
+        }
 
-        let changed = {
+        let (changed, promised) = {
             let mut connection = self.connection().await?;
             let attributed = records.clone();
             let topics = segments.clone();
             connection
                 .transaction(async move |connection| {
                     let existing = existing_projects(connection).await?;
-                    conversation::attribute(connection, &attributed, &topics, &existing).await
+                    let changed =
+                        conversation::attribute(connection, &attributed, &topics, &existing)
+                            .await?;
+                    // One whose project was removed while the turn ran is left out.
+                    let found: Vec<NewPromise> = found
+                        .into_iter()
+                        .filter(|promise| existing.contains(&promise.project_id))
+                        .collect();
+                    let promised = promise::record(connection, &found).await?;
+                    diesel::QueryResult::Ok((changed, promised))
                 })
                 .await
                 .map_err(StepFailure::retryable)?
         };
         log.line(&format!(
-            "Found {} topics; the attributions of {} messages changed",
+            "Found {} topics; the attributions of {} messages changed; {} new promises",
             segments.len(),
-            changed.len()
+            changed.len(),
+            promised.len()
         ));
-        for record_id in changed {
-            self.inner
-                .events
-                .publish(&ServerEvent::TimelineRecordChanged {
-                    id: record_id,
-                    created_by: owner,
-                });
-        }
+        self.announce_reading(owner, &changed, &promised);
         Ok(Done::Succeeded {
             output: conversation_topics(&segments, &records, &messages),
             summary: Some(format!(
@@ -747,6 +772,32 @@ impl SegmentMeeting {
                 messages.len()
             )),
         })
+    }
+
+    /// Announces what reading a conversation of `owner`'s changed: the messages whose
+    /// attributions moved, and the Project Managers of the projects it found promises on, which
+    /// those promises woke.
+    fn announce_reading(&self, owner: Uuid, changed: &[Uuid], promised: &[Promise]) {
+        for &record_id in changed {
+            self.inner
+                .events
+                .publish(&ServerEvent::TimelineRecordChanged {
+                    id: record_id,
+                    created_by: owner,
+                });
+        }
+        let mut projects_woken: Vec<Uuid> =
+            promised.iter().map(|promise| promise.project_id).collect();
+        projects_woken.sort_unstable();
+        projects_woken.dedup();
+        for project_id in projects_woken {
+            self.inner
+                .events
+                .publish(&ServerEvent::ProjectManagerChanged { project_id });
+        }
+        if !promised.is_empty() {
+            self.inner.events.signal(&Signal::ProjectManagers);
+        }
     }
 
     /// Every project, as a segment may be attributed to it.
@@ -956,6 +1007,37 @@ fn conversation_topics(
         segments,
         record_ids: records.iter().map(|record| record.id).collect(),
     }
+}
+
+/// The promises among `found` to record, each in the message of `records` (in the order the
+/// answer numbered them) that it was made in: only those a follow-up can answer, through the
+/// connector the message came from, since a follow-up is a reply to that message
+/// (`docs/connectors.md`, Sending). Mail is answered from a mailbox the reader never sees the
+/// person's own messages of, so a promise in it is never found there.
+fn promises_to_keep(
+    found: &[segmentation::FoundPromise],
+    records: &[TimelineRecord],
+) -> Vec<NewPromise> {
+    let mut kept = Vec::new();
+    for promise in found {
+        let Some(record) = records.get(promise.message) else {
+            continue;
+        };
+        let answered_through_its_connector = record.connector_id.is_some()
+            && ConnectorKind::parse(&record.source_kind).is_some_and(|kind| {
+                matches!(kinds::definition(kind).replies, Replies::Connector { .. })
+            });
+        if !answered_through_its_connector {
+            continue;
+        }
+        kept.push(NewPromise {
+            project_id: promise.project_id,
+            timeline_record_id: record.id,
+            recipient: promise.recipient.clone(),
+            summary: promise.summary.clone(),
+        });
+    }
+    kept
 }
 
 /// How long the meeting ran: what the source said, or where its transcript ends.

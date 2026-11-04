@@ -3,10 +3,14 @@
 //! `elysium_project_manager`: a Project Manager's own tools, for its one project.
 //!
 //! It reads its project's timeline, every owner's records on it, and its batches, and it submits
-//! and withdraws batches for the worker pool. Every call is scoped to the turn's project and
-//! checked against the database as it is now. What it submits names the turn as its provenance
-//! and lands on the project's timeline, through `crate::project_managers::batches`, the one place
-//! batches are stored. See `docs/engine.md`, Project Managers.
+//! and withdraws batches for the worker pool. It also keeps its project's promises: it lists them,
+//! ties each to the work that keeps it, and drafts a follow-up once that work is done, through
+//! `crate::project_managers::promises`. Every call is scoped to the turn's project and checked
+//! against the database as it is now. What it submits names the turn as its provenance and lands
+//! on the project's timeline, through `crate::project_managers::batches`, the one place batches
+//! are stored. See `docs/engine.md`, Project Managers and Follow-ups.
+
+use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use futures_util::FutureExt as _;
@@ -18,9 +22,11 @@ use super::{
     CallScope, Instructions, Tool, ToolContext, ToolError, ToolServer, internal, parse_arguments,
 };
 use crate::models::attribution::{ELYSIA_ACTOR, PROJECT_MANAGER_ACTOR};
+use crate::models::promise::{self, Promise, PromiseState, Work};
 use crate::models::timeline_record::{self, Attribution, TimelineRecord};
 use crate::models::work_batch::{self, BatchState, WorkBatch};
 use crate::project_managers::batches::{self, BatchError, Submission};
+use crate::project_managers::promises::{self, PromiseError};
 
 pub const SERVER: ToolServer = ToolServer {
     name: "elysium_project_manager",
@@ -33,12 +39,15 @@ pub const SERVER: ToolServer = ToolServer {
         so a worker who has seen nothing else can finish it, and name the records and action \
         items it came from. Batches wait in one queue for the whole workspace, which a person or \
         Elysia may reorder or pause. manager_cancel_batch withdraws a batch no worker has started \
-        on yet.",
+        on yet. manager_promises lists what the person promised to tell people once the \
+        project's work is done; manager_tie_promise ties a promise to the batch or action item \
+        that keeps it, and manager_draft_follow_up drafts its follow-up, in the person's voice, \
+        once that work is done. A follow-up is never sent until the person sends it.",
     ),
     tools: &TOOLS,
 };
 
-const TOOLS: [Tool; 5] = [
+const TOOLS: [Tool; 8] = [
     Tool {
         name: "manager_timeline",
         description: "Lists the records on this project's timeline, newest first: each one's \
@@ -80,6 +89,34 @@ const TOOLS: [Tool; 5] = [
         input_schema: cancel_schema,
         run: |context, scope, arguments| run_cancel(context, scope, arguments).boxed(),
     },
+    Tool {
+        name: "manager_promises",
+        description: "Lists the promises the person made on this project, newest first: each \
+            one's id, who it is for, what was promised, the message it was made in, the work it \
+            waits on, and where it stands: waiting for its work, due once the work is done, \
+            drafted once you drafted its follow-up, kept once the person sent it, or dismissed. \
+            By default every state; pass states for some.",
+        input_schema: promises_schema,
+        run: |context, scope, arguments| run_promises(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "manager_tie_promise",
+        description: "Ties a waiting promise to the work that keeps it: one of this project's \
+            batches (batchId), kept when it succeeds, or one of its action items (actionItemId), \
+            kept when it is resolved, which a linked issue closing or pull request merging does. \
+            Work already done makes the promise due at once. Answers the promise.",
+        input_schema: tie_schema,
+        run: |context, scope, arguments| run_tie(context, scope, arguments).boxed(),
+    },
+    Tool {
+        name: "manager_draft_follow_up",
+        description: "Drafts the follow-up a due promise is owed: the message, written as the \
+            person who made the promise, to the person it is for, replying where it was made. \
+            It becomes an item in the person's inbox, which they send, edit, or dismiss; nothing \
+            is sent until they do. Answers the promise and its item.",
+        input_schema: draft_follow_up_schema,
+        run: |context, scope, arguments| run_draft_follow_up(context, scope, arguments).boxed(),
+    },
 ];
 
 /// How many records `manager_timeline` lists at most, and when the call does not say.
@@ -95,6 +132,12 @@ const RECORD_MAX_CHARACTERS: usize = 40_000;
 
 /// How many batches `manager_batches` lists.
 const BATCHES_MAX: i64 = 100;
+
+/// How many promises `manager_promises` lists.
+const PROMISES_MAX: i64 = 100;
+
+/// How much of the message a promise was made in `manager_promises` shows, in characters.
+const PROMISE_EXCERPT_CHARACTERS: usize = 600;
 
 fn id_property(description: &str) -> Value {
     json!({ "type": "string", "format": "uuid", "description": description })
@@ -240,6 +283,57 @@ fn cancel_schema() -> Value {
     })
 }
 
+fn promises_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "states": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": ["waiting", "due", "drafted", "kept", "dismissed"],
+                },
+                "minItems": 1,
+                "uniqueItems": true,
+                "description": "Only promises in these states. Omit for every state.",
+            },
+        },
+        "additionalProperties": false,
+    })
+}
+
+fn tie_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "promiseId": id_property("The promise, from manager_promises."),
+            "batchId": id_property("The batch that keeps it, from manager_batches."),
+            "actionItemId": id_property("The action item that keeps it, from work_items."),
+        },
+        "required": ["promiseId"],
+        "additionalProperties": false,
+    })
+}
+
+fn draft_follow_up_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "promiseId": id_property("The due promise, from manager_promises."),
+            "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20000,
+                "description": "The follow-up, as the person who made the promise would write \
+                    it to the person it is for: first person, in their tone, saying what was \
+                    done and anything they need to know, with nothing that says Elysium wrote it.",
+            },
+        },
+        "required": ["promiseId", "message"],
+        "additionalProperties": false,
+    })
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TimelineArguments {
@@ -265,6 +359,32 @@ struct BatchesArguments {
 struct CancelArguments {
     batch_id: Uuid,
     reason: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PromisesArguments {
+    #[serde(default)]
+    states: Vec<PromiseState>,
+}
+
+#[expect(
+    clippy::struct_field_names,
+    reason = "each names an id, as the tool's input schema does"
+)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TieArguments {
+    promise_id: Uuid,
+    batch_id: Option<Uuid>,
+    action_item_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DraftFollowUpArguments {
+    promise_id: Uuid,
+    message: String,
 }
 
 async fn run_timeline(
@@ -404,6 +524,114 @@ async fn run_cancel(
     Ok(json!({ "batch": batch_view(&batch) }))
 }
 
+async fn run_promises(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let manager = scope.project_manager()?;
+    let arguments: PromisesArguments = parse_arguments(arguments)?;
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let listed = promise::list_for_project(
+        &mut connection,
+        manager.project_id,
+        &arguments.states,
+        PROMISES_MAX,
+    )
+    .await
+    .map_err(|error| internal(scope, "manager.promises", &error))?;
+    let record_ids: Vec<Uuid> = listed.iter().map(|made| made.timeline_record_id).collect();
+    let records: HashMap<Uuid, TimelineRecord> =
+        timeline_record::find_many(&mut connection, &record_ids)
+            .await
+            .map_err(|error| internal(scope, "manager.promises", &error))?
+            .into_iter()
+            .map(|record| (record.id, record))
+            .collect();
+    let promises: Vec<Value> = listed
+        .iter()
+        .map(|made| promise_view(made, records.get(&made.timeline_record_id)))
+        .collect();
+    Ok(json!({ "promises": promises }))
+}
+
+async fn run_tie(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let manager = scope.project_manager()?;
+    let arguments: TieArguments = parse_arguments(arguments)?;
+    let work = match (arguments.batch_id, arguments.action_item_id) {
+        (Some(batch_id), None) => Work::Batch(batch_id),
+        (None, Some(item_id)) => Work::Item(item_id),
+        _ => {
+            return Err(ToolError::Invalid(
+                "name the work that keeps the promise: batchId or actionItemId, one of them"
+                    .to_owned(),
+            ));
+        }
+    };
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let tied = promises::tie(
+        &mut connection,
+        &context.events,
+        manager.project_id,
+        arguments.promise_id,
+        work,
+    )
+    .await
+    .map_err(|error| promise_refused_or_internal(scope, "manager.tie_promise", error))?;
+    Ok(json!({ "promise": promise_view(&tied, None) }))
+}
+
+async fn run_draft_follow_up(
+    context: &ToolContext,
+    scope: &CallScope,
+    arguments: &str,
+) -> Result<Value, ToolError> {
+    let manager = scope.project_manager()?;
+    let arguments: DraftFollowUpArguments = parse_arguments(arguments)?;
+    let mut connection = context
+        .database
+        .get()
+        .await
+        .map_err(|error| internal(scope, "database.connect", &error))?;
+    let follow_up = promises::draft_follow_up(
+        &mut connection,
+        &context.events,
+        manager.project_id,
+        arguments.promise_id,
+        &arguments.message,
+    )
+    .await
+    .map_err(|error| promise_refused_or_internal(scope, "manager.draft_follow_up", error))?;
+    Ok(json!({
+        "promise": promise_view(&follow_up.promise, None),
+        "actionItem": { "id": follow_up.item.id, "title": follow_up.item.title },
+        "message": "The follow-up waits in the person's inbox; nothing is sent until they send it.",
+    }))
+}
+
+fn promise_refused_or_internal(
+    scope: &CallScope,
+    operation: &'static str,
+    error: PromiseError,
+) -> ToolError {
+    match error {
+        PromiseError::Refused(reason) => ToolError::Invalid(reason),
+        PromiseError::Internal(error) => internal(scope, operation, &error),
+    }
+}
+
 fn refused_or_internal(scope: &CallScope, operation: &'static str, error: BatchError) -> ToolError {
     match error {
         BatchError::Refused(reason) => ToolError::Invalid(reason),
@@ -433,6 +661,31 @@ fn record_view(record: &TimelineRecord, attribution: &Attribution, characters: u
             "confidence": attribution.confidence,
             "attributedBy": attributed_by,
         },
+    })
+}
+
+/// A promise as the tools show it, with the message it was made in when it was read.
+fn promise_view(made: &Promise, record: Option<&TimelineRecord>) -> Value {
+    let made_in = record.map(|record| {
+        let said: String = record
+            .body
+            .chars()
+            .take(PROMISE_EXCERPT_CHARACTERS)
+            .collect();
+        json!({ "recordId": record.id, "title": record.title, "said": said })
+    });
+    json!({
+        "id": made.id,
+        "state": made.state,
+        "recipient": made.recipient,
+        "promise": made.summary,
+        "madeIn": made_in,
+        "recordId": made.timeline_record_id,
+        "batchId": made.work_batch_id,
+        "actionItemId": made.work_item_id,
+        "dueAt": made.due_at,
+        "followUpItemId": made.follow_up_item_id,
+        "foundAt": made.created_at,
     })
 }
 

@@ -11,7 +11,8 @@
 //!
 //! A batch waits `queued` until the pool gives it a slot (`assigned`, [`assign`]), and a worker
 //! starts on it (`running`, [`start`]) and ends it `succeeded` or `failed` ([`finish`]), which
-//! wakes its project's Project Manager in the same transaction. While it waits for a worker to
+//! wakes its project's Project Manager in the same transaction, and on success makes the promises
+//! waiting on it due. While it waits for a worker to
 //! start it, a person, Elysia, or its Project Manager may hold it back (`paused`) or withdraw it
 //! (`cancelled`, [`cancel`]).
 //!
@@ -44,8 +45,8 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::database::schema::{work_batch_events, work_batches};
-use crate::models::project_manager;
 use crate::models::user::{PROJECT_MANAGER_USER_ID, SYSTEM_USER_ID};
+use crate::models::{project_manager, promise};
 
 /// How many batches one page of a project's batches holds at most.
 pub const MAX_BATCH_PAGE: i64 = 200;
@@ -1004,7 +1005,9 @@ pub async fn start(
 
 /// Ends `slot`'s running batch, succeeded or not, with what its worker reported, giving its slot
 /// back, and wakes its project's Project Manager with the result in the same transaction, as
-/// `by`. `None` when the slot was lost or the batch is not running. Once it commits, the caller
+/// `by`. A batch that succeeded makes every promise waiting on it due
+/// (`crate::models::promise`); one that failed leaves them waiting, for the Project Manager to
+/// tie to what replaces it. `None` when the slot was lost or the batch is not running. Once it commits, the caller
 /// sends `Signal::WorkerPool` and `Signal::ProjectManagers` and publishes `workBatch.changed` and
 /// `projectManager.changed`, so the pool fills the slot and the Project Manager looks at once.
 ///
@@ -1061,6 +1064,9 @@ pub async fn finish(
             .await?;
             project_manager::wake_for_batch(connection, finished.project_id, finished.id, by)
                 .await?;
+            if succeeded {
+                promise::come_due_for_batch(connection, finished.id, by, Utc::now()).await?;
+            }
             Ok(Some(finished))
         })
         .await

@@ -53,6 +53,7 @@ pub mod model_setting;
 pub mod password_vault;
 pub mod project;
 pub mod project_manager;
+pub mod promise;
 pub mod secret_copy;
 pub mod session_event;
 pub mod session_turn;

@@ -4,8 +4,10 @@
 //!
 //! Its standing instructions live in `instructions.md` beside this file, versioned with the code,
 //! and are appended to Claude Code's system prompt on every turn. The prompt names its project and
-//! carries everything that woke it: the messages, the records newly on its timeline, and the
-//! batches that finished. It is a plain function of its inputs, so it is tested without a runner.
+//! carries everything that woke it: the messages, the records newly on its timeline, the
+//! batches that finished, and the promises found on its project or whose work finished. Every
+//! turn also carries each promise still owed a follow-up, woken for or not, so a turn that failed
+//! never strands one. It is a plain function of its inputs, so it is tested without a runner.
 //!
 //! The runner passes the prompt as one argument, and Linux allows one argument 128 KiB, so a
 //! record is quoted in part ([`EXCERPT_MAX_CHARACTERS`]) and the whole prompt stays under
@@ -16,6 +18,8 @@ use std::fmt::Write as _;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+use crate::models::action_item::ActionItemState;
+use crate::models::promise::PromiseState;
 use crate::models::work_batch::BatchState;
 
 /// Its standing instructions.
@@ -77,6 +81,43 @@ pub struct PromptBatch {
     pub title: String,
     pub state: BatchState,
     pub result: Option<String>,
+    /// The promises still waiting on it, which a batch that failed leaves for the Project Manager
+    /// to tie to the work that replaces it.
+    pub waiting_promises: Vec<Uuid>,
+}
+
+/// A promise its Project Manager has to act on: one just found, which waits for its work, or one
+/// whose work finished, which is owed its follow-up.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptPromise {
+    pub id: Uuid,
+    /// Who made it: the person whose message it was made in.
+    pub person: String,
+    pub recipient: String,
+    pub summary: String,
+    /// Where it was made: the message's record, its title, and what it said.
+    pub record_id: Uuid,
+    pub record_title: String,
+    pub said: String,
+    /// `Waiting` or `Due`; others are the person's to decide and are never shown.
+    pub state: PromiseState,
+    pub work: Option<PromptWork>,
+}
+
+/// The work a promise waits on, as it stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PromptWork {
+    Batch {
+        id: Uuid,
+        title: String,
+        state: BatchState,
+        result: Option<String>,
+    },
+    Item {
+        id: Uuid,
+        title: String,
+        state: ActionItemState,
+    },
 }
 
 /// Everything one turn is told.
@@ -86,6 +127,7 @@ pub struct TurnContext {
     pub messages: Vec<PromptMessage>,
     pub records: Vec<PromptRecord>,
     pub batches: Vec<PromptBatch>,
+    pub promises: Vec<PromptPromise>,
     /// Whether some of what woke it was given to an earlier turn that never finished.
     pub retried: bool,
     /// How many more wakes wait for the next turn, beyond what this one takes.
@@ -161,6 +203,22 @@ pub fn render(context: &TurnContext, now: DateTime<Utc>) -> String {
             if let Some(result) = &batch.result {
                 let _ = writeln!(prompt, "  {result_label}: {}", result.trim());
             }
+            if !batch.waiting_promises.is_empty() {
+                let ids: Vec<String> = batch.waiting_promises.iter().map(Uuid::to_string).collect();
+                let _ = writeln!(
+                    prompt,
+                    "  Promises still wait on it: {}. Tie each to the work that replaces it with \
+                     manager_tie_promise.",
+                    ids.join(", ")
+                );
+            }
+        }
+    }
+
+    if !context.promises.is_empty() {
+        let _ = write!(prompt, "\n## Promises ({})\n", context.promises.len());
+        for promise in &context.promises {
+            render_promise(&mut prompt, promise);
         }
     }
 
@@ -222,6 +280,82 @@ fn render_record(prompt: &mut String, record: &PromptRecord) {
     }
 }
 
+fn render_promise(prompt: &mut String, promise: &PromptPromise) {
+    let _ = write!(
+        prompt,
+        "\n- Promise {}: {} promised {} \"{}\", in \"{}\" (record {}).\n",
+        promise.id,
+        promise.person,
+        promise.recipient,
+        promise.summary,
+        promise.record_title,
+        promise.record_id,
+    );
+    let said: String = promise
+        .said
+        .trim()
+        .chars()
+        .take(EXCERPT_MAX_CHARACTERS)
+        .collect();
+    if !said.is_empty() {
+        let _ = writeln!(prompt, "  They wrote: {}", said.replace('\n', "\n  "));
+    }
+    let work = match &promise.work {
+        None => "It waits on no work yet.".to_owned(),
+        Some(PromptWork::Batch {
+            id,
+            title,
+            state,
+            result,
+        }) => {
+            let reported = result
+                .as_deref()
+                .map(|result| format!(" Its worker reported: {}", result.trim()))
+                .unwrap_or_default();
+            format!(
+                "It waits on batch \"{title}\" (batch {id}), which is {}.{reported}",
+                batch_state_words(*state)
+            )
+        }
+        Some(PromptWork::Item { id, title, state }) => {
+            let state = match state {
+                ActionItemState::Inbox => "in the inbox",
+                ActionItemState::Open => "open",
+                ActionItemState::Resolved => "resolved",
+                ActionItemState::Dismissed => "dismissed",
+            };
+            format!("It waits on action item \"{title}\" (item {id}), which is {state}.")
+        }
+    };
+    let _ = writeln!(prompt, "  {work}");
+    let next = match promise.state {
+        PromiseState::Due => {
+            "Its work is done: draft the follow-up in their voice with manager_draft_follow_up."
+        }
+        PromiseState::Waiting if promise.work.is_none() => {
+            "Tie it to the batch or action item that keeps it with manager_tie_promise."
+        }
+        PromiseState::Waiting
+        | PromiseState::Drafted
+        | PromiseState::Kept
+        | PromiseState::Dismissed => "Nothing to do until its work finishes.",
+    };
+    let _ = writeln!(prompt, "  {next}");
+}
+
+/// How a batch's state reads in a sentence.
+const fn batch_state_words(state: BatchState) -> &'static str {
+    match state {
+        BatchState::Queued => "queued",
+        BatchState::Paused => "paused",
+        BatchState::Assigned => "waiting for its worker",
+        BatchState::Running => "running",
+        BatchState::Succeeded => "done",
+        BatchState::Failed => "failed",
+        BatchState::Cancelled => "cancelled",
+    }
+}
+
 /// `prompt`, cut at a character boundary to fit [`PROMPT_MAX_BYTES`] when it does not, saying so.
 fn fit(mut prompt: String) -> String {
     if prompt.len() <= PROMPT_MAX_BYTES {
@@ -258,6 +392,7 @@ mod tests {
             messages: Vec::new(),
             records: Vec::new(),
             batches: Vec::new(),
+            promises: Vec::new(),
             retried: false,
             still_waiting: 0,
         }
@@ -292,6 +427,7 @@ mod tests {
             title: "Annual pricing".to_owned(),
             state: BatchState::Failed,
             result: Some("The tests need a Stripe key.".to_owned()),
+            waiting_promises: Vec::new(),
         });
 
         let prompt = render(&woken, now());
@@ -307,6 +443,59 @@ mod tests {
         assert!(prompt.contains("failed."));
         assert!(prompt.contains("Its worker reported: The tests need a Stripe key."));
         assert!(!prompt.contains("did not finish"));
+    }
+
+    fn promise(state: PromiseState, work: Option<PromptWork>) -> PromptPromise {
+        PromptPromise {
+            id: Uuid::nil(),
+            person: "Alex".to_owned(),
+            recipient: "Ada".to_owned(),
+            summary: "when annual pricing is live".to_owned(),
+            record_id: Uuid::nil(),
+            record_title: "Ada in a direct message in Mooreslab".to_owned(),
+            said: "Sure, I'll let you know here once it's live.".to_owned(),
+            state,
+            work,
+        }
+    }
+
+    #[test]
+    fn a_promise_says_what_it_needs_next() {
+        let mut woken = context();
+        woken.promises.push(promise(PromiseState::Waiting, None));
+        woken.promises.push(promise(
+            PromiseState::Due,
+            Some(PromptWork::Batch {
+                id: Uuid::nil(),
+                title: "Annual pricing".to_owned(),
+                state: BatchState::Succeeded,
+                result: Some("Deployed to production.".to_owned()),
+            }),
+        ));
+        let prompt = render(&woken, now());
+        assert!(prompt.contains("## Promises (2)"));
+        assert!(prompt.contains("Alex promised Ada \"when annual pricing is live\""));
+        assert!(prompt.contains("They wrote: Sure, I'll let you know here once it's live."));
+        assert!(prompt.contains("It waits on no work yet."));
+        assert!(prompt.contains("manager_tie_promise"));
+        assert!(prompt.contains("batch \"Annual pricing\""));
+        assert!(prompt.contains("which is done. Its worker reported: Deployed to production."));
+        assert!(prompt.contains("draft the follow-up in their voice with manager_draft_follow_up"));
+    }
+
+    #[test]
+    fn a_failed_batch_names_the_promises_still_waiting_on_it() {
+        let mut woken = context();
+        let waiting = Uuid::now_v7();
+        woken.batches.push(PromptBatch {
+            id: Uuid::nil(),
+            title: "Annual pricing".to_owned(),
+            state: BatchState::Failed,
+            result: None,
+            waiting_promises: vec![waiting],
+        });
+        let prompt = render(&woken, now());
+        assert!(prompt.contains(&format!("Promises still wait on it: {waiting}")));
     }
 
     #[test]

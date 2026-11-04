@@ -7,7 +7,7 @@
 //!
 //! Whatever should wake a Project Manager writes a wake (`project_manager_wakes`) in the same
 //! transaction as what caused it: a record attributed to its project, a batch of its finishing,
-//! a person's or Elysia's message. So nothing that should wake it is lost to a crash or a missed
+//! a person's or Elysia's message, a promise found on its project or its work finishing. So nothing that should wake it is lost to a crash or a missed
 //! signal. A wake waits until a turn takes it.
 //!
 //! A turn is created as it starts ([`start_turn`]), taking every wake waiting for its project in
@@ -54,6 +54,9 @@ pub enum WakeKind {
     Batch,
     /// A person or Elysia wrote to it.
     Message,
+    /// A promise was found on its project, or the work it waits on finished
+    /// (`crate::models::promise`).
+    Promise,
 }
 
 /// A project's Project Manager, once something has woken it.
@@ -96,6 +99,7 @@ pub struct Wake {
     pub turn_id: Option<Uuid>,
     pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
+    pub promise_id: Option<Uuid>,
 }
 
 /// What one waiting wake says about when its project's next turn is due: its project, its
@@ -117,6 +121,7 @@ struct NewWake<'a> {
     timeline_record_id: Option<Uuid>,
     work_batch_id: Option<Uuid>,
     body: Option<&'a str>,
+    promise_id: Option<Uuid>,
     created_by: Uuid,
 }
 
@@ -129,14 +134,16 @@ impl NewWake<'_> {
             timeline_record_id: None,
             work_batch_id: None,
             body: None,
+            promise_id: None,
             created_by,
         }
     }
 
     async fn insert(mut self, connection: &mut AsyncPgConnection) -> QueryResult<Option<Wake>> {
         self.id = Uuid::now_v7();
-        // A record already waiting for this project is not woken for twice
-        // (`project_manager_wakes_record_waits_once`); every other wake is new.
+        // A record or a promise already waiting for this project is not woken for twice
+        // (`project_manager_wakes_record_waits_once`, `..._promise_waits_once`); every other
+        // wake is new.
         diesel::insert_into(project_manager_wakes::table)
             .values(self)
             .on_conflict_do_nothing()
@@ -177,6 +184,23 @@ pub async fn wake_for_batch(
 ) -> QueryResult<()> {
     let mut wake = NewWake::new(project_id, WakeKind::Batch, by);
     wake.work_batch_id = Some(batch_id);
+    wake.insert(connection).await.map(drop)
+}
+
+/// Wakes `project_id`'s Project Manager for its promise `promise_id`, found just now or whose work
+/// just finished, as `by`. A promise already waiting is not woken for twice. Call it in the
+/// transaction that records the promise or its work finishing.
+///
+/// # Errors
+/// Propagates any database error.
+pub async fn wake_for_promise(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    promise_id: Uuid,
+    by: Uuid,
+) -> QueryResult<()> {
+    let mut wake = NewWake::new(project_id, WakeKind::Promise, by);
+    wake.promise_id = Some(promise_id);
     wake.insert(connection).await.map(drop)
 }
 
@@ -456,8 +480,9 @@ pub async fn fail_interrupted_turns(
         .await
 }
 
-/// Gives the wakes the turns `turn_ids` took back, to wait for the next turn. A record woken for
-/// again meanwhile already waits, so its taken copy is dropped rather than waiting twice.
+/// Gives the wakes the turns `turn_ids` took back, to wait for the next turn. A record or a
+/// promise woken for again meanwhile already waits, so its taken copy is dropped rather than
+/// waiting twice.
 async fn release_wakes(connection: &mut AsyncPgConnection, turn_ids: &[Uuid]) -> QueryResult<()> {
     diesel::sql_query(
         "DELETE FROM project_manager_wakes AS taken \
@@ -466,7 +491,8 @@ async fn release_wakes(connection: &mut AsyncPgConnection, turn_ids: &[Uuid]) ->
              SELECT 1 FROM project_manager_wakes AS waiting \
              WHERE waiting.turn_id IS NULL \
                AND waiting.project_id = taken.project_id \
-               AND waiting.timeline_record_id = taken.timeline_record_id \
+               AND (waiting.timeline_record_id = taken.timeline_record_id \
+                    OR waiting.promise_id = taken.promise_id) \
            )",
     )
     .bind::<diesel::sql_types::Array<diesel::sql_types::Uuid>, _>(turn_ids)

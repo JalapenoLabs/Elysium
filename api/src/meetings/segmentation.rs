@@ -8,10 +8,13 @@
 //! no settings, only the transcript and the workspace's projects in the prompt and a JSON
 //! answer back. A meeting is answered in seconds of its recording ([`parse_answer`]), and a
 //! conversation by the numbers of its messages ([`parse_conversation_answer`]), since a chat's
-//! topics are runs of messages rather than stretches of time. Nothing either answer says is
-//! taken on trust: only segments that lie inside the meeting or the conversation, in order and
-//! without overlapping, are kept, and only attributions to projects that were offered, so a
-//! model's mistake can drop a segment but never invent a project, a time, or a message.
+//! topics are runs of messages rather than stretches of time. A conversation's answer also names
+//! the promises its person made in it ("I'll let you know here when it's live"), each by the
+//! message it was made in, for its Project Manager to follow up (`docs/engine.md`, Follow-ups).
+//! Nothing either answer says is taken on trust: only segments that lie inside the meeting or the
+//! conversation, in order and without overlapping, are kept, only attributions to projects that
+//! were offered, and only promises made in a message that was shown, so a model's mistake can
+//! drop a segment or a promise but never invent a project, a time, or a message.
 //!
 //! # Size
 //!
@@ -33,6 +36,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::source::TranscriptLine;
+use crate::models::promise::{RECIPIENT_MAX_CHARACTERS, SUMMARY_MAX_CHARACTERS};
 use crate::whisper::WhisperWord;
 
 /// The most bytes of transcript one prompt carries, leaving room under the 128 KiB argument
@@ -58,6 +62,10 @@ const MIN_SEGMENT_MS: i64 = 15_000;
 const TITLE_CHARACTERS: usize = 200;
 const SUMMARY_CHARACTERS: usize = 1_000;
 
+/// The most promises one conversation's answer keeps. A person promises a handful of things in a
+/// conversation, not dozens; more is the model reading every reply as one.
+pub const MAX_PROMISES: usize = 10;
+
 /// The least confidence an attribution needs to be kept. Below it the model is guessing.
 const MIN_CONFIDENCE: f32 = 0.3;
 
@@ -79,17 +87,28 @@ sentences of what was said and decided, with any action items and who owns them.
 Name only projects from the list, by their id, with a confidence from 0 to 1, and leave \
 projects empty for small talk or anything no project is about.";
 
-/// A conversation's segmentation turn's instructions: segments as runs of numbered messages.
+/// A conversation's segmentation turn's instructions: segments as runs of numbered messages, and
+/// the promises its person made in them.
 pub const CONVERSATION_SYSTEM_PROMPT: &str = "\
-You divide a conversation's messages into its topics, and say which of the listed projects \
-each topic is about. Answer with one JSON object and nothing else: \
+You divide a conversation's messages into its topics, say which of the listed projects each \
+topic is about, and find the promises the person you work for made in it. Answer with one \
+JSON object and nothing else: \
 {\"segments\": [{\"firstMessage\": number, \"lastMessage\": number, \"title\": string, \
-\"summary\": string, \"projects\": [{\"projectId\": string, \"confidence\": number}]}]}. \
+\"summary\": string, \"projects\": [{\"projectId\": string, \"confidence\": number}]}], \
+\"promises\": [{\"message\": number, \"recipient\": string, \"promise\": string, \
+\"projectId\": string}]}. \
 Messages are numbered from 1. Segments are in order and do not overlap; a conversation about \
 one thing is one segment. The title is a short phrase. The summary is one to three plain \
 sentences of what was asked, said, and decided, with any action items and who owns them. \
 Name only projects from the list, by their id, with a confidence from 0 to 1, and leave \
-projects empty for small talk or anything no project is about.";
+projects empty for small talk or anything no project is about. \
+A promise is the person telling someone they will let them know once some work is done, such \
+as \"I'll ping you here when the fix is live\" or \"will let you know once it ships\". Only the \
+person's own messages hold their promises; a request to them, or a promise someone else made, \
+is not one. message is the number of the message that makes it, recipient who it is for, by \
+the name the conversation uses, promise what they will tell them, as a short phrase such as \
+\"when the login fix is live\", and projectId the listed project whose work it waits on. Leave \
+promises empty when the person promised nothing, or when no listed project's work keeps it.";
 
 /// A project the model may attribute a segment to.
 #[derive(Debug, Clone)]
@@ -128,6 +147,25 @@ pub struct ConversationSegment {
     pub projects: Vec<SegmentProject>,
 }
 
+/// A promise a conversation's answer found: the person will tell `recipient` something once the
+/// work of project `project_id` is done.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoundPromise {
+    /// The message it was made in, by its place in the conversation from 0.
+    pub message: usize,
+    pub recipient: String,
+    /// What they will tell them, as a short phrase.
+    pub summary: String,
+    pub project_id: Uuid,
+}
+
+/// What a conversation's answer holds that holds up: its topics, and the promises made in it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversationReading {
+    pub segments: Vec<ConversationSegment>,
+    pub promises: Vec<FoundPromise>,
+}
+
 /// The meeting as the prompt describes it.
 #[derive(Debug, Clone, Copy)]
 pub struct MeetingContext<'meeting> {
@@ -160,9 +198,11 @@ pub fn prompt(
 }
 
 /// A conversation's segmentation turn's prompt: `title` is what the conversation is called
-/// where it was had, and `messages` are its messages in order, each timed from the first.
+/// where it was had, `person` the name of whose timeline it is on, the one whose promises the
+/// answer names, and `messages` are its messages in order, each timed from the first.
 pub fn conversation_prompt(
     title: &str,
+    person: &str,
     messages: &[TranscriptLine],
     projects: &[ProjectChoice],
 ) -> String {
@@ -175,6 +215,10 @@ pub fn conversation_prompt(
     }
     let mut prompt = String::new();
     let _ = writeln!(prompt, "Conversation: {title}");
+    let _ = writeln!(
+        prompt,
+        "The person you work for: {person}, who may go by another name in the conversation"
+    );
     let _ = writeln!(prompt, "Messages: {}", messages.len());
     if !participants.is_empty() {
         let _ = writeln!(prompt, "Participants: {}", participants.join(", "));
@@ -360,6 +404,21 @@ struct AnswerProject {
 #[serde(rename_all = "camelCase")]
 struct ConversationAnswer {
     segments: Vec<ConversationAnswerSegment>,
+    /// Optional, so an answer that names no promise still reads.
+    #[serde(default)]
+    promises: Vec<AnswerPromise>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AnswerPromise {
+    message: i64,
+    #[serde(default)]
+    recipient: String,
+    #[serde(default)]
+    promise: String,
+    #[serde(default)]
+    project_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -375,9 +434,11 @@ struct ConversationAnswerSegment {
     projects: Vec<AnswerProject>,
 }
 
-/// The segments in a conversation's answer that hold up: runs of its messages, in order and
-/// apart, attributed only to projects in `offered`. A run starting before the last one ended
-/// starts after it, and one reaching past the last message ends there.
+/// The segments and promises in a conversation's answer that hold up. Segments are runs of its
+/// messages, in order and apart, attributed only to projects in `offered`: a run starting before
+/// the last one ended starts after it, and one reaching past the last message ends there. A
+/// promise is kept when it names one of the messages, once each, someone it is for, what was
+/// promised, and an offered project; at most [`MAX_PROMISES`] are.
 ///
 /// # Errors
 /// [`AnswerError`] when the answer holds no JSON object, is not the asked-for shape, or
@@ -386,7 +447,7 @@ pub fn parse_conversation_answer(
     answer: &str,
     messages: &[TranscriptLine],
     offered: &[ProjectChoice],
-) -> Result<Vec<ConversationSegment>, AnswerError> {
+) -> Result<ConversationReading, AnswerError> {
     let json = json_object(answer).ok_or(AnswerError::NoJson)?;
     let parsed: ConversationAnswer =
         serde_json::from_str(json).map_err(|error| AnswerError::Shape(error.to_string()))?;
@@ -423,7 +484,55 @@ pub fn parse_conversation_answer(
     if segments.is_empty() {
         return Err(AnswerError::Empty);
     }
-    Ok(segments)
+    let promises = kept_promises(parsed.promises, messages.len(), offered);
+    Ok(ConversationReading { segments, promises })
+}
+
+/// The promises in `answered` that hold up, among a conversation of `message_count` messages.
+fn kept_promises(
+    answered: Vec<AnswerPromise>,
+    message_count: usize,
+    offered: &[ProjectChoice],
+) -> Vec<FoundPromise> {
+    let mut promises: Vec<FoundPromise> = Vec::new();
+    for candidate in answered {
+        if promises.len() == MAX_PROMISES {
+            break;
+        }
+        // Numbered from 1 in the answer; anything outside the conversation names no message.
+        let Ok(message) = usize::try_from(candidate.message - 1) else {
+            continue;
+        };
+        let repeated = promises.iter().any(|kept| kept.message == message);
+        if message >= message_count || repeated {
+            continue;
+        }
+        let Ok(project_id) = Uuid::parse_str(candidate.project_id.trim()) else {
+            continue;
+        };
+        if !offered.iter().any(|choice| choice.id == project_id) {
+            continue;
+        }
+        // A name is never this long, so one that is is dropped rather than cut. A long promise
+        // is cut to fit, its ellipsis included.
+        let recipient = candidate
+            .recipient
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let summary = one_line(&candidate.promise, SUMMARY_MAX_CHARACTERS - 1);
+        let named = !recipient.is_empty() && recipient.chars().count() <= RECIPIENT_MAX_CHARACTERS;
+        if !named || summary.is_empty() {
+            continue;
+        }
+        promises.push(FoundPromise {
+            message,
+            recipient,
+            summary,
+            project_id,
+        });
+    }
+    promises
 }
 
 /// The segments in a meeting's answer that hold up: inside the meeting, in order, apart,
@@ -831,11 +940,13 @@ mod tests {
         ];
         let prompt = conversation_prompt(
             "#launch in Mooreslab",
+            "Alex Navarro",
             &messages,
             std::slice::from_ref(&launch),
         );
 
         assert!(prompt.contains("Conversation: #launch in Mooreslab"));
+        assert!(prompt.contains("The person you work for: Alex Navarro"));
         assert!(prompt.contains("Messages: 3"));
         assert!(prompt.contains("Participants: Ada, Grace"));
         assert!(prompt.contains(&format!("- {}: Launch", launch.id)));
@@ -864,8 +975,13 @@ mod tests {
             ]}}",
             launch = launch.id,
         );
-        let segments = parse_conversation_answer(&answer, &messages, std::slice::from_ref(&launch))
+        let reading = parse_conversation_answer(&answer, &messages, std::slice::from_ref(&launch))
             .expect("segments");
+        assert!(
+            reading.promises.is_empty(),
+            "an answer naming no promise reads"
+        );
+        let segments = reading.segments;
 
         assert_eq!(
             segments,
@@ -896,6 +1012,81 @@ mod tests {
             parse_conversation_answer("{\"segments\": []}", &messages, &[]),
             Err(AnswerError::Empty)
         );
+    }
+
+    #[test]
+    fn a_conversations_promises_are_kept_only_when_they_hold_up() {
+        let launch = project("Launch");
+        let messages = [
+            line(
+                0,
+                "Ada",
+                "Can you fix the login bug? Let me know when it's live.",
+            ),
+            line(30, "Alex", "On it, I'll ping you here once it's deployed."),
+            line(60, "Ada", "Thanks!"),
+        ];
+        let answer = format!(
+            "{{\"segments\": [{{\"firstMessage\": 1, \"lastMessage\": 3, \"title\": \"Login\"}}], \
+              \"promises\": [\
+              {{\"message\": 2, \"recipient\": \"  Ada \", \"promise\": \"when the login fix is live\", \
+                \"projectId\": \"{launch}\"}}, \
+              {{\"message\": 2, \"recipient\": \"Ada\", \"promise\": \"again\", \"projectId\": \"{launch}\"}}, \
+              {{\"message\": 4, \"recipient\": \"Ada\", \"promise\": \"past the end\", \"projectId\": \"{launch}\"}}, \
+              {{\"message\": 0, \"recipient\": \"Ada\", \"promise\": \"before the start\", \"projectId\": \"{launch}\"}}, \
+              {{\"message\": 1, \"recipient\": \"Ada\", \"promise\": \"elsewhere\", \"projectId\": \"{stranger}\"}}, \
+              {{\"message\": 3, \"recipient\": \"\", \"promise\": \"for nobody\", \"projectId\": \"{launch}\"}}, \
+              {{\"message\": 3, \"recipient\": \"Ada\", \"promise\": \" \", \"projectId\": \"{launch}\"}}, \
+              {{\"message\": 3, \"recipient\": \"{long_name}\", \"promise\": \"too long\", \"projectId\": \"{launch}\"}}\
+            ]}}",
+            launch = launch.id,
+            stranger = Uuid::now_v7(),
+            long_name = "A".repeat(RECIPIENT_MAX_CHARACTERS + 1),
+        );
+        let reading = parse_conversation_answer(&answer, &messages, std::slice::from_ref(&launch))
+            .expect("a reading");
+
+        // Only the first holds up: the rest repeat its message, name none, name a project that
+        // was not offered, name nobody, promise nothing, or name no one a person is called.
+        assert_eq!(
+            reading.promises,
+            vec![FoundPromise {
+                message: 1,
+                recipient: "Ada".to_owned(),
+                summary: "when the login fix is live".to_owned(),
+                project_id: launch.id,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_conversations_promises_are_bounded() {
+        let launch = project("Launch");
+        let messages: Vec<TranscriptLine> = (0..20)
+            .map(|index| line(index, "Alex", "I'll let you know."))
+            .collect();
+        let promises: Vec<String> = (1..=20)
+            .map(|number| {
+                format!(
+                    "{{\"message\": {number}, \"recipient\": \"Ada\", \"promise\": \"{long}\", \
+                      \"projectId\": \"{launch}\"}}",
+                    long = "word ".repeat(200),
+                    launch = launch.id,
+                )
+            })
+            .collect();
+        let answer = format!(
+            "{{\"segments\": [{{\"firstMessage\": 1, \"lastMessage\": 20}}], \"promises\": [{}]}}",
+            promises.join(", ")
+        );
+        let reading = parse_conversation_answer(&answer, &messages, std::slice::from_ref(&launch))
+            .expect("a reading");
+
+        assert_eq!(reading.promises.len(), MAX_PROMISES);
+        for promise in &reading.promises {
+            assert!(promise.summary.chars().count() <= SUMMARY_MAX_CHARACTERS);
+            assert!(promise.summary.ends_with('…'));
+        }
     }
 
     #[test]

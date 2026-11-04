@@ -25,6 +25,7 @@
 
 pub mod batches;
 pub mod dispatcher;
+pub mod promises;
 pub mod prompt;
 pub mod queue;
 pub mod runner;
@@ -45,7 +46,10 @@ use self::dispatcher::DispatchContext;
 use self::runner::ManagerRunner;
 use self::status::{Status, StatusInputs};
 use crate::database::Pool;
+use crate::models::draft;
 use crate::models::project_manager::{self, ProjectManager, Turn, TurnStatus, Wake};
+use crate::models::promise::{self, Promise};
+use crate::models::timeline_record::{self, TimelineRecord};
 use crate::models::work_batch::{self, WorkBatch};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::tools::grants::Grants;
@@ -55,6 +59,9 @@ pub const TURNS_SHOWN: i64 = 30;
 
 /// How many of a project's latest batches its page shows.
 pub const BATCHES_SHOWN: i64 = 100;
+
+/// How many of a project's latest promises its page shows.
+pub const PROMISES_SHOWN: i64 = 100;
 
 /// Starts the dispatcher, which runs every Project Manager's turns until `shutdown`. Whatever
 /// wakes one, in any process, sends [`Signal::ProjectManagers`], so it looks at once.
@@ -107,6 +114,9 @@ pub struct Snapshot {
     pub turns: Vec<(Turn, Vec<Wake>)>,
     /// Its latest batches, newest first.
     pub batches: Vec<WorkBatch>,
+    /// Its latest promises, newest first, each with the message it was made in while that is
+    /// still there, and its follow-up's draft once drafted.
+    pub promises: Vec<(Promise, Option<TimelineRecord>, Option<Uuid>)>,
 }
 
 /// Reads `project_id`'s Project Manager and derives its status.
@@ -122,6 +132,27 @@ pub async fn snapshot(
     let turns = project_manager::list_turns(connection, project_id, TURNS_SHOWN).await?;
     let turn_ids: Vec<Uuid> = turns.iter().map(|turn| turn.id).collect();
     let batches = work_batch::list_for_project(connection, project_id, &[], BATCHES_SHOWN).await?;
+    let made = promise::list_for_project(connection, project_id, &[], PROMISES_SHOWN).await?;
+    let record_ids: Vec<Uuid> = made.iter().map(|made| made.timeline_record_id).collect();
+    let mut records: HashMap<Uuid, TimelineRecord> =
+        timeline_record::find_many(connection, &record_ids)
+            .await?
+            .into_iter()
+            .map(|record| (record.id, record))
+            .collect();
+    let promise_ids: Vec<Uuid> = made.iter().map(|made| made.id).collect();
+    let drafts: HashMap<Uuid, Uuid> = draft::ids_for_promises(connection, &promise_ids)
+        .await?
+        .into_iter()
+        .collect();
+    let promises = made
+        .into_iter()
+        .map(|made| {
+            let record = records.remove(&made.timeline_record_id);
+            let draft_id = drafts.get(&made.id).copied();
+            (made, record, draft_id)
+        })
+        .collect();
 
     let status = status::derive(&StatusInputs {
         is_running: turns
@@ -158,5 +189,6 @@ pub async fn snapshot(
         waiting,
         turns,
         batches,
+        promises,
     })
 }

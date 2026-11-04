@@ -11,16 +11,19 @@
 //! mailbox of the person's own when its kind is answered by mail ([`kinds::Replies::Mailbox`]:
 //! Outlook, Gmail). A new mail names its mailbox and recipients.
 //!
-//! [`send`] is the entry point every send goes through, the person pressing Send in the web app
-//! and, later, a follow-up they approve. Sending is always the person's own act, so it needs no
-//! changeset; something that is not the person can only write a draft for them to send.
+//! [`send`] is the entry point every send goes through: the person pressing Send in the web app,
+//! on a reply of their own or on a follow-up a Project Manager drafted for a promise of theirs
+//! ([`reply_draft`] writes one inside the transaction that raises its item). Sending is always
+//! the person's own act, so it needs no changeset; something that is not the person can only
+//! write a draft for them to send.
 //!
 //! # What a send leaves behind
 //!
 //! A send that succeeds becomes a timeline record of the person's, named as the kind's reader
 //! names what it reads, so reading the message back later records nothing twice. A send that
 //! fails keeps the draft, its text untouched, with the reason in `last_error`, and can be sent
-//! again. A send is never retried on its own: posting to a person twice is worse than not
+//! again. A follow-up that is sent keeps its promise and resolves its item, as the person, in the
+//! transaction that records the send, so one can never be sent and left owed. A send is never retried on its own: posting to a person twice is worse than not
 //! posting, and a send that timed out may still have gone out, which the reason says.
 
 use std::time::Duration;
@@ -32,19 +35,23 @@ use serde_json::{Value, json};
 use tracing::{Level, event};
 use uuid::Uuid;
 
+use crate::action_items::{Actor, Transition};
 use crate::connectors::Outgoing;
 use crate::connectors::kinds::{self, Replies};
 use crate::errors::ApiError;
 use crate::mail::reply::{self as mail_reply, MailTarget};
 use crate::mail::transport::{self, Envelope};
-use crate::models::connector;
+use crate::models::action_item::{self, ActionItem, ActionItemState};
+use crate::models::action_item_event::Recorded;
 use crate::models::draft::{
     self, BODY_MAX_CHARACTERS, Draft, DraftState, NewDraft, ReplyPlace, Sender,
 };
 use crate::models::mail_account::{self, MailAccount};
 use crate::models::timeline_record::{self, NewTimelineRecord, TimelineRecord};
 use crate::models::user::User;
+use crate::models::{connector, promise};
 use crate::realtime::ServerEvent;
+use crate::routes::v1::action_items::publish_item_write;
 use crate::routes::v1::mail::open_mailbox;
 use crate::state::AppState;
 
@@ -90,13 +97,31 @@ pub struct NewMail {
 /// [`ApiError::BadRequest`] for a record nothing can answer or a body out of bounds, and
 /// [`ApiError::CodedBadRequest`] when a reply by mail has no mailbox to go from.
 pub async fn draft_reply(state: &AppState, person: &User, reply: Reply) -> Result<Draft, ApiError> {
-    check_body(&reply.body)?;
     let mut connection = state
         .database
         .get()
         .await
         .context("no database connection available")?;
-    let record = timeline_record::find_owned_record(&mut connection, reply.record_id, person.id)
+    let new_draft = reply_draft(&mut connection, person, reply).await?;
+    let created = draft::create(&mut connection, new_draft).await?;
+    announce(state, &created);
+    Ok(created)
+}
+
+/// `person`'s reply to one of their records as a draft not yet stored: its sender and where it
+/// goes, decided through what answers the record's kind, exactly as [`draft_reply`] decides them.
+/// For a caller that stores it in a transaction with more, as a Project Manager's follow-up is
+/// stored with the item it raises; the caller sets `promise_id` and announces it once stored.
+///
+/// # Errors
+/// As [`draft_reply`].
+pub async fn reply_draft(
+    connection: &mut diesel_async::AsyncPgConnection,
+    person: &User,
+    reply: Reply,
+) -> Result<NewDraft, ApiError> {
+    check_body(&reply.body)?;
+    let record = timeline_record::find_owned_record(connection, reply.record_id, person.id)
         .await?
         .ok_or(ApiError::NotFound)?;
     let connector_id = record.connector_id.ok_or_else(|| {
@@ -104,7 +129,7 @@ pub async fn draft_reply(state: &AppState, person: &User, reply: Reply) -> Resul
             "this record did not come from a connector, so it cannot be answered".to_owned(),
         )
     })?;
-    let source = connector::find(&mut connection, connector_id).await?;
+    let source = connector::find(connection, connector_id).await?;
     if !kinds::is_visible(&source, person.id) {
         return Err(ApiError::NotFound);
     }
@@ -128,26 +153,21 @@ pub async fn draft_reply(state: &AppState, person: &User, reply: Reply) -> Resul
             (Sender::Connector(source.id), target, Some(place))
         }
         Replies::Mailbox => {
-            let mailbox = sending_mailbox(&mut connection, person, reply.mail_account_id).await?;
+            let mailbox = sending_mailbox(connection, person, reply.mail_account_id).await?;
             let target = mail_reply::reply_target(&record).map_err(ApiError::BadRequest)?;
             (Sender::Mailbox(mailbox.id), target_value(&target)?, None)
         }
     };
 
-    let created = draft::create(
-        &mut connection,
-        NewDraft {
-            reply_to_record_id: Some(record.id),
-            sender,
-            target,
-            place,
-            body: reply.body,
-            created_by: person.id,
-        },
-    )
-    .await?;
-    announce(state, &created);
-    Ok(created)
+    Ok(NewDraft {
+        reply_to_record_id: Some(record.id),
+        sender,
+        target,
+        place,
+        body: reply.body,
+        created_by: person.id,
+        promise_id: None,
+    })
 }
 
 /// Writes `person`'s new mail as a draft, from one of their mailboxes. Nothing is sent until
@@ -174,6 +194,7 @@ pub async fn draft_mail(state: &AppState, person: &User, mail: NewMail) -> Resul
             place: None,
             body: mail.body,
             created_by: person.id,
+            promise_id: None,
         },
     )
     .await?;
@@ -266,7 +287,12 @@ pub async fn send(state: &AppState, person: &User, id: Uuid) -> Result<Draft, Ap
         .context("no database connection available")?;
     let finished = match delivered {
         Ok(record) => {
-            let (finished, created) = record_sent(&mut connection, &claimed, record).await?;
+            let (finished, created, followed_up) =
+                record_sent(&mut connection, &claimed, record, person).await?;
+            if let Some(resolved) = followed_up {
+                publish_item_write(&state.events, &mut connection, resolved, &[], Utc::now())
+                    .await?;
+            }
             if let Some(created) = created {
                 state.events.publish(&ServerEvent::TimelineRecordCreated {
                     id: created.id,
@@ -404,14 +430,18 @@ pub const MAIL_SOURCE_KIND: &str = "mail";
 
 /// Stores the record a sent draft became and marks it sent, together, and answers the draft
 /// and the record when it is new. A reader that already read the message back keeps its own
-/// record, which the draft then points at.
+/// record, which the draft then points at. A follow-up keeps its promise and resolves its item
+/// as `person` in the same transaction, and answers that item's write for the caller to announce.
 async fn record_sent(
     connection: &mut diesel_async::AsyncPgConnection,
     claimed: &Draft,
     record: NewTimelineRecord,
-) -> Result<(Draft, Option<TimelineRecord>), ApiError> {
+    person: &User,
+) -> Result<(Draft, Option<TimelineRecord>, Option<Recorded<ActionItem>>), ApiError> {
     let now = Utc::now();
     let draft_id = claimed.id;
+    let promise_id = claimed.promise_id;
+    let person_id = person.id;
     let stored = connection
         .transaction(async move |connection| {
             let connector_id = record.connector_id;
@@ -427,13 +457,45 @@ async fn record_sent(
                 }
                 // Only a reader can have recorded the message first, and a mail sent from a
                 // mailbox has no reader and a new Message-ID, so this answers nothing it could.
-                (None, _, _) => return Err(diesel::result::Error::NotFound),
+                (None, _, _) => return Err(diesel::result::Error::NotFound.into()),
             };
             let sent = draft::mark_sent(connection, draft_id, record_id, now).await?;
-            Ok::<_, diesel::result::Error>((sent, created))
+            let followed_up = match promise_id {
+                Some(promise_id) => keep_promise(connection, promise_id, person_id).await?,
+                None => None,
+            };
+            Ok::<_, ApiError>((sent, created, followed_up))
         })
         .await?;
     Ok(stored)
+}
+
+/// Keeps promise `promise_id`, whose follow-up was just sent, and resolves its item as person
+/// `person_id` while it is still in the inbox or open: one the person dismissed or deleted
+/// meanwhile is left where they put it. Answers the item's write, when there was one.
+async fn keep_promise(
+    connection: &mut diesel_async::AsyncPgConnection,
+    promise_id: Uuid,
+    person_id: Uuid,
+) -> Result<Option<Recorded<ActionItem>>, ApiError> {
+    let kept = promise::keep(connection, promise_id).await?;
+    let Some(item_id) = kept.follow_up_item_id else {
+        return Ok(None);
+    };
+    let item = action_item::find(connection, item_id).await?;
+    let still_owed = matches!(item.state, ActionItemState::Inbox | ActionItemState::Open);
+    if item.deleted_at.is_some() || !still_owed {
+        return Ok(None);
+    }
+    let resolved = action_item::transition(
+        connection,
+        item_id,
+        Transition::Resolve,
+        Actor::User(person_id),
+        Utc::now(),
+    )
+    .await?;
+    Ok(Some(resolved))
 }
 
 /// The mailbox `person` sends from: the one they named, or their only one.

@@ -25,7 +25,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{Level, event};
 use uuid::Uuid;
 
-use super::prompt::{self, ProjectBrief, PromptBatch, PromptMessage, PromptRecord, TurnContext};
+use super::prompt::{
+    self, ProjectBrief, PromptBatch, PromptMessage, PromptPromise, PromptRecord, PromptWork,
+    TurnContext,
+};
 use super::queue;
 use super::runner::{ManagerRunner, ManagerTurn, Ran, TurnLog};
 use super::timeline;
@@ -35,8 +38,9 @@ use crate::elysia::prompt::read_back;
 use crate::elysia::runner::{ElysiaOutcome, RunnerError};
 use crate::models::attribution::ELYSIA_ACTOR;
 use crate::models::project_manager::{self, Finished, Turn, TurnStatus, Wake, WakeKind};
+use crate::models::promise::{self, PromiseState, Work};
 use crate::models::user::{self, ELYSIA_USER_ID};
-use crate::models::{project, timeline_record, work_batch};
+use crate::models::{action_item, project, timeline_record, work_batch};
 use crate::realtime::{EventBus, ServerEvent, Signal};
 use crate::tools::grants::Grants;
 use crate::tools::{self, CallScope, ProjectManagerScope};
@@ -54,6 +58,11 @@ pub const MAX_CONCURRENT_TURNS: usize = 2;
 /// rest waits for the next turn, which is due as soon as this one ends; forty keeps each
 /// record's excerpt in the prompt.
 pub const MAX_WAKES_PER_TURN: i64 = 40;
+
+/// The most promises owed a follow-up that one turn carries beyond those that woke it. A promise
+/// whose work finished is listed every turn until it is drafted, so a turn that failed never
+/// strands one; this bounds the prompt should many come due at once.
+const MAX_DUE_PROMISES_PER_TURN: i64 = 20;
 
 /// The error recorded for a turn the engine stopped in the middle of.
 const INTERRUPTED_ERROR: &str =
@@ -287,6 +296,7 @@ async fn load_context(
     let mut messages = Vec::new();
     let mut record_ids = Vec::new();
     let mut batch_ids = Vec::new();
+    let mut promise_ids = Vec::new();
     for wake in wakes {
         match wake.kind {
             WakeKind::Message => messages.push(PromptMessage {
@@ -300,6 +310,7 @@ async fn load_context(
             }),
             WakeKind::Record => record_ids.extend(wake.timeline_record_id),
             WakeKind::Batch => batch_ids.extend(wake.work_batch_id),
+            WakeKind::Promise => promise_ids.extend(wake.promise_id),
         }
     }
 
@@ -321,16 +332,27 @@ async fn load_context(
             })
             .collect();
     records.sort_by_key(|record| record.occurred_at);
+    let mut waiting_by_batch: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for waiting in promise::waiting_on_batches(connection, &batch_ids).await? {
+        if let Some(batch_id) = waiting.work_batch_id {
+            waiting_by_batch
+                .entry(batch_id)
+                .or_default()
+                .push(waiting.id);
+        }
+    }
     let batches = work_batch::find_many(connection, &batch_ids)
         .await?
         .into_iter()
         .map(|batch| PromptBatch {
+            waiting_promises: waiting_by_batch.remove(&batch.id).unwrap_or_default(),
             id: batch.id,
             title: batch.title,
             state: batch.state,
             result: batch.result,
         })
         .collect();
+    let promises = load_promises(connection, turn.project_id, promise_ids, &names).await?;
 
     // Wakes from before the project's previous turn started, which that turn failed without
     // doing, were handed back to this one.
@@ -354,9 +376,104 @@ async fn load_context(
         messages,
         records,
         batches,
+        promises,
         retried,
         still_waiting: project_manager::waiting_count(connection, turn.project_id).await?,
     })
+}
+
+/// The promises a turn acts on: those that woke it, and every one of the project's still owed a
+/// follow-up, each with where it was made and the work it waits on. A promise the person already
+/// decided on, or one taken off the project, is left out.
+async fn load_promises(
+    connection: &mut AsyncPgConnection,
+    project_id: Uuid,
+    mut ids: Vec<Uuid>,
+    names: &HashMap<Uuid, String>,
+) -> anyhow::Result<Vec<PromptPromise>> {
+    let owed = promise::list_for_project(
+        connection,
+        project_id,
+        &[PromiseState::Due],
+        MAX_DUE_PROMISES_PER_TURN,
+    )
+    .await?;
+    ids.extend(owed.iter().map(|due| due.id));
+    ids.sort_unstable();
+    ids.dedup();
+
+    let mut found = promise::find_many(connection, &ids).await?;
+    found.retain(|candidate| {
+        candidate.project_id == project_id
+            && matches!(candidate.state, PromiseState::Waiting | PromiseState::Due)
+    });
+    found.sort_by_key(|candidate| candidate.id);
+
+    let record_ids: Vec<Uuid> = found.iter().map(|made| made.timeline_record_id).collect();
+    let records: HashMap<Uuid, timeline_record::TimelineRecord> =
+        timeline_record::find_many(connection, &record_ids)
+            .await?
+            .into_iter()
+            .map(|record| (record.id, record))
+            .collect();
+    let mut batch_ids = Vec::new();
+    let mut item_ids = Vec::new();
+    for made in &found {
+        match made.work() {
+            Some(Work::Batch(batch_id)) => batch_ids.push(batch_id),
+            Some(Work::Item(item_id)) => item_ids.push(item_id),
+            None => {}
+        }
+    }
+    let mut works: HashMap<Uuid, PromptWork> = HashMap::new();
+    for batch in work_batch::find_many(connection, &batch_ids).await? {
+        works.insert(
+            batch.id,
+            PromptWork::Batch {
+                id: batch.id,
+                title: batch.title,
+                state: batch.state,
+                result: batch.result,
+            },
+        );
+    }
+    for item_id in item_ids {
+        let item = action_item::find(connection, item_id).await?;
+        works.insert(
+            item.id,
+            PromptWork::Item {
+                id: item.id,
+                title: item.title,
+                state: item.state,
+            },
+        );
+    }
+
+    let mut promises = Vec::with_capacity(found.len());
+    for made in found {
+        let Some(record) = records.get(&made.timeline_record_id) else {
+            continue;
+        };
+        let work_id = match made.work() {
+            Some(Work::Batch(id) | Work::Item(id)) => Some(id),
+            None => None,
+        };
+        promises.push(PromptPromise {
+            id: made.id,
+            person: names
+                .get(&record.created_by)
+                .cloned()
+                .unwrap_or_else(|| "The person".to_owned()),
+            recipient: made.recipient,
+            summary: made.summary,
+            record_id: record.id,
+            record_title: record.title.clone(),
+            said: record.body.clone(),
+            state: made.state,
+            work: work_id.and_then(|id| works.get(&id).cloned()),
+        });
+    }
+    Ok(promises)
 }
 
 /// Records how the turn ended, and announces it.
