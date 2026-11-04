@@ -455,6 +455,103 @@ mod tests {
         );
     }
 
+    /// A meeting fetched before segmenting was a step of its run is carried on by a run that
+    /// enters at segmenting, with what the meeting holds, as the steps before would hand it on.
+    #[tokio::test]
+    #[ignore = "needs TEST_DATABASE_URL; run api/scripts/verify-migrations.sh"]
+    async fn a_meeting_fetched_before_segmenting_was_a_step_enters_its_run_there() {
+        use crate::meetings::correction;
+        use crate::models::meeting::Fetched;
+        use crate::models::meeting_correction::{self, NewMeetingCorrection};
+
+        let (_url, mut connection) = migrated_database().await;
+        let events = EventBus::in_process();
+        let heard = vec![TranscriptLine {
+            start_ms: 0,
+            end_ms: 3_000,
+            speaker: "Ada".to_owned(),
+            text: "Jon ships Friday".to_owned(),
+        }];
+        let pending = meeting::insert_new(&mut connection, new_meeting())
+            .await
+            .expect("insert")
+            .expect("new");
+        let fetched = meeting::record_fetched(
+            &mut connection,
+            pending.id,
+            Fetched {
+                transcript: serde_json::to_value(&heard).expect("serializes"),
+                transcript_hash: fetch::transcript_hash(&heard),
+                recording: None,
+            },
+        )
+        .await
+        .expect("records")
+        .expect("the first fetch");
+        let mut corrected = heard.clone();
+        corrected[0].text = "John ships Friday".to_owned();
+        let corrected_hash = correction::transcript_hash(&corrected);
+        meeting_correction::record(
+            &mut connection,
+            NewMeetingCorrection {
+                meeting_id: fetched.id,
+                transcript: serde_json::to_value(&corrected).expect("serializes"),
+                transcript_hash: corrected_hash.clone(),
+                based_on: "source".to_owned(),
+                source_transcript_hash: fetch::transcript_hash(&heard),
+                whisper_transcript_hash: None,
+                changed_lines: 1,
+                fixes: json!([]),
+            },
+        )
+        .await
+        .expect("records")
+        .expect("new");
+        meeting_correction::approve(&mut connection, fetched.id, TEST_PERSON_ID, Utc::now())
+            .await
+            .expect("approved");
+
+        let new_run = run_from_segmenting(&mut connection, &fetched)
+            .await
+            .expect("builds");
+        assert_eq!(new_run.steps, vec!["segment_meeting".to_owned()]);
+        let input: TranscriptToSegment =
+            serde_json::from_value(new_run.input.clone()).expect("reads");
+        let TranscriptToSegment::Meeting(input) = input else {
+            panic!("a meeting enters as a meeting, not {input:?}");
+        };
+        assert_eq!(input.meeting_id, fetched.id);
+        assert_eq!(input.transcript_hash, fetched.transcript_hash);
+        assert_eq!(input.corrected_transcript_hash, Some(corrected_hash));
+        assert!(input.approved);
+
+        // Once started, the run carries the meeting: the loop starts no other.
+        let started = workflows::start(&mut connection, &events, new_run)
+            .await
+            .expect("starts");
+        let run = started.settled.run;
+        let segments = segmenting_runs(&mut connection, &[&run])
+            .await
+            .expect("reads")
+            .contains(&run.id);
+        assert!(segments);
+        assert_eq!(
+            run_to_start(fetched.state(), Some(run.state), segments),
+            None
+        );
+
+        // A meeting fetched before transcripts were hashed enters with its stored transcript's hash.
+        let mut unhashed = fetched;
+        unhashed.transcript_hash = None;
+        let unhashed_run = run_from_segmenting(&mut connection, &unhashed)
+            .await
+            .expect("builds");
+        assert_eq!(
+            unhashed_run.input["transcriptHash"],
+            json!(fetch::transcript_hash(&heard))
+        );
+    }
+
     fn new_meeting() -> NewMeeting {
         NewMeeting {
             id: Uuid::now_v7(),

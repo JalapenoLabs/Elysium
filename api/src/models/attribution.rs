@@ -216,7 +216,7 @@ pub async fn attribute(
 }
 
 /// Takes record `record_id` off project `project_id` as `by`, and records it. Elysia only ever
-/// removes her own attributions; a person's stays.
+/// removes her own attributions, and none a person decided on; a person's stays.
 ///
 /// # Errors
 /// Propagates any database error.
@@ -231,8 +231,12 @@ pub async fn unattribute(
             let Some(before) = locked(connection, record_id, project_id).await? else {
                 return Ok(Written::Unchanged);
             };
-            if by == Attributor::Elysia && before.attributed_by != ELYSIA_ACTOR {
-                return Ok(Written::PersonDecided);
+            if by == Attributor::Elysia {
+                // An attribution of hers a person put back, by undoing its removal, is theirs to keep.
+                let persons = before.attributed_by != ELYSIA_ACTOR;
+                if persons || person_decided(connection, record_id, project_id).await? {
+                    return Ok(Written::PersonDecided);
+                }
             }
             remove(connection, record_id, project_id).await?;
             let entry = record(
@@ -543,6 +547,14 @@ mod tests {
             .await
             .expect("undone");
         assert_eq!(restored.data["undid"], json!(removed.id));
+        assert_eq!(held(&mut connection, record).await, vec![elysias(0.7)]);
+        // Put back by the person, it is theirs to keep: a later reading that drops it leaves it.
+        assert!(matches!(
+            unattribute(&mut connection, record, project, Attributor::Elysia)
+                .await
+                .expect("runs"),
+            Written::PersonDecided
+        ));
         assert_eq!(held(&mut connection, record).await, vec![elysias(0.7)]);
         // The removal was undone since, so undoing it again would overwrite that.
         assert!(matches!(
