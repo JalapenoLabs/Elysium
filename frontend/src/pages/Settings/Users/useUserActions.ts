@@ -67,7 +67,7 @@ export function useUserActions() {
     confirm({
       title: t('reject.title'),
       message: t('reject.message', { name: user.name, email: user.email }),
-      tone: 'danger',
+      isIrreversible: true,
       confirmText: t('reject.confirm'),
       onConfirm: async () => {
         try {
@@ -154,7 +154,7 @@ export function useUserActions() {
     confirm({
       title: t('resetMfa.title'),
       message: t('resetMfa.message', { name: user.name }),
-      tone: 'danger',
+      isIrreversible: true,
       confirmText: t('resetMfa.confirm'),
       onConfirm: async () => {
         try {

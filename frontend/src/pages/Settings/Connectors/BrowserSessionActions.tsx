@@ -53,8 +53,8 @@ export function BrowserSessionActions(props: Props) {
   function confirmReset() {
     confirm({
       title: t('reset.title', { name: props.name }),
-      message: t('reset.body'),
-      tone: 'danger',
+      message: t('reset.body', { name: props.name }),
+      isIrreversible: true,
       confirmText: t('reset.confirm'),
       onConfirm: async () => {
         try {

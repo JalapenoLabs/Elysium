@@ -221,8 +221,9 @@ Studio sessions publish `session.upserted` and `session.event` like any session.
 - **Composer** (`StudioComposer`). It wraps the Coding page's `PromptComposer` and sends through `sendStudioTurn`.
   It waits while the item's sessions load, and asks for what to make when the item has never run.
 - **Deleted items.** A deleted item is read-only under a banner with Restore. A pull error shows as a banner too.
-- **Delete** (`StudioItemActions`). It confirms through `useConfirm`, whose message (`DeleteStudioItemMessage`) holds
-  the unchecked permanent box. A soft delete rereads the item to show it deleted; a permanent one returns to the grid.
+- **Delete** (`StudioItemActions`). It confirms through `useConfirm` with one switch, off when it opens, that makes the
+  delete permanent; turned on, the dialog says it can't be undone and counts down. A soft delete rereads the item to
+  show it deleted; a permanent one returns to the grid.
 
 ### 3D viewer
 

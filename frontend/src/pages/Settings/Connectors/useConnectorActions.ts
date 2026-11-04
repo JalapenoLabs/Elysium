@@ -13,6 +13,7 @@ import { checkRunLoaded, connectorDeleted, connectorUpserted } from '../../../st
 
 // Misc
 import { getApiErrorMessage } from '../../../api/errors'
+import { accountNameOf } from './connectorPresentation'
 import {
   deleteConnector,
   runConnectorChecks,
@@ -70,19 +71,28 @@ export function useConnectorActions(options: Options = {}) {
         dispatch(connectorUpserted(response.connector))
         toast.success(t('actions.saved'))
       }, { action, connectorId: connector.id }),
-      delete: () => confirm({
-        title: t('actions.deleteTitle'),
-        // Only a connector read through a browser is ever without its account, while it waits.
-        message: t(deleteBodyKeyByAccount[connector.account?.kind ?? 'browser']),
-        tone: 'danger',
-        confirmText: t('actions.delete'),
-        onConfirm: () => attempt(async () => {
-          await deleteConnector(connector.id)
-          dispatch(connectorDeleted(connector.id))
-          toast.success(t('actions.deleted'))
-          options.onDeleted?.()
-        }, { action, connectorId: connector.id }),
-      }),
+      delete: () => {
+        // Named as its row names it: the kind, and the account it reads as when it shows one.
+        const kindName = t(`kinds.${connector.kind}.name`)
+        const accountName = accountNameOf(connector)
+        const name = accountName
+          ? t('actions.deleteName', { kind: kindName, account: accountName })
+          : kindName
+
+        confirm({
+          title: t('actions.deleteTitle', { name }),
+          // Only a connector read through a browser is ever without its account, while it waits.
+          message: t(deleteBodyKeyByAccount[connector.account?.kind ?? 'browser'], { name }),
+          isIrreversible: true,
+          confirmText: t('actions.delete'),
+          onConfirm: () => attempt(async () => {
+            await deleteConnector(connector.id)
+            dispatch(connectorDeleted(connector.id))
+            toast.success(t('actions.deleted'))
+            options.onDeleted?.()
+          }, { action, connectorId: connector.id }),
+        })
+      },
     } as const satisfies Record<ConnectorAction, () => unknown>
     void handlers[action]()
   }

@@ -35,7 +35,7 @@
   },
   "delete": {
     "title": "Delete {{name}}?",
-    "body": "The project is removed permanently.",
+    "body": "{{name}} is deleted.",
     "hasSessions_one": "{{name}} still has {{count, compact}} coding session. Delete it before deleting the project.",
     "hasSessions_other": "{{name}} still has {{count, compact}} coding sessions. Delete them before deleting the project.",
     "confirm": "Delete project"

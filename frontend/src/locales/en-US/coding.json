@@ -139,7 +139,7 @@
   },
   "delete": {
     "title": "Delete {{title}}?",
-    "body": "The session's turns stop, and its directory, with its clones and history, is removed. This cannot be undone."
+    "body": "“{{title}}” stops, and its directory, with its clones and history, is deleted."
   },
   "conversation": {
     "fromItem": "From {{title}}",

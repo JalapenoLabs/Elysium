@@ -118,7 +118,7 @@
     "loadError": "Comments could not be loaded.",
     "editTitle": "Edit the comment",
     "deleteTitle": "Delete this comment?",
-    "deleteBody": "The comment is removed. It stays in the item's history."
+    "deleteBody": "This comment is deleted. It stays in the item's history."
   },
   "history": {
     "heading": "History",

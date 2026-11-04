@@ -55,8 +55,8 @@ export function ManageStoragePage() {
   function confirmDelete(location: StorageLocation) {
     confirm({
       title: t('delete.title', { name: location.name }),
-      message: t('delete.body'),
-      tone: 'danger',
+      message: t('delete.body', { name: location.name }),
+      isIrreversible: true,
       confirmText: t('common:actions.delete'),
       onConfirm: async () => {
         try {

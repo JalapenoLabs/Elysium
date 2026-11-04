@@ -88,9 +88,9 @@ export function MailServerSection() {
     confirm({
       title: t('removeDomain.title', { name: domain.name }),
       message: mailboxCount
-        ? t('removeDomain.hasMailboxes', { count: mailboxCount })
-        : t('removeDomain.description'),
-      tone: 'danger',
+        ? t('removeDomain.hasMailboxes', { count: mailboxCount, name: domain.name })
+        : t('removeDomain.description', { name: domain.name }),
+      isIrreversible: true,
       confirmText: t('removeDomain.action'),
       // The API refuses while mailboxes remain.
       canConfirm: mailboxCount === 0,
@@ -101,7 +101,7 @@ export function MailServerSection() {
         catch (error) {
           // A 409 means a mailbox was added elsewhere since the dialog opened.
           const description = error instanceof HTTPError && error.response.status === 409
-            ? t('removeDomain.hasMailboxes', { count: Math.max(mailboxCount, 1) })
+            ? t('removeDomain.hasMailboxes', { count: Math.max(mailboxCount, 1), name: domain.name })
             : getUpstreamErrorMessage(error) ?? t('common:errors.unexpected')
           console.debug('MailServerSection failed to remove the domain', { error, domainId: domain.id })
           toast.danger(t('toasts.domainRemoveFailed', { name: domain.name }), { description })

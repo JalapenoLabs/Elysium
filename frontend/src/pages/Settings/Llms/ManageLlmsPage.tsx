@@ -42,8 +42,8 @@ export function ManageLlmsPage() {
   function confirmDelete(llm: Llm) {
     confirm({
       title: t('delete.title', { name: llm.name }),
-      message: t('delete.body'),
-      tone: 'danger',
+      message: t('delete.body', { name: llm.name }),
+      isIrreversible: true,
       confirmText: t('common:actions.delete'),
       onConfirm: async () => {
         try {

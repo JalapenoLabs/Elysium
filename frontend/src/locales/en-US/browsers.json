@@ -6,7 +6,7 @@
   },
   "reset": {
     "title": "Reset {{name}}?",
-    "body": "This empties the browser's profile, which signs it out of every account it is signed in to on this host. It then starts again at its sign-in page, ready for you to sign in. The accounts themselves are untouched.",
+    "body": "{{name}}'s profile is emptied, signing it out of every account it is signed in to on this host, and it starts again at its sign-in page. The accounts themselves are untouched.",
     "confirm": "Reset browser"
   },
   "toasts": {

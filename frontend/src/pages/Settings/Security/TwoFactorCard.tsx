@@ -52,8 +52,10 @@ export function TwoFactorCard(props: Props) {
   function remove() {
     confirm({
       title: t('security.twoFactor.removeTitle'),
-      message: t('security.twoFactor.removeMessage'),
-      tone: 'danger',
+      message: t('security.twoFactor.removeMessage', {
+        name: nickname || t('security.twoFactor.unnamedApp'),
+      }),
+      isIrreversible: true,
       confirmText: t('security.twoFactor.remove'),
       onConfirm: async () => {
         const isRemoved = await props.onSubmit(

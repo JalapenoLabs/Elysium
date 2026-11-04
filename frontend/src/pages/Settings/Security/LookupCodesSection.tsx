@@ -47,7 +47,7 @@ export function LookupCodesSection(props: Props) {
     confirm({
       title: t('security.lookup.disableTitle'),
       message: t('security.lookup.disableMessage'),
-      tone: 'danger',
+      isIrreversible: true,
       confirmText: t('security.lookup.disable'),
       onConfirm: async () => {
         await props.onSubmit({ method: 'lookup_secret', lookup_secret_disable: true }, t('security.lookup.disabled'))

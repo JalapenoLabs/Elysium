@@ -99,7 +99,7 @@
   },
   "delete": {
     "title": "Delete {{name}}?",
-    "body": "Elysium stops saving files here. Files it already saved stay in the storage zone; delete them from Bunny's dashboard if you no longer need them.",
+    "body": "Elysium stops saving files to {{name}}. Files it already saved stay where they are.",
     "backupDestination": "The databases are backed up here. Choose another location in Settings, Backups first."
   },
   "toasts": {

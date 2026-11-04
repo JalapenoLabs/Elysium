@@ -71,9 +71,9 @@
   },
   "removeDomain": {
     "title": "Remove {{name}}?",
-    "description": "The mail server stops hosting it and deletes its DKIM signing keys.",
-    "hasMailboxes_one": "Delete its {{count, compact}} mailbox first.",
-    "hasMailboxes_other": "Delete its {{count, compact}} mailboxes first.",
+    "description": "The mail server stops hosting {{name}} and deletes its DKIM signing keys.",
+    "hasMailboxes_one": "Delete the {{count, compact}} mailbox on {{name}} first.",
+    "hasMailboxes_other": "Delete the {{count, compact}} mailboxes on {{name}} first.",
     "action": "Remove"
   },
   "dns": {
@@ -182,8 +182,8 @@
   "disconnect": {
     "title": "Disconnect {{address}}?",
     "deleteTitle": "Delete {{address}}?",
-    "selfHosted": "This deletes the mailbox from Elysium's mail server, along with every message in it. The address becomes available again.",
-    "oauth": "Elysium forgets this account and its credential. The mailbox itself is untouched, and you can also revoke Elysium's access from your {{provider}} account settings."
+    "selfHosted": "{{address}} is deleted from Elysium's mail server, along with every message in it. The address becomes available again.",
+    "oauth": "Elysium forgets {{address}} and its credential. The mailbox itself is untouched, and you can also revoke Elysium's access from your {{provider}} account settings."
   },
   "toasts": {
     "created": "{{address}} created",

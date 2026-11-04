@@ -130,9 +130,8 @@
   "delete": {
     "action": "Delete",
     "title": "Delete {{title}}?",
-    "body": "The item leaves the grid and its agent stops. You can restore it from Deleted items.",
+    "body": "“{{title}}” leaves the grid and its agent stops.",
     "permanently": "Also permanently delete its files, conversation, and agent memory",
-    "permanentlyWarning": "This cannot be undone.",
     "confirm": "Delete"
   },
   "toasts": {

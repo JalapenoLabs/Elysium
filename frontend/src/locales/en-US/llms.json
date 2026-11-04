@@ -71,7 +71,7 @@
   },
   "delete": {
     "title": "Delete {{name}}?",
-    "body": "The credential and its encrypted token are removed permanently. This cannot be undone."
+    "body": "{{name}} and its encrypted token are deleted."
   },
   "toasts": {
     "created": "{{name}} added",

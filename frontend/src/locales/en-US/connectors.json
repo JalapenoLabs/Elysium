@@ -49,12 +49,13 @@
     "saved": "Saved",
     "deleted": "Connector removed",
     "syncing": "Syncing now",
-    "deleteTitle": "Remove this connector?",
+    "deleteTitle": "Remove {{name}}?",
+    "deleteName": "{{kind}} for {{account}}",
     "deleteBody": {
-      "atlassian": "Its Atlassian account is removed with it, along with any action item links made through it. The token stays valid on Atlassian until you revoke it there. What it recorded stays on the timeline.",
-      "github": "Its GitHub account is removed with it, along with any coding session or action item link that uses its token. The token stays valid on GitHub until you revoke it there.",
-      "browser": "Its browser is removed with it, signing it out of everything it was signed in to on this host. What it recorded stays on the timeline.",
-      "token": "Its key is forgotten. The key stays valid with its provider until you revoke it there. What it recorded stays on the timeline."
+      "atlassian": "{{name}} and its Atlassian account are removed, along with any action item links made through it. The token stays valid on Atlassian until you revoke it there. What it recorded stays on the timeline.",
+      "github": "{{name}} and its GitHub account are removed, along with any coding session or action item link that uses its token. The token stays valid on GitHub until you revoke it there.",
+      "browser": "{{name}} and its browser are removed, signing the browser out of everything it was signed in to on this host. What it recorded stays on the timeline.",
+      "token": "{{name}} and its key are removed. The key stays valid with its provider until you revoke it there. What it recorded stays on the timeline."
     }
   },
   "kinds": {

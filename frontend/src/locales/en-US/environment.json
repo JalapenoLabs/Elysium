@@ -53,7 +53,7 @@
   },
   "delete": {
     "title": "Delete {{key}}?",
-    "body": "Sessions opened from now on no longer receive this variable. Sessions already running keep it."
+    "body": "Sessions opened from now on no longer receive {{key}}. Sessions already running keep it."
   },
   "toasts": {
     "created": "{{key}} added",

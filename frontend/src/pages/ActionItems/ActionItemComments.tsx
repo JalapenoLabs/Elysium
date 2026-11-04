@@ -103,8 +103,14 @@ export function ActionItemComments(props: Props) {
   function remove(comment: ActionItemComment) {
     confirm({
       title: t('comments.deleteTitle'),
-      message: t('comments.deleteBody'),
-      tone: 'danger',
+      // A comment has no name, so its own words say which one goes.
+      message: <>
+        <p className='compact'>{t('comments.deleteBody')}</p>
+        <blockquote className='compact line-clamp-3 border-l-2 border-separator pl-3 whitespace-pre-wrap opacity-80'>{
+          comment.body
+        }</blockquote>
+      </>,
+      isIrreversible: true,
       confirmText: t('common:actions.delete'),
       onConfirm: async () => {
         try {

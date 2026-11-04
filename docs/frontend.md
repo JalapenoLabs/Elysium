@@ -305,14 +305,29 @@ See `docs/mcp.md`.
 the whole app. `useConfirm()` and `usePrompt()` return a function that opens it with options, so a page describes
 the question and what happens next instead of owning dialog state:
 
-- `confirm({ title, message, tone, confirmText, canConfirm, onConfirm })`. `tone: 'danger'` shows a danger icon
-  and button. `canConfirm: false` turns the dialog into an explanation with only Close, for an action that is
-  blocked.
+- `confirm({ title, message, tone, isIrreversible, switches, confirmText, canConfirm, onConfirm })`.
+  - `tone: 'danger'` shows a danger icon and button, and Enter never confirms it, even with the button focused.
+    Otherwise the dialog opens with the confirm button focused, so Enter confirms.
+  - `isIrreversible` is for what can't be undone, such as a permanent delete. The dialog is `danger`, says in bold
+    that it can't be undone, and holds its button for five seconds (`IRREVERSIBLE_CONFIRM_SECONDS`), counting
+    down in its label (`CountdownButton`). The message names what is deleted, since the body is what people read.
+  - `switches` are options the action can take, such as also deleting what it would keep, each a switch that starts
+    off. `onConfirm` receives the ids left on. A switch with `makesIrreversible` turns the dialog irreversible while
+    it is on, starting the count again.
+  - `canConfirm: false` turns the dialog into an explanation with only Got it, for an action that is blocked.
 - `prompt({ title, label, defaultValue, description, isOptional, maxLength, isMultiline, onSubmit })` asks for one
   value and passes it trimmed.
 
 Both keep the dialog open, the button pending, while the callback runs. It closes when the callback resolves and
-stays open when it throws, so a callback reports its own failure (a toast) and rethrows to let the user retry.
+stays open when it throws, so a callback reports its own failure (a toast) and rethrows to let the user retry. Esc
+closes either, except while its callback runs. No dialog's button says Close: a dialog with nothing to confirm says
+Done or Got it, and one that abandons something says Cancel.
+
+Every permanent delete confirms with `isIrreversible`, as does anything else that can't be taken back: resetting a
+browser's profile, turning off lookup codes, removing a passkey or an authenticator, rejecting a sign-up. A delete
+that can be undone does not: deleting an action item, an initiative, or a Studio item (unless its switch makes it
+permanent) is soft, and asks without the countdown until it moves to an Undo toast, as learnings already have.
+Changes that are not deletes (unlinking, disabling an account, undoing a changeset) confirm with `tone: 'danger'`.
 
 `src/gates/ReportIssueGate.tsx` holds the one report dialog, inside `AppShell` so its links navigate in the app. Any
 surface that shows an error offers Report with `ReportIssueButton` or `useReportIssue()(subject)`; see
@@ -464,8 +479,8 @@ page folds it in, in the settings frame:
   says Built-in where the row menu would be; the workspace's own have a menu (`LearningCategoryRowActions`) to edit,
   move up or down, and remove.
 - **Removing** (`RemoveLearningCategoryModal`) names the category, says in bold that it can't be undone, and holds its
-  button for five seconds. When learnings are filed under it, it asks where they move, and the button waits for an
-  answer too.
+  button for five seconds with the same `CountdownButton` the confirm gate uses. When learnings are filed under it, it
+  asks where they move, and the button waits for an answer too.
 - **New and edit** are their own pages over `LearningCategoryForm`, saved from the header's Save. A new category's key
   follows its name (`keyFromLabel`) until the key is typed by hand, and is read-only once saved. What a new one holds
   is kept in session storage (`newLearningCategoryDraft.ts`) until it is saved. `learningCategoryFormSchema.ts`

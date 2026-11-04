@@ -36,8 +36,8 @@ export function ManageEnvironmentPage() {
   function confirmDelete(variable: EnvironmentVariable) {
     confirm({
       title: t('delete.title', { key: variable.key }),
-      message: t('delete.body'),
-      tone: 'danger',
+      message: t('delete.body', { key: variable.key }),
+      isIrreversible: true,
       confirmText: t('common:actions.delete'),
       onConfirm: async () => {
         try {

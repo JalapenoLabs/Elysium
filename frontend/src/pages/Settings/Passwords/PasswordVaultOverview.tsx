@@ -51,12 +51,11 @@ export function PasswordVaultOverview(props: Props) {
     setIsSyncing(false)
   }
 
-  // Removing is permanent, so it is confirmed in a dialog, away from the button that asked.
   function remove() {
     confirm({
       title: t('remove.title', { email: vault.accountEmail }),
-      message: t('remove.confirm'),
-      tone: 'danger',
+      message: t('remove.body', { email: vault.accountEmail }),
+      isIrreversible: true,
       confirmText: t('actions.remove'),
       onConfirm: async () => {
         try {
@@ -65,6 +64,7 @@ export function PasswordVaultOverview(props: Props) {
         catch (error) {
           console.debug('PasswordVaultOverview could not remove the vault', { error })
           toast.danger(t('toasts.failed'), { description: getApiErrorMessage(error) ?? undefined })
+          // Keeps the dialog open to try again.
           throw error
         }
         dispatch(passwordVaultDeleted())

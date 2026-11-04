@@ -94,9 +94,14 @@ export function ManageEmailPage() {
         ? t('disconnect.deleteTitle', { address: account.address })
         : t('disconnect.title', { address: account.address }),
       message: isSelfHosted
-        ? t('disconnect.selfHosted')
-        : t('disconnect.oauth', { provider: t(mailAccountKindLabelKeys[account.kind]) }),
+        ? t('disconnect.selfHosted', { address: account.address })
+        : t('disconnect.oauth', {
+          address: account.address,
+          provider: t(mailAccountKindLabelKeys[account.kind]),
+        }),
       tone: 'danger',
+      // Deleting a self-hosted mailbox deletes its mail; an OAuth account can be connected again.
+      isIrreversible: isSelfHosted,
       confirmText: isSelfHosted
         ? t('actions.deleteMailbox')
         : t('actions.disconnect'),

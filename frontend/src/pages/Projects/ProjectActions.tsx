@@ -46,8 +46,8 @@ export function ProjectActions(props: Props) {
       title: t('delete.title', { name }),
       message: hasSessions
         ? t('delete.hasSessions', { name, count: props.sessionCount })
-        : t('delete.body'),
-      tone: 'danger',
+        : t('delete.body', { name }),
+      isIrreversible: true,
       confirmText: t('delete.confirm'),
       // Nothing to confirm while sessions remain: the API would refuse.
       canConfirm: !hasSessions,

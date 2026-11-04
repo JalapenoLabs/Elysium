@@ -34,9 +34,9 @@ export function RegisteredClients(props: Props) {
     const name = client.name || t('mcp.unnamed')
     confirm({
       title: t('mcp.clients.confirmTitle', { name }),
-      message: t('mcp.clients.confirmMessage'),
+      message: t('mcp.clients.confirmMessage', { name }),
       confirmText: t('mcp.clients.delete'),
-      tone: 'danger',
+      isIrreversible: true,
       onConfirm: async () => {
         try {
           await deleteOAuthClient(client.id)

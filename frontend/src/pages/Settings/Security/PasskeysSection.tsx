@@ -55,7 +55,7 @@ export function PasskeysSection(props: Props) {
     confirm({
       title: t('security.passkeys.removeTitle'),
       message: t('security.passkeys.removeMessage', { name }),
-      tone: 'danger',
+      isIrreversible: true,
       confirmText: t('security.passkeys.remove'),
       onConfirm: async () => {
         await props.onSubmit({ method: 'passkey', passkey_remove: passkeyId }, t('security.passkeys.removed'))

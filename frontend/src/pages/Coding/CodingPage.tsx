@@ -96,8 +96,8 @@ export function CodingPage() {
     },
     deleteSession: (session) => confirm({
       title: t('delete.title', { title: session.title }),
-      message: t('delete.body'),
-      tone: 'danger',
+      message: t('delete.body', { title: session.title }),
+      isIrreversible: true,
       confirmText: t('common:actions.delete'),
       onConfirm: async () => {
         try {

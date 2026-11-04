@@ -15,7 +15,6 @@ import { studioItemDeleted } from '../../store/studioItemsSlice'
 // User interface
 import { Button, Dropdown, Label, Tooltip } from '@heroui/react'
 import { LuEllipsis } from 'react-icons/lu'
-import { DeleteStudioItemMessage } from './DeleteStudioItemMessage'
 
 // Misc
 import { getApiErrorMessage } from '../../api/errors'
@@ -24,12 +23,15 @@ import { useConfirm } from '../../hooks/useConfirm'
 import { UrlTree } from '../../urls'
 import { toast } from '../../toast/toast'
 
+// The delete dialog's one switch, which makes the delete permanent.
+const PERMANENT_SWITCH_ID = 'permanently'
+
 type Props = {
   item: StudioItem
 }
 
-// The item's menu. Its one action, Delete, confirms first and is soft unless the box for a
-// permanent delete is checked.
+// The item's menu. Its one action, Delete, confirms first and is soft unless its switch for a
+// permanent delete is turned on, which makes the dialog count down as any permanent delete does.
 export function StudioItemActions(props: Props) {
   const { t } = useTranslation([ 'studio', 'common' ])
   const dispatch = useAppDispatch()
@@ -38,21 +40,20 @@ export function StudioItemActions(props: Props) {
   const item = props.item
 
   function confirmDelete() {
-    // The box lives in the dialog; this holds its last state for the confirm to read.
-    const choice = { isPermanent: false }
-
     confirm({
       title: t('delete.title', { title: item.title }),
-      message: <DeleteStudioItemMessage
-        onPermanentChange={(isPermanent) => {
-          choice.isPermanent = isPermanent
-        }}
-      />,
+      message: t('delete.body', { title: item.title }),
       tone: 'danger',
+      switches: [{
+        id: PERMANENT_SWITCH_ID,
+        label: t('delete.permanently'),
+        makesIrreversible: true,
+      }],
       confirmText: t('delete.confirm'),
-      onConfirm: async () => {
+      onConfirm: async (switchedOn) => {
+        const isPermanent = switchedOn.has(PERMANENT_SWITCH_ID)
         try {
-          await deleteStudioItem(item.id, { permanently: choice.isPermanent })
+          await deleteStudioItem(item.id, { permanently: isPermanent })
         }
         catch (error) {
           // A provider that refused a file keeps the item, and the answer names the failure.
@@ -67,7 +68,7 @@ export function StudioItemActions(props: Props) {
           throw error
         }
 
-        if (choice.isPermanent) {
+        if (isPermanent) {
           dispatch(studioItemDeleted(item.id))
           toast.success(t('toasts.deletedPermanently', { title: item.title }))
           navigate(UrlTree.studio)

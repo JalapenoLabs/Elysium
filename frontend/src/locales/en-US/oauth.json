@@ -59,7 +59,7 @@
       "registeredOn": "Registered {{date}}",
       "delete": "Delete",
       "confirmTitle": "Delete {{name}}?",
-      "confirmMessage": "Everyone who connected it is disconnected at once.",
+      "confirmMessage": "Everyone who connected {{name}} is disconnected at once.",
       "deleted": "{{name}} deleted",
       "loadError": "Couldn't load the registered clients.",
       "deleteError": "Couldn't delete {{name}}. It is still registered; try again."
