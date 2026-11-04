@@ -78,11 +78,11 @@ Access is checked once, on the caller's role: admins, members, and agents acting
 tools refuse a guest themselves from the first build, rather than waiting on guest rooms, because until roles are
 built out a guest has a member's access (`docs/auth.md`).
 
-The learning routes and tools, and the knowledge routes and tools (`/api/v1/knowledge`: the search, a document, and
-the meetings), are built to this rule: they answer admins and members, and refuse a guest with `403` and the code
-`members_only` (`MemberUser` in `api/src/auth/`). None carries a per-owner predicate; the `person` filter is a
-parameter like the others. An agent's turn reads for whoever started its session, checked on every call, so a
-session a guest started reaches none of it; Elysia's turns read as herself (MCP, below).
+The learning routes and tools, and the knowledge routes and tools (`/api/v1/knowledge`: the search, a document, and the
+meetings), are built to this rule: they answer admins and members, and refuse a guest with `403` and the code
+`members_only` (`MemberUser` in `api/src/auth/`), as the agent guidance's routes do. None carries a per-owner predicate;
+the `person` filter is a parameter like the others. An agent's turn reads for whoever started its session, checked on
+every call, so a session a guest started reaches none of it; Elysia's turns read as herself (MCP, below).
 
 ## Search
 
